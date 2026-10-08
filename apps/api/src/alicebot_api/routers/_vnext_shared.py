@@ -25,7 +25,13 @@ from alicebot_api.vnext_agent_keys import (
     agent_key_from_authorization,
     resolve_protected_agent_identity,
 )
-from alicebot_api.vnext_label_guard import LabelGuard, apply_unverified_rule, effective_row_for_fence, policy_labels
+from alicebot_api.vnext_label_guard import (
+    LabelGuard,
+    apply_unverified_rule,
+    effective_row_for_fence,
+    outside_caller_limits,
+    policy_labels,
+)
 from alicebot_api.vnext_project_scope import source_project_scope
 from alicebot_api.vnext_source_fence import SourceReadFence
 from alicebot_api.vnext_queue import VNextQueueNotFoundError
@@ -529,6 +535,11 @@ def _vnext_authorized_artifact(
     artifact = store.get_artifact_for_update(artifact_id) if for_update else store.get_artifact(artifact_id)
     if artifact is None:
         raise VNextQueueNotFoundError(f"artifact {artifact_id} was not found")
+    # An artifact the caller may not read is a missing artifact, found before its state is read, before a policy decision
+    # is built from its labels (a refusal would repeat them) and before anything is recorded: the agent record and the
+    # policy events are events a key can read back.
+    if outside_caller_limits(store, identity, "artifact", artifact):
+        raise VNextQueueNotFoundError(f"artifact {artifact_id} was not found")
     if action == "artifact.feedback" and is_redacted_project_update_artifact(artifact):
         raise ValueError("feedback cannot be added to a redacted artifact")
 
@@ -551,6 +562,21 @@ def _vnext_authorized_artifact(
     if decision.decision == "blocked":
         raise AgentPolicyBlockedError(decision)
     return artifact, decision
+
+
+def _vnext_canonical_id(value: object) -> str | None:
+    """The id in its canonical spelling, or None when the value is not a well-formed id.
+
+    A value that is not an id names no row, so a door answers it as it answers an id that does not exist, and a
+    database cast never sees it.
+    """
+
+    if value is None:
+        return None
+    try:
+        return str(UUID(str(value).strip()))
+    except ValueError:
+        return None
 
 
 def _vnext_readable_memory(
@@ -581,7 +607,8 @@ def _vnext_readable_belief(
     caller may not read is the same None as a belief that does not exist.
     """
 
-    belief = store.get_belief(str(belief_id)) if belief_id is not None else None
+    canonical = _vnext_canonical_id(belief_id)
+    belief = store.get_belief(canonical) if canonical is not None else None
     if belief is None:
         return None
     if SourceReadFence.for_identity(identity).entity_read_fenced:
@@ -601,7 +628,8 @@ def _vnext_readable_edge(
     exists, cannot be shown to be readable and the edge is None for a caller with limits.
     """
 
-    edge = store.get_edge(str(edge_id)) if edge_id is not None else None
+    canonical = _vnext_canonical_id(edge_id)
+    edge = store.get_edge(canonical) if canonical is not None else None
     if edge is None:
         return None
     if not SourceReadFence.for_identity(identity).entity_read_fenced:

@@ -31,6 +31,7 @@ from alicebot_api.routers._vnext_shared import (
     _vnext_string_list,
 )
 from alicebot_api.vnext_agent_control import (
+    AgentIdentity,
     AgentIdentityValidationError,
     AgentPolicyBlockedError,
     agent_metadata,
@@ -44,6 +45,7 @@ from alicebot_api.vnext_agent_keys import (
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_open_loop_references import withhold_unreadable_references_from_loop
+from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_projects import (
     VNextProjectService,
     VNextProjectValidationError,
@@ -221,6 +223,30 @@ def get_vnext_project_dashboard(
 
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
+def _vnext_project_id_within_binding(
+    store: PostgresVNextStore, identity: AgentIdentity | None, project_id: str
+) -> str | None:
+    """The canonical id of the stored project when this caller may file work under it, otherwise None.
+
+    A project that does not exist, one whose id is not a well-formed id, and one outside the project binding of a
+    locked key are the same None. The owner and a key with no binding may use every stored project.
+    """
+
+    try:
+        canonical = str(UUID(str(project_id).strip()))
+    except ValueError:
+        return None
+    project = store.get_project(canonical)
+    if project is None:
+        return None
+    if identity is not None and identity.project_scope_locked:
+        bound = set(project_scope_identity(identity.project_scope))
+        named = set(project_scope_identity([str(project["id"]), project.get("slug"), project.get("name")]))
+        if not named & bound:
+            return None
+    return canonical
+
+
 @project_operations_router.post("/v0/vnext/open-loops")
 def create_vnext_open_loop(
     request: VNextOpenLoopCreateRequest,
@@ -255,6 +281,14 @@ def create_vnext_open_loop(
             # learns nothing about which ids exist, and before the write, and
             # the id stored is the canonical one that was checked.
             read_fence = SourceReadFence.for_identity(identity)
+            # The project the loop is filed under is held to the caller's binding like the rows it points at: a
+            # project outside the binding, one that does not exist and one whose id is malformed answer alike, and
+            # nothing is written.
+            project_id = None
+            if request.project_id is not None:
+                project_id = _vnext_project_id_within_binding(store, identity, request.project_id)
+                if project_id is None:
+                    return _vnext_public_error_response(status_code=404, detail="vNext project was not found")
             source_id = (
                 resolve_attachable_source_id(store, request.source_id, fence=read_fence)
                 if request.source_id is not None
@@ -273,7 +307,7 @@ def create_vnext_open_loop(
                     "due_at": request.due_at,
                     "priority": request.priority,
                     "memory_id": memory_id,
-                    "project_id": request.project_id,
+                    "project_id": project_id,
                     "source_id": source_id,
                     "domain": request.domain,
                     "sensitivity": request.sensitivity,
@@ -657,10 +691,12 @@ def review_vnext_open_loop(
                 authorization=authorization,
             )
             target = store.get_open_loop(loop_id)
-            if target is None:
-                return _vnext_public_error_response(status_code=404, detail="vNext open loop was not found")
-            from alicebot_api.vnext_label_guard import effective_row_for_fence
+            from alicebot_api.vnext_label_guard import effective_row_for_fence, outside_caller_limits
 
+            # A loop the caller may not read is answered as one that does not exist, before a policy decision is built
+            # from its labels (that decision would repeat them) and before anything is recorded.
+            if target is None or outside_caller_limits(store, identity, "open_loop", target):
+                return _vnext_public_error_response(status_code=404, detail="vNext open loop was not found")
             judged = effective_row_for_fence(store, identity, "open_loop", target)
             # Same ceiling as the MCP open-loop updates. Returning the 403
             # from inside the connection keeps the policy event committed.

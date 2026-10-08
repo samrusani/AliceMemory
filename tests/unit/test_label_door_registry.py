@@ -181,6 +181,7 @@ NOT_A_DOOR = {
     "vnext_dogfooding.py:VNextDogfoodingStore.list_artifact_quality_ratings": "store protocol declaration; no execution or response",
     "vnext_artifact_review.py:dispatch_vnext_artifact_review": "writer entry; calling route or MCP authorizes the artifact before dispatch",
     "vnext_memory_commit.py:VNextMemoryCommitService._guard_supersession_acyclic": "write validation traverses pointers without exposing their content",
+    "routers/vnext_projects.py:_vnext_project_id_within_binding": "a project has no labels; the open-loop create route holds the id to the key's project binding, and a project outside it reads as a missing one",
 }
 
 SCAN_MODULES = tuple(sorted({

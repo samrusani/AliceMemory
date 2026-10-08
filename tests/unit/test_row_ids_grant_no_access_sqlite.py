@@ -4,15 +4,15 @@ SQLite has no HTTP route and no artifact table, so the doors a key reaches are t
 sources, memories and open loops hidden for each reason, gives a real key of each profile, and calls every tool that
 takes an id with every id that profile may not read. The rules are those of the PostgreSQL matrix in
 ``tests/integration/test_row_ids_grant_no_access_postgres.py``: the call changes exactly what a missing id changes,
-nothing of the row comes back, and the answer is the one a missing id gets, except at the doors named in
-``POLICY_REFUSAL_DOORS`` and at the search doors, which take the id as query text and are held to the first two rules
-only.
+nothing of the row comes back, and the answer is the one a missing id gets, except at the search doors, which take the
+id as query text and are held to the first two rules only.
 """
 from __future__ import annotations
 
 import json
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -26,9 +26,9 @@ from alicebot_api.vnext_label_writes import without_insert_floor
 from tests.integration.hidden_ids_postgres_support import (
     ALL_DOORS,
     HIDDEN_FOR,
-    POLICY_REFUSAL_DOORS,
     PROFILES,
     Answer,
+    changes,
     normalize,
 )
 
@@ -43,15 +43,18 @@ REASONS = {
     "beta": ("public", "project", BETA),
     "unverified": ("public", "project", ALPHA),
 }
-# Tables a tool can change. The key table records when a key was last used and the events record every refusal.
-IGNORED_TABLES = {"agent_api_keys", "agent_identities", "event_log", "events"}
+# Tables a tool can change. The key table records when a key was last used. The event log and the agent records are
+# compared: a key reads them back in its own telemetry, so a call on a hidden id must write what a call on a missing id
+# writes.
+IGNORED_TABLES = {"agent_api_keys", "events"}
 
 
 class SqliteEnv:
-    def __init__(self, monkeypatch, url: str, user_id) -> None:
+    def __init__(self, monkeypatch, url: str, user_id, ids=None) -> None:
         self.monkeypatch = monkeypatch
         self.url = url
         self.user_id = user_id
+        self.vault = SimpleNamespace(ids=ids or {})  # the rows a reference door acts on, which the profile may read
 
     def tool(self, key, name: str, arguments: dict[str, object]) -> Answer:
         self.monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
@@ -135,7 +138,7 @@ def build(tmp_path, monkeypatch, profile):
         _record, key = create_agent_key(
             store, user_id=user_id, agent_id=profile, permission_profile=permission, project_scope=ALPHA if bound else None
         )
-    return path, SqliteEnv(monkeypatch, sqlite_url_for_path(path), user_id), key, ids, secrets
+    return path, SqliteEnv(monkeypatch, sqlite_url_for_path(path), user_id, ids), key, ids, secrets
 
 
 def hidden_for_profile(ids, profile):
@@ -158,23 +161,23 @@ def test_a_hidden_id_gives_no_access_through_any_tool(tmp_path, monkeypatch, pro
     failures: list[str] = []
     calls = 0
     for door in doors:
-        before = snapshot(path) if door.write else None
+        before = snapshot(path)
         missing = door.call(env, key, str(uuid4()))
-        after = snapshot(path) if door.write else None
-        missing_changed = {t for t in (before or {}) if before[t] != after[t]}
+        missing_changed = changes(before, snapshot(path))
         for (kind, reason), row_id in hidden.items():
-            before = snapshot(path) if door.write else None
+            before = snapshot(path)
             got = door.call(env, key, row_id)
-            after = snapshot(path) if door.write else None
             calls += 1
             label = f"{profile} / {door.name} / {kind} hidden as {reason}"
-            changed = {t for t in (before or {}) if before[t] != after[t]}
+            changed = changes(before, snapshot(path))
             if changed != missing_changed:
-                failures.append(f"{label}: changed {sorted(changed)} where a missing id changes {sorted(missing_changed)}")
+                failures.append(
+                    f"{label}: changed {json.dumps(changed)[:300]} where a missing id changes {json.dumps(missing_changed)[:300]}"
+                )
             leaked = [word for word in secrets.get((kind, reason), []) if word in got.body]
             if leaked:
                 failures.append(f"{label}: answered with {leaked}")
-            if not door.search and got != missing and not (door.name in POLICY_REFUSAL_DOORS and got.refused):
+            if not door.search and got != missing:
                 failures.append(f"{label}: {got} differs from a missing id: {missing}")
     assert calls > 100, calls
     assert not failures, "\n".join(failures[:25])
@@ -189,4 +192,5 @@ def test_the_same_tools_serve_a_row_the_profile_may_read(tmp_path, monkeypatch):
         assert "TEXT-memory-VISIBLE" in answer.body
     # And the same tool, with the id of a row above the key's ceiling, is not served.
     answer = doors["tool explain memory_id"].call(env, key, ids[("memory", "confidential")])
-    assert answer.refused and "TEXT-memory-CONFIDENTIAL" not in answer.body
+    missing = doors["tool explain memory_id"].call(env, key, str(uuid4()))
+    assert answer == missing and "TEXT-memory-CONFIDENTIAL" not in answer.body

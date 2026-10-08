@@ -914,24 +914,25 @@ def test_a_key_bound_explain_stays_uniform_and_a_keyless_one_gets_the_code(
         )
 
 
-def test_a_key_bound_agent_can_tell_a_refused_id_from_a_missing_one_except_on_explain(
+def test_a_key_bound_agent_cannot_tell_a_refused_id_from_a_missing_one(
     sqlite_context: MCPRuntimeContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """With a real key bound to one project, an id in another project is ``not_permitted`` and a random id is
-    ``not_found``, on review, correct and manage; ``alice_explain`` answers ``tool_request_failed`` for both.
+    """With a real key bound to one project, an id in another project and a random id answer the same ``not_found`` on
+    review, correct and manage, as they do on ``alice_explain``, which answers ``tool_request_failed`` for both.
 
-    This is the ruling of the second review of PR 528, recorded here because it is a choice and not an accident: the
-    codes exist so an agent can tell "not allowed" from "broken", the HTTP memory routes also tell a refusal (403)
-    from a missing id (404 from review, redact and audit, 400 from the other routes), and an id is a random UUID, so a
-    caller learns something only about an id it already holds. What a refused caller must not learn is the state of
-    the row, and ``test_mcp_refusal_is_independent_of_state.py`` pins that for every state.
-    ``alice_explain`` keeps its one uniform answer. If the owner rules the other way, this test is the one to change,
-    together with the docs paragraph that says so.
+    An id that a row of another project, or a row above the key's ceiling, is named by may be listed in the metadata of a
+    row the key can read, so the answer to it must say no more than the answer to a random id. This replaces the second
+    review of PR 528, which let a key tell ``not_permitted`` (a refused id) from ``not_found`` (a missing one) on these
+    tools. ``not_permitted`` stays for a row the key may read and the policy still refuses, which
+    ``test_mcp_refusal_is_independent_of_state.py`` pins.
 
-    Mutations, each one alone: in ``_raise_mcp_policy_blocked`` (``mcp/policy.py``) raise
-    ``MCPReferenceNotFoundError`` in place of ``MCPNotPermittedError`` (every ``not_permitted`` row fails); in
-    ``_handle_alice_vnext_memory_audit`` delete the key-bound branch (the explain rows fail with ``not_found``).
+    Mutations, each one alone: in ``VNextMemoryCommitService._record_write_decision`` (``vnext_memory_commit.py``) raise
+    ``AgentPolicyBlockedError`` in place of ``RefusedAsMissingError`` (the ``forget`` and ``unexpire`` outside rows fail
+    with ``not_permitted``); in ``_vnext_memory_review`` (``mcp/review.py``) set ``hide_the_row`` to ``False`` (the
+    ``review`` row fails); in ``_vnext_memory_correct`` set ``hide_the_row`` to ``False`` after the first policy check
+    (the ``correct`` row fails); in ``_handle_alice_vnext_memory_audit`` delete the key-bound branch (the explain rows
+    fail with ``not_found``).
     """
 
     from alicebot_api.mcp.runtime import _vnext_store_context
@@ -969,7 +970,7 @@ def test_a_key_bound_agent_can_tell_a_refused_id_from_a_missing_one_except_on_ex
     monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
 
     expected = {
-        **{f"{label} outside": "not_permitted" for label in ("review", "correct", "forget", "unexpire")},
+        **{f"{label} outside": "not_found" for label in ("review", "correct", "forget", "unexpire")},
         **{f"{label} missing": "not_found" for label in ("review", "correct", "forget", "unexpire")},
         "explain outside": "tool_request_failed",
         "explain missing": "tool_request_failed",

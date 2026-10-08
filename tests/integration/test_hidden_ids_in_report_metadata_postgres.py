@@ -18,7 +18,7 @@ reach that returns stored metadata. The tests pin these things:
 2. Each id in those fields is a bare UUID, or a ``source:`` or ``memory:`` reference to one. There is no slug, path or
    name in an id.
 3. A row that is hidden by its label is not returned as a row by any door: its id never stands as the ``id`` of an object.
-4. The disclosure's own claim: the key can see an id, the door for that id refuses it, and nothing else of the row comes back.
+4. The disclosure's own claim: the key can see an id, and the door for that id answers it as it answers an id that does not exist.
 5. A report that depends on a row stops being readable when the row is made confidential, so the two cases above are the
    only ones.
 """
@@ -173,6 +173,14 @@ class World:
         }
         self.forgotten = str(self.memories[2]["id"])
 
+    def hidden_from(self, key_name: str) -> dict[str, str]:
+        """The hidden ids a key of this kind may not read. An admin key reads a confidential candidate, so it is not hidden from it."""
+        return {
+            row_id: reason
+            for row_id, reason in self.hidden.items()
+            if not (key_name == "admin_bound" and row_id == str(self.candidate["id"]))
+        }
+
 
 @pytest.fixture
 def world(label_harness):
@@ -212,22 +220,31 @@ def _sweep(h, world, monkeypatch):
         ("project dashboard", f"projects/{world.alpha}/dashboard"),
     ):
         assert get("trusted", label, f"/v0/vnext/{path}", trusted) == 200
+    with h.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT id FROM memories ORDER BY created_at, id")
+        memory_ids = [str(row["id"]) for row in cur.fetchall()]
     for key_name, key in keys.items():
         monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
         context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
-        for tool, arguments in (
-            ("alice_recall", {"query": "Atlas launch", "limit": 50}),
-            ("alice_resume", {}),
-            ("alice_context_pack", {"query": "Atlas launch games"}),
-            ("alice_recent_decisions", {}),
-            ("alice_open_loops", {"action": "list"}),
-            ("alice_memory_review", {"status": "all", "limit": 100}),
-        ):
+        calls: list[tuple[str, str, dict[str, object]]] = [
+            ("alice_recall", "list", {"query": "Atlas launch", "limit": 50}),
+            ("alice_resume", "list", {}),
+            ("alice_context_pack", "list", {"query": "Atlas launch games"}),
+            ("alice_recent_decisions", "list", {}),
+            ("alice_open_loops", "list", {"action": "list"}),
+            ("alice_memory_review", "list", {"status": "all", "limit": 100}),
+        ]
+        # The detail modes return one memory whole, with the metadata a producer wrote on it: the project update, the
+        # weekly candidate, the consolidation candidates and every other memory. A tool that is refused is skipped.
+        for memory_id in memory_ids:
+            calls.append(("alice_explain", "detail", {"memory_id": memory_id}))
+            calls.append(("alice_memory_review", "detail", {"review_item_id": memory_id}))
+        for tool, mode, arguments in calls:
             try:
                 result = call_mcp_tool(context, name=tool, arguments=arguments)
             except MCPToolError:
                 continue
-            responses.append((key_name, f"{tool}:", 200, result))
+            responses.append((key_name, f"{tool}:{mode}", 200, result))
     return responses
 
 
@@ -238,10 +255,11 @@ def test_a_hidden_id_stands_only_under_the_fields_that_list_ids(world, label_har
     own_ids: list[tuple[str, str]] = []
     for key_name, label, _status, body in _sweep(h, world, monkeypatch):
         door = label.split(":")[0]
+        hidden = world.hidden_from(key_name)
         for path, row_id, text in _paths(body):
-            if row_id not in world.hidden:
+            if row_id not in hidden:
                 continue
-            reason, last = world.hidden[row_id], path.rsplit(".", 1)[-1]
+            reason, last = hidden[row_id], path.rsplit(".", 1)[-1]
             keys_by_reason.setdefault(reason, set()).add(last)
             doors_by_key.setdefault(key_name, set()).add(door)
             if last not in LISTING_KEYS:
@@ -253,12 +271,15 @@ def test_a_hidden_id_stands_only_under_the_fields_that_list_ids(world, label_har
     assert set(keys_by_reason) == {"candidate made confidential", "source archived"}, keys_by_reason
     assert "candidate_memory_ids" in keys_by_reason["candidate made confidential"]
     assert {"source_ids", "source_refs"} <= keys_by_reason["source archived"]
-    # These are the doors that return a stored report with its metadata. A tool returns no hidden id.
+    # These are the doors that return a stored report or memory with its metadata. The detail modes of explain and review
+    # return the lists of a derived memory (a project update lists the sources it was made from), so the id of an
+    # archived source stands there too. The list modes of the other tools return none.
+    detail_tools = {"alice_explain", "alice_memory_review"}
     assert doors_by_key["trusted"] == {
-        "artifact list", "artifact get", "artifact trace", "source trace", "workspace", "project dashboard",
+        "artifact list", "artifact get", "artifact trace", "source trace", "workspace", "project dashboard", *detail_tools,
     }, doors_by_key
     for key_name in ("read_only", "project_scoped", "admin_bound"):
-        assert doors_by_key[key_name] == {"artifact get", "artifact trace"}, (key_name, doors_by_key)
+        assert doors_by_key[key_name] == {"artifact get", "artifact trace", *detail_tools}, (key_name, doors_by_key)
 
 
 def test_a_report_stops_being_readable_when_an_input_is_made_confidential(world, label_harness):
@@ -273,9 +294,14 @@ def test_a_report_stops_being_readable_when_an_input_is_made_confidential(world,
         payload={"action": "update", "sensitivity": "confidential"},
     )
     assert moved[0] == 200, moved
-    for tail in (f"artifacts/{daily}", f"traces/artifacts/{daily}"):
+    for tail, absent in (
+        (f"artifacts/{daily}", f"artifacts/{uuid4()}"),
+        (f"traces/artifacts/{daily}", f"traces/artifacts/{uuid4()}"),
+    ):
         status, body, _ = h.request("GET", f"/v0/vnext/{tail}", key=trusted)
-        assert status == 403, (tail, status)
+        # The report is above the key's ceiling now, so the key is answered as for a report that does not exist.
+        assert (status, body) == h.request("GET", f"/v0/vnext/{absent}", key=trusted)[:2], (tail, status)
+        assert status == 404
         assert str(world.sources[0]["id"]) not in json.dumps(body)
     listing = h.request("GET", "/v0/vnext/artifacts", key=trusted)[1]
     assert daily not in json.dumps(listing)
@@ -286,6 +312,8 @@ def test_a_row_hidden_by_its_label_is_never_returned_as_a_row(world, label_harne
     h = label_harness
     candidate = str(world.candidate["id"])
     for key_name, label, _status, body in _sweep(h, world, monkeypatch):
+        if candidate not in world.hidden_from(key_name):
+            continue  # a project-bound admin key reads a confidential memory
         text = json.dumps(body, default=str)
         assert world.candidate_token not in text, (key_name, label)
         for path, row_id, _value in _paths(body):
@@ -293,17 +321,57 @@ def test_a_row_hidden_by_its_label_is_never_returned_as_a_row(world, label_harne
                 assert not path.endswith((".id", ".memory_id", ".target_id")), (key_name, label, path)
 
 
-def test_the_door_for_the_hidden_id_answers_with_the_policy_refusal_and_nothing_of_the_row(world, label_harness, monkeypatch):
+def test_the_door_for_a_hidden_id_answers_as_a_missing_row(world, label_harness, monkeypatch):
+    """A key reads an id in a report, names it, and is answered as if no such row existed, for every kind of hidden row."""
     h = label_harness
     trusted = h.key("trusted_local_agent")
     candidate = str(world.candidate["id"])
-    status, body, _ = h.request("GET", f"/v0/vnext/memories/{candidate}/audit", key=trusted)
-    assert status == 403, body
-    assert body["detail"] == "agent policy blocked this action"
-    assert world.candidate_token not in json.dumps(body)
+    absent = h.request("GET", f"/v0/vnext/memories/{uuid4()}/audit", key=trusted)
+    refused = h.request("GET", f"/v0/vnext/memories/{candidate}/audit", key=trusted)
+    assert refused[:2] == absent[:2], (refused, absent)
+    assert refused[0] == 404
+    assert world.candidate_token not in json.dumps(refused[1])
+    # The same for a weekly candidate that was made confidential and a key that names it to every door that takes a memory.
+    for method, path, payload in (
+        ("POST", f"/v0/vnext/memories/{candidate}/review", {"action": "accept"}),
+        ("POST", "/v0/vnext/memories/forget", {"memory_id": candidate, "reason": "r"}),
+    ):
+        got = h.request(method, path, payload=payload, key=trusted)
+        gone = h.request(method, path.replace(candidate, str(uuid4())), payload={**payload, **({"memory_id": str(uuid4())} if "memory_id" in payload else {})}, key=trusted)
+        assert got[:2] == gone[:2], (path, got, gone)
     archived = h.request("GET", f"/v0/vnext/traces/sources/{world.sources[1]['id']}", key=trusted)
     missing = h.request("GET", f"/v0/vnext/traces/sources/{uuid4()}", key=trusted)
     assert archived[:2] == missing[:2] == (404, {"detail": "vNext source was not found"})
+
+
+def test_the_graph_neighborhood_returns_the_titles_an_edge_joins_for_any_id(world, label_harness):
+    """A known limit that predates this set, pinned with the connection finder's own edges.
+
+    The neighborhood route is an operator route that applies no label fence to the id it is given. Its edges carry an
+    explanation the connection finder made from the rows the edge joins, so after a joined memory is made confidential and
+    renamed, the route still returns its old title, and the title of a source that was archived since. Every other door
+    answers that memory as a missing one. The security note names the limit, so this test fails when the route is fenced
+    and the note has to change with it.
+    """
+    h = label_harness
+    trusted = h.key("trusted_local_agent")
+    with h.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT to_id FROM graph_edges WHERE to_type = 'memory' ORDER BY created_at, id LIMIT 1")
+        memory_id = str(cur.fetchone()["to_id"])
+    renamed = f"NEWTITLE-{uuid4().hex}"
+    status, body, _ = h.request(
+        "POST", f"/v0/vnext/memories/{memory_id}/review", key=world.admin,
+        payload={"action": "edit", "sensitivity": "confidential", "title": renamed, "canonical_text": renamed},
+    )
+    assert status == 200, body
+    absent = h.request("GET", f"/v0/vnext/memories/{uuid4()}/audit", key=trusted)
+    assert h.request("GET", f"/v0/vnext/memories/{memory_id}/audit", key=trusted)[:2] == absent[:2]
+    status, body, _ = h.request("GET", f"/v0/vnext/graph/neighborhood/{memory_id}", key=trusted)
+    text = json.dumps(body)
+    assert status == 200 and body["edge_count"] >= 1
+    assert "BELIEF title" in text  # the title the memory had when the edge was made
+    assert "SOURCE1 Atlas" in text  # the title of the archived source the edge joins
+    assert renamed not in text  # the new title is not in the old explanation
 
 
 def test_every_producer_names_its_inputs_by_bare_id_and_a_reader_sees_them_unchanged(world, label_harness):

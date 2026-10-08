@@ -105,12 +105,13 @@ def _bind_http(monkeypatch, app_url: str) -> None:
 def test_a_key_bound_to_another_project_is_refused_on_every_http_route_whatever_the_row_state(
     migrated_database_urls, monkeypatch
 ) -> None:
-    """403 for a row the caller can see in every state, and for a redacted row the answer of an unknown id.
+    """The answer of an unknown id for a row of another project, in every state of the row.
 
     The routes call the commit service, which used to read a pending project update, and ``redact_memory_flow``, which
     used to read an open project-update artifact, before it asked the policy. A key bound to ``alicebot`` that aimed at
-    a row of ``other-project`` got 400 for those rows and 403 for an ordinary one. A redacted row is read by redact
-    on purpose, so redact answered 403 for it where every other route answers as for an id that is not there.
+    a row of ``other-project`` got 400 for those rows and 403 for an ordinary one. A row of another project is not the
+    key's to read, so every state now gets the answer of an id that is not there, and a redacted row, which redact reads
+    on purpose, gets it too.
 
     Mutations, each one alone: in ``vnext_memory_commit.py`` delete the ``refuse_unauthorized_write`` call in ``forget``,
     ``undo`` or ``correct`` (that route answers 400 for the pending project update); in ``mcp/memories.py`` delete the
@@ -155,14 +156,10 @@ def test_a_key_bound_to_another_project_is_refused_on_every_http_route_whatever_
     }
     gone = {route: post(route, unknown) for route in ("forget", "undo", "correct", "redact")}
 
-    expected = {
-        (route, state): gone[route] if state == "redacted" else 403
-        for route in ("forget", "undo", "correct", "redact")
-        for state in states
-    }
+    expected = {(route, state): gone[route] for route in ("forget", "undo", "correct", "redact") for state in states}
     assert seen == expected
-    # An id the vault never held is a 400 on three of these routes and a 404 on redact, which is what the redacted row
-    # now gets; the refusal of a row the caller can see is the 403 above.
+    # An id the vault never held is a 400 on three of these routes and a 404 on redact, which is what every row of
+    # another project gets.
     assert gone == {"forget": 400, "undo": 400, "correct": 400, "redact": 404}
 
 
@@ -220,13 +217,13 @@ def _code(context: MCPRuntimeContext, name: str, arguments: dict[str, object]) -
     return str(error["code"])
 
 
-def test_a_key_bound_mcp_caller_gets_not_permitted_in_every_state_and_not_found_for_a_redacted_row(
+def test_a_key_bound_mcp_caller_gets_not_found_in_every_state_for_a_row_of_another_project(
     migrated_database_urls, monkeypatch
 ) -> None:
     """The MCP twin of the HTTP test, with ``alice_memory_manage`` on the real Postgres store.
 
     Mutation: the same ones as the HTTP test; a failing cell answers ``precondition_failed`` for the pending project
-    update, the open artifact (redact) or ``not_permitted`` for the redacted row (redact).
+    update, the open artifact (redact) or ``not_permitted`` for any row.
     """
 
     app_url = migrated_database_urls["app"]
@@ -260,11 +257,7 @@ def test_a_key_bound_mcp_caller_gets_not_permitted_in_every_state_and_not_found_
     }
 
     assert missing == {"forget": "not_found", "undo": "not_found", "redact": "not_found"}
-    assert seen == {
-        (action, state): "not_found" if state == "redacted" else "not_permitted"
-        for action in ("forget", "undo", "redact")
-        for state in states
-    }
+    assert seen == {(action, state): "not_found" for action in ("forget", "undo", "redact") for state in states}
 
 
 def _cites_a_source_the_vault_does_not_hold(

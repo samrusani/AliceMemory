@@ -93,10 +93,10 @@ def test_the_section_says_what_an_id_tells_a_caller() -> None:
     same way", which the first version of this page said and which was true of three routes out of ten.
 
     Mutations, each one alone: change ``gets `tool_request_failed` from `alice_explain``` to ``gets `not_found` from
-    `alice_explain```; delete the sentence that says a key bound to one project can learn that an id exists in
-    another project; change ```not_permitted` from `alice_memory_review` by id`` to ```not_found` from
-    `alice_memory_review` by id``; delete the clause that names the HTTP routes; change ``400 from the others`` to
-    ``404 from the others``. Each fails this test.
+    `alice_explain```; delete the sentence that says every other tool answers a row the key may not read as it answers an
+    id that does not exist; change ``answer `not_found` `` after ``a `superseded_by` the key may not read included`` to
+    ``answer `not_permitted` ``; delete the sentence that says ``not_permitted`` stays for a row the key may read; delete
+    the clause that names the HTTP routes; change ``400 from the others`` to ``404 from the others``. Each fails this test.
     """
 
     section = _flat(_error_codes_section())
@@ -106,15 +106,23 @@ def test_the_section_says_what_an_id_tells_a_caller() -> None:
         "the target is missing or unreadable"
     ) in section
     assert (
-        "an id that the key's project scope refuses answers `not_permitted` from `alice_memory_review` by id, "
-        "`alice_memory_correct` and `alice_memory_manage`, and an id that does not exist answers `not_found`"
+        "Every other tool that takes an id answers a row the key may not read as it answers an id that does not "
+        "exist, `not_found`, to a key-bound caller too."
     ) in section
-    assert "a key bound to one project can learn that an id it already holds exists in another project" in section
     assert (
-        "the HTTP memory routes also tell a refusal (403) from a missing id (404 from the review, redact and audit "
+        "`alice_memory_review` by id, `alice_memory_correct` and `alice_memory_manage` (a `superseded_by` the key may "
+        "not read included) answer `not_found`"
+    ) in section
+    assert (
+        "`not_permitted` stays for a row the key may read and the policy still refuses the call on"
+    ) in section
+    assert (
+        "a row the key may not read gets the missing-row answer of that route (404 from the review, redact and audit "
         "routes, 400 from the others)"
     ) in section
-    assert "the HTTP memory routes answer 403 and 404 the same way" not in section
+    # The earlier ruling, that a key could tell a refused id from a missing one, is gone.
+    assert "a key bound to one project can learn that an id it already holds exists in another project" not in section
+    assert "the HTTP memory routes also tell a refusal (403) from a missing id" not in section
 
 
 def test_the_section_states_the_rule_for_a_refused_caller_and_a_deleted_row() -> None:
@@ -138,16 +146,13 @@ def test_the_section_states_the_rule_for_a_refused_caller_and_a_deleted_row() ->
     paragraph = section[start:end]
 
     assert (
-        "A refused caller hears `not_permitted` for a live row and `not_found` for an archived or redacted row, "
-        "the same as for an id the vault never held."
+        "A caller that may read a live row and is refused by the policy hears `not_permitted` for it and `not_found` "
+        "for an archived or redacted row, the same as for an id the vault never held."
     ) in paragraph
     assert "`alice_memory_manage` with `action: redact` included" in paragraph
-    assert (
-        "an id a caller holds in another project answers `not_permitted` while the row is live, and `not_found` once "
-        "the row is archived or redacted"
-    ) in paragraph
     assert "A caller that asks with an id it has never seen cannot tell a deleted row from one that never existed." in paragraph
     assert "A caller that held the id can see the answer change, and learns only that the row is gone." in paragraph
+    assert "A refused `redact` of an archived or redacted row is audited, because redact reads such a row on purpose." in paragraph
 
 
 def test_the_section_says_authorization_comes_before_state() -> None:
@@ -300,9 +305,9 @@ def test_the_changelog_has_one_unreleased_entry_that_states_the_v0200_code() -> 
     assert "`alice_memory_correct`" in entry and "`human_or_admin_review_required`" in entry
     assert "A key-bound caller of `alice_explain` still gets one uniform `tool_request_failed`" in entry
     assert (
-        "tells a key-bound caller an id its project scope refuses (`not_permitted`) from one that does not exist "
-        "(`not_found`)"
+        "answers a row the key may not read as it answers an id that does not exist (`not_found`)"
     ) in entry
+    assert "tells a key-bound caller an id its project scope refuses (`not_permitted`)" not in entry
     assert "the nine rejected review arguments of the Postgres parity test" in entry
     assert "A refusal is decided before the state of the row." in entry
     assert (
@@ -310,7 +315,6 @@ def test_the_changelog_has_one_unreleased_entry_that_states_the_v0200_code() -> 
         "refused redact of a redacted row now leaves one too, where v0.20.0 recorded none for a refused replay"
     ) in entry
     assert "`precondition_failed` reaches only a caller the policy allows" in entry
-    assert "(404 from the review, redact and audit routes, 400 from the others)" in entry
     assert "the HTTP memory routes already do with 403 and 404" not in entry
     assert "`alice_explain` with an `entity_id`, `alice_state_at` and `alice_timeline` answer `not_found`" in entry
     assert "A PostgreSQL foreign key failure, a write that names a row the vault does not hold, answers `precondition_failed`" in entry

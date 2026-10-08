@@ -56,7 +56,7 @@ REASONS = {
 }
 TABLES = (
     "sources", "source_chunks", "memories", "memory_revisions", "open_loops", "generated_artifacts", "projects", "beliefs",
-    "graph_edges", "provenance_links", "artifact_quality_ratings", "task_queue",
+    "graph_edges", "provenance_links", "artifact_quality_ratings", "task_queue", "event_log", "agent_identities",
 )
 
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -77,11 +77,6 @@ class Answer:
 
     def __repr__(self) -> str:
         return f"{self.status} {self.body[:600]}"
-
-    @property
-    def refused(self) -> bool:
-        """A refusal is an HTTP 400, 403, 404 or 422, or a tool error. Anything else did the work or answered."""
-        return str(self.status) in {"400", "403", "404", "422"} or str(self.status).startswith("tool-error")
 
 
 @dataclass
@@ -107,6 +102,8 @@ def build_vault(h) -> Vault:
         for identifier, name in ((alpha, "alpha"), (beta, "beta")):
             store.create_project({"id": identifier, "name": f"project-{name}-{identifier[:8]}", "slug": f"p-{identifier}"})
     vault = Vault(h, alpha, beta)
+    vault.ids[("project", "visible")] = alpha
+    vault.ids[("project", "beta")] = beta  # hidden from a key bound to alpha, readable by the rest
     for reason, (sensitivity, domain, project) in REASONS.items():
         scope = [alpha if project == "alpha" else beta]
         tag = reason.upper()
@@ -191,7 +188,11 @@ def build_vault(h) -> Vault:
 
 
 def snapshot(h) -> dict[str, list[str]]:
-    """Every table that holds a row a door can change, as text, so two snapshots compare."""
+    """Every table that holds a row a door can change, as text, so two snapshots compare.
+
+    The event log and the agent records are in it: they are what a key reads back in its own telemetry, so a call on a
+    hidden id must write what a call on a missing id writes, which is nothing.
+    """
     result = {}
     with h.store() as store, store.conn.cursor() as cur:
         for table in TABLES:
@@ -217,16 +218,23 @@ class Door:
     write: bool
     call: object  # (env, key, row_id) -> Answer
     search: bool = False
+    # The kinds of hidden id this door is tried with. None means every kind. A door that takes the id of a project is only
+    # tried with a project, because an id of any other kind names no project on any door.
+    kinds: tuple[str, ...] | None = None
+
+    def takes(self, kind: str) -> bool:
+        return self.kinds is None or kind in self.kinds
 
 
 class Env:
     """Calls the mounted application over HTTP and the tool registry in process, with one key."""
 
-    def __init__(self, h, monkeypatch, database_url: str, export_dir: str = "") -> None:
+    def __init__(self, h, monkeypatch, database_url: str, export_dir: str = "", vault: "Vault | None" = None) -> None:
         self.h = h
         self.monkeypatch = monkeypatch
         self.database_url = database_url
         self.export_dir = export_dir
+        self.vault = vault  # the rows a door needs that the profile may read, such as the target of a reference
 
     def http(self, method: str, path: str, key, payload=None) -> Answer:
         try:
@@ -328,12 +336,6 @@ WRITE_DOORS = (
         lambda env, key, row_id: env.http("POST", f"/v0/vnext/artifacts/{row_id}/export", key, {"output_dir": env.export_dir}),
     ),
     Door("belief review", True, http_door("POST", "/v0/vnext/beliefs/{id}/review", {"action": "retire"})),
-    Door(
-        "belief review superseded_by", True,
-        lambda env, key, row_id: env.http(
-            "POST", f"/v0/vnext/beliefs/{uuid4()}/review", key, {"action": "supersede", "superseded_by": row_id}
-        ),
-    ),
     Door("edge review", True, http_door("POST", "/v0/vnext/graph/edges/{id}/review", {"action": "reject"})),
     Door(
         "project update review", True,
@@ -361,8 +363,58 @@ WRITE_DOORS = (
     Door("tool open loop edit", True, tool_door("alice_open_loops", lambda i: {"action": "edit", "loop_id": i, "title": "RENAMED"})),
 )
 
-# Doors that take an id as a reference to attach, not as the row to act on.
+# Doors that take an id as a reference to attach, not as the row to act on. Each one acts on a row the profile may read
+# (``env.vault`` holds it), so a reference that is let through changes that row and the matrix sees it.
 REFERENCE_DOORS = (
+    Door(
+        "belief review superseded_by", True,
+        lambda env, key, row_id: env.http(
+            "POST", f"/v0/vnext/beliefs/{env.vault.ids[('belief', 'visible')]}/review", key,
+            {"action": "supersede", "superseded_by": row_id},
+        ),
+    ),
+    Door(
+        "tool manage undo superseded_by", True,
+        lambda env, key, row_id: env.tool(
+            key, "alice_memory_manage",
+            {"memory_id": env.vault.ids[("memory", "visible")], "action": "undo", "superseded_by": row_id},
+        ),
+    ),
+    Door(
+        "create loop in project", True,
+        http_door("POST", "/v0/vnext/open-loops", lambda i: {"title": "LOOP", "project_id": i}),
+        kinds=("project",),
+    ),
+    Door(
+        "assign memory to project", True,
+        lambda env, key, row_id: env.http(
+            "POST", f"/v0/vnext/memories/{env.vault.ids[('memory', 'visible')]}/review", key,
+            {"action": "assign_project", "project_id": row_id},
+        ),
+        kinds=("project",),
+    ),
+    Door(
+        "assign source to project", True,
+        lambda env, key, row_id: env.http(
+            "POST", f"/v0/vnext/sources/{env.vault.ids[('source', 'visible')]}/review", key,
+            {"action": "assign_project", "project_id": row_id, "confirm_label_hide": True},
+        ),
+        kinds=("project",),
+    ),
+    Door(
+        "capture source in project", True,
+        http_door("POST", "/v0/vnext/sources", lambda i: {"raw_text": "CAPTURED", "title": "CAPTURED", "project_scope": [i]}),
+        kinds=("project",),
+    ),
+    Door(
+        "propose memory in project", True,
+        http_door(
+            "POST", "/v0/vnext/memory-proposals",
+            lambda i: {"title": "P", "canonical_text": "P", "project_scope": [i]},
+        ),
+        kinds=("project",),
+    ),
+
     Door("create loop over memory", True, http_door("POST", "/v0/vnext/open-loops", lambda i: {"title": "LOOP", "memory_id": i})),
     Door("create loop over source", True, http_door("POST", "/v0/vnext/open-loops", lambda i: {"title": "LOOP", "source_id": i})),
     Door(
@@ -388,29 +440,28 @@ REFERENCE_DOORS = (
         "tool commit citing memory", True,
         tool_door("alice_memory_commit", lambda i: {"title": "C", "canonical_text": "C", "source_refs": [f"memory:{i}"]}),
     ),
-    Door(
-        "tool supersede by id", True,
-        tool_door("alice_memory_manage", lambda i: {"memory_id": str(uuid4()), "action": "expire", "reason": "r", "superseded_by": i}),
-    ),
 )
 
 ALL_DOORS = READ_DOORS + WRITE_DOORS + REFERENCE_DOORS
 
-# Doors that name the row to act on and refuse a row above the caller's limits with the policy refusal (HTTP 403, or the
-# tool's not-permitted error) where a missing row gets a not-found answer. That refusal confirms that the row exists and
-# can repeat its labels. It is the known exception the security note names. This list is its boundary: a door that is
-# not on it must answer a hidden id exactly as it answers a missing one, and a door on it must still refuse.
-POLICY_REFUSAL_DOORS = frozenset(
-    {
-        "GET artifact", "GET artifact trace", "GET memory audit",
-        "memory review accept", "memory review edit", "memory review reject", "memory review private",
-        "memory review assign", "memory review promote", "memory correct", "memory expire", "memory forget",
-        "memory redact", "memory undo", "memory unexpire", "accept consolidation",
-        "loop review close", "loop review edit",
-        "artifact review promote", "artifact review reject", "artifact feedback", "artifact rating", "artifact export",
-        "project update review",
-        "tool review item", "tool review object", "tool correct approve", "tool correct reject",
-        "tool correct supersede", "tool manage forget", "tool manage expire", "tool manage unexpire",
-        "tool manage redact", "tool manage accept", "tool manage undo", "tool open loop close", "tool open loop edit",
-    }
-)
+
+ROWS_THAT_ARE_UPDATED_BY_EVERY_CALL = frozenset({"agent_identities"})
+
+
+def changes(before: dict[str, list[str]], after: dict[str, list[str]]) -> dict[str, list[str]]:
+    """What a call did: for each table, the rows it added or removed, with generated ids and instants replaced.
+
+    Two calls that did the same thing give the same answer, whatever the ids they made, so a call on a hidden id can be
+    compared with a call on a missing id row by row and not only table by table.
+    """
+    result = {}
+    for table in before:
+        added, removed = set(after[table]) - set(before[table]), set(before[table]) - set(after[table])
+        if not (added or removed):
+            continue
+        if table in ROWS_THAT_ARE_UPDATED_BY_EVERY_CALL:
+            result[table] = ["updated"]  # the row of a key records when it was last seen, so a repeat call rewrites it
+        else:
+            result[table] = sorted(["+" + normalize(row) for row in added] + ["-" + normalize(row) for row in removed])
+    return result
+

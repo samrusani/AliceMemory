@@ -893,6 +893,31 @@ def effective_row_for_fence(
     return settled if isinstance(settled, Mapping) else row
 
 
+def outside_caller_limits(
+    store: Any,
+    identity: AgentIdentity | None,
+    kind: str,
+    row: Mapping[str, object],
+) -> bool:
+    """True when the caller has limits and may not read this stored row now.
+
+    An exact door that names a row by id asks this before it builds a policy decision from the row's labels. A row the
+    caller may not read is answered exactly as a row that does not exist: the policy decision repeats the labels of the
+    row it judged, which is more than a missing id tells. The owner and an unbound admin key have no limits, so for them
+    this is False and their doors keep the answers they had.
+    """
+
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    fence = SourceReadFence.for_identity(identity)
+    if not fence.entity_read_fenced:
+        return False
+    effective = effective_row_for_fence(store, identity, kind, row)
+    if canon_kind(kind) == "source":
+        return not fence.admits(effective)
+    return not fence.admits_memory(effective)
+
+
 def readable_rows(store: Any, identity: AgentIdentity | None, rows: Sequence[_Row]) -> list[_Row]:
     """The rows this caller may read now, judged on their effective labels. Each row carries its own ``kind``.
 

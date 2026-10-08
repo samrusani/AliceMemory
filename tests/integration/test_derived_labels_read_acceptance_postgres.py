@@ -49,7 +49,8 @@ def test_postgres_real_key_core_doors(migrated_database_urls, monkeypatch, reade
     for state, row in rows.items():
         admitted = expected_read(reader, state)
         audit = vnext_memories.get_vnext_memory_audit(UUID(str(row["id"])), user_id, authorization=f"Bearer {key}" if key else None)
-        assert audit.status_code == (200 if admitted else 403), (reader, state, audit.body)
+        # A row the key may not read is a missing row to it.
+        assert audit.status_code == (200 if admitted else 404), (reader, state, audit.body)
         if not admitted:
             assert str(row["id"]) not in audit.body.decode()
         for tool in ("alice_recall", "alice_context_pack", "alice_recent_decisions", "alice_explain", "alice_resume"):
