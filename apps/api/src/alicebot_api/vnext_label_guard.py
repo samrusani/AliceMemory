@@ -879,21 +879,23 @@ class LabelGuard:
 
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
-        named = [(row, event_references(row)) for row in rows]
+        named = []
         wanted: dict[str, list[str]] = {}
-        for _row, references in named:
+        for row in rows:
+            references = event_references(row)
+            named.append((row, references))
             for kind, row_id in references:
                 wanted.setdefault(kind, []).append(row_id)
         admitted = {kind: self._admitted_target_ids(kind, ids) for kind, ids in wanted.items()}
-        return [
-            row
-            for row, references in named
-            if all(row_id in admitted[kind] for kind, row_id in references)
-            and (
-                str(row.get("target_type")) in EVENT_TARGET_KINDS
-                or not str(row.get("event_type", "")).endswith(".labels_raised")
-            )
-        ]
+        kept = []
+        for row, references in named:
+            for kind, row_id in references:
+                if row_id not in admitted[kind]:
+                    break
+            else:
+                if str(row.get("target_type")) in EVENT_TARGET_KINDS or not str(row.get("event_type", "")).endswith(".labels_raised"):
+                    kept.append(row)
+        return kept
 
     def newest_admitted_events(self, fetch: Callable[[int], Sequence[_Row]], *, want: int) -> list[_Row]:
         """The ``want`` newest events this guard admits. ``fetch(n)`` returns the newest ``n`` events, newest first.

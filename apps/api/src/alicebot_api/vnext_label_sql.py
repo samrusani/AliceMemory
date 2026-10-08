@@ -102,7 +102,11 @@ EVENT_REFERENCE_KEYS = tuple(
 
 
 def event_references_sql(*, sqlite: bool) -> str:
-    """The payload of an event cut down to the fields that name a row, or NULL when it names none."""
+    """The payload of an event, or NULL when it holds none of the fields that name a row.
+
+    SQLite cuts the payload down to those fields. PostgreSQL returns the payload whole for the few events that hold one,
+    which is cheaper than building an object for each.
+    """
     names = ",".join("'" + key + "'" for key in EVENT_REFERENCE_KEYS)  # nosec B608 - closed module constants
     if sqlite:
         pairs = ", ".join(f"'{key}', json_extract(payload_json, '$.{key}')" for key in EVENT_REFERENCE_KEYS)  # nosec B608
@@ -111,9 +115,8 @@ def event_references_sql(*, sqlite: bool) -> str:
             "CASE WHEN json_valid(payload_json) THEN CASE WHEN json_type(payload_json) = 'object' THEN "
             f"CASE WHEN EXISTS (SELECT 1 FROM json_each(payload_json) WHERE key IN ({names})) THEN json_object({pairs}) END END END"
         )
-    pairs = ", ".join(f"'{key}', payload_json -> '{key}'" for key in EVENT_REFERENCE_KEYS)  # nosec B608
-    # Most events name no row, so the object is built only for those that do.
-    return f"CASE WHEN payload_json ?| ARRAY[{names}]::text[] THEN jsonb_strip_nulls(jsonb_build_object({pairs})) END"  # nosec B608
+    # Most events name no row, so the payload is returned only for those that hold one of the fields at the top level.
+    return f"CASE WHEN payload_json ?| ARRAY[{names}]::text[] THEN payload_json END"  # nosec B608
 
 
 def event_names_a_row_sql(alias: str = "") -> str:
