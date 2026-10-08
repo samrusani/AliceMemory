@@ -1946,6 +1946,12 @@ class SQLiteVNextStore:
         try:
             yield
         except BaseException:
+            from alicebot_api.vnext_label_guard import invalidate_read_labels
+
+            # Reads inside the block may have cached the labels its writes
+            # produced. Drop them before the rollback so the next read in this
+            # request sees the stored labels again.
+            invalidate_read_labels(self)
             try:
                 conn.execute(f"ROLLBACK TO SAVEPOINT {name}")
                 conn.execute(f"RELEASE SAVEPOINT {name}")
