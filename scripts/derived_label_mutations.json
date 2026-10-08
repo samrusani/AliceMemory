@@ -246,7 +246,7 @@
           "line": 17,
           "before": "if not blocked:",
           "after": "if True:",
-          "sha256": "95b7d5e18e4c1b88623dece958064ac73921c3d1993d90abc70b0af5eb4f3864"
+          "sha256": "7b12a771f697dc3ddbc6812a490b6f0566a137ce34f65d34f20cde1661369680"
         }
       ],
       "pytest": [
@@ -3367,6 +3367,198 @@
       "expected_failure": "test_every_router_call_to_the_doctor_chooses_content_diagnostics_for_its_caller"
     },
     {
+      "name": "project-edge-target-memory-raw",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 1479,
+          "before": "\"to_id\": project_edge_target(request.project_id),",
+          "after": "\"to_id\": request.project_id,",
+          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_round4_regressions_postgres.py::test_a_plain_assignment_writes_the_project_edge_for_every_spelling"
+      ],
+      "expected_failure": "test_a_plain_assignment_writes_the_project_edge_for_every_spelling"
+    },
+    {
+      "name": "project-edge-target-memory-raw-scan",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 1479,
+          "before": "\"to_id\": project_edge_target(request.project_id),",
+          "after": "\"to_id\": request.project_id,",
+          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_edge_writers.py::test_no_project_edge_stores_a_caller_spelling"
+      ],
+      "expected_failure": "test_no_project_edge_stores_a_caller_spelling"
+    },
+    {
+      "name": "project-edge-target-source-raw",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 1013,
+          "before": "\"to_id\": source_edge_target,",
+          "after": "\"to_id\": request.project_id,",
+          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_round4_regressions_postgres.py::test_a_source_assignment_writes_one_project_edge_with_the_normalized_target"
+      ],
+      "expected_failure": "test_a_source_assignment_writes_one_project_edge_with_the_normalized_target"
+    },
+    {
+      "name": "project-edge-target-source-raw-scan",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 1013,
+          "before": "\"to_id\": source_edge_target,",
+          "after": "\"to_id\": request.project_id,",
+          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_edge_writers.py::test_no_project_edge_stores_a_caller_spelling"
+      ],
+      "expected_failure": "test_no_project_edge_stores_a_caller_spelling"
+    },
+    {
+      "name": "project-edge-target-source-blank",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 1007,
+          "before": "if action == \"assign_project\" and source_edge_target:",
+          "after": "if action == \"assign_project\":",
+          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_round4_regressions_postgres.py::test_a_blank_source_project_id_writes_no_edge"
+      ],
+      "expected_failure": "test_a_blank_source_project_id_writes_no_edge"
+    },
+    {
+      "name": "project-edge-target-uuid-fold",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_project_scope.py",
+          "line": 127,
+          "before": "    if _HYPHENATED_UUID_PATTERN.fullmatch(folded) is not None:\n        return folded\n",
+          "after": "    if _HYPHENATED_UUID_PATTERN.fullmatch(folded) is not None:\n        return normalized\n",
+          "sha256": "ae98fb227653b4dbeedc62b182e6b39fc286c28bbc36b40be5e49ea07cfcd0b3"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_vnext_project_scope.py::test_project_edge_target_folds_a_hyphenated_uuid_to_its_canonical_form"
+      ],
+      "expected_failure": "test_project_edge_target_folds_a_hyphenated_uuid_to_its_canonical_form"
+    },
+    {
+      "name": "project-edge-target-uuid-fold-neighborhood",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_project_scope.py",
+          "line": 127,
+          "before": "    if _HYPHENATED_UUID_PATTERN.fullmatch(folded) is not None:\n        return folded\n",
+          "after": "    if _HYPHENATED_UUID_PATTERN.fullmatch(folded) is not None:\n        return normalized\n",
+          "sha256": "ae98fb227653b4dbeedc62b182e6b39fc286c28bbc36b40be5e49ea07cfcd0b3"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_round4_regressions_postgres.py::test_every_uuid_spelling_lands_in_the_one_project_neighborhood"
+      ],
+      "expected_failure": "test_every_uuid_spelling_lands_in_the_one_project_neighborhood"
+    },
+    {
+      "name": "project-edge-target-name-case",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_project_scope.py",
+          "line": 128,
+          "before": "        return folded\n    return normalized\n\n\ndef normalize_project_scope",
+          "after": "        return folded\n    return folded\n\n\ndef normalize_project_scope",
+          "sha256": "ae98fb227653b4dbeedc62b182e6b39fc286c28bbc36b40be5e49ea07cfcd0b3"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_vnext_project_scope.py::test_project_edge_target_keeps_the_stored_scope_text_for_any_other_name"
+      ],
+      "expected_failure": "test_project_edge_target_keeps_the_stored_scope_text_for_any_other_name"
+    },
+    {
+      "name": "project-edge-target-uuid-search",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_project_scope.py",
+          "line": 127,
+          "before": "_HYPHENATED_UUID_PATTERN.fullmatch(folded)",
+          "after": "_HYPHENATED_UUID_PATTERN.search(folded)",
+          "sha256": "ae98fb227653b4dbeedc62b182e6b39fc286c28bbc36b40be5e49ea07cfcd0b3"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_vnext_project_scope.py::test_project_edge_target_reads_only_the_hyphenated_spelling_as_a_uuid"
+      ],
+      "expected_failure": "test_project_edge_target_reads_only_the_hyphenated_spelling_as_a_uuid"
+    },
+    {
+      "name": "project-edge-target-blank",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_project_scope.py",
+          "line": 125,
+          "before": "    normalized = normalize_project_identifier(value)\n    folded = normalized.translate(",
+          "after": "    normalized = str(value)\n    folded = normalized.translate(",
+          "sha256": "ae98fb227653b4dbeedc62b182e6b39fc286c28bbc36b40be5e49ea07cfcd0b3"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_vnext_project_scope.py::test_project_edge_target_is_empty_when_no_project_is_named"
+      ],
+      "expected_failure": "test_project_edge_target_is_empty_when_no_project_is_named"
+    },
+    {
+      "name": "project-edge-writer-elsewhere",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_entities.py",
+          "line": 821,
+          "before": "\"to_type\": \"entity\",\n                \"to_id\": to_id,",
+          "after": "\"to_type\": \"project\",\n                \"to_id\": to_id,",
+          "sha256": "43b1e85ae3f012183fc1024122586000f36b83e7872aaa6ac80a6ab20ca99df5"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_edge_writers.py::test_no_project_edge_stores_a_caller_spelling"
+      ],
+      "expected_failure": "test_no_project_edge_stores_a_caller_spelling"
+    },
+    {
+      "name": "project-edge-type-named-elsewhere",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connections.py",
+          "line": 31,
+          "before": "\"contradiction\": \"contradicts\",",
+          "after": "\"contradiction\": \"belongs_to_project\",",
+          "sha256": "dc441549c834869de35c8340decc518d12a853b5a8513c5162f07af880660106"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_edge_writers.py::test_no_other_module_names_the_project_edge_type"
+      ],
+      "expected_failure": "test_no_other_module_names_the_project_edge_type"
+    },
+    {
       "name": "event-chunk-without-a-source-is-admitted",
       "edits": [
         {
@@ -3470,7 +3662,7 @@
           "line": 77,
           "before": "    \"source_id\": \"source\",",
           "after": "    \"source_id\": \"artifact\",",
-          "sha256": "95b7d5e18e4c1b88623dece958064ac73921c3d1993d90abc70b0af5eb4f3864"
+          "sha256": "7b12a771f697dc3ddbc6812a490b6f0566a137ce34f65d34f20cde1661369680"
         }
       ],
       "pytest": [
@@ -3486,7 +3678,7 @@
           "line": 85,
           "before": "    \"member_id\": \"memory\",\n",
           "after": "",
-          "sha256": "95b7d5e18e4c1b88623dece958064ac73921c3d1993d90abc70b0af5eb4f3864"
+          "sha256": "7b12a771f697dc3ddbc6812a490b6f0566a137ce34f65d34f20cde1661369680"
         }
       ],
       "pytest": [
@@ -3502,7 +3694,7 @@
           "line": 84,
           "before": "    \"superseded_member_ids\": \"memory\",\n",
           "after": "",
-          "sha256": "95b7d5e18e4c1b88623dece958064ac73921c3d1993d90abc70b0af5eb4f3864"
+          "sha256": "7b12a771f697dc3ddbc6812a490b6f0566a137ce34f65d34f20cde1661369680"
         }
       ],
       "pytest": [
@@ -3518,7 +3710,7 @@
           "line": 73,
           "before": "EVENT_CHILD_TARGETS = {\"source_chunk\": (\"source\", \"source_id\")}",
           "after": "EVENT_CHILD_TARGETS = {}",
-          "sha256": "95b7d5e18e4c1b88623dece958064ac73921c3d1993d90abc70b0af5eb4f3864"
+          "sha256": "7b12a771f697dc3ddbc6812a490b6f0566a137ce34f65d34f20cde1661369680"
         }
       ],
       "pytest": [
@@ -3531,10 +3723,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 116,
-          "before": "THEN json_object({pairs}) END END END",
-          "after": "THEN NULL END END END",
-          "sha256": "95b7d5e18e4c1b88623dece958064ac73921c3d1993d90abc70b0af5eb4f3864"
+          "line": 113,
+          "before": "THEN json_object({pairs}) END\"",
+          "after": "THEN NULL END\"",
+          "sha256": "7b12a771f697dc3ddbc6812a490b6f0566a137ce34f65d34f20cde1661369680"
         }
       ],
       "pytest": [
@@ -3547,10 +3739,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 119,
+          "line": 117,
           "before": "THEN payload_json END\"",
           "after": "THEN NULL END\"",
-          "sha256": "95b7d5e18e4c1b88623dece958064ac73921c3d1993d90abc70b0af5eb4f3864"
+          "sha256": "7b12a771f697dc3ddbc6812a490b6f0566a137ce34f65d34f20cde1661369680"
         }
       ],
       "pytest": [
@@ -3563,10 +3755,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 128,
+          "line": 126,
           "before": "    return f\"({prefix}payload_json ?| ARRAY[{names}]::text[])\"",
           "after": "    return \"FALSE\"",
-          "sha256": "95b7d5e18e4c1b88623dece958064ac73921c3d1993d90abc70b0af5eb4f3864"
+          "sha256": "7b12a771f697dc3ddbc6812a490b6f0566a137ce34f65d34f20cde1661369680"
         }
       ],
       "pytest": [
@@ -3955,198 +4147,6 @@
         "tests/unit/test_hidden_ids_disclosure_docs.py::test_the_changelog_has_one_entry_for_each"
       ],
       "expected_failure": "test_the_changelog_has_one_entry_for_each"
-    },
-    {
-      "name": "project-edge-target-memory-raw",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1479,
-          "before": "\"to_id\": project_edge_target(request.project_id),",
-          "after": "\"to_id\": request.project_id,",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
-        }
-      ],
-      "pytest": [
-        "tests/integration/test_label_round4_regressions_postgres.py::test_a_plain_assignment_writes_the_project_edge_for_every_spelling"
-      ],
-      "expected_failure": "test_a_plain_assignment_writes_the_project_edge_for_every_spelling"
-    },
-    {
-      "name": "project-edge-target-memory-raw-scan",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1479,
-          "before": "\"to_id\": project_edge_target(request.project_id),",
-          "after": "\"to_id\": request.project_id,",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
-        }
-      ],
-      "pytest": [
-        "tests/unit/test_project_edge_writers.py::test_no_project_edge_stores_a_caller_spelling"
-      ],
-      "expected_failure": "test_no_project_edge_stores_a_caller_spelling"
-    },
-    {
-      "name": "project-edge-target-source-raw",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1013,
-          "before": "\"to_id\": source_edge_target,",
-          "after": "\"to_id\": request.project_id,",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
-        }
-      ],
-      "pytest": [
-        "tests/integration/test_label_round4_regressions_postgres.py::test_a_source_assignment_writes_one_project_edge_with_the_normalized_target"
-      ],
-      "expected_failure": "test_a_source_assignment_writes_one_project_edge_with_the_normalized_target"
-    },
-    {
-      "name": "project-edge-target-source-raw-scan",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1013,
-          "before": "\"to_id\": source_edge_target,",
-          "after": "\"to_id\": request.project_id,",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
-        }
-      ],
-      "pytest": [
-        "tests/unit/test_project_edge_writers.py::test_no_project_edge_stores_a_caller_spelling"
-      ],
-      "expected_failure": "test_no_project_edge_stores_a_caller_spelling"
-    },
-    {
-      "name": "project-edge-target-source-blank",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1007,
-          "before": "if action == \"assign_project\" and source_edge_target:",
-          "after": "if action == \"assign_project\":",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
-        }
-      ],
-      "pytest": [
-        "tests/integration/test_label_round4_regressions_postgres.py::test_a_blank_source_project_id_writes_no_edge"
-      ],
-      "expected_failure": "test_a_blank_source_project_id_writes_no_edge"
-    },
-    {
-      "name": "project-edge-target-uuid-fold",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/vnext_project_scope.py",
-          "line": 127,
-          "before": "    if _HYPHENATED_UUID_PATTERN.fullmatch(folded) is not None:\n        return folded\n",
-          "after": "    if _HYPHENATED_UUID_PATTERN.fullmatch(folded) is not None:\n        return normalized\n",
-          "sha256": "ae98fb227653b4dbeedc62b182e6b39fc286c28bbc36b40be5e49ea07cfcd0b3"
-        }
-      ],
-      "pytest": [
-        "tests/unit/test_vnext_project_scope.py::test_project_edge_target_folds_a_hyphenated_uuid_to_its_canonical_form"
-      ],
-      "expected_failure": "test_project_edge_target_folds_a_hyphenated_uuid_to_its_canonical_form"
-    },
-    {
-      "name": "project-edge-target-uuid-fold-neighborhood",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/vnext_project_scope.py",
-          "line": 127,
-          "before": "    if _HYPHENATED_UUID_PATTERN.fullmatch(folded) is not None:\n        return folded\n",
-          "after": "    if _HYPHENATED_UUID_PATTERN.fullmatch(folded) is not None:\n        return normalized\n",
-          "sha256": "ae98fb227653b4dbeedc62b182e6b39fc286c28bbc36b40be5e49ea07cfcd0b3"
-        }
-      ],
-      "pytest": [
-        "tests/integration/test_label_round4_regressions_postgres.py::test_every_uuid_spelling_lands_in_the_one_project_neighborhood"
-      ],
-      "expected_failure": "test_every_uuid_spelling_lands_in_the_one_project_neighborhood"
-    },
-    {
-      "name": "project-edge-target-name-case",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/vnext_project_scope.py",
-          "line": 128,
-          "before": "        return folded\n    return normalized\n\n\ndef normalize_project_scope",
-          "after": "        return folded\n    return folded\n\n\ndef normalize_project_scope",
-          "sha256": "ae98fb227653b4dbeedc62b182e6b39fc286c28bbc36b40be5e49ea07cfcd0b3"
-        }
-      ],
-      "pytest": [
-        "tests/unit/test_vnext_project_scope.py::test_project_edge_target_keeps_the_stored_scope_text_for_any_other_name"
-      ],
-      "expected_failure": "test_project_edge_target_keeps_the_stored_scope_text_for_any_other_name"
-    },
-    {
-      "name": "project-edge-target-uuid-search",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/vnext_project_scope.py",
-          "line": 127,
-          "before": "_HYPHENATED_UUID_PATTERN.fullmatch(folded)",
-          "after": "_HYPHENATED_UUID_PATTERN.search(folded)",
-          "sha256": "ae98fb227653b4dbeedc62b182e6b39fc286c28bbc36b40be5e49ea07cfcd0b3"
-        }
-      ],
-      "pytest": [
-        "tests/unit/test_vnext_project_scope.py::test_project_edge_target_reads_only_the_hyphenated_spelling_as_a_uuid"
-      ],
-      "expected_failure": "test_project_edge_target_reads_only_the_hyphenated_spelling_as_a_uuid"
-    },
-    {
-      "name": "project-edge-target-blank",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/vnext_project_scope.py",
-          "line": 125,
-          "before": "    normalized = normalize_project_identifier(value)\n    folded = normalized.translate(",
-          "after": "    normalized = str(value)\n    folded = normalized.translate(",
-          "sha256": "ae98fb227653b4dbeedc62b182e6b39fc286c28bbc36b40be5e49ea07cfcd0b3"
-        }
-      ],
-      "pytest": [
-        "tests/unit/test_vnext_project_scope.py::test_project_edge_target_is_empty_when_no_project_is_named"
-      ],
-      "expected_failure": "test_project_edge_target_is_empty_when_no_project_is_named"
-    },
-    {
-      "name": "project-edge-writer-elsewhere",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/vnext_entities.py",
-          "line": 821,
-          "before": "\"to_type\": \"entity\",\n                \"to_id\": to_id,",
-          "after": "\"to_type\": \"project\",\n                \"to_id\": to_id,",
-          "sha256": "43b1e85ae3f012183fc1024122586000f36b83e7872aaa6ac80a6ab20ca99df5"
-        }
-      ],
-      "pytest": [
-        "tests/unit/test_project_edge_writers.py::test_no_project_edge_stores_a_caller_spelling"
-      ],
-      "expected_failure": "test_no_project_edge_stores_a_caller_spelling"
-    },
-    {
-      "name": "project-edge-type-named-elsewhere",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/vnext_connections.py",
-          "line": 31,
-          "before": "\"contradiction\": \"contradicts\",",
-          "after": "\"contradiction\": \"belongs_to_project\",",
-          "sha256": "dc441549c834869de35c8340decc518d12a853b5a8513c5162f07af880660106"
-        }
-      ],
-      "pytest": [
-        "tests/unit/test_project_edge_writers.py::test_no_other_module_names_the_project_edge_type"
-      ],
-      "expected_failure": "test_no_other_module_names_the_project_edge_type"
     }
   ]
 }

@@ -110,11 +110,9 @@ def event_references_sql(*, sqlite: bool) -> str:
     names = ",".join("'" + key + "'" for key in EVENT_REFERENCE_KEYS)  # nosec B608 - closed module constants
     if sqlite:
         pairs = ", ".join(f"'{key}', json_extract(payload_json, '$.{key}')" for key in EVENT_REFERENCE_KEYS)  # nosec B608
+        cut = f"CASE WHEN EXISTS (SELECT 1 FROM json_each(payload_json) WHERE key IN ({names})) THEN json_object({pairs}) END"  # nosec B608
         # Nested, because SQLite does not promise to stop at the first false term, and json_type fails on text that is not JSON.
-        return (  # nosec B608
-            "CASE WHEN json_valid(payload_json) THEN CASE WHEN json_type(payload_json) = 'object' THEN "
-            f"CASE WHEN EXISTS (SELECT 1 FROM json_each(payload_json) WHERE key IN ({names})) THEN json_object({pairs}) END END END"
-        )
+        return "CASE WHEN json_valid(payload_json) THEN CASE WHEN json_type(payload_json) = 'object' THEN " + cut + " END END"
     # Most events name no row, so the payload is returned only for those that hold one of the fields at the top level.
     return f"CASE WHEN payload_json ?| ARRAY[{names}]::text[] THEN payload_json END"  # nosec B608
 
