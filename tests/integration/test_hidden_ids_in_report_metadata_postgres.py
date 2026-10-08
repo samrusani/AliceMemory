@@ -10,14 +10,17 @@ least as strict as its inputs, so an input made confidential makes the report co
 * a memory a report was made from is forgotten (explain and review still show its history, so it is not hidden, and it
   is the control for that).
 
-A trusted key and a read-only key then read through every door that returns stored metadata. The tests pin four things:
+A trusted key, a read-only key, a project-scoped key and a project-bound admin key then read through every door each can
+reach that returns stored metadata. The tests pin these things:
 
 1. The hidden ids appear only under the metadata fields that list ids. A new field, or a new door that returns the id as
    the row's own identity, fails here and has to be added to the disclosure.
 2. Each id in those fields is a bare UUID, or a ``source:`` or ``memory:`` reference to one. There is no slug, path or
    name in an id.
 3. A row that is hidden by its label is not returned as a row by any door: its id never stands as the ``id`` of an object.
-4. The disclosure's own claim: the key can see an id and the policy refusal for it, and nothing else of the row.
+4. The disclosure's own claim: the key can see an id, the door for that id refuses it, and nothing else of the row comes back.
+5. A report that depends on a row stops being readable when the row is made confidential, so the two cases above are the
+   only ones.
 """
 from __future__ import annotations
 
@@ -49,7 +52,7 @@ LISTING_KEYS = frozenset(
 
 
 def _paths(value, path=""):
-    """Every (path, id) where a string holds a UUID. A list adds no segment, so the last segment is the field."""
+    """Every (path, id, text) where a string holds a UUID. A list adds no segment, so the last segment is the field."""
     if isinstance(value, dict):
         for key, child in value.items():
             yield from _paths(child, f"{path}.{key}")

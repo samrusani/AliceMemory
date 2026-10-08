@@ -1243,7 +1243,7 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_a_hidden_id_gives_no_access_through_any_door[trusted]"
+        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_a_hidden_id_gives_no_access_through_any_door[trusted-reads]"
       ],
       "expected_failure": "test_a_hidden_id_gives_no_access_through_any_door"
     },
@@ -1410,7 +1410,7 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_a_hidden_id_gives_no_access_through_any_door[trusted]"
+        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_a_hidden_id_gives_no_access_through_any_door[trusted-http_writes]"
       ],
       "expected_failure": "test_a_hidden_id_gives_no_access_through_any_door"
     },

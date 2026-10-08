@@ -32,10 +32,21 @@ from tests.integration.hidden_ids_postgres_support import (
     HIDDEN_FOR,
     POLICY_REFUSAL_DOORS,
     PROFILES,
+    READ_DOORS,
+    REFERENCE_DOORS,
+    WRITE_DOORS,
     Env,
     build_vault,
     snapshot,
 )
+
+# Four groups keep each case well inside the per-test time limit of the integration job.
+DOOR_GROUPS = {
+    "reads": READ_DOORS,
+    "http_writes": tuple(door for door in WRITE_DOORS if not door.name.startswith("tool")),
+    "tool_writes": tuple(door for door in WRITE_DOORS if door.name.startswith("tool")),
+    "references": REFERENCE_DOORS,
+}
 
 
 def _key(h, vault, profile):
@@ -43,8 +54,9 @@ def _key(h, vault, profile):
     return h.key(permission, project=vault.alpha if bound else None)
 
 
+@pytest.mark.parametrize("group", list(DOOR_GROUPS))
 @pytest.mark.parametrize("profile", list(PROFILES))
-def test_a_hidden_id_gives_no_access_through_any_door(label_harness, monkeypatch, tmp_path, profile):
+def test_a_hidden_id_gives_no_access_through_any_door(label_harness, monkeypatch, tmp_path, profile, group):
     h = label_harness
     vault = build_vault(h)
     key = _key(h, vault, profile)
@@ -55,7 +67,7 @@ def test_a_hidden_id_gives_no_access_through_any_door(label_harness, monkeypatch
     assert hidden, profile
     failures: list[str] = []
     calls = 0
-    for door in ALL_DOORS:
+    for door in DOOR_GROUPS[group]:
         before = snapshot(h) if door.write else None
         missing = door.call(env, key, str(uuid4()))
         after = snapshot(h) if door.write else None
@@ -74,7 +86,7 @@ def test_a_hidden_id_gives_no_access_through_any_door(label_harness, monkeypatch
                 failures.append(f"{label}: answered with {leaked}")
             if got != missing and not (door.name in POLICY_REFUSAL_DOORS and got.refused):
                 failures.append(f"{label}: {got} differs from a missing id: {missing}")
-    assert calls == len(ALL_DOORS) * len(hidden), calls
+    assert calls == len(DOOR_GROUPS[group]) * len(hidden), calls
     assert not failures, "\n".join(failures[:25])
 
 
