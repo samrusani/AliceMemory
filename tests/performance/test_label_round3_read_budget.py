@@ -280,7 +280,12 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
                         failures.append((profile, action, clock, row))
                 if not returned_memories_ok(profile, action, case, measurements):
                     failures.append((profile, action, "returned_memories", row))
-            if backend == "postgres":
+            # The one-second wall gate for the operator screens is an absolute
+            # number, so it holds only on a known machine: the reference run and
+            # the separate maximum-workload smoke job set ALICE_READ_ABSOLUTE_GATE.
+            # Shared CI runners differ in speed, so the required jobs keep the
+            # gates measured against main on the same runner and the returned counts.
+            if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
                 for action in ("workspace", "dogfooding"):
                     if measurements["head"][action]["minimum_wall"] > 1:
                         failures.append((profile, action, "minimum_wall", row))

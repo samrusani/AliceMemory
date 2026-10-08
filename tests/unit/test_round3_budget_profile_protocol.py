@@ -25,6 +25,7 @@ def fake_children(monkeypatch, tmp_path, *, gate=None, capture_status="complete"
     evidence = tmp_path / "samples.jsonl"
     monkeypatch.setenv("ALICE_READ_MAIN_CHECKOUT", "paired-main")
     monkeypatch.setenv("ALICE_READ_BUDGET_EVIDENCE", str(evidence))
+    monkeypatch.setenv("ALICE_READ_ABSOLUTE_GATE", "1")
     monkeypatch.setattr(budgets.subprocess, "check_output", lambda args, **kwargs: REVISIONS["main" if args[2] == "paired-main" else "head"])
 
     class Child:
@@ -294,6 +295,26 @@ def test_workspace_and_dogfooding_each_have_the_one_second_gate(monkeypatch, tmp
     assert measured_failures(monkeypatch, tmp_path, timings=slow_head(action, wall=1.000001, cpu=.1)) == {
         (profile, action, "minimum_wall") for profile in KEYS}
     assert measured_failures(monkeypatch, tmp_path, timings=slow_head(action, wall=1.0, cpu=5.0)) == set()
+
+
+@pytest.mark.parametrize("action", ["workspace", "dogfooding"])
+def test_the_one_second_gate_applies_only_when_the_absolute_gate_is_set(monkeypatch, tmp_path, action):
+    """Without ALICE_READ_ABSOLUTE_GATE a slow screen is recorded, not failed; the relative gates still fail.
+
+    Mutations: apply the one-second gate whatever the variable says (the first assertion fails); drop the
+    relative pack gate when the variable is unset (the second assertion fails).
+    """
+    fake_children(monkeypatch, tmp_path, timings=slow_head(action, wall=5.0, cpu=.1))
+    monkeypatch.delenv("ALICE_READ_ABSOLUTE_GATE")
+    monkeypatch.delenv("ALICE_READ_PROFILE", raising=False)
+    assert budgets.paired_budgets("postgres", "synthetic-database", budgets.USER, KEYS,
+                                  case="extra-rows", source_count=3000, repaired=False, assert_budget=False) == []
+    fake_children(monkeypatch, tmp_path, timings=slow_head("pack", wall=2 * .1 + .1 + 1e-6, cpu=.1))
+    monkeypatch.delenv("ALICE_READ_ABSOLUTE_GATE")
+    failures = budgets.paired_budgets("postgres", "synthetic-database", budgets.USER, KEYS,
+                                      case="extra-rows", source_count=3000, repaired=False, assert_budget=False)
+    assert {(profile, action_name, clock) for profile, action_name, clock, _row in failures} == {
+        (profile, "pack", "minimum_wall") for profile in KEYS}
 
 
 def test_the_absolute_gate_does_not_apply_to_the_sqlite_actions(monkeypatch, tmp_path):

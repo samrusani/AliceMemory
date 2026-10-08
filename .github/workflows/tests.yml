@@ -2359,6 +2359,7 @@ jobs:
           ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
           ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
           ALICE_READ_PROFILE: ${{ runner.temp }}/round3-read-profiles
+          ALICE_READ_ABSOLUTE_GATE: "1"
         run: >-
           ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest -q -s --timeout=180
           'tests/integration/test_label_round3_read_budget_postgres.py::test_postgres_round3_random_read_budgets[False-3000-all-visible]'
