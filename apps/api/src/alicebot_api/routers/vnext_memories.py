@@ -899,6 +899,10 @@ def review_vnext_source(
                 store.lock_label_writes()
             existing = _vnext_readable_source(store, identity, source_id)
             if existing is None:
+                if not SourceReadFence.for_identity(identity).entity_read_fenced:
+                    # The owner and an unbound admin key are not limited, so a missing id hides nothing from them
+                    # and they keep the text this route always gave them.
+                    return _vnext_public_error_response(status_code=404, detail="vNext source was not found")
                 return _vnext_source_not_found(source_id)
             if action == "archive":
                 archived = store.delete_source(source_id=str(source_id), actor_type="user")
@@ -944,7 +948,7 @@ def review_vnext_source(
             if action == "assign_project" and request.project_id is not None:
                 from alicebot_api.vnext_label_writes import count_rows_hidden_by_scope_move
 
-                hidden = count_rows_hidden_by_scope_move(store, existing, [request.project_id])
+                hidden = count_rows_hidden_by_scope_move(store, existing, [request.project_id], identity=identity)
                 if hidden and not request.confirm_label_hide:
                     return JSONResponse(
                         status_code=200,

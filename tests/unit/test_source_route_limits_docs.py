@@ -5,7 +5,9 @@ The sentences are pinned by phrase. The behaviour is tested in ``tests/integrati
 Mutations, each one alone: delete ``a source above its sensitivity ceiling`` from the tool reference; delete the table
 row for the owner; delete ``unauthorized modification and unauthorized deletion`` from the security note; delete
 ``stays refused to every key but an unbound`` from the changelog; delete ``HTTP 403 for every source`` from the tool
-reference.
+reference; delete ``the only row it adds is the policy event`` from the tool reference; delete ``counts only the derived
+rows the caller may read now`` from the tool reference, from the changelog or ``the count now covers only the rows the
+caller may read`` from the security note.
 """
 
 from __future__ import annotations
@@ -31,7 +33,12 @@ def test_the_tool_reference_says_who_may_change_or_delete_a_source_by_id() -> No
     assert "A source above its sensitivity ceiling" in paragraph
     assert "answers HTTP 404 with the body of a missing source" in paragraph
     assert "HTTP 403 for every source, a missing id included" in paragraph
-    assert "A refused call changes nothing" in paragraph
+    assert "A call answered HTTP 404 changes nothing" in paragraph
+    assert "the only row it adds is the policy event that the operator gate records for its own refusal" in paragraph
+    assert "counts only the derived rows the caller may read now" in paragraph
+    assert "the owner and an unbound `admin_agent` key keep the exact count" in paragraph
+    assert "keep the earlier text" in paragraph
+    assert "`GET /v0/vnext/graph/neighborhood/{target_id}` is not covered by this change" in paragraph
     assert "rename it, move it to a project, archive it and delete it" in paragraph
     assert "empty trace" in paragraph
     assert "receives HTTP 403 before the source is looked up" in paragraph
@@ -47,6 +54,8 @@ def test_the_changelog_has_one_entry_for_the_source_routes() -> None:
     assert "rename it, move it to a project, archive it and delete it" in entry
     assert "stays refused to every key but an unbound `admin_agent`" in entry
     assert "same body as the GET" in entry
+    assert "counts only the derived rows the caller may read now" in entry
+    assert "keep the text they had" in entry
     assert entry.endswith("No migration is required.")
 
 
@@ -57,5 +66,8 @@ def test_the_security_note_covers_disclosure_modification_and_deletion() -> None
     assert "rename it, assign it to a project, archive it or delete it" in paragraph
     assert "identical in v0.19.2 and v0.20.0, so it is not a regression of this set" in paragraph
     assert "apply the caller's identity to the embedded trace" in paragraph
+    assert "the count now covers only the rows the caller may read" in paragraph
+    assert "a trusted key could learn how many confidential rows hang off a source it may read" in paragraph
+    assert "Graph neighborhood is not covered by this change" in paragraph
     assert "Read-only, proposal and project-bound keys keep HTTP 403" in paragraph
     assert "source regeneration stays refused to every key but the owner and an unbound admin" in paragraph

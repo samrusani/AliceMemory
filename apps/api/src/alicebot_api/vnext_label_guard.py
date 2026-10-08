@@ -893,6 +893,29 @@ def effective_row_for_fence(
     return settled if isinstance(settled, Mapping) else row
 
 
+def readable_rows(store: Any, identity: AgentIdentity | None, rows: Sequence[_Row]) -> list[_Row]:
+    """The rows this caller may read now, judged on their effective labels. Each row carries its own ``kind``.
+
+    A count, a preview or any other answer built from rows must be built from these, so that the caller cannot learn
+    how many rows exist above their limits. The owner and an unbound admin key are not limited and get every row.
+    """
+
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    fence = SourceReadFence.for_identity(identity)
+    guard = LabelGuard.for_fence(store, fence)
+    if not guard.active:
+        return [row for row in rows if isinstance(row, Mapping)]
+    kept: list[_Row] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        effective = guard.effective_row(str(row.get("kind") or ""), row)
+        if isinstance(effective, Mapping) and fence.admits_memory(effective):
+            kept.append(row)
+    return kept
+
+
 def policy_labels(
     row: Mapping[str, object],
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
