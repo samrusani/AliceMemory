@@ -61,6 +61,70 @@ def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "
         ))))"""  # nosec B608
 
 
+# What an event names. The guard admits an event for a caller with limits only when it admits every row the event names,
+# and this is where the event writers' vocabulary is kept, so the guard and the count query read one list.
+#
+# * A target of one of these types is the labelled row the event is about.
+EVENT_TARGET_KINDS = frozenset({"source", "memory", "open_loop", "artifact", "project", "belief"})
+# * A graph edge has no label of its own. It is readable when each labelled end is (an entity end has no label).
+EVENT_EDGE_TARGET = "graph_edge"
+# * A chunk of a source has no label of its own either: the event that records it takes the label of the source its
+#   payload names, and an event that names no source cannot be shown to be readable.
+EVENT_CHILD_TARGETS = {"source_chunk": ("source", "source_id")}
+# * A payload field that holds the id of a labelled row (one id, or a list of ids), with the kind of row it holds. The ids
+#   of rows that carry no label (a scheduler run, a task, a revision, a provenance link, a confirmation) are not here.
+EVENT_PAYLOAD_REFERENCES = {
+    "source_id": "source",
+    "source_ids": "source",
+    "memory_id": "memory",
+    "candidate_memory_id": "memory",
+    "candidate_memory_ids": "memory",
+    "rollup_candidate_ids": "memory",
+    "expired_memory_ids": "memory",
+    "superseded_member_ids": "memory",
+    "member_id": "memory",
+    "artifact_id": "artifact",
+    "artifact_ids": "artifact",
+    "belief_id": "belief",
+    "project_id": "project",
+    "project_ids": "project",
+}
+# * A field that names a different kind of row in different events, chosen by the start of the event type: the row that
+#   replaced another (a source, a belief, a memory).
+EVENT_TYPE_REFERENCES = {
+    "source.": {"superseded_by": "source"},
+    "belief.": {"superseded_by": "belief"},
+    "agent.memory_": {"superseded_by": "memory"},
+}
+EVENT_REFERENCE_KEYS = tuple(
+    sorted({*EVENT_PAYLOAD_REFERENCES, *(key for fields in EVENT_TYPE_REFERENCES.values() for key in fields)})
+)
+
+
+def event_references_sql(*, sqlite: bool) -> str:
+    """The payload of an event cut down to the fields that name a row, or NULL when it names none."""
+    names = ",".join("'" + key + "'" for key in EVENT_REFERENCE_KEYS)  # nosec B608 - closed module constants
+    if sqlite:
+        pairs = ", ".join(f"'{key}', json_extract(payload_json, '$.{key}')" for key in EVENT_REFERENCE_KEYS)  # nosec B608
+        # Nested, because SQLite does not promise to stop at the first false term, and json_type fails on text that is not JSON.
+        return (  # nosec B608
+            "CASE WHEN json_valid(payload_json) THEN CASE WHEN json_type(payload_json) = 'object' THEN "
+            f"CASE WHEN EXISTS (SELECT 1 FROM json_each(payload_json) WHERE key IN ({names})) THEN json_object({pairs}) END END END"
+        )
+    pairs = ", ".join(f"'{key}', payload_json -> '{key}'" for key in EVENT_REFERENCE_KEYS)  # nosec B608
+    # Most events name no row, so the object is built only for those that do.
+    return f"CASE WHEN payload_json ?| ARRAY[{names}]::text[] THEN jsonb_strip_nulls(jsonb_build_object({pairs})) END"  # nosec B608
+
+
+def event_names_a_row_sql(alias: str = "") -> str:
+    """True for an event whose payload holds a field that names a row (PostgreSQL). ``alias`` is a closed literal."""
+    if alias not in {"", "e"}:
+        raise ValueError("unsupported event alias")
+    names = ",".join("'" + key + "'" for key in EVENT_REFERENCE_KEYS)  # nosec B608 - closed module constants
+    prefix = alias + "." if alias else ""
+    return f"({prefix}payload_json ?| ARRAY[{names}]::text[])"  # nosec B608
+
+
 def hidden_memory_event_sql(sensitivity_allowed, *, sqlite: bool) -> str:
     """Reject an event only when its same-tenant memory floor proves it hidden."""
     if not sensitivity_allowed:

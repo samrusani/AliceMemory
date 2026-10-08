@@ -8,7 +8,7 @@ effective label.
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace, field
 from typing import Any, TypeVar
 from contextvars import ContextVar
@@ -42,10 +42,19 @@ from alicebot_api.vnext_derived_labels import (
     _mark_dependency_bounds,
 )
 from alicebot_api.vnext_label_closure import collect_label_rows
+from alicebot_api.vnext_label_sql import (
+    EVENT_CHILD_TARGETS,
+    EVENT_EDGE_TARGET,
+    EVENT_PAYLOAD_REFERENCES,
+    EVENT_TARGET_KINDS,
+    EVENT_TYPE_REFERENCES,
+)
 from alicebot_api.vnext_project_scope import project_floor_shape, project_scope_identity, project_scopes_overlap, resolve_project_scope
 
 
 _GUARD_USER = "label-guard"
+# The reach of an event feed for a caller with limits: this many events, newest first, and no more.
+EVENT_FEED_SCAN_LIMIT = 2_000
 _Row = TypeVar("_Row", bound=Mapping[str, object])
 
 
@@ -68,6 +77,74 @@ def _rank_projection_supported(row: Mapping[str, object]) -> bool:
             if name in container and container[name] is not None:
                 return False
     return True
+
+
+# An edge end of one of these kinds is judged the way the door for that kind judges it. An entity end has no label. An end of
+# any other kind, or an end that no longer exists, cannot be shown to be readable, so the edge is not (the edge review door
+# answers it as a missing edge).
+_EDGE_END_KINDS = frozenset({"source", "memory", "belief"})
+
+
+def _payload_ids(value: object) -> list[str] | None:
+    """The ids that an event payload field holds, or None when the field is not an id or a list of ids."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, (list, tuple)):
+        ids: list[str] = []
+        for item in value:
+            if item is None:
+                continue
+            if not isinstance(item, str):
+                return None
+            if item.strip():
+                ids.append(item)
+        return ids
+    return None
+
+
+_TYPED_REFERENCE_KEYS = frozenset(key for fields in EVENT_TYPE_REFERENCES.values() for key in fields)
+
+
+def _typed_reference_kind(event_type: str, key: str) -> str | None:
+    for prefix, fields in EVENT_TYPE_REFERENCES.items():
+        if event_type.startswith(prefix) and key in fields:
+            return fields[key]
+    return None
+
+
+def event_references(row: Mapping[str, object]) -> list[tuple[str, str]]:
+    """Every row an event names, as (kind, id): the row it is about and the rows its payload holds the ids of.
+
+    A reference that cannot be resolved carries the empty id, which no row has, so a caller with limits is never admitted
+    for it: a payload field that is not an id, and a chunk event that names no source.
+    """
+    target_type = str(row.get("target_type"))
+    references: list[tuple[str, str]] = []
+    if target_type in EVENT_TARGET_KINDS:
+        references.append((target_type, str(row.get("target_id") or "")))
+    elif target_type == EVENT_EDGE_TARGET:
+        references.append(("edge", str(row.get("target_id") or "")))
+    payload = row.get("payload_json")
+    fields: Mapping[str, object] = payload if isinstance(payload, Mapping) else {}
+    event_type = ""
+    for key, value in fields.items():
+        kind = EVENT_PAYLOAD_REFERENCES.get(key)
+        if kind is None and key in _TYPED_REFERENCE_KEYS:
+            event_type = event_type or str(row.get("event_type"))
+            kind = _typed_reference_kind(event_type, key)
+        if kind is None:
+            continue
+        ids = _payload_ids(value)
+        if ids is None:
+            references.append((kind, ""))
+        else:
+            references.extend((kind, row_id) for row_id in ids)
+    child = EVENT_CHILD_TARGETS.get(target_type)
+    if child is not None and not _payload_ids(fields.get(child[1])):
+        references.append((child[0], ""))
+    return references
 
 
 @dataclass
@@ -726,15 +803,15 @@ class LabelGuard:
         # are checked separately; writes and rollback clear this map together.
         return label
 
-    def admit_related_rows(self, rows: Sequence[_Row], *, kind: str, field: str) -> list[_Row]:
-        """Admit an event or rating by its target's current effective label."""
+    def _admitted_target_ids(self, kind: str, ids: Sequence[str]) -> set[str]:
+        """The ids, as given, of the rows of this kind that the guard admits now. One batched read for the ids not yet read."""
 
-        if not self.active:
-            return [row for row in rows if isinstance(row, Mapping)]
+        if kind == "edge":
+            return self._admitted_edge_ids(ids)
         reader = getattr(self.store, "read_label_rows", None)
         if not callable(reader):
-            return []
-        ids = list(dict.fromkeys(str(row.get(field)) for row in rows if row.get(field)))
+            return set()
+        ids = list(dict.fromkeys(str(row_id) for row_id in ids if row_id))
         state = self._state()
         missing = [row_id for row_id in ids if (kind, row_id) not in state.targets]
         if kind == "source":
@@ -746,24 +823,94 @@ class LabelGuard:
         for row in reader(kind, missing) if missing else []:
             state.targets[(kind, str(row.get("id")))] = row
         found = [state.targets[(kind, row_id)] for row_id in ids if (kind, row_id) in state.targets]
-        admitted = {str(row.get("id")) for row in (
+        return {str(row.get("id")) for row in (
             self.admit_beliefs(found) if kind == "belief" else self.admit_rows(kind, found)
         )}
-        return [row for row in rows if str(row.get(field) or "") in admitted]
 
-    def admit_events(self, rows: Sequence[_Row]) -> list[_Row]:
-        """Known label targets are admitted before an event exposes their IDs."""
+    def _admitted_edge_ids(self, ids: Sequence[str]) -> set[str]:
+        """Edges whose every labelled end the guard admits. An edge has no label of its own."""
+
+        reader = getattr(self.store, "read_label_rows", None)
+        if not callable(reader):
+            return set()
+        ids = list(dict.fromkeys(str(row_id) for row_id in ids if row_id))
+        state = self._state()
+        missing = [row_id for row_id in ids if ("edge", row_id) not in state.targets]
+        for row in reader("edge", missing) if missing else []:
+            state.targets[("edge", str(row.get("id")))] = row
+        edges = {row_id: state.targets[("edge", row_id)] for row_id in ids if ("edge", row_id) in state.targets}
+        ends: dict[str, list[str]] = {}
+        for edge in edges.values():
+            for side in ("from", "to"):
+                end_kind = str(edge.get(f"{side}_type") or "")
+                if end_kind in _EDGE_END_KINDS:
+                    ends.setdefault(end_kind, []).append(str(edge.get(f"{side}_id") or ""))
+        readable = {end_kind: self._admitted_target_ids(end_kind, values) for end_kind, values in ends.items()}
+        admitted: set[str] = set()
+        for edge_id, edge in edges.items():
+            for side in ("from", "to"):
+                end_kind = str(edge.get(f"{side}_type") or "")
+                if end_kind == "entity":
+                    continue
+                if end_kind not in _EDGE_END_KINDS or str(edge.get(f"{side}_id") or "") not in readable[end_kind]:
+                    break
+            else:
+                admitted.add(edge_id)
+        return admitted
+
+    def admit_related_rows(self, rows: Sequence[_Row], *, kind: str, field: str) -> list[_Row]:
+        """Admit an event or rating by its target's current effective label."""
 
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
-        admitted: set[int] = set()
-        kinds = {"source", "memory", "open_loop", "artifact", "project", "belief"}
-        for kind in kinds:
-            targets = [row for row in rows if str(row.get("target_type")) == kind]
-            admitted.update(id(row) for row in self.admit_related_rows(targets, kind=kind, field="target_id"))
-        return [row for row in rows if id(row) in admitted or (
-            str(row.get("target_type")) not in kinds and not str(row.get("event_type", "")).endswith(".labels_raised")
-        )]
+        if not callable(getattr(self.store, "read_label_rows", None)):
+            return []
+        admitted = self._admitted_target_ids(kind, [str(row.get(field)) for row in rows if row.get(field)])
+        return [row for row in rows if str(row.get(field) or "") in admitted]
+
+    def admit_events(self, rows: Sequence[_Row]) -> list[_Row]:
+        """An event is admitted when the guard admits every row it names, before it exposes their IDs.
+
+        It names its target, when the target is a labelled row or an edge, and every id in the payload fields that hold
+        the id of a labelled row (see ``event_references``). A chunk of a source has no label, so its event takes the
+        label of the source it names. An event whose target has no label and whose payload names no row is admitted,
+        except a ``labels_raised`` event, which says what a label was.
+        """
+
+        if not self.active:
+            return [row for row in rows if isinstance(row, Mapping)]
+        named = [(row, event_references(row)) for row in rows]
+        wanted: dict[str, list[str]] = {}
+        for _row, references in named:
+            for kind, row_id in references:
+                wanted.setdefault(kind, []).append(row_id)
+        admitted = {kind: self._admitted_target_ids(kind, ids) for kind, ids in wanted.items()}
+        return [
+            row
+            for row, references in named
+            if all(row_id in admitted[kind] for kind, row_id in references)
+            and (
+                str(row.get("target_type")) in EVENT_TARGET_KINDS
+                or not str(row.get("event_type", "")).endswith(".labels_raised")
+            )
+        ]
+
+    def newest_admitted_events(self, fetch: Callable[[int], Sequence[_Row]], *, want: int) -> list[_Row]:
+        """The ``want`` newest events this guard admits. ``fetch(n)`` returns the newest ``n`` events, newest first.
+
+        When the newest events are hidden from a caller with limits (a confidential source captured a moment ago leaves a
+        dozen), a feed that read only its own limit would show nothing. The read widens, five times at a time, up to
+        ``EVENT_FEED_SCAN_LIMIT`` events, so the feed is shorter than ``want`` only when fewer readable events lie within
+        that reach.
+        """
+
+        size = want
+        while True:
+            fetched = fetch(size)
+            admitted = self.admit_events(fetched)
+            if len(admitted) >= want or len(fetched) < size or size >= EVENT_FEED_SCAN_LIMIT:
+                return admitted[:want]
+            size = min(size * 5, EVENT_FEED_SCAN_LIMIT)
 
     def readable_event_count(self) -> int:
         """Complete event count after current target admission."""

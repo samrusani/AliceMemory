@@ -23,7 +23,10 @@ reach that returns stored metadata. The tests pin these things:
 4. The disclosure's own claim: the key can see an id, and the door for that id answers it as it answers an id that does not exist,
    and a call on the id of a deleted memory leaves the key's telemetry as a call on a missing id does.
 5. A report that depends on a row stops being readable when the row is made confidential, so the cases above are the only ones.
-6. The ids are not the only thing a report keeps. It keeps the words and values it was made with, so the text of a source
+6. A source captured as confidential after the reports exist is named nowhere a key below the confidential ceiling reads:
+   not by the event feed (a chunk event names its source in the payload), not by the agent feed, and not by the event
+   count, while the owner and an unbound admin key still see its events.
+7. The ids are not the only thing a report keeps. It keeps the words and values it was made with, so the text of a source
    that was archived and of a memory that was redacted afterwards stays in the reports that quoted it. The security note
    says so, and this file pins what is kept so that the note and the behaviour change together.
 """
@@ -37,6 +40,7 @@ import pytest
 
 from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext, MCPToolError
+from alicebot_api.routers.workspaces import _vnext_workspace_payload
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 from tests.integration.hidden_ids_postgres_support import ALL_DOORS, Env, changes, moved, snapshot
 
@@ -94,6 +98,83 @@ def _generate(h, producer, alpha, key):
     status, body, _ = h.request("POST", path, payload=payload, key=key)
     assert status == 201, (producer, status, body)
     return body.get("artifact", body)
+
+
+# Tables that hold the rows a capture makes. A row of any of them that a capture made must not be named to a key below the
+# confidential ceiling (the entity tables are left out: an entity has no label and the capture makes none here).
+CAPTURE_TABLES = (
+    "sources", "source_chunks", "memories", "memory_revisions", "open_loops", "generated_artifacts", "graph_edges",
+    "provenance_links", "beliefs",
+)
+
+
+def _row_ids(h) -> dict[str, set[str]]:
+    with h.store() as store, store.conn.cursor() as cur:
+        found = {}
+        for table in CAPTURE_TABLES:
+            cur.execute(f"SELECT id::text AS id FROM {table}")  # closed table names
+            found[table] = {row["id"] for row in cur.fetchall()}
+        cur.execute("SELECT id::text AS id FROM event_log")
+        found["event_log"] = {row["id"] for row in cur.fetchall()}
+    return found
+
+
+def capture_confidential_source(h, alpha, key, *, statements=True, size=4) -> dict[str, object]:
+    """Capture a confidential source through the API, as the admin key. Return every row and event the capture made.
+
+    With ``statements`` the text holds a decision and a task, so the capture makes candidate memories and open loops too.
+    Without them it makes a source and its chunks only, so the chunk events stand among the latest events of the log.
+    """
+    before = _row_ids(h)
+    token = f"CONFIDENTIAL-CAPTURE-{uuid4().hex}"
+    extra = "Decision: ship {t} {i}.\nTodo: review {t} {i}. " if statements else ""
+    paragraphs = [f"Paragraph {i} {token}. " + extra.format(t=token, i=i) + "lorem ipsum dolor " * 120 for i in range(size)]
+    status, body, _ = h.request(
+        "POST", "/v0/vnext/sources", key=key,
+        payload={"raw_text": "\n\n".join(paragraphs), "title": f"{token} title", "project_scope": [alpha], "domain": "project", "sensitivity": "confidential"},
+    )
+    assert status == 201, body
+    after = _row_ids(h)
+    made = {table: after[table] - before[table] for table in CAPTURE_TABLES}
+    assert made["sources"] == {body["source_id"]} and len(made["source_chunks"]) >= size, made
+    assert bool(made["memories"]) == statements, made
+    return {
+        "token": token, "source_id": body["source_id"], "chunk_ids": made["source_chunks"],
+        "ids": set().union(*made.values()), "events": after["event_log"] - before["event_log"],
+    }
+
+
+def capture_public_source(h, alpha, key) -> dict[str, object]:
+    """Capture a public source with statements through the API and accept the memories it made. Return their ids and hash."""
+    token = f"KEPT-CAPTURE-{uuid4().hex}"
+    text = "\n\n".join(f"Paragraph {i} {token}. Decision: ship {token} {i}.\nTodo: review {token} {i}." for i in range(2))
+    status, body, _ = h.request(
+        "POST", "/v0/vnext/sources", key=key,
+        payload={"raw_text": text, "title": f"{token} title", "project_scope": [alpha], "domain": "project", "sensitivity": "public"},
+    )
+    assert status == 201, body
+    source_id = body["source_id"]
+    with h.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT id::text AS id FROM memories WHERE metadata_json ->> 'source_id' = %s ORDER BY created_at, id", (source_id,))
+        memory_ids = [row["id"] for row in cur.fetchall()]
+        cur.execute("SELECT content_hash FROM sources WHERE id = %s", (source_id,))
+        content_hash = cur.fetchone()["content_hash"]
+    assert memory_ids and content_hash.startswith("sha256:")
+    for memory_id in memory_ids:
+        status, body, _ = h.request("POST", f"/v0/vnext/memories/{memory_id}/review", payload={"action": "accept"}, key=key)
+        assert status == 200, body
+    return {"token": token, "source_id": source_id, "memory_ids": memory_ids, "hash": content_hash}
+
+
+def _strings(value, path=""):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield from _strings(child, f"{path}.{key}")
+    elif isinstance(value, list):
+        for child in value:
+            yield from _strings(child, path)
+    elif isinstance(value, str):
+        yield path, value
 
 
 class World:
@@ -195,6 +276,9 @@ class World:
             self.archived: "memory archived",
         }
         self.forgotten = str(self.memories[2]["id"])
+        # A source captured as confidential now that the reports exist, so no report used it. Every row the capture made is
+        # hidden from a key below the ceiling, and none of them may be named to it.
+        self.capture = capture_confidential_source(h, self.alpha, self.admin)
 
     def hidden_from(self, key_name: str) -> dict[str, str]:
         """The hidden ids a key of this kind may not read. An admin key reads a confidential candidate, so it is not hidden from it."""
@@ -246,6 +330,12 @@ def _sweep(h, world, monkeypatch):
     with h.store() as store, store.conn.cursor() as cur:
         cur.execute("SELECT id FROM memories ORDER BY created_at, id")
         memory_ids = [str(row["id"]) for row in cur.fetchall()]
+    # The audit of a memory returns its metadata, its revisions and the changes its events recorded, so it is called for every
+    # memory (the derived ones among them) by every kind of key. A key that is refused, or a memory it cannot read, gives a
+    # status that is not 200 and no ids.
+    for key_name, key in keys.items():
+        for memory_id in memory_ids:
+            get(key_name, "memory audit", f"/v0/vnext/memories/{memory_id}/audit", key)
     for key_name, key in keys.items():
         monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
         context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
@@ -275,9 +365,17 @@ def test_a_hidden_id_stands_only_under_the_fields_that_list_ids(world, label_har
     h = label_harness
     keys_by_reason: dict[str, set[str]] = {}
     doors_by_key: dict[str, set[str]] = {}
+    audit_paths: set[str] = set()
     own_ids: list[tuple[str, str]] = []
+    # The rows of the confidential capture are named by no door to a key below the ceiling, as an id or in words. A
+    # project-bound admin key is not below it.
+    named: list[tuple[str, str, str]] = []
     for key_name, label, _status, body in _sweep(h, world, monkeypatch):
         door = label.split(":")[0]
+        if key_name != "admin_bound":
+            if world.capture["token"] in json.dumps(body, default=str):
+                named.append((key_name, label, "the words of the source"))
+            named.extend((key_name, label, path) for path, row_id, _text in _paths(body) if row_id in world.capture["ids"])
         hidden = world.hidden_from(key_name)
         for path, row_id, text in _paths(body):
             if row_id not in hidden:
@@ -285,11 +383,14 @@ def test_a_hidden_id_stands_only_under_the_fields_that_list_ids(world, label_har
             reason, last = hidden[row_id], path.rsplit(".", 1)[-1]
             keys_by_reason.setdefault(reason, set()).add(last)
             doors_by_key.setdefault(key_name, set()).add(door)
+            if door == "memory audit":
+                audit_paths.add(path)
             if last not in LISTING_KEYS and not path.endswith(LISTING_PATHS):
                 own_ids.append((label, path))
             elif last != "content_markdown":
                 assert BARE_ID.match(text), (label, path, text)
     assert not own_ids, own_ids[:10]
+    assert not named, named[:10]
     # Every kind of hidden row really does appear, so the checks above ran on something.
     assert set(keys_by_reason) == {
         "candidate made confidential", "source archived", "memory redacted", "memory archived",
@@ -298,15 +399,173 @@ def test_a_hidden_id_stands_only_under_the_fields_that_list_ids(world, label_har
     assert {"source_ids", "source_refs"} <= keys_by_reason["source archived"]
     for reason in ("memory redacted", "memory archived"):
         assert {"memories", "memory_ids", "member_ids", "source_refs"} <= keys_by_reason[reason], (reason, keys_by_reason[reason])
+    # The memory audit returns the lists of a derived memory in the memory, in its revisions and in the changes its events
+    # recorded, and a redacted or archived member stands in each of them. The security note, the tool reference, the
+    # known limitations and the changelog name the route; this fails when a field is added or goes.
+    assert {
+        ".memory.metadata_json.consolidation.cluster_member_ids", ".memory.metadata_json.derived_from.memories",
+        ".memory.metadata_json.source_refs", ".memory.value.rollup.member_ids",
+        ".revisions.previous_value.rollup.member_ids", ".revisions.new_value.rollup.member_ids",
+        ".events.payload_json.changes.metadata_json.consolidation.cluster_member_ids",
+        ".events.payload_json.changes.metadata_json.derived_from.memories", ".events.payload_json.changes.metadata_json.source_refs",
+    } <= audit_paths, sorted(audit_paths)
     # These are the doors that return a stored report or memory with its metadata. The detail modes of explain and review
     # return the lists of a derived memory (a project update lists the sources it was made from), so the id of an
-    # archived source stands there too. The list modes of the other tools return none.
+    # archived source stands there too, and so does the memory audit, an operator route, with the revisions and the event
+    # changes of the memory. The list modes of the other tools return none.
     detail_tools = {"alice_explain", "alice_memory_review"}
     assert doors_by_key["trusted"] == {
-        "artifact list", "artifact get", "artifact trace", "source trace", "workspace", "project dashboard", *detail_tools,
+        "artifact list", "artifact get", "artifact trace", "source trace", "workspace", "project dashboard", "memory audit",
+        *detail_tools,
     }, doors_by_key
     for key_name in ("read_only", "project_scoped", "admin_bound"):
         assert doors_by_key[key_name] == {"artifact get", "artifact trace", *detail_tools}, (key_name, doors_by_key)
+
+
+def _workspace(h, key):
+    """The workspace as a key reads it over HTTP, or as the owner reads it (the owner has no key and no route)."""
+    if key is None:
+        with h.store() as store:
+            return json.loads(json.dumps(_vnext_workspace_payload(store, identity=None), default=str))
+    status, body, _ = h.request("GET", "/v0/vnext/workspace", key=key)
+    assert status == 200, (status, body)
+    return body
+
+
+def _event_texts(h, event_ids):
+    with h.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT id::text AS id, row_to_json(e)::text AS text FROM event_log e WHERE id::text = ANY(%s)", (sorted(event_ids),))
+        return {row["id"]: row["text"] for row in cur.fetchall()}
+
+
+def test_a_confidential_capture_is_named_by_no_event_in_the_feed_of_a_key_below_the_ceiling(world, label_harness):
+    """The chunk events of a source name it in their payload, and the feed used to show them to any key.
+
+    The capture here has no statements, so its chunk events stand among the latest events of the log, where the workspace
+    feed reads. The owner and an unbound admin key are not limited and still read them.
+    """
+    h = label_harness
+    trusted = h.key("trusted_local_agent")
+    capture = capture_confidential_source(h, world.alpha, world.admin, statements=False, size=6)
+    texts = _event_texts(h, capture["events"])
+    assert any('"source_chunk.created"' in text for text in texts.values()), "the capture wrote no chunk event"
+
+    body = _workspace(h, trusted)
+    for name, feed in (("recent_events", body["recent_events"]), ("agent_activity", body["agent_activity"]["recent_events"])):
+        text = json.dumps(feed, default=str)
+        assert capture["token"] not in text, name
+        assert not [row_id for row_id in capture["ids"] if row_id in text], name
+    for name, key in (("admin", world.admin), ("owner", None)):
+        chunk_events = [event for event in _workspace(h, key)["recent_events"] if event["event_type"] == "source_chunk.created"]
+        assert chunk_events, name
+        assert {event["payload_json"]["source_id"] for event in chunk_events} == {capture["source_id"]}, name
+
+
+def test_a_confidential_capture_adds_to_a_count_only_the_events_that_name_none_of_its_rows(world, label_harness):
+    """The count of a key below the ceiling grows by the capture's events that name no row of the capture, and no more."""
+    h = label_harness
+    trusted = h.key("trusted_local_agent")
+    keys = {"trusted": trusted, "admin": world.admin, "owner": None}
+
+    def count(key):
+        return _workspace(h, key)["summary"]["event_count"]
+
+    grown = {}
+    for statements in (False, True):
+        steps, last = {}, {}
+        for name, key in keys.items():
+            count(key)  # the first read of a key writes its identity and the default workflows
+            counts = [count(key) for _ in range(3)]
+            steps[name] = counts[1] - counts[0]
+            assert counts[2] - counts[1] == steps[name], (name, counts)
+            last[name] = counts[2]
+        capture = capture_confidential_source(h, world.alpha, world.admin, statements=statements, size=6)
+        texts = _event_texts(h, capture["events"])
+        named = {event_id for event_id, text in texts.items() if any(row_id in text for row_id in capture["ids"])}
+        grown[statements] = {}
+        for name, key in keys.items():
+            grown[statements][name] = count(key) - last[name] - steps[name]
+        assert grown[statements]["trusted"] == len(texts) - len(named), (statements, grown[statements], len(texts), len(named))
+        assert grown[statements]["admin"] == grown[statements]["owner"] == len(texts), (statements, grown[statements])
+        assert len(named) > 5
+    # With statements the capture makes memories, and their events name rows of the capture as well.
+    assert grown[True]["admin"] > grown[False]["admin"]
+
+
+def test_a_memory_keeps_the_source_it_was_made_from_after_the_source_is_archived(label_harness, monkeypatch):
+    """The memory keeps `source_id`, `source_event_ids` and `capture_content_hash` (the SHA-256 of the source's whole text).
+
+    A source is archived and no door reads it, but the memories captured from it stay readable and keep the id of the source,
+    the ids of its chunks and the hash of its whole captured text. This pins which doors return them, so the security note,
+    the tool reference, the known limitations and the changelog say the same. It uses a small vault of its own, so that the
+    memories stand within the window the workspace lists.
+    """
+    h = label_harness
+    alpha = str(uuid4())
+    with h.store() as store:
+        store.create_project({"id": alpha, "name": "Atlas", "slug": "atlas", "domain": "project", "sensitivity": "public"})
+    admin = h.key("admin_agent")
+    kept = capture_public_source(h, alpha, admin)
+    status, body, _ = h.request("DELETE", f"/v0/vnext/sources/{kept['source_id']}", key=admin)
+    assert status == 200, body
+    assert h.request("GET", f"/v0/vnext/sources/{kept['source_id']}", key=h.key("trusted_local_agent"))[0] == 404
+    keys = {
+        "trusted": h.key("trusted_local_agent"),
+        "read_only": h.key("read_only_agent"),
+        "project_scoped": h.key("project_scoped_agent", project=alpha),
+        "admin_bound": h.key("admin_agent", project=alpha),
+    }
+    found: dict[tuple[str, str], set[str]] = {}
+
+    def note(key_name, door, body):
+        for path, value in _strings(body):
+            last = path if door == "workspace" else path.rsplit(".", 1)[-1]  # the workspace is pinned by the whole path
+            if value == kept["hash"]:
+                found.setdefault((key_name, door), set()).add("hash:" + last)
+            elif kept["source_id"] in value:
+                found.setdefault((key_name, door), set()).add("id:" + last)
+
+    # The workspace lists the latest events, so it is read before the calls below write their own.
+    note("trusted", "workspace", h.request("GET", "/v0/vnext/workspace", key=keys["trusted"])[1])
+    explained = {}
+    for key_name, key in keys.items():
+        monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
+        context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+        for memory_id in kept["memory_ids"]:
+            note(key_name, "memory audit", h.request("GET", f"/v0/vnext/memories/{memory_id}/audit", key=key)[1])
+            for tool, arguments in (("alice_memory_review", {"review_item_id": memory_id}), ("alice_explain", {"memory_id": memory_id})):
+                try:
+                    result = call_mcp_tool(context, name=tool, arguments=arguments)
+                except MCPToolError as error:
+                    explained[(key_name, tool)] = str(error)
+                    continue
+                note(key_name, tool, result)
+        for tool, arguments in (
+            ("alice_recall", {"query": kept["token"]}), ("alice_context_pack", {"query": kept["token"]}), ("alice_resume", {}),
+            ("alice_open_loops", {"action": "list"}),
+        ):
+            try:
+                note(key_name, tool, call_mcp_tool(context, name=tool, arguments=arguments))
+            except MCPToolError:
+                pass
+    memory_fields = {"hash:capture_content_hash", "id:source_id", "id:source_event_ids"}
+    # The memory audit and the workspace are operator routes and answer an unbound trusted key. The detail mode of
+    # alice_memory_review answers every key whose limits admit the memory. alice_explain answers the memory of an archived
+    # source as unavailable, so it returns none of these.
+    assert memory_fields <= found[("trusted", "memory audit")], found
+    assert memory_fields <= found[("trusted", "alice_memory_review")], found
+    # The workspace returns them in its event feed: in the changes the memory's events copied from its metadata, and as
+    # the target of the events of the source.
+    assert {
+        "hash:.recent_events.payload_json.changes.metadata_json.capture_content_hash",
+        "id:.recent_events.payload_json.changes.metadata_json.source_id", "id:.recent_events.target_id",
+    } <= found[("trusted", "workspace")], found
+    for key_name in ("read_only", "project_scoped", "admin_bound"):
+        assert memory_fields <= found[(key_name, "alice_memory_review")], (key_name, found)
+    assert {key_name for key_name, tool in explained if tool == "alice_explain"} == set(keys), explained
+    assert all("unavailable" in message for (_key, tool), message in explained.items() if tool == "alice_explain"), explained
+    # No other door names the source: not the search tools, not the lists.
+    assert {door for (_key, door) in found} == {"memory audit", "alice_memory_review", "workspace"}, found
 
 
 def test_a_report_stops_being_readable_when_an_input_is_made_confidential(world, label_harness):

@@ -142,14 +142,15 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     beliefs = guard.admit_beliefs(fetched_beliefs)
     tasks = store.list_tasks(status=None, limit=12)
     if getattr(type(store), "label_count_input_prefilter", False):
-        fetched_events = store.list_events(limit=20, reject_sensitivity_allowed=guard.sensitivity_allowed)
+        recent_events = guard.newest_admitted_events(
+            lambda size: store.list_events(limit=size, reject_sensitivity_allowed=guard.sensitivity_allowed), want=20
+        )
     else:
-        fetched_events = store.list_events(limit=20)
-    recent_events = guard.admit_events(fetched_events)
+        recent_events = guard.newest_admitted_events(lambda size: store.list_events(limit=size), want=20)
     event_count = store.count_events() if unfenced else guard.readable_event_count()
     agent_identities = store.list_agent_identities(limit=20)
     agent_count = store.count_agent_identities()
-    agent_events = guard.admit_events(store.list_agent_events(limit=50))
+    agent_events = guard.newest_admitted_events(lambda size: store.list_agent_events(limit=size), want=50)
     list_recent_agentic_commits = getattr(store, "list_recent_agentic_commits", None)
     list_pending_inline_confirmations = getattr(store, "list_pending_inline_confirmations", None)
     memory_commit_service = VNextMemoryCommitService(store)
