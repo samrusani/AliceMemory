@@ -47,6 +47,7 @@ REPORT_LABELS = (
     "sleep proposals",
     "flagged sources",
     "flagged source ids",
+    "derived labels",
 )
 FORBIDDEN_PHRASES = ("review console", "/vnext", "clear the queue", "open Memory Review")
 

@@ -313,6 +313,102 @@ def test_the_open_loop_list_withholds_what_the_reader_may_not_read(world: _World
     world.check_payload(reader, items, where="list")
 
 
+@pytest.mark.parametrize("reference_key", ("source_refs", "sources"))
+@pytest.mark.parametrize("layout", ("object", "duplicate_key", "nested_text"))
+def test_encoded_json_references_are_withheld_on_the_real_key_list(world: _World, reference_key: str, layout: str) -> None:
+    """A real key list removes decoded refused ids and keeps the admitted id and nearby values.
+
+    The owner receives the stored text unchanged. Mutations: stop decoding JSON in ``_scrub``, or stop adding the
+    canonical metadata names before lookup (the ``sources`` alias then leaves the refused id).
+    """
+
+    hidden, admitted = world.sources["beta"], world.sources["own"]
+    encode = lambda value: "".join("\\u%04x" % ord(char) for char in value)
+    refs = '["' + encode(hidden) + '", "' + encode(admitted) + '"]'
+    if layout == "object":
+        text = '{"source_ids": ' + refs + ', "kept": "cobalt"}'
+    elif layout == "duplicate_key":
+        text = '{"source_id": "' + encode(hidden) + '", "source_id": "' + encode(admitted) + '", "kept": "cobalt"}'
+    else:
+        text = json.dumps({"source_refs": '{"source_ids": ' + refs + ', "kept": "cobalt"}', "outer": "amber"})
+    metadata = {"project_scope": ["alpha"], reference_key: text, "kept": "control"}
+    world._plant("encoded", metadata=metadata)
+    loop_id = world.loops["encoded"]
+    # This is the only loop returned, so another loop's column cannot supply the encoded id to the shared lookup.
+    world.vault.sql("DELETE FROM open_loops WHERE id != ?", (loop_id,))
+    owner = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=None)
+    assert owner["is_error"] is False
+    assert len(owner["payload"]["items"]) == 1
+    stored = next(item for item in owner["payload"]["items"] if str(item["id"]) == loop_id)
+    assert stored["metadata_json"] == metadata
+    item = next(item for item in world.list_items("alpha_project") if str(item["id"]) == loop_id)
+    checked = item["metadata_json"]
+    from alicebot_api.vnext_source_fence import cited_source_ids
+
+    assert cited_source_ids(checked).named == {admitted}
+    assert checked["kept"] == "control"
+    assert "cobalt" in str(checked[reference_key])
+    if layout == "nested_text":
+        assert "amber" in str(checked[reference_key])
+
+
+@pytest.mark.parametrize("case", ("memory_reference", "nested_source_reference", "duplicate_memory_key"))
+def test_encoded_memory_and_trace_references_are_collected_before_the_real_key_list(world: _World, case: str) -> None:
+    """The collection and removal walk the same decoded JSON, with admitted and owner controls.
+
+    Mutation: skip JSON decoding in ``_collect_ids``. Memory references and source references inside a trace then stay.
+    """
+
+    encode = lambda value: "".join("\\u%04x" % ord(char) for char in value)
+    if case == "nested_source_reference":
+        key, hidden, admitted = "trace", world.sources["beta"], world.sources["own"]
+        text = '{"source_ids": ["' + encode(hidden) + '", "' + encode(admitted) + '"], "kept": "cobalt"}'
+    else:
+        key, hidden, admitted = "memory_refs", world.memories["beta"], world.memories["own"]
+        if case == "duplicate_memory_key":
+            text = '{"memory_id": "memory:' + encode(hidden) + '", "memory_id": "memory:' + encode(admitted) + '", "kept": "cobalt"}'
+        else:
+            text = '["memory:' + encode(hidden) + '", "memory:' + encode(admitted) + '", "cobalt"]'
+    metadata = {"project_scope": ["alpha"], key: text, "kept": "control"}
+    world._plant("encoded_collection", metadata=metadata)
+    loop_id = world.loops["encoded_collection"]
+    world.vault.sql("DELETE FROM open_loops WHERE id != ?", (loop_id,))
+    owner = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=None)
+    assert owner["is_error"] is False
+    assert len(owner["payload"]["items"]) == 1
+    assert owner["payload"]["items"][0]["metadata_json"] == metadata
+    items = world.list_items("alpha_project")
+    assert len(items) == 1 and str(items[0]["id"]) == loop_id
+    checked = items[0]["metadata_json"]
+    decoded = json.dumps(json.loads(checked[key]))
+    assert hidden not in decoded
+    assert admitted in decoded
+    assert "cobalt" in decoded
+    assert checked["kept"] == "control"
+
+
+def test_a_missing_encoded_sources_alias_is_withheld_for_the_key_and_owner(world: _World) -> None:
+    """The canonical alias keeps a missing source in a reference position after JSON decoding.
+
+    Mutation: stop adding canonical metadata names to the lookup. The generic scan then leaves the missing id.
+    """
+
+    missing, admitted = str(uuid4()), world.sources["own"]
+    encode = lambda value: "".join("\\u%04x" % ord(char) for char in value)
+    metadata = {"project_scope": ["alpha"], "sources": '["' + encode(missing) + '", "' + encode(admitted) + '"]', "kept": "control"}
+    world._plant("missing_encoded_alias", metadata=metadata)
+    loop_id = world.loops["missing_encoded_alias"]
+    world.vault.sql("DELETE FROM open_loops WHERE id != ?", (loop_id,))
+    for key in (world.vault.keys["alpha_project"], None):
+        response = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=key)
+        assert response["is_error"] is False
+        assert len(response["payload"]["items"]) == 1
+        item = response["payload"]["items"][0]
+        assert str(item["id"]) == loop_id
+        assert item["metadata_json"]["kept"] == "control"
+        assert json.loads(item["metadata_json"]["sources"]) == [admitted]
+
+
 @pytest.mark.parametrize("reader", _UPDATERS)
 @pytest.mark.parametrize("name", sorted(("own", "health", "confidential", "old_beta", "old_global", "old_deleted", "old_ghost", "old_upper", "old_metadata")))
 def test_the_open_loop_update_actions_withhold_what_the_reader_may_not_read(world: _World, reader: str, name: str) -> None:
@@ -1035,6 +1131,19 @@ def test_metadata_nested_deeper_than_the_scan_reads_is_dropped_and_does_not_rais
     assert depth < 100 and "bottom" not in json.dumps(metadata)
 
 
+def test_json_text_at_the_metadata_depth_limit_is_dropped_without_raising() -> None:
+    """Decoded JSON obeys the same depth bound. Mutation: serialize ``_DROPPED`` instead of propagating it."""
+
+    from alicebot_api.vnext_open_loop_references import _METADATA_MAX_DEPTH
+
+    nested: object = json.dumps({"source_refs": [str(uuid4())], "note": "cobalt"})
+    for _ in range(_METADATA_MAX_DEPTH - 1):
+        nested = {"deep": nested}
+    out = withhold_unreadable_references(_Rows(), [_loop(metadata_json={"kept": "control", "deep": nested})], fence=_FENCE)
+    assert out[0]["metadata_json"]["kept"] == "control"
+    assert "cobalt" not in json.dumps(out)
+
+
 def test_the_owners_fence_admits_a_live_row_of_any_project_and_refuses_a_deleted_one() -> None:
     """``SourceReadFence.unfenced()`` is the owner's fence. It admits another project's row and a global one, and
     refuses a deleted one, so the owner is shown every live reference and no reference to a forgotten row.
@@ -1113,15 +1222,10 @@ def test_the_reference_keys_include_every_key_the_reverse_lookup_of_a_source_rea
     """
 
     from alicebot_api.vnext_open_loop_references import SOURCE_REFERENCE_KEYS
-    from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import OPEN_LOOP_SOURCE_REFERENCE_SQL
+    from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import NAMED_REFERENCE_KEYS, named_source_ids
 
-    # The rule the lookup, the delete preview and the scrub share lives in one statement (the lookup reads it from there).
-    text = OPEN_LOOP_SOURCE_REFERENCE_SQL
-    keys_in_sql = {
-        part.strip().strip("'")
-        for part in text[text.index("ref.key IN (") + len("ref.key IN (") : text.index(")", text.index("ref.key IN ("))].split(",")
-    }
-    assert keys_in_sql and keys_in_sql <= SOURCE_REFERENCE_KEYS, keys_in_sql
+    assert NAMED_REFERENCE_KEYS and NAMED_REFERENCE_KEYS <= SOURCE_REFERENCE_KEYS
+    assert "cited_source_ids" in named_source_ids.__code__.co_names
 
 
 # -- 5. every reader of a loop, classified ----------------------------------------------------------------------
@@ -1145,6 +1249,10 @@ _PRODUCER = "producer: hands the row to its caller, and every caller of it is in
 _NOT_RETURNED = "not returned: reads the row to decide something and returns no part of it"
 _ALLOWLIST = "allowlist: returns a fixed list of fields that holds no reference (pinned by the allowlist test)"
 _OWNER = "owner: no agent identity reaches this door, so the reader is the owner and is not fenced"
+_SENSITIVITY = (
+    "sensitivity ceiling: a caller identity hides a row above that caller's sensitivity, "
+    "and the domain and project fences stay as they were"
+)
 _OPERATOR = "operator: a local command or test harness, not a door a key-bound caller reaches"
 _SHARED = (
     "shared: one handler of it returns a fixed list of fields and the other takes no identity "
@@ -1177,17 +1285,17 @@ _LOOP_READERS: dict[tuple[str, str, str], str] = {
     ("list_open_loops", "mcp/projects.py", "_handle_alice_vnext_open_loops"): _FENCED,
     ("list_open_loops", "mcp/retrieval.py", "_vnext_resume"): _ALLOWLIST,
     ("list_open_loops", "memory.py", "list_open_loop_records"): _OWNER,
-    ("list_open_loops", "routers/workspaces.py", "_vnext_workspace_payload"): _OWNER,
+    ("list_open_loops", "routers/workspaces.py", "_vnext_workspace_payload"): _FENCED,
     ("list_open_loops", "session_briefing.py", "compile_session_brief"): _ALLOWLIST,
     ("list_open_loops", "vnext_context_tree.py", "build_tree"): _ALLOWLIST,
     ("list_open_loops", "vnext_dogfooding.py", "dashboard"): _OPERATOR,
-    ("list_open_loops", "vnext_projects.py", "project_dashboard"): _PRODUCER,
+    ("list_open_loops", "vnext_projects.py", "project_dashboard"): _FENCED,
     ("list_open_loops", "vnext_scheduler.py", "_generate_open_loop_review_artifact"): _FENCED,
-    ("list_open_loops_referencing_source", "routers/_vnext_shared.py", "_vnext_load_source_trace"): _OWNER,
+    ("list_open_loops_referencing_source", "routers/_vnext_shared.py", "_vnext_load_source_trace"): _FENCED,
     ("project_dashboard", "cli/automation.py", "_run_vnext_project_dashboard"): _OPERATOR,
-    ("project_dashboard", "mcp/projects.py", "_handle_alice_project_dashboard"): _OWNER,
-    ("project_dashboard", "routers/vnext_projects.py", "get_vnext_project_dashboard"): _OWNER,
-    ("project_dashboard", "routers/workspaces.py", "_vnext_workspace_payload"): _OWNER,
+    ("project_dashboard", "mcp/projects.py", "_handle_alice_project_dashboard"): _SENSITIVITY,
+    ("project_dashboard", "routers/vnext_projects.py", "get_vnext_project_dashboard"): _SENSITIVITY,
+    ("project_dashboard", "routers/workspaces.py", "_vnext_workspace_payload"): _FENCED,
     ("review_open_loop", "cli/automation.py", "_run_vnext_open_loop_review"): _OPERATOR,
     ("review_open_loop", "mcp/projects.py", "_handle_alice_open_loop_review"): _OWNER,
     ("review_open_loop", "mcp/retrieval.py", "_handle_alice_open_loops"): _FENCED,
@@ -1373,6 +1481,13 @@ def test_the_scheduler_open_loop_report_copies_only_the_sources_its_identity_may
             return [rows[i] for i in ids if i in rows]
 
         def get_memories_by_ids(self, ids: list[str]) -> list[dict[str, object]]:
+            return []
+
+        def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+            if kind == "source":
+                return self.get_sources_by_ids(ids)
+            if kind == "open_loop":
+                return [dict(row) for row in self.open_loops if str(row.get("id")) in ids]
             return []
 
     def run(identity) -> dict[str, object]:  # type: ignore[no-untyped-def]

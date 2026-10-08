@@ -219,7 +219,7 @@ def test_contradiction_report_creates_candidate_edges_and_preserves_beliefs() ->
     store = _seed_store()
 
     artifact = VNextContradictionService(store).generate_contradiction_report(
-        ContradictionFinderRequest(domains=("project",), max_contradictions=2)
+        ContradictionFinderRequest(agent_identity=None, domains=("project",), max_contradictions=2)
     )
 
     assert artifact["artifact_type"] == "contradiction_report"
@@ -257,7 +257,7 @@ def test_contradiction_report_filters_sensitivity_and_distinguishes_nuance() -> 
     }
 
     artifact = VNextContradictionService(store).generate_contradiction_report(
-        ContradictionFinderRequest(
+        ContradictionFinderRequest(agent_identity=None,
             domains=("project",),
             sensitivity_allowed=("public", "private"),
             max_contradictions=2,
@@ -323,7 +323,7 @@ def test_contradiction_report_enforces_project_scope_for_inputs_and_beliefs() ->
         }
 
     artifact = VNextContradictionService(store).generate_contradiction_report(
-        ContradictionFinderRequest(
+        ContradictionFinderRequest(agent_identity=None,
             domains=("project",),
             projects=("project-a",),
             max_contradictions=4,
@@ -367,7 +367,7 @@ def test_contradiction_report_source_filter_honors_embedded_canonical_envelope()
     ]
 
     artifact = VNextContradictionService(store).generate_contradiction_report(
-        ContradictionFinderRequest(projects=("real",), max_contradictions=2)
+        ContradictionFinderRequest(agent_identity=None, projects=("real",), max_contradictions=2)
     )
 
     assert artifact["metadata_json"]["source_ids"] == ["source-real"]
@@ -377,7 +377,7 @@ def test_contradiction_report_model_backed_mode_records_source_grounded_metadata
     store = _seed_store()
 
     artifact = VNextContradictionService(store).generate_contradiction_report(
-        ContradictionFinderRequest(
+        ContradictionFinderRequest(agent_identity=None,
             domains=("project",),
             max_contradictions=2,
             generation_mode="model_backed",
@@ -445,7 +445,7 @@ def test_contradiction_validation_errors() -> None:
     service = VNextContradictionService(InMemoryVNextContradictionStore())
 
     with pytest.raises(VNextContradictionValidationError, match="max_contradictions"):
-        service.generate_contradiction_report(ContradictionFinderRequest(max_contradictions=0))
+        service.generate_contradiction_report(ContradictionFinderRequest(agent_identity=None, max_contradictions=0))
 
     with pytest.raises(VNextContradictionValidationError, match="belief review action"):
         service.review_belief(belief_id="belief-1", action="delete")

@@ -59,6 +59,7 @@ from alicebot_api.vnext_agent_control import (
 )
 from alicebot_api.vnext_project_scope import (
     is_global_scope,
+    project_floor_shape,
     project_scope_identity,
     project_scopes_overlap,
     source_project_scope,
@@ -349,6 +350,7 @@ def compile_session_brief(
             for row in facts
             if _memory_honours_fence(
                 row,
+                store=store,
                 effective_domains=effective_domains,
                 effective_sensitivity_allowed=effective_sensitivity_allowed,
                 effective_project_scope=effective_project_scope,
@@ -380,6 +382,16 @@ def compile_session_brief(
                 scope_projects=effective_project_scope,
                 exclude_global_domains=tuple(sorted(held_back)),
             )
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        open_loops = admit_loaded(
+            store,
+            kind="open_loop",
+            rows=open_loops,
+            domains=effective_domains,
+            sensitivity_allowed=effective_sensitivity_allowed,
+            projects=effective_project_scope,
+        )
         _merge_recent_change_targets(
             store,
             facts=facts,
@@ -587,6 +599,18 @@ def _event_target_honours_fence(
         row = store.get_open_loop(target_id)
     if row is None:
         return False
+    from alicebot_api.vnext_label_guard import admit_loaded
+
+    kind = "open_loop" if target_type == "open_loop" else "memory"
+    if not admit_loaded(
+        store,
+        kind=kind,
+        rows=[row],
+        domains=effective_domains,
+        sensitivity_allowed=effective_sensitivity_allowed,
+        projects=effective_project_scope,
+    ):
+        return False
     return _memory_honours_fence(
         row,
         effective_domains=effective_domains,
@@ -615,16 +639,29 @@ def _brief_omits_memory(row: Mapping[str, object]) -> bool:
 def _memory_honours_fence(
     row: Mapping[str, object],
     *,
+    store: object | None = None,
     effective_domains: tuple[str, ...],
     effective_sensitivity_allowed: tuple[str, ...],
     effective_project_scope: tuple[str, ...],
     exclude_global_domains: frozenset[str],
 ) -> bool:
+    if store is not None:
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        if not admit_loaded(
+            store,
+            kind="memory",
+            rows=[row],
+            domains=effective_domains,
+            sensitivity_allowed=effective_sensitivity_allowed,
+            projects=effective_project_scope,
+        ):
+            return False
     resource_scope = resource_project_scope(row)
     return (
         _matches_domains(row, effective_domains)
         and _matches_sensitivity(row, effective_sensitivity_allowed)
-        and _matches_project_scope(resource_scope, effective_project_scope)
+        and _matches_project_scope(resource_scope, effective_project_scope, floor=_brief_floor(row))
         and not _is_held_back(row, resource_scope, exclude_global_domains)
     )
 
@@ -676,10 +713,20 @@ def _matches_sensitivity(row: Mapping[str, object], sensitivity_allowed: tuple[s
     return (row.get("sensitivity") or "unknown") in sensitivity_allowed
 
 
-def _matches_project_scope(resource_scope: tuple[str, ...], project_scope: tuple[str, ...]) -> bool:
+def _brief_floor(row: Mapping[str, object]) -> tuple[str, ...]:
+    shape, floor = project_floor_shape(row)
+    return floor if shape == "list" else ()
+
+
+def _matches_project_scope(
+    resource_scope: tuple[str, ...],
+    project_scope: tuple[str, ...],
+    *,
+    floor: tuple[str, ...] = (),
+) -> bool:
     if not project_scope:
         return True
-    return project_scopes_overlap(resource_scope, project_scope)
+    return project_scopes_overlap(resource_scope, project_scope, floor=floor)
 
 
 # A fact used as the excerpt query is passed to the source search whole, and

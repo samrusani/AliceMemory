@@ -23,6 +23,13 @@ Expected success:
 - warnings include a recommended fix
 - no secret value appears in output
 
+Unreleased (on main, not in v0.20.0): the doctors report `derived labels: N below
+their inputs, M unverified` as a warning. If the label check cannot read the
+store, they report `derived labels: unavailable; run labels check`, also as a
+warning. A failed read is never reported as zero rows. Run the store's `labels
+check` command to inspect the cause, then `labels repair` for stale labels;
+missing inputs need restoring or regeneration.
+
 Common fixes:
 
 ```bash

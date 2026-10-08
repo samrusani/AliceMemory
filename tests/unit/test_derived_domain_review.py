@@ -9,6 +9,7 @@ import pytest
 
 from alicebot_api.onramp import bootstrap_database, main as onramp_main
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+from alicebot_api.vnext_label_writes import without_insert_floor
 from alicebot_api.vnext_derived_domain_backfill import plan_relabels
 from tests.unit.per_project_s2_support import add_memory
 from tests.unit.test_derived_domain_fence import USER
@@ -25,7 +26,7 @@ def test_restore_repairs_derived_rows_before_publication(tmp_path, monkeypatch, 
     with monkeypatch.context() as patch:
         patch.setattr(sqlite_schema, "_relabel_derived_domains", lambda conn: None)
         bootstrap_database(source, user_id=USER, user_email="local@alice")
-        with sqlite_user_connection(source, USER) as conn:
+        with without_insert_floor(), sqlite_user_connection(source, USER) as conn:
             store = SQLiteVNextStore(conn, USER)
             health = add_memory(store, key="health", text="A restricted observation", domain="health")
             derived = store.create_memory(
@@ -52,7 +53,7 @@ def test_restore_repairs_derived_rows_before_publication(tmp_path, monkeypatch, 
     from alicebot_api.onramp import sqlite_url_for_path
     from alicebot_api.vnext_agent_keys import create_agent_key
 
-    with sqlite_user_connection(destination, USER) as conn:
+    with without_insert_floor(), sqlite_user_connection(destination, USER) as conn:
         _, raw = create_agent_key(
             SQLiteVNextStore(conn, USER), user_id=USER, agent_id="restore-reader", permission_profile="read_only_agent"
         )
@@ -125,7 +126,7 @@ def test_repair_records_changed_rows_once(tmp_path):
 
     path = tmp_path / "audit.sqlite3"
     bootstrap_database(path, user_id=USER, user_email="local@alice")
-    with sqlite_user_connection(path, USER) as conn:
+    with without_insert_floor(), sqlite_user_connection(path, USER) as conn:
         store = SQLiteVNextStore(conn, USER)
         source = add_memory(store, key="health", text="Private observation", domain="health")
         derived = store.create_memory(
@@ -261,7 +262,7 @@ def test_every_open_of_a_vault_holding_a_cycle_raises_the_clear_error_and_change
 
     path = tmp_path / "cycle.sqlite3"
     bootstrap_database(path, user_id=USER, user_email="local@alice")
-    with sqlite_user_connection(path, USER) as conn:
+    with without_insert_floor(), sqlite_user_connection(path, USER) as conn:
         store = SQLiteVNextStore(conn, USER)
         ids = sorted(add_memory(store, key=name, text=f"Row {name}")["id"] for name in "abc")
         # Each memory records the next as its consolidation input, and the labels alternate around the cycle.
@@ -280,7 +281,7 @@ def test_every_open_of_a_vault_holding_a_cycle_raises_the_clear_error_and_change
             bootstrap_database(path, user_id=USER, user_email="local@alice")
         assert all(f"memories {row_id}" in str(caught.value) for row_id in ids)
     with pytest.raises(DerivedDomainRepairError, match="did not settle"):
-        with sqlite_user_connection(path, USER):
+        with without_insert_floor(), sqlite_user_connection(path, USER):
             pass
     with sqlite3.connect(path) as raw:
         assert [row[0] for row in raw.execute("SELECT domain FROM memories ORDER BY id")] == ["health", "legal", "health"]
@@ -296,7 +297,7 @@ def test_import_of_a_backup_holding_a_cycle_stops_before_publication(tmp_path, m
     destination = tmp_path / "restored.sqlite3"
     backup = tmp_path / "backup.jsonl"
     bootstrap_database(source, user_id=USER, user_email="local@alice")
-    with sqlite_user_connection(source, USER) as conn:
+    with without_insert_floor(), sqlite_user_connection(source, USER) as conn:
         store = SQLiteVNextStore(conn, USER)
         ids = sorted(add_memory(store, key=name, text=f"Row {name}")["id"] for name in "abc")
         # The vault is stamped as repaired, so it opens and exports. Its rows still form the cycle that
@@ -323,7 +324,7 @@ def test_sqlite_repair_follows_available_artifact_and_leaves_missing_inputs(tmp_
 
     path = tmp_path / "promoted.sqlite3"
     bootstrap_database(path, user_id=USER, user_email="local@alice")
-    with sqlite_user_connection(path, USER) as conn:
+    with without_insert_floor(), sqlite_user_connection(path, USER) as conn:
         store = SQLiteVNextStore(conn, USER)
         # The local product does not store artifacts. Imported references to
         # absent artifacts are not guessed from copied text.
@@ -446,7 +447,7 @@ def _seed_memory_chain(path, size=16):
 
     bootstrap_database(path, user_id=USER, user_email="local@alice")
     ids = [str(UUID(int=1000 + index)) for index in range(size)]
-    with sqlite_user_connection(path, USER) as conn:
+    with without_insert_floor(), sqlite_user_connection(path, USER) as conn:
         store = SQLiteVNextStore(conn, USER)
         for index, memory_id in enumerate(ids):
             store.create_memory({

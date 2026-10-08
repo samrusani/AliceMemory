@@ -22,6 +22,7 @@ from alicebot_api.vnext_stores.postgres.primitives import (
     _json_object,
     _sorted_field_names,
 )
+from alicebot_api.vnext_label_writes import takes_label_lock
 from alicebot_api.vnext_stores.postgres.query_predicates import (
     _OPEN_LOOP_SCOPE_EVENT_TIME_SQL,
     _OPEN_LOOP_SCOPE_PEOPLE_SQL,
@@ -807,7 +808,11 @@ def update_belief_status(
     )
     return row
 
+@takes_label_lock
 def create_open_loop(self, loop: JsonObject, *, actor_type: str = "system") -> VNextRow:
+    from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
+
+    loop, floor_event = apply_insert_floor(self, "open_loop", loop)
     row = self._fetch_one(
         "create_open_loop",
         f"""
@@ -885,6 +890,7 @@ def create_open_loop(self, loop: JsonObject, *, actor_type: str = "system") -> V
         target_id=row["id"],
         payload={"operation": "create", "fields": _sorted_field_names(loop)},
     )
+    remember_floor_event(self, floor_event, row["id"])
     return row
 
 def upsert_open_loop_by_automation_digest(
@@ -918,10 +924,10 @@ def upsert_open_loop_by_automation_digest(
     try:
         return self.create_open_loop(record, actor_type=actor_type)
     except ContinuityStoreInvariantError:
+        # The unique digest belongs to the user, not the mutable project or
+        # person columns. Label propagation may have emptied those columns.
         existing = self.find_open_loop_by_automation_digest(
             digest=normalized_digest,
-            project_id=str(loop["project_id"]) if loop.get("project_id") is not None else None,
-            person_id=str(loop["person_id"]) if loop.get("person_id") is not None else None,
         )
         if existing is None:
             raise
@@ -1198,7 +1204,20 @@ def list_open_loop_events(
         ),
     )
 
+@takes_label_lock
 def update_open_loop(self, *, loop_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+    from alicebot_api.vnext_label_writes import clamp_owner_patch, merge_protected_metadata, prepare_label_patch, propagate_after_write
+
+    before = self.get_open_loop(loop_id)
+    patch = dict(patch)
+    metadata = patch.get("metadata_json")
+    if before is not None and isinstance(metadata, dict):
+        patch["metadata_json"] = merge_protected_metadata(
+            before.get("metadata_json") if isinstance(before.get("metadata_json"), dict) else {},
+            metadata, label_write=False,
+        )
+    patch = prepare_label_patch(self, "open_loop", before, patch)
+    patch = clamp_owner_patch(self, kind="open_loop", before=before, patch=patch)
     row = self._fetch_one(
         "update_open_loop",
         f"""
@@ -1236,8 +1255,10 @@ def update_open_loop(self, *, loop_id: str, patch: JsonObject, actor_type: str =
         target_id=row["id"],
         payload={"operation": "update", "changes": patch},
     )
+    propagate_after_write(self, kind="open_loop", before=before, after=row)
     return row
 
+@takes_label_lock
 def update_open_loop_status(
     self,
     *,

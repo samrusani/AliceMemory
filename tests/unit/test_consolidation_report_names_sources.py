@@ -92,6 +92,7 @@ def _source(store, **fields) -> dict:
 
 
 def _run(store, mapping, **request) -> dict:
+    request.setdefault("agent_identity", None)
     request.setdefault("sensitivity_allowed", EVERYTHING)
     return VNextConsolidationService(
         store, embedding_provider=MappedEmbeddingProvider(mapping)
@@ -446,7 +447,7 @@ def test_a_source_that_shares_a_memory_id_never_stands_in_for_the_memory_label(t
             "metadata_json": {"source_refs": [f"source:{source_id}"]},
         })
         report = VNextConsolidationService(store, embedding_provider=MappedEmbeddingProvider(mapping)).generate_memory_consolidation(
-            MemoryConsolidationRequest(sensitivity_allowed=list(ALL_SENSITIVITY), propose_rollups=False,
+            MemoryConsolidationRequest(agent_identity=None, sensitivity_allowed=list(ALL_SENSITIVITY), propose_rollups=False,
                                        create_candidate_memories=False))
     assert source_id in json.dumps(report["metadata_json"]) and protected["canonical_text"] in report["content_markdown"]
     assert (report["domain"], report["sensitivity"]) == ("project", "confidential")

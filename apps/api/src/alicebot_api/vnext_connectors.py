@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 from collections.abc import Iterator, Mapping, Sequence
 import csv
 from dataclasses import dataclass, field
@@ -28,6 +30,7 @@ from alicebot_api.vnext_capture import (
 )
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_event_log import append_event
+from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_project_scope import resolve_project_scope
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_secrets import (
@@ -1178,15 +1181,14 @@ class VNextConnectorService:
 
     def get_cursor(self, connector_name: str) -> str | None:
         definition = get_connector_definition(connector_name)
-        if hasattr(self.store, "get_connector_state"):
-            state = cast(Any, self.store).get_connector_state(definition.name)
-            if isinstance(state, dict):
-                cursor = _as_optional_text(state.get("cursor_value"))
-                if cursor is not None:
-                    return cursor
+        state = self._connector_row("states", "get_connector_state", definition.name)
+        if isinstance(state, dict):
+            cursor = _as_optional_text(state.get("cursor_value"))
+            if cursor is not None:
+                return cursor
         events = [
             event
-            for event in self.store.list_events(target_type="connector", target_id=definition.name)
+            for event in self._connector_events(definition.name)
             if event.get("event_type") == "connector.sync_completed"
         ]
         events.sort(key=lambda event: str(event.get("occurred_at") or ""), reverse=True)
@@ -1326,13 +1328,12 @@ class VNextConnectorService:
 
     def get_config(self, connector_name: str) -> JsonObject:
         definition = get_connector_definition(connector_name)
-        if hasattr(self.store, "get_connector_setting"):
-            row = cast(Any, self.store).get_connector_setting(definition.name)
-            if isinstance(row, dict):
-                return self._setting_row_to_config(row)
+        row = self._connector_row("settings", "get_connector_setting", definition.name)
+        if isinstance(row, dict):
+            return self._setting_row_to_config(row)
         events = [
             event
-            for event in self.store.list_events(target_type="connector", target_id=definition.name)
+            for event in self._connector_events(definition.name)
             if event.get("event_type") == "connector.config_updated"
         ]
         events.sort(key=lambda event: str(event.get("occurred_at") or ""), reverse=True)
@@ -1379,11 +1380,9 @@ class VNextConnectorService:
     def connector_health(self, connector_name: str) -> JsonObject:
         definition = get_connector_definition(connector_name)
         config = self.get_config(definition.name)
-        state = None
-        if hasattr(self.store, "get_connector_state"):
-            candidate_state = cast(Any, self.store).get_connector_state(definition.name)
-            state = candidate_state if isinstance(candidate_state, dict) else None
-        events = self.store.list_events(target_type="connector", target_id=definition.name)
+        candidate_state = self._connector_row("states", "get_connector_state", definition.name)
+        state = candidate_state if isinstance(candidate_state, dict) else None
+        events = self._connector_events(definition.name)
         events.sort(key=lambda event: str(event.get("occurred_at") or ""), reverse=True)
         sync_events = [
             event
@@ -1503,9 +1502,56 @@ class VNextConnectorService:
             else None,
         }
 
+    def _connector_row(self, namespace: str, method: str, name: str):
+        from alicebot_api.vnext_label_guard import request_row_cache
+
+        cache = request_row_cache(self.store, "connector_health_inputs")
+        if cache is not None and namespace in cache and name in cache[namespace]:
+            return deepcopy(cache[namespace][name])
+        getter = getattr(self.store, method, None)
+        row = getter(name) if callable(getter) else None
+        if cache is not None:
+            cache.setdefault(namespace, {})[name] = deepcopy(row)
+        return row
+
+    def _connector_events(self, name: str):
+        from alicebot_api.vnext_label_guard import request_row_cache
+
+        cache = request_row_cache(self.store, "connector_health_inputs")
+        if cache is not None and name in cache.get("events", {}):
+            return deepcopy(cache["events"][name])
+        events = self.store.list_events(target_type="connector", target_id=name)
+        if cache is not None:
+            cache.setdefault("events", {})[name] = deepcopy(events)
+        return events
+
     def connector_health_all(self) -> JsonObject:
-        items = [self.connector_health(definition.name) for definition in list_connector_definitions()]
-        return {"items": items, "count": len(items), "order": [str(item["connector_name"]) for item in items]}
+        from copy import deepcopy
+        from alicebot_api.vnext_label_guard import request_row_cache
+
+        # Workspace, dogfooding and doctor render the same connector snapshot
+        # in one guarded request. Keep this raw census request-local, with the
+        # same store/write invalidation as label input rows.
+        cache = request_row_cache(self.store, "connector_health_all")
+        if cache is not None and "result" in cache:
+            return deepcopy(cache["result"])
+        definitions = list_connector_definitions()
+        inputs = request_row_cache(self.store, "connector_health_inputs")
+        if inputs is not None:
+            # Native stores expose the same tenant-scoped settings and states
+            # in one read. Missing rows still use the historical event fallback.
+            for namespace, method in (("settings", "list_connector_settings"), ("states", "list_connector_states")):
+                if callable(getattr(type(self.store), method, None)):
+                    rows = getattr(self.store, method)()
+                    by_name = {str(row["connector_name"]): deepcopy(row) for row in rows
+                               if isinstance(row, dict) and row.get("connector_name")
+                               and (namespace != "states" or row.get("cursor_type") == "sync_cursor")}
+                    inputs[namespace] = {definition.name: by_name.get(definition.name) for definition in definitions}
+        items = [self.connector_health(definition.name) for definition in definitions]
+        result: JsonObject = {"items": items, "count": len(items), "order": [str(item["connector_name"]) for item in items]}
+        if cache is not None:
+            cache["result"] = deepcopy(result)
+        return result
 
     def set_connector_secret(self, connector_name: str, *, secret_ref: str, secret_value: str) -> JsonObject:
         definition = get_connector_definition(connector_name)
@@ -1774,17 +1820,20 @@ class VNextConnectorService:
                 "domain": _as_optional_text(payload.get("domain")) or "project",
                 "sensitivity": _as_optional_text(payload.get("sensitivity")) or "private",
                 "generated_by": agent_id,
-                "metadata_json": {
-                    "connector_name": "agent_output",
-                    "agent_identity": agent_identity,
-                    "agent_id": agent_id,
-                    "agent_run_id": item.metadata_json.get("agent_run_id"),
-                    "project_scope": item.metadata_json.get("project_scope") or [],
-                    "source_id": source_id,
-                    "source_refs": [f"source:{source_id}"] if source_id else [],
-                    "output_type": _as_optional_text(payload.get("output_type")) or "general",
-                    "review_status": "needs_review",
-                },
+                "metadata_json": with_derived_from(
+                    {
+                        "connector_name": "agent_output",
+                        "agent_identity": agent_identity,
+                        "agent_id": agent_id,
+                        "agent_run_id": item.metadata_json.get("agent_run_id"),
+                        "project_scope": item.metadata_json.get("project_scope") or [],
+                        "source_id": source_id,
+                        "source_refs": [f"source:{source_id}"] if source_id else [],
+                        "output_type": _as_optional_text(payload.get("output_type")) or "general",
+                        "review_status": "needs_review",
+                    },
+                    {"sources": [{"id": source_id}] if source_id else []},
+                ),
             },
             actor_type="agent",
         )
@@ -1836,17 +1885,23 @@ class VNextConnectorService:
                     "project_id": proposal_scope[0] if len(proposal_scope) == 1 else None,
                     "created_by_agent_id": agent_id,
                     "run_id": item.metadata_json.get("agent_run_id"),
-                    "metadata_json": {
-                        "connector_name": "agent_output",
-                        "agent_identity": agent_identity,
-                        "agent_id": agent_id,
-                        "agent_run_id": item.metadata_json.get("agent_run_id"),
-                        "source_id": source_id,
-                        "artifact_id": artifact_id,
-                        "review_required": True,
-                        "policy_decision": policy_decision,
-                        **({"project_scope": list(proposal_scope)} if proposal_scope else {}),
-                    },
+                    "metadata_json": with_derived_from(
+                        {
+                            "connector_name": "agent_output",
+                            "agent_identity": agent_identity,
+                            "agent_id": agent_id,
+                            "agent_run_id": item.metadata_json.get("agent_run_id"),
+                            "source_id": source_id,
+                            "artifact_id": artifact_id,
+                            "review_required": True,
+                            "policy_decision": policy_decision,
+                            **({"project_scope": list(proposal_scope)} if proposal_scope else {}),
+                        },
+                        {
+                            "sources": [{"id": source_id}] if source_id else [],
+                            "artifacts": [{"id": artifact_id}] if artifact_id else [],
+                        },
+                    ),
                 },
                 actor_type="agent",
             )

@@ -43,6 +43,7 @@ def _no_embedding_provider(monkeypatch):
 
 
 def _run(store, **request) -> dict:
+    request.setdefault("agent_identity", None)
     request.setdefault("sensitivity_allowed", EVERYTHING)
     return VNextConsolidationService(store, embedding_provider=None).generate_memory_consolidation(
         MemoryConsolidationRequest(**request)
@@ -101,7 +102,7 @@ def test_cluster_rows_and_roll_up_rows_are_labelled_together() -> None:
             row["sensitivity"] = cluster_sensitivity if str(row["id"]) in cluster_ids else rollup_sensitivity
         artifact = VNextConsolidationService(
             store, embedding_provider=MappedEmbeddingProvider(mapping)
-        ).generate_memory_consolidation(MemoryConsolidationRequest(sensitivity_allowed=EVERYTHING))
+        ).generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, sensitivity_allowed=EVERYTHING))
 
         assert artifact["metadata_json"]["consolidation"]["cluster_membership"], "the run must have a cluster"
         assert len(artifact["metadata_json"]["rollups"]["proposals"]) == 1, "and a roll-up card"
@@ -234,7 +235,7 @@ def test_a_row_the_cluster_and_a_roll_up_line_both_name_counts_once_for_the_doma
         row["domain"] = "health" if str(row["id"]) in cluster_ids else "legal"
     artifact = VNextConsolidationService(
         store, embedding_provider=MappedEmbeddingProvider(mapping)
-    ).generate_memory_consolidation(MemoryConsolidationRequest(sensitivity_allowed=EVERYTHING))
+    ).generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, sensitivity_allowed=EVERYTHING))
 
     assert artifact["metadata_json"]["consolidation"]["cluster_membership"]
     assert any(

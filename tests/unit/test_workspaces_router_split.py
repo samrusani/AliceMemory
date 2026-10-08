@@ -1,3 +1,5 @@
+# Round three receipts: native FTS offset paging, explicit NULL project clamps,
+# and owner/admin workspace parity. Existing graft identities and schema pins remain enforced.
 from __future__ import annotations
 
 import ast
@@ -21,7 +23,7 @@ ROUTE_NAMES = (
     "bootstrap_v1_workspace",
     "get_v1_workspace_bootstrap_status",
 )
-SUPPORT_NAMES = ("_vnext_status_counts", "_vnext_workspace_payload")
+SUPPORT_NAMES = ("_vnext_status_counts", "_vnext_workspace_payload", "_workspace_rows", "_workspace_event_visible")
 PARTITION_ROUTE_NAMES = {
     "core_router": ("get_vnext_workspace",),
     "bootstrap_router": (
@@ -78,11 +80,18 @@ MAIN_PRUNED_BINDINGS = {
     "summarize_agent_policy_telemetry",
 }
 
-EXPECTED_ROUTE_AST_SHA256 = "fb8925ebcda058598b0c6d5e7eca83abe18606a0126bdb6cde0fd1c22444a795"
-EXPECTED_SUPPORT_AST_SHA256 = "878128b51d8e8fd091f189f4595ab7774c736667f68e251399e476f9086089df"
+# Re-minted support/import receipts for effective-label workspace filtering.
+# The later typing repair adds Sequence and annotates _workspace_rows.
+# Two local helpers admit rows and check event targets; the payload uses them
+# before returning lists/counts. Route bodies, mounts and middleware are unchanged.
+
+# Re-pin 2026-10-06: workspace reads authenticate the protected identity and
+# admit rows through effective labels before totals or dashboard disclosure.
+EXPECTED_ROUTE_AST_SHA256 = "b99f1435de67d9499819acb9ed7ed61b588a3fb0ff037e782eeca070b39af742"
+EXPECTED_SUPPORT_AST_SHA256 = "701353bcdfe16d5502eafbd3df6d0659acc2e8b85a911c33b7a594348cae5b9b"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
-EXPECTED_IMPORT_MANIFEST_SHA256 = "8d9669a4024ea5258cd50f92ac290c2a040ff224dd0a67b5c60faed5ae722517"
+EXPECTED_IMPORT_MANIFEST_SHA256 = "e8c18d6831ca012b55b22f46c9b2151d62575773a2452ef0d0f2e869cabc8abb"
 EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e92413391541a7e504da328b"
 # Re-pinned 2026-10-02 (DB-005, legacy /v0 routes). One definition changed,
 # found by a per-definition AST diff against the previous pin:
@@ -122,15 +131,21 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # lone_surrogates.py and main.py only registers it, so it adds no definition
 # here. Earlier re-pin (2026-09-26): _rewrite_user_id_json_body writes the
 # rewritten JSON into request._body before call_next.
-EXPECTED_CARRIER_AST_SHA256 = "ab3fc6d61cb81a1b9c1a6573adc8e1e297cbbcf01e230effd4a0824dee2d8e2b"
+
+# Re-pin 2026-10-06: source regeneration is a new protected write route in the
+# central vNext route policy; the app carrier keeps the same definitions.
+# Round two moves source GET to the route-local full fence; definitions are unchanged.
+EXPECTED_CARRIER_AST_SHA256 = "b634b5cab5c2821bad5cc4a3eb718c5a825eee246fa4397c2c8add6336e9b718"
 EXPECTED_ROUTE_NODE_SHA256 = {
-    "get_vnext_workspace": "6c2151bf38b1b1311f016c00d14394afc7077a6ea219f7ce3dcfd9b701474ae7",
+    "get_vnext_workspace": "52c12b20d7bb33759f8dafa2249b2d775b54666130402c0c75045e9ad57ed587",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",
     "get_v1_workspace_bootstrap_status": "2849d7126ee37b6e3ffd9ebe84b2a8e719eb0f811da750a29f7e0a0798305faa",
 }
 EXPECTED_SUPPORT_NODE_SHA256 = {
     "_vnext_status_counts": "0bf0ed228a14bd648a9d18fcd5f99ebf8c585bd29f4b5e81e1df17fe0201fd15",
-    "_vnext_workspace_payload": "166fc46cc669ff465eb7b1fb3b49be7e1b9d0aeba40872abcb3d958906914e90",
+    "_vnext_workspace_payload": "d076d390f1667942ff6ef833eb8419cef7c4603f6ccba629675eedf384a336f8",
+    "_workspace_rows": "070bdfbd1eae10608bd8208b08367e1c0ea10e2064f03ad5a84121a190ed4cf0",
+    "_workspace_event_visible": "8343c060909326a5cb69fa6f671ac62f160630ecf989f04d78e792ea74c0ea90",
 }
 EXPECTED_ROUTE_MANIFEST = [
     ("GET", "/v0/vnext/workspace", "get_vnext_workspace"),
@@ -477,7 +492,7 @@ def test_workspace_import_direction_pruning_timing_and_runtime_identities_are_ex
     main_definitions = _top_level_definitions(main_tree)
     router_imports = _import_manifest(router_tree)
 
-    assert len(router_imports) == 30
+    assert len(router_imports) == 39
     assert hashlib.sha256(json.dumps(router_imports, separators=(",", ":")).encode()).hexdigest() == (
         EXPECTED_IMPORT_MANIFEST_SHA256
     )
@@ -506,6 +521,12 @@ def test_workspace_import_direction_pruning_timing_and_runtime_identities_are_ex
     assert MAIN_PRUNED_BINDINGS.isdisjoint(main_imports)
     assert MAIN_PRUNED_BINDINGS <= router_import_bindings
     assert main_imports & router_import_bindings == {
+        "AgentIdentity",
+        "AgentKeyAuthenticationError",
+        "Header",
+        "_vnext_agent_auth_error_response",
+        "agent_key_from_authorization",
+        "resolve_protected_agent_identity",
         "JSONResponse",
         "PostgresVNextStore",
         "Request",
@@ -518,9 +539,9 @@ def test_workspace_import_direction_pruning_timing_and_runtime_identities_are_ex
     main_loads = {
         node.id for node in ast.walk(main_tree) if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
     }
-    # /v1 agent-key authentication resolves the bound user in main, so no
-    # shared binding is a re-export-only import any more.
-    assert (main_imports & router_import_bindings) - main_loads == set()
+    # Workspace auth now consumes Header; the carrier retains its historical
+    # Header import while the other shared bindings remain runtime dependencies.
+    assert (main_imports & router_import_bindings) - main_loads == {"Header"}
 
     provider_module_imports = [
         node
@@ -587,7 +608,7 @@ def test_workspace_routes_preserve_mount_order_origins_and_operation_ids() -> No
         for method in sorted(getattr(route, "methods", None) or set())
         if method in {"GET", "POST", "PUT", "PATCH", "DELETE"}
     ]
-    expected_indices = (84, 224, 225) if main_module.LEGACY_SURFACES_ENABLED else (38, 175, 176)
+    expected_indices = (84, 225, 226) if main_module.LEGACY_SURFACES_ENABLED else (38, 176, 177)
     assert all(effective_pairs.count((method, path)) == 1 for method, path, _name in EXPECTED_ROUTE_MANIFEST)
     observed_indices = tuple(
         effective_pairs.index((method, path))

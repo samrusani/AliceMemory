@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from typing import Protocol, cast
 
 from alicebot_api.vnext_derived_domain import derived_domain
+from alicebot_api.vnext_derived_labels import input_admitted, locked_projects, with_derived_from
 from alicebot_api.credential_floor import refuse_credential_activation
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
@@ -216,7 +217,7 @@ class ProjectAutomationRequest:
     actor_id: str | None = None
     trace_id: str | None = None
     run_id: str | None = None
-    agent_identity: JsonObject | None = None
+    agent_identity: JsonObject | None = field(kw_only=True)
     policy_decision: JsonObject | None = None
     metadata_json: JsonObject = field(default_factory=dict)
     generation_mode: str = "deterministic"
@@ -459,16 +460,17 @@ def _open_loop_candidates(source: JsonObject) -> list[JsonObject]:
                     "title": title[:240],
                     "description": f"Candidate {loop_type} discovered from {source_label}.",
                     "priority": "high" if loop_type == "project_blocker" else "normal",
-                    "source_id": source.get("id"),
+                    "source_id": str(source["id"]),
                     "domain": source.get("domain", "unknown"),
                     "sensitivity": source.get("sensitivity", "unknown"),
-                    "metadata_json": {
+                    "metadata_json": with_derived_from({
                         "candidate": True,
                         "loop_type": loop_type,
                         "owner": owner,
                         "source_captured_at": source.get("captured_at"),
+                        "project_floor": list(source_project_scope(source)),
                         "discovered_by": "vnext_project_automation",
-                    },
+                    }, {"sources": [source]}),
                 }
             )
     return candidates
@@ -528,7 +530,7 @@ class VNextProjectService:
         return is_project_update_artifact(artifact)
 
     def generate_project_update_candidate(self, request: ProjectAutomationRequest | None = None) -> JsonObject:
-        request = request or ProjectAutomationRequest()
+        request = request or ProjectAutomationRequest(agent_identity=None, )
         _validate_request(request)
         project = self._resolve_project(request)
         domains = list(request.domains) if request.domains else None
@@ -551,10 +553,41 @@ class VNextProjectService:
         # defensive check at the workflow boundary so legacy adapters cannot
         # widen a project-scoped report by ignoring optional query arguments.
         project_id = str(project["id"])
-        sources = [row for row in sources if _is_source_in_project(row, project_id)]
-        memories = [
-            row for row in memories if _is_in_project(row, project_id) and row.get("status") in {"active", "accepted"}
-        ]
+        locked = locked_projects(request.agent_identity, (project_id,))
+        if locked is not None:
+            sources = [row for row in sources if input_admitted("source", row, locked)]
+            memories = [
+                row
+                for row in memories
+                if input_admitted("memory", row, locked) and row.get("status") in {"active", "accepted"}
+            ]
+        else:
+            sources = [row for row in sources if _is_source_in_project(row, project_id)]
+            memories = [
+                row
+                for row in memories
+                if _is_in_project(row, project_id) and row.get("status") in {"active", "accepted"}
+            ]
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        sources = admit_loaded(
+            self.store,
+            kind="source",
+            rows=sources,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=(project_id,),
+            all_of=locked,
+        )
+        memories = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=memories,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=(project_id,),
+            all_of=locked,
+        )
         brain_charter = _brain_charter(self.store)
         automation_digest = _project_automation_digest(
             project=project,
@@ -589,23 +622,24 @@ class VNextProjectService:
                 "domain": derived_domain([project, *sources, *memories], fallback=str(project.get("domain", "project"))),
                 "sensitivity": _highest_sensitivity([project, *sources, *memories]),
                 "project_id": project_id,
-                "metadata_json": {
-                    **request.metadata_json,
-                    "candidate": True,
-                    "workflow": "project_auto_update",
-                    "project_id": project.get("id"),
-                    "project_scope": [project_id],
-                    "automation_digest": automation_digest,
-                    "source_ids": _source_ids(sources),
-                    "memory_ids": _source_ids(memories),
-                    "generated_by": request.generated_by,
-                    "agent_identity": request.agent_identity,
-                    "agent_id": request.actor_id if request.generated_by == "agent" else None,
-                    "trace_id": request.trace_id,
-                    "policy_decision": request.policy_decision,
-                    "project_scope": [project_id],
-                    "automation_digest": automation_digest,
-                },
+                "metadata_json": with_derived_from(
+                    {
+                        **request.metadata_json,
+                        "candidate": True,
+                        "workflow": "project_auto_update",
+                        "project_id": project.get("id"),
+                        "source_ids": _source_ids(sources),
+                        "memory_ids": _source_ids(memories),
+                        "generated_by": request.generated_by,
+                        "agent_identity": request.agent_identity,
+                        "agent_id": request.actor_id if request.generated_by == "agent" else None,
+                        "trace_id": request.trace_id,
+                        "policy_decision": request.policy_decision,
+                        "project_scope": [project_id],
+                        "automation_digest": automation_digest,
+                    },
+                    {"sources": sources, "memories": memories},
+                ),
             },
             actor_type=request.generated_by,
         )
@@ -627,28 +661,29 @@ class VNextProjectService:
             "generated_by": request.generated_by if request.generated_by != "system" else "vnext_project_auto_updater",
             "prompt_hash": prompt_hash,
             "model_info_json": model_info_json,
-            "metadata_json": {
-                **request.metadata_json,
-                "workflow": "project_auto_update",
-                "workflow_type": "project_update_scan",
-                "project_id": project.get("id"),
-                "project_scope": [project_id],
-                "automation_digest": automation_digest,
-                "candidate_memory_id": candidate_memory.get("id"),
-                "suggested_current_state": suggested_current_state,
-                "source_ids": _source_ids(sources),
-                "source_refs": [f"source:{source_id}" for source_id in _source_ids(sources)],
-                "memory_ids": _source_ids(memories),
-                "generated_by": request.generated_by,
-                "agent_identity": request.agent_identity,
-                "agent_id": request.actor_id if request.generated_by == "agent" else None,
-                "agent_run_id": request.run_id if request.generated_by == "agent" else None,
-                "trace_id": request.trace_id,
-                "policy_decision": request.policy_decision,
-                **model_metadata,
-                "project_scope": [project_id],
-                "automation_digest": automation_digest,
-            },
+            "metadata_json": with_derived_from(
+                {
+                    **request.metadata_json,
+                    "workflow": "project_auto_update",
+                    "workflow_type": "project_update_scan",
+                    "project_id": project.get("id"),
+                    "automation_digest": automation_digest,
+                    "candidate_memory_id": candidate_memory.get("id"),
+                    "suggested_current_state": suggested_current_state,
+                    "source_ids": _source_ids(sources),
+                    "source_refs": [f"source:{source_id}" for source_id in _source_ids(sources)],
+                    "memory_ids": _source_ids(memories),
+                    "generated_by": request.generated_by,
+                    "agent_identity": request.agent_identity,
+                    "agent_id": request.actor_id if request.generated_by == "agent" else None,
+                    "agent_run_id": request.run_id if request.generated_by == "agent" else None,
+                    "trace_id": request.trace_id,
+                    "policy_decision": request.policy_decision,
+                    **model_metadata,
+                    "project_scope": [project_id],
+                },
+                {"sources": sources, "memories": [*memories, candidate_memory]},
+            ),
         }
         upsert_artifact = getattr(self.store, "upsert_artifact_by_workflow_digest", None)
         if callable(upsert_artifact):
@@ -737,7 +772,7 @@ class VNextProjectService:
         )
 
     def extract_open_loops(self, request: ProjectAutomationRequest | None = None) -> list[JsonObject]:
-        request = request or ProjectAutomationRequest()
+        request = request or ProjectAutomationRequest(agent_identity=None, )
         _validate_request(request)
         domains = list(request.domains) if request.domains else None
         sources = self.store.search_sources(
@@ -824,6 +859,16 @@ class VNextProjectService:
     ) -> JsonObject:
         if action not in PROJECT_UPDATE_ACTIONS:
             raise VNextProjectValidationError("project update action must be accept, edit, or reject")
+        lock_graph = getattr(self.store, "lock_graph_mutation", None)
+        if callable(lock_graph):
+            lock_graph()
+            from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+            if action in {"accept", "edit"}:
+                acquire_exclusive_label_lock(self.store)
+            else:
+                lock_labels = getattr(self.store, "lock_label_writes", None)
+                if callable(lock_labels):
+                    lock_labels()
         # The artifact is the review decision's serialization point.  Every
         # accept/edit/reject path must inspect and transition the same locked
         # row so stale reviewers cannot split project, memory, and artifact
@@ -979,11 +1024,24 @@ class VNextProjectService:
             current_state,
             error=VNextProjectValidationError,
         )
-        if self.store.get_project_for_update(project_id) is None:
+        locked_project = self.store.get_project_for_update(project_id)
+        if locked_project is None:
             raise VNextProjectValidationError("project update candidate project was not found")
+        existing_meta = locked_project.get("metadata_json")
+        project_meta = dict(existing_meta) if isinstance(existing_meta, Mapping) else {}
+        recorded_sources = candidate_metadata.get("source_ids")
+        recorded_memories = candidate_metadata.get("memory_ids")
+        project_meta = with_derived_from(
+            project_meta,
+            {
+                "sources": [{"id": item} for item in recorded_sources] if isinstance(recorded_sources, list) else [],
+                "memories": [{"id": item} for item in recorded_memories] if isinstance(recorded_memories, list) else [],
+                "artifacts": [{"id": artifact_id}],
+            },
+        )
         self.store.update_project(
             project_id=project_id,
-            patch={"current_state": current_state},
+            patch={"current_state": current_state, "metadata_json": project_meta},
             actor_type=actor_type,
         )
         updated_memory = self.store.update_memory(
@@ -1311,10 +1369,22 @@ class VNextProjectService:
         return self.store.update_open_loop(loop_id=loop_id, patch=patch)
 
     def project_dashboard(
-        self, *, project_id: str, sensitivity_allowed: tuple[str, ...] = DEFAULT_SENSITIVITY_ALLOWED
+        self,
+        *,
+        project_id: str,
+        sensitivity_allowed: tuple[str, ...] = DEFAULT_SENSITIVITY_ALLOWED,
+        identity: object | None = None,
     ) -> JsonObject:
+        from alicebot_api.vnext_agent_control import AgentIdentity
+        from alicebot_api.vnext_label_guard import admit_loaded, apply_sensitivity_ceiling
+        from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
+        from alicebot_api.vnext_source_fence import SourceReadFence
+
         project = self.store.get_project(project_id)
         if project is None:
+            raise VNextProjectValidationError(f"project {project_id} was not found")
+        caller = identity if isinstance(identity, AgentIdentity) or identity is None else None
+        if not apply_sensitivity_ceiling(self.store, kind="project", rows=[project], identity=caller):
             raise VNextProjectValidationError(f"project {project_id} was not found")
         domain = str(project.get("domain", "unknown"))
         memories = self.store.search_memories(
@@ -1342,6 +1412,31 @@ class VNextProjectService:
             scope_projects=(project_id,),
         )
         artifacts = [row for row in artifact_candidates if _is_in_project(row, project_id)][:DEFAULT_PROJECT_LIMIT]
+        memories = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=memories,
+            domains=[domain],
+            sensitivity_allowed=sensitivity_allowed,
+            projects=(project_id,),
+        )
+        open_loops = admit_loaded(
+            self.store,
+            kind="open_loop",
+            rows=open_loops,
+            domains=[domain],
+            sensitivity_allowed=sensitivity_allowed,
+            projects=(project_id,),
+        )
+        open_loops = withhold_unreadable_references(self.store, open_loops, fence=SourceReadFence.for_identity(caller))
+        artifacts = admit_loaded(
+            self.store,
+            kind="artifact",
+            rows=artifacts,
+            domains=[domain],
+            sensitivity_allowed=sensitivity_allowed,
+            projects=(project_id,),
+        )
         return {
             "project": project,
             "state": project.get("current_state"),
@@ -1362,6 +1457,16 @@ class VNextProjectService:
             domains=list(request.domains) if request.domains else None,
             sensitivity_allowed=list(request.sensitivity_allowed),
             limit=1,
+        )
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        projects = admit_loaded(
+            self.store,
+            kind="project",
+            rows=projects,
+            domains=list(request.domains) if request.domains else (),
+            sensitivity_allowed=request.sensitivity_allowed,
+            projects=(),
         )
         if not projects:
             raise VNextProjectValidationError("no active project was found for update candidate generation")

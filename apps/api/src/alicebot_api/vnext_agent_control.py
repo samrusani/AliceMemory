@@ -16,6 +16,7 @@ from alicebot_api.vnext_promotion_policy import (
 from alicebot_api.vnext_project_scope import (
     normalize_project_identifier,
     normalize_project_scope,
+    project_floor_within,
     project_scope_identity,
     resolve_project_scope,
 )
@@ -360,6 +361,7 @@ def evaluate_agent_policy(
     domains: tuple[str, ...] = (),
     sensitivity_allowed: tuple[str, ...] = DEFAULT_AGENT_SENSITIVITY,
     project_scope: tuple[str, ...] = (),
+    project_floor: tuple[str, ...] = (),
     workflow_type: str | None = None,
     write_policy: str | None = None,
     require_explicit_project_scope: bool = False,
@@ -452,6 +454,13 @@ def evaluate_agent_policy(
         )
         if out_of_scope or (require_explicit_project_scope and not project_scope):
             reasons.append("project_scope_binding_violation")
+            decision = "blocked"
+            effective_project_scope = ()
+        elif project_floor and not project_floor_within(project_floor, identity.project_scope):
+            # The floor is part of the same binding test as the scope. A locked
+            # key reads a derived row only when every project in the floor is
+            # inside the binding. An empty floor does not add a refusal.
+            reasons.append("project_floor_binding_violation")
             decision = "blocked"
             effective_project_scope = ()
         else:

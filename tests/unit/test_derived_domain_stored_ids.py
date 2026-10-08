@@ -37,6 +37,7 @@ import pytest
 from alicebot_api import sqlite_schema, vnext_derived_domain_backfill as repair
 from alicebot_api.onramp import bootstrap_database, main as onramp_main
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+from alicebot_api.vnext_label_writes import without_insert_floor
 from tests.unit.per_project_s2_support import add_memory
 from tests.unit.test_derived_domain_fence import USER
 
@@ -63,7 +64,7 @@ def _old_vault(path, monkeypatch, spellings=("upper",)):
     with monkeypatch.context() as patch:
         patch.setattr(sqlite_schema, "_relabel_derived_domains", lambda conn: None)
         bootstrap_database(path, user_id=USER, user_email="local@alice")
-        with sqlite_user_connection(path, USER) as conn:
+        with without_insert_floor(), sqlite_user_connection(path, USER) as conn:
             store = SQLiteVNextStore(conn, USER)
             health = add_memory(store, key="health", text="A restricted observation", domain="health")
             canonical_ids = []
@@ -162,7 +163,7 @@ def _twin_vault(path, monkeypatch, *, first_domain, last_domain="unknown", input
     with monkeypatch.context() as patch:
         patch.setattr(sqlite_schema, "_relabel_derived_domains", lambda conn: None)
         bootstrap_database(path, user_id=USER, user_email="local@alice")
-        with sqlite_user_connection(path, USER) as conn:
+        with without_insert_floor(), sqlite_user_connection(path, USER) as conn:
             store = SQLiteVNextStore(conn, USER)
             health = add_memory(store, key="health", text="A restricted observation", domain=input_domain)
             metadata = {"consolidation": {"cluster_member_ids": [health["id"]]}}
@@ -328,7 +329,7 @@ def test_a_refusal_writes_no_event_and_no_stamp_even_after_an_earlier_update(tmp
     with monkeypatch.context() as patch:
         patch.setattr(sqlite_schema, "_relabel_derived_domains", lambda conn: None)
         bootstrap_database(path, user_id=USER, user_email="local@alice")
-        with sqlite_user_connection(path, USER) as conn:
+        with without_insert_floor(), sqlite_user_connection(path, USER) as conn:
             store = SQLiteVNextStore(conn, USER)
             health = add_memory(store, key="health", text="A restricted observation", domain="health")
             ids = sorted(

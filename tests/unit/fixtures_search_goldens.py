@@ -17,7 +17,7 @@ GOLDENS: dict[str, dict[str, object]] = json.loads(
 {
  "brief": {
   "computed_from": {
-   "commit": "040a2a10bd959e38295c0805875e4def1a8b465f",
+   "commit": "6990607c53a12caabcfb909da771dbee9a138da8",
    "tag": "v0.20.0"
   },
   "scenarios": {
@@ -43,7 +43,7 @@ GOLDENS: dict[str, dict[str, object]] = json.loads(
  },
  "commit_result": {
   "computed_from": {
-   "commit": "040a2a10bd959e38295c0805875e4def1a8b465f",
+   "commit": "6990607c53a12caabcfb909da771dbee9a138da8",
    "tag": "v0.20.0"
   },
   "scenarios": {
@@ -1219,7 +1219,7 @@ GOLDENS: dict[str, dict[str, object]] = json.loads(
  },
  "context_pack": {
   "computed_from": {
-   "commit": "040a2a10bd959e38295c0805875e4def1a8b465f",
+   "commit": "6990607c53a12caabcfb909da771dbee9a138da8",
    "tag": "v0.20.0"
   },
   "scenarios": {
@@ -2048,13 +2048,13 @@ GOLDENS: dict[str, dict[str, object]] = json.loads(
        "policy_decision"
       ],
       "full_pack_excluded_token_estimate": 1775,
-      "full_pack_serialized_token_estimate": 4545,
+      "full_pack_serialized_token_estimate": 4550,
       "is_transport_cap": false,
       "scope": "content_sections",
       "serialized_token_estimate": 1531,
       "serialized_token_estimate_scope": "compact_mcp_tool_payload",
       "token_budget": 8000,
-      "token_estimate": 2770,
+      "token_estimate": 2775,
       "truncated": false
      },
      "trace_id": "policy-<id>",
@@ -2065,7 +2065,7 @@ GOLDENS: dict[str, dict[str, object]] = json.loads(
  },
  "import_receipt": {
   "computed_from": {
-   "commit": "040a2a10bd959e38295c0805875e4def1a8b465f",
+   "commit": "6990607c53a12caabcfb909da771dbee9a138da8",
    "tag": "v0.20.0"
   },
   "scenarios": {
@@ -2136,11 +2136,13 @@ GOLDENS: dict[str, dict[str, object]] = json.loads(
     ],
     "exit_code": 0,
     "receipt": {
+     "changed_files_count": 1,
      "duplicate_count": 4,
      "error_code": null,
      "errors": [],
      "failed_count": 0,
      "imported_count": 1,
+     "replacement_hint": "Use --supersede --dry-run to preview replacement, then --supersede to apply it.",
      "skipped_count": 0,
      "skipped_credential_items": [],
      "skipped_credentials": 0,
@@ -2427,7 +2429,7 @@ GOLDENS: dict[str, dict[str, object]] = json.loads(
  },
  "recall": {
   "computed_from": {
-   "commit": "040a2a10bd959e38295c0805875e4def1a8b465f",
+   "commit": "6990607c53a12caabcfb909da771dbee9a138da8",
    "tag": "v0.20.0"
   },
   "scenarios": {

@@ -102,10 +102,12 @@ from alicebot_api.vnext_embeddings import (
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_grounding import compute_query_grounding
 from alicebot_api.vnext_json import json_safe
+from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded, label_read_request
 from alicebot_api.vnext_lifecycle import RETIRED_STATUSES
 from alicebot_api.vnext_promotion_policy import memory_write_provenance
 from alicebot_api.vnext_project_scope import (
     is_global_scope,
+    project_floor_shape,
     project_scope_identity,
     project_scopes_overlap,
     resolve_project_scope,
@@ -946,16 +948,31 @@ def _row_scope_event_time(row: Mapping[str, object]) -> datetime | None:
     return parse_event_datetime(row.get("captured_at"))
 
 
-def _project_scope_meets(row_scope: set[str], requested: Collection[str]) -> bool:
+def _row_floor(row: Mapping[str, object]) -> tuple[str, ...]:
+    shape, floor = project_floor_shape(row)
+    return floor if shape == "list" else ()
+
+
+def _project_scope_meets(
+    row_scope: set[str],
+    requested: Collection[str],
+    *,
+    floor: Collection[str] = (),
+) -> bool:
     """Does a row's resolved project scope meet the requested tuple?
 
     The tuple may hold the reserved global marker (spec 6.1): it asks for a row
     whose scope holds no Alice project id. The one predicate in
     ``vnext_project_scope`` decides, so a request without the marker keeps the
-    plain intersection it always had.
+    plain intersection it always had. On that global branch the row's floor
+    must also sit inside the view.
     """
 
-    return project_scopes_overlap(tuple(sorted(row_scope)), tuple(sorted(requested)))
+    return project_scopes_overlap(
+        tuple(sorted(row_scope)),
+        tuple(sorted(requested)),
+        floor=tuple(floor),
+    )
 
 
 def _is_held_back_global(
@@ -984,7 +1001,11 @@ def _row_matches_scope(
         if source_scope_envelope
         else _row_project_scope_values(row)
     )
-    if scope.projects and not _project_scope_meets(project_scope, scope.projects):
+    if scope.projects and not _project_scope_meets(
+        project_scope,
+        scope.projects,
+        floor=_row_floor(row),
+    ):
         return False
     if scope.exclude_global_domains and _is_held_back_global(
         row, project_scope, scope.exclude_global_domains
@@ -1229,7 +1250,11 @@ def _graph_memory_admissible(
     if memory_types and row.get("memory_type") not in memory_types:
         return False
     if projects:
-        if not _project_scope_meets(_row_project_scope_values(row), projects):
+        if not _project_scope_meets(
+            _row_project_scope_values(row),
+            projects,
+            floor=_row_floor(row),
+        ):
             return False
     if created_by_agent_ids and row.get("created_by_agent_id") not in created_by_agent_ids:
         return False
@@ -2506,6 +2531,7 @@ def expand_provenance_once(
     selected = set(already_selected_ids)
     admitted: list[JsonObject] = []
     used_tokens = 0
+    candidates: list[JsonObject] = []
     for row in list_refs(source_id=source_id):
         if not isinstance(row, Mapping):
             continue
@@ -2529,7 +2555,16 @@ def expand_provenance_once(
             scope_window_end=scope_window_end,
         ):
             continue
-        item = dict(row)
+        candidates.append(dict(row))
+    for item in admit_loaded(
+        store,
+        kind="memory",
+        rows=candidates,
+        domains=effective_domains,
+        sensitivity_allowed=effective_sensitivity_allowed,
+        projects=effective_project_scope,
+    ):
+        row_id = str(item.get("id") or "")
         cost = estimate_item_tokens(item)
         if used_tokens + cost > token_cap:
             break
@@ -2668,24 +2703,48 @@ class VNextRetrievalService:
             edges.extend(list_edges(from_id=entity_id))
         return edges
 
-    def _memories_by_ids(self, memory_ids: Sequence[str]) -> dict[str, JsonObject]:
+    def _memories_by_ids(
+        self,
+        memory_ids: Sequence[str],
+        *,
+        domains: Sequence[str] | None = None,
+        sensitivity_allowed: Sequence[str] | None = None,
+        projects: Sequence[str] | None = None,
+        effective: bool = True,
+    ) -> dict[str, JsonObject]:
         normalized_ids = tuple(dict.fromkeys(str(memory_id) for memory_id in memory_ids if memory_id))
         if not normalized_ids:
             return {}
+        from alicebot_api.vnext_label_guard import request_row_cache
+
+        cached = request_row_cache(self.store, "retrieval_memories")
+        requested_ids = tuple(item for item in normalized_ids if cached is None or item not in cached)
         bulk = getattr(self.store, "get_memories_by_ids", None)
         if callable(bulk):
             rows = [
                 row
-                for start in range(0, len(normalized_ids), MEMORY_ID_LOOKUP_BATCH_SIZE)
-                for row in bulk(normalized_ids[start : start + MEMORY_ID_LOOKUP_BATCH_SIZE])
+                for start in range(0, len(requested_ids), MEMORY_ID_LOOKUP_BATCH_SIZE)
+                for row in bulk(requested_ids[start : start + MEMORY_ID_LOOKUP_BATCH_SIZE])
             ]
         else:
             get_memory = getattr(self.store, "get_memory", None)
             rows = (
-                [row for memory_id in normalized_ids if (row := get_memory(memory_id)) is not None]
+                [row for memory_id in requested_ids if (row := get_memory(memory_id)) is not None]
                 if callable(get_memory)
                 else []
             )
+        if cached is not None:
+            cached.update({item: None for item in requested_ids})
+            cached.update({str(row.get("id")): row for row in rows})
+            rows = [cached[item] for item in normalized_ids if cached.get(item) is not None]
+        rows = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=rows,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+        ) if effective else rows
         return {str(row.get("id")): row for row in rows}
 
     def _sources_by_ids(self, source_ids: Sequence[str]) -> dict[str, JsonObject]:
@@ -3021,7 +3080,7 @@ class VNextRetrievalService:
         filters = _optional_search_filters(memory_types, projects, created_by_agent_ids, run_id)
         scope_filters: dict[str, object] = {}
         search_memories_fts = getattr(self.store, "search_memories_fts", None)
-        active_search = search_memories_fts if callable(search_memories_fts) else self.store.search_memories
+        active_search = cast(Callable[..., list[JsonObject]], search_memories_fts if callable(search_memories_fts) else self.store.search_memories)
         effective_people = tuple(sorted(scope.people)) if scope is not None else scope_people
         effective_window_start = scope.window_start if scope is not None else scope_window_start
         effective_window_end = scope.window_end if scope is not None else scope_window_end
@@ -3043,58 +3102,54 @@ class VNextRetrievalService:
                 "scope_window_start": effective_window_start,
                 "scope_window_end": effective_window_end,
             }
-        if callable(search_memories_fts):
-            rows = search_memories_fts(
-                query=query,
-                domains=domains or None,
-                sensitivity_allowed=sensitivity_allowed,
-                limit=limit,
-                **filters,
-                **scope_filters,
+        options = {"query": query, "domains": domains or None,
+                   "sensitivity_allowed": sensitivity_allowed, **filters, **scope_filters}
+        fts = callable(search_memories_fts)
+        source = str(getattr(self.store, "fts_stage_source", "postgres_fts")) if fts else "store_lexical"
+        rows = active_search(limit=limit, **options)
+        if fts and not rows and len(fts_fallback_tokens(query)) >= 2:
+            # Preserve the strict-AND to OR fallback and its disclosed stage.
+            try:
+                options["match_any"] = True
+                rows = active_search(limit=limit, **options)
+            except TypeError:
+                return [], source
+            source += "_or_fallback"
+
+        def fetch(prefix_limit):
+            raw = rows if prefix_limit == limit else active_search(limit=prefix_limit, **options)
+            return raw, source
+
+        def select_rows(raw):
+            return admit_loaded(
+                self.store, kind="memory", rows=raw, domains=domains,
+                sensitivity_allowed=sensitivity_allowed, projects=projects,
             )
-            # Display-only trace label; SQLite stores override it via
-            # ``fts_stage_source`` so traces do not claim a Postgres stage.
-            fts_source = str(getattr(self.store, "fts_stage_source", "postgres_fts"))
-            if not rows and len(fts_fallback_tokens(query)) >= 2:
-                # Strict AND semantics found nothing for a multi-word query.
-                # With no embeddings configured (the default first-hour
-                # setup) FTS is the whole recall path, so a natural-language
-                # question would return zero results against memories a
-                # keyword query finds instantly. Retry once with OR
-                # semantics; the source string keeps the trace honest about
-                # the relaxed pass, and fallback rows join RRF fusion
-                # exactly like strict FTS rows. Single-token queries skip
-                # the retry (OR and AND are identical there), and a strict
-                # hit above never reaches this branch.
-                try:
-                    rows = search_memories_fts(
-                        query=query,
-                        domains=domains or None,
-                        sensitivity_allowed=sensitivity_allowed,
-                        limit=limit,
-                        match_any=True,
-                        **filters,
-                        **scope_filters,
-                    )
-                except TypeError:
-                    # Store predates the match_any kwarg; keep the strict
-                    # (empty) result rather than guessing.
-                    return [], fts_source
-                return _stabilize_scored_rows(rows), f"{fts_source}_or_fallback"
-            return _stabilize_scored_rows(rows), fts_source
-        legacy_search = cast(
-            Callable[..., list[JsonObject]],
-            getattr(self.store, "search_memories"),
-        )
-        rows = legacy_search(
-            query=query,
-            domains=domains or None,
-            sensitivity_allowed=sensitivity_allowed,
-            limit=limit,
-            **filters,
-            **scope_filters,
-        )
-        return list(rows), "store_lexical"
+
+        if fts and getattr(self.store, "memory_fts_offset_paging", False) is True:
+            # Native stores page their ranked SQL result to actual exhaustion.
+            # Only legacy prefix adapters have the 16,384-row compatibility
+            # ceiling. Do not turn that ceiling into a native false negative.
+            selected = []
+            seen: set[str] = set()
+            offset, page_limit, raw = 0, limit, rows
+            while True:
+                fresh = [row for row in _dedupe_retrieval_rows(raw) if str(row.get("id")) not in seen]
+                if raw and not fresh:
+                    raise VNextRetrievalCompletenessError("native memory search returned a non-progressing page")
+                seen.update(str(row.get("id")) for row in fresh)
+                selected.extend(select_rows(fresh))
+                if len(selected) >= limit or len(raw) < page_limit:
+                    break
+                offset += len(raw)
+                page_limit = min(max(limit, 128), 1024)
+                raw = active_search(limit=page_limit, offset=offset, **options)
+        else:
+            selected, source = _fetch_filtered_prefix(
+                fetch, select_rows=select_rows, target=limit, initial_limit=limit,
+            )
+        selected = selected[:limit]
+        return (_stabilize_scored_rows(selected) if fts else selected), source
 
     def _query_embedding(self, query: str) -> tuple[list[float] | None, str]:
         if self.embedding_provider is None:
@@ -3195,6 +3250,14 @@ class VNextRetrievalService:
             return [], VECTOR_STAGE_DISABLED_QUERY_EMBEDDING_FAILED
         # Ascending stage: smaller distance ranks first. Equal distances
         # (identical texts embed identically) stabilize content-first.
+        rows = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=rows,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+        )
         return _stabilize_scored_rows(rows, score_key="vector_distance", descending=False), VECTOR_STAGE_ENABLED
 
     def _memory_graph_rows(
@@ -3281,7 +3344,14 @@ class VNextRetrievalService:
         ranked: list[tuple[datetime, datetime, str, JsonObject]] = []
         visible_entity_ids: set[str] = set()
         readable_mentions: dict[str, set[tuple[str, str]]] = {entity_id: set() for entity_id in entity_ids}
-        memories_by_id = self._memories_by_ids(tuple(observed_at_by_memory))
+        memories_by_id = self._memories_by_ids(
+            tuple(observed_at_by_memory),
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+        )
+        graph_candidates: list[JsonObject] = []
+        graph_observed: list[datetime] = []
         for memory_id, observed_at in observed_at_by_memory.items():
             row = memories_by_id.get(memory_id)
             if row is None:
@@ -3303,12 +3373,29 @@ class VNextRetrievalService:
                 scope_window_end=scope_window_end,
             ):
                 continue
+            graph_candidates.append(row)
+            graph_observed.append(observed_at)
+        admitted_graph_ids = {
+            str(row.get("id"))
+            for row in admit_loaded(
+                self.store,
+                kind="memory",
+                rows=graph_candidates,
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                projects=projects,
+            )
+        }
+        for row, observed_at in zip(graph_candidates, graph_observed, strict=True):
+            memory_id = str(row.get("id"))
+            if memory_id not in admitted_graph_ids:
+                continue
             recency = (
                 _parse_timestamp(row.get("updated_at"))
                 or _parse_timestamp(row.get("created_at"))
                 or _GRAPH_EPOCH
             )
-            ranked.append((observed_at, recency, str(row.get("id")), row))
+            ranked.append((observed_at, recency, memory_id, row))
             visible_entity_ids.update(entities_by_memory[memory_id])
             for entity_id in entities_by_memory[memory_id]:
                 readable_mentions[entity_id].add(("memory", memory_id))
@@ -3387,6 +3474,14 @@ class VNextRetrievalService:
             sensitivity_allowed=sensitivity_allowed,
             limit=limit,
             **_optional_search_filters(memory_types, projects, created_by_agent_ids, run_id),
+        )
+        rows = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=rows,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
         )
         return list(rows), TEMPORAL_STAGE_ENABLED
 
@@ -3777,7 +3872,7 @@ class VNextRetrievalService:
         entity graph here, once, like the memory stages do.
         """
 
-        return _memory_visibility_predicate(
+        base = _memory_visibility_predicate(
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             scope=scope,
@@ -3785,6 +3880,23 @@ class VNextRetrievalService:
                 self._person_linked_memory_ids(scope.people) if scope is not None else frozenset()
             ),
         )
+        project_filter = tuple(scope.projects) if scope is not None else ()
+
+        def visible(row: Mapping[str, object]) -> bool:
+            if not base(row):
+                return False
+            return bool(
+                admit_loaded(
+                    self.store,
+                    kind="memory",
+                    rows=[row],
+                    domains=domains,
+                    sensitivity_allowed=sensitivity_allowed,
+                    projects=project_filter,
+                )
+            )
+
+        return visible
 
     def fence_validity_memory_ids(
         self,
@@ -3921,6 +4033,7 @@ class VNextRetrievalService:
         )
         return excerpts, stage_record
 
+    @label_read_request
     def compile_context_pack(self, request: VNextRetrievalRequest, *, source_fence: SourceReadFence) -> JsonObject:
         """Compile one context pack for a caller.
 
@@ -4365,6 +4478,14 @@ class VNextRetrievalService:
             person_linked_memory_ids=frozenset(),
             target=DEFAULT_OPEN_LOOP_LIMIT,
             store_scope_complete=bool(open_loop_scope_filters),
+        )
+        open_loop_rows = admit_loaded(
+            self.store,
+            kind="open_loop",
+            rows=open_loop_rows,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=tuple(scope.projects),
         )
         open_loop_rows = open_loop_rows[:DEFAULT_OPEN_LOOP_LIMIT]
 
@@ -5176,6 +5297,12 @@ class VNextRetrievalService:
                 sensitivity_allowed=sensitivity_allowed,
                 limit=belief_target,
             )
+        beliefs = LabelGuard.for_filters(
+            self.store,
+            domains,
+            sensitivity_allowed,
+            tuple(scope.projects),
+        ).admit_beliefs(list(beliefs))
         candidates = vnext_contradictions._find_candidates(  # noqa: SLF001 - deliberate read-only reuse
             new_items=new_items,
             beliefs=list(beliefs),
@@ -5235,8 +5362,19 @@ class VNextRetrievalService:
                 )
             ]
             targets = self._memories_by_ids(
-                [str(event.get("target_id") or "") for event in eligible]
+                [str(event.get("target_id") or "") for event in eligible], effective=False
             )
+            admitted_targets = {
+                str(row.get("id"))
+                for row in admit_loaded(
+                    self.store,
+                    kind="memory",
+                    rows=list(targets.values()),
+                    domains=domains,
+                    sensitivity_allowed=sensitivity_allowed,
+                    projects=tuple(scope.projects),
+                )
+            }
 
             def _target_visible(event: JsonObject) -> bool:
                 target = targets.get(str(event.get("target_id") or ""))
@@ -5244,6 +5382,8 @@ class VNextRetrievalService:
                     # No such row is not a hidden row: the lookup applies no
                     # fence. A scoped pack fails closed on it, as it always has.
                     return not identity_scope.active
+                if str(target.get("id")) not in admitted_targets:
+                    return False
                 return memory_visible(target)
 
             return [event for event in eligible if _target_visible(event)]
@@ -5257,6 +5397,11 @@ class VNextRetrievalService:
             "scope_window_end",
         )
         use_scoped_events = _supports_explicit_parameters(list_memory_events, scoped_event_parameters)
+        event_ceiling = (
+            {"sensitivity_allowed": sensitivity_allowed}
+            if _supports_explicit_parameters(list_memory_events, ("sensitivity_allowed",))
+            else {}
+        )
 
         def _fetch_events(row_limit: int) -> tuple[list[JsonObject], str]:
             # The store applies project, person and time scope before its LIMIT.
@@ -5276,6 +5421,7 @@ class VNextRetrievalService:
                             scope_person_memory_ids=tuple(sorted(person_linked_memory_ids)),
                             scope_window_start=scope.window_start,
                             scope_window_end=scope.window_end,
+                            **event_ceiling,
                             limit=row_limit,
                         )
                     ),

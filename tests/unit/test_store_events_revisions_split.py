@@ -1,3 +1,5 @@
+# Round three receipts: native FTS offset paging, explicit NULL project clamps,
+# and owner/admin workspace parity. Existing graft identities and schema pins remain enforced.
 from __future__ import annotations
 
 import ast
@@ -46,17 +48,17 @@ EXPECTED_METHOD_AST_SHA256 = {
     "postgres": {
         "_append_mutation_event": "294b2174082ac9f670e15cb6664c9968c2961d2c061a200c96c2bdecc55b87c9",
         "append_event": "e1624ec8cb156e52dfd8f821032689378ab49863ad0d4a2e68cf6176cfd8c89c",
-        "list_events": "7659f8bcbf050155eca1d61f575854e3c54120944e46d0d7aa24bce8af75e8fe",
+        "list_events": "6783e985fee09da2771113b215043ce5cd9725706a90a551a6250db831615a90",
         "list_events_for_source_trace": "20f22e3b75c3612c02c4242bc973295b2535b01f95e5451a0a0bff1196f187c3",
         "list_project_update_events": "2bd457ee19535f203da5c31e557387f7717fefc27cbef2c546a62bbad74962d3",
         "count_events": "e740e4b09ecfda973ef6b84acd0ea808b26d118faf6984e4057d7e104e595fb5",
-        "append_revision": "a243976fc27fa6e7ae33c15169d407902e3258b842300df4705629e443a75740",
+        "append_revision": "6070b96a01a50072e4e898bfb64ddbbf253be0478fe63205f760d0fe016a109a",
         "list_revisions": "10a485935b59bda1fcb33b36ba48b8d86376b9fd180bf9ebf6358b5dfbd24f55",
     },
     "sqlite": {
         "_append_mutation_event": "75922431a64c17ca369cd9b57e360a63b492e45d706af33d572b958ea287e27a",
         "append_event": "61927c2a8ed03ceff60c2b993ef1155cee01a5706e21ebee3e002a988820e052",
-        "list_events": "1fe66068556bfe8263a31b4da9e0e69aff91d54c16bb041c381ff55b720af0e6",
+        "list_events": "9da8d9c98e2245ad4e6425dc37bc23c732e1c757c68ff50d8d42f8e8cc472418",
         "list_events_for_source_trace": "64a122d098df8c8f62ef74654235f6bfd4d4322d908089c23e53564ef80f3eae",
         "list_project_update_events": "7e80021e9b6023c65c28f356ccda3242f202f446724628ec90aef87155c309ca",
         "count_events": "0387b6810557e231ab2dccacbf2f82da55984060ff986d43e1409b094f0ceb54",
@@ -65,8 +67,8 @@ EXPECTED_METHOD_AST_SHA256 = {
     },
 }
 EXPECTED_SOURCE_LINE_COUNTS = {
-    "postgres": (24, 48, 50, 58, 26, 18, 90, 10),
-    "sqlite": (24, 36, 38, 45, 26, 21, 72, 11),
+    "postgres": (24, 48, 54, 58, 26, 18, 90, 10),
+    "sqlite": (24, 36, 42, 45, 26, 21, 72, 11),
 }
 EXPECTED_SIGNATURES = {
     "_append_mutation_event": (
@@ -78,7 +80,7 @@ EXPECTED_SIGNATURES = {
     "list_events": (
         "(self, *, target_type: 'str | None' = None, target_id: 'str | None' = None, "
         "occurred_at_start: 'datetime | None' = None, occurred_at_end: 'datetime | None' = None, "
-        "limit: 'int | None' = None) -> 'list[VNextRow]'"
+        "limit: 'int | None' = None, reject_sensitivity_allowed: 'Sequence[str]' = ()) -> 'list[VNextRow]'"
     ),
     "list_events_for_source_trace": (
         "(self, *, source_id: 'str', memory_ids: 'Sequence[str]' = (), artifact_ids: 'Sequence[str]' = (), "
@@ -138,7 +140,12 @@ EXPECTED_PRIMITIVE_METADATA = {
         "_json_list_text": ("(value: 'object | None') -> 'str'", None),
     },
 }
+# Round two adds the conservative original-row SQL count on both facades.
+# Round three adds only the unscoped original-source event counter to Postgres.
+# Runtime metadata and every grafted method remain pinned below.
 EXPECTED_CLASS_KEY_SHA256 = {
+    # Reviewed additions: label/event enumeration, PG ratings, belief aliases and source recovery.
+    # Existing facade members retain their relative order.
     # Source owner methods are additive; the existing member order is unchanged.
     # Re-minted for the paired browser-clip capability façade methods.
     # The sqlite hash is re-minted again for ``check_source_search_query``. It is
@@ -148,14 +155,15 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted for the per-file importer savepoint (2026-10-02): ``savepoint`` is appended last on both façades.
     # Previous receipt: 650e2e0ff088d67c... Proof: the class key list equals the list at origin/main 040a2a10
     # plus ``savepoint`` before ``__dict__``, with every other key in the same order.
-    "postgres": "3d2cd1d2fbb766ea4b5f9bf700fe6c0ccdc5fea9705092f82ead06c3ab635e50",
+    "postgres": "cc43f69fcf43c87332e24786f58cbddb6b64bce2af9d1f559d02eb5e4f18f288",
     # Re-minted for the merge of #500 and #502: ``check_literal_match_query``.
     # Re-minted again for per-project memory S2 (2026-10-02): the two single-scan partition reads
     # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``, SQLite only on purpose
     # (the Postgres runtime resolves no project view).
     # Re-minted again for the per-file importer savepoint (2026-10-02), the same appended method.
     # Previous receipt: 365b7a01acf7a8b5... Proof: as for postgres, one added key and no other change.
-    "sqlite": "65301a20344d20bd6e20e6717f1f3db3fd4b16611964425d1d3f98736326f393",
+    # Re-minted for the derived-label lock: ``lock_label_writes`` and ``read_label_rows`` on both facades.
+    "sqlite": "82282bae5eeea904b50cb24ec8d2312d6173e1916f0d8db50228bcafd016bd43",
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
     "postgres_columns": {

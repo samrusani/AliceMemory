@@ -701,6 +701,7 @@ async def _rewrite_user_id_json_body(request: Request, authenticated_user_id: UU
 
 _VNEXT_ROUTE_LOCAL_POLICY = frozenset(
     {
+        ("GET", "/v0/vnext/sources/{source_id}"),
         ("POST", "/v0/vnext/sources"),
         ("POST", "/v0/vnext/agents/ingest-output"),
         ("POST", "/v0/vnext/artifacts/{artifact_id}/insight-feedback"),
@@ -762,7 +763,6 @@ _VNEXT_CENTRAL_OPERATOR_ROUTES = frozenset(
         ("GET", "/v0/vnext/scheduler/runs"),
         ("GET", "/v0/vnext/scheduler/status"),
         ("GET", "/v0/vnext/settings/brain-charter"),
-        ("GET", "/v0/vnext/sources/{source_id}"),
         ("GET", "/v0/vnext/traces/sources/{source_id}"),
         ("GET", "/v0/vnext/workspace"),
         ("PATCH", "/v0/vnext/connectors/{connector_name}/config"),
@@ -779,6 +779,7 @@ _VNEXT_CENTRAL_OPERATOR_ROUTES = frozenset(
         ("POST", "/v0/vnext/projects/update-candidates/{artifact_id}/review"),
         ("POST", "/v0/vnext/queue/process-next"),
         ("POST", "/v0/vnext/sources/{source_id}/review"),
+        ("POST", "/v0/vnext/sources/{source_id}/regenerate"),
         ("PUT", "/v0/vnext/settings/brain-charter"),
     }
 )

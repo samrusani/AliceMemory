@@ -162,6 +162,7 @@ from .scheduler import (
     _run_vnext_scheduler_runs,
     _run_vnext_scheduler_status,
 )
+from .labels import _run_vnext_labels_check, _run_vnext_labels_repair
 from .shared import _run_capture
 from .smokes import (
     _run_vnext_alpha_check,
@@ -1148,6 +1149,13 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Memories to embed per request (1-{MAX_EMBEDDINGS_BATCH_SIZE}).",
     )
     vnext_memory_backfill_parser.set_defaults(handler=_run_vnext_memories_backfill_embeddings)
+
+    vnext_labels_parser = vnext_subparsers.add_parser("labels", help="Check and repair stored derived labels.")
+    vnext_labels_commands = vnext_labels_parser.add_subparsers(dest="labels_command", required=True)
+    vnext_labels_check = vnext_labels_commands.add_parser("check", help="Report derived rows below their inputs.")
+    vnext_labels_check.set_defaults(handler=_run_vnext_labels_check)
+    vnext_labels_repair = vnext_labels_commands.add_parser("repair", help="Raise stored derived labels.")
+    vnext_labels_repair.set_defaults(handler=_run_vnext_labels_repair)
 
     vnext_agents_parser = vnext_subparsers.add_parser("agents", help="Submit and inspect vNext agent proposals.")
     vnext_agents_subparsers = vnext_agents_parser.add_subparsers(dest="vnext_agents_command", required=True)

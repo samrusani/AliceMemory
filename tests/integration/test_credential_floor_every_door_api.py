@@ -40,6 +40,7 @@ from alicebot_api.vnext_projects import ProjectAutomationRequest, VNextProjectSe
 from alicebot_api.vnext_store import PostgresVNextStore
 
 from tests.integration.test_memory_mutations_api import identity_header, invoke_request, seed_user
+from tests.integration.conftest import lock_label_fixture
 
 
 # Built rather than written out so the source carries no scanner-shaped token.
@@ -638,6 +639,7 @@ def test_round2_c2_project_update_accept_refuses_a_credential_state(migrated_dat
     user_id = seed_user(app_url, email="floor-c2-project@example.com")
     with user_connection(app_url, user_id) as conn:
         store = PostgresVNextStore(conn)
+        lock_label_fixture(store)
         project = store.create_project(
             {
                 "name": "Deploy pipeline",
@@ -660,7 +662,7 @@ def test_round2_c2_project_update_accept_refuses_a_credential_state(migrated_dat
             }
         )
         candidate = VNextProjectService(store).generate_project_update_candidate(
-            ProjectAutomationRequest(project_id=project_id, domains=("project",))
+            ProjectAutomationRequest(agent_identity=None, project_id=project_id, domains=("project",))
         )
     artifact_id = str(candidate["id"])
     memory_id = str(candidate["metadata_json"]["candidate_memory_id"])  # type: ignore[index]

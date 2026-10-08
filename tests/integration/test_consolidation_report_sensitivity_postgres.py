@@ -280,7 +280,7 @@ def _consolidate_a_cluster_citing(database_url: str, user_id: UUID, *, source_fi
             )
             store.update_memory_embedding(memory_id=str(member["id"]), vector=pad_embedding_vector([0.5, 0.1, 0.2]))
         artifact = VNextConsolidationService(store, embedding_provider=_OneVector()).generate_memory_consolidation(
-            MemoryConsolidationRequest(sensitivity_allowed=list(ALLOWED_WITH_CONFIDENTIAL))
+            MemoryConsolidationRequest(agent_identity=None, sensitivity_allowed=list(ALLOWED_WITH_CONFIDENTIAL))
         )
     return artifact, source
 

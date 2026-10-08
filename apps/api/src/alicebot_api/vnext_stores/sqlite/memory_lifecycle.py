@@ -11,6 +11,12 @@ from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_event_log import build_event_log_record
 from alicebot_api.vnext_project_scope import canonical_memory_metadata
 from alicebot_api.vnext_repositories import JsonObject
+from alicebot_api.vnext_label_writes import (
+    apply_insert_floor,
+    merge_protected_metadata,
+    remember_floor_event,
+    takes_label_lock,
+)
 from alicebot_api.vnext_stores.memory_lifecycle_common import (
     REDACTED_JSON_VALUE,
     REDACTION_MARKER,
@@ -34,7 +40,34 @@ from alicebot_api.vnext_stores.sqlite.vector_scan import bump_embedding_stamp
 
 VNextRow = dict[str, object]
 
+
+def _with_protected_metadata(self, memory_id: str, patch: JsonObject, *, label_write: bool) -> JsonObject:
+    """Re-read metadata inside the label lock and keep label and marker keys."""
+
+    if "metadata_json" not in patch or not isinstance(patch.get("metadata_json"), dict):
+        return patch
+    current = self._fetch_optional_one(
+        "SELECT metadata_json FROM memories WHERE id = ? AND user_id = ?",
+        (str(memory_id), self.user_id),
+    )
+    if current is None:
+        return patch
+    stored = current.get("metadata_json")
+    patch_metadata = patch["metadata_json"]
+    if not isinstance(patch_metadata, dict):
+        return patch
+    merged = dict(patch)
+    merged["metadata_json"] = merge_protected_metadata(
+        stored if isinstance(stored, dict) else {},
+        patch_metadata,
+        label_write=label_write,
+    )
+    return merged
+
+
+@takes_label_lock
 def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> VNextRow:
+    memory, floor_event = apply_insert_floor(self, "memory", memory)
     refuse_created_credential_activation(memory)
     memory_id = _new_id(memory.get("id"))
     # One clock reading for the whole write. ``first_seen_at`` and ``last_seen_at`` default to it, so
@@ -140,6 +173,7 @@ def create_memory(self, memory: JsonObject, *, actor_type: str = "system") -> VN
         target_id=row["id"],
         payload={"operation": "create", "fields": _sorted_field_names(memory)},
     )
+    remember_floor_event(self, floor_event, row["id"])
     return row
 
 def upsert_memory_by_key(self, memory: JsonObject, *, actor_type: str = "system") -> VNextRow:
@@ -263,8 +297,21 @@ def memory_redaction_bundle_is_exact(self, memory_id: str, artifact_ids: Sequenc
     )
     return bool(row.get("exact"))
 
-def update_memory(self, *, memory_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+@takes_label_lock
+def update_memory(
+    self, *, memory_id: str, patch: JsonObject, actor_type: str = "system", label_write: bool = False
+) -> VNextRow:
+    before_label = self.get_memory(str(memory_id))
     refuse_updated_credential_activation(patch, lambda: self.get_memory(str(memory_id)))
+    patch = _with_protected_metadata(self, memory_id, patch, label_write=label_write)
+    if before_label is not None:
+        from alicebot_api.vnext_label_writes import clamp_owner_patch
+
+        patch = clamp_owner_patch(self, kind="memory", before=before_label, patch=patch)
+    project_metadata = patch.get("metadata_json")
+    project_patch_present = patch.get("project_id") is not None or (
+        "project_id" in patch and isinstance(project_metadata, dict) and "project_scope" in project_metadata
+    )
     # One clock reading for the write: an archive sets ``updated_at`` and ``deleted_at`` together.
     now = _utc_now_iso()
     cursor = self._execute(
@@ -294,7 +341,7 @@ def update_memory(self, *, memory_id: str, patch: JsonObject, actor_type: str = 
                     last_seen_at = COALESCE(?, last_seen_at),
                     last_reviewed_at = COALESCE(?, last_reviewed_at),
                     metadata_json = COALESCE(?, metadata_json),
-                    project_id = COALESCE(?, project_id),
+                    project_id = CASE WHEN ? THEN ? ELSE project_id END,
                     superseded_by = COALESCE(?, superseded_by),
                     supersedes = COALESCE(?, supersedes),
                     updated_at = ?,
@@ -331,6 +378,7 @@ def update_memory(self, *, memory_id: str, patch: JsonObject, actor_type: str = 
             _iso_or_none(patch.get("last_seen_at")),
             _iso_or_none(patch.get("last_reviewed_at")),
             _json_object_text(patch["metadata_json"]) if "metadata_json" in patch else None,
+            project_patch_present,
             patch.get("project_id"),
             _uuid_text(patch.get("superseded_by")),
             _uuid_text(patch.get("supersedes")),
@@ -353,6 +401,10 @@ def update_memory(self, *, memory_id: str, patch: JsonObject, actor_type: str = 
         target_id=row["id"],
         payload={"operation": "update", "changes": patch},
     )
+    if not label_write:
+        from alicebot_api.vnext_label_writes import propagate_after_write
+
+        propagate_after_write(self, kind="memory", before=before_label, after=row)
     return row
 
 def lock_graph_mutation(self) -> None:
@@ -389,6 +441,7 @@ def list_memory_ids_with_embeddings(self, ids: "Sequence[str]") -> set[str]:
         present.update(str(row["id"]) for row in rows)
     return present
 
+@takes_label_lock
 def update_memory_fact_keys(self, *, memory_id: str, fact_keys: str | None) -> VNextRow | None:
     """Store derived retrieval keys; the FTS sync triggers re-index them.
 
@@ -446,6 +499,7 @@ def _redaction_mode(self) -> Iterator[None]:
     finally:
         self._execute("UPDATE redaction_mode SET enabled = 0 WHERE id = 1")
 
+@takes_label_lock
 def redact_memory_bundle(
     self,
     *,
@@ -685,6 +739,7 @@ def redact_memory_bundle(
         "idempotent_replay": not changed,
     }
 
+@takes_label_lock
 def redact_memory_content(self, *, memory_id: str, actor_type: str = "user") -> VNextRow:
     """Expunge a memory's content in place, keeping the skeleton.
 

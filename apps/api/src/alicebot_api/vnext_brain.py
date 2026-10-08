@@ -7,8 +7,10 @@ import inspect
 import json
 import re
 from typing import Callable, Protocol, Sequence, cast
+from uuid import UUID
 
 from alicebot_api.vnext_derived_domain import derived_domain
+from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_model_intelligence import (
@@ -143,7 +145,7 @@ class BrainArtifactRequest:
     actor_id: str | None = None
     trace_id: str | None = None
     run_id: str | None = None
-    agent_identity: JsonObject | None = None
+    agent_identity: JsonObject | None = field(kw_only=True)
     policy_decision: JsonObject | None = None
     metadata_json: JsonObject = field(default_factory=dict)
     generation_mode: str = "deterministic"
@@ -237,8 +239,14 @@ def _matches_report_scope(
     projects: tuple[str, ...],
     window_start: datetime,
     window_end: datetime,
+    all_of: tuple[str, ...] | None = None,
 ) -> bool:
-    if projects:
+    if all_of is not None:
+        from alicebot_api.vnext_derived_labels import input_admitted
+
+        if not input_admitted(kind, row, all_of):
+            return False
+    elif projects:
         row_scope = source_project_scope(row) if kind == "source" else resource_project_scope(row)
         if not project_scopes_overlap(row_scope, projects):
             return False
@@ -267,6 +275,7 @@ def _windowed_rows(
     limit: int,
     store_scope_kwargs: dict[str, object] | None = None,
     store_scope_complete: bool = False,
+    all_of: tuple[str, ...] | None = None,
 ) -> list[JsonObject]:
     scope_kwargs = store_scope_kwargs or {}
 
@@ -284,6 +293,7 @@ def _windowed_rows(
                 projects=projects,
                 window_start=window_start,
                 window_end=window_end,
+                all_of=all_of,
             ):
                 selected.append(_compact_row(row))
         return selected
@@ -408,6 +418,21 @@ def _canonical_project_scope(values: Sequence[object]) -> tuple[str, ...]:
     return normalize_project_scope(values)
 
 
+def _stored_open_loop_project_id(project_scope: Sequence[str]) -> str | None:
+    """Return a project id only when the single scope entry is a uuid.
+
+    ``open_loops.project_id`` is a uuid column. A free-form name stays in
+    ``metadata_json.project_scope``.
+    """
+
+    if len(project_scope) != 1:
+        return None
+    try:
+        return str(UUID(str(project_scope[0])))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 def _metadata_json(row: JsonObject) -> JsonObject:
     value = row.get("metadata_json")
     return value if isinstance(value, dict) else {}
@@ -440,7 +465,7 @@ class VNextBrainService:
         self.store = store
 
     def generate_daily_brief(self, request: BrainArtifactRequest | None = None) -> JsonObject:
-        request = request or BrainArtifactRequest()
+        request = request or BrainArtifactRequest(agent_identity=None, )
         _validate_request(request)
         day = _parse_generated_for(request.generated_for)
         window_start, window_end = _report_window(day, days=1)
@@ -568,6 +593,10 @@ class VNextBrainService:
             prompt_hash = model_artifact.prompt_hash
             model_info_json = model_artifact.model_info
             metadata = {**metadata, **model_artifact.metadata}
+        metadata = with_derived_from(
+            metadata,
+            {"sources": sources, "memories": memories, "open_loops": open_loops, "artifacts": artifacts},
+        )
         artifact_payload: JsonObject = {
             "artifact_type": "daily_brief",
             "title": f"Daily Brief - {day.isoformat()}",
@@ -627,7 +656,7 @@ class VNextBrainService:
         return artifact
 
     def generate_weekly_synthesis(self, request: BrainArtifactRequest | None = None) -> JsonObject:
-        request = request or BrainArtifactRequest()
+        request = request or BrainArtifactRequest(agent_identity=None, )
         _validate_request(request)
         day = _parse_generated_for(request.generated_for)
         week_label = _iso_week_label(day)
@@ -699,6 +728,7 @@ class VNextBrainService:
             sources,
             memories,
             open_loops,
+            artifacts,
             workflow_digest=workflow_digest,
         )
         all_rows = [*sources, *memories, *open_loops, *artifacts]
@@ -759,6 +789,10 @@ class VNextBrainService:
             prompt_hash = model_artifact.prompt_hash
             model_info_json = model_artifact.model_info
             metadata = {**metadata, **model_artifact.metadata}
+        metadata = with_derived_from(
+            metadata,
+            {"sources": sources, "memories": memories, "open_loops": open_loops, "artifacts": artifacts},
+        )
         artifact_payload: JsonObject = {
             "artifact_type": "weekly_synthesis",
             "title": f"Weekly Synthesis - {week_label}",
@@ -872,6 +906,9 @@ class VNextBrainService:
     ) -> tuple[list[JsonObject], list[JsonObject], list[JsonObject], list[JsonObject]]:
         domains = _allowed_domains(request)
         sensitivity_allowed = _allowed_sensitivity(request)
+        from alicebot_api.vnext_derived_labels import locked_projects
+
+        all_of = locked_projects(request.agent_identity, request.projects)
         inclusive_window_end = window_end - timedelta(microseconds=1)
         source_scope_names = ("scope_projects", "scope_window_start", "scope_window_end")
         source_scope_supported = _supports_parameters(self.store.search_sources, source_scope_names)
@@ -894,7 +931,8 @@ class VNextBrainService:
             }
             if source_scope_supported
             else None,
-            store_scope_complete=source_scope_supported,
+            store_scope_complete=source_scope_supported and all_of is None,
+            all_of=all_of,
         )
         memory_store_scope: dict[str, object] | None = (
             {"projects": request.projects} if _supports_parameters(self.store.search_memories, ("projects",)) else None
@@ -912,6 +950,7 @@ class VNextBrainService:
             window_end=window_end,
             limit=request.memory_limit,
             store_scope_kwargs=memory_store_scope,
+            all_of=all_of,
         )
         open_loop_scope_names = ("scope_projects", "scope_window_start", "scope_window_end")
         open_loop_scope_supported = _supports_parameters(
@@ -937,7 +976,8 @@ class VNextBrainService:
             }
             if open_loop_scope_supported
             else None,
-            store_scope_complete=open_loop_scope_supported,
+            store_scope_complete=open_loop_scope_supported and all_of is None,
+            all_of=all_of,
         )
         artifact_store_scope: dict[str, object] | None = (
             {"scope_projects": request.projects}
@@ -957,6 +997,25 @@ class VNextBrainService:
             window_end=window_end,
             limit=request.artifact_limit,
             store_scope_kwargs=artifact_store_scope,
+            all_of=all_of,
+        )
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        sources = admit_loaded(
+            self.store, kind="source", rows=sources, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects,
+            all_of=all_of,
+        )
+        memories = admit_loaded(
+            self.store, kind="memory", rows=memories, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects,
+            all_of=all_of,
+        )
+        open_loops = admit_loaded(
+            self.store, kind="open_loop", rows=open_loops, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects,
+            all_of=all_of,
+        )
+        artifacts = admit_loaded(
+            self.store, kind="artifact", rows=artifacts, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=request.projects,
+            all_of=all_of,
         )
         return sources, memories, open_loops, artifacts
 
@@ -987,19 +1046,24 @@ class VNextBrainService:
                 "description": f"Candidate open loop discovered in {_title(source, 'source')}.",
                 "status": "open",
                 "priority": "normal",
-                "source_id": source.get("id"),
-                "project_id": project_scope[0] if len(project_scope) == 1 else None,
+                "source_id": str(source["id"]),
+                "project_id": _stored_open_loop_project_id(project_scope),
                 "domain": source.get("domain", "unknown"),
                 "sensitivity": source.get("sensitivity", "unknown"),
                 "metadata_json": {
                     "candidate": True,
                     "discovered_by": "vnext_daily_brief",
-                    "source_id": source.get("id"),
+                    "source_id": str(source["id"]),
                     "project_scope": list(project_scope),
+                    "project_floor": list(source_project_scope(source)),
                     "automation_digest": automation_digest,
                     "workflow_digest": workflow_digest,
                 },
             }
+            loop_payload["metadata_json"] = with_derived_from(
+                cast(dict, loop_payload["metadata_json"]),
+                {"sources": [source]},
+            )
             if callable(upsert_open_loop):
                 loop = cast(Callable[..., JsonObject], upsert_open_loop)(
                     loop_payload,
@@ -1020,6 +1084,7 @@ class VNextBrainService:
         sources: list[JsonObject],
         memories: list[JsonObject],
         open_loops: list[JsonObject],
+        artifacts: list[JsonObject],
         *,
         workflow_digest: str,
     ) -> list[JsonObject]:
@@ -1042,12 +1107,12 @@ class VNextBrainService:
             "confidence": 0.6,
             "canonical_text": insight,
             "summary": insight,
-            "domain": _artifact_domain(request, [*sources, *memories, *open_loops]),
-            "sensitivity": _highest_sensitivity([*sources, *memories, *open_loops]),
+            "domain": _artifact_domain(request, [*sources, *memories, *open_loops, *artifacts]),
+            "sensitivity": _highest_sensitivity([*sources, *memories, *open_loops, *artifacts]),
             "metadata_json": {
                 "candidate": True,
                 "discovered_by": "vnext_weekly_synthesis",
-                "input_summary": _input_summary(sources=sources, memories=memories, open_loops=open_loops, artifacts=[]),
+                "input_summary": _input_summary(sources=sources, memories=memories, open_loops=open_loops, artifacts=artifacts),
                 "generated_by": request.generated_by,
                 "agent_identity": request.agent_identity,
                 "scheduler_run_id": request.run_id if request.generated_by == "scheduler" else None,
@@ -1056,6 +1121,10 @@ class VNextBrainService:
                 "workflow_digest": workflow_digest,
             },
         }
+        memory_payload["metadata_json"] = with_derived_from(
+            cast(dict, memory_payload["metadata_json"]),
+            {"sources": sources, "memories": memories, "open_loops": open_loops, "artifacts": artifacts},
+        )
         upsert_memory = getattr(self.store, "upsert_memory_by_key", None)
         if callable(upsert_memory):
             memory = cast(Callable[..., JsonObject], upsert_memory)(

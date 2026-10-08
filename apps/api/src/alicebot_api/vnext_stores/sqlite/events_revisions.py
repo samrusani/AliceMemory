@@ -130,11 +130,15 @@ def list_events(
     occurred_at_start: datetime | None = None,
     occurred_at_end: datetime | None = None,
     limit: int | None = None,
+    reject_sensitivity_allowed: Sequence[str] = (),
 ) -> list[VNextRow]:
     if limit is not None and limit < 1:
         raise ValueError("limit must be positive")
     clauses = ["user_id = ?"]
     params: list[object] = [self.user_id]
+    if reject_sensitivity_allowed:
+        from alicebot_api.vnext_label_sql import hidden_memory_event_sql
+        clauses.append(hidden_memory_event_sql(reject_sensitivity_allowed, sqlite=True))
     if target_type is not None:
         clauses.append("target_type = ?")
         params.append(target_type)

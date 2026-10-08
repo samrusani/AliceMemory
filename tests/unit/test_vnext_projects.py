@@ -77,6 +77,25 @@ class InMemoryVNextProjectStore:
                 rows.append(event)
         return rows
 
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+        """Mirror narrow dependency reads for this fixture's stored rows."""
+
+        from alicebot_api.vnext_derived_labels import identifier
+
+        rows = {
+            "source": self.sources,
+            "memory": list(self.memories.values()),
+            "open_loop": list(self.open_loops.values()),
+            "artifact": list(self.artifacts.values()),
+            "project": list(self.projects.values()),
+        }.get(kind, [])
+        wanted = {identifier(value) for value in ids}
+        fields = ("id", "user_id", "domain", "sensitivity", "metadata_json", "value", "project_id", "source_id", "memory_id", "status", "memory_type", "artifact_type")
+        return [
+            {field: row[field] for field in fields if field in row}
+            for row in rows if identifier(row.get("id")) in wanted
+        ]
+
     def create_artifact(self, artifact: dict[str, object], **_kwargs) -> dict[str, object]:
         row = {**artifact, "id": f"artifact-{len(self.artifacts) + 1}"}
         self.artifacts[str(row["id"])] = row
@@ -387,7 +406,7 @@ def test_project_update_candidate_creates_reviewable_artifact_and_candidate_memo
     store = _seed_store()
 
     artifact = VNextProjectService(store).generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
 
     assert artifact["artifact_type"] == "project_update"
@@ -403,7 +422,7 @@ def test_project_update_candidate_model_backed_mode_is_review_only_and_source_gr
     store = _seed_store()
 
     artifact = VNextProjectService(store).generate_project_update_candidate(
-        ProjectAutomationRequest(
+        ProjectAutomationRequest(agent_identity=None,
             project_id="project-1",
             domains=("project",),
             generation_mode="model_backed",
@@ -460,7 +479,7 @@ def test_project_automation_and_dashboard_never_mix_same_domain_projects() -> No
     }
 
     artifact = VNextProjectService(store).generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     dashboard = VNextProjectService(store).project_dashboard(project_id="project-1")
 
@@ -502,7 +521,7 @@ def test_project_automation_resolves_source_envelope_before_filter_digest_and_lo
 
     store.search_sources = unscoped_sources  # type: ignore[method-assign]
     service = VNextProjectService(store)
-    request = ProjectAutomationRequest(project_id="project-1", domains=("project",))
+    request = ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
 
     artifact = service.generate_project_update_candidate(request)
     source_metadata = store.sources[1]["metadata_json"]
@@ -520,7 +539,7 @@ def test_project_automation_resolves_source_envelope_before_filter_digest_and_lo
 def test_direct_project_workflows_are_idempotent_for_unchanged_evidence() -> None:
     store = _seed_store()
     service = VNextProjectService(store)
-    request = ProjectAutomationRequest(project_id="project-1", domains=("project",))
+    request = ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
 
     first_artifact = service.generate_project_update_candidate(request)
     first_loops = service.extract_open_loops(request)
@@ -573,7 +592,7 @@ def test_a_candidate_loop_description_never_holds_the_id_of_its_source() -> None
         }
     )
     service = VNextProjectService(store)
-    request = ProjectAutomationRequest(project_id="project-1", domains=("project",))
+    request = ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
 
     first = service.extract_open_loops(request)
     descriptions: dict[str, list[object]] = {}
@@ -586,7 +605,7 @@ def test_a_candidate_loop_description_never_holds_the_id_of_its_source() -> None
     assert descriptions[untitled] == ["Candidate task discovered from a source with no title."]
     assert set(descriptions) == {"source-1", untitled}
     for loop in first:
-        assert untitled not in json.dumps({key: value for key, value in loop.items() if key != "source_id"})
+        assert untitled not in json.dumps({key: loop.get(key) for key in ("title", "description", "resolution_note")})
     second = service.extract_open_loops(request)
     assert [row["id"] for row in second] == [row["id"] for row in first]
     assert len(store.open_loops) == len(first)
@@ -597,10 +616,10 @@ def test_project_update_digest_changes_when_behavior_config_changes() -> None:
     service = VNextProjectService(store)
 
     first = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",), max_items=8)
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",), max_items=8)
     )
     second = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",), max_items=7)
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",), max_items=7)
     )
 
     assert second["id"] != first["id"]
@@ -611,7 +630,7 @@ def test_accepting_project_update_updates_project_promotes_memory_and_appends_re
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
 
     reviewed = service.review_project_update(
@@ -652,7 +671,7 @@ def test_accepting_project_update_updates_project_promotes_memory_and_appends_re
 def test_central_artifact_review_dispatches_project_updates_to_coupled_lifecycle(action: str) -> None:
     store = _seed_store()
     artifact = VNextProjectService(store).generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     metadata = artifact["metadata_json"]
     assert isinstance(metadata, dict)
@@ -681,7 +700,7 @@ def test_central_artifact_review_dispatches_project_updates_to_coupled_lifecycle
 def test_central_artifact_review_does_not_treat_project_update_promote_as_generic_promotion() -> None:
     store = _seed_store()
     artifact = VNextProjectService(store).generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     metadata = artifact["metadata_json"]
     assert isinstance(metadata, dict)
@@ -700,7 +719,7 @@ def test_central_artifact_review_does_not_treat_project_update_promote_as_generi
 def test_central_artifact_review_dispatch_propagates_candidate_supersession_guard() -> None:
     store = _seed_store()
     artifact = VNextProjectService(store).generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_metadata = artifact["metadata_json"]
     assert isinstance(artifact_metadata, dict)
@@ -724,7 +743,7 @@ def test_project_update_scope_linkage_compares_canonical_project_identity() -> N
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_metadata = artifact["metadata_json"]
     assert isinstance(artifact_metadata, dict)
@@ -757,7 +776,7 @@ def test_project_update_review_rejects_superseded_candidate_markers_without_muta
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_id = str(artifact["id"])
     artifact_metadata = artifact["metadata_json"]
@@ -826,7 +845,7 @@ def test_project_update_review_rejects_every_candidate_linkage_mismatch_without_
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_id = str(artifact["id"])
     artifact_metadata = artifact["metadata_json"]
@@ -889,7 +908,7 @@ def test_project_update_review_refreshes_content_derived_indexes() -> None:
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     memory_id = str(artifact["metadata_json"]["candidate_memory_id"])
     memory = store.memories[memory_id]
@@ -917,7 +936,7 @@ def test_project_update_review_can_defer_embedding_until_after_commit() -> None:
     store = _seed_store()
     service = VNextProjectService(store, defer_embeddings=True)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
 
     service.review_project_update(
@@ -936,7 +955,7 @@ def test_rejecting_project_update_logs_rejection_without_updating_project() -> N
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
 
     reviewed = service.review_project_update(artifact_id=str(artifact["id"]), action="reject")
@@ -957,7 +976,7 @@ def test_rejecting_project_update_requires_memory_key_before_any_mutation(memory
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_metadata = artifact["metadata_json"]
     assert isinstance(artifact_metadata, dict)
@@ -976,7 +995,7 @@ def test_terminal_project_update_replay_uses_one_coupled_event_lookup(action: st
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     terminal = service.review_project_update(artifact_id=str(artifact["id"]), action=action)
     metadata = terminal["metadata_json"]
@@ -1001,7 +1020,7 @@ def test_project_update_forced_terminal_status_fails_closed_without_mutation(
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact["status"] = forced_status
     artifact_id = str(artifact["id"])
@@ -1093,7 +1112,7 @@ def test_project_update_terminal_consistency_requires_every_immutable_evidence_l
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     terminal = service.review_project_update(artifact_id=str(artifact["id"]), action=action)
     artifact_id = str(terminal["id"])
@@ -1284,7 +1303,7 @@ def test_project_update_terminal_replay_rejects_clone_after_authorized_true_reda
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     terminal = service.review_project_update(artifact_id=str(artifact["id"]), action="accept")
     _redact_project_update_terminal_evidence(store, terminal=terminal)
@@ -1307,7 +1326,7 @@ def test_project_update_terminal_replay_allows_repeated_creation_rows_for_one_ar
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     terminal = service.review_project_update(artifact_id=str(artifact["id"]), action="accept")
     creation_event = next(
@@ -1432,7 +1451,7 @@ def test_project_update_terminal_replay_rejects_every_coupled_competing_decision
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     terminal = service.review_project_update(artifact_id=str(artifact["id"]), action=action)
     _append_conflicting_project_update_decision(store, terminal=terminal, conflict=conflict)
@@ -1452,7 +1471,7 @@ def test_accepted_project_update_terminal_replay_ignores_supported_memory_lifecy
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     terminal = service.review_project_update(artifact_id=str(artifact["id"]), action="accept")
     terminal_metadata = terminal["metadata_json"]
@@ -1488,11 +1507,11 @@ def test_accepted_project_update_replay_survives_a_genuine_later_project_update(
     store = _seed_store()
     service = VNextProjectService(store)
     first = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     accepted_first = service.review_project_update(artifact_id=str(first["id"]), action="accept")
     second = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     assert second["id"] != first["id"]
     service.review_project_update(
@@ -1512,7 +1531,7 @@ def test_project_update_consistent_terminal_outcome_remains_idempotent_without_m
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     terminal = service.review_project_update(artifact_id=str(artifact["id"]), action=action)
     project_before = deepcopy(store.projects)
@@ -1533,7 +1552,7 @@ def test_accepted_project_update_cannot_later_be_rejected() -> None:
     store = _seed_store()
     service = VNextProjectService(store)
     artifact = service.generate_project_update_candidate(
-        ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
 
     accepted = service.review_project_update(artifact_id=str(artifact["id"]), action="accept")
@@ -1547,7 +1566,7 @@ def test_open_loop_extraction_and_review_support_source_owner_and_filters() -> N
     store = _seed_store()
     service = VNextProjectService(store)
 
-    loops = service.extract_open_loops(ProjectAutomationRequest(project_id="project-1", domains=("project",)))
+    loops = service.extract_open_loops(ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",)))
     snoozed = service.review_open_loop(loop_id="loop-1", action="snooze", due_at="2026-05-12T09:00:00Z")
     closed = service.review_open_loop(loop_id="loop-2", action="close", resolution_note="Decision captured.")
     dashboard = service.project_dashboard(project_id="project-1")
@@ -1562,17 +1581,35 @@ def test_open_loop_extraction_and_review_support_source_owner_and_filters() -> N
     assert dashboard["counts"]["open_loops"] == 1
 
 
+
+@pytest.mark.parametrize("parent_change", ["missing", "restricted"])
+def test_dashboard_withholds_loops_after_their_source_becomes_unreadable(parent_change) -> None:
+    store = _seed_store()
+    service = VNextProjectService(store)
+    loops = service.extract_open_loops(ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",)))
+    assert service.project_dashboard(project_id="project-1")["counts"]["open_loops"] == 2
+    if parent_change == "missing":
+        store.sources.clear()
+    else:
+        store.sources[0]["domain"] = "health"
+        store.sources[0]["sensitivity"] = "regulated"
+    dashboard = service.project_dashboard(project_id="project-1")
+    assert dashboard["counts"]["open_loops"] == 0
+    assert dashboard["open_loops"] == []
+    assert all(loop["source_id"] == "source-1" for loop in loops)
+
+
 def test_project_service_validation_errors() -> None:
     service = VNextProjectService(InMemoryVNextProjectStore())
 
     with pytest.raises(VNextProjectValidationError, match="max_items"):
-        service.extract_open_loops(ProjectAutomationRequest(max_items=0))
+        service.extract_open_loops(ProjectAutomationRequest(agent_identity=None, max_items=0))
 
     with pytest.raises(VNextProjectValidationError, match="no active project"):
-        service.generate_project_update_candidate(ProjectAutomationRequest())
+        service.generate_project_update_candidate(ProjectAutomationRequest(agent_identity=None, ))
 
     store = _seed_store()
     service = VNextProjectService(store)
-    artifact = service.generate_project_update_candidate(ProjectAutomationRequest(project_id="project-1"))
+    artifact = service.generate_project_update_candidate(ProjectAutomationRequest(agent_identity=None, project_id="project-1"))
     with pytest.raises(VNextProjectValidationError, match="edited_current_state"):
         service.review_project_update(artifact_id=str(artifact["id"]), action="edit")

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from alicebot_api.vnext_label_writes import label_http_errors
 
 from uuid import UUID
 
@@ -566,11 +567,39 @@ def process_next_vnext_queue_task(request: VNextQueueProcessNextRequest) -> JSON
     )
 
 @review_router.get("/v0/vnext/artifacts")
-def list_vnext_artifacts(user_id: UUID, artifact_type: str | None = None, limit: int = 30) -> JSONResponse:
-    settings = get_settings()
+def list_vnext_artifacts(
+    user_id: UUID,
+    artifact_type: str | None = None,
+    limit: int = 30,
+    project: str | None = None,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling
 
-    with user_connection(settings.database_url, user_id) as conn:
-        payload = PostgresVNextStore(conn).list_artifacts(artifact_type=artifact_type, limit=limit)
+    settings = get_settings()
+    scope_projects = (project,) if isinstance(project, str) and project.strip() else ()
+
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store,
+                user_id=user_id,
+                raw_key=agent_key_from_authorization(authorization),
+                payload={},
+            )
+            payload = apply_sensitivity_ceiling(
+                store,
+                kind="artifact",
+                rows=store.list_artifacts(
+                    artifact_type=artifact_type,
+                    limit=limit,
+                    scope_projects=scope_projects,
+                ),
+                identity=identity,
+            )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
 
     return JSONResponse(
         status_code=200,
@@ -613,6 +642,7 @@ def get_vnext_artifact(
     )
 
 @review_router.post("/v0/vnext/artifacts/{artifact_id}/review")
+@label_http_errors
 def review_vnext_artifact(
     artifact_id: UUID,
     request: VNextArtifactReviewRequest,
@@ -634,6 +664,10 @@ def review_vnext_artifact(
             identity = _vnext_authenticated_agent_identity(
                 store, request, user_id=request.user_id, authorization=authorization
             )
+            store.lock_graph_mutation()
+            from alicebot_api.vnext_artifact_review import lock_artifact_review_labels
+
+            lock_artifact_review_labels(store, artifact_id=str(artifact_id), action=request.action)
             _artifact, decision = _vnext_authorized_artifact(
                 store=store,
                 identity=identity,
@@ -760,14 +794,29 @@ def rate_vnext_artifact_quality(
     return JSONResponse(status_code=201, content=jsonable_encoder(payload))
 
 @review_router.get("/v0/vnext/quality-evals")
-def list_vnext_quality_evals(user_id: UUID, artifact_id: UUID | None = None, limit: int = 100) -> JSONResponse:
+def list_vnext_quality_evals(user_id: UUID, artifact_id: UUID | None = None, limit: int = 100, authorization: str | None = Header(default=None)) -> JSONResponse:
+    from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
+    from alicebot_api.vnext_label_guard import LabelGuard, sensitivity_ceiling
+
     settings = get_settings()
     bounded_limit = max(1, min(limit, 200))
-    with user_connection(settings.database_url, user_id) as conn:
-        rows = PostgresVNextStore(conn).list_artifact_quality_ratings(
-            artifact_id=str(artifact_id) if artifact_id is not None else None,
-            limit=bounded_limit,
-        )
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
+            projects = identity.project_scope if identity is not None else ()
+            guard = LabelGuard.for_filters(
+                store, (), sensitivity_ceiling(identity) or ALL_SENSITIVITY, projects,
+                all_of=projects if identity is not None and identity.project_scope_locked else None,
+            )
+            rows = guard.admit_related_rows(store.list_artifact_quality_ratings(
+                artifact_id=str(artifact_id) if artifact_id is not None else None,
+                limit=bounded_limit,
+            ), kind="artifact", field="artifact_id")
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     return JSONResponse(
         status_code=200,
         content=jsonable_encoder(
@@ -887,12 +936,30 @@ def review_vnext_belief(belief_id: str, request: VNextBeliefReviewRequest) -> JS
     )
 
 @review_router.get("/v0/vnext/beliefs/{belief_id}/state")
-def get_vnext_belief_state(belief_id: str, user_id: UUID) -> JSONResponse:
+def get_vnext_belief_state(
+    belief_id: str,
+    user_id: UUID,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import sensitivity_ceiling
+
     settings = get_settings()
 
     try:
         with user_connection(settings.database_url, user_id) as conn:
-            payload = VNextContradictionService(PostgresVNextStore(conn)).belief_state(belief_id=belief_id)
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store,
+                user_id=user_id,
+                raw_key=agent_key_from_authorization(authorization),
+                payload={},
+            )
+            payload = VNextContradictionService(store).belief_state(
+                belief_id=belief_id,
+                sensitivity_allowed=sensitivity_ceiling(identity),
+            )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     except VNextContradictionValidationError:
         return _vnext_public_error_response(status_code=404, detail="vNext belief was not found")
 
@@ -948,6 +1015,7 @@ def generate_vnext_project_update_candidate(
     return JSONResponse(status_code=201, content=jsonable_encoder(payload))
 
 @review_router.post("/v0/vnext/projects/update-candidates/{artifact_id}/review")
+@label_http_errors
 def review_vnext_project_update_candidate(
     artifact_id: str,
     request: VNextProjectUpdateReviewRequest,
@@ -969,6 +1037,10 @@ def review_vnext_project_update_candidate(
             identity = _vnext_authenticated_agent_identity(
                 store, request, user_id=request.user_id, authorization=authorization
             )
+            store.lock_graph_mutation()
+            from alicebot_api.vnext_artifact_review import lock_artifact_review_labels
+
+            lock_artifact_review_labels(store, artifact_id=str(artifact_id), action=request.action)
             _artifact, decision = _vnext_authorized_artifact(
                 store=store,
                 identity=identity,

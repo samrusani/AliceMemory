@@ -13,6 +13,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from alicebot_api.vnext_derived_domain import derived_domain
+from alicebot_api.vnext_derived_labels import admit_when_locked, locked_projects, with_derived_from
 from alicebot_api.vnext_agent_control import (
     AgentIdentity,
     PolicyDecision,
@@ -1402,6 +1403,22 @@ class VNextSchedulerService:
             raise VNextSchedulerValidationError(
                 "staleness sweep store returned memories outside the requested project scope"
             )
+        bound = locked_projects(
+            request.agent_identity.to_record() if request.agent_identity is not None else None,
+            projects,
+        )
+        memories = admit_when_locked("memory", memories, bound)
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        memories = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=memories,
+            domains=list(request.domains) if request.domains else None,
+            sensitivity_allowed=list(request.sensitivity_allowed),
+            projects=projects,
+            all_of=bound,
+        )
         for memory in memories:
             if len(expired_marked) + len(unconfirmed_marked) >= mark_limit:
                 break
@@ -1470,19 +1487,22 @@ class VNextSchedulerService:
                 "domain": derived_domain(marked, fallback=request.domains[0] if len(request.domains) == 1 else "unknown"),
                 "sensitivity": self._highest_sensitivity(marked),
                 "generated_by": "scheduler",
-                "metadata_json": {
-                    **metadata,
-                    "workflow": "staleness_sweep",
-                    "source_refs": [],
-                    "stale_marked_memory_ids": [str(row.get("id")) for row in marked],
-                    "staleness_window_days": window_days,
-                    "input_counts": {
-                        "scanned": scanned_count,
-                        "expired_marked": len(expired_marked),
-                        "unconfirmed_marked": len(unconfirmed_marked),
+                "metadata_json": with_derived_from(
+                    {
+                        **metadata,
+                        "workflow": "staleness_sweep",
+                        "source_refs": [],
+                        "stale_marked_memory_ids": [str(row.get("id")) for row in marked],
+                        "staleness_window_days": window_days,
+                        "input_counts": {
+                            "scanned": scanned_count,
+                            "expired_marked": len(expired_marked),
+                            "unconfirmed_marked": len(unconfirmed_marked),
+                        },
+                        "review_policy": "marks_stale_never_deletes",
                     },
-                    "review_policy": "marks_stale_never_deletes",
-                },
+                    {"memories": marked},
+                ),
             },
             actor_type="scheduler",
         )
@@ -1565,6 +1585,22 @@ class VNextSchedulerService:
         )
         if any(not _row_matches_projects(loop, projects) for loop in loops):
             raise VNextSchedulerValidationError("open-loop store returned rows outside the requested project scope")
+        bound = locked_projects(
+            request.agent_identity.to_record() if request.agent_identity is not None else None,
+            projects,
+        )
+        loops = admit_when_locked("open_loop", loops, bound)
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        loops = admit_loaded(
+            self.store,
+            kind="open_loop",
+            rows=loops,
+            domains=domains,
+            sensitivity_allowed=list(request.sensitivity_allowed),
+            projects=projects,
+            all_of=bound,
+        )
         # The report copies the id of each loop's source into its text and its ``source_refs``, and a later reader of
         # the artifact is shown them, so a source the run's own identity may not read is left out.
         loops = withhold_unreadable_references(
@@ -1678,6 +1714,10 @@ class VNextSchedulerService:
             prompt_hash = model_artifact.prompt_hash
             model_info_json = model_artifact.model_info
             enriched_metadata = {**enriched_metadata, **model_artifact.metadata}
+        enriched_metadata = with_derived_from(
+            enriched_metadata,
+            {"open_loops": loops, "sources": linked_sources},
+        )
         artifact_payload: JsonObject = {
             "artifact_type": "open_loop_report",
             "title": f"Open Loop Review - {request.generated_for or datetime.now(UTC).date().isoformat()}",
@@ -1735,6 +1775,7 @@ class VNextSchedulerService:
                 policy_decision_value = metadata.get("policy_decision")
                 return VNextProjectService(self.store).generate_project_update_candidate(
                     ProjectAutomationRequest(
+                        agent_identity=_logical_agent_identity(request.agent_identity),
                         domains=request.domains,
                         sensitivity_allowed=request.sensitivity_allowed,
                         project_id=str(projects[0]["id"]),

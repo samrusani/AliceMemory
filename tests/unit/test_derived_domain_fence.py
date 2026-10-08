@@ -160,7 +160,7 @@ def test_consolidation_report_includes_rollup_input_domains(monkeypatch):
     members = _seed_game_memories(store)
     for index, row in enumerate(store.memories):
         row['domain'] = 'health' if index % 2 else 'project'
-    artifact = VNextConsolidationService(store, embedding_provider=None).generate_memory_consolidation(MemoryConsolidationRequest())
+    artifact = VNextConsolidationService(store, embedding_provider=None).generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
     assert artifact['metadata_json']['rollups']['proposals']
     assert artifact['domain'] == 'health'
 
@@ -183,7 +183,7 @@ def test_unrestricted_rollup_only_report_keeps_its_domain_and_reads_the_same(mon
     monkeypatch.delenv('ALICE_EMBEDDINGS_BASE_URL', raising=False)
     store = FakeConsolidationStore()
     _seed_game_memories(store)
-    artifact = VNextConsolidationService(store, embedding_provider=None).generate_memory_consolidation(MemoryConsolidationRequest())
+    artifact = VNextConsolidationService(store, embedding_provider=None).generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))
     assert artifact['metadata_json']['rollups']['proposals']
     # The domain is as before. The sensitivity is now the label of the internal inputs the report names. Every profile
     # reads `internal` exactly as it reads the `unknown` the report carried before, so no reader gains or loses it.
@@ -204,7 +204,7 @@ def test_every_report_producer_retains_restricted_inputs(workflow):
         from alicebot_api.vnext_brain import BrainArtifactRequest, VNextBrainService
         store = _seed_store()
         store.sources[0]['domain'] = 'health'
-        artifact = getattr(VNextBrainService(store), 'generate_' + workflow)(BrainArtifactRequest(generated_for='2026-05-10'))
+        artifact = getattr(VNextBrainService(store), 'generate_' + workflow)(BrainArtifactRequest(agent_identity=None, generated_for='2026-05-10'))
         if workflow == 'weekly_synthesis':
             assert store.memories[-1]['domain'] == 'health'
             assert store.memories[-1]['metadata_json']['input_summary']['source_ids']
@@ -213,19 +213,19 @@ def test_every_report_producer_retains_restricted_inputs(workflow):
         from alicebot_api.vnext_connections import ConnectionFinderRequest, VNextConnectionService
         store = _seed_store()
         store.sources[0]['domain'] = 'health'
-        artifact = VNextConnectionService(store).generate_connection_report(ConnectionFinderRequest())
+        artifact = VNextConnectionService(store).generate_connection_report(ConnectionFinderRequest(agent_identity=None, ))
     elif workflow == 'contradiction_report':
         from tests.unit.test_vnext_contradictions import _seed_store
         from alicebot_api.vnext_contradictions import ContradictionFinderRequest, VNextContradictionService
         store = _seed_store()
         store.sources[0]['domain'] = 'health'
-        artifact = VNextContradictionService(store).generate_contradiction_report(ContradictionFinderRequest())
+        artifact = VNextContradictionService(store).generate_contradiction_report(ContradictionFinderRequest(agent_identity=None, ))
     elif workflow == 'project_update':
         from tests.unit.test_vnext_projects import _seed_store
         from alicebot_api.vnext_projects import ProjectAutomationRequest, VNextProjectService
         store = _seed_store()
         store.sources[0]['domain'] = 'health'
-        artifact = VNextProjectService(store).generate_project_update_candidate(ProjectAutomationRequest(project_id='project-1'))
+        artifact = VNextProjectService(store).generate_project_update_candidate(ProjectAutomationRequest(agent_identity=None, project_id='project-1'))
         assert store.memories[artifact['metadata_json']['candidate_memory_id']]['domain'] == 'health'
     else:
         from tests.unit.test_vnext_scheduler import _staleness_store

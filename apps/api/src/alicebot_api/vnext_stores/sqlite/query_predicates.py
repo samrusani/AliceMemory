@@ -12,6 +12,7 @@ from typing import cast
 from alicebot_api.vnext_project_scope import (
     GLOBAL_PROJECT_MARKER,
     is_alice_project_id,
+    project_floor_shape,
     project_scope_identity,
     resolve_project_scope,
     resolve_source_metadata_project_scope,
@@ -67,6 +68,24 @@ def _source_project_scope_identity_json_sqlite(metadata_json: object) -> str:
     return json.dumps(identity, ensure_ascii=False, separators=(",", ":"))
 
 
+def _project_floor_identity_json_sqlite(metadata_json: object) -> str:
+    """Identity of ``project_floor`` when it is a list of strings, else ``[]``."""
+
+    if isinstance(metadata_json, Mapping):
+        metadata = dict(metadata_json)
+    elif isinstance(metadata_json, str):
+        try:
+            decoded = json.loads(metadata_json)
+        except (TypeError, ValueError):
+            decoded = {}
+        metadata = decoded if isinstance(decoded, dict) else {}
+    else:
+        metadata = {}
+    shape, floor = project_floor_shape({"metadata_json": metadata})
+    identity = project_scope_identity(floor) if shape == "list" else ()
+    return json.dumps(list(identity), ensure_ascii=False, separators=(",", ":"))
+
+
 def _ensure_project_scope_identity_sqlite(conn: sqlite3.Connection) -> None:
     """Install the deterministic project identity functions per connection."""
 
@@ -77,7 +96,8 @@ def _ensure_project_scope_identity_sqlite(conn: sqlite3.Connection) -> None:
         WHERE name IN (
           'alice_project_scope_value',
           'alice_project_scope_identity',
-          'alice_source_project_scope_identity'
+          'alice_source_project_scope_identity',
+          'alice_project_floor_identity'
         )
         """
     )
@@ -85,7 +105,7 @@ def _ensure_project_scope_identity_sqlite(conn: sqlite3.Connection) -> None:
         row = cursor.fetchone()
         if row is not None:
             count = next(iter(row.values())) if isinstance(row, Mapping) else row[0]
-            if int(count) == 3:
+            if int(count) == 4:
                 return
     finally:
         cursor.close()
@@ -105,6 +125,12 @@ def _ensure_project_scope_identity_sqlite(conn: sqlite3.Connection) -> None:
         "alice_source_project_scope_identity",
         1,
         _source_project_scope_identity_json_sqlite,
+        deterministic=True,
+    )
+    conn.create_function(
+        "alice_project_floor_identity",
+        1,
+        _project_floor_identity_json_sqlite,
         deterministic=True,
     )
 
@@ -193,6 +219,7 @@ def _view_membership_sql(
     global_excluded_domains: tuple[str, ...],
     text_expressions: tuple[str, ...],
     partition: bool,
+    floor_expression: str = "'[]'",
 ) -> tuple[str, list[object]]:
     """The exact view test as one aggregate over one identity-function call.
 
@@ -221,6 +248,18 @@ def _view_membership_sql(
         )
     when_global = ""
     if wants_global:
+        floor_outside = ""
+        if ids:
+            params.extend(ids)
+            floor_outside = (
+                " AND CAST(floor_id.value AS TEXT) NOT IN ("
+                f"{placeholders(list(ids))})"
+            )
+        floor_clear = (
+            "NOT EXISTS (SELECT 1 FROM json_each("
+            f"{floor_expression}) AS floor_id WHERE "
+            f"{_sql_has_alice_id('CAST(floor_id.value AS TEXT)')}{floor_outside})"
+        )
         if partition:
             if excluded:
                 inner = f"CASE WHEN {excluded_sql()} THEN NULL ELSE 0 END"
@@ -232,6 +271,7 @@ def _view_membership_sql(
             inner = "1"
         when_global = (
             f"WHEN COALESCE(MAX({_sql_has_alice_id('CAST(scoped_project.value AS TEXT)')}), 0) = 0 "
+            f"AND {floor_clear} "
             f"THEN {inner} "
         )
     fallback = "NULL" if partition else "0"
@@ -271,6 +311,7 @@ def _project_view_sql(
     text_expressions: tuple[str, ...],
     domain_expression: str | None,
     global_excluded_domains: tuple[str, ...] | None,
+    floor_expression: str = "'[]'",
 ) -> tuple[str, list[object]]:
     """The ``AND ...`` clause for a request tuple, or ``("", [])`` when it fences nothing.
 
@@ -314,6 +355,7 @@ def _project_view_sql(
             global_excluded_domains=excluded,
             text_expressions=text_expressions,
             partition=False,
+            floor_expression=floor_expression,
         )
         params.extend(exact_params)
         return f" AND ({fast} OR {exact} = 1)", params
@@ -330,6 +372,7 @@ def _project_view_sql(
         global_excluded_domains=(),
         text_expressions=text_expressions,
         partition=False,
+        floor_expression=floor_expression,
     )
     params.extend(exact_params)
     return f" AND ({prefilter} AND {exact} = 1)", params
@@ -343,6 +386,7 @@ def _project_view_partition_sql(
     text_expressions: tuple[str, ...],
     domain_expression: str,
     global_excluded_domains: tuple[str, ...],
+    floor_expression: str = "'[]'",
 ) -> tuple[str, list[object]]:
     """A value per row for the single-scan fill: 1 project, 0 global, NULL outside the view.
 
@@ -369,6 +413,7 @@ def _project_view_partition_sql(
         global_excluded_domains=excluded,
         text_expressions=text_expressions,
         partition=True,
+        floor_expression=floor_expression,
     )
     params.extend(exact_params)
     return f"CASE WHEN {fast} THEN 0 ELSE {exact} END", params
@@ -496,6 +541,7 @@ def _project_clause(
         text_expressions=(f"{prefix}metadata_json", f"{prefix}project_id"),
         domain_expression=f"{prefix}domain",
         global_excluded_domains=global_excluded_domains,
+        floor_expression=f"alice_project_floor_identity({prefix}metadata_json)",
     )
 
 
@@ -639,6 +685,7 @@ def _metadata_scope_clause(
             text_expressions=text_expressions,
             domain_expression=domain_expression,
             global_excluded_domains=global_excluded_domains,
+            floor_expression=f"alice_project_floor_identity({metadata_expression})",
         )
         clauses.append(project_sql)
         params.extend(project_params)

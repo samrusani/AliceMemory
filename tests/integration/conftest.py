@@ -20,6 +20,15 @@ _EXECUTED_TEST_COUNT = 0
 TEMPLATE_MIGRATION_COUNT = 0
 
 
+@pytest.fixture(autouse=True)
+def strict_label_lock_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every integration flow obeys S, L, then label-row locks."""
+
+    import alicebot_api.vnext_label_writes as label_writes
+
+    monkeypatch.setattr(label_writes, "STRICT_LOCK_ORDER", True)
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--require-executed-tests",
@@ -162,3 +171,11 @@ def migrated_database_urls(migrated_template_database: str) -> Iterator[dict[str
         yield urls
     finally:
         _drop_database(database_name)
+
+
+def lock_label_fixture(store) -> None:
+    """Seed and mutate one transaction with the production lock order."""
+    from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+    store.lock_graph_mutation()
+    acquire_exclusive_label_lock(store)

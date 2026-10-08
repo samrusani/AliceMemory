@@ -240,8 +240,10 @@ EXPECTED_ROUTE_AST_SHA256 = "9666f75cff198b78e45c1aed6c1a3259c20b7e2e53771be6333
 EXPECTED_OWNED_SUPPORT_AST_SHA256 = "8bbbcb0cf52c4bd1da5fce4e50878d8a62599be59ee25e09dcd905c94950d406"
 EXPECTED_FULL_SUPPORT_AST_SHA256 = "07acb5deafb700e040c459969610e8877e86e62b04d4e9d86493fe314cb02868"
 EXPECTED_GATED_OPERATION_SHA256 = "55490460fd78990a6872ebf22c6cfd927f7d0a5548b6df90adde8261ede8da65"
-EXPECTED_DEFAULT_DEEP_ROUTE_SHA256 = "a865b2264c911ed1b055853777b850e070bd594d79fafb167df7b915b7c3c9ce"
-EXPECTED_LEGACY_DEEP_ROUTE_SHA256 = "6743a8b03d649328341eab462aeea0271f997f14c5c558a666b5aff92f297d79"
+
+# Source regeneration adds one default route before source review.
+EXPECTED_DEFAULT_DEEP_ROUTE_SHA256 = "9d9e83c35818387a13c719d455c88f4dcb4d139bf5f4dd5888bc6ff3723077a7"
+EXPECTED_LEGACY_DEEP_ROUTE_SHA256 = "5ba780b5ec62584b844cf1fcab8fc35b703f4494c1486db870588ab68a1f57a6"
 
 EXPECTED_INTEGRATION_PATCH_COUNTS = {
     "tests/integration/test_approval_api.py": 8,
@@ -667,9 +669,9 @@ def test_main_preserves_frozen_flag_policy_and_five_mount_seams() -> None:
 def test_flagged_surface_preserves_deep_order_ids_and_import_timing() -> None:
     default = _isolated_surface_manifest(None)
     assert default == {
-        "operation_count": 183,
+        "operation_count": 184,
         "legacy_count": 0,
-        "deep_count": 187,
+        "deep_count": 188,
         "deep_digest": EXPECTED_DEFAULT_DEEP_ROUTE_SHA256,
         "gated_count": 0,
         "gated_digest": hashlib.sha256(b"[]").hexdigest(),
@@ -679,9 +681,9 @@ def test_flagged_surface_preserves_deep_order_ids_and_import_timing() -> None:
     }
     legacy = _isolated_surface_manifest("1")
     assert legacy == {
-        "operation_count": 232,
+        "operation_count": 233,
         "legacy_count": 49,
-        "deep_count": 236,
+        "deep_count": 237,
         "deep_digest": EXPECTED_LEGACY_DEEP_ROUTE_SHA256,
         "gated_count": 49,
         "gated_digest": EXPECTED_GATED_OPERATION_SHA256,

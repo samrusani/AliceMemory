@@ -225,6 +225,9 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
     with _vnext_store_context(context) as store:
         # Reuse the hybrid retrieval stages (Postgres FTS + pgvector) that back
         # vNext context packs so recall and context packs rank identically.
+        lock = getattr(store, "lock_label_writes", None)
+        if callable(lock):
+            lock()
         service = VNextRetrievalService(store)
         # Recall always searches sources (include_sources only gates whether the
         # excerpts come back), so a query the source search cannot take is
@@ -756,13 +759,16 @@ def _handle_alice_open_loops(context: MCPRuntimeContext, arguments: Mapping[str,
         target = store.get_open_loop(loop_id)
         if target is None:
             raise MCPReferenceNotFoundError(f"open loop {loop_id} was not found")
+        from alicebot_api.vnext_label_guard import effective_row_for_fence
+
+        judged = effective_row_for_fence(store, identity, "open_loop", target)
         # Same ceiling block as memory mutations. The policy event names
         # this loop; the previous check logged the decision with no target.
         try:
             VNextMemoryCommitService(store).authorize_memory_action(
                 identity=identity,
                 action="open_loop.update",
-                memory=target,
+                memory=judged,
                 target_type="open_loop",
             )
         except AgentPolicyBlockedError as exc:
@@ -806,6 +812,7 @@ def _resume_event_honours_policy_fence(
     # row it points at is the thing to test (the event queries leave them out in SQL
     # too, which keeps a held-back event from using up a place).
     exclude_global_domains: frozenset[str],
+    effective_project_scope: tuple[str, ...] = (),
 ) -> bool:
     target_type = event.get("target_type")
     target_id = event.get("target_id")
@@ -823,6 +830,18 @@ def _resume_event_honours_policy_fence(
     if target_type == "memory" and not memory_window_is_open(row):
         return False
     if _resource_is_held_back_global(row, exclude_global_domains):
+        return False
+    from alicebot_api.vnext_label_guard import admit_loaded
+
+    kind = "open_loop" if target_type == "open_loop" else "memory"
+    if not admit_loaded(
+        store,
+        kind=kind,
+        rows=[row],
+        domains=effective_domains,
+        sensitivity_allowed=effective_sensitivity_allowed,
+        projects=effective_project_scope,
+    ):
         return False
     return _resource_matches_domains(row, effective_domains) and _resource_matches_sensitivity(
         row, effective_sensitivity_allowed
@@ -890,6 +909,16 @@ def _vnext_recent_decisions(
             and _memory_matches_project(row, project)
             and _row_in_window(row, key="created_at", since=since, until=until)
         ]
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        matched = admit_loaded(
+            store,
+            kind="memory",
+            rows=matched,
+            domains=domain_filter,
+            sensitivity_allowed=sensitivity_filter,
+            projects=effective_project_scope,
+        )
         matched.sort(key=_created_at_sort_key, reverse=True)
         decisions = [
             present_model_item(
@@ -999,7 +1028,19 @@ def _vnext_resume(
                 include_expired=False,
             )
 
-        decisions = read_memories(("decision",))
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        def admit_memories(rows: list[JsonObject]) -> list[JsonObject]:
+            return admit_loaded(
+                store,
+                kind="memory",
+                rows=rows,
+                domains=domain_filter,
+                sensitivity_allowed=sensitivity_filter,
+                projects=effective_project_scope,
+            )
+
+        decisions = admit_memories(read_memories(("decision",)))
         last_decision: JsonObject | None = None
         if decisions:
             last_decision = {
@@ -1052,13 +1093,21 @@ def _vnext_resume(
                     scope_window_start=since,
                     scope_window_end=until,
                 )
+            loop_rows = admit_loaded(
+                store,
+                kind="open_loop",
+                rows=loop_rows,
+                domains=domain_filter,
+                sensitivity_allowed=sensitivity_filter,
+                projects=effective_project_scope,
+            )
         open_loops = [
             present_model_item(_compact_vnext_open_loop(row), source=row) for row in loop_rows[:max_open_loops]
         ]
 
         next_action: JsonObject | None = open_loops[0] if open_loops else None
         if next_action is None:
-            todo_memories = read_memories(tuple(_SQLITE_NEXT_ACTION_MEMORY_TYPES))
+            todo_memories = admit_memories(read_memories(tuple(_SQLITE_NEXT_ACTION_MEMORY_TYPES)))
             if todo_memories:
                 next_action = {
                     "kind": "memory",
@@ -1181,6 +1230,7 @@ def _vnext_resume(
                     effective_domains=effective_domains,
                     effective_sensitivity_allowed=effective_sensitivity_allowed,
                     exclude_global_domains=held_back,
+                    effective_project_scope=effective_project_scope,
                 )
             ]
             event_rows.sort(key=_event_recency, reverse=True)

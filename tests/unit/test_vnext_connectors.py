@@ -165,6 +165,44 @@ def _telegram_payload(update_id: int, text: str = "Fact: Telegram capture preser
     }
 
 
+def test_health_census_preserves_settings_event_fallback_and_cursor_kind(monkeypatch):
+    from alicebot_api.vnext_label_guard import invalidate_read_labels, label_read_scope
+
+    store = InMemoryConnectorSettingsStore()
+    service = VNextConnectorService(store, secret_provider=InMemorySecretProvider())
+    store.upsert_connector_setting({"connector_name": "telegram", "enabled": True, "configured": True})
+    store.upsert_connector_state({"connector_name": "telegram", "cursor_value": "native-cursor"})
+    store.upsert_connector_state({"connector_name": "browser_clipper", "cursor_type": "unrelated", "cursor_value": "wrong-cursor"})
+    store.append_event({"target_type": "connector", "target_id": "browser_clipper",
+                        "event_type": "connector.config_updated", "occurred_at": "2026-10-06T00:00:00Z",
+                        "payload_json": {"enabled": True, "configured": True, "validation_errors": []}})
+    store.append_event({"target_type": "connector", "target_id": "browser_clipper",
+                        "event_type": "connector.sync_completed", "occurred_at": "2026-10-06T00:01:00Z",
+                        "payload_json": {"sync_cursor": "event-cursor", "item_count": 3, "imported_count": 2}})
+    expected = service.connector_health_all()
+    by_name = {item["connector_name"]: item for item in expected["items"]}
+    assert by_name["telegram"]["cursor_state"] == "native-cursor"
+    assert by_name["browser_clipper"]["cursor_state"] == "event-cursor"
+    assert by_name["browser_clipper"]["items_captured"] == 2
+    calls = []
+    original = store.list_events
+    def counted(**kwargs):
+        calls.append(kwargs["target_id"])
+        return original(**kwargs)
+    monkeypatch.setattr(store, "list_events", counted)
+    with label_read_scope(store):
+        result = service.connector_health_all()
+        assert result == expected
+        assert len(calls) == len(list_connector_definitions())
+        result["items"][0]["validation_errors"].append("caller-mutation")
+        assert service.connector_health_all() == expected
+        store.upsert_connector_state({"connector_name": "telegram", "cursor_value": "after-write"})
+        invalidate_read_labels(store)
+        updated = service.connector_health_all()
+        assert next(item for item in updated["items"] if item["connector_name"] == "telegram")["cursor_state"] == "after-write"
+    assert service.connector_health_all() == updated
+
+
 def test_connector_definitions_cover_sprint_11_sources_with_conservative_defaults() -> None:
     definitions = {definition.name: definition for definition in list_connector_definitions()}
 

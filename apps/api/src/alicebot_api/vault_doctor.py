@@ -90,9 +90,7 @@ def compile_local_vault_doctor(
     """Render the vault census for the acting local user."""
 
     if COMMITTED_MEMORY_STATUSES != ("active", "accepted"):
-        raise RuntimeError(
-            "committed-fact COUNT SQL is written for active and accepted only"
-        )
+        raise RuntimeError("committed-fact COUNT SQL is written for active and accepted only")
 
     resolved = Path(db_path).expanduser().resolve()
     with sqlite_user_connection(resolved, user_id) as connection:
@@ -111,6 +109,16 @@ def compile_local_vault_doctor(
             (uid, CANDIDATE_STATUS),
         )
         missing_vector_line = _missing_vector_line(store)
+        from alicebot_api.vnext_label_repair import LabelCheckUnavailable, label_gap_counts
+
+        try:
+            below, unverified = label_gap_counts(store)
+            label_line = f"derived labels: {below} below their inputs, {unverified} unverified"
+            labels_available = True
+        except LabelCheckUnavailable:
+            below, unverified = 0, 0
+            labels_available = False
+            label_line = "derived labels: unavailable; run labels check"
         flagged_ids = _flagged_source_ids(store)
         superseded_count = count_prunable_sources(store)
         try:
@@ -145,6 +153,7 @@ def compile_local_vault_doctor(
             *(["Remove flagged sources with alice-memory sources delete <id>."] if flagged_ids else []),
             f"flagged sources: {len(flagged_ids)}",
             "flagged source ids: " + ", ".join(flagged_ids),
+            label_line,
         )
     )
 

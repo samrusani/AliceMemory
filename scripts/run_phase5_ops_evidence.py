@@ -1091,6 +1091,18 @@ def _verify_migration_0093(admin_url: str) -> None:
             raise EvidenceError("migration_0093_unique_not_enforced")
 
 
+def _verify_derived_labels(admin_url: str) -> None:
+    """The migrations must leave no derived row below its inputs or unverified."""
+
+    from alicebot_api.db import direct_user_connection
+    from alicebot_api.vnext_label_repair import classify_stored_labels, load_postgres_label_tables
+
+    with direct_user_connection(admin_url, USER_ID) as conn:
+        below, unverified = classify_stored_labels(load_postgres_label_tables(conn))
+    if below or any(unverified.values()):
+        raise EvidenceError("derived_labels_not_repaired")
+
+
 def _seed_postgres_baseline(
     *,
     baseline: Path,
@@ -1278,6 +1290,7 @@ def _postgres_drill(
         )
         after = _verify_postgres_store(admin_url, app_url, expected_head=current_head)
         _verify_migration_0093(admin_url)
+        _verify_derived_labels(admin_url)
         if before["counts"] != after["counts"]:
             raise EvidenceError("postgres_restore_count_mismatch")
         result = {

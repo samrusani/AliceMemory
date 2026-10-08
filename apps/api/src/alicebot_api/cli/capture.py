@@ -41,6 +41,7 @@ from alicebot_api.vnext_scheduler import SchedulerRunRequest, default_schedule
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_label_writes import takes_label_lock as _takes_label_lock
 from .constants import DEFAULT_VNEXT_DEMO_DATASET_PATH, DEMO_SECRET_MARKERS
 from .models import CLIContext
 from .arguments import _object_dict, _object_int, _object_list
@@ -394,6 +395,7 @@ def _demo_tag(dataset_id: str) -> JsonObject:
     return {"demo": True, "demo_dataset_id": dataset_id}
 
 
+@_takes_label_lock
 def _reset_vnext_demo_dataset(store: PostgresVNextStore, *, dataset_id: str) -> JsonObject:
     with store.conn.cursor() as cur:
         cur.execute(
@@ -507,6 +509,7 @@ def _tag_demo_candidate_memories(store: PostgresVNextStore, *, dataset_id: str, 
     return updated
 
 
+@_takes_label_lock
 def _tag_demo_artifact(store: PostgresVNextStore, *, artifact_id: str, dataset_id: str) -> None:
     artifact = store.get_artifact(artifact_id)
     if artifact is None:
@@ -702,7 +705,7 @@ def _run_vnext_demo_load(ctx: CLIContext, args: argparse.Namespace) -> str:
             created_open_loop_ids.append(str(loop["id"]))
 
         daily = VNextBrainService(store).generate_daily_brief(
-            BrainArtifactRequest(
+            BrainArtifactRequest(agent_identity=None,
                 domains=("project",),
                 sensitivity_allowed=("public", "internal", "private", "unknown"),
                 generated_for="2026-05-12",
@@ -727,7 +730,7 @@ def _run_vnext_demo_load(ctx: CLIContext, args: argparse.Namespace) -> str:
         )
         if project_id is not None:
             project_update = VNextProjectService(store).generate_project_update_candidate(
-                ProjectAutomationRequest(
+                ProjectAutomationRequest(agent_identity=None,
                     domains=("project",),
                     sensitivity_allowed=("public", "internal", "private", "unknown"),
                     project_id=project_id,

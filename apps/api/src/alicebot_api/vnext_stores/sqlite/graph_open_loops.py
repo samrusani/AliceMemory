@@ -19,7 +19,7 @@ from alicebot_api.vnext_stores.sqlite.columns import (
     GRAPH_EDGE_COLUMNS,
     OPEN_LOOP_COLUMNS,
 )
-from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import open_loop_source_reference_sql
+from alicebot_api.vnext_stores.sqlite.source_retirement import open_loops_naming_sources
 from alicebot_api.vnext_stores.sqlite.primitives import (
     _iso_or_none,
     _iso_or_now,
@@ -30,6 +30,7 @@ from alicebot_api.vnext_stores.sqlite.primitives import (
     _utc_now_iso,
     _uuid_text,
 )
+from alicebot_api.vnext_label_writes import takes_label_lock
 from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _project_scope_value_sqlite,
     CTE_MATERIALIZED_HINT,
@@ -518,7 +519,11 @@ def list_relationship_events(self, entity_id: str) -> list[VNextRow]:
         (str(entity_id), self.user_id),
     )
 
+@takes_label_lock
 def create_open_loop(self, loop: JsonObject, *, actor_type: str = "system") -> VNextRow:
+    from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
+
+    loop, floor_event = apply_insert_floor(self, "open_loop", loop)
     loop_id = _new_id(loop.get("id"))
     now = _utc_now_iso()
     self._execute(
@@ -578,6 +583,7 @@ def create_open_loop(self, loop: JsonObject, *, actor_type: str = "system") -> V
         target_id=row["id"],
         payload={"operation": "create", "fields": _sorted_field_names(loop)},
     )
+    remember_floor_event(self, floor_event, row["id"])
     return row
 
 def upsert_open_loop_by_automation_digest(
@@ -609,10 +615,10 @@ def upsert_open_loop_by_automation_digest(
     try:
         return self.create_open_loop(record, actor_type=actor_type)
     except sqlite3.IntegrityError:
+        # The unique digest belongs to the user; propagation may have cleared
+        # the mutable project/person columns since the first extraction.
         existing = self.find_open_loop_by_automation_digest(
             digest=normalized_digest,
-            project_id=str(loop["project_id"]) if loop.get("project_id") is not None else None,
-            person_id=str(loop["person_id"]) if loop.get("person_id") is not None else None,
         )
         if existing is None:
             raise
@@ -664,22 +670,11 @@ def find_open_loop_by_automation_digest(
     )
 
 def list_open_loops_referencing_source(self, *, source_id: str, limit: int = 500) -> list[VNextRow]:
-    """Bound open loops related to one source before LIMIT."""
+    """Open loops that name one source, by the spellings ``cited_source_ids`` names, before LIMIT."""
 
     if limit < 1:
         raise ValueError("limit must be positive")
-    reference, reference_params = open_loop_source_reference_sql(source_id)
-    return self._fetch_all(
-        f"""
-                SELECT {", ".join(OPEN_LOOP_COLUMNS)}
-                FROM open_loops
-                WHERE user_id = ?
-                  AND {reference}
-                ORDER BY updated_at DESC, created_at DESC, id DESC
-                LIMIT ?
-                """,
-        (self.user_id, *reference_params, limit),
-    )
+    return open_loops_naming_sources(self, [source_id]).get(str(source_id), [])[:limit]
 
 def list_open_loops(
     self,
@@ -822,6 +817,7 @@ def list_open_loops_view_partitions(
         text_expressions=("metadata_json", "project_id"),
         domain_expression="domain",
         global_excluded_domains=tuple(sorted(exclude_global_domains)),
+        floor_expression="alice_project_floor_identity(metadata_json)",
     )
     columns = ", ".join(f"l.{column}" for column in OPEN_LOOP_COLUMNS)
     rows = self._fetch_all(
@@ -969,7 +965,20 @@ def list_open_loop_events(
         tuple(params),
     )
 
+@takes_label_lock
 def update_open_loop(self, *, loop_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+    from alicebot_api.vnext_label_writes import clamp_owner_patch, merge_protected_metadata, prepare_label_patch, propagate_after_write
+
+    before = self.get_open_loop(loop_id)
+    patch = dict(patch)
+    metadata = patch.get("metadata_json")
+    if before is not None and isinstance(metadata, dict):
+        patch["metadata_json"] = merge_protected_metadata(
+            before.get("metadata_json") if isinstance(before.get("metadata_json"), dict) else {},
+            metadata, label_write=False,
+        )
+    patch = prepare_label_patch(self, "open_loop", before, patch)
+    patch = clamp_owner_patch(self, kind="open_loop", before=before, patch=patch)
     cursor = self._execute(
         """
                 UPDATE open_loops
@@ -1013,8 +1022,10 @@ def update_open_loop(self, *, loop_id: str, patch: JsonObject, actor_type: str =
         target_id=row["id"],
         payload={"operation": "update", "changes": patch},
     )
+    propagate_after_write(self, kind="open_loop", before=before, after=row)
     return row
 
+@takes_label_lock
 def update_open_loop_status(
     self,
     *,

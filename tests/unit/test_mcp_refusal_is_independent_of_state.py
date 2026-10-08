@@ -35,6 +35,7 @@ from alicebot_api.mcp.memories import redact_memory_flow
 from alicebot_api.mcp.runtime import _sqlite_path_from_url, _vnext_store_context
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.onramp import bootstrap_database, resolve_db_path, sqlite_url_for_path
+from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_control import AgentIdentity, AgentPolicyBlockedError
 from alicebot_api.vnext_agent_keys import create_agent_key
@@ -203,6 +204,7 @@ def _confirmation_expired(ctx: MCPRuntimeContext, project: str, sensitivity: str
 
 def _as_project_update(candidate: object) -> Callable[[dict], dict]:
     def update(metadata: dict) -> dict:
+        metadata.update(with_derived_from({}, {}))
         metadata["workflow"] = "project_auto_update"
         if candidate is not None:
             metadata["candidate"] = candidate

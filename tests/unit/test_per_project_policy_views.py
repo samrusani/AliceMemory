@@ -65,6 +65,9 @@ ALLOWED_UNSCOPED_SITES: Counter[tuple[str, str, str]] = Counter(
         ("mcp/scheduler.py", "_handle_alice_vnext_scheduler_resume", "_policy_checked"): 1,
         ("mcp/synthesis.py", "_handle_alice_generate_connections", "_mcp_agent_policy_preflight"): 1,
         ("mcp/synthesis.py", "_handle_alice_generate_contradictions", "_mcp_agent_policy_preflight"): 1,
+        # The legacy brain adapters preflight here and pass the resulting identity
+        # and scope to the producer, which applies all-of admission.
+        ("mcp/synthesis.py", "_authorized_brain_request", "_mcp_agent_policy_preflight"): 1,
     }
 )
 

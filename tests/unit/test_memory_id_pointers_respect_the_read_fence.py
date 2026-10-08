@@ -827,6 +827,16 @@ def test_a_pack_keeps_the_visible_changes_found_before_the_scan_ceiling(tmp_path
     scans to the 16384 row ceiling and lists the older readable event as well.
     """
     monkeypatch.setattr(vnext_retrieval_module, "RECENT_CHANGES_SCAN_MAX_ROWS", 64)
+    # An adapter without SQL sensitivity pushdown still needs the bounded
+    # fallback. Native SQLite now excludes definitely hidden targets first.
+    from alicebot_api.sqlite_store import SQLiteVNextStore
+    original_events = SQLiteVNextStore.list_memory_events
+    def legacy_events(self, *, event_type_prefix=None, scope_projects=(), scope_people=(),
+                      scope_person_memory_ids=(), scope_window_start=None, scope_window_end=None, limit=500):
+        return original_events(self, event_type_prefix=event_type_prefix, scope_projects=scope_projects,
+                               scope_people=scope_people, scope_person_memory_ids=scope_person_memory_ids,
+                               scope_window_start=scope_window_start, scope_window_end=scope_window_end, limit=limit)
+    monkeypatch.setattr(SQLiteVNextStore, "list_memory_events", legacy_events)
     context = _context(tmp_path, monkeypatch)
     (old_readable,) = _seed_memories(context, count=1, sensitivity="private", label="Old readable")
     hidden = _seed_memories(context, count=100, sensitivity="confidential", label="Hidden")

@@ -25,7 +25,9 @@ from alicebot_api.vnext_agent_keys import (
     agent_key_from_authorization,
     resolve_protected_agent_identity,
 )
+from alicebot_api.vnext_label_guard import LabelGuard, apply_unverified_rule, policy_labels
 from alicebot_api.vnext_project_scope import source_project_scope
+from alicebot_api.vnext_source_fence import SourceReadFence
 from alicebot_api.vnext_queue import VNextQueueNotFoundError
 from alicebot_api.vnext_store import PostgresVNextStore, is_redacted_project_update_artifact
 
@@ -278,40 +280,63 @@ def _vnext_source_trace(
     }
 
 
+def _vnext_readable_trace_rows(store, kind, fetch, identity, *, admit=None):
+    """Deepen the prefix until readable truncation can be answered."""
+
+    from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling
+
+    limit = _VNEXT_SOURCE_TRACE_COLLECTION_LIMIT
+    prefix = limit + 1
+    while True:
+        fetched = list(fetch(prefix))
+        admitted = list(admit(fetched)) if admit is not None else apply_sensitivity_ceiling(store, kind=kind, rows=fetched, identity=identity)
+        if len(admitted) > limit or len(fetched) < prefix:
+            return _vnext_bounded_trace_rows(admitted)
+        prefix *= 2
+
+
 def _vnext_load_source_trace(
     *,
     store: PostgresVNextStore,
     source: dict[str, object],
-) -> dict[str, object]:
-    """Load one bounded source trace and disclose per-collection truncation."""
+    identity: object | None = None,
+) -> dict[str, object] | None:
+    """Load one bounded source trace and disclose per-collection truncation.
 
+    Returns None when the caller's sensitivity ceiling hides the source, so
+    the response carries neither its title nor its id.
+    """
+
+    from alicebot_api.vnext_agent_control import AgentIdentity
+    from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling
+    from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
+
+    caller = identity if isinstance(identity, AgentIdentity) else None
+    if not apply_sensitivity_ceiling(store, kind="source", rows=[source], identity=caller):
+        return None
     source_id = str(source["id"])
-    memories, memories_complete = _vnext_bounded_trace_rows(
-        store.list_memories_referencing_source(
-            source_id=source_id,
-            limit=_VNEXT_SOURCE_TRACE_COLLECTION_LIMIT + 1,
-        )
+    memories, memories_complete = _vnext_readable_trace_rows(
+        store, "memory", lambda limit: store.list_memories_referencing_source(source_id=source_id, limit=limit), caller
     )
-    artifacts, artifacts_complete = _vnext_bounded_trace_rows(
-        store.list_artifacts_referencing_source(
-            source_id=source_id,
-            limit=_VNEXT_SOURCE_TRACE_COLLECTION_LIMIT + 1,
-        )
+    artifacts, artifacts_complete = _vnext_readable_trace_rows(
+        store, "artifact", lambda limit: store.list_artifacts_referencing_source(source_id=source_id, limit=limit), caller
     )
-    open_loops, open_loops_complete = _vnext_bounded_trace_rows(
-        store.list_open_loops_referencing_source(
-            source_id=source_id,
-            limit=_VNEXT_SOURCE_TRACE_COLLECTION_LIMIT + 1,
-        )
+    open_loops, open_loops_complete = _vnext_readable_trace_rows(
+        store, "open_loop", lambda limit: store.list_open_loops_referencing_source(source_id=source_id, limit=limit), caller
     )
-    events, direct_events_complete = _vnext_bounded_trace_rows(
-        store.list_events_for_source_trace(
+    open_loops = withhold_unreadable_references(store, open_loops, fence=SourceReadFence.for_identity(caller))
+    kept_ids = {str(row.get("id")) for row in (*memories, *artifacts, *open_loops)}
+    kept_ids.add(source_id)
+    events, direct_events_complete = _vnext_readable_trace_rows(
+        store, "event", lambda limit: store.list_events_for_source_trace(
             source_id=source_id,
             memory_ids=[str(memory["id"]) for memory in memories],
             artifact_ids=[str(artifact["id"]) for artifact in artifacts],
             open_loop_ids=[str(open_loop["id"]) for open_loop in open_loops],
-            limit=_VNEXT_SOURCE_TRACE_COLLECTION_LIMIT + 1,
-        )
+            limit=limit,
+        ), caller,
+        admit=(lambda rows: [event for event in rows if str(event.get("target_id") or "") in kept_ids])
+        if SourceReadFence.for_identity(caller).entity_read_fenced else None,
     )
     events_complete = direct_events_complete and memories_complete and artifacts_complete and open_loops_complete
     return _vnext_source_trace(
@@ -427,6 +452,7 @@ def _vnext_policy_checked(
     domains: tuple[str, ...] = (),
     sensitivity_allowed: tuple[str, ...] = ("public", "internal", "private", "unknown"),
     project_scope: tuple[str, ...] = (),
+    project_floor: tuple[str, ...] = (),
     workflow_type: str | None = None,
     write_policy: str | None = None,
     target_type: str | None = None,
@@ -443,6 +469,7 @@ def _vnext_policy_checked(
         domains=domains,
         sensitivity_allowed=sensitivity_allowed,
         project_scope=project_scope,
+        project_floor=project_floor,
         workflow_type=workflow_type,
         write_policy=write_policy,
         require_explicit_project_scope=require_explicit_project_scope,
@@ -461,14 +488,16 @@ def _vnext_exact_resource_policy(
     resource: dict[str, object],
     source_resource: bool = False,
 ) -> PolicyDecision:
-    domain = " ".join(str(resource.get("domain") or "unknown").split()).strip() or "unknown"
-    sensitivity = " ".join(str(resource.get("sensitivity") or "unknown").split()).strip() or "unknown"
+    domains, sensitivity_allowed, project_scope, project_floor = policy_labels(resource)
+    if source_resource:
+        project_scope = source_project_scope(resource)
     decision = evaluate_agent_policy(
         identity=identity,
         action=action,
-        domains=(domain,),
-        sensitivity_allowed=(sensitivity,),
-        project_scope=source_project_scope(resource) if source_resource else resource_project_scope(resource),
+        domains=domains,
+        sensitivity_allowed=sensitivity_allowed,
+        project_scope=project_scope,
+        project_floor=project_floor,
         require_explicit_project_scope=bool(identity is not None and identity.project_scope_locked),
     )
     if decision.decision == "allowed_with_filtering":
@@ -504,11 +533,14 @@ def _vnext_authorized_artifact(
         raise ValueError("feedback cannot be added to a redacted artifact")
 
     _vnext_agent_record(store, identity)
+    guard = LabelGuard.for_fence(store, SourceReadFence.for_identity(identity))
+    effective = guard.effective_row("artifact", artifact)
     decision = _vnext_exact_resource_policy(
         identity=identity,
         action=action,
-        resource=artifact,
+        resource=effective if isinstance(effective, dict) else artifact,
     )
+    decision = apply_unverified_rule(decision, effective if isinstance(effective, Mapping) else None, identity)
     append_policy_events(
         store,
         identity=identity,

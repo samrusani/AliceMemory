@@ -54,6 +54,35 @@ class FakeVNextStore:
         self.agent_api_keys: list[dict[str, object]] = []
         self.browser_clip_capabilities: dict[str, dict[str, object]] = {}
         self.revisions: list[dict[str, object]] = []
+        self.graph_locked = False
+        self.labels_locked = False
+        self.labels_exclusive = False
+
+    def lock_graph_mutation(self) -> None:
+        self.graph_locked = True
+
+    def lock_label_writes(self, *, exclusive: bool = False) -> None:
+        self.labels_locked = True
+        self.labels_exclusive |= exclusive
+
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+        collection = {"source": self.sources.values(), "memory": self.memories, "open_loop": self.open_loops,
+                      "artifact": self.artifacts.values(), "belief": self.beliefs.values(), "project": self.projects.values()}.get(kind, [])
+        return [dict(row) for row in collection if str(row.get("id")) in ids]
+
+    def iter_label_rows(self, kind: str):
+        collections = {"source": self.sources.values(), "memory": self.memories,
+                       "open_loop": self.open_loops, "artifact": self.artifacts.values(),
+                       "belief": self.beliefs.values(), "project": self.projects.values()}
+        yield [dict(row) for row in collections[kind]]
+
+    def _fetch_all(self, query: str, _params: tuple[object, ...]) -> list[dict[str, object]]:
+        # The label dependant walker performs its exact canonical reference filter after this prefilter.
+        for table, kind in (("memories", "memory"), ("open_loops", "open_loop"), ("generated_artifacts", "artifact"), ("projects", "project")):
+            if f"FROM {table}" in query:
+                collection = {"memory": self.memories, "open_loop": self.open_loops, "artifact": self.artifacts.values(), "project": self.projects.values()}[kind]
+                return [{**row, "kind": kind} for row in collection]
+        raise AssertionError(query)
 
     def create_browser_clip_capability(
         self,
@@ -879,6 +908,12 @@ class FakeVNextStore:
 
 
 def _install_fake_vnext_store(monkeypatch, store: FakeVNextStore) -> None:
+    from alicebot_api import vnext_label_writes
+    monkeypatch.setattr(vnext_label_writes, "acquire_exclusive_label_lock", lambda target: target.lock_label_writes(exclusive=True))
+    monkeypatch.setattr(
+        vnext_label_writes, "held_label_locks",
+        lambda target: (target.graph_locked, target.labels_locked, target.labels_exclusive),
+    )
     @contextmanager
     def fake_user_connection(database_url, current_user_id):
         assert database_url == "postgresql://db"
@@ -1198,7 +1233,7 @@ def test_vnext_route_inventory_fails_closed_without_route_local_policy() -> None
     }
     assert not (main_module._VNEXT_ROUTE_LOCAL_POLICY & main_module._VNEXT_CENTRAL_OPERATOR_ROUTES)
     assert (main_module._VNEXT_ROUTE_LOCAL_POLICY | main_module._VNEXT_CENTRAL_OPERATOR_ROUTES) == registered
-    assert len(registered) == 71
+    assert len(registered) == 72
 
     project_bound = main_module.AgentIdentity(
         agent_id="project-reader",
@@ -1347,6 +1382,7 @@ def test_vnext_memories_router_partitions_preserve_global_route_sequence() -> No
             vnext_memories_router.source_review_router,
             [
                 ("GET", "/v0/vnext/sources/{source_id}"),
+                ("POST", "/v0/vnext/sources/{source_id}/regenerate"),
                 ("POST", "/v0/vnext/sources/{source_id}/review"),
             ],
         ),
@@ -1912,7 +1948,7 @@ def test_create_vnext_source_threads_project_scope_into_captured_memory(monkeypa
 
     candidates = store.list_memories(status="candidate")
     assert candidates, "capture must promote at least one candidate memory"
-    assert memory_project_scope(candidates[0]) == ("Project-Helios", "project-helios")
+    assert memory_project_scope(candidates[0]) == ("Project-Helios",)
     for memory in candidates:
         store.update_memory(memory_id=str(memory["id"]), patch={"status": "active"}, actor_type="system")
 
@@ -2313,7 +2349,7 @@ def test_vnext_artifact_trace_authorizes_sources_from_complete_persisted_scope_e
         }
     store.artifacts[artifact_id] = {
         "id": artifact_id,
-        "artifact_type": "daily_brief",
+        "artifact_type": "manual_note",
         "title": "Scoped trace",
         "content_markdown": "# Scoped trace",
         "status": "needs_review",
@@ -2392,6 +2428,16 @@ def test_create_vnext_context_pack_endpoint_returns_structured_pack(monkeypatch)
 def test_create_vnext_context_pack_endpoint_keeps_uncorroborated_count_trace_only(monkeypatch) -> None:
     store = FakeVNextStore(None)
     for index, bike in enumerate(("commuter", "touring"), start=1):
+        # These copied notes have real original sources. Their labels settle,
+        # while no aggregate card corroborates the numeric answer.
+        store.sources[f"source-bike-{index}"] = {
+                "id": f"source-bike-{index}",
+                "source_type": "manual_text",
+                "title": "Maintenance note",
+                "domain": "personal",
+                "sensitivity": "private",
+                "metadata_json": {},
+        }
         store.memories.append(
             {
                 "id": f"memory-bike-{index}",
@@ -2575,6 +2621,7 @@ def test_vnext_contradiction_and_belief_endpoints(monkeypatch) -> None:
         "sensitivity": "private",
         "memory_type": "belief",
     }
+    store.memories.append({"id": "memory-belief-1", "domain": "project", "sensitivity": "private", "canonical_text": "Alice should auto-promote generated artifacts into memory.", "status": "active", "metadata_json": {}})
     _install_fake_vnext_store(monkeypatch, store)
     user_id = uuid4()
 
@@ -2645,6 +2692,12 @@ def test_vnext_project_and_open_loop_endpoints(monkeypatch) -> None:
     update_response = vnext_review_router.generate_vnext_project_update_candidate(request)
     update_payload = json.loads(update_response.body)
     extract_response = vnext_projects_router.extract_vnext_open_loops(request)
+    original_row_locker = store.get_artifact_for_update
+    def checked_row_locker(artifact_id):
+        assert store.graph_locked is True
+        assert store.labels_exclusive is True
+        return original_row_locker(artifact_id)
+    monkeypatch.setattr(store, "get_artifact_for_update", checked_row_locker)
     review_update_response = vnext_review_router.review_vnext_project_update_candidate(
         update_payload["id"],
         vnext_review_router.VNextProjectUpdateReviewRequest(
@@ -2950,7 +3003,7 @@ def test_generic_artifact_review_preserves_applied_project_update_state(monkeypa
     _install_fake_vnext_store(monkeypatch, store)
     user_id = uuid4()
     artifact = VNextProjectService(store).generate_project_update_candidate(
-        vnext_automation.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        vnext_automation.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     artifact_id = str(artifact["id"])
     candidate_memory_id = str(artifact["metadata_json"]["candidate_memory_id"])
@@ -2999,7 +3052,7 @@ def _http_project_update_review_fixture() -> tuple[FakeVNextStore, dict[str, obj
         },
     }
     artifact = VNextProjectService(store).generate_project_update_candidate(
-        vnext_automation.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        vnext_automation.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     return store, artifact
 
@@ -3056,7 +3109,7 @@ def _apply_supported_http_memory_lifecycle(
 def _accept_later_http_project_update(store: FakeVNextStore, *, first_artifact_id: str) -> None:
     service = VNextProjectService(store)
     later = service.generate_project_update_candidate(
-        vnext_automation.ProjectAutomationRequest(project_id="project-1", domains=("project",))
+        vnext_automation.ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
     )
     assert later["id"] != first_artifact_id
     service.review_project_update(
@@ -4434,6 +4487,9 @@ def test_dogfooding_dashboard_and_insight_feedback_api(monkeypatch) -> None:
             "sensitivity": "private",
         }
     )
+    from alicebot_api.vnext_derived_labels import stamp_derived_from
+
+    stamp_derived_from(artifact, {})
     store.create_artifact_quality_rating(
         {
             "artifact_id": artifact["id"],
@@ -4474,6 +4530,8 @@ def test_artifact_quality_rating_rejects_alias_forgery_and_rerates_authenticated
             "sensitivity": "private",
         }
     )
+    from alicebot_api.vnext_derived_labels import stamp_derived_from
+    stamp_derived_from(artifact, {})
     _record, raw_key = create_agent_key(
         store, user_id=user_id, agent_id="reviewer", permission_profile="trusted_local_agent"
     )
@@ -4575,6 +4633,8 @@ def test_artifact_routes_authorize_persisted_target_scope_and_profile(monkeypatc
         "metadata_json": {"project_id": "project-b"},
     }
 
+    from alicebot_api.vnext_derived_labels import stamp_derived_from
+    stamp_derived_from(store.artifacts[artifact_id], {})
     _reader_record, reader_key = create_agent_key(
         store,
         user_id=user_id,
@@ -4612,6 +4672,13 @@ def test_artifact_routes_authorize_persisted_target_scope_and_profile(monkeypatc
             "source_refs": [f"source:{sensitive_source_id}"],
         },
     }
+    derived_status, _derived_payload = _invoke_vnext_request(
+        "GET", f"/v0/vnext/traces/artifacts/{public_artifact_id}",
+        query={"user_id": str(user_id)}, authorization=f"Bearer {reader_key}",
+    )
+    assert derived_status == 403
+    # A manual original public artifact exercises per-source trace projection separately.
+    store.artifacts[public_artifact_id]["artifact_type"] = "manual_note"
     trace_status, trace_payload = _invoke_vnext_request(
         "GET",
         f"/v0/vnext/traces/artifacts/{public_artifact_id}",

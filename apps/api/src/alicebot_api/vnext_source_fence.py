@@ -122,7 +122,7 @@ from alicebot_api.vnext_agent_control import (
     evaluate_agent_policy,
     resource_project_scope,
 )
-from alicebot_api.vnext_project_scope import source_project_scope
+from alicebot_api.vnext_project_scope import project_floor_shape, source_project_scope
 
 SOURCE_REF_NOT_FOUND_MESSAGE = "the cited source was not found in the current user scope"
 MEMORY_REF_NOT_FOUND_MESSAGE = "the cited memory was not found in the current user scope"
@@ -229,12 +229,16 @@ class SourceReadFence:
             return False
         if self.identity is None:
             return True
+        if row.get("unverified") and self.identity.project_scope_locked:
+            return False
+        _shape, floor = project_floor_shape(row)
         decision = evaluate_agent_policy(
             identity=self.identity,
             action=EXPLAIN_DISCLOSURE_ACTION,
             domains=(str(row.get("domain") or "unknown"),),
             sensitivity_allowed=(str(row.get("sensitivity") or "unknown"),),
             project_scope=project_scope,
+            project_floor=floor,
             require_explicit_project_scope=True,
         )
         # "allowed_with_filtering" is a refusal here, as it is for explain: the
@@ -361,7 +365,13 @@ def resolve_attachable_memory_id(store: object, memory_id: str, *, fence: Source
         raise MemoryRefNotFoundError() from None
     getter = getattr(store, "get_memory", None)
     row = getter(canonical) if callable(getter) else None
-    if not isinstance(row, Mapping) or not fence.admits_memory(row):
+    if not isinstance(row, Mapping):
+        raise MemoryRefNotFoundError()
+    from alicebot_api.vnext_label_guard import LabelGuard
+
+    effective = LabelGuard.for_fence(store, fence).effective_row("memory", row)
+    judged = effective if isinstance(effective, Mapping) else row
+    if not fence.admits_memory(judged):
         raise MemoryRefNotFoundError()
     return canonical
 

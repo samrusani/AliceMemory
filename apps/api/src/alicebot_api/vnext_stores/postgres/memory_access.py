@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 from alicebot_api.store import ContinuityStoreInvariantError
+from alicebot_api.vnext_label_writes import takes_label_lock
 from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_METADATA_KEY,
     memory_embedding_signature_is_current,
@@ -21,6 +22,7 @@ from alicebot_api.vnext_stores.postgres.embedding_cas import (
 from alicebot_api.vnext_stores.postgres.primitives import _json_list
 from alicebot_api.vnext_stores.postgres.query_predicates import (
     _MEMORY_DIRECT_PEOPLE_SQL,
+    _MEMORY_GROUP_SCOPE_SQL,
     _MEMORY_PROJECT_SCOPE_SQL,
     _MEMORY_SCOPE_EVENT_TIME_SQL,
     _escape_like_literal,
@@ -216,6 +218,7 @@ def list_memories_referencing_sources(
     return grouped
 
 
+@takes_label_lock
 def list_pending_derived_candidates_for_member(
     self,
     *,
@@ -701,7 +704,7 @@ def list_pending_rollup_candidates(
                   AND metadata_json ->> 'rollup_digest' = ANY(%s::text[])
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND COALESCE(sensitivity, 'unknown') = ANY(%s::text[])
-                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])
+                  AND (%s::text[] IS NULL OR ({_MEMORY_GROUP_SCOPE_SQL}) ?| %s::text[])
                 ORDER BY metadata_json ->> 'rollup_digest', updated_at DESC, created_at DESC, id DESC
                 LIMIT %s
                 """,
@@ -748,7 +751,7 @@ def list_accepted_rollup_cards(
                   AND metadata_json ->> 'rollup_key' = ANY(%s::text[])
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND COALESCE(sensitivity, 'unknown') = ANY(%s::text[])
-                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])
+                  AND (%s::text[] IS NULL OR ({_MEMORY_GROUP_SCOPE_SQL}) ?| %s::text[])
                 ORDER BY
                   metadata_json ->> 'rollup_key',
                   CASE WHEN status = 'active' THEN 0 ELSE 1 END,
@@ -856,6 +859,7 @@ def search_memories_fts(
     domains: list[str] | None = None,
     sensitivity_allowed: list[str] | None = None,
     limit: int = 50,
+    offset: int = 0,
     memory_types: tuple[str, ...] = (),
     projects: tuple[str, ...] = (),
     created_by_agent_ids: tuple[str, ...] = (),
@@ -886,12 +890,15 @@ def search_memories_fts(
     else:
         tsquery_sql = "websearch_to_tsquery('english', %s)"
         tsquery_text = query
+    from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+    label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=False, alias="memories")
     return self._fetch_all(
         f"""
                 SELECT {MEMORY_COLUMNS},
                   ts_rank(search_tsv, {tsquery_sql}) AS fts_score
                 FROM memories
                 WHERE deleted_at IS NULL
+                  AND {label_sql}
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))
@@ -923,7 +930,7 @@ def search_memories_fts(
                   )
                   AND search_tsv @@ {tsquery_sql}
                 ORDER BY fts_score DESC, updated_at DESC, created_at DESC, id DESC
-                LIMIT %s
+                LIMIT %s OFFSET %s
                 """,
         (
             tsquery_text,
@@ -953,6 +960,7 @@ def search_memories_fts(
             scope_window_end,
             tsquery_text,
             limit,
+            offset,
         ),
     )
 

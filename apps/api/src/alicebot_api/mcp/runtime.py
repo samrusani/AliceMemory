@@ -60,6 +60,9 @@ def _store_context(context: MCPRuntimeContext):
 
 @contextmanager
 def _vnext_store_context(context: MCPRuntimeContext):
+    from alicebot_api.vnext_label_guard import label_read_scope
+
+    store: SQLiteVNextStore | PostgresVNextStore
     if _is_sqlite_backend(context):
         sqlite_path = _sqlite_path_from_url(context.database_url)
         with sqlite_user_connection(sqlite_path, context.user_id) as conn:
@@ -72,10 +75,23 @@ def _vnext_store_context(context: MCPRuntimeContext):
                 _SQLITE_DEFAULT_USER_EMAIL,
                 _SQLITE_DEFAULT_USER_DISPLAY_NAME,
             )
-            yield SQLiteVNextStore(conn, context.user_id)
+            store = SQLiteVNextStore(conn, context.user_id)
+            with label_read_scope(store):
+                yield store
         return
-    with user_connection(context.database_url, context.user_id) as conn:
-        yield PostgresVNextStore(conn)
+    try:
+        with user_connection(context.database_url, context.user_id) as conn:
+            store = PostgresVNextStore(conn)
+            with label_read_scope(store):
+                yield store
+    except Exception as exc:
+        from alicebot_api.vnext_label_writes import label_error_response
+        from .types import MCPInvalidRequestError
+
+        answer = label_error_response(exc)
+        if answer is not None and answer[0] == 503:
+            raise MCPInvalidRequestError(answer[1] + "; HTTP 503; Retry-After: 2") from None
+        raise
 
 
 def _persist_vnext_deferred_embedding_inputs(

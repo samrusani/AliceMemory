@@ -291,22 +291,33 @@ still refused, and `--mode fail` still stops on any existing id. In v0.19.2 the
 second `--mode skip` import of such a file stopped with `restore_failed`.
 
 Unreleased (on main, not in v0.20.0): before it publishes the restored database,
-import also repairs the labels of derived memories in the complete staged copy,
-whether the destination is new or was already upgraded. A derived memory whose
+import also repairs the labels of derived memories and open loops in the complete staged copy,
+whether the destination is new or was already upgraded. A derived row whose
 recorded inputs include a restricted domain takes the most frequent restricted
-label among them, and each memory the repair changes gets one audit event with
-its old and new domain. Repeating `--mode skip` accepts a memory whose label that
-repair changed, and still refuses any other field that differs. A vault that is
-upgraded without a restore gets the same repair once, the next time it opens. A
-portable backup carries no generated artifacts and the SQLite schema has no
-table for them, so a promoted copy whose only recorded input is a missing
-artifact cannot be repaired from that reference and keeps its label. A derived row
-stored under another spelling of its id (capitals, no hyphens, braces or
-`urn:uuid:`) is updated and recorded under the id it is stored with. Derived
-rows that record each other in a cycle whose labels do not settle within a
-bounded number of changes, or a relabel that changes no row, stop the import
-with `restore_failed` before publication, and nothing is written. What counts as
-a recorded input is under [Derived row domains](mcp-tools.md#derived-row-domains).
+label among them, the highest sensitivity and every project, and each row the
+repair changes gets one audit event with its old and new labels. Repeating
+`--mode skip` accepts a memory or open loop whose domain, sensitivity, project
+scope or project floor the repair changed when the file still holds the value
+recorded before that change, and still refuses any other field that differs. A vault that is upgraded without a restore
+gets the same repair once, the next time it opens. That open pass never stops a
+vault from opening, and a row the owner had lowered on purpose is raised again once.
+A portable backup carries no generated artifacts and the SQLite schema has
+no table for them, so a promoted copy whose only recorded input is a missing
+artifact is unverified, and a restricted key and an unbound trusted key do not
+read it. A derived row stored under another spelling of its id (capitals, no
+hyphens, braces or `urn:uuid:`) is updated and recorded under the id it is stored
+with. Derived rows that record each other in a cycle whose labels do not settle
+within a bounded number of changes, or a relabel that changes no row, stop the
+import with `restore_failed` before publication, and nothing is written. What
+counts as a recorded input is under [Derived row domains](mcp-tools.md#derived-row-domains).
+
+Unreleased (on main, not in v0.20.0): `alice-memory labels check` prints how many
+derived rows are below their inputs or unverified, and `alice-memory labels repair`
+raises the rows that are below their inputs. Check reads a private snapshot and
+does not upgrade the live vault. Explicit repair checks every time, including
+after the open pass has stamped completion, under `BEGIN IMMEDIATE`; a failure
+rolls back the whole repair. The open pass remains a one-time upgrade, and a
+restore always repairs its staged copy before publication. Run check after a restore.
 
 This command restores a SQLite database. It is not a PostgreSQL import.
 
@@ -445,17 +456,24 @@ migration-defined application privileges the restored service needs.
 
 Unreleased (on main, not in v0.20.0): migration `20261004_0095` repairs the
 labels of derived memories and artifacts, including promoted copies and an
-alternate spelling of a recorded UUID. Run it before serving requests. A database
-restored at an older revision gets it from the release upgrade; one restored at
-or past it is not repaired again, so that backup must already hold the repaired
-labels. The documented table owner, `alicebot_admin`, is
-`NOSUPERUSER NOBYPASSRLS`, so the migration turns FORCE row level security off
-on the tables it reads and writes (`sources`, `memories`, `open_loops`,
-`generated_artifacts`, `beliefs` and `event_log`) inside its own transaction and
-turns it back on before it commits. A failure, including derived rows in a cycle
-whose labels do not settle within a bounded number of changes or an update that
-changes no row, rolls the relabels, their audit events and the FORCE
-change back together. The downgrade keeps the repaired labels.
+alternate spelling of a recorded UUID. Migration `20261005_0096` raises domain,
+sensitivity, project scope and project floor. Run it before serving requests. A
+database restored at an older revision gets it from the release upgrade. A
+database restored at or past 0096, and rows copied into a database already at
+head, are not repaired by a migration; run `alicebot vnext labels check` after
+such a restore, and `labels repair` if it lists a row; until then readers hold
+such a row to what its inputs require. The documented table owner,
+`alicebot_admin`, is `NOSUPERUSER NOBYPASSRLS`, so the migration turns FORCE row
+level security off on the tables it reads and writes (`sources`, `memories`,
+`open_loops`, `generated_artifacts`, `beliefs`, `event_log` and `projects`)
+inside its own transaction and turns it back on before it commits. A failure,
+including derived rows in a cycle whose labels do not settle within a bounded
+number of changes or an update that changes no row, rolls the relabels, their
+audit events and the FORCE change back together. The downgrade keeps the repaired
+labels. `alicebot vnext labels check` uses one `REPEATABLE READ READ ONLY`
+snapshot, set before the acting user's row-security identity. Explicit repair
+takes the supersession lock, then the exclusive label lock, then ordered row
+locks; an update that changes no row rolls back the whole repair.
 
 ## Upgrade checkpoint
 

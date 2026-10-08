@@ -58,6 +58,7 @@ from alicebot_api.session_briefing import FACT_LIMIT, compile_local_session_brie
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
 from alicebot_api.vnext_agent_control import PolicyDecision
+from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_artifact_review import dispatch_vnext_artifact_review
 from alicebot_api.vnext_consolidation import MemoryConsolidationRequest, VNextConsolidationService
 from alicebot_api.vnext_embeddings import (
@@ -154,7 +155,7 @@ def _memory(
             "domain": domain,
             "sensitivity": sensitivity,
             "valid_to": valid_to,
-            "metadata_json": metadata or {},
+            "metadata_json": with_derived_from(metadata, {}) if metadata and metadata.get("candidate_kind") == ROLLUP_CANDIDATE_KIND else metadata or {},
         }
     )
     if embed:
@@ -850,7 +851,7 @@ def test_consolidation_sends_the_text_of_open_memories_only_and_counts_only_them
         _seed_embedded_then_expire(store, ("e", "f"))
         seeded = len(server.texts)
         artifact = VNextConsolidationService(_ArtifactShim(store)).generate_memory_consolidation(  # type: ignore[arg-type]
-            MemoryConsolidationRequest(metadata_json={"consolidation_options": {"max_embedded_memories": 4}})
+            MemoryConsolidationRequest(agent_identity=None, metadata_json={"consolidation_options": {"max_embedded_memories": 4}})
         )
         assert _received(server, seeded) == ["a", "b", "c", "d"]
         counts = artifact["metadata_json"]["input_counts"]
@@ -885,7 +886,7 @@ def test_consolidation_drops_an_expired_row_from_a_store_that_cannot_filter(monk
         seeded = len(server.texts)
         adapter = OldAdapter(store)
         assert "include_expired" not in inspect.signature(adapter.list_memories).parameters
-        VNextConsolidationService(adapter).generate_memory_consolidation(MemoryConsolidationRequest())  # type: ignore[arg-type]
+        VNextConsolidationService(adapter).generate_memory_consolidation(MemoryConsolidationRequest(agent_identity=None, ))  # type: ignore[arg-type]
         assert _received(server, seeded) == ["a", "b", "c", "d"]
 
 
@@ -1138,7 +1139,7 @@ def _digest_card(
     ``deleted_at`` empty, which is not a soft-deleted row and does not reach the read that skips them.
     """
 
-    metadata: dict[str, object] = {"candidate_kind": candidate_kind, "rollup_key": rollup_key, "rollup_digest": digest}
+    metadata: dict[str, object] = with_derived_from({"candidate_kind": candidate_kind, "rollup_key": rollup_key, "rollup_digest": digest}, {})
     if project is not None:
         metadata["project_scope"] = [project]
     card = store.create_memory(

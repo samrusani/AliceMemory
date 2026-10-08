@@ -43,6 +43,12 @@ from typing import Any, Protocol, cast
 import numpy as np
 
 from alicebot_api.vnext_derived_domain import derived_domain
+from alicebot_api.vnext_derived_labels import (
+    admit_when_locked,
+    group_scope,
+    locked_projects,
+    with_derived_from,
+)
 from alicebot_api.vnext_embeddings import (
     MAX_EMBEDDINGS_BATCH_SIZE,
     EmbeddingProvider,
@@ -172,7 +178,7 @@ class MemoryConsolidationRequest:
     generated_by: str = "system"
     trace_id: str | None = None
     run_id: str | None = None
-    agent_identity: JsonObject | None = None
+    agent_identity: JsonObject | None = field(kw_only=True)
     policy_decision: JsonObject | None = None
     metadata_json: JsonObject = field(default_factory=dict)
     generation_mode: str = "deterministic"
@@ -450,24 +456,23 @@ def _scoped_rows(
                 continue
         if projects:
             allowed_projects = set(project_scope_identity(projects))
-            if not allowed_projects.intersection(
-                project_scope_identity(resource_project_scope(row))
-            ):
+            if not allowed_projects.intersection(group_scope(row)):
                 continue
         scoped.append(row)
     return scoped
 
 
 def _project_scope_key(row: JsonObject) -> tuple[str, ...]:
-    """Exact normalized scope identity used for safe consolidation groups.
+    """Exact group scope used for safe consolidation groups.
 
     Overlap is insufficient here: merging a memory scoped to A+B with one
     scoped only to A would widen B-only information into project A. Candidate
     members must therefore carry the same scope set (including the empty
-    global scope).
+    global scope). A derived row uses its scope united with its floor, which
+    equals the scope for an original row.
     """
 
-    return project_scope_identity(resource_project_scope(row))
+    return group_scope(row)
 
 
 def _shared_project_scope(rows: list[JsonObject]) -> tuple[str, ...]:
@@ -663,6 +668,7 @@ class VNextConsolidationService:
         sensitivity: list[str],
         projects: tuple[str, ...],
         options: _ClusteringOptions,
+        all_of: tuple[str, ...] | None = None,
     ) -> _ClusteringOutcome:
         outcome = _ClusteringOutcome()
         count_memories = getattr(self.store, "count_memories", None)
@@ -755,6 +761,21 @@ class VNextConsolidationService:
                 outcome.active_count,
             )
             active_rows = active_rows[: options.max_embedded_memories]
+        if all_of is not None:
+            active_rows = admit_when_locked("memory", active_rows, all_of)
+            outcome.active_count = len(active_rows)
+            outcome.active_count_exact = not outcome.bounded
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        active_rows = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=active_rows,
+            domains=domains,
+            sensitivity_allowed=sensitivity,
+            projects=projects,
+            all_of=all_of,
+        )
         outcome.corpus_digest = _digest_payload(
             {
                 "memory_versions": [
@@ -1027,24 +1048,27 @@ class VNextConsolidationService:
                 "sensitivity": _highest_sensitivity(members),
                 "project_id": project_scope[0] if len(project_scope) == 1 else None,
                 "source_event_ids": proposal["source_event_ids"],
-                "metadata_json": {
-                    "candidate_kind": "memory_consolidation",
-                    "consolidation_digest": cluster_digest,
-                    "source_refs": proposal["source_refs"],
-                    "project_scope": list(project_scope),
-                    "review_required": True,
-                    "consolidation": {
-                        "cluster_member_ids": member_ids,
-                        "member_snapshots": proposal["member_snapshots"],
-                        "similarity_stats": proposal["similarity_stats"],
-                        "proposal_kind": proposal_kind,
-                        "model_provenance": proposal["model_provenance"],
-                        "survivor_memory_id": proposal["survivor_memory_id"],
-                        "proposed_supersede": proposal["proposed_supersede"],
-                        "merge_refusal": proposal["merge_refusal"],
-                        "reviewer_instructions": reviewer_instructions,
+                "metadata_json": with_derived_from(
+                    {
+                        "candidate_kind": "memory_consolidation",
+                        "consolidation_digest": cluster_digest,
+                        "source_refs": proposal["source_refs"],
+                        "project_scope": list(project_scope),
+                        "review_required": True,
+                        "consolidation": {
+                            "cluster_member_ids": member_ids,
+                            "member_snapshots": proposal["member_snapshots"],
+                            "similarity_stats": proposal["similarity_stats"],
+                            "proposal_kind": proposal_kind,
+                            "model_provenance": proposal["model_provenance"],
+                            "survivor_memory_id": proposal["survivor_memory_id"],
+                            "proposed_supersede": proposal["proposed_supersede"],
+                            "merge_refusal": proposal["merge_refusal"],
+                            "reviewer_instructions": reviewer_instructions,
+                        },
                     },
-                },
+                    {"memories": members},
+                ),
             },
             actor_type=request.generated_by,
         )
@@ -1088,7 +1112,7 @@ class VNextConsolidationService:
     # -- report ---------------------------------------------------------------
 
     def generate_memory_consolidation(self, request: MemoryConsolidationRequest | None = None) -> JsonObject:
-        request = request or MemoryConsolidationRequest()
+        request = request or MemoryConsolidationRequest(agent_identity=None, )
         _validate_request(request)
         options = _clustering_options(request)
         # Parsed before any write so invalid roll-up options fail the run
@@ -1097,6 +1121,7 @@ class VNextConsolidationService:
         domains = _allowed_domains(request)
         sensitivity = _allowed_sensitivity(request)
         projects = _allowed_projects(request)
+        all_of = locked_projects(request.agent_identity, projects)
 
         if projects:
             list_memory_events = getattr(self.store, "list_memory_events", None)
@@ -1169,18 +1194,53 @@ class VNextConsolidationService:
                 sensitivity_allowed=sensitivity,
                 projects=projects,
             )
+        events = admit_when_locked("memory", events, all_of)
+        ratings = admit_when_locked("memory", ratings, all_of)
+        artifacts = admit_when_locked("artifact", artifacts, all_of)
+        from alicebot_api.vnext_label_guard import admit_loaded
+        artifacts = admit_loaded(
+            self.store, kind="artifact", rows=artifacts, domains=domains,
+            sensitivity_allowed=sensitivity, projects=projects, all_of=all_of,
+        )
 
         clustering = self._cluster_memories(
             domains=domains,
             sensitivity=sensitivity,
             projects=projects,
             options=options,
+            all_of=all_of,
         )
         cluster_membership = [
             sorted(str(row.get("id")) for row in members) for members in clustering.clusters
         ]
         brain_charter = self._brain_charter()
         clusters_for_proposals = clustering.clusters[: options.max_clusters]
+        if all_of is not None:
+            from alicebot_api.vnext_source_fence import cited_source_ids
+            refs = [ref for members in clusters_for_proposals for ref in _member_source_refs(members)]
+            sources = sources_named_by_refs(self.store, refs)
+            admitted = {str(row["id"]) for row in admit_loaded(
+                self.store, kind="source", rows=sources, domains=domains,
+                sensitivity_allowed=sensitivity, projects=projects, all_of=all_of,
+            )}
+            refused = {str(row["id"]) for row in sources} - admitted
+            def readable_reference(ref):
+                parsed = cited_source_ids([ref])
+                return not (parsed.named - admitted or parsed.incidental & refused)
+            # Only copies used to render this run change. Stored members and
+            # their provenance remain available to their authorized readers.
+            def readable_member(member: JsonObject) -> JsonObject:
+                metadata = member.get("metadata_json")
+                if not isinstance(metadata, dict):
+                    return member
+                refs = metadata.get("source_refs")
+                if not isinstance(refs, list):
+                    return member
+                return {**member, "metadata_json": {
+                    **metadata, "source_refs": [ref for ref in refs if readable_reference(ref)],
+                }}
+            clusters_for_proposals = [[readable_member(member) for member in members]
+                                      for members in clusters_for_proposals]
         # The report copies the ``source_refs`` of each proposed cluster member as stored, and the candidate memories
         # copy them too. The refs are not dropped: they are the provenance. But the report is read behind its label
         # alone, so the label has to be at least as strict as every source they name. The list printed is made here,
@@ -1340,6 +1400,7 @@ class VNextConsolidationService:
                 generation_mode=request.generation_mode,
                 route=route,
                 model_temperature=request.model_temperature,
+                agent_identity=request.agent_identity,
                 # Near-duplicate clusters belong to the dedup/merge proposals
                 # above; the roll-up pass must not re-propose those groups.
                 exclude_member_id_sets=[
@@ -1460,6 +1521,17 @@ class VNextConsolidationService:
             metadata = {**metadata, **model_artifact.metadata}
 
         all_cluster_rows = [row for members in clustering.clusters for row in members]
+        metadata = with_derived_from(
+            metadata,
+            {
+                "sources": named_sources,
+                "memories": [
+                    *all_cluster_rows,
+                    *(rollups.input_rows if rollups is not None else []),
+                ],
+                "artifacts": artifacts,
+            },
+        )
         # The report is read behind its domain and sensitivity, so both are taken over every row it names: the
         # near-duplicate cluster members, every row the roll-up pass names, and the sources that the refs it prints
         # name (read above, after the run's own fence chose the members the refs are copied from). A run whose only

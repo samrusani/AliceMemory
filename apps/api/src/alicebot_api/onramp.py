@@ -200,6 +200,7 @@ _KNOWN_COMMANDS = (
     "sleep-proposals",
     "install",
     "project",
+    "labels",
 )
 
 _EXPORT_FORMAT = "alice-memory-jsonl"
@@ -1248,6 +1249,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write a Claude Desktop .mcpb zip that launches uvx alice-memory mcp.",
     )
+
+    labels_parser = subparsers.add_parser("labels", help="Check and repair stored derived labels.")
+    labels_commands = labels_parser.add_subparsers(dest="labels_command", required=True)
+    labels_check = labels_commands.add_parser("check", help="Report derived rows below their inputs.")
+    _add_database_arguments(labels_check)
+    labels_repair = labels_commands.add_parser("repair", help="Raise stored derived labels.")
+    _add_database_arguments(labels_repair)
 
     sources_parser = subparsers.add_parser("sources", help="List and remove SQLite source material as the owner.")
     sources_commands = sources_parser.add_subparsers(dest="sources_command", required=True)
@@ -3681,6 +3689,32 @@ def _stored_row_matches(
     return False
 
 
+def _decoded_object(value: object) -> dict[str, object]:
+    if isinstance(value, str):
+        try:
+            loaded = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return dict(loaded) if isinstance(loaded, dict) else {}
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
+
+
+def _scope_identity_token(row: Mapping[str, object]) -> str:
+    from alicebot_api.vnext_project_scope import resolve_project_scope
+
+    return json.dumps(list(resolve_project_scope(row).identity), sort_keys=True)
+
+
+def _floor_identity_token(metadata: Mapping[str, object]) -> str:
+    from alicebot_api.vnext_project_scope import project_scope_identity
+
+    floor = metadata.get("project_floor")
+    values = floor if isinstance(floor, list) else []
+    return json.dumps(list(project_scope_identity(values)), sort_keys=True)
+
+
 def _import_records(
     conn: sqlite3.Connection,
     store: SQLiteVNextStore,
@@ -3729,9 +3763,11 @@ def _import_records(
     ``project_scoping.apply_imported_scoping``).
     """
     from alicebot_api.vnext_derived_domain_backfill import recorded_sqlite_domain_repairs
+    from alicebot_api.vnext_label_repair import recorded_sqlite_label_repairs
 
     quarantine_plan = plan if plan is not None else _EMPTY_QUARANTINE_PLAN
     domain_repairs = recorded_sqlite_domain_repairs(conn, str(store.user_id))
+    label_repairs = recorded_sqlite_label_repairs(conn, str(store.user_id))
     counts: dict[str, dict[str, int]] = {}
     probe = _BackfillProbe()
     try:
@@ -3775,6 +3811,62 @@ def _import_records(
                                 repaired = list(candidate)
                                 repaired[domain_index] = existing["domain"]
                                 candidates.append(tuple(repaired))
+                    if table in {"memories", "open_loops"}:
+                        for candidate in tuple(candidates):
+                            adjusted = list(candidate)
+                            changed_dimension = False
+                            for dimension, column in (("domain", "domain"), ("sensitivity", "sensitivity")):
+                                if column not in columns:
+                                    continue
+                                index = columns.index(column)
+                                file_value = str(adjusted[index] if adjusted[index] is not None else "unknown")
+                                stored_value = existing[column]
+                                stored_text = str(stored_value if stored_value is not None else "unknown")
+                                if file_value != stored_text and file_value in label_repairs.get(
+                                    (table, row_id, dimension), set()
+                                ):
+                                    adjusted[index] = stored_value
+                                    changed_dimension = True
+                            if "metadata_json" in columns:
+                                meta_index = columns.index("metadata_json")
+                                file_meta = _decoded_object(adjusted[meta_index])
+                                stored_meta = _decoded_object(existing["metadata_json"])
+                                project_index = columns.index("project_id") if "project_id" in columns else None
+                                file_project_id = adjusted[project_index] if project_index is not None else None
+                                stored_project_id = existing["project_id"] if project_index is not None else None
+                                file_row = {"project_id": file_project_id, "metadata_json": file_meta}
+                                stored_row = {"project_id": stored_project_id, "metadata_json": stored_meta}
+                                file_scope = _scope_identity_token(file_row)
+                                stored_scope = _scope_identity_token(stored_row)
+                                file_floor = _floor_identity_token(file_meta)
+                                stored_floor = _floor_identity_token(stored_meta)
+                                scope_known = file_scope == stored_scope or file_scope in label_repairs.get(
+                                    (table, row_id, "project_scope"), set()
+                                )
+                                floor_known = file_floor == stored_floor or file_floor in label_repairs.get(
+                                    (table, row_id, "project_floor"), set()
+                                )
+                                spelling_differs = (
+                                    file_meta.get("project_scope") != stored_meta.get("project_scope")
+                                    or file_meta.get("project_floor") != stored_meta.get("project_floor")
+                                    or file_project_id != stored_project_id
+                                )
+                                if scope_known and floor_known and spelling_differs:
+                                    new_meta = dict(file_meta)
+                                    if "project_scope" in stored_meta:
+                                        new_meta["project_scope"] = stored_meta["project_scope"]
+                                    else:
+                                        new_meta.pop("project_scope", None)
+                                    if "project_floor" in stored_meta:
+                                        new_meta["project_floor"] = stored_meta["project_floor"]
+                                    else:
+                                        new_meta.pop("project_floor", None)
+                                    adjusted[meta_index] = _encode_column_value("metadata_json", new_meta)
+                                    if project_index is not None:
+                                        adjusted[project_index] = stored_project_id
+                                    changed_dimension = True
+                            if changed_dimension:
+                                candidates.append(tuple(adjusted))
                     if not _stored_row_matches(
                         dict(existing),
                         columns,
@@ -4106,9 +4198,11 @@ def _run_import_snapshot(
             # The whole graph is now present. Repair before the staged pages
             # become visible, even if the destination had already upgraded.
             from alicebot_api.vnext_derived_domain_backfill import relabel_sqlite
+            from alicebot_api.vnext_label_repair import relabel_labels_sqlite
 
             try:
                 relabel_sqlite(conn, restoring=True)
+                relabel_labels_sqlite(conn, restoring=True)
             except ValueError as exc:
                 raise _ImportError("the restored derived labels could not be settled") from exc
         if quarantine_ids:
@@ -4345,6 +4439,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "sources":
             from alicebot_api.source_commands import run_sources
             return run_sources(args)
+        if args.command == "labels":
+            from alicebot_api.label_commands import run_labels
+            return run_labels(args)
         if args.command == "import-markdown":
             return _run_import_markdown(args)
         if args.command == "import-chatgpt":

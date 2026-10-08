@@ -36,7 +36,11 @@ from alicebot_api.vnext_agent_control import (
     agent_metadata,
     summarize_agent_policy_telemetry,
 )
-from alicebot_api.vnext_agent_keys import AgentKeyAuthenticationError
+from alicebot_api.vnext_agent_keys import (
+    AgentKeyAuthenticationError,
+    agent_key_from_authorization,
+    resolve_protected_agent_identity,
+)
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_open_loop_references import withhold_unreadable_references_from_loop
@@ -159,11 +163,33 @@ def create_vnext_project(request: VNextProjectCreateRequest) -> JSONResponse:
     return JSONResponse(status_code=201, content=jsonable_encoder({"project": payload}))
 
 @project_core_router.get("/v0/vnext/projects")
-def list_vnext_projects(user_id: UUID, status: str | None = "active", limit: int = 20) -> JSONResponse:
+def list_vnext_projects(
+    user_id: UUID,
+    status: str | None = "active",
+    limit: int = 20,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling
+
     settings = get_settings()
 
-    with user_connection(settings.database_url, user_id) as conn:
-        payload = PostgresVNextStore(conn).list_projects(status=status, limit=limit)
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store,
+                user_id=user_id,
+                raw_key=agent_key_from_authorization(authorization),
+                payload={},
+            )
+            payload = apply_sensitivity_ceiling(
+                store,
+                kind="project",
+                rows=store.list_projects(status=status, limit=limit),
+                identity=identity,
+            )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
 
     return JSONResponse(
         status_code=200,
@@ -171,12 +197,25 @@ def list_vnext_projects(user_id: UUID, status: str | None = "active", limit: int
     )
 
 @project_operations_router.get("/v0/vnext/projects/{project_id}/dashboard")
-def get_vnext_project_dashboard(project_id: str, user_id: UUID) -> JSONResponse:
+def get_vnext_project_dashboard(
+    project_id: str,
+    user_id: UUID,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings = get_settings()
 
     try:
         with user_connection(settings.database_url, user_id) as conn:
-            payload = VNextProjectService(PostgresVNextStore(conn)).project_dashboard(project_id=project_id)
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store,
+                user_id=user_id,
+                raw_key=agent_key_from_authorization(authorization),
+                payload={},
+            )
+            payload = VNextProjectService(store).project_dashboard(project_id=project_id, identity=identity)
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     except VNextProjectValidationError:
         return _vnext_public_error_response(status_code=404, detail="vNext project was not found")
 
@@ -343,17 +382,32 @@ def get_vnext_agent_policy_telemetry(
     user_id: UUID,
     agent_id: str | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 200,
+    authorization: str | None = Header(default=None),
 ) -> JSONResponse:
+    from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
+    from alicebot_api.vnext_label_guard import LabelGuard, sensitivity_ceiling
+
     settings = get_settings()
     bounded_limit = min(max(limit, 1), 200)
 
-    with user_connection(settings.database_url, user_id) as conn:
-        store = PostgresVNextStore(conn)
-        payload = summarize_agent_policy_telemetry(
-            agent_events=store.list_agent_events(agent_id=agent_id, limit=bounded_limit),
-            artifacts=store.list_agent_policy_artifacts(agent_id=agent_id, limit=bounded_limit),
-            memories=store.list_agent_policy_memories(agent_id=agent_id, limit=bounded_limit),
-        )
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
+            projects = identity.project_scope if identity is not None else ()
+            guard = LabelGuard.for_filters(
+                store, (), sensitivity_ceiling(identity) or ALL_SENSITIVITY, projects,
+                all_of=projects if identity is not None and identity.project_scope_locked else None,
+            )
+            payload = summarize_agent_policy_telemetry(
+                agent_events=guard.admit_events(store.list_agent_events(agent_id=agent_id, limit=bounded_limit)),
+                artifacts=guard.admit_rows("artifact", store.list_agent_policy_artifacts(agent_id=agent_id, limit=bounded_limit)),
+                memories=guard.admit_rows("memory", store.list_agent_policy_memories(agent_id=agent_id, limit=bounded_limit)),
+            )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
 
     return JSONResponse(status_code=200, content=jsonable_encoder({"summary": payload}))
 
@@ -605,13 +659,16 @@ def review_vnext_open_loop(
             target = store.get_open_loop(loop_id)
             if target is None:
                 return _vnext_public_error_response(status_code=404, detail="vNext open loop was not found")
+            from alicebot_api.vnext_label_guard import effective_row_for_fence
+
+            judged = effective_row_for_fence(store, identity, "open_loop", target)
             # Same ceiling as the MCP open-loop updates. Returning the 403
             # from inside the connection keeps the policy event committed.
             try:
                 VNextMemoryCommitService(store).authorize_memory_action(
                     identity=identity,
                     action="open_loop.update",
-                    memory=target,
+                    memory=judged,
                     target_type="open_loop",
                 )
             except AgentPolicyBlockedError as exc:

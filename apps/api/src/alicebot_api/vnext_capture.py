@@ -1346,11 +1346,14 @@ class VNextCaptureService:
                 return replace(result, kept_reason="matches_other_live_source")
             retired = []
             citing = []
+            cached = getattr(self, "_open_loop_names", None)
             for row in matches:
                 if str(row['id']) == str(result.source_id):
                     continue
+                loop_ids = None if cached is None else [str(loop["id"]) for loop in cached.get(str(row["id"]), [])]
                 counts = getattr(self.store, "supersede_source")(str(row['id']), superseded_by=result.source_id,
-                    allow_looser_classification=policy.allow_looser_classification, dry_run=policy.dry_run)
+                    allow_looser_classification=policy.allow_looser_classification, dry_run=policy.dry_run,
+                    loop_ids=loop_ids)
                 retired.append({"id": str(row['id']), "title": printed_source_label(row.get('title'))})
                 citing.extend(counts['memories_citing_replaced'])
             return replace(result, superseded=tuple(retired), memories_citing_replaced=tuple(dict.fromkeys(citing)))
@@ -1542,84 +1545,87 @@ class VNextCaptureService:
                 sensitivity=source_input.sensitivity,
             )
             memory_rows: list[JsonObject] = []
-            for candidate in candidates:
-                # Speaker provenance is only stamped when a role was derived,
-                # so provenance-free captures keep byte-identical metadata.
-                provenance_metadata: JsonObject = (
-                    {
-                        "provenance_role": candidate.provenance_role,
-                        "assertion_class": candidate.assertion_class,
-                    }
-                    if candidate.provenance_role is not None
-                    else {}
-                )
-                memory = self.store.create_memory(
-                    {
-                        "memory_key": _memory_key(
-                            content_hash=content_hash,
-                            candidate=candidate,
-                            domain=source_input.domain,
-                            sensitivity=source_input.sensitivity,
-                        ),
-                        "value": {
-                            "text": candidate.text,
+            from alicebot_api.vnext_label_writes import capture_label_inputs
+
+            with capture_label_inputs(self.store, source_id):
+                for candidate in candidates:
+                    # Speaker provenance is only stamped when a role was derived,
+                    # so provenance-free captures keep byte-identical metadata.
+                    provenance_metadata: JsonObject = (
+                        {
+                            "provenance_role": candidate.provenance_role,
+                            "assertion_class": candidate.assertion_class,
+                        }
+                        if candidate.provenance_role is not None
+                        else {}
+                    )
+                    memory = self.store.create_memory(
+                        {
+                            "memory_key": _memory_key(
+                                content_hash=content_hash,
+                                candidate=candidate,
+                                domain=source_input.domain,
+                                sensitivity=source_input.sensitivity,
+                            ),
+                            "value": {
+                                "text": candidate.text,
+                                "source_id": source_id,
+                                "source_chunk_id": candidate.source_chunk_id,
+                            },
+                            "status": "candidate",
+                            "source_event_ids": [source_id, candidate.source_chunk_id],
+                            "memory_type": candidate.memory_type,
+                            "confidence": candidate.confidence,
+                            "title": _truncate(candidate.text, max_length=120),
+                            "canonical_text": candidate.text,
+                            "summary": _truncate(candidate.text, max_length=280),
+                            "domain": source_input.domain,
+                            "sensitivity": source_input.sensitivity,
+                            "project_id": project_scope[0] if len(project_scope) == 1 else None,
+                            "created_by_agent_id": self.actor_id if self.actor_type == "agent" else None,
+                            "run_id": self.run_id if self.actor_type == "agent" else None,
+                            "metadata_json": {
+                                "source_id": source_id,
+                                "source_chunk_id": candidate.source_chunk_id,
+                                "source_chunk_index": candidate.source_chunk_index,
+                                "extraction_rule": candidate.extraction_rule,
+                                "capture_content_hash": content_hash,
+                                **provenance_metadata,
+                                **project_scope_metadata,
+                                "generated_by": self.actor_type,
+                                "agent_identity": self.agent_identity,
+                                "agent_id": self.actor_id if self.actor_type == "agent" else None,
+                                "agent_run_id": self.run_id if self.actor_type == "agent" else None,
+                                "trace_id": self.trace_id,
+                                "policy_decision": self.policy_decision,
+                            },
+                        },
+                        actor_type=self.actor_type,
+                    )
+                    memory_rows.append(memory)
+                    self.store.create_provenance_link(
+                        {
+                            "target_type": "memory",
+                            "target_id": str(memory["id"]),
                             "source_id": source_id,
                             "source_chunk_id": candidate.source_chunk_id,
+                            "quote": candidate.text,
+                            "evidence_role": "quoted_from",
+                            "confidence": candidate.confidence,
                         },
-                        "status": "candidate",
-                        "source_event_ids": [source_id, candidate.source_chunk_id],
-                        "memory_type": candidate.memory_type,
-                        "confidence": candidate.confidence,
-                        "title": _truncate(candidate.text, max_length=120),
-                        "canonical_text": candidate.text,
-                        "summary": _truncate(candidate.text, max_length=280),
-                        "domain": source_input.domain,
-                        "sensitivity": source_input.sensitivity,
-                        "project_id": project_scope[0] if len(project_scope) == 1 else None,
-                        "created_by_agent_id": self.actor_id if self.actor_type == "agent" else None,
-                        "run_id": self.run_id if self.actor_type == "agent" else None,
-                        "metadata_json": {
+                        actor_type=self.actor_type,
+                    )
+                    self._log_event(
+                        event_type="memory.candidate_created",
+                        target_type="memory",
+                        target_id=str(memory["id"]),
+                        payload={
                             "source_id": source_id,
                             "source_chunk_id": candidate.source_chunk_id,
-                            "source_chunk_index": candidate.source_chunk_index,
-                            "extraction_rule": candidate.extraction_rule,
-                            "capture_content_hash": content_hash,
-                            **provenance_metadata,
-                            **project_scope_metadata,
-                            "generated_by": self.actor_type,
-                            "agent_identity": self.agent_identity,
-                            "agent_id": self.actor_id if self.actor_type == "agent" else None,
-                            "agent_run_id": self.run_id if self.actor_type == "agent" else None,
-                            "trace_id": self.trace_id,
-                            "policy_decision": self.policy_decision,
+                            "memory_type": candidate.memory_type,
+                            "confidence": candidate.confidence,
                         },
-                    },
-                    actor_type=self.actor_type,
-                )
-                memory_rows.append(memory)
-                self.store.create_provenance_link(
-                    {
-                        "target_type": "memory",
-                        "target_id": str(memory["id"]),
-                        "source_id": source_id,
-                        "source_chunk_id": candidate.source_chunk_id,
-                        "quote": candidate.text,
-                        "evidence_role": "quoted_from",
-                        "confidence": candidate.confidence,
-                    },
-                    actor_type=self.actor_type,
-                )
-                self._log_event(
-                    event_type="memory.candidate_created",
-                    target_type="memory",
-                    target_id=str(memory["id"]),
-                    payload={
-                        "source_id": source_id,
-                        "source_chunk_id": candidate.source_chunk_id,
-                        "memory_type": candidate.memory_type,
-                        "confidence": candidate.confidence,
-                    },
-                )
+                    )
 
             # Capture writes candidate memories only, and recall cannot return a
             # candidate, so no text is sent to the embeddings endpoint here: the
@@ -1845,6 +1851,11 @@ class VNextCaptureService:
             scan = getattr(self.store, "markdown_sources_by_path", None)
             with self.store.savepoint() if callable(scan) or dry_run else nullcontext():
                 self._markdown_path_index = scan() if callable(scan) else {}
+                self._open_loop_names = None
+                if policy.mode != "off":
+                    from alicebot_api.vnext_stores.sqlite.source_retirement import open_loops_naming_sources
+                    indexed = [str(row["id"]) for rows in self._markdown_path_index.values() for row in rows]
+                    self._open_loop_names = open_loops_naming_sources(self.store, indexed)
                 result = self._import_markdown_folder(folder, domain=domain, sensitivity=sensitivity,
                     max_file_bytes=max_file_bytes, policy=policy)
                 if dry_run:
@@ -1853,6 +1864,7 @@ class VNextCaptureService:
             return replace(result, dry_run=True)
         finally:
             self._markdown_path_index = None
+            self._open_loop_names = None
         return result
 
     def _import_markdown_folder(

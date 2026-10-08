@@ -265,6 +265,36 @@ def test_doctor_words_flagged_sources_per_backend_and_says_when_the_scan_stops()
     assert "stopped after 10000 sources" in wide["message"]
 
 
+def test_shared_empty_metadata_scan_preserves_every_flagged_id_and_field(monkeypatch) -> None:
+    import alicebot_api.vnext_doctor as doctor
+    token = "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz"
+    rows = [{"id": "clean-1", "title": "clean", "metadata_json": {}},
+            {"id": "clean-2", "title": "clean", "metadata_json": {}},
+            {"id": "title-1", "title": token, "metadata_json": {}},
+            {"id": "title-2", "title": token, "metadata_json": {}}]
+    for field in ("author", "uri", "raw_path", "external_id"):
+        rows.append({"id": field, "title": "clean", field: token, "metadata_json": {}})
+    rows.extend([{"id": "metadata", "title": "clean", "metadata_json": {"raw_text": token}},
+                 {"id": "nested", "title": "clean", "metadata_json": {"provenance": {"token": token}}},
+                 {"id": "json", "title": "clean", "metadata_json": '{"raw_text":"' + token + '"}'}])
+
+    class Store:
+        def list_sources(self, **kwargs):
+            return rows
+
+    original = doctor.source_row_is_flagged
+    expected = [row["id"] for row in rows if original(row)]
+    calls = []
+    def counted(row):
+        calls.append(row["id"])
+        return original(row)
+    monkeypatch.setattr(doctor, "source_row_is_flagged", counted)
+    assert doctor._flagged_source_scan(Store()) == (expected, False)
+    assert "clean-2" not in calls and "title-2" not in calls
+    rows[1]["metadata_json"] = {"raw_text": token}
+    assert doctor._flagged_source_scan(Store()) == ([row["id"] for row in rows if original(row)], False)
+
+
 def test_doctor_passes_when_local_live_cors_is_explicit(tmp_path, monkeypatch) -> None:
     web_dir = tmp_path / "apps" / "web"
     web_dir.mkdir(parents=True)

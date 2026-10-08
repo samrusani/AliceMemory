@@ -33,6 +33,7 @@ from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 from alicebot_api.vnext_retrieval import MEMORY_ENTITY_EDGE_TYPES
 from alicebot_api.vnext_source_fence import (
     EXPLAIN_DISCLOSURE_ACTION,
+    SavedProvenanceReader,
     SourceReadFence,
     cited_source_ids_in_memory_audit,
     source_rows_including_archived,
@@ -275,18 +276,34 @@ def _authorize_explain_resource(
 ) -> None:
     """Require an unfiltered policy decision for one expanded resource."""
 
+    from alicebot_api.vnext_label_guard import apply_unverified_rule, effective_row_for_fence, policy_labels
+
+    judged: Mapping[str, object] = resource
+    judged_scope = project_scope
+    judged_floor: tuple[str, ...] = ()
+    if target_type in {"memory", "source", "artifact"}:
+        judged = effective_row_for_fence(store, identity, target_type, resource)
+        _domains, _sensitivity, judged_scope, judged_floor = policy_labels(judged)
+        from alicebot_api.vnext_derived_labels import is_derived
+
+        if target_type == "source" or (target_type == "memory" and not is_derived("memory", resource)):
+            # Original legacy memories may keep scope in value. The caller
+            # already resolved that fallback; derived rows use effective labels.
+            judged_scope = project_scope
     _actor_type, _actor_id, decision = _policy_checked(
         store,  # type: ignore[arg-type]
         identity=identity,
         action=EXPLAIN_DISCLOSURE_ACTION,
-        domains=(str(resource.get("domain") or "unknown"),),
-        sensitivity_allowed=(str(resource.get("sensitivity") or "unknown"),),
-        project_scope=project_scope,
+        domains=(str(judged.get("domain") or "unknown"),),
+        sensitivity_allowed=(str(judged.get("sensitivity") or "unknown"),),
+        project_scope=judged_scope,
+        project_floor=judged_floor,
         require_explicit_project_scope=True,
         target_type=target_type,
         target_id=target_id,
         project_view=ProjectView.unscoped(),
     )
+    decision = apply_unverified_rule(decision, judged, identity)
     # ``allowed_with_filtering`` is not sufficient for an explain response:
     # the downstream services expand related rows and do not accept filters.
     if decision.decision != "allowed":
@@ -718,12 +735,30 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
 
 
 def _handle_alice_vnext_review_items(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
+    from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
+    identity = _agent_identity_from_arguments(context, arguments)
+    fence = SourceReadFence.for_identity(identity)
+    limit = _parse_int(arguments, key="limit", default=20, minimum=1, maximum=100)
     with _vnext_store_context(context) as store:
-        items = [
-            row
-            for row in store.list_memories(status=None)
-            if str(row.get("status")) in {"candidate", "needs_review", "private_only"}
-        ][: _parse_int(arguments, key="limit", default=20, minimum=1, maximum=100)]
+        lock = getattr(store, "lock_label_writes", None)
+        if callable(lock):
+            lock()
+        with label_read_scope(store):
+            guard = LabelGuard.for_fence(store, fence)
+            items = []
+            prefix = max(50, limit)
+            while True:
+                rows = store.list_memories(status=None, limit=prefix)
+                items = [row for row in rows
+                         if str(row.get("status")) in {"candidate", "needs_review", "private_only"}
+                         and isinstance(effective := guard.effective_row("memory", row), Mapping)
+                         and fence.admits_memory(effective)][:limit]
+                if len(items) >= limit or len(rows) < prefix:
+                    break
+                prefix *= 2
+            # Original/imported candidates may carry saved quotes without a
+            # derived marker. Judge their provenance against today's fence too.
+            items = SavedProvenanceReader(store, fence=fence).memories(items)
     return _json_object({"items": items, "count": len(items)})
 
 
@@ -740,20 +775,25 @@ def _authorize_vnext_artifact_target(
     artifact = store.get_artifact_for_update(artifact_id) if for_update else store.get_artifact(artifact_id)
     if artifact is None:
         raise MCPReferenceNotFoundError(f"artifact {artifact_id} was not found")
+    from alicebot_api.vnext_label_guard import apply_unverified_rule, effective_row_for_fence, policy_labels
 
+    judged = effective_row_for_fence(store, identity, "artifact", artifact)
+    domains, sensitivity_allowed, project_scope, project_floor = policy_labels(judged)
     actor_type, actor_id, raw_decision = _policy_checked(
         store,
         identity=identity,
         action=action,
-        domains=(str(artifact.get("domain") or "unknown"),),
-        sensitivity_allowed=(str(artifact.get("sensitivity") or "unknown"),),
-        project_scope=resource_project_scope(artifact),
+        domains=domains,
+        sensitivity_allowed=sensitivity_allowed,
+        project_scope=project_scope,
+        project_floor=project_floor,
         require_explicit_project_scope=True,
         require_unfiltered_target=True,
         target_type="artifact",
         target_id=artifact_id,
         project_view=ProjectView.unscoped(),
     )
+    raw_decision = apply_unverified_rule(raw_decision, judged, identity)
     return artifact, actor_type, actor_id, raw_decision
 
 
@@ -791,6 +831,10 @@ def _handle_alice_vnext_artifact_review(context: MCPRuntimeContext, arguments: M
     actor_id: str | None = None
     trace_id: str | None = None
     with _vnext_store_context(context) as store:
+        store.lock_graph_mutation()
+        from alicebot_api.vnext_artifact_review import lock_artifact_review_labels
+
+        lock_artifact_review_labels(store, artifact_id=artifact_id, action=_parse_required_text(arguments, "action"))
         _target, actor_type, actor_id, decision = _authorize_vnext_artifact_target(
             store,
             identity=identity,

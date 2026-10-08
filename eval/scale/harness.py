@@ -505,7 +505,7 @@ def run_operations(
     #    materialization and clustering uses bounded float32 row blocks.
     cons_store = store if session.backend == "postgres" else ArtifactSinkStore(store)
     consolidation = VNextConsolidationService(cons_store, embedding_provider=provider)
-    cons_request = MemoryConsolidationRequest()
+    cons_request = MemoryConsolidationRequest(agent_identity=None)
     cons_notes: dict[str, object] = {
         "embedded_memory_hard_cap": MAX_EMBEDDED_MEMORIES_HARD_CAP,
         "artifact_persisted": session.backend == "postgres",

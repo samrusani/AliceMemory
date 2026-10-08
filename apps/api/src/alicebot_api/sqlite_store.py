@@ -23,6 +23,8 @@ from __future__ import annotations
 import itertools
 import json
 import sqlite3
+
+from alicebot_api.vnext_label_writes import takes_label_lock
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime
@@ -44,6 +46,7 @@ from alicebot_api.vnext_capture import (
     capture_dedupe_key_for_source,
     source_capture_raw_text,
 )
+from alicebot_api.vnext_derived_labels import _read_metadata_cache, identifier
 from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_METADATA_KEY,
     EMBEDDING_VECTOR_DIMENSIONS,
@@ -361,7 +364,7 @@ def ensure_sqlite_user(
 
 
 @contextmanager
-def sqlite_user_connection(path: str | Path, user_id: UUID | str) -> Iterator[sqlite3.Connection]:
+def sqlite_user_connection(path: str | Path, user_id: UUID | str, *, repair_labels: bool = True) -> Iterator[sqlite3.Connection]:
     """Open a bootstrapped SQLite connection wrapped in one transaction.
 
     Mirrors ``alicebot_api.db.user_connection`` semantics: dict rows, the
@@ -374,7 +377,10 @@ def sqlite_user_connection(path: str | Path, user_id: UUID | str) -> Iterator[sq
     conn = sqlite3.connect(str(path))
     conn.row_factory = _dict_row_factory
     try:
-        bootstrap_sqlite_schema(conn)
+        if repair_labels:
+            bootstrap_sqlite_schema(conn)
+        else:
+            bootstrap_sqlite_schema(conn, repair_labels=False)
         conn.commit()
         yield conn
         conn.commit()
@@ -385,11 +391,105 @@ def sqlite_user_connection(path: str | Path, user_id: UUID | str) -> Iterator[sq
         conn.close()
 
 
+def _direct_source_hint_uncached(raw: object) -> str | None:
+    """A direct parent for a conservative prefilter, never an admission grant.
+
+    Decode like the store and kernel, including JSON strings and duplicate or
+    escaped keys. Aliases the exact SQLite index cannot find fall through to
+    the complete read-time guard.
+    """
+    try:
+        metadata = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(metadata, Mapping) or metadata.get("redacted") is True:
+        return None
+    source_id = metadata.get("source_id")
+    if not isinstance(source_id, str) or not source_id.strip():
+        record = metadata.get("derived_from")
+        sources = record.get("sources") if isinstance(record, Mapping) else None
+        if not isinstance(sources, list) or not sources or not isinstance(sources[0], str):
+            return None
+        # A named source in a canonical record is an input even when another
+        # input makes the row unverified. This is rejection only, never a grant.
+        source_id = sources[0]
+    return identifier(source_id)
+
+
+def _cached_direct_parent_hints(raw: str, cache: dict) -> tuple[str | None, str | None]:
+    """Share pure JSON/ID decoding, never a parent's current label or grant."""
+    key = ("sqlite-parent-hints", raw)
+    if key not in cache:
+        try:
+            metadata = json.loads(raw)
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata)
+        except (ValueError, TypeError):
+            metadata = None
+        cache[key] = (_direct_source_hint_uncached(metadata), _direct_memory_hint_uncached(metadata)) if isinstance(metadata, Mapping) else (None, None)
+    return cast(tuple[str | None, str | None], cache[key])
+
+
+def _direct_source_hint(raw: object) -> str | None:
+    cache = _read_metadata_cache()
+    if cache is not None and type(raw) is str:
+        return _cached_direct_parent_hints(raw, cache)[0]
+    return _direct_source_hint_uncached(raw)
+
+
+def _ensure_direct_source_hint(conn: sqlite3.Connection) -> None:
+    """Register once: SQLite refuses to replace a UDF with live statements."""
+    cursor = conn.execute("SELECT 1 FROM pragma_function_list WHERE name='alice_direct_source_hint' AND narg=1 LIMIT 1")
+    try:
+        registered = cursor.fetchone() is not None
+    finally:
+        cursor.close()
+    if not registered:
+        conn.create_function("alice_direct_source_hint", 1, _direct_source_hint, deterministic=True)
+    cursor = conn.execute("SELECT 1 FROM pragma_function_list WHERE name='alice_direct_memory_hint' AND narg=1 LIMIT 1")
+    try:
+        memory_registered = cursor.fetchone() is not None
+    finally:
+        cursor.close()
+    if not memory_registered:
+        conn.create_function("alice_direct_memory_hint", 1, _direct_memory_hint, deterministic=True)
+
+
+def _direct_memory_hint_uncached(raw: object) -> str | None:
+    try:
+        metadata = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(metadata, Mapping) or metadata.get("redacted") is True:
+        return None
+    consolidation = metadata.get("consolidation")
+    members = consolidation.get("cluster_member_ids") if isinstance(consolidation, Mapping) else None
+    if not isinstance(members, list) or not members:
+        record = metadata.get("derived_from")
+        members = record.get("memories") if isinstance(record, Mapping) else None
+    if not isinstance(members, list) or not members or not isinstance(members[0], str):
+        return None
+    return identifier(members[0])
+
+
+def _direct_memory_hint(raw: object) -> str | None:
+    cache = _read_metadata_cache()
+    if cache is not None and type(raw) is str:
+        return _cached_direct_parent_hints(raw, cache)[1]
+    return _direct_memory_hint_uncached(raw)
+
+
 class SQLiteVNextStore:
     """SQLite-backed vNext repository facade for the second-brain kernel."""
 
     #: Retrieval-trace label for the full-text stage (FTS5, not Postgres tsvector).
     fts_stage_source = "sqlite_fts"
+    memory_fts_offset_paging = True
+    label_count_input_prefilter = True
 
     def __init__(self, conn: sqlite3.Connection, user_id: UUID | str):
         if str(user_id).strip() == "":
@@ -398,6 +498,146 @@ class SQLiteVNextStore:
         self.user_id = str(user_id)
         _ensure_embedding_content_sha256_sqlite(self.conn)
         _ensure_project_scope_identity_sqlite(self.conn)
+        _ensure_direct_source_hint(self.conn)
+
+    def lock_label_writes(self, *, exclusive: bool = False) -> None:
+        """The SQLite writer lock is the label lock. Begin it when none is open."""
+
+        del exclusive
+        if not self.conn.in_transaction:
+            self.conn.execute("BEGIN IMMEDIATE")
+
+    def read_label_rows(self, kind: str, ids: Sequence[str]) -> list[VNextRow]:
+        """Narrow label rows for the insert floor. No text columns."""
+
+        wanted = [str(item) for item in ids if str(item)]
+        if not wanted:
+            return []
+        table = {"source": "sources", "memory": "memories", "open_loop": "open_loops"}.get(kind)
+        if table is None:
+            return []
+        extra = ""
+        if table == "memories":
+            extra = ", value, project_id, source_event_ids, deleted_at, status"
+        elif table == "open_loops":
+            extra = ", project_id, source_id, memory_id"
+        from alicebot_api.vnext_label_guard import request_row_cache
+        from alicebot_api.vnext_derived_labels import identifier
+
+        cache = request_row_cache(self, "sqlite-label-id-map")
+        if cache is not None:
+            if kind not in cache:
+                aliases: dict[str, list[str]] = {}
+                for stored in self._fetch_all(f"SELECT id FROM {table} WHERE user_id = ?", (self.user_id,)):
+                    stored_id = str(stored["id"])
+                    aliases.setdefault(identifier(stored_id), []).append(stored_id)
+                cache[kind] = aliases
+            resolved = set(wanted)
+            for item in wanted:
+                resolved.update(cache[kind].get(identifier(item), ()))
+            marks = ",".join("?" for _ in resolved)
+            return self._fetch_all(
+                f"SELECT id, user_id, domain, sensitivity, metadata_json{extra} FROM {table} WHERE user_id = ? AND id IN ({marks})",
+                (self.user_id, *sorted(resolved)),
+            )
+        from uuid import UUID
+        canonical = []
+        for item in wanted:
+            try:
+                canonical.append(UUID(item).hex)
+            except (ValueError, TypeError):
+                pass
+        marks = ",".join("?" for _ in wanted)
+        alias_sql = ""
+        if canonical:
+            alias_marks = ",".join("?" for _ in canonical)
+            alias_sql = f" OR replace(replace(replace(replace(lower(id),'urn:uuid:',''),'-',''),'{{',''),'}}','') IN ({alias_marks})"
+        return self._fetch_all(
+            f"""
+                SELECT id, user_id, domain, sensitivity, metadata_json{extra}
+                FROM {table}
+                WHERE user_id = ? AND (id IN ({marks}){alias_sql})
+                """,
+            (self.user_id, *wanted, *canonical),
+        )
+
+    def count_original_label_statuses(self, kind: str, *, domains=(), sensitivity_allowed=()) -> dict[str, int]:
+        """Count the definitely-original, unscoped partition using stored labels."""
+        from alicebot_api.vnext_label_sql import original_label_sql
+        table = {"source": "sources", "memory": "memories", "open_loop": "open_loops"}[kind]
+        status = "status" if kind != "source" else "'unknown'"
+        predicate = original_label_sql(kind, sqlite=True)
+        live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""
+        params = [self.user_id]
+        where = "user_id=? AND " + predicate + live
+        if domains:
+            where += " AND (domain IN (" + ",".join("?" for _ in domains) + ") OR domain='unknown')"
+            params.extend(domains)
+        if sensitivity_allowed:
+            where += " AND sensitivity IN (" + ",".join("?" for _ in sensitivity_allowed) + ")"
+            params.extend(sensitivity_allowed)
+        rows = self._fetch_all(f"SELECT {status} AS status, COUNT(*) AS count FROM {table} WHERE {where} GROUP BY {status}", tuple(params))
+        return {str(row["status"]): int(cast(int, row["count"])) for row in rows}
+
+    def iter_label_rows(self, kind: str, *, batch_size: int = 500, derived_only: bool = False, reject_sensitivity_allowed: Sequence[str] = ()) -> Iterator[list[VNextRow]]:
+        """Complete counted population, in narrow tenant-bound keyset batches."""
+
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        table = {"source": "sources", "memory": "memories", "open_loop": "open_loops"}.get(kind)
+        if table is None:
+            raise ValueError("unsupported label kind")
+        extra = ""
+        if kind == "memory":
+            extra = ", status, value, project_id, source_event_ids, deleted_at"
+        elif kind == "open_loop":
+            extra = ", status, project_id, source_id, memory_id"
+        live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""
+        from alicebot_api.vnext_label_sql import original_label_sql
+        if derived_only:
+            live += " AND NOT COALESCE(" + original_label_sql(kind, sqlite=True) + ", FALSE)"
+        if kind == "memory" and reject_sensitivity_allowed:
+            from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+            live += " AND " + hidden_memory_input_sql(reject_sensitivity_allowed, sqlite=True, alias="memories")
+        query_size = max(batch_size, 5000) if reject_sensitivity_allowed else batch_size
+        after = ""
+        while True:
+            rows = self._fetch_all(
+                f"""SELECT id, user_id, domain, sensitivity, metadata_json{extra}
+                    FROM {table} WHERE user_id = ? AND id > ?{live}
+                    ORDER BY id LIMIT ?""",
+                (self.user_id, after, query_size),
+            )
+            if not rows:
+                return
+            for start in range(0, len(rows), batch_size):
+                yield rows[start:start + batch_size]
+            after = str(rows[-1]["id"])
+            if len(rows) < query_size:
+                return
+
+    def iter_label_events(self, *, batch_size: int = 200, reject_sensitivity_allowed: Sequence[str] = ()) -> Iterator[list[VNextRow]]:
+        """Complete event targets for readable counts, without event payloads."""
+
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        from alicebot_api.vnext_label_sql import hidden_memory_event_sql
+        label_sql = hidden_memory_event_sql(reject_sensitivity_allowed, sqlite=True)
+        query_size = max(batch_size, 5000) if reject_sensitivity_allowed else batch_size
+        after = ""
+        while True:
+            rows = self._fetch_all(
+                f"""SELECT id, target_type, target_id, event_type FROM event_log
+                   WHERE user_id = ? AND id > ? AND {label_sql} ORDER BY id LIMIT ?""",
+                (self.user_id, after, query_size),
+            )
+            if not rows:
+                return
+            for start in range(0, len(rows), batch_size):
+                yield rows[start:start + batch_size]
+            after = str(rows[-1]["id"])
+            if len(rows) < query_size:
+                return
 
     # -- fetch helpers (mirror PostgresVNextStore conventions) ------------
 
@@ -602,6 +842,7 @@ class SQLiteVNextStore:
         scope_person_memory_ids: tuple[str, ...] = (),
         scope_window_start: datetime | None = None,
         scope_window_end: datetime | None = None,
+        sensitivity_allowed: Sequence[str] | None = None,
         limit: int = 20,
     ) -> list[VNextRow]:
         """Memory events whose target row matches scope before LIMIT."""
@@ -615,6 +856,8 @@ class SQLiteVNextStore:
         if event_type_prefix is not None:
             prefix_sql = " AND e.event_type LIKE ?"
             params.append(f"{event_type_prefix}%")
+        from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+        label_sql = " AND " + hidden_memory_input_sql(sensitivity_allowed, sqlite=True)
         params.extend(project_params)
         people_sql = ""
         if people or person_ids:
@@ -655,6 +898,7 @@ class SQLiteVNextStore:
                 WHERE e.user_id = ?
                   AND m.deleted_at IS NULL
                   {prefix_sql}
+                  {label_sql}
                   {project_sql}
                   {people_sql}
                   {window_sql}
@@ -674,6 +918,7 @@ class SQLiteVNextStore:
     source_inventory = _source_inventory
     prunable_sources = _prunable_sources
 
+    @takes_label_lock
     def create_source(self, source: JsonObject, *, actor_type: str = "system") -> VNextRow:
         source_id = _new_id(source.get("id"))
         self._execute(
@@ -732,6 +977,7 @@ class SQLiteVNextStore:
     create_browser_clip_capability = _browser_clip_create_capability
     consume_browser_clip_capability = _browser_clip_consume_capability
 
+    @takes_label_lock
     def get_or_create_source(
         self,
         source: JsonObject,
@@ -884,6 +1130,7 @@ class SQLiteVNextStore:
             (dedupe_key, self.user_id),
         )
 
+    @takes_label_lock
     def update_source(
         self,
         *,
@@ -989,6 +1236,9 @@ class SQLiteVNextStore:
             target_id=row["id"],
             payload={"operation": "update", "changes": patch},
         )
+        from alicebot_api.vnext_label_writes import propagate_after_write
+
+        propagate_after_write(self, kind="source", before=current, after=row)
         return row
 
     def create_source_chunk(self, chunk: JsonObject, *, actor_type: str = "system") -> VNextRow:

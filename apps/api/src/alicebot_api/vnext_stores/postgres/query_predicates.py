@@ -354,6 +354,63 @@ _MEMORY_PROJECT_SCOPE_SQL = _jsonb_project_scope_values_sql(
 )
 
 
+def _jsonb_string_array_identity_sql(array_expression: str) -> str:
+    """Identity of a JSON array of strings. Any other shape contributes nothing."""
+
+    normalized = _normalized_project_identifier_sql("floor_text.value")
+    identity = _project_identifier_identity_sql("normalized_floor.value", already_normalized=True)
+    return f"""
+(
+  SELECT COALESCE(
+    jsonb_agg(floor_identity.value ORDER BY floor_identity.value COLLATE "C"),
+    '[]'::jsonb
+  )
+  FROM (
+    SELECT DISTINCT {identity} AS value
+    FROM jsonb_array_elements(
+      CASE
+        WHEN jsonb_typeof({array_expression}) = 'array' THEN {array_expression}
+        ELSE '[]'::jsonb
+      END
+    ) AS floor_element(value)
+    CROSS JOIN LATERAL (
+      SELECT CASE
+        WHEN jsonb_typeof(floor_element.value) = 'string' THEN floor_element.value #>> '{{}}'
+        ELSE ''
+      END AS value
+    ) AS floor_text
+    CROSS JOIN LATERAL (
+      SELECT {normalized} AS value
+    ) AS normalized_floor
+    WHERE normalized_floor.value <> ''
+  ) AS floor_identity
+)
+"""
+
+
+_PROJECT_FLOOR_SQL = _jsonb_string_array_identity_sql("metadata_json -> 'project_floor'")
+
+
+# Overlap of scope united with floor. Original rows have no floor, so this
+# matches the same rows as _MEMORY_PROJECT_SCOPE_SQL for them.
+_MEMORY_GROUP_SCOPE_SQL = f"""
+(
+  SELECT COALESCE(
+    jsonb_agg(grouped.value ORDER BY grouped.value COLLATE "C"),
+    '[]'::jsonb
+  )
+  FROM (
+    SELECT DISTINCT part.value
+    FROM (
+      SELECT jsonb_array_elements_text(({_MEMORY_PROJECT_SCOPE_SQL})) AS value
+      UNION ALL
+      SELECT jsonb_array_elements_text(({_PROJECT_FLOOR_SQL})) AS value
+    ) AS part
+  ) AS grouped
+)
+"""
+
+
 _MEMORY_DIRECT_PEOPLE_SQL = """
 EXISTS (
   SELECT 1
@@ -490,6 +547,7 @@ for _query_helper in (
     _normalized_project_identifier_sql,
     _project_identifier_identity_sql,
     _jsonb_project_scope_values_sql,
+    _jsonb_string_array_identity_sql,
     _jsonb_project_scope_leaf_values_sql,
     _jsonb_source_project_scope_values_sql,
     _jsonb_scope_values_sql,

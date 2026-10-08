@@ -94,6 +94,11 @@ def main(argv: list[str] | None = None) -> int:
         TemporalStateValidationError,
         TrustedFactPromotionNotFoundError,
     ) as exc:
+        from alicebot_api.vnext_label_writes import label_error_response
+        answer = label_error_response(exc)
+        if answer is not None and answer[0] == 503:
+            _emit_cli_error(code="retryable", message=answer[1] + "; HTTP 503; Retry-After: 2")
+            return 3
         not_found_errors = (
             ContinuityLifecycleNotFoundError,
             ContinuityReviewNotFoundError,

@@ -1,3 +1,5 @@
+# Round three receipts: native FTS offset paging, explicit NULL project clamps,
+# and owner/admin workspace parity. Existing graft identities and schema pins remain enforced.
 from __future__ import annotations
 
 import ast
@@ -77,9 +79,16 @@ SQLITE_METHODS = (
 # row is created in or moved into a searchable status. Previous receipts:
 # common 191f0ebd..., postgres 1960ff3d..., sqlite 5ebda2b3...; method ASTs
 # postgres 538d5a18..., sqlite 5bd15d28.... Metadata manifests are unchanged.
+# Re-minted for the derived-label write boundary: inserts settle their full
+# ancestry, updates preserve protected metadata and propagate labels, and
+# mutators take the label lock. Metadata receipts include the label_write
+# keyword and lock wrappers. Facades add only lock_label_writes/read_label_rows;
+# removing those two names reproduces each previous class-order receipt.
+# Reviewed strict lock change: the graph lock reads live advisory grants,
+# and the memory update checks exclusive L before changing labels.
 SOURCE_RECEIPTS = {
     COMMON_PATH: "8fc077dc71f0e631a2df81de2ebeec1fb6c768f341c2e7891309e4753eef7bb5",
-    POSTGRES_CARRIER_PATH: "65e23bf5c8809a5dabe3f3339500f4a8f879258b2d9ca5a91acae3331d9b54a3",
+    POSTGRES_CARRIER_PATH: "2b540dc4b52e74d564ef22ce9f9ec98a527d4e5a74f00497c33ab29d37bce109",
     # SQLite carrier re-minted for the Phase 4 Stage 2 resident vector cache
     # (reviewed change): redaction paths that NULL a live embedding now bump
     # the embedding_stamp token in the same transaction (prompt eviction).
@@ -90,23 +99,29 @@ SOURCE_RECEIPTS = {
     # back between two reads cannot fail memories_seen_range_check. Previous
     # sqlite receipt 67adaa61..., method AST 3f134ac9...; the metadata
     # manifests are unchanged.
-    SQLITE_CARRIER_PATH: "c37f6b8012de25c3e702705909ba5669141af15d6c4ad5ac381915207b863615",
+    SQLITE_CARRIER_PATH: "0e8c2d50857d1064fc94b703c7cc05da234df63d4c278bc08a062fc90d450c3d",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
-    "postgres": "e937452df97467820cbcb42938b5f4a2336cd0157f0ca69f8f6420d4ee85211b",
-    "sqlite": "df43d593a59eb6deaf3ba935c09382e330b96a90b9f0b63314712619ba468a0d",
+    "postgres": "d9f5002319353a3ebe08cbdd8273faf2b2a11d79fcdf6d7cf779d157d8aae5e6",
+    "sqlite": "e5eecd8cc9b7922957adcf1a04b6238efa1fafb9e39eeefb310da86c4760ae24",
 }
 EXPECTED_METADATA_MANIFESTS = {
-    "postgres": "af03955c805f720b8d3ec735f8202efeb5f405c8c7de1cc45cbfef3644867824",
-    "sqlite": "9a5a4a9f0ae533652250a9e9854cd34a068392d71ffde98b012c9c620134d2c4",
+    "postgres": "07a567e26d0f7c4f51ae2a1910d059397b513a575d85f06c2f8c0396ac1bb2ef",
+    "sqlite": "1270ef0115988552418349aa9e94a7442ba04be41443f278f68a1fa81857903a",
 }
+# Round two adds count_original_label_statuses after read_label_rows on both
+# facades; all existing members retain their relative order.
+# Round three adds only count_source_label_events before iter_label_events.
+# Removing that new member reproduces the previous exact native member order.
 EXPECTED_CLASS_ORDERS = {
+    # Reviewed additions: label/event enumeration, PG ratings, belief aliases and source recovery.
+    # Existing facade members retain their relative order.
     # Two paired browser-clip capability methods extend both façades, and one
     # more paired method, ``list_memories_referencing_sources``.
     # Per-file importer savepoint (2026-10-02): one paired method more, ``savepoint``, appended last.
     # Previous receipt: (171, 526374782104a2a1...). Proof: the member list equals the list at origin/main
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
-    "PostgresVNextStore": (172, "6f1a459fcf4319cf4281f6cc0d4e81679c3e05d851fd0a874a2d90298d7c2569"),
+    "PostgresVNextStore": (184, "e5bb6fbb9a63e4027d028928a9fafb6f4a65e64e85c15bbb48f0a605b9326511"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
@@ -121,7 +136,7 @@ EXPECTED_CLASS_ORDERS = {
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     # Proof: the replacement branch gains only scrub_source, source_inventory and
     # prunable_sources here; every pre-existing class member keeps its order.
-    "SQLiteVNextStore": (134, "1301272026897057cf071009cc21787543ddc326f1e06f1a75a763f3e344767e"),
+    "SQLiteVNextStore": (141, "fc474bf2faa707e5e837846b66ae208e8795c0e65659c3c9cb54b84704a42b73"),
 }
 EXPECTED_FACADE_COMMENT_DIGESTS = {
     POSTGRES_FACADE_PATH: "d8599a46ee26dc35a3ae52c1a98a416509add9ae4a42ece780c5c5ed7e132b93",

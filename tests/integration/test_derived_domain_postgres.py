@@ -1,5 +1,6 @@
 """Restricted-domain generation and migration on the role-separated database."""
 
+import os
 from uuid import uuid4
 from urllib.parse import urlsplit, urlunsplit
 
@@ -14,13 +15,15 @@ from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
 from alicebot_api.vnext_brain import BrainArtifactRequest, VNextBrainService
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_label_writes import without_insert_floor
 
 
 def test_postgres_derived_domain_upgrade_and_generation(database_urls):
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260721_0094")
     user = uuid4()
-    with user_connection(database_urls["app"], user) as conn:
+    # Seed pre-floor rows so this still tests the migration, not the live insert path.
+    with without_insert_floor(), user_connection(database_urls["app"], user) as conn:
         ContinuityStore(conn).create_user(user, "derived-fence@example.invalid", "Derived fence")
         store = PostgresVNextStore(conn)
         source = store.create_memory(
@@ -71,7 +74,7 @@ def test_postgres_derived_domain_upgrade_and_generation(database_urls):
         }
         assert store.get_artifact(str(report["id"]))["domain"] == "health"
         fresh = VNextBrainService(store).generate_daily_brief(
-            BrainArtifactRequest(sensitivity_allowed=ALL_SENSITIVITY, discover_open_loops=False)
+            BrainArtifactRequest(agent_identity=None, sensitivity_allowed=ALL_SENSITIVITY, discover_open_loops=False)
         )
         assert fresh["domain"] == "health"
     # The data-only downgrade retains safe labels, and repeating the upgrade is harmless.
@@ -86,7 +89,8 @@ def test_postgres_repair_as_documented_nobypassrls_owner(database_urls, monkeypa
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260721_0094")
     user = uuid4()
-    with user_connection(database_urls["app"], user) as conn:
+    # Seed pre-floor rows so this still tests the migration, not the live insert path.
+    with without_insert_floor(), user_connection(database_urls["app"], user) as conn:
         ContinuityStore(conn).create_user(user, "owner-repair@example.invalid", "Owner repair")
         store = PostgresVNextStore(conn)
         source = store.create_memory(
@@ -180,8 +184,11 @@ def test_postgres_repair_as_documented_nobypassrls_owner(database_urls, monkeypa
     role_url = urlunsplit(
         parsed._replace(netloc=f"{role}:fixture-role-password@{parsed.hostname}:{parsed.port or 5432}")
     )
-    with psycopg.connect(database_urls["admin"], autocommit=True) as admin:
-        owner = admin.execute("SELECT current_user").fetchone()[0]
+    lifecycle = urlsplit(os.getenv("DATABASE_LIFECYCLE_URL", database_urls["admin"]))
+    lifecycle_url = urlunsplit(lifecycle._replace(path=parsed.path))
+    with psycopg.connect(lifecycle_url, autocommit=True) as admin:
+        owner = parsed.username
+        assert owner is not None
         admin.execute(
             sql.SQL("CREATE ROLE {} LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD {}").format(
                 sql.Identifier(role), sql.Literal("fixture-role-password")
@@ -207,10 +214,11 @@ def test_postgres_repair_as_documented_nobypassrls_owner(database_urls, monkeypa
                 with monkeypatch.context() as patch:
                     patch.setattr(repair, "relabel_event", injected_failure)
                     with pytest.raises(RuntimeError, match="injected audit failure"):
-                        command.upgrade(make_alembic_config(role_url), "head")
+                        command.upgrade(make_alembic_config(role_url), "20261004_0095")
                 assert admin.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "20260721_0094"
             else:
-                command.upgrade(make_alembic_config(role_url), "head")
+                # Keep this v2 guard proof independent of the later v3 repair.
+                command.upgrade(make_alembic_config(role_url), "20261004_0095")
             assert all(
                 row[0]
                 for row in admin.execute(
@@ -290,9 +298,12 @@ def test_promoted_artifact_uuid_alias_repaired(database_urls):
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260721_0094")
     user = uuid4()
-    with user_connection(database_urls["app"], user) as conn:
+    # Seed pre-floor rows so this still tests the migration, not the live insert path.
+    with without_insert_floor(), user_connection(database_urls["app"], user) as conn:
         ContinuityStore(conn).create_user(user, "alias@example.invalid", "Alias fixture")
         store = PostgresVNextStore(conn)
+        # Promotion takes the graph lock before any label-table writes.
+        store.lock_graph_mutation()
         memory = store.create_memory({"memory_key": "health", "canonical_text": "Private observation",
             "domain": "health", "sensitivity": "public", "status": "active"})
         artifact = store.create_artifact({"artifact_type": "daily_brief", "title": "Fixture brief",
@@ -323,7 +334,8 @@ def test_postgres_repair_reads_every_spelling_of_a_recorded_id(database_urls, sp
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260721_0094")
     user = uuid4()
-    with user_connection(database_urls["app"], user) as conn:
+    # Seed pre-floor rows so this still tests the migration, not the live insert path.
+    with without_insert_floor(), user_connection(database_urls["app"], user) as conn:
         ContinuityStore(conn).create_user(user, "spelling@example.invalid", "Spelling fixture")
         store = PostgresVNextStore(conn)
         health = store.create_memory(
@@ -351,7 +363,8 @@ def test_postgres_repair_refuses_an_update_that_changes_no_row(database_urls, mo
     config = make_alembic_config(database_urls["admin"])
     command.upgrade(config, "20260721_0094")
     user = uuid4()
-    with user_connection(database_urls["app"], user) as conn:
+    # Seed pre-floor rows so this still tests the migration, not the live insert path.
+    with without_insert_floor(), user_connection(database_urls["app"], user) as conn:
         ContinuityStore(conn).create_user(user, "zero-row@example.invalid", "Zero row fixture")
         store = PostgresVNextStore(conn)
         health = store.create_memory(

@@ -52,6 +52,9 @@ _LOCAL_POLICY_ENFORCEMENT_FAMILIES = {
         ("POST", "/v0/vnext/memories/accept-consolidation"),
         ("POST", "/v0/vnext/memories/redact"),
     },
+    "source_read_fence": {
+        ("GET", "/v0/vnext/sources/{source_id}"),
+    },
     "persisted_artifact_scope": {
         ("POST", "/v0/vnext/artifacts/{artifact_id}/insight-feedback"),
         ("GET", "/v0/vnext/artifacts/{artifact_id}"),

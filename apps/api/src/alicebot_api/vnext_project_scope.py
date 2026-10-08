@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import math
 import re
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 from alicebot_api.vnext_repositories import JsonObject
 
@@ -107,6 +107,8 @@ def project_identifier_identity(value: object) -> str:
 
 
 def normalize_project_scope(value: object) -> tuple[str, ...]:
+    if value is None or type(value) in (list, tuple) and not value:
+        return ()
     values: list[str] = []
 
     def add(item: object) -> None:
@@ -166,20 +168,22 @@ def resolve_project_scope(resource: Mapping[str, object] | None) -> ProjectScope
         return ProjectScopeResolution(present=False, values=())
 
     def canonical_values(value: object) -> tuple[str, ...]:
+        if type(value) in (list, tuple) and not value:
+            return ()
         if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
             return ()
         return normalize_project_scope(value)
 
-    containers = tuple(
-        container
-        for container_key in ("metadata_json", "scope_json")
-        if isinstance((container := resource.get(container_key)), Mapping)
-    )
     if "project_scope" in resource:
         return ProjectScopeResolution(
             present=True,
             values=canonical_values(resource.get("project_scope")),
         )
+    containers = tuple(
+        container
+        for container_key in ("metadata_json", "scope_json")
+        if isinstance((container := resource.get(container_key)), Mapping)
+    )
     for container in containers:
         if "project_scope" in container:
             return ProjectScopeResolution(
@@ -238,6 +242,8 @@ def resolve_source_metadata_project_scope(
 
     if not isinstance(metadata_json, Mapping):
         return ProjectScopeResolution(present=False, values=())
+    if type(metadata_json) is dict and not metadata_json:
+        return ProjectScopeResolution(present=False, values=())
 
     resource = dict(metadata_json)
     stored_container = resource.get("metadata_json")
@@ -264,6 +270,10 @@ def source_project_scope(source: Mapping[str, object]) -> tuple[str, ...]:
     """
 
     metadata_json = source.get("metadata_json")
+    if type(metadata_json) is dict and not metadata_json and not any(
+        key in source for key in ("project_scope", "scope_json", "project_id", "project", "projects")
+    ):
+        return ()
     resolution = resolve_source_metadata_project_scope(metadata_json if isinstance(metadata_json, Mapping) else None)
     if resolution.present or resolution.values:
         return resolution.values
@@ -361,12 +371,88 @@ def refuse_global_marker(scope: object, *, where: str) -> None:
         raise ValueError(f"{where} takes explicit project names only and does not accept the global marker")
 
 
-def project_scopes_overlap(resource_scope: object, requested_scope: object) -> bool:
+def project_floor(resource: Mapping[str, object] | None) -> tuple[str, ...]:
+    """Return the stored ``project_floor`` list, or ``()`` when the key is absent.
+
+    A present value that is not a list of strings is not a floor. Callers that
+    must refuse that shape ask :func:`project_floor_shape` first. This helper
+    returns ``()`` for it so a selection door does not treat a bad value as names.
+    """
+
+    shape, values = project_floor_shape(resource)
+    if shape != "list":
+        return ()
+    return values
+
+
+def project_floor_shape(resource: Mapping[str, object] | None) -> tuple[str, tuple[str, ...]]:
+    """Classify ``project_floor`` as ``absent``, ``list`` or ``malformed``.
+
+    ``list`` carries the stored spellings, ordered by identity, with no duplicates.
+    """
+
+    if resource is None:
+        return "absent", ()
+    containers: list[Mapping[str, object]] = [resource]
+    metadata = resource.get("metadata_json")
+    if isinstance(metadata, Mapping):
+        containers.append(metadata)
+    seen = False
+    raw: object = None
+    for container in containers:
+        if "project_floor" in container:
+            seen = True
+            raw = container.get("project_floor")
+            break
+    if not seen:
+        return "absent", ()
+    if type(raw) in (list, tuple) and not raw:
+        return "list", ()
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes, bytearray)):
+        return "malformed", ()
+    if any(not isinstance(item, str) for item in raw):
+        return "malformed", ()
+    return "list", _ordered_scope(raw)
+
+
+def project_floor_within(floor: object, binding: object) -> bool:
+    """True when every project in ``floor`` is inside ``binding``, by identity.
+
+    An empty floor is inside every binding. A free-form name is inside only when
+    the binding names that same identity.
+    """
+
+    return set(project_scope_identity(floor)).issubset(set(project_scope_identity(binding)))
+
+
+def _ordered_scope(value: object) -> tuple[str, ...]:
+    """Stored spellings, first one kept, ordered by identity."""
+
+    chosen: dict[str, str] = {}
+    for item in normalize_project_scope(value):
+        identity = project_identifier_identity(item)
+        if identity and identity not in chosen:
+            chosen[identity] = item
+    return tuple(chosen[identity] for identity in sorted(chosen))
+
+
+def project_scopes_overlap(
+    resource_scope: object,
+    requested_scope: object,
+    *,
+    floor: object = (),
+) -> bool:
     """Does the resource's scope meet the requested tuple?
 
     The tuple may hold the reserved marker. The marker asks for a resource whose
     scope holds no Alice project id, and is never compared with a stored value.
     Every other entry is an identifier compared by identity.
+
+    ``floor`` is the row's project floor. It is consulted only on the global
+    branch: a row whose scope holds no Alice project id is in a view that asks
+    for global rows only when every Alice project id in the floor is in the
+    view. Free-form names in the floor do not hide the row. An empty floor keeps
+    the previous answer.
     """
 
     requested = set(project_scope_identity(requested_scope))
@@ -376,7 +462,9 @@ def project_scopes_overlap(resource_scope: object, requested_scope: object) -> b
     if GLOBAL_PROJECT_MARKER in requested:
         requested.discard(GLOBAL_PROJECT_MARKER)
         if not any(is_alice_project_id(item) for item in resource):
-            return True
+            floor_ids = {item for item in project_scope_identity(floor) if is_alice_project_id(item)}
+            if floor_ids.issubset(requested):
+                return True
     return bool(requested.intersection(resource))
 
 
@@ -391,6 +479,9 @@ __all__ = [
     "normalize_project_identifier",
     "normalize_project_scope",
     "ProjectScopeResolution",
+    "project_floor",
+    "project_floor_shape",
+    "project_floor_within",
     "project_identifier_identity",
     "project_scope_identity",
     "project_scopes_overlap",

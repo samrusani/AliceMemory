@@ -166,6 +166,12 @@ from alicebot_api.vnext_embeddings import (
     memory_embedding_text,
 )
 from alicebot_api.vnext_agent_control import resource_project_scope
+from alicebot_api.vnext_derived_labels import (
+    admit_when_locked,
+    group_scope,
+    locked_projects,
+    with_derived_from,
+)
 from alicebot_api.vnext_entities import extract_entity_candidates
 from alicebot_api.vnext_model_intelligence import (
     NON_SYNTHESIZING_PROVIDERS,
@@ -653,7 +659,7 @@ def _member_text(row: JsonObject) -> str:
 
 
 def _project_scope_key(row: JsonObject) -> tuple[str, ...]:
-    return project_scope_identity(resource_project_scope(row))
+    return group_scope(row)
 
 
 def _shared_project_scope(rows: tuple[JsonObject, ...] | list[JsonObject]) -> tuple[str, ...]:
@@ -1523,9 +1529,7 @@ def _scoped_rows(
                 continue
         if projects:
             allowed_projects = set(project_scope_identity(projects))
-            if not allowed_projects.intersection(
-                project_scope_identity(resource_project_scope(row))
-            ):
+            if not allowed_projects.intersection(group_scope(row)):
                 continue
         scoped.append(row)
     return scoped
@@ -1746,6 +1750,7 @@ class VNextRollupService:
         sensitivity_allowed: list[str],
         projects: tuple[str, ...],
         options: RollupOptions,
+        all_of: tuple[str, ...] | None = None,
     ) -> tuple[list[JsonObject], bool, int, bool]:
         # Ask for one sentinel row beyond the configured cap. The store
         # applies status, scope, roll-up-card exclusion, deterministic order,
@@ -1819,7 +1824,18 @@ class VNextRollupService:
             raise VNextRollupValidationError(
                 "roll-up input lookup returned rows outside the requested project scope"
             )
-        rows = scoped_rows
+        rows = admit_when_locked("memory", scoped_rows, all_of)
+        from alicebot_api.vnext_label_guard import admit_loaded
+
+        rows = admit_loaded(
+            self.store,
+            kind="memory",
+            rows=rows,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+            all_of=all_of,
+        )
         rows = [row for row in rows if not _is_rollup_card(row)]
         # The same parity for validity: the bundled stores leave an expired
         # memory out in SQL, and every tier below (entity, topic and the
@@ -2383,6 +2399,7 @@ class VNextRollupService:
         domains: list[str] | None,
         sensitivity_allowed: list[str],
         projects: tuple[str, ...],
+        all_of: tuple[str, ...] | None = None,
     ) -> tuple[dict[str, JsonObject], dict[str, JsonObject]]:
         """(pending candidate by rollup_digest, accepted card by rollup_key)."""
         pending: dict[str, JsonObject] = {}
@@ -2454,6 +2471,17 @@ class VNextRollupService:
                 raise VNextRollupValidationError(
                     "roll-up candidate/card lookup returned rows outside the requested project scope"
                 )
+        from alicebot_api.vnext_label_guard import admit_loaded
+        admitted_pending = {str(row.get("id")) for row in admit_loaded(
+            self.store, kind="memory", rows=list(pending.values()), domains=domains,
+            sensitivity_allowed=sensitivity_allowed, projects=(), all_of=all_of,
+        )}
+        admitted_accepted = {str(row.get("id")) for row in admit_loaded(
+            self.store, kind="memory", rows=list(accepted.values()), domains=domains,
+            sensitivity_allowed=sensitivity_allowed, projects=(), all_of=all_of,
+        )}
+        pending = {key: row for key, row in pending.items() if str(row.get("id")) in admitted_pending}
+        accepted = {key: row for key, row in accepted.items() if str(row.get("id")) in admitted_accepted}
         return pending, accepted
 
     def _expired_card_for_digest(
@@ -2706,7 +2734,7 @@ class VNextRollupService:
             "grouping_input_count": grouping_input_count,
             "grouping_input_total": grouping_input_total,
             "grouping_input_total_exact": grouping_input_total_exact,
-            "member_ids": member_ids,
+            "member_ids": list(member_ids),
             "instances": instances,
         }
         if revises_memory_id is not None:
@@ -2727,33 +2755,41 @@ class VNextRollupService:
                 "sensitivity": _highest_sensitivity(group.members),
                 "project_id": project_scope[0] if len(project_scope) == 1 else None,
                 "source_event_ids": source_event_ids,
-                "metadata_json": {
-                    "candidate_kind": ROLLUP_CANDIDATE_KIND,
-                    "rollup_digest": rollup_digest,
-                    "rollup_key": group.rollup_key,
-                    "review_required": True,
-                    "source_refs": source_refs,
-                    "project_scope": list(project_scope),
-                    "trace_id": trace_id,
-                    # accept_consolidation_candidate compatibility: the
-                    # existing review/acceptance path reads this block.
-                    "consolidation": {
-                        "proposal_kind": ROLLUP_PROPOSAL_KIND,
-                        "cluster_member_ids": member_ids,
-                        "member_snapshots": member_snapshots,
-                        "proposed_supersede": proposed_supersede,
-                        "survivor_memory_id": None,
-                        "model_provenance": model_provenance,
-                        "merge_refusal": merge_refusal,
-                        "reviewer_instructions": reviewer_instructions,
-                        "rollup": {
-                            "rollup_key": group.rollup_key,
-                            "group_kind": group.group_kind,
-                            "topic_label": group.label,
-                            "revises_memory_id": revises_memory_id,
+                "metadata_json": with_derived_from(
+                    {
+                        "candidate_kind": ROLLUP_CANDIDATE_KIND,
+                        "rollup_digest": rollup_digest,
+                        "rollup_key": group.rollup_key,
+                        "review_required": True,
+                        "source_refs": source_refs,
+                        "project_scope": list(project_scope),
+                        "trace_id": trace_id,
+                        # accept_consolidation_candidate compatibility: the
+                        # existing review/acceptance path reads this block.
+                        "consolidation": {
+                            "proposal_kind": ROLLUP_PROPOSAL_KIND,
+                            "cluster_member_ids": member_ids,
+                            "member_snapshots": member_snapshots,
+                            "proposed_supersede": proposed_supersede,
+                            "survivor_memory_id": None,
+                            "model_provenance": model_provenance,
+                            "merge_refusal": merge_refusal,
+                            "reviewer_instructions": reviewer_instructions,
+                            "rollup": {
+                                "rollup_key": group.rollup_key,
+                                "group_kind": group.group_kind,
+                                "topic_label": group.label,
+                                "revises_memory_id": revises_memory_id,
+                            },
                         },
                     },
-                },
+                    {
+                        "memories": [
+                            *group.members,
+                            *([revises_memory] if revises_memory is not None else []),
+                        ]
+                    },
+                ),
             },
             actor_type=generated_by,
         )
@@ -2774,6 +2810,7 @@ class VNextRollupService:
         route=None,
         model_temperature: float = 0.2,
         exclude_member_id_sets: list[set[str]] | None = None,
+        agent_identity: object = None,
     ) -> RollupOutcome:
         """One review-only roll-up pass over the in-scope memories.
 
@@ -2791,6 +2828,7 @@ class VNextRollupService:
         """
         options = options or RollupOptions()
         sensitivity = list(sensitivity_allowed or ("public", "internal", "private", "unknown"))
+        all_of = locked_projects(agent_identity, projects)
         outcome = RollupOutcome(options=options.to_record())
 
         rows, bounded, total_count, total_exact = self._collect_rows(
@@ -2798,6 +2836,7 @@ class VNextRollupService:
             sensitivity_allowed=sensitivity,
             projects=projects,
             options=options,
+            all_of=all_of,
         )
         outcome.groupable_count = len(rows)
         outcome.groupable_total_count = total_count
@@ -2860,7 +2899,7 @@ class VNextRollupService:
                 "rollup_key": group.rollup_key,
                 "group_kind": group.group_kind,
                 "label": group.label,
-                "member_ids": member_ids,
+                "member_ids": list(member_ids),
                 "rollup_digest": rollup_digest,
                 "aggregation": group.utility.to_record(),
             }
@@ -2880,6 +2919,7 @@ class VNextRollupService:
             domains=domains,
             sensitivity_allowed=sensitivity,
             projects=projects,
+            all_of=all_of,
         )
 
         for prepared in prepared_groups:

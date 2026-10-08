@@ -2283,11 +2283,11 @@ jobs:
   python-integration:
     name: ${{ matrix.integration_check }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        integration_check: ["Integration tests (Postgres + pgvector, role separation)", "Default surface integration smoke (Postgres)"]
+        integration_check: ["Integration tests (Postgres + pgvector, role separation)", "Default surface integration smoke (Postgres)", "Read-budget maximum workload smoke (Postgres)"]
     services:
       postgres:
         image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
@@ -2304,6 +2304,12 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Paired read-budget baseline (main at the round-three handoff)
+        if: matrix.integration_check != 'Default surface integration smoke (Postgres)'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: 48873b038013f4cf548099fcc4610a150972eedd
+          path: .read-budget-baseline
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -2329,12 +2335,46 @@ jobs:
         env:
           DATABASE_URL: postgresql://alicebot_app:ci@localhost:5432/alicebot
           DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot
+          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
+          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
         # --timeout=180 names one test that runs that long. The cancelled
-        # jobs were slow database setup, not a gap near 180s, so that flag
-        # would not have fired. --session-timeout=1500 is checked between
-        # tests, stops the run, and prints --durations before the 30 minute
-        # job cancel.
-        run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest tests/integration -q -p no:cacheprovider --durations=20 --timeout=180 --session-timeout=1500
+        # jobs were slow database setup, not a gap near 180s. The round-three
+        # grid includes 30 paired fixtures with ten interleaved samples per
+        # action and profile. Session bounds allow that grid to finish while
+        # each measured request retains its unchanged acceptance gate.
+        run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest tests/integration -q -p no:cacheprovider --durations=20 --timeout=180 --session-timeout=3000
+
+      - name: SQLite random mixed-parent and keyless read budgets against the same baseline
+        if: matrix.integration_check == 'Integration tests (Postgres + pgvector, role separation)'
+        env:
+          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
+          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-sqlite-read-budgets.jsonl
+        run: ./.venv/bin/python -m pytest tests/performance/test_label_round3_read_budget.py tests/performance/test_label_read_handoff_budget.py -q --timeout=180 --session-timeout=1800
+
+      - name: Maximum-workload read-budget controls
+        if: matrix.integration_check == 'Read-budget maximum workload smoke (Postgres)'
+        env:
+          DATABASE_URL: postgresql://alicebot_app:ci@localhost:5432/alicebot
+          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot
+          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
+          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
+          ALICE_READ_PROFILE: ${{ runner.temp }}/round3-read-profiles
+        run: >-
+          ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest -q -s --timeout=180
+          'tests/integration/test_label_round3_read_budget_postgres.py::test_postgres_round3_random_read_budgets[False-3000-all-visible]'
+          'tests/integration/test_label_round3_read_budget_postgres.py::test_postgres_round3_random_read_budgets[True-3000-extra-rows]'
+
+      - name: Retain paired read-budget samples, including failed runs
+        if: always() && matrix.integration_check != 'Default surface integration smoke (Postgres)'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: round3-paired-read-budgets-${{ strategy.job-index }}-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
+            ${{ runner.temp }}/round3-sqlite-read-budgets.jsonl
+            ${{ runner.temp }}/round3-read-profiles/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Default-surface core round-trip
         if: matrix.integration_check == 'Default surface integration smoke (Postgres)'

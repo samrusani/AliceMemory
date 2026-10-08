@@ -63,7 +63,7 @@ def _run_vnext_context_tree(ctx: CLIContext, args: argparse.Namespace) -> str:
 
 
 def _brain_artifact_request_from_args(args: argparse.Namespace) -> BrainArtifactRequest:
-    return BrainArtifactRequest(
+    return BrainArtifactRequest(agent_identity=None,
         domains=tuple(args.domain),
         projects=tuple(getattr(args, "project", ())),
         sensitivity_allowed=_vnext_sensitivity_allowed(args),

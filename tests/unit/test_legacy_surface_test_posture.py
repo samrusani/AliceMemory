@@ -37,7 +37,7 @@ def test_integration_runners_enable_legacy_surfaces_without_changing_unit_postur
     assert run_lines == [
         "run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest "
         "tests/integration -q -p no:cacheprovider --durations=20 "
-        "--timeout=180 --session-timeout=1500"
+        "--timeout=180 --session-timeout=3000"
     ]
     assert (
         "ALICE_LEGACY_SURFACES=1 $(PYTHON) -m pytest tests/integration -q"
@@ -61,7 +61,8 @@ def test_postgres_matrix_has_a_required_flag_off_default_surface_row() -> None:
     assert "name: ${{ matrix.integration_check }}" in integration_job
     assert (
         'integration_check: ["Integration tests (Postgres + pgvector, role separation)", '
-        '"Default surface integration smoke (Postgres)"]'
+        '"Default surface integration smoke (Postgres)", '
+        '"Read-budget maximum workload smoke (Postgres)"]'
     ) in integration_job
     assert (
         "if: matrix.integration_check == "

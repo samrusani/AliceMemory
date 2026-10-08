@@ -372,11 +372,26 @@ def test_contradiction_quotes_are_framed_from_the_store_and_memory_text_stays(
     )
     memory_id = committed["memory"]["id"]
 
+    # The schema binds each belief to an actual memory whose labels the
+    # effective-input guard can read. This original note contains the same
+    # claim used below, and remains unchanged across the context-pack read.
+    backing = _commit(
+        context,
+        title="Backing belief note",
+        canonical_text=belief_claim,
+        memory_type="belief",
+        domain="personal",
+        sensitivity="private",
+        confidence=0.95,
+        source_type="direct_user_instruction",
+    )
+    backing_id = str(backing["memory"]["id"])
+
     def list_beliefs(self, **_kwargs: object) -> list[dict[str, object]]:
         return [
             {
                 "id": "belief-framing",
-                "memory_id": "belief-memory-framing",
+                "memory_id": backing_id,
                 "claim": belief_claim,
                 "status": "active",
                 "memory_type": "belief",

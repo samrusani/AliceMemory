@@ -21,6 +21,7 @@ LIMITATIONS = ROOT / "docs/alpha/known-limitations.md"
 MCP_TOOLS = ROOT / "docs/alpha/mcp-tools.md"
 BACKUP = ROOT / "docs/alpha/backup-and-restore.md"
 MIGRATION = ROOT / "apps/api/alembic/versions/20261004_0095_derived_restricted_domains.py"
+MIGRATION_0096 = ROOT / "apps/api/alembic/versions/20261005_0096_derived_label_floor.py"
 HEADING = "Derived row domains"
 ANCHOR = "mcp-tools.md#derived-row-domains"
 
@@ -47,25 +48,36 @@ def _section(path: Path, heading: str) -> str:
     return _flat(found[0].partition("\n")[2])
 
 
-def _migration():
-    spec = importlib.util.spec_from_file_location("derived_domain_migration_0095", MIGRATION)
+def _load(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
+def _migration():
+    return _load(MIGRATION, "derived_domain_migration_0095")
+
+
+def _migration_0096():
+    return _load(MIGRATION_0096, "derived_label_floor_0096")
+
+
 def test_the_limitations_page_has_one_short_bullet_that_links_to_the_explanation() -> None:
     """The page states the label rule, the two limits that remain and the link, and nothing longer.
 
-    Mutations, each one alone: delete ``not `unknown```, ``may be readable through one of them``, ``is not
-    repaired`` or the link from the bullet; start the bullet without the marker; point the link at
-    ``#derived-rows``; add a ``## Derived`` heading with a paragraph to the page.
+    Mutations, each one alone: delete ``keeps the label its inputs had when it was made``, ``follows its
+    inputs when they are relabelled``, ``read only by the owner and an unbound admin key``, ``sensitivity
+    ceiling``, ``counting rows the caller may read`` or the link from the bullet; point the link at ``#derived-rows``; add a ``## Derived`` heading
+    with a paragraph to the page.
     """
 
-    bullet = _paragraph(LIMITATIONS, "- " + MARK + " a summary of restricted inputs")
-    assert "keeps their most frequent restricted label, not `unknown`" in bullet
-    assert "one that combines project scopes may be readable through one of them" in bullet
-    assert "a stored one whose inputs no longer resolve is not repaired" in bullet
+    bullet = _paragraph(LIMITATIONS, "- in v0.20.0 a derived summary, report or copy")
+    assert "keeps the label its inputs had when it was made" in bullet
+    assert "follows its inputs when they are relabelled" in bullet
+    assert "read only by the owner and an unbound admin key" in bullet
+    assert "sensitivity ceiling" in bullet
+    assert "counting rows the caller may read" in bullet
     assert bullet.endswith(f"See [{HEADING}]({ANCHOR})")
     assert "\n## Derived" not in LIMITATIONS.read_text(encoding="utf-8")
 
@@ -77,13 +89,14 @@ def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_
 
     Mutations, each one alone: delete ``with alphabetical ties``, ``An explicit request domain cannot override it``,
     ``within the same user``, ``they never become unrestricted``, ``instead of publishing intermediate labels``,
-    ``or restore an earlier backup``, ``rows without resolvable recorded inputs are left alone``, ``text is never
+    ``or restore an earlier backup``, ``A redacted row has no inputs and is left alone``, ``Text is never
     used to guess an input``, the link to the backup guide, ``unknown` previously matched every domain filter``,
-    ``project scope is unchanged`` or ``covers only copies with recorded inputs that still resolve``; change ``up to
+    ``apply the caller's sensitivity ceiling`` or ``not readable by every project``; change ``up to
     five`` to ``up to ten``; remove the marker from one paragraph; rename the heading; delete ``take their domain and
     their sensitivity over every row they name``, ``its label also covers the sources they name``, ``Open-loop
     reviews do the same over the sources whose ids they print`` or ``The run digest of both covers those sources``;
-    put back a sentence that says a consolidation report's ``source_refs`` are not covered by its label.
+    put back a sentence that says a consolidation report's ``source_refs`` are not covered by its label; put back
+    ``apply no label``.
     """
 
     section = _section(MCP_TOOLS, HEADING)
@@ -118,11 +131,14 @@ def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_
     assert "`value.kind`, `value.artifact_id` or `metadata_json.source_artifact_id`" in stored
     assert "they never become unrestricted" in stored
     assert (
-        "aborts the upgrade or restore instead of publishing intermediate labels, with an error that names up to "
+        "aborts the migration or the restore instead of publishing intermediate labels, with an error that names up to "
         f"{shown} of the rows that kept changing and says to remove their circular input references or restore an "
         "earlier backup"
     ) in stored
-    assert "Redacted rows and rows without resolvable recorded inputs are left alone; text is never used to guess an input" in stored
+    assert "The open pass does not abort the vault" in stored
+    assert "A redacted row has no inputs and is left alone" in stored
+    assert "Text is never used to guess an input" in stored
+    assert "is not repaired but is unverified for readers" in stored
 
     assert "SQLite upgrades a vault" in where and "`alice-memory import` stages a restore" in where
     assert f"PostgreSQL migration `{_migration().revision}`" in where
@@ -130,11 +146,18 @@ def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_
 
     assert "`unknown` previously matched every domain filter" in readers
     assert "New weekly candidate memories also store `input_summary`" in readers
-    assert "does not add missing historical input summaries or repair historical sensitivity values" in readers
+    assert "does not add missing historical input summaries" in readers
+    assert "or repair historical sensitivity values" not in readers
+    assert "apply the caller's sensitivity ceiling" in readers
+    assert "rows the caller may read" in readers
+    assert "The filtered workspace skips content diagnostics" in readers
+    assert "run doctor for the full derived-label and flagged-source report" in readers
+    assert "apply no label" not in readers
 
-    assert "project scope is unchanged" in scope
-    assert "a reader matching one scope can potentially read a summary of other scopes" in scope
-    assert "the repair covers only copies with recorded inputs that still resolve" in scope
+    assert "every project of every input" in scope
+    assert "A restricted key's own reports are built only from inputs that key may read" in scope
+    assert "not readable by every project" in scope
+    assert "could potentially read a summary of other scopes" in scope
 
 
 def test_the_backup_guide_states_when_the_repair_runs_and_what_it_cannot_repair() -> None:
@@ -145,35 +168,47 @@ def test_the_backup_guide_states_when_the_repair_runs_and_what_it_cannot_repair(
 
     Mutations, each one alone: in the restore paragraph, delete ``in the complete staged copy``, ``whether the
     destination is new or was already upgraded``, ``one audit event``, ``still refuses any other field that
-    differs``, ``cannot be repaired from that reference``, ``stop the import with `restore_failed` before
-    publication`` or the link; in the PostgreSQL paragraph, delete ``Run it before serving requests``, ``is not
-    repaired again``, one table name, ``NOSUPERUSER NOBYPASSRLS``, ``rolls the relabels, their audit events and the
+    differs``, ``is unverified``, ``stop the import with `restore_failed` before
+    publication`` or the link; in the PostgreSQL paragraph, delete ``Run it before serving requests``, ``not
+    repaired by a migration``, one table name, ``NOSUPERUSER NOBYPASSRLS``, ``rolls the relabels, their audit events and the
     FORCE change back together`` or ``The downgrade keeps the repaired labels``; change the revision in the
-    paragraph; in the migration, drop one table from ``_RELAX_RLS``.
+    paragraph; in migration 0095, drop one table from ``_RELAX_RLS``; in migration 0096, drop ``projects``.
     """
 
     restore = _paragraph(BACKUP, MARK + " before it publishes the restored database")
-    assert "import also repairs the labels of derived memories in the complete staged copy" in restore
+    assert "import also repairs the labels of derived memories and open loops in the complete staged copy" in restore
     assert "whether the destination is new or was already upgraded" in restore
     assert "takes the most frequent restricted label among them" in restore
-    assert "each memory the repair changes gets one audit event with its old and new domain" in restore
-    assert "Repeating `--mode skip` accepts a memory whose label that repair changed, and still refuses any other field that differs" in restore
+    assert "the highest sensitivity and every project" in restore
+    assert "one audit event with its old and new labels" in restore
+    assert "still refuses any other field that differs" in restore
+    assert "project scope or project floor" in restore
     assert "A vault that is upgraded without a restore gets the same repair once, the next time it opens" in restore
+    assert "never stops a vault from opening" in restore
+    assert "raised again once" in restore
     assert "A portable backup carries no generated artifacts and the SQLite schema has no table for them" in restore
-    assert "cannot be repaired from that reference and keeps its label" in restore
+    assert "is unverified, and a restricted key and an unbound trusted key do not read it" in restore
     assert "stop the import with `restore_failed` before publication, and nothing is written" in restore
     assert f"[{HEADING}]({ANCHOR})" in restore
+    commands = _paragraph(BACKUP, MARK + " `alice-memory labels check`")
+    assert "`alice-memory labels repair`" in commands
 
     migration = _migration()
     postgres = _paragraph(BACKUP, MARK + f" migration `{migration.revision}`")
     assert "Run it before serving requests" in postgres
     assert "A database restored at an older revision gets it from the release upgrade" in postgres
-    assert "one restored at or past it is not repaired again, so that backup must already hold the repaired labels" in postgres
+    assert "are not repaired by a migration" in postgres
+    assert "`alicebot vnext labels check`" in postgres
     assert "The documented table owner, `alicebot_admin`, is `NOSUPERUSER NOBYPASSRLS`" in postgres
     tables = [re.fullmatch(r"ALTER TABLE (\w+) NO FORCE ROW LEVEL SECURITY", item).group(1) for item in migration._RELAX_RLS]
     assert len(tables) == 6
-    for table in tables:
+    later = _migration_0096()
+    assert later.down_revision == migration.revision
+    later_tables = [re.fullmatch(r"ALTER TABLE (\w+) NO FORCE ROW LEVEL SECURITY", item).group(1) for item in later._RELAX_RLS]
+    assert len(later_tables) == 7 and "projects" in later_tables
+    for table in later_tables:
         assert f"`{table}`" in postgres, table
+    assert f"`{later.revision}`" in postgres
     assert "inside its own transaction and turns it back on before it commits" in postgres
     assert "rolls the relabels, their audit events and the FORCE change back together" in postgres
     assert "including derived rows in a cycle whose labels do not settle within a bounded number of changes" in postgres

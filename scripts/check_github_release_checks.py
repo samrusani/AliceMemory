@@ -24,6 +24,7 @@ REQUIRED_CHECKS = (
     "Python 3.13 install smoke",
     "Python 3.14 install smoke",
     "Integration tests (Postgres + pgvector, role separation)",
+    "Read-budget maximum workload smoke (Postgres)",
     "Default surface integration smoke (Postgres)",
     "Web tests, types, accessibility, and budgets",
     "Semantic eval attestation (exact SHA)",

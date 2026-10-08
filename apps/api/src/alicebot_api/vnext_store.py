@@ -6,7 +6,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import psycopg
 
@@ -23,6 +23,7 @@ from alicebot_api.vnext_embeddings import (
 )
 from alicebot_api.vnext_entity_names import ENTITY_IMMUTABLE_PATCH_FIELDS, normalize_entity_name
 from alicebot_api.vnext_json import json_safe
+from alicebot_api.vnext_label_writes import takes_label_lock
 from alicebot_api.vnext_project_scope import (
     expose_memory_project_scope,
     project_scope_identity,
@@ -171,6 +172,9 @@ from alicebot_api.vnext_stores.postgres.primitives import (
 )
 from alicebot_api.vnext_stores.postgres.query_predicates import (
     _ARTIFACT_SCOPE_PROJECT_SQL as _ARTIFACT_SCOPE_PROJECT_SQL,
+    _PROJECT_FLOOR_SQL as _PROJECT_FLOOR_SQL,
+    _MEMORY_GROUP_SCOPE_SQL as _MEMORY_GROUP_SCOPE_SQL,
+    _jsonb_string_array_identity_sql as _jsonb_string_array_identity_sql,
     _ASCII_PROJECT_LOWER as _ASCII_PROJECT_LOWER,
     _ASCII_PROJECT_UPPER as _ASCII_PROJECT_UPPER,
     _MEMORY_DIRECT_PEOPLE_SQL as _MEMORY_DIRECT_PEOPLE_SQL,
@@ -464,8 +468,214 @@ SCHEDULER_RUN_COLUMNS = """
 class PostgresVNextStore:
     """SQL-backed vNext repository facade for the second-brain kernel."""
 
+    memory_fts_offset_paging = True
+    label_count_input_prefilter = True
+    label_count_canonical_unique_ids = True
+
     def __init__(self, conn: UserConnection):
         self.conn = conn
+        self._label_floor_applied = False
+
+    def lock_label_writes(self, *, exclusive: bool = False) -> None:
+        """Shared label lock for a write, or the exclusive lock for a relabel.
+
+        The lock is transaction scoped. A session that already holds it takes
+        the same statement again, which Postgres grants without waiting.
+        """
+
+        mode = "pg_advisory_xact_lock" if exclusive else "pg_advisory_xact_lock_shared"
+        with self.conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {mode}(hashtext('vnext_labels'), hashtext(app.current_user_id()::text))"
+            )
+        from alicebot_api.vnext_label_writes import _in_transaction, LabelLockOrderError
+
+        if not _in_transaction(self):
+            raise LabelLockOrderError("label writes require an open transaction")
+
+    def read_label_rows(self, kind: str, ids: Sequence[str]) -> list[VNextRow]:
+        """Narrow label rows for the insert floor. No text columns."""
+
+        wanted = []
+        for item in ids:
+            try:
+                wanted.append(str(UUID(str(item))))
+            except (ValueError, AttributeError, TypeError):
+                continue
+        if not wanted:
+            return []
+        table = {
+            "source": "sources",
+            "memory": "memories",
+            "open_loop": "open_loops",
+            "artifact": "generated_artifacts",
+            "project": "projects",
+            "belief": "beliefs",
+        }.get(kind)
+        if table is None:
+            return []
+        if table == "beliefs":
+            return self._fetch_all(
+                """SELECT b.id, b.user_id, m.domain, m.sensitivity, b.metadata_json, b.memory_id
+                   FROM beliefs b JOIN memories m ON m.id = b.memory_id AND m.user_id = b.user_id
+                   WHERE b.id = ANY(%s::uuid[])""",
+                (wanted,),
+            )
+        extra = ""
+        if table == "memories":
+            extra = ", value, project_id, source_event_ids, deleted_at, status"
+        elif table == "open_loops":
+            extra = ", project_id, source_id::text AS source_id, memory_id::text AS memory_id"
+        elif table == "beliefs":
+            extra = ", memory_id"
+        elif table == "generated_artifacts":
+            extra = ", artifact_type"
+        return self._fetch_all(
+            f"""
+                SELECT id, user_id, domain, sensitivity, metadata_json{extra}
+                FROM {table}
+                WHERE id = ANY(%s::uuid[])
+                """,
+            (wanted,),
+        )
+
+    def count_original_label_statuses(self, kind: str, *, domains=(), sensitivity_allowed=()) -> dict[str, int]:
+        """Count the definitely-original, unscoped partition using stored labels."""
+        from alicebot_api.vnext_label_sql import original_label_sql
+        table = {"source": "sources", "memory": "memories", "open_loop": "open_loops", "artifact": "generated_artifacts", "project": "projects"}[kind]
+        status = "status" if kind != "source" else "'unknown'"
+        predicate = original_label_sql(kind, sqlite=False)
+        live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""
+        rows = self._fetch_all(f"SELECT {status} AS status, COUNT(*) AS count FROM {table} WHERE {predicate}{live} "
+            "AND (%s::text[] IS NULL OR domain=ANY(%s::text[]) OR domain='unknown') "
+            "AND (%s::text[] IS NULL OR sensitivity=ANY(%s::text[])) "
+            "GROUP BY 1", (list(domains) or None, list(domains) or None,
+                                  list(sensitivity_allowed) or None, list(sensitivity_allowed) or None))
+        return {str(row["status"]): int(cast(int, row["count"])) for row in rows}
+
+    def iter_label_rows(self, kind: str, *, batch_size: int = 1000, derived_only: bool = False, reject_sensitivity_allowed: Sequence[str] = ()) -> Iterator[list[VNextRow]]:
+        """Complete counted population, in narrow keyset batches under tenant RLS."""
+
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        table = {"source": "sources", "memory": "memories", "open_loop": "open_loops",
+                 "artifact": "generated_artifacts", "project": "projects"}.get(kind)
+        if table is None:
+            raise ValueError("unsupported label kind")
+        extra = ""
+        if kind == "memory":
+            extra = ", status, value, project_id, source_event_ids, deleted_at"
+        elif kind == "open_loop":
+            extra = ", status, project_id, source_id::text AS source_id, memory_id::text AS memory_id"
+        elif kind == "artifact":
+            extra = ", status, artifact_type"
+        elif kind == "project":
+            extra = ", status"
+        live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""
+        from alicebot_api.vnext_label_sql import original_label_sql
+        if derived_only:
+            live += " AND NOT COALESCE(" + original_label_sql(kind, sqlite=False) + ", FALSE)"
+        if kind == "memory" and reject_sensitivity_allowed:
+            from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+            live += " AND " + hidden_memory_input_sql(reject_sensitivity_allowed, sqlite=False, alias="memories")
+        query_size = max(batch_size, 5000) if reject_sensitivity_allowed else batch_size
+        after: str | None = None
+        while True:
+            rows = self._fetch_all(
+                f"""SELECT id, user_id, domain, sensitivity, metadata_json{extra}
+                    FROM {table}
+                    WHERE (%s::uuid IS NULL OR id > %s::uuid){live}
+                    ORDER BY id LIMIT %s""",
+                (after, after, query_size),
+            )
+            if not rows:
+                return
+            for start in range(0, len(rows), batch_size):
+                yield rows[start:start + batch_size]
+            after = str(rows[-1]["id"])
+            if len(rows) < query_size:
+                return
+
+    def count_source_label_events(self, *, domains=(), sensitivity_allowed=()) -> int:
+        """Original-source events for an active, unscoped label guard.
+
+        Match the reader's canonical stored target text without casting legacy
+        event IDs. Deleted source rows remain readable by the label reader.
+        RLS and the explicit tenant join preserve the same input population.
+        """
+        row = self._fetch_one(
+            "count_source_label_events",
+            """SELECT COUNT(*) AS count FROM event_log AS e
+               JOIN sources AS s ON s.user_id = e.user_id AND e.target_id = s.id::text
+               WHERE e.target_type = 'source'
+                 AND (%s::text[] IS NULL OR COALESCE(NULLIF(s.domain, ''), 'unknown') = ANY(%s::text[])
+                      OR COALESCE(NULLIF(s.domain, ''), 'unknown') = 'unknown')
+                 AND (%s::text[] IS NULL OR COALESCE(NULLIF(s.sensitivity, ''), 'unknown') = ANY(%s::text[]))""",
+            (list(domains) or None, list(domains) or None,
+             list(sensitivity_allowed) or None, list(sensitivity_allowed) or None),
+        )
+        return int(cast(int, row["count"]))
+
+    def iter_label_events(self, *, batch_size: int = 1000, reject_sensitivity_allowed: Sequence[str] = (), exclude_source_targets: bool = False) -> Iterator[list[VNextRow]]:
+        """Complete event targets for readable counts, without event payloads."""
+
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        from alicebot_api.vnext_label_sql import hidden_memory_event_sql
+        label_sql = hidden_memory_event_sql(reject_sensitivity_allowed, sqlite=False)
+        query_size = max(batch_size, 5000) if reject_sensitivity_allowed else batch_size
+        after: str | None = None
+        while True:
+            rows = self._fetch_all(
+                f"""SELECT id, target_type, target_id, event_type FROM event_log
+                   WHERE (%s::uuid IS NULL OR id > %s::uuid) AND {label_sql}
+                     AND (NOT %s::boolean OR COALESCE(target_type, '') <> 'source')
+                   ORDER BY id LIMIT %s""",
+                (after, after, exclude_source_targets, query_size),
+            )
+            if not rows:
+                return
+            for start in range(0, len(rows), batch_size):
+                yield rows[start:start + batch_size]
+            after = str(rows[-1]["id"])
+            if len(rows) < query_size:
+                return
+
+    def iter_label_ratings(self, *, batch_size: int = 1000) -> Iterator[list[VNextRow]]:
+        """Complete rating targets for counts, without feedback text."""
+
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        after: str | None = None
+        while True:
+            rows = self._fetch_all(
+                """SELECT id, artifact_id FROM artifact_quality_ratings
+                   WHERE (%s::uuid IS NULL OR id > %s::uuid) ORDER BY id LIMIT %s""",
+                (after, after, batch_size),
+            )
+            if not rows:
+                return
+            yield rows
+            after = str(rows[-1]["id"])
+
+    def list_belief_ids_for_memories(self, ids: Sequence[str]) -> list[str]:
+        """Same-user belief aliases that make a memory an indirect report input."""
+
+        from alicebot_api.vnext_derived_labels import identifier
+
+        wanted = []
+        for value in ids:
+            try:
+                wanted.append(str(UUID(identifier(value))))
+            except ValueError:
+                continue
+        if not wanted:
+            return []
+        rows = self._fetch_all(
+            "SELECT id::text AS id FROM beliefs WHERE user_id = app.current_user_id() AND memory_id = ANY(%s::uuid[]) ORDER BY id",
+            (wanted,),
+        )
+        return [str(row["id"]) for row in rows]
 
     def _fetch_one(
         self,
@@ -504,6 +714,9 @@ class PostgresVNextStore:
         with self.conn.cursor() as cur:
             cur.execute(query, params)
             rows = cur.fetchall()
+        if isinstance(self.conn, psycopg.Connection):
+            from alicebot_api.vnext_derived_labels import _cache_native_json_metadata
+            _cache_native_json_metadata(rows)
         return [expose_memory_project_scope(cast(VNextRow, row)) for row in rows]
 
     _append_mutation_event = _events_append_mutation_event
@@ -601,6 +814,7 @@ class PostgresVNextStore:
         scope_person_memory_ids: tuple[str, ...] = (),
         scope_window_start: datetime | None = None,
         scope_window_end: datetime | None = None,
+        sensitivity_allowed: Sequence[str] | None = None,
         limit: int = 20,
     ) -> list[VNextRow]:
         """Return memory-targeted events with target scope applied pre-LIMIT."""
@@ -610,6 +824,11 @@ class PostgresVNextStore:
         people_list = [str(value).strip().casefold() for value in scope_people if str(value).strip()] or None
         person_memory_ids = [str(value) for value in scope_person_memory_ids if str(value)] or None
         prefix_pattern = f"{event_type_prefix}%" if event_type_prefix is not None else None
+        from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+        label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=False)
+        # An uncorrelated target set is hashed once, including tenant identity.
+        # A join can rescan every memory for every event on fresh tenants whose
+        # planner statistics underestimate both tables. Keep exact text IDs.
         return self._fetch_all(
             f"""
                 SELECT
@@ -626,18 +845,18 @@ class PostgresVNextStore:
                   e.run_id,
                   e.integrity_hash
                 FROM event_log e
-                JOIN memories m
-                  ON e.target_type = 'memory'
-                 AND e.target_id = m.id::text
-                 AND e.user_id = m.user_id
-                WHERE m.deleted_at IS NULL
+                WHERE e.target_type = 'memory'
                   AND (%s::text IS NULL OR e.event_type LIKE %s)
+                  AND COALESCE((e.user_id, e.target_id) IN (
+                    SELECT m.user_id, m.id::text FROM memories m
+                    WHERE m.deleted_at IS NULL AND {label_sql}
                   AND (%s::text[] IS NULL OR ({_SCOPED_MEMORY_PROJECT_SQL}) ?| %s::text[])
                   AND (
                     %s::text[] IS NULL
                     OR m.id::text = ANY(%s::text[])
                     OR {_SCOPED_MEMORY_DIRECT_PEOPLE_SQL}
                   )
+                  ), FALSE)
                   AND (%s::timestamptz IS NULL OR e.occurred_at >= %s::timestamptz)
                   AND (%s::timestamptz IS NULL OR e.occurred_at <= %s::timestamptz)
                 ORDER BY e.occurred_at DESC, e.id DESC
@@ -969,6 +1188,7 @@ class PostgresVNextStore:
             (domains, domains, sensitivity_allowed, sensitivity_allowed, limit),
         )
 
+    @takes_label_lock
     def create_source(self, source: JsonObject, *, actor_type: str = "system") -> VNextRow:
         row = self._fetch_one(
             "create_source",
@@ -1041,6 +1261,7 @@ class PostgresVNextStore:
         )
         return row
 
+    @takes_label_lock
     def get_or_create_source(
         self,
         source: JsonObject,
@@ -1191,7 +1412,11 @@ class PostgresVNextStore:
             (dedupe_key,),
         )
 
+    @takes_label_lock
     def update_source(self, *, source_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+        from alicebot_api.vnext_label_writes import prepare_label_patch
+
+        patch = prepare_label_patch(self, "source", self.get_source(source_id), patch)
         with self.conn.cursor() as cur:
             cur.execute(
                 f"""
@@ -1303,8 +1528,12 @@ class PostgresVNextStore:
             target_id=row["id"],
             payload={"operation": "update", "changes": patch},
         )
+        from alicebot_api.vnext_label_writes import propagate_after_write
+
+        propagate_after_write(self, kind="source", before=current, after=row)
         return row
 
+    @takes_label_lock
     def delete_source(self, *, source_id: str, actor_type: str = "system") -> VNextRow:
         row = self._fetch_one(
             "delete_source",
@@ -1382,6 +1611,19 @@ class PostgresVNextStore:
                 """,
             (source_id, bounded_limit),
         )
+
+    def read_source_chunks_for_regeneration(self, source_id: str) -> list[VNextRow]:
+        """Read the complete source, or refuse recovery before writing any output."""
+
+        from alicebot_api.vnext_derived_labels import PROPAGATION_BOUND, LabelPropagationTooLarge
+
+        rows = self._fetch_all(
+            f"SELECT {SOURCE_CHUNK_COLUMNS} FROM source_chunks WHERE source_id = %s::uuid ORDER BY chunk_index, id LIMIT %s",
+            (source_id, PROPAGATION_BOUND + 1),
+        )
+        if len(rows) > PROPAGATION_BOUND:
+            raise LabelPropagationTooLarge("source regeneration exceeded the source chunk bound")
+        return rows
 
     def search_source_chunks(
         self,
@@ -1659,7 +1901,11 @@ class PostgresVNextStore:
 
     expire_edge = _graph_expire_edge
 
+    @takes_label_lock
     def create_project(self, project: JsonObject, *, actor_type: str = "system") -> VNextRow:
+        from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
+
+        project, floor_event = apply_insert_floor(self, "project", project)
         row = self._fetch_one(
             "create_project",
             f"""
@@ -1708,6 +1954,7 @@ class PostgresVNextStore:
             target_id=row["id"],
             payload={"operation": "create", "fields": _sorted_field_names(project)},
         )
+        remember_floor_event(self, floor_event, row["id"])
         return row
 
     def get_project(self, project_id: str) -> VNextRow | None:
@@ -1720,6 +1967,7 @@ class PostgresVNextStore:
             (project_id,),
         )
 
+    @takes_label_lock
     def get_project_for_update(self, project_id: str) -> VNextRow | None:
         """Lock a project while an artifact review applies its state."""
 
@@ -1777,7 +2025,29 @@ class PostgresVNextStore:
             ),
         )
 
+    @takes_label_lock
     def update_project(self, *, project_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+        from alicebot_api.vnext_label_writes import (
+            apply_insert_floor, merge_protected_metadata, prepare_label_patch,
+            propagate_after_write, remember_floor_event,
+        )
+
+        before = self.get_project(project_id)
+        patch = dict(patch)
+        metadata = patch.get("metadata_json")
+        floor_event = None
+        if isinstance(metadata, dict) and before is not None:
+            before_metadata = before.get("metadata_json")
+            patch["metadata_json"] = merge_protected_metadata(
+                before_metadata if isinstance(before_metadata, dict) else {},
+                metadata,
+                label_write="derived_from" in metadata,
+            )
+            if "derived_from" in metadata:
+                floored, floor_event = apply_insert_floor(self, "project", {**before, **patch})
+                for key in ("domain", "sensitivity", "metadata_json"):
+                    patch[key] = floored[key]
+        patch = prepare_label_patch(self, "project", before, patch)
         row = self._fetch_one(
             "update_project",
             f"""
@@ -1811,6 +2081,8 @@ class PostgresVNextStore:
             target_id=row["id"],
             payload={"operation": "update", "changes": patch},
         )
+        remember_floor_event(self, floor_event, row["id"])
+        propagate_after_write(self, kind="project", before=before, after=row)
         return row
 
     def create_person(self, person: JsonObject, *, actor_type: str = "system") -> VNextRow:
@@ -1979,7 +2251,11 @@ class PostgresVNextStore:
 
     update_open_loop_status = _graph_update_open_loop_status
 
+    @takes_label_lock
     def create_artifact(self, artifact: JsonObject, *, actor_type: str = "system") -> VNextRow:
+        from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
+
+        artifact, floor_event = apply_insert_floor(self, "artifact", artifact)
         row = self._fetch_one(
             "create_artifact",
             f"""
@@ -2040,8 +2316,10 @@ class PostgresVNextStore:
             target_id=row["id"],
             payload={"operation": "create", "artifact_type": str(row["artifact_type"])},
         )
+        remember_floor_event(self, floor_event, row["id"])
         return row
 
+    @takes_label_lock
     def upsert_artifact_by_workflow_digest(
         self,
         artifact: JsonObject,
@@ -2069,6 +2347,9 @@ class PostgresVNextStore:
         )
         if existing is not None:
             return existing
+        from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
+
+        artifact, floor_event = apply_insert_floor(self, "artifact", artifact)
         metadata_value = artifact.get("metadata_json")
         metadata: JsonObject = dict(metadata_value) if isinstance(metadata_value, dict) else {}
         metadata.update(
@@ -2149,6 +2430,7 @@ class PostgresVNextStore:
                 target_id=row["id"],
                 payload={"operation": "create", "artifact_type": str(row["artifact_type"])},
             )
+            remember_floor_event(self, floor_event, row["id"])
         return row
 
     def get_artifact(self, artifact_id: str) -> VNextRow | None:
@@ -2161,6 +2443,7 @@ class PostgresVNextStore:
             (artifact_id,),
         )
 
+    @takes_label_lock
     def get_artifact_for_update(self, artifact_id: str) -> VNextRow | None:
         """Lock one persisted artifact before an authorized side effect."""
 
@@ -2191,7 +2474,8 @@ class PostgresVNextStore:
                 WHERE (%s::text IS NULL OR artifact_type = %s)
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))
-                  AND (%s::text[] IS NULL OR ({_ARTIFACT_SCOPE_PROJECT_SQL}) ?| %s::text[])
+                  AND (%s::text[] IS NULL OR ({_ARTIFACT_SCOPE_PROJECT_SQL}) ?| %s::text[]
+                       OR ({_PROJECT_FLOOR_SQL}) ?| %s::text[])
                 ORDER BY created_at DESC, id DESC
                 LIMIT %s
                 """,
@@ -2202,6 +2486,7 @@ class PostgresVNextStore:
                 domains,
                 sensitivity_allowed,
                 sensitivity_allowed,
+                project_list,
                 project_list,
                 project_list,
                 limit,
@@ -2292,6 +2577,7 @@ class PostgresVNextStore:
             ),
         )
 
+    @takes_label_lock
     def update_artifact_status(
         self,
         *,
@@ -3658,6 +3944,9 @@ class PostgresVNextStore:
         try:
             yield
         except BaseException:
+            from alicebot_api.vnext_label_writes import label_savepoint_rolled_back
+
+            label_savepoint_rolled_back(self)
             try:
                 self.conn.execute(f"ROLLBACK TO SAVEPOINT {name}")
                 self.conn.execute(f"RELEASE SAVEPOINT {name}")

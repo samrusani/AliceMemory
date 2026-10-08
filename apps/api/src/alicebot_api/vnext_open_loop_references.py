@@ -29,7 +29,9 @@ nothing is: a reference to a source that is protected, deleted, missing or not a
   git sha or a 64-digit digest is never cut into an id, and neither is the id of a row the reader may read when hex
   digits follow it after a hyphen (``<id>-20261003``). A string that is only an id is read as the link writer reads it
   (``UUID()``, which also ignores hyphens in other places). Inside longer text only ASCII hex digits in those two
-  layouts are read, and an id with its hyphens in other places, split or otherwise encoded is not an id to this scan.
+  layouts are read by that scan. A second, source-only pass uses the canonical saved-quote parser and withholds
+  strings naming refused sources in its wider spellings, including JSON escapes. Irregular or non-ASCII memory-prefixed
+  ids in longer text and whitespace-based source URI spellings can remain; see the draft security note.
   The hyphenated layout is read with no boundary, so hex digits glued to an id in that layout can form a second window
   that names no row: a hyphen and groups of 4, 4, 4 and 12 digits right after an id, or groups of 8, 4, 4 and 4 digits
   and a hyphen right before a 32-digit id. Under a reference key that window is cut, and with it part of an id the
@@ -67,11 +69,12 @@ statement each, at most ``_LOOKUP_BATCH`` ids at a time, and are skipped when th
 from __future__ import annotations
 
 import inspect
+import json
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from uuid import UUID
 
-from alicebot_api.vnext_source_fence import SOURCE_REFERENCE_KEYS, SourceReadFence, cited_source_ids
+from alicebot_api.vnext_source_fence import SOURCE_REFERENCE_KEYS, SourceReadFence, _json_container, cited_source_ids
 
 JsonObject = dict[str, object]
 
@@ -131,11 +134,20 @@ def withhold_unreadable_references(
         if memory is not None:
             memory_ids.add(memory)
             referenced.add(memory)
+        named = cited_source_ids(row.get("metadata_json")).named
+        metadata_ids.update(cited_source_ids(row.get("metadata_json")).every)
+        referenced.update(named)
         _collect_ids(row.get("metadata_json"), metadata_ids, referenced, at_reference=False, depth=0)
     source_rows = _rows_by_id(store, sorted(source_ids | metadata_ids), bulk="get_sources_by_ids", single="get_source")
     memory_rows = _rows_by_id(store, sorted(memory_ids | metadata_ids), bulk="get_memories_by_ids", single="get_memory")
     admitted_sources = frozenset(key for key, row in source_rows.items() if fence.admits(row))
-    admitted_memories = frozenset(key for key, row in memory_rows.items() if fence.admits_memory(row))
+    from alicebot_api.vnext_label_guard import LabelGuard
+
+    guard = LabelGuard.for_fence(store, fence)
+    admitted_memories = frozenset(
+        key for key, row in memory_rows.items()
+        if isinstance(effective := guard.effective_row("memory", row), Mapping) and fence.admits_memory(effective)
+    )
     refused = (set(source_rows) - admitted_sources) | (set(memory_rows) - admitted_memories)
     # Every id of a row the fence refuses, and every id at a reference position that names no admitted row (a refused,
     # a deleted, a removed or a missing one), is withheld at every position of every row of the response, in every
@@ -276,7 +288,13 @@ def _collect_ids(value: object, found: set[str], referenced: set[str], *, at_ref
     if depth > _METADATA_MAX_DEPTH:
         return
     if isinstance(value, str):
+        decoded = _json_container(value)
+        if decoded is not None:
+            _collect_ids(decoded, found, referenced, at_reference=at_reference, depth=depth + 1)
+            return
         ids = _ids_in_text(value)
+        if at_reference:
+            ids |= set(cited_source_ids(value).named)
         found.update(ids)
         if at_reference:
             referenced.update(ids)
@@ -360,11 +378,20 @@ def _scrub_text(text: str, *, withheld: frozenset[str]) -> object:
     return "".join(pieces)
 
 
-def _scrub(value: object, *, depth: int, withheld: frozenset[str]) -> object:
+def _scrub(value: object, *, depth: int, withheld: frozenset[str], at_reference: bool = False) -> object:
     if depth > _METADATA_MAX_DEPTH:
         return _DROPPED
     if isinstance(value, str):
-        return _scrub_text(value, withheld=withheld)
+        decoded = _json_container(value)
+        if decoded is not None:
+            checked = _scrub(decoded, depth=depth + 1, withheld=withheld, at_reference=at_reference)
+            if checked is _DROPPED:
+                return _DROPPED
+            return value if checked == decoded else json.dumps(checked)
+        cut = _scrub_text(value, withheld=withheld)
+        if isinstance(cut, str) and cited_source_ids(cut).every & withheld:
+            return _DROPPED
+        return cut
     if isinstance(value, Mapping):
         output: dict[object, object] = {}
         for key, nested in value.items():
@@ -373,13 +400,16 @@ def _scrub(value: object, *, depth: int, withheld: frozenset[str]) -> object:
                 new_key = _scrub_text(key, withheld=withheld)
                 if new_key is _DROPPED:
                     continue
-            new_value = _scrub(nested, depth=depth + 1, withheld=withheld)
+                if cited_source_ids(new_key).every & withheld:
+                    continue
+            names_reference = isinstance(key, str) and key.lower() in _REFERENCE_KEYS | {"sources"}
+            new_value = _scrub(nested, depth=depth + 1, withheld=withheld, at_reference=at_reference or names_reference)
             if new_value is _DROPPED:
                 continue
             output[new_key] = new_value
         return output
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
-        items = (_scrub(nested, depth=depth + 1, withheld=withheld) for nested in value)
+        items = (_scrub(nested, depth=depth + 1, withheld=withheld, at_reference=at_reference) for nested in value)
         return [item for item in items if item is not _DROPPED]
     return value
 

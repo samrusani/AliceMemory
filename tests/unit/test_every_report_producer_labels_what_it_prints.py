@@ -68,7 +68,7 @@ def _brain(workflow: str) -> Builder:
 
         def run(current) -> dict:
             service = VNextBrainService(current)
-            request = BrainArtifactRequest(generated_for="2026-05-10", sensitivity_allowed=EVERYTHING)
+            request = BrainArtifactRequest(agent_identity=None, generated_for="2026-05-10", sensitivity_allowed=EVERYTHING)
             return getattr(service, f"generate_{workflow}")(request)
 
         return store, rows, run
@@ -84,7 +84,7 @@ def _connections() -> tuple[object, Callable, Callable]:
         store,
         lambda current: [*current.sources, *current.memories],
         lambda current: VNextConnectionService(current).generate_connection_report(
-            ConnectionFinderRequest(sensitivity_allowed=EVERYTHING)
+            ConnectionFinderRequest(agent_identity=None, sensitivity_allowed=EVERYTHING)
         ),
     )
 
@@ -97,7 +97,7 @@ def _contradictions() -> tuple[object, Callable, Callable]:
         store,
         lambda current: [*current.sources, *current.memories, *current.beliefs.values()],
         lambda current: VNextContradictionService(current).generate_contradiction_report(
-            ContradictionFinderRequest(sensitivity_allowed=EVERYTHING)
+            ContradictionFinderRequest(agent_identity=None, sensitivity_allowed=EVERYTHING)
         ),
     )
 
@@ -110,7 +110,7 @@ def _project_update() -> tuple[object, Callable, Callable]:
         store,
         lambda current: [*current.projects.values(), *current.sources, *current.memories.values()],
         lambda current: VNextProjectService(current).generate_project_update_candidate(
-            ProjectAutomationRequest(project_id="project-1", sensitivity_allowed=EVERYTHING)
+            ProjectAutomationRequest(agent_identity=None, project_id="project-1", sensitivity_allowed=EVERYTHING)
         ),
     )
 
