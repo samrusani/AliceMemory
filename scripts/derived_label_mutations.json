@@ -326,7 +326,7 @@
           "line": 5,
           "before": "Doctor's aggregate derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and remain outside the caller's sensitivity ceiling and visible to trusted keys.",
           "after": "",
-          "sha256": "2819e2a1d3558c8cd79073ee84367f59666f6398059ef02fa0a7b776997bb9d3"
+          "sha256": "afcdd653818c7d81994c4f5b20ff0da81d37d275b481c9244923c7e75b560acb"
         }
       ],
       "pytest": [
@@ -1031,7 +1031,7 @@
           "line": 7,
           "before": "disclosure, unauthorized modification and unauthorized deletion",
           "after": "disclosure",
-          "sha256": "2819e2a1d3558c8cd79073ee84367f59666f6398059ef02fa0a7b776997bb9d3"
+          "sha256": "afcdd653818c7d81994c4f5b20ff0da81d37d275b481c9244923c7e75b560acb"
         }
       ],
       "pytest": [
@@ -1248,38 +1248,6 @@
       "expected_failure": "test_a_hidden_id_gives_no_access_through_any_door"
     },
     {
-      "name": "memory-review-block-removed",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1080,
-          "before": "decision = apply_unverified_rule(decision, judged, identity)\n            if decision.decision == \"blocked\":\n                return _vnext_permission_response(decision)\n    except AgentIdentityValidationError as exc:\n        return public_exception_response(exc, status_code=400)\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n\n    actor_type, actor_id = _vnext_agent_actor(identity, fallback=\"user\")\n\n    # Consolidation acceptance",
-          "after": "decision = apply_unverified_rule(decision, judged, identity)\n    except AgentIdentityValidationError as exc:\n        return public_exception_response(exc, status_code=400)\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n\n    actor_type, actor_id = _vnext_agent_actor(identity, fallback=\"user\")\n\n    # Consolidation acceptance",
-          "sha256": "73fc1f64bbe03ddf4e1ee2104a1d8dd0aef2c269829417848c42e04d41b003a5"
-        }
-      ],
-      "pytest": [
-        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_a_hidden_id_gives_no_access_through_any_door[trusted]"
-      ],
-      "expected_failure": "test_a_hidden_id_gives_no_access_through_any_door"
-    },
-    {
-      "name": "tool-door-effective-label-removed",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2662,
-          "before": "memory = effective_row_for_fence(self.store, identity, kind, memory)\n        return self._policy_checked_write(",
-          "after": "return self._policy_checked_write(",
-          "sha256": "a0349d185d73ac8e908662d40730dc7054527be9cd682235710b0f56be9a5872"
-        }
-      ],
-      "pytest": [
-        "tests/unit/test_row_ids_grant_no_access_sqlite.py::test_a_hidden_id_gives_no_access_through_any_tool[trusted]"
-      ],
-      "expected_failure": "test_a_hidden_id_gives_no_access_through_any_tool"
-    },
-    {
       "name": "artifact-trace-lists-a-new-field-of-ids",
       "edits": [
         {
@@ -1303,7 +1271,7 @@
           "line": 11,
           "before": "This is a known exception, not a way of meeting the requirement to filter hidden ids. ",
           "after": "",
-          "sha256": "2819e2a1d3558c8cd79073ee84367f59666f6398059ef02fa0a7b776997bb9d3"
+          "sha256": "afcdd653818c7d81994c4f5b20ff0da81d37d275b481c9244923c7e75b560acb"
         }
       ],
       "pytest": [
@@ -1319,7 +1287,7 @@
           "line": 11,
           "before": "They grant no access. ",
           "after": "",
-          "sha256": "2819e2a1d3558c8cd79073ee84367f59666f6398059ef02fa0a7b776997bb9d3"
+          "sha256": "afcdd653818c7d81994c4f5b20ff0da81d37d275b481c9244923c7e75b560acb"
         }
       ],
       "pytest": [
@@ -1335,7 +1303,7 @@
           "line": 13,
           "before": "The full-text stage does refill until its limit is met. ",
           "after": "",
-          "sha256": "2819e2a1d3558c8cd79073ee84367f59666f6398059ef02fa0a7b776997bb9d3"
+          "sha256": "afcdd653818c7d81994c4f5b20ff0da81d37d275b481c9244923c7e75b560acb"
         }
       ],
       "pytest": [
@@ -1351,7 +1319,7 @@
           "line": 9,
           "before": "The exposure covers disclosure and unauthorized modification. The route code is identical",
           "after": "The route code is identical",
-          "sha256": "2819e2a1d3558c8cd79073ee84367f59666f6398059ef02fa0a7b776997bb9d3"
+          "sha256": "afcdd653818c7d81994c4f5b20ff0da81d37d275b481c9244923c7e75b560acb"
         }
       ],
       "pytest": [
@@ -1422,6 +1390,84 @@
         "tests/unit/test_hidden_ids_disclosure_docs.py::test_the_changelog_has_one_entry_for_each"
       ],
       "expected_failure": "test_the_changelog_has_one_entry_for_each"
+    },
+    {
+      "name": "memory-review-both-policy-checks-removed",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 1080,
+          "before": "decision = apply_unverified_rule(decision, judged, identity)\n            if decision.decision == \"blocked\":\n                return _vnext_permission_response(decision)\n    except AgentIdentityValidationError as exc:\n        return public_exception_response(exc, status_code=400)\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n\n    actor_type, actor_id = _vnext_agent_actor(identity, fallback=\"user\")\n\n    # Consolidation acceptance",
+          "after": "decision = apply_unverified_rule(decision, judged, identity)\n    except AgentIdentityValidationError as exc:\n        return public_exception_response(exc, status_code=400)\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n\n    actor_type, actor_id = _vnext_agent_actor(identity, fallback=\"user\")\n\n    # Consolidation acceptance",
+          "sha256": "73fc1f64bbe03ddf4e1ee2104a1d8dd0aef2c269829417848c42e04d41b003a5"
+        },
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 1225,
+          "before": "locked_decision = apply_unverified_rule(locked_decision, locked_judged, identity)\n            if locked_decision.decision == \"blocked\":\n                return _vnext_permission_response(locked_decision)\n",
+          "after": "locked_decision = apply_unverified_rule(locked_decision, locked_judged, identity)\n",
+          "sha256": "73fc1f64bbe03ddf4e1ee2104a1d8dd0aef2c269829417848c42e04d41b003a5"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_a_hidden_id_gives_no_access_through_any_door[trusted]"
+      ],
+      "expected_failure": "test_a_hidden_id_gives_no_access_through_any_door"
+    },
+    {
+      "name": "tool-writes-judged-on-stored-labels",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
+          "line": 2662,
+          "before": "memory = effective_row_for_fence(self.store, identity, kind, memory)\n        return self._policy_checked_write(",
+          "after": "return self._policy_checked_write(",
+          "sha256": "a0349d185d73ac8e908662d40730dc7054527be9cd682235710b0f56be9a5872"
+        },
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
+          "line": 2530,
+          "before": "settled = effective_row_for_fence(self.store, identity, kind, memory)\n        domains, sensitivity_allowed, project_scope, project_floor = policy_labels(settled)",
+          "after": "settled = memory\n        domains, sensitivity_allowed, project_scope, project_floor = policy_labels(settled)",
+          "sha256": "a0349d185d73ac8e908662d40730dc7054527be9cd682235710b0f56be9a5872"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_row_ids_grant_no_access_sqlite.py::test_a_hidden_id_gives_no_access_through_any_tool[trusted]"
+      ],
+      "expected_failure": "test_a_hidden_id_gives_no_access_through_any_tool"
+    },
+    {
+      "name": "member-snapshot-lists-a-title",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_version.py",
+          "line": 33,
+          "before": "        \"content_digest\": memory_content_digest(memory),\n    }",
+          "after": "        \"content_digest\": memory_content_digest(memory),\n        \"title\": memory.get(\"title\"),\n    }",
+          "sha256": "b8ba6455b972704e5d454738edb2846e26cafdf7c7e2baabbd1b4d22a2e023c3"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_member_snapshot_fields.py::test_a_member_snapshot_holds_the_id_the_status_the_update_time_and_a_digest_only"
+      ],
+      "expected_failure": "test_a_member_snapshot_holds_the_id_the_status_the_update_time_and_a_digest_only"
+    },
+    {
+      "name": "member-snapshot-note-says-no-text",
+      "edits": [
+        {
+          "file": "docs/release/derived-labels-security-note-draft.md",
+          "line": 11,
+          "before": "none of these is the member's text. ",
+          "after": "",
+          "sha256": "afcdd653818c7d81994c4f5b20ff0da81d37d275b481c9244923c7e75b560acb"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_ids_disclosure_docs.py::test_the_security_note_states_the_hidden_id_exception"
+      ],
+      "expected_failure": "test_the_security_note_states_the_hidden_id_exception"
     }
   ]
 }
