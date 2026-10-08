@@ -9,13 +9,11 @@ from __future__ import annotations
 import json
 import psycopg
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from typing import TypedDict
 
 from alicebot_api.vnext_derived_domain_backfill import DerivedDomainRepairError, require_changed
 from alicebot_api.vnext_derived_labels import _cache_native_json_metadata, _share_metadata_decode, labels_raised_payload, settle_labels
 from alicebot_api.vnext_event_log import build_event_log_record
-from alicebot_api.vnext_label_check_record import label_input_fingerprint
 from alicebot_api.vnext_project_scope import project_scope_identity
 
 
@@ -321,38 +319,22 @@ def load_postgres_label_tables(conn) -> dict[str, list[dict[str, object]]]:
     return tables
 
 
-@dataclass(frozen=True, slots=True)
-class LabelGapReport:
-    """One full check. ``fingerprint`` is set on PostgreSQL when it was asked for."""
-
-    below: int
-    unverified: int
-    fingerprint: str | None = None
-
-
-def label_gap_report(store: object, *, fingerprint: bool = False) -> LabelGapReport:
+def label_gap_counts(store: object) -> tuple[int, int]:
     """Counts from the real store, or an explicit unavailable result.
 
     PostgreSQL reads use a savepoint so an unavailable table does not poison
-    the doctor's surrounding application transaction. With ``fingerprint`` the
-    result also carries a digest of the label inputs, taken before they are
-    read. A write that lands after the digest makes the current inputs differ
-    from it, so a later comparison reports a change instead of trusting a
-    result that may predate the write.
+    the doctor's surrounding application transaction.
     """
 
     conn = getattr(store, "conn", None)
     if conn is None:
         raise LabelCheckUnavailable("derived label counts are unavailable for this store")
     module = type(conn).__module__
-    digest: str | None = None
     try:
         if module.startswith("sqlite3"):
             tables = _load_tables(conn)
         elif module.startswith("psycopg"):
             with conn.transaction():
-                if fingerprint:
-                    digest = label_input_fingerprint(conn)
                 tables = load_postgres_label_tables(conn)
         else:
             raise LabelCheckUnavailable("derived label counts are unavailable for this store")
@@ -361,14 +343,7 @@ def label_gap_report(store: object, *, fingerprint: bool = False) -> LabelGapRep
         raise
     except Exception as exc:
         raise LabelCheckUnavailable("derived label counts could not be read") from exc
-    return LabelGapReport(len(below), sum(len(ids) for ids in unverified.values()), digest)
-
-
-def label_gap_counts(store: object) -> tuple[int, int]:
-    """Counts from the real store, or an explicit unavailable result."""
-
-    report = label_gap_report(store)
-    return report.below, report.unverified
+    return len(below), sum(len(ids) for ids in unverified.values())
 
 
 def recorded_sqlite_label_repairs(conn, user_id: str) -> dict[tuple[str, str, str], set[str]]:
@@ -423,8 +398,6 @@ def recorded_sqlite_label_repairs(conn, user_id: str) -> dict[tuple[str, str, st
 __all__ = [
     "INPUT_SELECTS_V3",
     "LabelCheckUnavailable",
-    "LabelGapReport",
-    "label_gap_report",
     "load_postgres_label_tables",
     "REPAIR_STATE_KEY",
     "DerivedDomainRepairError",

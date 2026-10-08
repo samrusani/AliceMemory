@@ -41,7 +41,6 @@ from alicebot_api.vnext_derived_labels import (
     settle_verified_inputs,
     _mark_dependency_bounds,
 )
-from alicebot_api.vnext_label_check_record import LABEL_CHECK_EVENT
 from alicebot_api.vnext_label_closure import collect_label_rows
 from alicebot_api.vnext_project_scope import project_floor_shape, project_scope_identity, project_scopes_overlap, resolve_project_scope
 
@@ -54,13 +53,6 @@ def _row_label_key(kind: str, row: Mapping[str, object]) -> tuple:
     return (kind, *((field, repr(row[field])) for field in (
         "id", "user_id", "domain", "sensitivity", "metadata_json", "value", "project_id", "project", "projects", "scope_json", "source_id", "artifact_type", "project_scope", "project_floor",
     ) if field in row))
-
-
-def _label_event(row: Mapping[str, object]) -> bool:
-    """A label repair or recorded label check. Its counts and label values are for the owner."""
-
-    event_type = str(row.get("event_type", ""))
-    return event_type.endswith(".labels_raised") or event_type == LABEL_CHECK_EVENT
 
 
 def _rank_projection_supported(row: Mapping[str, object]) -> bool:
@@ -769,7 +761,7 @@ class LabelGuard:
             targets = [row for row in rows if str(row.get("target_type")) == kind]
             admitted.update(id(row) for row in self.admit_related_rows(targets, kind=kind, field="target_id"))
         return [row for row in rows if id(row) in admitted or (
-            str(row.get("target_type")) not in kinds and not _label_event(row)
+            str(row.get("target_type")) not in kinds and not str(row.get("event_type", "")).endswith(".labels_raised")
         )]
 
     def readable_event_count(self) -> int:

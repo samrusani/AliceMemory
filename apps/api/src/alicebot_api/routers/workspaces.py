@@ -169,10 +169,7 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     scheduler_status = {**scheduler_status, "daemon": daemon_status()}
     connector_health = VNextConnectorService(store).connector_health_all()
     dogfooding = VNextDogfoodingService(store).dashboard() if unfenced else VNextDogfoodingService(store).dashboard(sensitivity_allowed=tuple(sensitivity_allowed), label_guard=guard)
-    # A page load cannot settle every derived row. The owner and an unbound admin
-    # see the most recent full labels check, with its time; the doctor command
-    # and `labels check` still run the full check.
-    doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=unfenced, recorded_label_check=True)
+    doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=unfenced)
     policy_telemetry = summarize_agent_policy_telemetry(
         agent_events=agent_events,
         artifacts=artifacts,

@@ -1,7 +1,6 @@
 """Round-three owner compatibility and explicit scope-clamp contracts."""
 import json
 import os
-from types import SimpleNamespace
 from pathlib import Path
 import subprocess
 import sys
@@ -155,17 +154,11 @@ def test_unfenced_source_trace_and_workspace_preserve_main(label_harness, profil
         if component == "trace":
             assert {str(row["id"]) for row in trace["events"]} == {str(row["id"]) for row in expected}
             assert {"source_chunk.created", "open_loop.extraction_completed"} <= {row["event_type"] for row in trace["events"]}
-        if component == "workspace":
-            # The owner workspace shows the recorded result of the last full check.
-            from alicebot_api.cli import labels
-
-            assert labels._run_vnext_labels_check(SimpleNamespace(database_url=h.urls["app"], user_id=h.user_id), None) == "below_inputs 0"
         workspace = _vnext_workspace_payload(store, identity=identity)
         checks = {row["name"]: row for row in workspace["doctor"]["checks"]}
         if component == "workspace":
             assert checks["flagged_sources"]["status"] == "pass"
             assert checks["derived_labels"]["status"] == "pass"
-            assert checks["derived_labels"]["details"]["changed_since"] is False
             assert workspace["dogfooding"]["captures_today"] == 5
             assert workspace["summary"]["source_count"] == 5
         # Main keeps its four-value display window, but complete totals and

@@ -471,10 +471,7 @@ including derived rows in a cycle whose labels do not settle within a bounded
 number of changes or an update that changes no row, rolls the relabels, their
 audit events and the FORCE change back together. The downgrade keeps the repaired
 labels. `alicebot vnext labels check` uses one `REPEATABLE READ READ ONLY`
-snapshot, set before the acting user's row-security identity. When that snapshot
-closes the command appends one `labels.checked` event with the counts, a digest of
-the rows it read and no row text, so the workspace page can show the result (see
-[Doctor](doctor.md)); the check changes no label. Explicit repair
+snapshot, set before the acting user's row-security identity. Explicit repair
 takes the supersession lock, then the exclusive label lock, then ordered row
 locks; an update that changes no row rolls back the whole repair.
 

@@ -6,7 +6,6 @@ import logging
 import os
 from pathlib import Path
 import re
-import sys
 import shlex
 from typing import Any, Protocol, cast
 
@@ -127,24 +126,7 @@ class VNextDoctorService:
     def local_live_cors_status(self, settings: Settings | None = None) -> JsonObject:
         return local_live_cors_status(settings=settings or get_settings(), env=self.env, cwd=self.cwd)
 
-    def run(
-        self,
-        *,
-        fix_safe: bool = False,
-        ci: bool = False,
-        include_content_diagnostics: bool = True,
-        recorded_label_check: bool = False,
-        record_label_check: bool = False,
-    ) -> JsonObject:
-        """Run the doctor.
-
-        The derived-labels check settles every derived row, which costs far more
-        than a page load can afford. ``recorded_label_check`` reports the result
-        of the most recent full check instead, with its time and a note when the
-        label inputs changed after it. ``record_label_check`` makes a live check
-        record its result for that view. Neither changes what a live check finds.
-        """
-
+    def run(self, *, fix_safe: bool = False, ci: bool = False, include_content_diagnostics: bool = True) -> JsonObject:
         if fix_safe:
             VNextConnectorService(cast(Any, self.store), secret_provider=self.secret_provider).ensure_default_settings()
 
@@ -281,7 +263,7 @@ class VNextDoctorService:
         )
 
         if include_content_diagnostics:
-            self._content_checks(checks, recorded=recorded_label_check, record=record_label_check)
+            self._content_checks(checks)
         else:
             for name in ("flagged_sources", "derived_labels"):
                 checks.append(DoctorCheck(
@@ -307,7 +289,7 @@ class VNextDoctorService:
         }
         return cast(JsonObject, payload)
 
-    def _content_checks(self, checks: list[DoctorCheck], *, recorded: bool = False, record: bool = False) -> None:
+    def _content_checks(self, checks: list[DoctorCheck]) -> None:
         flagged_ids, stopped_early = _flagged_source_scan(self.store)
         remedy = _flagged_source_remedy(self.store)
         if flagged_ids:
@@ -331,23 +313,16 @@ class VNextDoctorService:
             },
         )
 
-        if recorded:
-            self._recorded_label_check(checks)
-            return
-        from alicebot_api.vnext_label_repair import LabelCheckUnavailable, label_gap_report
+        from alicebot_api.vnext_label_repair import LabelCheckUnavailable, label_gap_counts
 
-        digest: str | None = None
         try:
-            report = label_gap_report(self.store, fingerprint=record)
-            below, unverified, digest = report.below, report.unverified, report.fingerprint
+            below, unverified = label_gap_counts(self.store)
             label_line = f"derived labels: {below} below their inputs, {unverified} unverified"
             labels_available = True
         except LabelCheckUnavailable:
             below, unverified = 0, 0
             labels_available = False
             label_line = "derived labels: unavailable; run labels check"
-        if record and labels_available and digest is not None:
-            _record_doctor_label_check(self.store, below=below, unverified=unverified, fingerprint=digest)
         self._check(
             checks,
             name="derived_labels",
@@ -357,77 +332,6 @@ class VNextDoctorService:
             message_fail=label_line,
             recommended_fix="alicebot vnext labels repair",
         )
-
-    def _recorded_label_check(self, checks: list[DoctorCheck]) -> None:
-        """Show the newest recorded full check. Never settle a derived row here."""
-
-        from alicebot_api.vnext_label_check_record import label_input_fingerprint, recorded_label_check
-
-        record = None
-        current: str | None = None
-        unreadable = False
-        conn = getattr(self.store, "conn", None)
-        try:
-            if conn is None:
-                raise LookupError("recorded label checks need a PostgreSQL store")
-            # A savepoint keeps a failed read from poisoning the page's transaction.
-            with conn.transaction():
-                record = recorded_label_check(self.store)
-                if record is not None and record.readable:
-                    current = label_input_fingerprint(conn)
-        except Exception:
-            record, unreadable = None, True
-        if record is None or not record.readable:
-            unreadable = unreadable or record is not None
-            message = (
-                "derived labels: the recorded check could not be read; run alicebot vnext labels check"
-                if unreadable
-                else "derived labels: no recorded check; run alicebot vnext labels check"
-            )
-            checks.append(DoctorCheck(
-                name="derived_labels", status="skipped", severity="info", message=message,
-                recommended_fix="alicebot vnext labels check",
-                details={"scope": "recorded", "recorded": False, "evaluated": False, "unreadable": unreadable},
-            ))
-            return
-        changed = current != record.fingerprint
-        line = (
-            f"derived labels: {record.below_inputs} below their inputs, {record.unverified} unverified "
-            f"(recorded by {record.cause.replace('_', ' ')} at {record.checked_at})"
-        )
-        if changed:
-            line += (
-                ". The label inputs have changed since this check;"
-                " run alicebot vnext labels check for a current result."
-            )
-        self._check(
-            checks,
-            name="derived_labels",
-            ok=record.below_inputs == 0 and record.unverified == 0,
-            severity="warning",
-            message_ok=line,
-            message_fail=line,
-            recommended_fix="alicebot vnext labels repair",
-            details={
-                "scope": "recorded", "recorded": True, "evaluated": True, "checked_at": record.checked_at,
-                "cause": record.cause, "below_inputs": record.below_inputs, "unverified": record.unverified,
-                "changed_since": changed,
-            },
-        )
-
-
-def _record_doctor_label_check(store: object, *, below: int, unverified: int, fingerprint: str) -> None:
-    """Record a live doctor result. A failed write never changes the doctor's answer."""
-
-    from alicebot_api.vnext_label_check_record import record_label_check
-
-    conn = getattr(store, "conn", None)
-    try:
-        if conn is not None:
-            with conn.transaction():
-                record_label_check(store, below=below, unverified=unverified, fingerprint=fingerprint, cause="doctor")
-    except Exception:
-        print("doctor label result was not recorded", file=sys.stderr)
 
 
 def _flagged_source_remedy(store: object) -> str:

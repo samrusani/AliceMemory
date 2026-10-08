@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import sys
-
 from psycopg import sql
 
 from alicebot_api.cli.shared import CLIContext, _vnext_store_context
 from alicebot_api.db import user_read_snapshot_connection
 from alicebot_api.vnext_derived_domain_backfill import DerivedDomainRepairError, require_changed
-from alicebot_api.vnext_label_check_record import label_input_fingerprint, record_label_check
 from alicebot_api.vnext_label_repair import (
     classify_stored_labels,
     format_label_check,
@@ -27,51 +24,15 @@ def _run_vnext_labels_check(ctx: CLIContext, args: object) -> str:
     del args
     try:
         with user_read_snapshot_connection(ctx.database_url, ctx.user_id) as conn:
-            # The digest and the rows come from the same snapshot.
-            fingerprint = label_input_fingerprint(conn)
             below, unverified = classify_stored_labels(_postgres_tables(conn))
     except DerivedDomainRepairError as exc:
         print(f"labels check failed: {exc}")
         raise SystemExit(1) from exc
-    _record_label_check(
-        ctx, below=len(below), unverified=sum(len(ids) for ids in unverified.values()),
-        fingerprint=fingerprint, cause="labels_check",
-    )
     text = format_label_check(below, unverified)
     if below or unverified:
         print(text)
         raise SystemExit(1)
     return text
-
-
-def _record_label_check(ctx: CLIContext, *, below: int, unverified: int, fingerprint: str, cause: str) -> None:
-    """Keep the result of a full check for the workspace. A failed write never changes the check."""
-
-    try:
-        with _vnext_store_context(ctx) as store:
-            record_label_check(store, below=below, unverified=unverified, fingerprint=fingerprint, cause=cause)
-    except Exception:
-        # Static text: a caught exception is never written to the error stream.
-        print("labels check result was not recorded", file=sys.stderr)
-
-
-def _record_repaired_state(store) -> None:
-    """Record what a full check finds after the repair, inside the repair's transaction.
-
-    The repair holds the exclusive label lock, so the state read here is the
-    state it leaves. A failure here is reported and never undoes the repair.
-    """
-
-    try:
-        with store.conn.transaction():
-            fingerprint = label_input_fingerprint(store.conn)
-            below, unverified = classify_stored_labels(_postgres_tables(store.conn))
-            record_label_check(
-                store, below=len(below), unverified=sum(len(ids) for ids in unverified.values()),
-                fingerprint=fingerprint, cause="labels_repair",
-            )
-    except Exception:
-        print("labels repair result was not recorded", file=sys.stderr)
 
 
 def _run_vnext_labels_repair(ctx: CLIContext, args: object) -> str:
@@ -167,7 +128,6 @@ def _run_vnext_labels_repair(ctx: CLIContext, args: object) -> str:
                     ),
                 )
                 applied += 1
-            _record_repaired_state(store)
     except DerivedDomainRepairError as exc:
         print(f"labels repair failed: {exc}")
         raise SystemExit(2) from exc

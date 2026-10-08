@@ -85,16 +85,15 @@ MAIN_PRUNED_BINDINGS = {
 # Two local helpers admit rows and check event targets; the payload uses them
 # before returning lists/counts. Route bodies, mounts and middleware are unchanged.
 
-# Re-pin 2026-10-08: the owner and an unbound admin see the recorded result of the
-# last full labels check instead of a new one (the doctor call passes
-# recorded_label_check=True), and the route turns JIT compilation off for the
-# workspace transaction before any read. Two definitions changed, found by a
-# per-definition AST diff: get_vnext_workspace and _vnext_workspace_payload. The
-# set of definitions is the same.
+# Re-pin 2026-10-08: the route turns JIT compilation off for the workspace
+# transaction before any read. One definition changed, found by a per-definition
+# AST diff: get_vnext_workspace. The set of definitions is the same, and the
+# payload builder is unchanged: the owner and an unbound admin still get a live
+# derived-labels check.
 # Re-pin 2026-10-06: workspace reads authenticate the protected identity and
 # admit rows through effective labels before totals or dashboard disclosure.
 EXPECTED_ROUTE_AST_SHA256 = "7045d27156861c06b2283bb09416e522c59a5064941f40e81c87634577dd1b08"
-EXPECTED_SUPPORT_AST_SHA256 = "184f23dd760714019d0612155b726632dcdf352979aae3d7831bbb732c4e719e"
+EXPECTED_SUPPORT_AST_SHA256 = "701353bcdfe16d5502eafbd3df6d0659acc2e8b85a911c33b7a594348cae5b9b"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "e8c18d6831ca012b55b22f46c9b2151d62575773a2452ef0d0f2e869cabc8abb"
@@ -149,7 +148,7 @@ EXPECTED_ROUTE_NODE_SHA256 = {
 }
 EXPECTED_SUPPORT_NODE_SHA256 = {
     "_vnext_status_counts": "0bf0ed228a14bd648a9d18fcd5f99ebf8c585bd29f4b5e81e1df17fe0201fd15",
-    "_vnext_workspace_payload": "77a210df00fc2a55598d08e3bb7e6deb44c373d888fe3e8046c103db1a9e2bd3",
+    "_vnext_workspace_payload": "d076d390f1667942ff6ef833eb8419cef7c4603f6ccba629675eedf384a336f8",
     "_workspace_rows": "070bdfbd1eae10608bd8208b08367e1c0ea10e2064f03ad5a84121a190ed4cf0",
     "_workspace_event_visible": "8343c060909326a5cb69fa6f671ac62f160630ecf989f04d78e792ea74c0ea90",
 }
