@@ -749,19 +749,46 @@ def get_vnext_dogfooding_dashboard(
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 
+def _doctor_content_visible(store: PostgresVNextStore, *, user_id: UUID, authorization: str | None) -> bool:
+    """True when the caller has no limits, so the doctor may read the vault's content for it.
+
+    The content checks list the ids of sources that carry credential material and count derived rows, whatever
+    their label. Only the owner and an unbound admin key are shown them. This is the workspace's condition.
+    """
+
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    identity = resolve_protected_agent_identity(
+        store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}
+    )
+    return not SourceReadFence.for_identity(identity).entity_read_fenced
+
+
 @connectors_router.get("/v0/vnext/doctor")
-def get_vnext_doctor(user_id: UUID, ci: bool = True) -> JSONResponse:
+def get_vnext_doctor(user_id: UUID, ci: bool = True, authorization: str | None = Header(default=None)) -> JSONResponse:
     settings = get_settings()
-    with user_connection(settings.database_url, user_id) as conn:
-        payload = VNextDoctorService(PostgresVNextStore(conn)).run(ci=ci)
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            content_visible = _doctor_content_visible(store, user_id=user_id, authorization=authorization)
+            payload = VNextDoctorService(store).run(ci=ci, include_content_diagnostics=content_visible)
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 
 @connectors_router.post("/v0/vnext/doctor/run")
-def run_vnext_doctor(request: VNextDoctorRunRequest) -> JSONResponse:
+def run_vnext_doctor(request: VNextDoctorRunRequest, authorization: str | None = Header(default=None)) -> JSONResponse:
     settings = get_settings()
-    with user_connection(settings.database_url, request.user_id) as conn:
-        payload = VNextDoctorService(PostgresVNextStore(conn)).run(fix_safe=request.fix_safe, ci=request.ci)
+    try:
+        with user_connection(settings.database_url, request.user_id) as conn:
+            store = PostgresVNextStore(conn)
+            content_visible = _doctor_content_visible(store, user_id=request.user_id, authorization=authorization)
+            payload = VNextDoctorService(store).run(
+                fix_safe=request.fix_safe, ci=request.ci, include_content_diagnostics=content_visible
+            )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 
