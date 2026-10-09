@@ -28,7 +28,7 @@ def test_events_that_name_a_row_are_judged_alike_by_the_native_count_the_list_an
                 return store.iter_label_events()
 
         shown, withheld = assert_events_are_judged_by_the_rows_they_name(store, oracle=PerTarget(), beliefs=True)
-    assert len(shown) >= 17 and len(withheld) >= 31
+    assert len(shown) == 18 and len(withheld) == 32
 
 
 def test_a_source_event_that_names_another_row_leaves_the_native_source_count(label_harness):

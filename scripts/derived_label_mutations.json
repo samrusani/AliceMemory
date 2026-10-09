@@ -4477,7 +4477,7 @@
           "line": 554,
           "before": "                            found |= self._key_of(target)",
           "after": "                            pass",
-          "sha256": "a81669aada57c09b7db9bab6a862e80718002afdc0e270f96f9b9899a7631c13"
+          "sha256": "3e9849adc11d126647b0164f1a9075aeee29b3a1d9c5dfa88e7fb669f55798c4"
         }
       ],
       "pytest": [
@@ -4494,7 +4494,7 @@
           "line": 556,
           "before": "                    if part.func.attr == \"update\":",
           "after": "                    if False:",
-          "sha256": "a81669aada57c09b7db9bab6a862e80718002afdc0e270f96f9b9899a7631c13"
+          "sha256": "3e9849adc11d126647b0164f1a9075aeee29b3a1d9c5dfa88e7fb669f55798c4"
         }
       ],
       "pytest": [
@@ -4510,7 +4510,7 @@
           "line": 526,
           "before": "            elif len(self.functions.get(callee, ())) == 1:",
           "after": "            elif False:",
-          "sha256": "a81669aada57c09b7db9bab6a862e80718002afdc0e270f96f9b9899a7631c13"
+          "sha256": "3e9849adc11d126647b0164f1a9075aeee29b3a1d9c5dfa88e7fb669f55798c4"
         }
       ],
       "pytest": [
@@ -4526,7 +4526,7 @@
           "line": 570,
           "before": "        self.unfollowed.append(name)\n        return found\n",
           "after": "        return found\n",
-          "sha256": "a81669aada57c09b7db9bab6a862e80718002afdc0e270f96f9b9899a7631c13"
+          "sha256": "3e9849adc11d126647b0164f1a9075aeee29b3a1d9c5dfa88e7fb669f55798c4"
         }
       ],
       "pytest": [

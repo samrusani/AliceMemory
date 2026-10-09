@@ -338,7 +338,7 @@ def assert_events_are_judged_by_the_rows_they_name(store, *, oracle=None, belief
 
 def test_events_that_name_a_row_the_caller_cannot_read_are_not_shown_and_not_counted(world):
     shown, withheld = assert_events_are_judged_by_the_rows_they_name(world)
-    assert len(shown) >= 16 and len(withheld) >= 28
+    assert len(shown) == 17 and len(withheld) == 31
 
 
 def test_on_sqlite_an_event_that_names_an_artifact_a_belief_or_a_project_is_not_shown_to_a_caller_with_limits(world):
