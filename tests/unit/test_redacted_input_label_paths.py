@@ -259,6 +259,70 @@ def test_a_verified_label_cannot_be_settled_from_a_redacted_parent():
         settle_verified_inputs("memory", {**child, "user_id": USER}, [parent_label])
 
 
+def test_the_redacted_flag_is_read_from_a_decoded_dict_and_from_the_json_text_a_store_may_hand_over():
+    """A SQLite row can hold its metadata as JSON text. Only the boolean true marks a row redacted, in either form."""
+    from alicebot_api.vnext_derived_labels import is_redacted_row
+
+    marked = (
+        {"redacted": True},
+        '{"redacted": true, "redacted_at": "2026-10-09T00:00:00Z"}',
+    )
+    unmarked = ({}, {"redacted": False}, {"redacted": "true"}, {"redacted": 1}, '{"redacted": false}', '{"redacted": 1}', '{"redacted": "true"}',
+                '{}', '[]', 'null', 'not json', '', None)
+    for metadata in marked:
+        assert is_redacted_row({"metadata_json": metadata}) is True, metadata
+    for metadata in unmarked:
+        assert is_redacted_row({"metadata_json": metadata}) is False, metadata
+    assert is_redacted_row({}) is False
+
+
+def test_a_row_that_stores_its_metadata_as_json_text_is_still_a_redacted_input():
+    """The kernel reads the flag of a parent the way the store hands it over, so the child is unverified in both forms."""
+    import json
+
+    plain = {"id": "00000000-0000-0000-0000-000000000011", "user_id": USER, "domain": "project", "sensitivity": "public",
+             "metadata_json": {"project_scope": [], "project_floor": []}}
+    redacted = {**plain, "id": "00000000-0000-0000-0000-000000000012", "metadata_json": {"redacted": True}}
+    child = {**plain, "id": "00000000-0000-0000-0000-000000000013",
+             "metadata_json": {"project_scope": [], "project_floor": [],
+                               "derived_from": {"v": 1, "sources": [], "memories": [redacted["id"]], "open_loops": [], "artifacts": [],
+                                                "beliefs": [], "counts": {"sources": 0, "memories": 1, "open_loops": 0, "artifacts": 0, "beliefs": 0}}}}
+    for encode in (lambda value: value, json.dumps):
+        parent = {**redacted, "metadata_json": encode(redacted["metadata_json"])}
+        parent_label, child_label = settle_labels([{**parent, "kind": "memory"}, {**child, "kind": "memory"}], on_cycle="unverified").rows
+        assert parent_label.redacted and child_label.unverified and child_label.reason == "input_redacted", encode
+
+
+def test_a_missing_input_keeps_its_own_reason_whichever_order_the_inputs_come_in():
+    """A row with a redacted input and a missing one is unverified for the more basic problem, which is the missing row."""
+    base = {"user_id": USER, "domain": "project", "sensitivity": "public"}
+    redacted = {**base, "id": "00000000-0000-0000-0000-000000000021", "metadata_json": {"redacted": True}}
+    absent = "00000000-0000-0000-0000-0000000000ff"
+    rows = [{**redacted, "kind": "memory"}]
+    for index, members in enumerate(([redacted["id"], absent], [absent, redacted["id"]])):
+        derived = {"v": 1, "sources": [], "memories": members, "open_loops": [], "artifacts": [], "beliefs": [],
+                   "counts": {"sources": 0, "memories": 2, "open_loops": 0, "artifacts": 0, "beliefs": 0}}
+        rows.append({**base, "kind": "memory", "id": f"00000000-0000-0000-0000-00000000003{index}",
+                     "metadata_json": {"project_scope": [], "project_floor": [], "derived_from": derived}})
+    labels = settle_labels(rows, on_cycle="unverified").rows
+    assert [label.reason for label in labels[1:]] == ["missing_dependency", "missing_dependency"]
+    # Without the missing row the same inputs give the redacted reason, so the case above is not vacuous.
+    only_redacted = {**rows[1], "metadata_json": {**rows[1]["metadata_json"], "derived_from": {
+        **rows[1]["metadata_json"]["derived_from"], "memories": [redacted["id"]], "counts": {"sources": 0, "memories": 1, "open_loops": 0, "artifacts": 0, "beliefs": 0}}}}
+    assert settle_labels([rows[0], only_redacted], on_cycle="unverified").rows[1].reason == "input_redacted"
+
+
+def test_a_guard_over_a_store_that_cannot_read_label_rows_admits_no_edge_and_an_inactive_guard_admits_all():
+    """A store with no label reader cannot show that an end is readable, so an active guard hands back no edge."""
+    edges = [{"id": "e1", "from_type": "memory", "from_id": "00000000-0000-0000-0000-000000000041",
+              "to_type": "entity", "to_id": "00000000-0000-0000-0000-000000000042"}]
+    store = SimpleNamespace(conn=SimpleNamespace())
+    assert guards.LabelGuard.for_filters(store, (), ("public",), ()).admit_edges(edges) == []
+    from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
+
+    assert guards.LabelGuard.for_filters(store, (), ALL_SENSITIVITY, ()).admit_edges(edges) == edges
+
+
 @pytest.mark.parametrize("seed", range(25))
 def test_a_sqlite_store_gives_the_oracle_s_answer_through_the_guard_and_its_sql_prefilter(tmp_path, seed):
     """The real SQLite store, its readers and its SQL partition agree with the oracle on the same random graph.

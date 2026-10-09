@@ -5,7 +5,9 @@ This is temporary access containment, not removal: a row that recorded a redacte
 is read, only by the owner and an unbound admin key, and so is every row built from it. The text stays in those rows, and the
 owner and an unbound admin key still read it. Full removal of redacted text from reports is planned for v0.21.0.
 
-The first three tests are the ones the requirement names. Each runs through the mounted application on a vault where every producer ran with
+The first three tests prove, in turn, that a row built from a redacted memory is unverified through every door (reports of reports
+included), that no restricted key profile recovers the text through any door, and that regenerating a report restores access only
+when the redacted text is no longer included. Each runs through the mounted application on a vault where every producer ran with
 an admin key over a project with a memory that holds a sentinel string, and the sentinel is in the reports made from it.
 
 Mutations that these tests must fail (the manifest replays each one):
@@ -26,6 +28,7 @@ from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext, MCPToolError
 from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
 from alicebot_api.vnext_label_repair import REDACTED_INPUT_ADVICE, label_gap_report
+from alicebot_api.vnext_label_writes import without_insert_floor
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 from tests.integration.redaction_containment_support import (
     LEGACY_TOOLS,
@@ -357,6 +360,29 @@ def test_the_doctor_counts_the_rows_as_unverified_and_says_to_regenerate_or_dele
     status, limited, _ = h.request("GET", "/v0/vnext/doctor", key=keys["trusted"])
     skipped = next(item for item in limited["checks"] if item["name"] == "derived_labels")
     assert skipped["status"] == "skipped" and "unverified" not in skipped["message"]
+
+
+def test_the_doctor_still_recommends_labels_repair_when_a_row_is_below_its_input_as_well(world, label_harness):
+    """Repair raises a row stored below its input, so it is the fix for that row. It is not the fix for the rows built from a
+    redacted memory, and the line still says to regenerate or delete those."""
+    h = label_harness
+    parent = h.source(sensitivity="confidential")
+    with h.store() as store, without_insert_floor():
+        child = store.create_memory(
+            {"memory_key": str(uuid4()), "canonical_text": "Stored below its input", "status": "active", "domain": "project",
+             "sensitivity": "public", "metadata_json": {"project_scope": [], "source_id": str(parent["id"])}}
+        )
+        assert child["sensitivity"] == "public"
+    with h.store() as store:
+        gap = label_gap_report(store)
+    assert gap.below == 1 and gap.redacted_inputs > 0
+    status, body, _ = h.request("GET", "/v0/vnext/doctor", key=world.keys()["admin"])
+    assert status == 200, body
+    check = next(item for item in body["checks"] if item["name"] == "derived_labels")
+    assert check["status"] != "ok"
+    assert "1 below their inputs" in check["message"] and f"{gap.redacted_inputs} built from a redacted memory" in check["message"]
+    assert REDACTED_INPUT_ADVICE in check["message"]
+    assert check["recommended_fix"] == "alicebot vnext labels repair"
 
 
 def test_labels_check_names_the_reason_and_labels_repair_leaves_the_rows_as_they_are(world, label_harness):

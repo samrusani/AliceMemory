@@ -843,7 +843,10 @@ class LabelGuard:
         An edge has no label of its own. It keeps the explanation it was made with, which holds the titles and shared
         terms of the rows it joins, so it is read only by a caller who may read every row it names. A memory that is
         redacted since is not readable here: the edge still holds what the memory said. An endpoint of a kind that
-        carries no label (an entity, a source chunk) adds nothing to the decision.
+        carries no label (an entity, a source chunk) adds nothing to the decision. A project end is named by the id of
+        its row or by any identifier the caller typed, and only an id that finds a row carries a label: a named project
+        finds none, so it hides nothing, as an entity end hides nothing. A project row that exists and is not readable
+        still hides the edge.
         """
 
         if not self.active:
@@ -867,9 +870,16 @@ class LabelGuard:
             else:
                 readable_rows = self.admit_rows(kind, [row for row in found if not is_redacted_row(row)])
             readable = {identifier(row.get("id")) for row in readable_rows}
+            # Every other kind must find its row. A project end that finds none names no project row and hides nothing.
+            known = {identifier(row.get("id")) for row in found} if kind == "project" else None
             for index, edge in list(kept.items()):
                 for side in ("from", "to"):
-                    if str(edge.get(f"{side}_type") or "") == kind and identifier(edge.get(f"{side}_id")) not in readable:
+                    end = identifier(edge.get(f"{side}_id"))
+                    if (
+                        str(edge.get(f"{side}_type") or "") == kind
+                        and end not in readable
+                        and (known is None or end in known)
+                    ):
                         del kept[index]
                         break
         return list(kept.values())

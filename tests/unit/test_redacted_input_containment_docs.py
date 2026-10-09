@@ -9,8 +9,8 @@ change together.
 Mutations, each one alone: delete the sentence that says redaction restricts reports from the security note, the known
 limitations page, the tool reference or the changelog; replace ``not removal`` with ``removal``; delete ``planned for
 v0.21.0`` from any of the four; delete the archived sentence from any of the four; delete ``input_redacted`` from the tool
-reference; delete the graph edge sentence or the belief review sentence from the tool reference, the security note or the
-changelog; restore a sentence that calls the graph an exception from any page; delete the belief sentence from the security note,
+reference; delete the graph edge sentence, the project end sentence or the belief review sentence from the tool reference, the
+security note or the changelog; restore a sentence that calls the graph an exception from any page; delete the belief sentence from the security note,
 the tool reference or the changelog; delete the cross-reference from the redact section of the tool reference or of the
 protocol; delete the doctor instruction
 (``regenerate or delete``) from the tool reference or the changelog; change the doctor line in the code so that it no
@@ -29,7 +29,7 @@ PAGES = {
     "changelog": "CHANGELOG.md",
 }
 MARK = "Unreleased (on main, not in v0.20.0):"
-# The owner's sentences. Each page holds each of them, with the words of the page around it.
+# The sentences each page must hold, with the words of the page around them.
 RESTRICTS = (
     "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until "
     "they are regenerated without it"
@@ -45,6 +45,11 @@ EDGE = (
     "a graph edge has no label and keeps the explanation it was made with, which can hold the title of a memory redacted since, "
     "so `get /v0/vnext/graph/neighborhood/{target_id}` lists and `post /v0/vnext/graph/edges/{edge_id}/review` changes an edge "
     "for a key with limits only when that key may read every labelled row the edge joins and none of them is redacted"
+)
+# A project end is named by the id of its row or by any identifier the caller typed. Only a row that exists can hide an edge.
+PROJECT_END = (
+    "a project end that names the project by a name or by an id that finds no project row hides nothing, as an entity end hides "
+    "nothing; a project row that exists and is not readable still hides the edge"
 )
 BELIEF_REVIEW = (
     "`post /v0/vnext/beliefs/{belief_id}/review` is refused to a key that may not read the belief, with the answer of a missing "
@@ -119,6 +124,7 @@ def test_three_pages_say_a_graph_edge_and_a_belief_review_are_judged_by_the_rows
         assert EDGE in text, name
         assert BELIEF_REVIEW in text, name
         assert "any other edge answers as a missing edge does (the review answers 404), and a refused review changes nothing" in text, name
+        assert PROJECT_END in text, name
 
 
 def test_no_page_still_calls_the_graph_an_exception_or_claims_what_the_doors_do_not_do() -> None:
