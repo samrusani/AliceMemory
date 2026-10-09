@@ -109,6 +109,16 @@ def test_a_cursor_that_no_import_carries_is_not_shown_to_a_caller_with_limits(st
     assert _health(store, TRUSTED)["cursor_state"] is None
 
 
+def test_a_source_row_marked_deleted_is_not_shown_even_when_the_store_returns_it(store, monkeypatch):
+    service = VNextConnectorService(store)
+    _import(service, SHOWN_PATH, "public")
+    assert _health(store, TRUSTED)["last_captured_item"] is not None
+    original = store.get_source
+    monkeypatch.setattr(store, "get_source", lambda source_id: {**original(source_id), "deleted_at": "2026-10-09T00:00:00Z"})
+    health = _health(store, TRUSTED)
+    assert health["last_captured_item"] is None and health["cursor_state"] is None
+
+
 def test_an_import_whose_source_is_deleted_or_missing_is_not_shown_to_a_caller_with_limits(store):
     service = VNextConnectorService(store)
     result = _import(service, SHOWN_PATH, "public")
