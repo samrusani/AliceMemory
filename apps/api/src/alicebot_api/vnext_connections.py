@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import inspect
 import re
 from typing import Callable, Protocol, Sequence, cast
+from uuid import UUID
 
 from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_derived_labels import with_derived_from
@@ -69,6 +70,10 @@ class VNextConnectionValidationError(ValueError):
     """Raised when a vNext connection workflow request is invalid."""
 
 
+class VNextConnectionNotFoundError(VNextConnectionValidationError):
+    """Raised when a graph edge does not exist or the caller may not read it. Both read the same."""
+
+
 class VNextConnectionStore(Protocol):
     def append_event(self, event: JsonObject) -> JsonObject: ...
 
@@ -103,6 +108,8 @@ class VNextConnectionStore(Protocol):
     ) -> JsonObject: ...
 
     def update_edge_status(self, *, edge_id: str, status: str) -> JsonObject: ...
+
+    def get_edge(self, edge_id: str) -> JsonObject | None: ...
 
     def list_edges(self, *, from_id: str | None = None, to_id: str | None = None) -> list[JsonObject]: ...
 
@@ -699,10 +706,24 @@ class VNextConnectionService:
         )
         return artifact
 
-    def review_edge(self, *, edge_id: str, action: str) -> JsonObject:
+    def review_edge(
+        self, *, edge_id: str, action: str, sensitivity_allowed: tuple[str, ...] | None = None
+    ) -> JsonObject:
         status = EDGE_REVIEW_ACTIONS.get(action)
         if status is None:
             raise VNextConnectionValidationError("edge review action must be review, accept, or reject")
+        if sensitivity_allowed is not None:
+            # The review answers with the edge, which keeps the explanation it was made with. A caller with a ceiling
+            # reviews only an edge whose rows it may read, and a refused call changes nothing.
+            from alicebot_api.vnext_label_guard import LabelGuard
+
+            try:
+                UUID(str(edge_id))
+            except ValueError:
+                raise VNextConnectionNotFoundError(f"edge {edge_id} was not found") from None
+            current = self.store.get_edge(edge_id)
+            if current is None or not LabelGuard.for_filters(self.store, (), sensitivity_allowed, ()).admit_edges([current]):
+                raise VNextConnectionNotFoundError(f"edge {edge_id} was not found")
         edge = self.store.update_edge_status(edge_id=edge_id, status=status)
         append_event(
             self.store,
@@ -714,9 +735,16 @@ class VNextConnectionService:
         )
         return edge
 
-    def graph_neighborhood(self, *, target_id: str) -> JsonObject:
+    def graph_neighborhood(self, *, target_id: str, sensitivity_allowed: tuple[str, ...] | None = None) -> JsonObject:
         from_edges = self.store.list_edges(from_id=target_id)
         to_edges = self.store.list_edges(to_id=target_id)
+        if sensitivity_allowed is not None:
+            # An edge keeps the explanation it was made with, so a caller with a ceiling gets the edges whose rows it may read.
+            from alicebot_api.vnext_label_guard import LabelGuard
+
+            guard = LabelGuard.for_filters(self.store, (), sensitivity_allowed, ())
+            from_edges = guard.admit_edges(from_edges)
+            to_edges = guard.admit_edges(to_edges)
         return {
             "target_id": target_id,
             "from_edges": from_edges,

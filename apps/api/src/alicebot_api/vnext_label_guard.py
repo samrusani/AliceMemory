@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace, field
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 from contextvars import ContextVar
 from functools import wraps
 from contextlib import contextmanager
@@ -36,6 +36,7 @@ from alicebot_api.vnext_derived_labels import (
     identifier,
     has_implicit_weekly_inputs,
     is_derived,
+    is_redacted_row,
     input_admitted,
     settle_labels,
     settle_verified_inputs,
@@ -279,6 +280,10 @@ def _filters_admit_every(
     return domains_open and sensitivity_open and not tuple(projects or ())
 
 
+# The endpoint kinds of a graph edge that carry a label. Entities and source chunks carry none.
+_EDGE_ENDPOINT_KINDS = ("memory", "source", "belief", "artifact", "open_loop", "project")
+
+
 @dataclass
 class LabelGuard:
     """The labels a door may trust for one request."""
@@ -307,6 +312,12 @@ class LabelGuard:
 
         fenced = bool(getattr(fence, "entity_read_fenced", False))
         return cls(store=store, active=fenced)
+
+    @classmethod
+    def unlimited(cls, store: Any) -> LabelGuard:
+        """The guard of the owner and of an unbound admin key: inactive, so it returns what it is given."""
+
+        return cls(store=store, active=False)
 
     @classmethod
     def for_filters(
@@ -468,6 +479,9 @@ class LabelGuard:
                 return None
             parent = self._settled_inputs(parent_kind, raw[0], trail | {root})
             if parent is None or root in parent[1]:
+                return None
+            if parent[0].redacted:
+                # A row built from a redacted row is unverified, which only the complete kernel answers.
                 return None
             parents.append(parent[0])
             ancestry.update(parent[1])
@@ -736,6 +750,7 @@ class LabelGuard:
         graph: dict[tuple[str, str, str], frozenset[tuple[str, str, str]]] = {}
         ranks: dict[tuple[str, str, str], int] = {}
         origins: list[tuple[str, str, str]] = []
+        redacted_nodes: set[tuple[str, str, str]] = set()
         for (node_kind, node_id), found in state.nodes.items():
             node_kind = canon_kind(node_kind)
             if len(found) != 1:
@@ -760,9 +775,18 @@ class LabelGuard:
             ranks[key] = SENSITIVITY_RANK[sensitivity]
             if derived:
                 origins.append(key)
+            if is_redacted_row(row):
+                redacted_nodes.add(key)
         # Redundant: a missing input never completes, so the visited count below refuses the graph as well.
         if any(ref not in graph for refs in graph.values() for ref in refs):
             return False
+        if redacted_nodes:
+            # A row that recorded a redacted row is unverified, which the complete kernel reads as regulated, and so is
+            # every row built from it: count it at the top rank before the ranks spread to the rows that read it.
+            regulated = SENSITIVITY_RANK["regulated"]
+            for key, input_keys in graph.items():
+                if input_keys & redacted_nodes:
+                    ranks[key] = max(ranks[key], regulated)
         pending_count = {key: len(refs) for key, refs in graph.items()}
         dependants: dict[tuple[str, str, str], list[tuple[str, str, str]]] = {}
         for node_key, input_keys in graph.items():
@@ -904,15 +928,32 @@ class LabelGuard:
         admitted = self._admitted_target_ids(kind, [str(row.get(field)) for row in rows if row.get(field)])
         return [row for row in rows if str(row.get(field) or "") in admitted]
 
-    def admit_events(self, rows: Sequence[_Row]) -> list[_Row]:
+    def admit_events(self, rows: Sequence[_Row], *, cursors: bool = True) -> list[_Row]:
         """An event is admitted when the guard admits every row it names, before it exposes their IDs.
 
         It names its target, when the target is a labelled row or an edge, and every id in the payload fields that hold
         the id of a labelled row (see ``event_references``). A chunk of a source has no label, so its event takes the
         label of the source it names. An event whose target has no label and whose payload names no row is admitted,
         except a ``labels_raised`` event, which says what a label was.
+
+        A connector event also records a cursor (see ``CONNECTOR_EVENT_CURSOR_FIELDS``), and for a file or a page that is
+        its path or its address. An admitted event shows each cursor only when the caller may read the source it came
+        from and holds ``null`` in its place otherwise, the rule of the connector screens; the event is copied and the row
+        it came from is not edited. ``cursors=False`` returns the admitted events as they are, for a caller that reads only
+        how many there are or what kind they are, and for a read that widens before it settles which events it shows.
         """
 
+        kept = self._admitted_events(rows)
+        return self._with_shown_cursors(kept) if cursors else kept
+
+    def _with_shown_cursors(self, events: list[_Row]) -> list[_Row]:
+        if not self.active or not any(str(row.get("event_type", "")).startswith("connector.") for row in events):
+            return events
+        from alicebot_api.vnext_connectors import VNextConnectorService
+
+        return cast("list[_Row]", VNextConnectorService(self.store).shown_event_cursors(events, guard=self))
+
+    def _admitted_events(self, rows: Sequence[_Row]) -> list[_Row]:
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
         named = []
@@ -946,9 +987,10 @@ class LabelGuard:
         size = want
         while True:
             fetched = fetch(size)
-            admitted = self.admit_events(fetched)
+            admitted = self.admit_events(fetched, cursors=False)
             if len(admitted) >= want or len(fetched) < size or size >= EVENT_FEED_SCAN_LIMIT:
-                return admitted[:want]
+                # The cursors of a connector event are judged for the events shown and not for the whole read.
+                return self._with_shown_cursors(admitted[:want])
             size = min(size * 5, EVENT_FEED_SCAN_LIMIT)
 
     def readable_event_count(self) -> int:
@@ -974,7 +1016,7 @@ class LabelGuard:
             # splitting its missing source reads into five database trips.
             # Every target still goes through its current effective guard.
             prefilter["batch_size"] = 5000
-        return source_count + sum(len(self.admit_events(batch)) for batch in iterator(**prefilter))
+        return source_count + sum(len(self._admitted_events(batch)) for batch in iterator(**prefilter))
 
     def admit_beliefs(self, beliefs: Sequence[_Row]) -> list[_Row]:
         """Beliefs whose backing memory the filters admit. One batched read."""
@@ -990,12 +1032,62 @@ class LabelGuard:
             for row in reader("memory", ids):
                 if isinstance(row, Mapping) and row.get("id") is not None:
                     found[str(row.get("id"))] = row
-        admitted = {str(row.get("id")) for row in self.admit_rows("memory", list(found.values()))}
+        # A belief keeps the claim it copied from its memory. When that memory is redacted the claim is the redacted text,
+        # so the belief is read as a derived row with a redacted input is: by the owner and an unbound admin key only.
+        live = [row for row in found.values() if not is_redacted_row(row)]
+        admitted = {str(row.get("id")) for row in self.admit_rows("memory", live)}
         return [
             row
             for row in beliefs
             if isinstance(row, Mapping) and str(row.get("memory_id") or "") in admitted
         ]
+
+    def admit_edges(self, edges: Sequence[_Row]) -> list[_Row]:
+        """Graph edges whose labelled endpoints are all readable and none of them redacted.
+
+        An edge has no label of its own. It keeps the explanation it was made with, which holds the titles and shared
+        terms of the rows it joins, so it is read only by a caller who may read every row it names. A memory that is
+        redacted since is not readable here: the edge still holds what the memory said. An endpoint of a kind that
+        carries no label (an entity, a source chunk) adds nothing to the decision. A project end is named by the id of
+        its row or by any identifier the caller typed, and only an id that finds a row carries a label: a named project
+        finds none, so it hides nothing, as an entity end hides nothing. A project row that exists and is not readable
+        still hides the edge.
+        """
+
+        if not self.active:
+            return [row for row in edges if isinstance(row, Mapping)]
+        reader = getattr(self.store, "read_label_rows", None)
+        if not callable(reader):
+            return []
+        kept = {index: edge for index, edge in enumerate(edges) if isinstance(edge, Mapping)}
+        for kind in _EDGE_ENDPOINT_KINDS:
+            wanted: dict[str, None] = {}
+            for edge in kept.values():
+                for side in ("from", "to"):
+                    if str(edge.get(f"{side}_type") or "") == kind and edge.get(f"{side}_id"):
+                        wanted[str(edge[f"{side}_id"])] = None
+            if not wanted:
+                continue
+            found = [row for row in reader(kind, list(wanted)) if isinstance(row, Mapping) and row.get("id") is not None]
+            if kind == "belief":
+                # A belief keeps the claim it copied from its memory; admit_beliefs settles the memory, redacted or not.
+                readable_rows = self.admit_beliefs(found)
+            else:
+                readable_rows = self.admit_rows(kind, [row for row in found if not is_redacted_row(row)])
+            readable = {identifier(row.get("id")) for row in readable_rows}
+            # Every other kind must find its row. A project end that finds none names no project row and hides nothing.
+            known = {identifier(row.get("id")) for row in found} if kind == "project" else None
+            for index, edge in list(kept.items()):
+                for side in ("from", "to"):
+                    end = identifier(edge.get(f"{side}_id"))
+                    if (
+                        str(edge.get(f"{side}_type") or "") == kind
+                        and end not in readable
+                        and (known is None or end in known)
+                    ):
+                        del kept[index]
+                        break
+        return list(kept.values())
 
     def _admits_effective(self, row: Mapping[str, object], *, kind: str) -> bool:
         if self.all_of is not None and (row.get("unverified") or not input_admitted(kind, row, self.all_of)):
@@ -1204,3 +1296,102 @@ def apply_unverified_rule(
         return decision
     reasons = tuple(dict.fromkeys((*decision.reasons, "derived_labels_unverified")))
     return replace(decision, decision="blocked", reasons=reasons)
+
+
+# The reach of a row feed for a caller with limits, the same bound as an event feed.
+ROW_FEED_SCAN_LIMIT = EVENT_FEED_SCAN_LIMIT
+
+
+def guard_for_caller(store: Any, identity: AgentIdentity | None, *, action: str = "http.operator.access") -> LabelGuard:
+    """The list guard of one caller: the filters its policy allows and the project binding it is locked to.
+
+    The owner and an unbound admin key have no limits, so their guard is inactive and returns its input. Every other
+    caller gets the domains, the sensitivities and the projects the policy engine grants it for ``action``, the same
+    ones a list door reads from a decision, and a key locked to a project must have every input of a row inside it.
+    A decision that blocks the caller raises ``AgentPolicyBlockedError`` and no guard is made.
+    """
+
+    from alicebot_api.vnext_agent_control import AgentPolicyBlockedError, evaluate_agent_policy
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    if not SourceReadFence.for_identity(identity).entity_read_fenced:
+        return LabelGuard(store=store, active=False)
+    decision = evaluate_agent_policy(identity=identity, action=action)
+    if decision.decision == "blocked":
+        raise AgentPolicyBlockedError(decision)
+    projects = decision.effective_project_scope
+    locked = identity is not None and identity.project_scope_locked
+    return LabelGuard.for_filters(
+        store,
+        decision.effective_domains,
+        decision.effective_sensitivity_allowed,
+        projects,
+        all_of=projects if locked else None,
+    )
+
+
+def newest_admitted_rows(
+    guard: LabelGuard,
+    kind: str,
+    fetch: Callable[[int], Sequence[_Row]],
+    *,
+    want: int,
+) -> list[_Row]:
+    """The ``want`` newest rows ``guard`` admits. ``fetch(n)`` returns the newest ``n`` rows, newest first.
+
+    A feed that read only its own limit would show a caller with limits fewer rows than it may read whenever the newest
+    rows are hidden from it. The read widens, five times at a time, up to ``ROW_FEED_SCAN_LIMIT`` rows, so the feed is
+    shorter than ``want`` only when fewer readable rows lie within that reach.
+    """
+
+    size = want
+    while True:
+        fetched = fetch(size)
+        admitted = guard.admit_rows(kind, fetched)
+        if len(admitted) >= want or len(fetched) < size or size >= ROW_FEED_SCAN_LIMIT:
+            return admitted[:want]
+        size = min(size * 5, ROW_FEED_SCAN_LIMIT)
+
+
+def clamp_request_filters(
+    identity: AgentIdentity | None,
+    *,
+    domains: Sequence[str],
+    sensitivity_allowed: Sequence[str],
+    action: str = "http.operator.access",
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The domains and sensitivities a request may use: what it asked for, cut down to what its caller may read.
+
+    A request filter is a selection, never a grant. The owner and an unbound admin key get what they asked for. A caller
+    with limits asking for a level above its ceiling is read at its own levels, as the policy engine answers it, and a
+    request the policy blocks outright raises ``AgentPolicyBlockedError``.
+    """
+
+    from alicebot_api.vnext_agent_control import AgentPolicyBlockedError, evaluate_agent_policy
+
+    asked_domains, asked_sensitivity = tuple(domains), tuple(sensitivity_allowed)
+    if identity is None:
+        return asked_domains, asked_sensitivity
+    decision = evaluate_agent_policy(
+        identity=identity, action=action, domains=asked_domains, sensitivity_allowed=asked_sensitivity
+    )
+    if decision.decision == "blocked":
+        raise AgentPolicyBlockedError(decision)
+    return decision.effective_domains, decision.effective_sensitivity_allowed
+
+
+def readable_own_label_rows(identity: AgentIdentity | None, rows: Sequence[_Row]) -> list[_Row]:
+    """The rows this caller may read, for rows that carry labels of their own and are made from no input.
+
+    A queued task and the brain charter are not derived, so their stored labels are the labels they have. The owner and
+    an unbound admin key get every row. A caller with limits gets the rows its fence admits: a row above its ceiling is
+    left out, and so is a row with no project to a key locked to a project.
+    """
+
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    items = [row for row in rows if isinstance(row, Mapping)]
+    fence = SourceReadFence.for_identity(identity)
+    if not fence.entity_read_fenced:
+        return items
+    return [row for row in items if fence.admits_memory(row)]

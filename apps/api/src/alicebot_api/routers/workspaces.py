@@ -88,7 +88,7 @@ def _workspace_rows(store: PostgresVNextStore, kind: str, rows: Sequence[Mapping
 
 @label_read_request
 def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdentity | None = None) -> dict[str, object]:
-    from alicebot_api.vnext_label_guard import LabelGuard, sensitivity_ceiling
+    from alicebot_api.vnext_label_guard import LabelGuard, readable_own_label_rows, sensitivity_ceiling
     from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
     from alicebot_api.vnext_source_fence import SourceReadFence
 
@@ -140,7 +140,8 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     people = store.list_people(sensitivity_allowed=sensitivity_allowed, limit=12)
     fetched_beliefs = store.list_beliefs(status=None, sensitivity_allowed=sensitivity_allowed, limit=12)
     beliefs = guard.admit_beliefs(fetched_beliefs)
-    tasks = store.list_tasks(status=None, limit=12)
+    # A queued task has labels of its own and no inputs, so the caller's fence judges its stored labels.
+    tasks = readable_own_label_rows(identity, store.list_tasks(status=None, limit=12))
     if getattr(type(store), "label_count_input_prefilter", False):
         recent_events = guard.newest_admitted_events(
             lambda size: store.list_events(limit=size, reject_sensitivity_allowed=guard.sensitivity_allowed), want=20
@@ -157,7 +158,8 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     recent_memory_commits = (
         list_recent_agentic_commits(limit=20)
         if callable(list_recent_agentic_commits)
-        else memory_commit_service.recent_commits(limit=20)["recent_commits"]
+        # The rows are admitted by this screen's guard right below, so the service lists them for the owner.
+        else memory_commit_service.recent_commits(limit=20, identity=None)["recent_commits"]
     )
     inline_confirmations = (
         list_pending_inline_confirmations(limit=20)
@@ -168,9 +170,9 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     inline_confirmations = guard.admit_rows("memory", inline_confirmations)
     scheduler_status = VNextSchedulerService(store).status()
     scheduler_status = {**scheduler_status, "daemon": daemon_status()}
-    connector_health = VNextConnectorService(store).connector_health_all()
+    connector_health = VNextConnectorService(store).connector_health_all(guard=guard)
     dogfooding = VNextDogfoodingService(store).dashboard() if unfenced else VNextDogfoodingService(store).dashboard(sensitivity_allowed=tuple(sensitivity_allowed), label_guard=guard)
-    doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=unfenced)
+    doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=unfenced, label_guard=guard)
     policy_telemetry = summarize_agent_policy_telemetry(
         agent_events=agent_events,
         artifacts=artifacts,
@@ -195,6 +197,10 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
         )
         for source in sources[:8]
     ]
+    stored_charter = store.get_brain_charter()
+    # A charter above the caller's ceiling answers as no charter at all.
+    readable_charter = readable_own_label_rows(identity, [stored_charter] if stored_charter is not None else [])
+    brain_charter = readable_charter[0] if readable_charter else None
     return {
         "mode": "live",
         "summary": {
@@ -306,7 +312,7 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
         },
         "policy_telemetry": policy_telemetry,
         "scheduler": scheduler_status,
-        "brain_charter": store.get_brain_charter(),
+        "brain_charter": brain_charter,
     }
 
 

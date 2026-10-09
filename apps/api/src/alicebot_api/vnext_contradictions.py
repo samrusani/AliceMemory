@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import inspect
 import re
 from typing import Callable, Protocol, Sequence, cast
+from uuid import UUID
 
 from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_derived_labels import with_derived_from
@@ -66,6 +67,10 @@ STOPWORDS = {
 
 class VNextContradictionValidationError(ValueError):
     """Raised when a vNext contradiction or belief operation is invalid."""
+
+
+class VNextContradictionNotFoundError(VNextContradictionValidationError):
+    """Raised when a belief does not exist or the caller may not read it. Both read the same."""
 
 
 class VNextContradictionStore(Protocol):
@@ -749,12 +754,18 @@ class VNextContradictionService:
         action: str,
         confidence: float | None = None,
         superseded_by: str | None = None,
+        sensitivity_allowed: tuple[str, ...] | None = None,
     ) -> JsonObject:
         status = BELIEF_REVIEW_ACTIONS.get(action)
         if status is None:
             raise VNextContradictionValidationError(
                 "belief review action must be reinforce, challenge, supersede, or retire"
             )
+        if sensitivity_allowed is not None:
+            # The review answers with the claim the belief copied, so a caller with a ceiling reviews only a belief it
+            # may read, and a refused call changes nothing.
+            if self._readable_belief(belief_id, sensitivity_allowed) is None:
+                raise VNextContradictionNotFoundError(f"belief {belief_id} was not found")
         belief = self.store.update_belief_status(
             belief_id=belief_id,
             status=status,
@@ -769,6 +780,22 @@ class VNextContradictionService:
             target_id=belief_id,
             payload={"action": action, "status": status, "confidence": confidence, "superseded_by": superseded_by},
         )
+        return belief
+
+    def _readable_belief(self, belief_id: str, sensitivity_allowed: tuple[str, ...]) -> JsonObject | None:
+        """The belief when the caller's ceiling admits its backing memory, and None when it is missing or hidden."""
+
+        from alicebot_api.vnext_label_guard import LabelGuard
+
+        try:
+            UUID(str(belief_id))
+        except ValueError:
+            return None
+        belief = self.store.get_belief(belief_id)
+        if belief is None:
+            return None
+        if not LabelGuard.for_filters(self.store, (), sensitivity_allowed, ()).admit_beliefs([belief]):
+            return None
         return belief
 
     def belief_state(self, *, belief_id: str, sensitivity_allowed: tuple[str, ...] | None = None) -> JsonObject:

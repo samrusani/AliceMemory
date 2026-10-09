@@ -9,10 +9,12 @@ note; delete the sentence that names the graph neighborhood route from the secur
 tracked for v0.21.0`` from the known limitations; delete ``The full-text stage does refill until its limit is met.`` from
 the security note; delete ``where it raised a server error`` from the changelog; delete ``return them for a derived
 memory`` from the tool reference; delete ``holds `project_id` to the caller's project binding`` from the security note;
-delete ``Ids are not the only thing a report keeps`` (or the sentence that names a redacted memory's text) from the
-security note, or ``a report keeps the words it was made with`` from the known limitations, or ``A report also keeps the words it was made with`` from the tool reference,
-or ``keeps the title, text or quote of a row`` from the changelog; delete the sentence about an archived or redacted
-memory from the security note, the changelog or the tool reference; delete the sentence about the memory audit route, the `capture_content_hash` of a
+delete ``Ids are not the only thing a report keeps`` (or the sentence that names a redacted memory's text, or the one that
+says who reads the words of a redacted memory) from the security note, or ``a report keeps the words it was made with`` from the
+known limitations, or ``A report also keeps the words it was made with`` from the tool reference, or ``keeps the title, text or
+quote of a row`` from the changelog; delete the sentence about the words of a redacted memory, which only the owner and an
+unbound admin key read, from the security note, the known limitations, the changelog or the tool reference; delete the
+sentence about an archived or redacted memory from the security note, the changelog or the tool reference; delete the sentence about the memory audit route, the `capture_content_hash` of a
 memory or the scheduler's run records from the security note, the known limitations, the tool reference or the changelog; delete a sentence of the
 paragraph on the event feeds from the security note, or the changelog entry for the event feed.
 """
@@ -29,7 +31,7 @@ VECTOR = f"{MARK} the vector stage of recall and of the context pack does not ye
 BELIEF = f"{MARK} belief review and graph edge review"
 EXACT = f"{MARK} the doors that act on one row by id answer a row above"
 LOOP_PROJECT = f"{MARK} `POST /v0/vnext/open-loops` holds `project_id`"
-AUDIT = f"{MARK} the memory audit route lists the redacted and archived members of a derived memory"
+AUDIT = f"{MARK} the memory audit route lists the archived members of a derived memory"
 EVENTS = f"{MARK} the event feeds follow the rows they name"
 EVENT_FEED = f"{MARK} the workspace event feed and event count follow the rows an event names"
 
@@ -63,7 +65,8 @@ def test_the_security_note_states_the_hidden_id_exception() -> None:
     for field in ("consolidation.cluster_member_ids", "derived_from.memories", "source_refs", "value.rollup.member_ids"):
         assert f"`{field}`" in paragraph, field
     assert "the same fields in its revisions (`previous_value` and `new_value`), and the same fields in the `changes` of its events" in paragraph
-    assert "so the ids of members that were redacted or archived stand there too" in paragraph
+    assert "so the ids of archived members stand there too. A derived memory that recorded a redacted memory as a member is read by the owner and an unbound admin key only." in paragraph
+    assert "so the ids of members that were redacted or archived stand there too" not in paragraph
     assert "A memory made from a captured source also keeps the `source_id`, the `source_event_ids` (the source and its chunk) and the `capture_content_hash` it was made with after the source is archived." in paragraph
     assert "The hash is the SHA-256 of the source's whole captured text with its project scope." in paragraph
     assert "It is not the text, but it tells a caller who holds a text whether it is the one the source had." in paragraph
@@ -78,25 +81,31 @@ def test_the_security_note_states_the_hidden_id_exception() -> None:
     assert "is tracked for v0.21.0" in paragraph
     assert "a report keeps the words of a source that was archived later" not in paragraph  # it moved into its own sentences
     # The report keeps more than ids, and the note says what: the printed lines, the quoted fields, the roll-up card and
-    # the digest of a consolidation member, and that a redaction does not reach the reports that copied the memory.
+    # the digest of a consolidation member, that a redaction does not reach the reports that copied the memory, and who reads
+    # the words of an archived row and of a redacted memory.
     assert "Ids are not the only thing a report keeps." in paragraph
     assert "the words of a row that was archived or redacted after the report was made stay in it" in paragraph
     assert "The `content_markdown` of a daily brief, a weekly synthesis, an open-loop review and a project update prints the lines of the rows it used." in paragraph
     assert "The `explanation` of a connection holds the title and shared terms of a source, the `quote_new` of a contradiction holds its text, and the `suggested_current_state` of a project update holds its claim." in paragraph
     assert "A roll-up card keeps the text, label and amounts of every memory it rolled up (`value.rollup.instances`)" in paragraph
     assert "a consolidation candidate keeps the 16-character digest of each member's title, text, summary and value as it was when the candidate was made (`member_snapshots`)" in paragraph
-    assert "Redacting a memory scrubs the memory, its revisions, its events, its quoted provenance and the project update artifacts coupled to it, and does not rewrite the reports and cards that printed or copied it, so a redacted memory's text can still be read in them." in paragraph
-    assert "withholding these words for a caller with limits is tracked for v0.21.0 with the ids" in paragraph
+    assert "Redacting a memory scrubs the memory, its revisions, its events, its quoted provenance and the project update artifacts coupled to it, and does not rewrite the reports and cards that printed or copied it, so a redacted memory's text stays in them." in paragraph
+    assert "A key reads the words of an archived row as it read them in the report" in paragraph
+    assert "and archiving restricts nothing" in paragraph
+    assert "The words of a redacted memory are not read that way: a report that recorded a redacted memory is read by the owner and an unbound admin key only (see the paragraph on redacted memories), so no other key reads them." in paragraph
+    assert "That is containment and not removal, and removing the words is planned for v0.21.0." in paragraph
+    assert "The words of archived rows are a known exception, not a way of meeting the requirement to filter hidden ids, and withholding them for a caller with limits is tracked for v0.21.0 with the ids." in paragraph
+    assert "so a redacted memory's text can still be read in them" not in paragraph
+    assert "withholding these words for a caller with limits is tracked for v0.21.0 with the ids" not in paragraph
 
 
-def test_the_security_note_names_the_three_answers_that_show_more_than_a_missing_id() -> None:
+def test_the_security_note_names_the_two_answers_that_show_more_than_a_missing_id() -> None:
     paragraph = _paragraph(_text("docs/release/derived-labels-security-note-draft.md"), IDS)
-    assert "Three answers show a little more, and they belong to this exception." in paragraph
+    assert "Two answers show a little more, and they belong to this exception." in paragraph
     assert "The recall, context-pack, resume and recent-decisions tools take the id as query text and show nothing of the row" in paragraph
-    assert (
-        "The graph neighborhood route returns the edges of any id with their explanations, which hold the titles and shared terms "
-        "of the rows an edge joins"
-    ) in paragraph
+    # The graph neighborhood route lists only the edges whose ends the key may read, so it is answered as a missing id is.
+    assert "Three answers show a little more" not in paragraph
+    assert "The graph neighborhood route returns the edges of any id with their explanations" not in paragraph
     assert "a memory commit whose `source_refs` names an id under a prefix other than `source:`" in paragraph
     assert "which tells a key whether an id it already holds names such a source and nothing more" in paragraph
     # The old claim that the refusal is allowed to repeat labels is gone: no door answers a hidden id with a policy decision.
@@ -175,7 +184,8 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
     paragraph = _paragraph(page, f"- {IDS}")
     assert "such as the candidate memory a report made or a source archived since" in paragraph
     assert "The ids grant no access and show that the row exists" in paragraph
-    assert "a call that names one is answered as a missing id is answered, except for the three answers the security note lists" in paragraph
+    assert "a call that names one is answered as a missing id is answered, except for the two answers the security note lists" in paragraph
+    assert "three answers" not in paragraph
     assert "which can repeat the row's labels" not in paragraph
     audit = _paragraph(page, f"- {AUDIT}")
     assert "and a memory made from a captured source keeps its `source_id`, `source_event_ids` and `capture_content_hash` (the SHA-256 of the whole captured text) after the source is archived" in audit
@@ -188,9 +198,11 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
     assert "(see the [draft security note](../release/derived-labels-security-note-draft.md))" in paragraph
 
     kept = _paragraph(page, f"- {KEPT}")
-    assert ", so the title, text or quote of a row that was archived or redacted after the report was made stays in the report's text" in kept
-    assert "in a roll-up card and as the digest of a consolidation member, and redacting a memory does not rewrite the reports that printed it" in kept
-    assert "a key that can read the report reads those words, and hiding them from a caller with limits is tracked for v0.21.0" in kept
+    assert ", so the title, text or quote of a row that was archived after the report was made stays in the report's text" in kept
+    assert "in a roll-up card and as the digest of a consolidation member, and a key that can read the report reads those words" in kept
+    assert "the words of a memory redacted after the report was made stay in it too, but then only the owner and an unbound admin key read the report" in kept
+    assert "removing them is planned for v0.21.0, with hiding the words of archived rows tracked for v0.21.0" in kept
+    assert "redacting a memory does not rewrite the reports that printed it" not in kept
     assert "(see the [draft security note](../release/derived-labels-security-note-draft.md))" in kept
     vector = _paragraph(page, f"- {VECTOR}")
     assert "a restricted caller can get fewer results than exist, down to none" in vector
@@ -200,7 +212,7 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
 def test_the_changelog_has_one_entry_for_each() -> None:
     entries = [line.removeprefix("- ") for line in _text("CHANGELOG.md").splitlines() if line.startswith("- ")]
     for start, phrases in (
-        (IDS, ("and the notes now say so", "any key whose limits admit the report", "they grant no access", "is answered as a missing id is, with the same status and body or the same tool error", "This is a known exception, not a way of meeting the requirement to filter hidden ids", "is tracked for v0.21.0", "Three answers show a little more", "it also keeps the words and values it was made with, so a report keeps the title, text or quote of a row that was archived or redacted after the report was made", "redacting a memory does not rewrite the reports that printed it", "The memory audit route (`GET /v0/vnext/memories/{id}/audit`) returns the same lists for a readable derived memory", "so the ids of redacted and archived members stand there too", "keeps its `source_id`, `source_event_ids` and `capture_content_hash` (the SHA-256 of the source's whole captured text) after the source is archived", "also carry the `artifact_id` of the report a run made")),
+        (IDS, ("and the notes now say so", "any key whose limits admit the report", "they grant no access", "is answered as a missing id is, with the same status and body or the same tool error", "This is a known exception, not a way of meeting the requirement to filter hidden ids", "is tracked for v0.21.0", "Two answers show a little more", "it also keeps the words and values it was made with, so a report keeps the title, text or quote of a row that was archived after the report was made", "and a key that can read the report reads them", "The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only", "The memory audit route (`GET /v0/vnext/memories/{id}/audit`) returns the same lists for a readable derived memory", "so the ids of archived members stand there too (a derived memory that recorded a redacted memory as a member is read by the owner and an unbound admin key only)", "keeps its `source_id`, `source_event_ids` and `capture_content_hash` (the SHA-256 of the source's whole captured text) after the source is archived", "also carry the `artifact_id` of the report a run made")),
         (EXACT, ("repeated the row's domain, sensitivity and project scope", "carried the id of a project outside its binding", "writes what a call on a missing id writes, which is nothing", "no policy event and no agent record", "A row the key may read keeps its refusals", "superseding memory was not found", "An archived or redacted memory is read by no door but redact, and it is outside the limits of every key that has any, so a refused redact of one is answered and written exactly as a redact of a missing id is")),
         (LOOP_PROJECT, ("a database error (HTTP 500)", "vNext project was not found", "write nothing")),
         (EVENT_FEED, ("a `source_chunk.created` event for every chunk of a source above its sensitivity ceiling", "with the id of the source in `payload_json.source_id`", "and counted each one in `event_count`", "a chunk event that names no source is not shown to a key with limits", "the two ends of a graph edge an event is about", "The context tree and the dogfooding view read the same rule", "The owner and an unbound admin key are unchanged", "an event whose payload names an artifact, a belief or a project, or whose edge ends in a belief, is not shown to a key with limits", "are not judged", "`replacement_memory_id` (the memory a correction put in the place of another)", "An id that a client sent and an event repeats (the id of a project in capitals, or with spaces round it) is read as the row it names", "text that is not the id of a stored row cannot be shown to be readable, so it hides the event", "An edge with an end that is not a source, a memory, a belief or an entity, or an end that is not stored, is not shown to a key with limits either", "the `changes` that a `memory.updated` event copies from a row still list the `superseded_by` of a corrected memory, as the row does")),
@@ -215,6 +227,9 @@ def test_the_changelog_has_one_entry_for_each() -> None:
     ids_entry = next(entry for entry in entries if entry.startswith(IDS))
     assert "can repeat its domain, sensitivity and project scope" not in ids_entry
     assert "the memory tools return none" not in ids_entry
+    assert "Three answers show a little more" not in ids_entry
+    assert "the graph neighborhood route, which returns the edges of any id with their explanations" not in ids_entry
+    assert "redacting a memory does not rewrite the reports that printed it" not in ids_entry
 
 
 def test_the_tool_reference_states_both() -> None:
@@ -227,16 +242,19 @@ def test_the_tool_reference_states_both() -> None:
     assert "any key whose limits admit the report" in ids
     assert "The detail modes of `alice_explain` and `alice_memory_review` return them for a derived memory" in ids
     assert "The memory tools return none." not in ids
-    assert "`GET /v0/vnext/memories/{id}/audit` returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, the ids of redacted and archived members included." in ids
+    assert "`GET /v0/vnext/memories/{id}/audit` returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, the ids of archived members included." in ids
     assert "A memory made from a captured source also keeps its `source_id`, `source_event_ids` and `capture_content_hash` (the SHA-256 of the source's whole captured text) after the source is archived" in ids
     assert "the detail mode of `alice_memory_review` and the memory audit return them, as does the event feed of the workspace; `alice_explain` returns them while the source can be read." in ids
     assert "The scheduler's run records in the workspace and the dogfooding view carry the `artifact_id` of the report a run made, also after the report was made confidential." in ids
     assert "It grants no access" in ids
     assert "is answered as a missing id is, with the same status and body or the same tool error, and nothing is changed" in ids
-    assert "Three answers show a little more and are named in the release security note" in ids
+    assert "Two answers show a little more and are named in the release security note" in ids
+    assert "the graph neighborhood route, which returns the edges of any id with their explanations" not in ids
     assert "This is a known exception to the rule that a hidden id is not shown, tracked for v0.21.0." in ids
-    assert "A report also keeps the words it was made with, so the title, text or quote of a row that was archived or redacted after the report was made stays in the report's text" in ids
-    assert "and redacting a memory does not rewrite the reports that printed it" in ids
+    assert "A report also keeps the words it was made with, so the title, text or quote of a row that was archived after the report was made stays in the report's text" in ids
+    assert "and a key that can read the report reads those words; withholding them is tracked for v0.21.0 too." in ids
+    assert "The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only (see [Redacted memories](#redacted-memories))." in ids
+    assert "and redacting a memory does not rewrite the reports that printed it" not in ids
     exact = _paragraph(tools, f"{MARK} the doors that act on one row by id answer a row above the key's limits as a row that does not exist.")
     assert "Until now these doors answered HTTP 403 with the policy decision" in exact
     assert "The call now writes what a call on a missing id writes, which is nothing: no policy event and no agent record" in exact

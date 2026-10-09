@@ -194,16 +194,18 @@ def test_october_six_correction_distinguishes_the_new_doctor_counts() -> None:
     assert "These limits also occur in v0.20.0" not in correction
 
 
-def test_known_limitations_discloses_graph_outside_ceiling_and_doctor_omission() -> None:
+def test_known_limitations_says_the_graph_follows_the_ceiling_and_doctor_omits_content_checks() -> None:
     limits = _text("docs/alpha/known-limitations.md")
-    assert "and doctor omits content checks for keys with limits, but graph edge explanations remain outside that ceiling" in limits
+    assert "and doctor omits content checks for keys with limits, and the graph neighborhood lists only the edges whose ends the key may read" in limits
+    assert "but graph edge explanations remain outside that ceiling" not in limits
     assert "new doctor label counts" not in limits
     assert "derived-labels-security-note-draft.md" in limits
 
 
 def test_draft_security_note_distinguishes_baseline_graph_from_doctor_content_checks() -> None:
     note = _text("docs/release/derived-labels-security-note-draft.md")
-    assert "Graph neighborhood still returns edge explanations outside that ceiling; that behavior predates this set" in note
+    assert "Graph neighborhood returned edge explanations outside that ceiling in v0.20.0 and baseline main 48873b03; it now lists only the edges whose ends the key may read" in note
+    assert "Graph neighborhood still returns edge explanations outside that ceiling" not in note
     assert "Doctor's aggregate derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03." in note
     assert "now omit their content diagnostics for callers with limits" in note
     assert "The flagged-source ids were returned to trusted keys in v0.20.0 and baseline main 48873b03" in note

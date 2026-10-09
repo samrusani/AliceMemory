@@ -165,7 +165,8 @@ def _label(row: JsonObject, *keys: str, fallback: str) -> str:
 def _tree_event_visible(store: object, event: JsonObject, domains: list[str] | None, sensitivity: list[str], projects: tuple[str, ...]) -> bool:
     from alicebot_api.vnext_label_guard import LabelGuard
 
-    return bool(LabelGuard.for_filters(store, domains, sensitivity, projects).admit_events([event]))
+    # A node of the tree names the event by its type, so the cursors in its payload are not judged.
+    return bool(LabelGuard.for_filters(store, domains, sensitivity, projects).admit_events([event], cursors=False))
 
 
 def _row_node(prefix: str, row: JsonObject, *, label_keys: tuple[str, ...], fallback: str) -> JsonObject:

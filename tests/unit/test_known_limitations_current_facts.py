@@ -12,7 +12,7 @@ the ones that had no pin at all, because no other page repeats them or the page 
   writer);
 * the Postgres doctor reading no chunk text;
 * the doors the cited-source fence does not reach, on the ``Not covered`` list of "Saved quotes" in ``mcp-tools.md``
-  (memory proposals, the agent-output ingest, the legacy recent-commits tool and the provenance links of artifacts).
+  (memory proposals, the agent-output ingest and the provenance links of artifacts).
 
 A number is read from the code that enforces it (the importer limits, the search limits, the coded error set), so a
 change of the limit that leaves the page behind fails here.
@@ -202,7 +202,7 @@ def _saved_quotes_not_covered() -> str:
 
 
 def test_the_saved_quotes_not_covered_list_names_the_doors_the_fence_does_not_reach() -> None:
-    """Proposals, the agent-output ingest, the legacy recent-commits tool and artifact links are on the page that says what is covered.
+    """Proposals, the agent-output ingest and artifact links are on the page that says what is covered.
 
     These were only in the changelog entry (a dated record), while the limitations page sends a reader to "Saved quotes"
     for the rest of the residuals. Each is named in the ``Not covered`` list, with the tool or route it is reached by,
@@ -210,7 +210,7 @@ def test_the_saved_quotes_not_covered_list_names_the_doors_the_fence_does_not_re
     proposal route stores ``source_refs`` as sent is run by ``test_saved_quote_ref_reading_vault.py``.
 
     Mutations, each one alone, in ``mcp-tools.md``: delete ``POST /v0/vnext/memory-proposals`` or ``POST
-    /v0/vnext/agents/ingest-output`` from the list; delete the sentence about ``alice_vnext_recent_memory_commits``;
+    /v0/vnext/agents/ingest-output`` from the list; put back a sentence about ``alice_vnext_recent_memory_commits``;
     delete ``the provenance links of artifacts are not held to this fence``; move any of the three out of the
     ``Not covered`` list (above it). In the registry, rename ``alice_vnext_propose_memory``.
     """
@@ -224,9 +224,8 @@ def test_the_saved_quotes_not_covered_list_names_the_doors_the_fence_does_not_re
         "(`alice_vnext_ingest_agent_output`, `POST /v0/vnext/agents/ingest-output`) store the `source_refs` they are "
         "given and check none of them"
     ) in covered
-    assert (
-        "the legacy tool `alice_vnext_recent_memory_commits` lists commit rows with no row-level fence"
-    ) in covered
+    # The legacy recent-commits tool left this list when it was held to the caller's read fence.
+    assert "lists commit rows with no row-level fence" not in covered
     assert "the provenance links of artifacts are not held to this fence" in covered
 
     for tool in ("alice_vnext_propose_memory", "alice_vnext_ingest_agent_output", "alice_vnext_recent_memory_commits"):

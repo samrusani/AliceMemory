@@ -15,6 +15,7 @@ from alicebot_api.vnext_connectors import (
     load_connector_items_from_file,
     normalize_connector_item,
 )
+from alicebot_api.vnext_label_guard import LabelGuard
 from alicebot_api.vnext_secrets import InMemorySecretProvider
 
 
@@ -179,7 +180,7 @@ def test_health_census_preserves_settings_event_fallback_and_cursor_kind(monkeyp
     store.append_event({"target_type": "connector", "target_id": "browser_clipper",
                         "event_type": "connector.sync_completed", "occurred_at": "2026-10-06T00:01:00Z",
                         "payload_json": {"sync_cursor": "event-cursor", "item_count": 3, "imported_count": 2}})
-    expected = service.connector_health_all()
+    expected = service.connector_health_all(guard=LabelGuard.unlimited(store))
     by_name = {item["connector_name"]: item for item in expected["items"]}
     assert by_name["telegram"]["cursor_state"] == "native-cursor"
     assert by_name["browser_clipper"]["cursor_state"] == "event-cursor"
@@ -191,16 +192,16 @@ def test_health_census_preserves_settings_event_fallback_and_cursor_kind(monkeyp
         return original(**kwargs)
     monkeypatch.setattr(store, "list_events", counted)
     with label_read_scope(store):
-        result = service.connector_health_all()
+        result = service.connector_health_all(guard=LabelGuard.unlimited(store))
         assert result == expected
         assert len(calls) == len(list_connector_definitions())
         result["items"][0]["validation_errors"].append("caller-mutation")
-        assert service.connector_health_all() == expected
+        assert service.connector_health_all(guard=LabelGuard.unlimited(store)) == expected
         store.upsert_connector_state({"connector_name": "telegram", "cursor_value": "after-write"})
         invalidate_read_labels(store)
-        updated = service.connector_health_all()
+        updated = service.connector_health_all(guard=LabelGuard.unlimited(store))
         assert next(item for item in updated["items"] if item["connector_name"] == "telegram")["cursor_state"] == "after-write"
-    assert service.connector_health_all() == updated
+    assert service.connector_health_all(guard=LabelGuard.unlimited(store)) == updated
 
 
 def test_connector_definitions_cover_sprint_11_sources_with_conservative_defaults() -> None:
@@ -391,7 +392,7 @@ def test_connector_settings_and_state_persist_outside_event_log() -> None:
         [_telegram_payload(42, "Fact: first setting-backed Telegram item."), _telegram_payload(43, "Fact: second setting-backed Telegram item.")],
         allowed_chat_ids=("999001",),
     )
-    health = service.connector_health("telegram")
+    health = service.connector_health("telegram", guard=LabelGuard.unlimited(store))
 
     assert config["connector_id"] == "connector-setting-1"
     assert config["secret_configured"] is False
@@ -682,7 +683,7 @@ def test_connector_health_reports_counts_cursor_and_last_error() -> None:
             {"external_id": "clip-2", "title": "Broken clip"},
         ],
     )
-    health = service.connector_health("browser_clipper")
+    health = service.connector_health("browser_clipper", guard=LabelGuard.unlimited(store))
 
     assert health["items_seen"] == 2
     assert health["items_captured"] == 1

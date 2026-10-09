@@ -201,22 +201,27 @@ def _run_vnext_connectors_configure(ctx: CLIContext, args: argparse.Namespace) -
 
 
 def _run_vnext_connectors_status(ctx: CLIContext, args: argparse.Namespace) -> str:
+    from alicebot_api.vnext_label_guard import LabelGuard
+
     with _vnext_store_context(ctx) as store:
         service = VNextConnectorService(store)
+        owner = LabelGuard.unlimited(store)
         payload: object
         if args.connector_name:
             payload = {
                 "config": service.get_config(args.connector_name),
-                "health": service.connector_health(args.connector_name),
+                "health": service.connector_health(args.connector_name, guard=owner),
             }
         else:
-            payload = service.connector_health_all()
+            payload = service.connector_health_all(guard=owner)
     return _json_dumps(payload)
 
 
 def _run_vnext_connectors_health(ctx: CLIContext, _args: argparse.Namespace) -> str:
+    from alicebot_api.vnext_label_guard import LabelGuard
+
     with _vnext_store_context(ctx) as store:
-        payload = VNextConnectorService(store).connector_health_all()
+        payload = VNextConnectorService(store).connector_health_all(guard=LabelGuard.unlimited(store))
     return _json_dumps(payload)
 
 
@@ -538,6 +543,8 @@ def _run_vnext_demo_reset(ctx: CLIContext, args: argparse.Namespace) -> str:
 
 
 def _run_vnext_demo_load(ctx: CLIContext, args: argparse.Namespace) -> str:
+    from alicebot_api.vnext_label_guard import LabelGuard
+
     dataset = _load_vnext_demo_dataset(args.fixture)
     dataset_id = str(dataset["dataset_id"])
     created_source_ids: set[str] = set()
@@ -762,7 +769,7 @@ def _run_vnext_demo_load(ctx: CLIContext, args: argparse.Namespace) -> str:
             artifact_id = str(scheduled_artifact["id"])
             created_artifact_ids.append(artifact_id)
             _tag_demo_artifact(store, artifact_id=artifact_id, dataset_id=dataset_id)
-        health = connector_service.connector_health_all()
+        health = connector_service.connector_health_all(guard=LabelGuard.unlimited(store))
         telemetry = summarize_agent_policy_telemetry(
             agent_events=store.list_agent_events(agent_id="openclaw", limit=100),
             artifacts=store.list_artifacts(limit=100),

@@ -50,11 +50,15 @@ GUARD_CALLS = {
     "admit_loaded",
     "apply_sensitivity_ceiling",
     "sensitivity_ceiling",
+    "admit_edges",
     "admit_events", "admit_related_rows", "readable_status_counts", "readable_event_count",
+    "guard_for_caller", "newest_admitted_rows", "readable_own_label_rows",
 }
 
 # function -> helper that holds the guard call, or None when the function calls it
 DOORS = {
+    "routers/vnext_memories.py:get_vnext_connector_status": None,
+    "vnext_memory_commit.py:VNextMemoryCommitService.recent_commits": None,
     "routers/vnext_memories.py:get_vnext_source": "_vnext_readable_source",
     "routers/vnext_memories.py:review_vnext_source": "_vnext_readable_source",
     "routers/vnext_memories.py:delete_vnext_source": "_vnext_readable_source",
@@ -104,6 +108,9 @@ DOORS = {
     "vnext_context_tree.py:VNextContextTreeService.build_tree": None,
     "vnext_dogfooding.py:VNextDogfoodingService.dashboard": None,
     "vnext_contradictions.py:VNextContradictionService.belief_state": None,
+    "vnext_contradictions.py:VNextContradictionService._readable_belief": None,
+    "vnext_connections.py:VNextConnectionService.review_edge": None,
+    "vnext_connections.py:VNextConnectionService.graph_neighborhood": None,
     "vnext_retrieval.py:expand_provenance_once": None,
     "vnext_retrieval.py:VNextRetrievalService._memories_by_ids": None,
     "vnext_retrieval.py:VNextRetrievalService._memory_fts_rows": None,
@@ -141,7 +148,8 @@ NOT_A_DOOR = {
     "vnext_memory_commit.py:VNextMemoryCommitService.expire": "write path; _write_policy_decision settles the row",
     "vnext_memory_commit.py:VNextMemoryCommitService.unexpire": "write path; _write_policy_decision settles the row",
     "vnext_memory_commit.py:VNextMemoryCommitService.quarantine_by_agent_key": "write path; _write_policy_decision settles the row",
-    "vnext_memory_commit.py:VNextMemoryCommitService.recent_commits": "owner list; stays label-agnostic",
+    "vnext_memory_commit.py:VNextMemoryCommitService._newest_commits": "private loader; recent_commits admits every row it returns",
+    "vnext_connectors.py:VNextConnectorService._caller_reads_sources": "answers a boolean from guard.admit_rows and returns no row",
     "vnext_memory_commit.py:VNextMemoryCommitService.audit": "the authorize_memory callback settles each memory",
     "vnext_memory_commit.py:VNextMemoryCommitService._supersession_chain": "audit walks this after authorize_memory",
     "vnext_memory_commit.py:VNextMemoryCommitService.inline_confirmations": "owner list; stays label-agnostic",
@@ -152,7 +160,6 @@ NOT_A_DOOR = {
     "vnext_queue.py:VNextQueueService._promote_artifact": "the HTTP review route authorizes through _vnext_authorized_artifact first",
     "vnext_queue.py:VNextQueueService.export_artifact_markdown": "the HTTP export route authorizes through _vnext_authorized_artifact first",
     "mcp/evidence_artifacts.py:_authorize_memory_audit_provenance": "original source pointers use SourceReadFence.admits before disclosure",
-    "routers/vnext_memories.py:get_vnext_connector_status": "operator connector telemetry; original-source labels retain existing behavior",
     "vnext_memory_commit.py:VNextMemoryCommitService.auto_promoted_by_agent": "write sweep; every target is authorized by expire before mutation",
     "vnext_memory_commit.py:VNextMemoryCommitService._transition_memory": "writer checks source validity; no new read response",
     "vnext_source_fence.py:_rows_by_id": "narrow loader; SavedProvenanceReader applies effective labels before presenting",
