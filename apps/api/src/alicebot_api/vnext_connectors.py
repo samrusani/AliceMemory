@@ -1613,7 +1613,7 @@ class VNextConnectorService:
                 if cursor is None or cursor == "":
                     continue
                 # A cursor that is not text, and one of a connector the event does not name, cannot be tied to an import.
-                if not isinstance(cursor, str) or not isinstance(name, str) or not name:
+                if not isinstance(cursor, str) or not isinstance(name, str):
                     cleaned[field] = None
                     continue
                 if (name, cursor) not in decided:

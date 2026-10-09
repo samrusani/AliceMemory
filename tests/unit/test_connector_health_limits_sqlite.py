@@ -9,6 +9,7 @@ same cursors, so a feed of events holds them to the same rule.
 from __future__ import annotations
 
 import sqlite3
+from copy import deepcopy
 from uuid import uuid4
 
 import pytest
@@ -261,8 +262,11 @@ def test_the_events_of_a_sync_hold_the_cursors_the_caller_may_read(store):
         assert _feed(store, identity) == stored
     assert HIDDEN_PATH in _cursors(stored)
 
-    limited = _feed(store, TRUSTED)
+    snapshot = deepcopy(stored)
+    limited = guard_for_caller(store, TRUSTED).admit_events(stored)
     assert HIDDEN_PATH not in str(limited)
+    # The events handed in were not edited: the copy is the one that lost the cursor.
+    assert stored == snapshot and HIDDEN_PATH in str(stored)
     by_type: dict[str, list[dict]] = {}
     for event in limited:
         by_type.setdefault(event["event_type"], []).append(event["payload_json"])
@@ -274,7 +278,7 @@ def test_the_events_of_a_sync_hold_the_cursors_the_caller_may_read(store):
     ]
     # The cursor of the public file is still shown, and the one of the confidential file is not.
     assert sorted(str(p["cursor_value"]) for p in by_type["connector.state_updated"]) == sorted(["None", f"5:{SHOWN_PATH}"])
-    # Nothing else in an event changed, and the stored events are not edited.
+    # Nothing else in an event changed, and the stored events still hold the cursor.
     completed = by_type["connector.sync_completed"][0]
     assert completed["imported_count"] == 1 and completed["connector_name"] == "local_folder"
     assert HIDDEN_PATH in str(store.list_events())
@@ -298,7 +302,15 @@ def test_the_event_feeds_follow_the_same_rule(store):
 
 def test_a_cursor_that_cannot_be_tied_to_a_connector_or_to_text_is_not_shown(store):
     service = VNextConnectorService(store)
-    _import(service, SHOWN_PATH, "public")
+    readable = _import(service, SHOWN_PATH, "public")
+    # An import of a readable source that carries the number as its cursor, so only the type of the cursor keeps it hidden.
+    store.append_event(
+        {
+            "target_type": "connector", "target_id": "local_folder", "event_type": "connector.item_imported",
+            "actor_type": "system", "occurred_at": "2026-10-09T00:00:00Z",
+            "payload_json": {"external_id": SHOWN_PATH, "sync_cursor": 12345, "source_id": readable.source_ids[0]},
+        }
+    )
     _state_updated(store, 12345)
     _state_updated(store, "")
     store.append_event(
