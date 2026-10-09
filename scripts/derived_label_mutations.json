@@ -7,10 +7,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 862,
+          "line": 953,
           "before": "if operator is not None:",
           "after": "if False:",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -23,10 +23,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 812,
+          "line": 903,
           "before": "if source is not None and not SourceReadFence.for_identity(identity).admits(",
           "after": "if False and source is not None and not SourceReadFence.for_identity(identity).admits(",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -60,7 +60,7 @@
           "line": 102,
           "before": "unfenced = not SourceReadFence.for_identity(identity).entity_read_fenced",
           "after": "unfenced = False",
-          "sha256": "406da0693064c7a595fbbb9f21a8babb1f02a313c10f689451b70d4684aeb59b"
+          "sha256": "58c9e769ce19b1fbb04ae3cfd5316ee8a27208e0f666a0b0d0f8d06715d0eb99"
         }
       ],
       "pytest": [
@@ -533,8 +533,8 @@
           "file": "apps/api/src/alicebot_api/vnext_store.py",
           "before": "OR COALESCE(NULLIF(s.domain, ''), 'unknown') = ANY(%s::text[])",
           "after": "OR %s::text[] IS NOT NULL",
-          "line": 620,
-          "sha256": "c04c4fdf575c276481bac8e0c457655a2a9851d3d4fc76faca72280ef5a37e4d"
+          "line": 633,
+          "sha256": "0ca415522d56be3b6c6bafe6e074af67c2b83331693b300a47ae12f2f827383a"
         }
       ],
       "pytest": [
@@ -549,8 +549,8 @@
           "file": "apps/api/src/alicebot_api/vnext_store.py",
           "before": "COALESCE(NULLIF(s.sensitivity, ''), 'unknown') = ANY(%s::text[])",
           "after": "%s::text[] IS NOT NULL",
-          "line": 622,
-          "sha256": "c04c4fdf575c276481bac8e0c457655a2a9851d3d4fc76faca72280ef5a37e4d"
+          "line": 635,
+          "sha256": "0ca415522d56be3b6c6bafe6e074af67c2b83331693b300a47ae12f2f827383a"
         }
       ],
       "pytest": [
@@ -581,8 +581,8 @@
           "file": "apps/api/src/alicebot_api/vnext_store.py",
           "before": "e.target_id = s.id::text",
           "after": "lower(e.target_id) = s.id::text",
-          "line": 618,
-          "sha256": "c04c4fdf575c276481bac8e0c457655a2a9851d3d4fc76faca72280ef5a37e4d"
+          "line": 631,
+          "sha256": "0ca415522d56be3b6c6bafe6e074af67c2b83331693b300a47ae12f2f827383a"
         }
       ],
       "pytest": [
@@ -707,10 +707,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 812,
+          "line": 903,
           "before": "if source is not None and not SourceReadFence.for_identity(identity).admits(",
           "after": "if False and source is not None and not SourceReadFence.for_identity(identity).admits(",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -724,10 +724,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 942,
+          "line": 1033,
           "before": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                if not SourceReadFence.for_identity(identity).entity_read_fenced:",
           "after": "existing = store.get_source(str(source_id))\n            if existing is None:\n                if not SourceReadFence.for_identity(identity).entity_read_fenced:",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -740,10 +740,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 942,
+          "line": 1033,
           "before": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                if not SourceReadFence.for_identity(identity).entity_read_fenced:",
           "after": "existing = store.get_source(str(source_id))\n            if existing is None:\n                if not SourceReadFence.for_identity(identity).entity_read_fenced:",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -756,10 +756,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1071,
+          "line": 1162,
           "before": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = store.delete_source(",
           "after": "existing = store.get_source(str(source_id))\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = store.delete_source(",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -772,10 +772,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1071,
+          "line": 1162,
           "before": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = store.delete_source(",
           "after": "existing = store.get_source(str(source_id))\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = store.delete_source(",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -788,10 +788,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 931,
+          "line": 1022,
           "before": "identity = _vnext_source_route_identity(\n                store, user_id=request.user_id, authorization=authorization, request=request\n            )",
           "after": "identity = None",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -804,10 +804,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1067,
+          "line": 1158,
           "before": "identity = _vnext_source_route_identity(store, user_id=user_id, authorization=authorization)",
           "after": "identity = None",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -820,10 +820,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 932,
+          "line": 1023,
           "before": "authorization=authorization, request=request\n            )",
           "after": "authorization=authorization, request=None\n            )",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -836,10 +836,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1036,
+          "line": 1127,
           "before": "detail=\"vNext agent identity claims are invalid\"",
           "after": "detail=\"invalid\"",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -852,10 +852,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 837,
+          "line": 928,
           "before": "if authorization is not None and not isinstance(authorization, str):",
           "after": "if False:",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -868,10 +868,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 913,
+          "line": 1004,
           "before": "trace = _vnext_load_source_trace(store=store, source=source, identity=identity)",
           "after": "trace = _vnext_load_source_trace(store=store, source=source, identity=None)",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -884,10 +884,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 914,
+          "line": 1005,
           "before": "return trace if trace is not None else {}",
           "after": "return trace",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -900,10 +900,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1070,
+          "line": 1161,
           "before": "store.lock_label_writes()\n            existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = store.delete_source(",
           "after": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = store.delete_source(",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -916,10 +916,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 888,
+          "line": 979,
           "before": "if identity is not None and (identity.permission_profile != \"admin_agent\" or identity.project_scope_locked",
           "after": "if identity is not None and (False or identity.project_scope_locked",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -932,10 +932,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 948,
+          "line": 1039,
           "before": "return _vnext_source_not_found(source_id)\n            if action == \"archive\":",
           "after": "return _vnext_public_error_response(status_code=404, detail=\"vNext source was not found\")\n            if action == \"archive\":",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -948,10 +948,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 815,
+          "line": 906,
           "before": "        return None\n    return source\n\n\ndef _vnext_source_not_found",
           "after": "        return None\n    return source if identity is None else None\n\n\ndef _vnext_source_not_found",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -964,10 +964,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 815,
+          "line": 906,
           "before": "        return None\n    return source\n\n\ndef _vnext_source_not_found",
           "after": "        return None\n    return source if identity is not None else None\n\n\ndef _vnext_source_not_found",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -1061,10 +1061,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 993,
+          "line": 1084,
           "before": "[request.project_id], identity=identity)",
           "after": "[request.project_id], identity=None)",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -1127,10 +1127,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 944,
+          "line": 1035,
           "before": "if not SourceReadFence.for_identity(identity).entity_read_fenced:",
           "after": "if False:",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -1144,10 +1144,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 944,
+          "line": 1035,
           "before": "if not SourceReadFence.for_identity(identity).entity_read_fenced:",
           "after": "if True:",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -1455,7 +1455,7 @@
           "line": 118,
           "before": "\"scheduler_run_id\": metadata.get(\"scheduler_run_id\"),\n            \"agent_run_id\": metadata.get(\"agent_run_id\"),\n        },",
           "after": "\"scheduler_run_id\": metadata.get(\"scheduler_run_id\"),\n            \"agent_run_id\": metadata.get(\"agent_run_id\"),\n            \"related_ids\": metadata.get(\"candidate_memory_ids\"),\n        },",
-          "sha256": "d888e33e745656fc0663e4c4c11f684f76276baa1f7dd232f2cde147200d9d50"
+          "sha256": "507214cd639c7c0d3e5c869c7023c00ddd48d79a1296f571de1ec9aa15c9bdd3"
         }
       ],
       "pytest": [
@@ -1580,17 +1580,17 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1134,
+          "line": 1225,
           "before": "decision = apply_unverified_rule(decision, judged, identity)\n            if decision.decision == \"blocked\":\n                return _vnext_permission_response(decision)\n    except AgentIdentityValidationError as exc:\n        return public_exception_response(exc, status_code=400)\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n\n    actor_type, actor_id = _vnext_agent_actor(identity, fallback=\"user\")\n\n    # Consolidation acceptance",
           "after": "decision = apply_unverified_rule(decision, judged, identity)\n    except AgentIdentityValidationError as exc:\n        return public_exception_response(exc, status_code=400)\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n\n    actor_type, actor_id = _vnext_agent_actor(identity, fallback=\"user\")\n\n    # Consolidation acceptance",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         },
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1279,
+          "line": 1370,
           "before": "locked_decision = apply_unverified_rule(locked_decision, locked_judged, identity)\n            if locked_decision.decision == \"blocked\":\n                return _vnext_permission_response(locked_decision)\n",
           "after": "locked_decision = apply_unverified_rule(locked_decision, locked_judged, identity)\n",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -1603,17 +1603,17 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2695,
+          "line": 2696,
           "before": "memory = effective_row_for_fence(self.store, identity, kind, memory)\n        return self._policy_checked_write(",
           "after": "return self._policy_checked_write(",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2525,
+          "line": 2526,
           "before": "settled = effective_row_for_fence(self.store, identity, kind, memory)\n        domains, sensitivity_allowed, project_scope, project_floor = policy_labels(settled)",
           "after": "settled = memory\n        domains, sensitivity_allowed, project_scope, project_floor = policy_labels(settled)",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -1674,10 +1674,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1115,
+          "line": 1206,
           "before": "            if target is None or outside_caller_limits(auth_store, identity, \"memory\", target):",
           "after": "            if target is None:",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -1690,10 +1690,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1223,
+          "line": 1314,
           "before": "if preview is None or outside_caller_limits(store, identity, \"memory\", preview):",
           "after": "if preview is None:",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -1706,10 +1706,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1258,
+          "line": 1349,
           "before": "if existing is None or outside_caller_limits(store, identity, \"memory\", existing):",
           "after": "if existing is None:",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -1722,10 +1722,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 2041,
+          "line": 2146,
           "before": "                if outside_caller_limits(store, identity, \"memory\", memory):\n                    raise MemoryNotFoundError(\"memory was not found\")",
           "after": "                if False:\n                    raise MemoryNotFoundError(\"memory was not found\")",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -1738,10 +1738,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 698,
+          "line": 775,
           "before": "            if target is None or outside_caller_limits(store, identity, \"open_loop\", target):",
           "after": "            if target is None:",
-          "sha256": "1ff76da6f0c84c2af62459f6a50e4f4f01808fd1cf4622b4411874482ffcf31f"
+          "sha256": "44b923e8fde3e41e43f8feed01449277d8dd34b4538198312681d7a058de3a7b"
         }
       ],
       "pytest": [
@@ -1835,10 +1835,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2636,
+          "line": 2637,
           "before": "        self._answer_as_missing_if_unreadable(\n            identity=identity, decision=decision, memory=memory, target_type=target_type, answer_as_missing=answer_as_missing\n        )\n        return self._record_write_decision(",
           "after": "        return self._record_write_decision(",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -1851,10 +1851,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2676,
+          "line": 2677,
           "before": "            self._answer_as_missing_if_unreadable(\n                identity=identity, decision=decision, memory=memory, target_type=\"memory\", answer_as_missing=answer_as_missing\n            )\n            self._record_write_decision(identity=identity, decision=decision, memory=memory)",
           "after": "            self._record_write_decision(identity=identity, decision=decision, memory=memory)",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -1867,10 +1867,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2596,
+          "line": 2597,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -1883,10 +1883,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 1767,
+          "line": 1768,
           "before": "if successor is None or outside_caller_limits(self.store, identity, \"memory\", successor):",
           "after": "if successor is None:",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -1899,10 +1899,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 1413,
+          "line": 1414,
           "before": "            answer_as_missing=False,\n        )\n        confirmation_now = _agentic_metadata(memory).get(\"confirmation\")",
           "after": "        )\n        confirmation_now = _agentic_metadata(memory).get(\"confirmation\")",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -1915,10 +1915,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 245,
+          "line": 251,
           "before": "        if not named & bound:\n            return None",
           "after": "        if False:\n            return None",
-          "sha256": "1ff76da6f0c84c2af62459f6a50e4f4f01808fd1cf4622b4411874482ffcf31f"
+          "sha256": "44b923e8fde3e41e43f8feed01449277d8dd34b4538198312681d7a058de3a7b"
         }
       ],
       "pytest": [
@@ -1931,10 +1931,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 235,
+          "line": 241,
           "before": "    try:\n        canonical = str(UUID(str(project_id).strip()))\n    except ValueError:\n        return None\n    project = store.get_project(canonical)",
           "after": "    canonical = str(project_id)\n    project = store.get_project(canonical)",
-          "sha256": "1ff76da6f0c84c2af62459f6a50e4f4f01808fd1cf4622b4411874482ffcf31f"
+          "sha256": "44b923e8fde3e41e43f8feed01449277d8dd34b4538198312681d7a058de3a7b"
         }
       ],
       "pytest": [
@@ -1998,7 +1998,7 @@
           "line": 13,
           "before": "The graph neighborhood route returns the edges of any id with their explanations, which hold the titles and shared terms of the rows an edge joins, as the graph-edge limit named above says. ",
           "after": "",
-          "sha256": "9b279187c35eb16e43874633da8da5e33791b6e92cade17c1e555fad304d4bb6"
+          "sha256": "ccc7bade1981bf202e40529e94ab43e3795b40423fbcc52ca3c3f458a59ecab4"
         }
       ],
       "pytest": [
@@ -2107,10 +2107,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2596,
+          "line": 2597,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -2123,10 +2123,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2596,
+          "line": 2597,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -2139,10 +2139,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2596,
+          "line": 2597,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -2155,10 +2155,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2596,
+          "line": 2597,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -2171,10 +2171,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2596,
+          "line": 2597,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -2187,10 +2187,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2596,
+          "line": 2597,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing:",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -2222,7 +2222,7 @@
           "line": 13,
           "before": ", so a redacted memory's text can still be read in them",
           "after": "",
-          "sha256": "9b279187c35eb16e43874633da8da5e33791b6e92cade17c1e555fad304d4bb6"
+          "sha256": "ccc7bade1981bf202e40529e94ab43e3795b40423fbcc52ca3c3f458a59ecab4"
         }
       ],
       "pytest": [
@@ -2267,10 +2267,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 976,
+          "line": 974,
           "before": "and redacting a memory does not rewrite the reports that printed it; a key that can read the report",
           "after": "a key that can read the report",
-          "sha256": "eab8f2b38de665ce0f292fddce64c06d2bcdf2984b4498c2b4d6694538240e8d"
+          "sha256": "46ef92a95e0853bc8dc615bb8660e6a33df4e8f086385ddb939b4c3c105b42cf"
         }
       ],
       "pytest": [
@@ -2896,10 +2896,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1472,
+          "line": 1563,
           "before": "and project_identifier_identity(request.project_id) in project_scope_identity(resolve_project_scope(updated).values)",
           "after": "and True",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -2912,10 +2912,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1472,
+          "line": 1563,
           "before": "and project_identifier_identity(request.project_id) in project_scope_identity(resolve_project_scope(updated).values)",
           "after": "and request.project_id in resolve_project_scope(updated).values",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -2928,10 +2928,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 850,
+          "line": 941,
           "before": "source_id: Annotated[str, Path(json_schema_extra={\"format\": \"uuid\"})],",
           "after": "source_id: UUID,",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -3259,10 +3259,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 770,
-          "before": "    return not SourceReadFence.for_identity(identity).entity_read_fenced",
-          "after": "    return True",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "line": 856,
+          "before": "    )\n    return guard_for_caller(store, identity)\n\n\n@connectors_router.get(\"/v0/vnext/doctor\")",
+          "after": "    )\n    return guard_for_caller(store, None)\n\n\n@connectors_router.get(\"/v0/vnext/doctor\")",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -3275,10 +3275,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 770,
-          "before": "    return not SourceReadFence.for_identity(identity).entity_read_fenced",
-          "after": "    return identity is None",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "line": 856,
+          "before": "    )\n    return guard_for_caller(store, identity)\n\n\n@connectors_router.get(\"/v0/vnext/doctor\")",
+          "after": "    )\n    guard = guard_for_caller(store, identity)\n    guard.active = identity is not None\n    return guard\n\n\n@connectors_router.get(\"/v0/vnext/doctor\")",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -3291,10 +3291,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 767,
-          "before": "    identity = resolve_protected_agent_identity(\n        store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}\n    )\n    return not SourceReadFence",
-          "after": "    identity = resolve_protected_agent_identity(\n        store, user_id=user_id, raw_key=None, payload={}\n    )\n    return not SourceReadFence",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "line": 854,
+          "before": "    identity = resolve_protected_agent_identity(\n        store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}\n    )\n    return guard_for_caller(store, identity)\n\n\n@connectors_router.get(\"/v0/vnext/doctor\")",
+          "after": "    identity = resolve_protected_agent_identity(\n        store, user_id=user_id, raw_key=None, payload={}\n    )\n    return guard_for_caller(store, identity)\n\n\n@connectors_router.get(\"/v0/vnext/doctor\")",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -3307,10 +3307,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 780,
-          "before": "payload = VNextDoctorService(store).run(ci=ci, include_content_diagnostics=content_visible)",
+          "line": 867,
+          "before": "payload = VNextDoctorService(store).run(ci=ci, include_content_diagnostics=not guard.active, label_guard=guard)",
           "after": "payload = VNextDoctorService(store).run(ci=ci)",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -3325,10 +3325,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 794,
-          "before": "                fix_safe=request.fix_safe, ci=request.ci, include_content_diagnostics=content_visible",
+          "line": 883,
+          "before": "                fix_safe=request.fix_safe, ci=request.ci, include_content_diagnostics=not guard.active, label_guard=guard",
           "after": "                fix_safe=request.fix_safe, ci=request.ci",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -3359,10 +3359,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/workspaces.py",
-          "line": 173,
-          "before": "doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=unfenced)",
+          "line": 175,
+          "before": "doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=unfenced, label_guard=guard)",
           "after": "doctor = VNextDoctorService(store).run(ci=True)",
-          "sha256": "406da0693064c7a595fbbb9f21a8babb1f02a313c10f689451b70d4684aeb59b"
+          "sha256": "58c9e769ce19b1fbb04ae3cfd5316ee8a27208e0f666a0b0d0f8d06715d0eb99"
         }
       ],
       "pytest": [
@@ -3375,10 +3375,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1479,
+          "line": 1570,
           "before": "\"to_id\": project_edge_target(request.project_id),",
           "after": "\"to_id\": request.project_id,",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -3391,10 +3391,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1479,
+          "line": 1570,
           "before": "\"to_id\": project_edge_target(request.project_id),",
           "after": "\"to_id\": request.project_id,",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -3407,10 +3407,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1013,
+          "line": 1104,
           "before": "\"to_id\": source_edge_target,",
           "after": "\"to_id\": request.project_id,",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -3423,10 +3423,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1013,
+          "line": 1104,
           "before": "\"to_id\": source_edge_target,",
           "after": "\"to_id\": request.project_id,",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -3439,10 +3439,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
-          "line": 1007,
+          "line": 1098,
           "before": "if action == \"assign_project\" and source_edge_target:",
           "after": "if action == \"assign_project\":",
-          "sha256": "136e014105f02c088c62b0c8037c387e30e3a9e6fa48f81d82ab4d9865310920"
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
         }
       ],
       "pytest": [
@@ -3775,10 +3775,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 623,
+          "line": 636,
           "before": "                 AND NOT {event_names_a_row_sql(\"e\")}\"\"\",",
           "after": "                 AND TRUE\"\"\",",
-          "sha256": "c04c4fdf575c276481bac8e0c457655a2a9851d3d4fc76faca72280ef5a37e4d"
+          "sha256": "0ca415522d56be3b6c6bafe6e074af67c2b83331693b300a47ae12f2f827383a"
         }
       ],
       "pytest": [
@@ -3791,10 +3791,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 643,
+          "line": 656,
           "before": " <> 'source' OR {event_names_a_row_sql()})",
           "after": " <> 'source')",
-          "sha256": "c04c4fdf575c276481bac8e0c457655a2a9851d3d4fc76faca72280ef5a37e4d"
+          "sha256": "0ca415522d56be3b6c6bafe6e074af67c2b83331693b300a47ae12f2f827383a"
         }
       ],
       "pytest": [
@@ -3807,10 +3807,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 508,
+          "line": 521,
           "before": "        if kind == \"edge\":",
           "after": "        if False:",
-          "sha256": "c04c4fdf575c276481bac8e0c457655a2a9851d3d4fc76faca72280ef5a37e4d"
+          "sha256": "0ca415522d56be3b6c6bafe6e074af67c2b83331693b300a47ae12f2f827383a"
         }
       ],
       "pytest": [
@@ -3871,10 +3871,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/workspaces.py",
-          "line": 146,
+          "line": 147,
           "before": "            lambda size: store.list_events(limit=size, reject_sensitivity_allowed=guard.sensitivity_allowed), want=20",
           "after": "            lambda size: store.list_events(limit=20, reject_sensitivity_allowed=guard.sensitivity_allowed), want=20",
-          "sha256": "406da0693064c7a595fbbb9f21a8babb1f02a313c10f689451b70d4684aeb59b"
+          "sha256": "58c9e769ce19b1fbb04ae3cfd5316ee8a27208e0f666a0b0d0f8d06715d0eb99"
         }
       ],
       "pytest": [
@@ -3887,10 +3887,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/workspaces.py",
-          "line": 153,
+          "line": 154,
           "before": "    agent_events = guard.newest_admitted_events(lambda size: store.list_agent_events(limit=size), want=50)",
           "after": "    agent_events = guard.admit_events(store.list_agent_events(limit=50))",
-          "sha256": "406da0693064c7a595fbbb9f21a8babb1f02a313c10f689451b70d4684aeb59b"
+          "sha256": "58c9e769ce19b1fbb04ae3cfd5316ee8a27208e0f666a0b0d0f8d06715d0eb99"
         }
       ],
       "pytest": [
@@ -3949,10 +3949,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2939,
+          "line": 2962,
           "before": "            \"events\": self.store.list_events(target_type=\"memory\", target_id=memory_id),",
           "after": "            \"events\": [],",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -3965,10 +3965,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2938,
+          "line": 2961,
           "before": "            \"revisions\": self.store.list_revisions(memory_id),",
           "after": "            \"revisions\": [],",
-          "sha256": "ad30044afdddd9280f0f27d4f71fe746142beeb5022af19101cc9539a948f893"
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
         }
       ],
       "pytest": [
@@ -4191,8 +4191,8 @@
           "file": "apps/api/src/alicebot_api/routers/workspaces.py",
           "before": "            conn.execute(\"SET LOCAL jit = off\")",
           "after": "            conn.execute(\"SELECT 1\")",
-          "sha256": "406da0693064c7a595fbbb9f21a8babb1f02a313c10f689451b70d4684aeb59b",
-          "line": 323
+          "sha256": "58c9e769ce19b1fbb04ae3cfd5316ee8a27208e0f666a0b0d0f8d06715d0eb99",
+          "line": 329
         }
       ],
       "pytest": [
@@ -4413,10 +4413,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/workspaces.py",
-          "before": "run(ci=True, include_content_diagnostics=unfenced)",
-          "after": "run(ci=True, include_content_diagnostics=False)",
-          "sha256": "406da0693064c7a595fbbb9f21a8babb1f02a313c10f689451b70d4684aeb59b",
-          "line": 173
+          "before": "run(ci=True, include_content_diagnostics=unfenced",
+          "after": "run(ci=True, include_content_diagnostics=False",
+          "sha256": "58c9e769ce19b1fbb04ae3cfd5316ee8a27208e0f666a0b0d0f8d06715d0eb99",
+          "line": 175
         }
       ],
       "pytest": [
@@ -6518,6 +6518,1021 @@
         "tests/integration/test_hidden_ids_in_report_metadata_postgres.py::test_a_report_keeps_the_words_of_a_row_that_was_archived_or_redacted_after_it_was_made"
       ],
       "expected_failure": "test_a_report_keeps_the_words_of_a_row_that_was_archived_or_redacted_after_it_was_made"
+    },
+    {
+      "name": "commit-list-guard-inactive",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 1249,
+          "before": "    if not SourceReadFence.for_identity(identity).entity_read_fenced:\n        return LabelGuard(store=store, active=False)\n    decision = evaluate_agent_policy(identity=identity, action=action)",
+          "after": "    if True:\n        return LabelGuard(store=store, active=False)\n    decision = evaluate_agent_policy(identity=identity, action=action)",
+          "sha256": "5a138b2002a71a2255ff766d95a61013ace0945617d76ff1eca10bd4aa74a87e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recent_commits_limits_sqlite.py::test_a_commit_above_the_ceiling_or_built_from_a_hidden_input_is_left_out_and_not_counted"
+      ],
+      "expected_failure": "test_a_commit_above_the_ceiling_or_built_from_a_hidden_input_is_left_out_and_not_counted"
+    },
+    {
+      "name": "commit-list-guard-ignores-the-policy-levels",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 1258,
+          "before": "        decision.effective_domains,\n        decision.effective_sensitivity_allowed,\n        projects,\n        all_of=projects if locked else None,",
+          "after": "        decision.effective_domains,\n        ALL_SENSITIVITY,\n        projects,\n        all_of=projects if locked else None,",
+          "sha256": "5a138b2002a71a2255ff766d95a61013ace0945617d76ff1eca10bd4aa74a87e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recent_commits_limits_sqlite.py::test_a_commit_above_the_ceiling_or_built_from_a_hidden_input_is_left_out_and_not_counted"
+      ],
+      "expected_failure": "test_a_commit_above_the_ceiling_or_built_from_a_hidden_input_is_left_out_and_not_counted"
+    },
+    {
+      "name": "commit-list-no-refill",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 1283,
+          "before": "        if len(admitted) >= want or len(fetched) < size or size >= ROW_FEED_SCAN_LIMIT:",
+          "after": "        if True:",
+          "sha256": "5a138b2002a71a2255ff766d95a61013ace0945617d76ff1eca10bd4aa74a87e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recent_commits_limits_sqlite.py::test_the_list_is_refilled_from_older_commits_when_the_newest_are_hidden"
+      ],
+      "expected_failure": "test_the_list_is_refilled_from_older_commits_when_the_newest_are_hidden"
+    },
+    {
+      "name": "commit-list-saved-quote-kept",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
+          "line": 2891,
+          "before": "        if guard.active:\n            rows = SavedProvenanceReader(",
+          "after": "        if False:\n            rows = SavedProvenanceReader(",
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recent_commits_limits_sqlite.py::test_a_listed_commit_loses_the_saved_quote_of_a_source_the_caller_may_not_read"
+      ],
+      "expected_failure": "test_a_listed_commit_loses_the_saved_quote_of_a_source_the_caller_may_not_read"
+    },
+    {
+      "name": "commit-list-route-ignores-the-caller",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 2118,
+          "before": "payload = VNextMemoryCommitService(store).recent_commits(limit=limit, identity=identity)",
+          "after": "payload = VNextMemoryCommitService(store).recent_commits(limit=limit, identity=None)",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_recent_commits_lists_and_counts_only_what_each_profile_may_read"
+      ],
+      "expected_failure": "test_recent_commits_lists_and_counts_only_what_each_profile_may_read"
+    },
+    {
+      "name": "commit-list-tool-ignores-the-caller",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/memories.py",
+          "line": 669,
+          "before": "                limit=_parse_int(arguments, key=\"limit\", default=20, minimum=1, maximum=100),\n                identity=identity,\n            )",
+          "after": "                limit=_parse_int(arguments, key=\"limit\", default=20, minimum=1, maximum=100),\n                identity=None,\n            )",
+          "sha256": "d9d4a910f495e40a9fa5491a46380a5474b75d42b80f46ec2a6081471c3aeaec"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recent_commits_limits_sqlite.py::test_the_legacy_tool_holds_a_call_that_declares_a_profile_to_that_profile"
+      ],
+      "expected_failure": "test_the_legacy_tool_holds_a_call_that_declares_a_profile_to_that_profile"
+    },
+    {
+      "name": "commit-list-cli-ignores-the-caller",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/cli/memories.py",
+          "line": 295,
+          "before": "payload = VNextMemoryCommitService(store).recent_commits(limit=args.limit, identity=identity)",
+          "after": "payload = VNextMemoryCommitService(store).recent_commits(limit=args.limit, identity=None)",
+          "sha256": "a6be821bb42c263641c8ae228f87586e3c0f18f987be8c5c51a26e1891659f62"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recent_commits_limits_sqlite.py::test_the_command_line_verb_lists_for_the_declared_profile"
+      ],
+      "expected_failure": "test_the_command_line_verb_lists_for_the_declared_profile"
+    },
+    {
+      "name": "context-tree-filter-is-a-grant",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_retrieval.py",
+          "line": 363,
+          "before": "                    sensitivity_allowed=tree_sensitivity,",
+          "after": "                    sensitivity_allowed=tuple(sensitivity_allowed or (\"public\", \"internal\", \"private\", \"unknown\")),",
+          "sha256": "507214cd639c7c0d3e5c869c7023c00ddd48d79a1296f571de1ec9aa15c9bdd3"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_the_context_tree_reads_a_filter_as_a_selection_and_never_as_a_grant"
+      ],
+      "expected_failure": "test_the_context_tree_reads_a_filter_as_a_selection_and_never_as_a_grant"
+    },
+    {
+      "name": "extract-filter-is-a-grant",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
+          "line": 737,
+          "before": "                replace(automation, domains=domains, sensitivity_allowed=sensitivity_allowed)",
+          "after": "                automation",
+          "sha256": "44b923e8fde3e41e43f8feed01449277d8dd34b4538198312681d7a058de3a7b"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_open_loop_extraction_reads_no_source_above_the_ceiling"
+      ],
+      "expected_failure": "test_open_loop_extraction_reads_no_source_above_the_ceiling"
+    },
+    {
+      "name": "request-filter-clamp-passthrough",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 1312,
+          "before": "    return decision.effective_domains, decision.effective_sensitivity_allowed",
+          "after": "    return asked_domains, asked_sensitivity",
+          "sha256": "5a138b2002a71a2255ff766d95a61013ace0945617d76ff1eca10bd4aa74a87e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_caller_limit_helpers.py::test_a_trusted_key_asking_for_a_level_above_its_ceiling_is_read_at_its_own_levels"
+      ],
+      "expected_failure": "test_a_trusted_key_asking_for_a_level_above_its_ceiling_is_read_at_its_own_levels"
+    },
+    {
+      "name": "charter-get-unfiltered",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
+          "line": 368,
+          "before": "            payload = readable[0] if readable else None",
+          "after": "            payload = charter",
+          "sha256": "44b923e8fde3e41e43f8feed01449277d8dd34b4538198312681d7a058de3a7b"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_the_charter_is_one_row_and_a_key_that_cannot_read_it_cannot_replace_it"
+      ],
+      "expected_failure": "test_the_charter_is_one_row_and_a_key_that_cannot_read_it_cannot_replace_it"
+    },
+    {
+      "name": "charter-put-replaces-an-unreadable-charter",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
+          "line": 395,
+          "before": "            if stored is not None and not readable_own_label_rows(identity, [stored]):",
+          "after": "            if False:",
+          "sha256": "44b923e8fde3e41e43f8feed01449277d8dd34b4538198312681d7a058de3a7b"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_the_charter_is_one_row_and_a_key_that_cannot_read_it_cannot_replace_it"
+      ],
+      "expected_failure": "test_the_charter_is_one_row_and_a_key_that_cannot_read_it_cannot_replace_it"
+    },
+    {
+      "name": "workspace-tasks-unfiltered",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/workspaces.py",
+          "line": 144,
+          "before": "    tasks = readable_own_label_rows(identity, store.list_tasks(status=None, limit=12))",
+          "after": "    tasks = store.list_tasks(status=None, limit=12)",
+          "sha256": "58c9e769ce19b1fbb04ae3cfd5316ee8a27208e0f666a0b0d0f8d06715d0eb99"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_the_workspace_lists_the_tasks_and_the_charter_a_key_may_read"
+      ],
+      "expected_failure": "test_the_workspace_lists_the_tasks_and_the_charter_a_key_may_read"
+    },
+    {
+      "name": "workspace-charter-unfiltered",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/workspaces.py",
+          "line": 202,
+          "before": "    readable_charter = readable_own_label_rows(identity, [stored_charter] if stored_charter is not None else [])",
+          "after": "    readable_charter = [stored_charter] if stored_charter is not None else []",
+          "sha256": "58c9e769ce19b1fbb04ae3cfd5316ee8a27208e0f666a0b0d0f8d06715d0eb99"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_the_workspace_lists_the_tasks_and_the_charter_a_key_may_read"
+      ],
+      "expected_failure": "test_the_workspace_lists_the_tasks_and_the_charter_a_key_may_read"
+    },
+    {
+      "name": "connector-status-captures-unfiltered",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 512,
+          "before": "            readable_sources = guard.admit_rows(\"source\", store.list_sources(limit=50))",
+          "after": "            readable_sources = store.list_sources(limit=50)",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_the_connector_status_lists_the_captures_a_key_may_read"
+      ],
+      "expected_failure": "test_the_connector_status_lists_the_captures_a_key_may_read"
+    },
+    {
+      "name": "own-label-rows-admit-everything",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 1329,
+          "before": "    return [row for row in items if fence.admits_memory(row)]",
+          "after": "    return items",
+          "sha256": "5a138b2002a71a2255ff766d95a61013ace0945617d76ff1eca10bd4aa74a87e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_caller_limit_helpers.py::test_a_trusted_key_is_shown_the_rows_inside_its_ceiling"
+      ],
+      "expected_failure": "test_a_trusted_key_is_shown_the_rows_inside_its_ceiling"
+    },
+    {
+      "name": "inventory-route-without-a-probe",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 2103,
+          "before": "@memory_router.get(\"/v0/vnext/memories/recent-commits\")",
+          "after": "@memory_router.get(\"/v0/vnext/memories/recent-commits-feed\")",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_operator_route_inventory.py::test_the_probe_table_lists_exactly_the_vnext_routes_of_the_application"
+      ],
+      "expected_failure": "test_the_probe_table_lists_exactly_the_vnext_routes_of_the_application"
+    },
+    {
+      "name": "inventory-route-unclassified",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 760,
+          "before": "        (\"GET\", \"/v0/vnext/memories/recent-commits\"),\n",
+          "after": "",
+          "sha256": "8772b84aa28513fba2e6711a5198cf798f5e9f065ffd69ebb72c2bc2a6bb22ad"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_operator_route_inventory.py::test_every_vnext_route_is_classified_by_the_central_gate_and_in_one_class_only"
+      ],
+      "expected_failure": "test_every_vnext_route_is_classified_by_the_central_gate_and_in_one_class_only"
+    },
+    {
+      "name": "legacy-v0-open-in-production",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 1343,
+          "before": "    if settings.app_env not in {\"development\", \"test\"} and not is_vnext_path:",
+          "after": "    if False and not is_vnext_path:",
+          "sha256": "8772b84aa28513fba2e6711a5198cf798f5e9f065ffd69ebb72c2bc2a6bb22ad"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_operator_route_inventory.py::test_the_legacy_v0_surface_answers_nothing_outside_development"
+      ],
+      "expected_failure": "test_the_legacy_v0_surface_answers_nothing_outside_development"
+    },
+    {
+      "name": "sweep-gate-sentinel-recent-commits",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 2118,
+          "before": "payload = VNextMemoryCommitService(store).recent_commits(limit=limit, identity=identity)",
+          "after": "payload = VNextMemoryCommitService(store).recent_commits(limit=limit, identity=None)",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[GET /v0/vnext/memories/recent-commits]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "connector-health-last-item-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1484,
+          "before": "        if guard.active and last_captured_item is not None:\n            if not self._caller_reads_sources(guard, [last_captured_item.get(\"source_id\")]):\n                last_captured_item = None",
+          "after": "        if False:\n            if not self._caller_reads_sources(guard, [last_captured_item.get(\"source_id\")]):\n                last_captured_item = None",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_a_caller_with_limits_is_not_shown_a_confidential_item_or_the_cursor_it_set"
+      ],
+      "expected_failure": "test_a_caller_with_limits_is_not_shown_a_confidential_item_or_the_cursor_it_set"
+    },
+    {
+      "name": "connector-health-cursor-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1553,
+          "before": "        if cursor is None or not guard.active:\n            return cursor",
+          "after": "        if True:\n            return cursor",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_a_caller_with_limits_is_not_shown_a_confidential_item_or_the_cursor_it_set"
+      ],
+      "expected_failure": "test_a_caller_with_limits_is_not_shown_a_confidential_item_or_the_cursor_it_set"
+    },
+    {
+      "name": "connector-cursor-without-a-carrier-shown",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1565,
+          "before": "        if not carriers or not self._caller_reads_sources(guard, [item.get(\"source_id\") for item in carriers]):\n            return None",
+          "after": "        if carriers and not self._caller_reads_sources(guard, [item.get(\"source_id\") for item in carriers]):\n            return None",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_a_cursor_that_no_import_carries_is_not_shown_to_a_caller_with_limits"
+      ],
+      "expected_failure": "test_a_cursor_that_no_import_carries_is_not_shown_to_a_caller_with_limits"
+    },
+    {
+      "name": "connector-cursor-matches-every-import",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1562,
+          "before": "                and payload.get(\"sync_cursor\") == cursor\n            ):\n                carriers.append(payload)",
+          "after": "                and payload.get(\"sync_cursor\") is not None\n            ):\n                carriers.append(payload)",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_a_cursor_set_by_a_readable_import_is_shown_though_an_older_import_is_not"
+      ],
+      "expected_failure": "test_a_cursor_set_by_a_readable_import_is_shown_though_an_older_import_is_not"
+    },
+    {
+      "name": "connector-source-deleted-still-shown",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1644,
+          "before": "            if not isinstance(row, Mapping) or row.get(\"deleted_at\") is not None:\n                return False",
+          "after": "            if not isinstance(row, Mapping):\n                return False",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_a_source_row_marked_deleted_is_not_shown_even_when_the_store_returns_it"
+      ],
+      "expected_failure": "test_a_source_row_marked_deleted_is_not_shown_even_when_the_store_returns_it"
+    },
+    {
+      "name": "connector-source-id-not-a-source-shown",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1641,
+          "before": "            except (ValueError, AttributeError, TypeError):\n                return False\n            row = getter(source_id)",
+          "after": "            except (ValueError, AttributeError, TypeError):\n                continue\n            row = getter(source_id)",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_an_import_event_naming_no_source_is_not_shown_to_a_caller_with_limits"
+      ],
+      "expected_failure": "test_an_import_event_naming_no_source_is_not_shown_to_a_caller_with_limits"
+    },
+    {
+      "name": "connector-health-snapshot-shared-across-guards",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1683,
+          "before": "        grant = (\"result\", guard.active, guard.domains, guard.sensitivity_allowed, guard.projects, guard.all_of)",
+          "after": "        grant = \"result\"",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_a_snapshot_of_all_connectors_is_reused_only_for_the_grant_it_was_judged_under"
+      ],
+      "expected_failure": "test_a_snapshot_of_all_connectors_is_reused_only_for_the_grant_it_was_judged_under"
+    },
+    {
+      "name": "connector-sync-record-cursors-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1576,
+          "before": "        record = result.to_record()\n        if guard.active:",
+          "after": "        record = result.to_record()\n        if False:",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_the_cursors_of_a_sync_record_are_the_ones_the_caller_may_read"
+      ],
+      "expected_failure": "test_the_cursors_of_a_sync_record_are_the_ones_the_caller_may_read"
+    },
+    {
+      "name": "connector-failures-cursors-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1598,
+          "before": "        if not guard.active:\n            return list(events)\n        recorded: dict[str, list[Mapping[str, Any]]] = {}",
+          "after": "        if True:\n            return list(events)\n        recorded: dict[str, list[Mapping[str, Any]]] = {}",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_the_cursors_a_failed_sync_recorded_are_the_ones_the_caller_may_read"
+      ],
+      "expected_failure": "test_the_cursors_a_failed_sync_recorded_are_the_ones_the_caller_may_read"
+    },
+    {
+      "name": "connector-status-health-ignores-the-caller",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 524,
+          "before": "                \"health\": service.connector_health(connector_name, guard=guard),",
+          "after": "                \"health\": service.connector_health(connector_name, guard=guard.unlimited(store)),",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[GET /v0/vnext/connectors/{connector_name}/status]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "connector-status-failures-ignore-the-caller",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 518,
+          "before": "                    if event.get(\"event_type\") in {\"connector.item_failed\", \"connector.sync_failed\"}\n                ],\n                guard=guard,",
+          "after": "                    if event.get(\"event_type\") in {\"connector.item_failed\", \"connector.sync_failed\"}\n                ],\n                guard=guard.unlimited(store),",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[GET /v0/vnext/connectors/{connector_name}/status]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "connectors-list-route-ignores-the-caller",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 460,
+          "before": "                        \"health\": service.connector_health(definition.name, guard=guard),",
+          "after": "                        \"health\": service.connector_health(definition.name, guard=guard.unlimited(store)),",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[GET /v0/vnext/connectors]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "connectors-health-route-ignores-the-caller",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 485,
+          "before": "            payload = VNextConnectorService(store).connector_health_all(guard=guard_for_caller(store, identity))",
+          "after": "            payload = VNextConnectorService(store).connector_health_all(guard=guard_for_caller(store, None))",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[GET /v0/vnext/connectors/health]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "doctor-get-route-health-guard",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 867,
+          "before": "payload = VNextDoctorService(store).run(ci=ci, include_content_diagnostics=not guard.active, label_guard=guard)",
+          "after": "payload = VNextDoctorService(store).run(ci=ci, include_content_diagnostics=not guard.active)",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[GET /v0/vnext/doctor]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "doctor-run-route-health-guard",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 883,
+          "before": "fix_safe=request.fix_safe, ci=request.ci, include_content_diagnostics=not guard.active, label_guard=guard",
+          "after": "fix_safe=request.fix_safe, ci=request.ci, include_content_diagnostics=not guard.active",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[POST /v0/vnext/doctor/run]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "doctor-health-guard-dropped",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_doctor.py",
+          "line": 251,
+          "before": "        ).connector_health_all(guard=guard)",
+          "after": "        ).connector_health_all(guard=guard.unlimited(self.store))",
+          "sha256": "94b90e474aa99a297f50ac5ac5b8d3866686eb71db293251d15e3aa4cc8192c9"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[GET /v0/vnext/doctor]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "dogfooding-health-guard-dropped",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_dogfooding.py",
+          "line": 299,
+          "before": "VNextConnectorService(self.store).connector_health_all(guard=guard),",
+          "after": "VNextConnectorService(self.store).connector_health_all(guard=guard.unlimited(self.store)),",
+          "sha256": "efcf94c41828f2b188fd1914c4544045387f043ccc16d3f74f9e790034ebb0a5"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[GET /v0/vnext/dogfooding]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "workspace-health-guard-dropped",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/workspaces.py",
+          "line": 173,
+          "before": "    connector_health = VNextConnectorService(store).connector_health_all(guard=guard)",
+          "after": "    connector_health = VNextConnectorService(store).connector_health_all(guard=guard.unlimited(store))",
+          "sha256": "58c9e769ce19b1fbb04ae3cfd5316ee8a27208e0f666a0b0d0f8d06715d0eb99"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[GET /v0/vnext/workspace]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "workspace-doctor-health-guard-dropped",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/workspaces.py",
+          "line": 175,
+          "before": "doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=unfenced, label_guard=guard)",
+          "after": "doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=unfenced)",
+          "sha256": "58c9e769ce19b1fbb04ae3cfd5316ee8a27208e0f666a0b0d0f8d06715d0eb99"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[GET /v0/vnext/workspace]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "connector-sync-route-answers-raw-cursors",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 602,
+          "before": "            payload = service.shown_sync_record(result, guard=guard)\n        _persist_vnext_deferred_embeddings(\n            database_url=settings.database_url,\n            user_id=request.user_id,\n            result=result,\n        )\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n    except AgentPolicyBlockedError as exc:\n        return _vnext_permission_response(exc.decision)\n    except VNextConnectorValidationError:\n        return _vnext_public_error_response(status_code=400, detail=\"vNext connector sync request is invalid\")",
+          "after": "            payload = result.to_record()\n        _persist_vnext_deferred_embeddings(\n            database_url=settings.database_url,\n            user_id=request.user_id,\n            result=result,\n        )\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n    except AgentPolicyBlockedError as exc:\n        return _vnext_permission_response(exc.decision)\n    except VNextConnectorValidationError:\n        return _vnext_public_error_response(status_code=400, detail=\"vNext connector sync request is invalid\")",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[POST /v0/vnext/connectors/{connector_name}/sync]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "connector-sync-caller-is-the-owner",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 573,
+          "before": "        store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}\n    )\n    return guard_for_caller(store, identity)\n\n\n@connectors_router.post(\"/v0/vnext/connectors/{connector_name}/sync\")",
+          "after": "        store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}\n    )\n    return guard_for_caller(store, None)\n\n\n@connectors_router.post(\"/v0/vnext/connectors/{connector_name}/sync\")",
+          "sha256": "e6a152f7f12057f8009a0a1434842f53e6f052d59c22afacd997b0283ba26627"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[POST /v0/vnext/connectors/{connector_name}/sync]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "charter-put-check-without-lock",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
+          "line": 393,
+          "before": "            lock_brain_charter(store)\n            stored = store.get_brain_charter()",
+          "after": "            stored = store.get_brain_charter()",
+          "sha256": "44b923e8fde3e41e43f8feed01449277d8dd34b4538198312681d7a058de3a7b"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_brain_charter_race_postgres.py::test_a_charter_classified_after_the_check_is_not_replaced_by_the_key_that_checked",
+        "tests/integration/test_brain_charter_race_postgres.py::test_a_key_that_arrives_during_a_save_is_judged_on_the_charter_that_save_leaves"
+      ],
+      "expected_failure": "test_a_charter_classified_after_the_check_is_not_replaced_by_the_key_that_checked"
+    },
+    {
+      "name": "charter-save-without-lock",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_store.py",
+          "line": 2932,
+          "before": "        lock_brain_charter(self)\n        row = self._fetch_one(\n            \"upsert_brain_charter\",",
+          "after": "        row = self._fetch_one(\n            \"upsert_brain_charter\",",
+          "sha256": "0ca415522d56be3b6c6bafe6e074af67c2b83331693b300a47ae12f2f827383a"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_brain_charter_race_postgres.py::test_every_save_of_the_charter_waits_for_the_charter_lock"
+      ],
+      "expected_failure": "test_every_save_of_the_charter_waits_for_the_charter_lock"
+    },
+    {
+      "name": "row-feed-scan-limit-stop-removed",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 1283,
+          "before": "        if len(admitted) >= want or len(fetched) < size or size >= ROW_FEED_SCAN_LIMIT:",
+          "after": "        if len(admitted) >= want or len(fetched) < size:",
+          "sha256": "5a138b2002a71a2255ff766d95a61013ace0945617d76ff1eca10bd4aa74a87e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_caller_limit_helpers.py::test_the_refill_of_a_row_feed_never_reads_past_the_scan_limit"
+      ],
+      "expected_failure": "test_the_refill_of_a_row_feed_never_reads_past_the_scan_limit"
+    },
+    {
+      "name": "row-feed-scan-limit-growth-unbounded",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 1285,
+          "before": "        size = min(size * 5, ROW_FEED_SCAN_LIMIT)",
+          "after": "        size = size * 5",
+          "sha256": "5a138b2002a71a2255ff766d95a61013ace0945617d76ff1eca10bd4aa74a87e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_caller_limit_helpers.py::test_a_readable_row_beyond_the_scan_limit_is_not_reached"
+      ],
+      "expected_failure": "test_a_readable_row_beyond_the_scan_limit_is_not_reached"
+    },
+    {
+      "name": "commit-list-limit-below-one-raises",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
+          "line": 2890,
+          "before": "rows = newest_admitted_rows(guard, \"memory\", self._newest_commits, want=max(limit, 1))",
+          "after": "rows = newest_admitted_rows(guard, \"memory\", self._newest_commits, want=limit)",
+          "sha256": "286f3868788ef68bb895d23f3de0f2678a9a8ec8fea0f6065318a8d773d3c249"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recent_commits_limits_sqlite.py::test_a_limit_below_one_lists_the_newest_commit_it_may_read_as_it_always_did"
+      ],
+      "expected_failure": "test_a_limit_below_one_lists_the_newest_commit_it_may_read_as_it_always_did"
+    },
+    {
+      "name": "memories-recent-limit-accepts-zero",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/cli/parser.py",
+          "line": 1142,
+          "before": "vnext_memory_recent_parser.add_argument(\"--limit\", type=_positive_int, default=20,",
+          "after": "vnext_memory_recent_parser.add_argument(\"--limit\", type=int, default=20,",
+          "sha256": "fa5a476ee8e91b4fbbb43d82c8b245c7f7d936a2761669c64f8453af78287122"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recent_commits_limits_sqlite.py::test_the_command_line_verb_refuses_a_limit_that_is_not_a_positive_whole_number"
+      ],
+      "expected_failure": "test_the_command_line_verb_refuses_a_limit_that_is_not_a_positive_whole_number"
+    },
+    {
+      "name": "workspace-feed-cursors-unmasked-sweep",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 932,
+          "before": "        if not self.active or not any(str(row.get(\"event_type\", \"\")).startswith(\"connector.\") for row in events):\n            return events",
+          "after": "        if True:\n            return events",
+          "sha256": "5a138b2002a71a2255ff766d95a61013ace0945617d76ff1eca10bd4aa74a87e"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[GET /v0/vnext/workspace]"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "workspace-feed-cursors-unmasked",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 932,
+          "before": "        if not self.active or not any(str(row.get(\"event_type\", \"\")).startswith(\"connector.\") for row in events):\n            return events",
+          "after": "        if True:\n            return events",
+          "sha256": "5a138b2002a71a2255ff766d95a61013ace0945617d76ff1eca10bd4aa74a87e"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_the_workspace_event_feed_shows_no_path_of_a_confidential_import_to_a_key_with_a_ceiling",
+        "tests/integration/test_operator_routes_limits_postgres.py::test_the_workspace_event_feed_after_later_syncs_shows_a_key_no_cursor_it_may_not_read",
+        "tests/unit/test_connector_health_limits_sqlite.py::test_the_events_of_a_sync_hold_the_cursors_the_caller_may_read"
+      ],
+      "expected_failure": "test_the_workspace_event_feed_shows_no_path_of_a_confidential_import_to_a_key_with_a_ceiling"
+    },
+    {
+      "name": "event-feed-cursors-off-by-default",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 913,
+          "before": "    def admit_events(self, rows: Sequence[_Row], *, cursors: bool = True) -> list[_Row]:",
+          "after": "    def admit_events(self, rows: Sequence[_Row], *, cursors: bool = False) -> list[_Row]:",
+          "sha256": "5a138b2002a71a2255ff766d95a61013ace0945617d76ff1eca10bd4aa74a87e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_the_events_of_a_sync_hold_the_cursors_the_caller_may_read"
+      ],
+      "expected_failure": "test_the_events_of_a_sync_hold_the_cursors_the_caller_may_read"
+    },
+    {
+      "name": "event-feed-sync-started-cursor-unlisted",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 51,
+          "before": "    \"connector.sync_started\": (\"previous_cursor\",),",
+          "after": "    \"connector.sync_started\": (),",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_the_workspace_event_feed_shows_no_path_of_a_confidential_import_to_a_key_with_a_ceiling",
+        "tests/unit/test_connector_health_limits_sqlite.py::test_the_events_of_a_sync_hold_the_cursors_the_caller_may_read"
+      ],
+      "expected_failure": "test_the_workspace_event_feed_shows_no_path_of_a_confidential_import_to_a_key_with_a_ceiling"
+    },
+    {
+      "name": "event-feed-state-updated-cursor-unlisted",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 50,
+          "before": "    \"connector.state_updated\": (\"cursor_value\",),",
+          "after": "    \"connector.state_updated\": (),",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_the_workspace_event_feed_shows_no_path_of_a_confidential_import_to_a_key_with_a_ceiling",
+        "tests/unit/test_connector_health_limits_sqlite.py::test_the_events_of_a_sync_hold_the_cursors_the_caller_may_read"
+      ],
+      "expected_failure": "test_the_workspace_event_feed_shows_no_path_of_a_confidential_import_to_a_key_with_a_ceiling"
+    },
+    {
+      "name": "event-feed-sync-completed-cursor-unlisted",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 52,
+          "before": "    \"connector.sync_completed\": (\"previous_cursor\", \"sync_cursor\"),",
+          "after": "    \"connector.sync_completed\": (\"sync_cursor\",),",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_the_workspace_event_feed_after_later_syncs_shows_a_key_no_cursor_it_may_not_read",
+        "tests/unit/test_connector_health_limits_sqlite.py::test_the_events_of_a_sync_hold_the_cursors_the_caller_may_read"
+      ],
+      "expected_failure": "test_the_workspace_event_feed_after_later_syncs_shows_a_key_no_cursor_it_may_not_read"
+    },
+    {
+      "name": "event-feed-sync-failed-cursor-unlisted",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 53,
+          "before": "    \"connector.sync_failed\": (\"previous_cursor\", \"sync_cursor\"),",
+          "after": "    \"connector.sync_failed\": (),",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_the_cursors_a_failed_sync_recorded_are_the_ones_the_caller_may_read"
+      ],
+      "expected_failure": "test_the_cursors_a_failed_sync_recorded_are_the_ones_the_caller_may_read"
+    },
+    {
+      "name": "event-feed-cursor-edits-the-handed-in-event",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1610,
+          "before": "            cleaned = dict(payload)\n            for field in fields:",
+          "after": "            cleaned = payload\n            for field in fields:",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_the_events_of_a_sync_hold_the_cursors_the_caller_may_read"
+      ],
+      "expected_failure": "test_the_events_of_a_sync_hold_the_cursors_the_caller_may_read"
+    },
+    {
+      "name": "event-feed-cursor-not-text-shown",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1616,
+          "before": "                if not isinstance(cursor, str) or not isinstance(name, str):\n                    cleaned[field] = None\n                    continue",
+          "after": "                if not isinstance(name, str):\n                    cleaned[field] = None\n                    continue",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_a_cursor_that_cannot_be_tied_to_a_connector_or_to_text_is_not_shown"
+      ],
+      "expected_failure": "test_a_cursor_that_cannot_be_tied_to_a_connector_or_to_text_is_not_shown"
+    },
+    {
+      "name": "event-feed-cursor-without-a-connector-shown",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1616,
+          "before": "                if not isinstance(cursor, str) or not isinstance(name, str):\n                    cleaned[field] = None\n                    continue",
+          "after": "                if not isinstance(cursor, str):\n                    cleaned[field] = None\n                    continue",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_a_cursor_that_cannot_be_tied_to_a_connector_or_to_text_is_not_shown"
+      ],
+      "expected_failure": "test_a_cursor_that_cannot_be_tied_to_a_connector_or_to_text_is_not_shown"
+    },
+    {
+      "name": "event-feed-cursors-flag-ignored",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 929,
+          "before": "        return self._with_shown_cursors(kept) if cursors else kept",
+          "after": "        return self._with_shown_cursors(kept)",
+          "sha256": "5a138b2002a71a2255ff766d95a61013ace0945617d76ff1eca10bd4aa74a87e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_the_event_feeds_follow_the_same_rule"
+      ],
+      "expected_failure": "test_the_event_feeds_follow_the_same_rule"
+    },
+    {
+      "name": "event-feed-empty-cursor-masked",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1613,
+          "before": "                if cursor is None or cursor == \"\":\n                    continue",
+          "after": "                if cursor is None:\n                    continue",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_a_cursor_that_cannot_be_tied_to_a_connector_or_to_text_is_not_shown"
+      ],
+      "expected_failure": "test_a_cursor_that_cannot_be_tied_to_a_connector_or_to_text_is_not_shown"
+    },
+    {
+      "name": "event-feed-masks-the-whole-read-window",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 972,
+          "before": "            admitted = self.admit_events(fetched, cursors=False)\n            if len(admitted) >= want",
+          "after": "            admitted = self.admit_events(fetched)\n            if len(admitted) >= want",
+          "sha256": "5a138b2002a71a2255ff766d95a61013ace0945617d76ff1eca10bd4aa74a87e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_workspace_event_feed.py::test_the_cursors_of_connector_events_are_judged_for_the_events_shown_and_not_for_the_whole_read"
+      ],
+      "expected_failure": "test_the_cursors_of_connector_events_are_judged_for_the_events_shown_and_not_for_the_whole_read"
+    },
+    {
+      "name": "workspace-feed-return-slice-unmasked",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 975,
+          "before": "                return self._with_shown_cursors(admitted[:want])",
+          "after": "                return admitted[:want]",
+          "sha256": "5a138b2002a71a2255ff766d95a61013ace0945617d76ff1eca10bd4aa74a87e"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_a_key_with_a_ceiling_is_shown_nothing_above_it[GET /v0/vnext/workspace]",
+        "tests/integration/test_operator_routes_limits_postgres.py::test_the_workspace_event_feed_shows_no_path_of_a_confidential_import_to_a_key_with_a_ceiling"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_is_shown_nothing_above_it"
+    },
+    {
+      "name": "connector-cursor-needs-every-carrier",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_connectors.py",
+          "line": 1647,
+          "before": "        return len(guard.admit_rows(\"source\", rows)) == len(rows)",
+          "after": "        return len(guard.admit_rows(\"source\", rows)) > 0",
+          "sha256": "2ec5bb314b1a3df973de2b1444d2a4ee5e7fa78e722bc40b81bdeaa738ef7d5f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_connector_health_limits_sqlite.py::test_a_cursor_is_shown_only_when_every_import_that_carries_it_is_readable"
+      ],
+      "expected_failure": "test_a_cursor_is_shown_only_when_every_import_that_carries_it_is_readable"
+    },
+    {
+      "name": "charter-refusal-policy-event-dropped",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
+          "line": 405,
+          "before": "                append_policy_events(\n                    store, identity=identity, decision=refusal, target_type=\"http_route\",\n                    target_id=\"/v0/vnext/settings/brain-charter\",\n                )\n",
+          "after": "",
+          "sha256": "44b923e8fde3e41e43f8feed01449277d8dd34b4538198312681d7a058de3a7b"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_operator_routes_limits_postgres.py::test_the_charter_is_one_row_and_a_key_that_cannot_read_it_cannot_replace_it"
+      ],
+      "expected_failure": "test_the_charter_is_one_row_and_a_key_that_cannot_read_it_cannot_replace_it"
     }
   ]
 }

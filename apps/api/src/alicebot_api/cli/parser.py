@@ -182,6 +182,18 @@ from .smokes import (
 )
 
 
+def _positive_int(value: str) -> int:
+    """A whole number of at least 1, for a count of rows to list."""
+
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a whole number") from None
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return number
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="alicebot",
@@ -1127,7 +1139,7 @@ def build_parser() -> argparse.ArgumentParser:
         "recent", help="List recent agentic memory commits."
     )
     _add_vnext_agent_arguments(vnext_memory_recent_parser)
-    vnext_memory_recent_parser.add_argument("--limit", type=int, default=20, help="Maximum commits to list.")
+    vnext_memory_recent_parser.add_argument("--limit", type=_positive_int, default=20, help="Maximum commits to list.")
     vnext_memory_recent_parser.set_defaults(handler=_run_vnext_memory_recent)
 
     vnext_memory_audit_parser = vnext_memories_subparsers.add_parser("audit", help="Show memory audit details.")

@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace, field
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 from contextvars import ContextVar
 from functools import wraps
 from contextlib import contextmanager
@@ -312,6 +312,12 @@ class LabelGuard:
 
         fenced = bool(getattr(fence, "entity_read_fenced", False))
         return cls(store=store, active=fenced)
+
+    @classmethod
+    def unlimited(cls, store: Any) -> LabelGuard:
+        """The guard of the owner and of an unbound admin key: inactive, so it returns what it is given."""
+
+        return cls(store=store, active=False)
 
     @classmethod
     def for_filters(
@@ -922,15 +928,32 @@ class LabelGuard:
         admitted = self._admitted_target_ids(kind, [str(row.get(field)) for row in rows if row.get(field)])
         return [row for row in rows if str(row.get(field) or "") in admitted]
 
-    def admit_events(self, rows: Sequence[_Row]) -> list[_Row]:
+    def admit_events(self, rows: Sequence[_Row], *, cursors: bool = True) -> list[_Row]:
         """An event is admitted when the guard admits every row it names, before it exposes their IDs.
 
         It names its target, when the target is a labelled row or an edge, and every id in the payload fields that hold
         the id of a labelled row (see ``event_references``). A chunk of a source has no label, so its event takes the
         label of the source it names. An event whose target has no label and whose payload names no row is admitted,
         except a ``labels_raised`` event, which says what a label was.
+
+        A connector event also records a cursor (see ``CONNECTOR_EVENT_CURSOR_FIELDS``), and for a file or a page that is
+        its path or its address. An admitted event shows each cursor only when the caller may read the source it came
+        from and holds ``null`` in its place otherwise, the rule of the connector screens; the event is copied and the row
+        it came from is not edited. ``cursors=False`` returns the admitted events as they are, for a caller that reads only
+        how many there are or what kind they are, and for a read that widens before it settles which events it shows.
         """
 
+        kept = self._admitted_events(rows)
+        return self._with_shown_cursors(kept) if cursors else kept
+
+    def _with_shown_cursors(self, events: list[_Row]) -> list[_Row]:
+        if not self.active or not any(str(row.get("event_type", "")).startswith("connector.") for row in events):
+            return events
+        from alicebot_api.vnext_connectors import VNextConnectorService
+
+        return cast("list[_Row]", VNextConnectorService(self.store).shown_event_cursors(events, guard=self))
+
+    def _admitted_events(self, rows: Sequence[_Row]) -> list[_Row]:
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
         named = []
@@ -964,9 +987,10 @@ class LabelGuard:
         size = want
         while True:
             fetched = fetch(size)
-            admitted = self.admit_events(fetched)
+            admitted = self.admit_events(fetched, cursors=False)
             if len(admitted) >= want or len(fetched) < size or size >= EVENT_FEED_SCAN_LIMIT:
-                return admitted[:want]
+                # The cursors of a connector event are judged for the events shown and not for the whole read.
+                return self._with_shown_cursors(admitted[:want])
             size = min(size * 5, EVENT_FEED_SCAN_LIMIT)
 
     def readable_event_count(self) -> int:
@@ -992,7 +1016,7 @@ class LabelGuard:
             # splitting its missing source reads into five database trips.
             # Every target still goes through its current effective guard.
             prefilter["batch_size"] = 5000
-        return source_count + sum(len(self.admit_events(batch)) for batch in iterator(**prefilter))
+        return source_count + sum(len(self._admitted_events(batch)) for batch in iterator(**prefilter))
 
     def admit_beliefs(self, beliefs: Sequence[_Row]) -> list[_Row]:
         """Beliefs whose backing memory the filters admit. One batched read."""
@@ -1272,3 +1296,102 @@ def apply_unverified_rule(
         return decision
     reasons = tuple(dict.fromkeys((*decision.reasons, "derived_labels_unverified")))
     return replace(decision, decision="blocked", reasons=reasons)
+
+
+# The reach of a row feed for a caller with limits, the same bound as an event feed.
+ROW_FEED_SCAN_LIMIT = EVENT_FEED_SCAN_LIMIT
+
+
+def guard_for_caller(store: Any, identity: AgentIdentity | None, *, action: str = "http.operator.access") -> LabelGuard:
+    """The list guard of one caller: the filters its policy allows and the project binding it is locked to.
+
+    The owner and an unbound admin key have no limits, so their guard is inactive and returns its input. Every other
+    caller gets the domains, the sensitivities and the projects the policy engine grants it for ``action``, the same
+    ones a list door reads from a decision, and a key locked to a project must have every input of a row inside it.
+    A decision that blocks the caller raises ``AgentPolicyBlockedError`` and no guard is made.
+    """
+
+    from alicebot_api.vnext_agent_control import AgentPolicyBlockedError, evaluate_agent_policy
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    if not SourceReadFence.for_identity(identity).entity_read_fenced:
+        return LabelGuard(store=store, active=False)
+    decision = evaluate_agent_policy(identity=identity, action=action)
+    if decision.decision == "blocked":
+        raise AgentPolicyBlockedError(decision)
+    projects = decision.effective_project_scope
+    locked = identity is not None and identity.project_scope_locked
+    return LabelGuard.for_filters(
+        store,
+        decision.effective_domains,
+        decision.effective_sensitivity_allowed,
+        projects,
+        all_of=projects if locked else None,
+    )
+
+
+def newest_admitted_rows(
+    guard: LabelGuard,
+    kind: str,
+    fetch: Callable[[int], Sequence[_Row]],
+    *,
+    want: int,
+) -> list[_Row]:
+    """The ``want`` newest rows ``guard`` admits. ``fetch(n)`` returns the newest ``n`` rows, newest first.
+
+    A feed that read only its own limit would show a caller with limits fewer rows than it may read whenever the newest
+    rows are hidden from it. The read widens, five times at a time, up to ``ROW_FEED_SCAN_LIMIT`` rows, so the feed is
+    shorter than ``want`` only when fewer readable rows lie within that reach.
+    """
+
+    size = want
+    while True:
+        fetched = fetch(size)
+        admitted = guard.admit_rows(kind, fetched)
+        if len(admitted) >= want or len(fetched) < size or size >= ROW_FEED_SCAN_LIMIT:
+            return admitted[:want]
+        size = min(size * 5, ROW_FEED_SCAN_LIMIT)
+
+
+def clamp_request_filters(
+    identity: AgentIdentity | None,
+    *,
+    domains: Sequence[str],
+    sensitivity_allowed: Sequence[str],
+    action: str = "http.operator.access",
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The domains and sensitivities a request may use: what it asked for, cut down to what its caller may read.
+
+    A request filter is a selection, never a grant. The owner and an unbound admin key get what they asked for. A caller
+    with limits asking for a level above its ceiling is read at its own levels, as the policy engine answers it, and a
+    request the policy blocks outright raises ``AgentPolicyBlockedError``.
+    """
+
+    from alicebot_api.vnext_agent_control import AgentPolicyBlockedError, evaluate_agent_policy
+
+    asked_domains, asked_sensitivity = tuple(domains), tuple(sensitivity_allowed)
+    if identity is None:
+        return asked_domains, asked_sensitivity
+    decision = evaluate_agent_policy(
+        identity=identity, action=action, domains=asked_domains, sensitivity_allowed=asked_sensitivity
+    )
+    if decision.decision == "blocked":
+        raise AgentPolicyBlockedError(decision)
+    return decision.effective_domains, decision.effective_sensitivity_allowed
+
+
+def readable_own_label_rows(identity: AgentIdentity | None, rows: Sequence[_Row]) -> list[_Row]:
+    """The rows this caller may read, for rows that carry labels of their own and are made from no input.
+
+    A queued task and the brain charter are not derived, so their stored labels are the labels they have. The owner and
+    an unbound admin key get every row. A caller with limits gets the rows its fence admits: a row above its ceiling is
+    left out, and so is a row with no project to a key locked to a project.
+    """
+
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    items = [row for row in rows if isinstance(row, Mapping)]
+    fence = SourceReadFence.for_identity(identity)
+    if not fence.entity_read_fenced:
+        return items
+    return [row for row in items if fence.admits_memory(row)]

@@ -1272,7 +1272,7 @@ _LOOP_READERS: dict[tuple[str, str, str], str] = {
     ("compile_context_pack", "vnext_evals.py", "_retrieve"): _OPERATOR,
     ("extract_open_loops", "cli/automation.py", "_run_vnext_open_loops_extract"): _OPERATOR,
     ("extract_open_loops", "mcp/projects.py", "_handle_alice_open_loop_extract"): _OWNER,
-    ("extract_open_loops", "routers/vnext_projects.py", "extract_vnext_open_loops"): _OWNER,
+    ("extract_open_loops", "routers/vnext_projects.py", "extract_vnext_open_loops"): _FENCED,
     ("get_open_loop", "mcp/retrieval.py", "_handle_alice_open_loops"): _FENCED,
     ("get_open_loop", "mcp/retrieval.py", "_resume_event_honours_policy_fence"): _NOT_RETURNED,
     ("get_open_loop", "routers/vnext_projects.py", "review_vnext_open_loop"): _FENCED,

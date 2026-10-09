@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Header, Path, Query
@@ -103,6 +103,9 @@ from alicebot_api.vnext_project_scope import (
     resolve_project_scope,
 )
 from alicebot_api.vnext_store import PostgresVNextStore
+
+if TYPE_CHECKING:
+    from alicebot_api.vnext_label_guard import LabelGuard
 
 
 source_create_router = APIRouter()
@@ -434,55 +437,98 @@ def create_vnext_source(
 
 
 @connectors_router.get("/v0/vnext/connectors")
-def list_vnext_connectors(user_id: UUID) -> JSONResponse:
-    settings = get_settings()
-    with user_connection(settings.database_url, user_id) as conn:
-        service = VNextConnectorService(PostgresVNextStore(conn))
-        definitions = list_connector_definitions()
-        payload = {
-            "items": [
-                {
-                    **definition.to_record(),
-                    "config": service.get_config(definition.name),
-                    "health": service.connector_health(definition.name),
-                }
-                for definition in definitions
-            ],
-            "count": len(definitions),
-            "order": [definition.name for definition in definitions],
-        }
-    return JSONResponse(status_code=200, content=jsonable_encoder(payload))
+def list_vnext_connectors(user_id: UUID, authorization: str | None = Header(default=None)) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import guard_for_caller
 
-
-@connectors_router.get("/v0/vnext/connectors/health")
-def get_vnext_connectors_health(user_id: UUID) -> JSONResponse:
-    settings = get_settings()
-    with user_connection(settings.database_url, user_id) as conn:
-        payload = VNextConnectorService(PostgresVNextStore(conn)).connector_health_all()
-    return JSONResponse(status_code=200, content=jsonable_encoder(payload))
-
-
-@connectors_router.get("/v0/vnext/connectors/{connector_name}/status")
-def get_vnext_connector_status(connector_name: str, user_id: UUID) -> JSONResponse:
     settings = get_settings()
     try:
         with user_connection(settings.database_url, user_id) as conn:
             store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
+            # The health block names the last captured source and cursor, which a caller with limits is shown only
+            # when it may read the source they came from.
+            guard = guard_for_caller(store, identity)
             service = VNextConnectorService(store)
-            sources = [
-                source for source in store.list_sources(limit=50) if source.get("connector_name") == connector_name
-            ]
-            failures = [
-                event
-                for event in store.list_events(target_type="connector", target_id=connector_name, limit=50)
-                if event.get("event_type") in {"connector.item_failed", "connector.sync_failed"}
-            ]
+            definitions = list_connector_definitions()
+            payload = {
+                "items": [
+                    {
+                        **definition.to_record(),
+                        "config": service.get_config(definition.name),
+                        "health": service.connector_health(definition.name, guard=guard),
+                    }
+                    for definition in definitions
+                ],
+                "count": len(definitions),
+                "order": [definition.name for definition in definitions],
+            }
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentPolicyBlockedError as exc:
+        return _vnext_permission_response(exc.decision)
+    return JSONResponse(status_code=200, content=jsonable_encoder(payload))
+
+
+@connectors_router.get("/v0/vnext/connectors/health")
+def get_vnext_connectors_health(user_id: UUID, authorization: str | None = Header(default=None)) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import guard_for_caller
+
+    settings = get_settings()
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
+            payload = VNextConnectorService(store).connector_health_all(guard=guard_for_caller(store, identity))
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentPolicyBlockedError as exc:
+        return _vnext_permission_response(exc.decision)
+    return JSONResponse(status_code=200, content=jsonable_encoder(payload))
+
+
+@connectors_router.get("/v0/vnext/connectors/{connector_name}/status")
+def get_vnext_connector_status(
+    connector_name: str,
+    user_id: UUID,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import guard_for_caller
+
+    settings = get_settings()
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
+            service = VNextConnectorService(store)
+            # The captures listed, and the last captured item and cursor of the health block, are the ones this caller
+            # may read. The owner and an unbound admin key see them all.
+            guard = guard_for_caller(store, identity)
+            readable_sources = guard.admit_rows("source", store.list_sources(limit=50))
+            sources = [source for source in readable_sources if source.get("connector_name") == connector_name]
+            failures = service.shown_event_cursors(
+                [
+                    event
+                    for event in store.list_events(target_type="connector", target_id=connector_name, limit=50)
+                    if event.get("event_type") in {"connector.item_failed", "connector.sync_failed"}
+                ],
+                guard=guard,
+            )
             payload = {
                 "config": service.get_config(connector_name),
-                "health": service.connector_health(connector_name),
+                "health": service.connector_health(connector_name, guard=guard),
                 "recent_captures": sources[:10],
                 "recent_failures": failures[:10],
             }
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentPolicyBlockedError as exc:
+        return _vnext_permission_response(exc.decision)
     except VNextConnectorValidationError:
         return _vnext_public_error_response(status_code=404, detail="vNext connector was not found")
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
@@ -517,8 +563,24 @@ def update_vnext_connector_config(connector_name: str, request: VNextConnectorCo
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 
+def _connector_sync_caller_guard(store: PostgresVNextStore, *, user_id: UUID, authorization: str | None) -> LabelGuard:
+    """The guard of the caller of a sync. The record a sync answers carries two cursors, and the previous one is where
+    an earlier call left off, so it can name an item this caller may not read."""
+
+    from alicebot_api.vnext_label_guard import guard_for_caller
+
+    identity = resolve_protected_agent_identity(
+        store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}
+    )
+    return guard_for_caller(store, identity)
+
+
 @connectors_router.post("/v0/vnext/connectors/{connector_name}/sync")
-def sync_vnext_connector(connector_name: str, request: VNextConnectorSyncRequest) -> JSONResponse:
+def sync_vnext_connector(
+    connector_name: str,
+    request: VNextConnectorSyncRequest,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings = get_settings()
     if connector_name == "telegram":
         return _vnext_public_error_response(
@@ -528,18 +590,25 @@ def sync_vnext_connector(connector_name: str, request: VNextConnectorSyncRequest
 
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
-            result = VNextConnectorService(PostgresVNextStore(conn), defer_embeddings=True).sync_items(
+            store = PostgresVNextStore(conn)
+            guard = _connector_sync_caller_guard(store, user_id=request.user_id, authorization=authorization)
+            service = VNextConnectorService(store, defer_embeddings=True)
+            result = service.sync_items(
                 connector_name,
                 request.items,
                 default_domain=request.default_domain,
                 default_sensitivity=request.default_sensitivity,
             )
-            payload = result.to_record()
+            payload = service.shown_sync_record(result, guard=guard)
         _persist_vnext_deferred_embeddings(
             database_url=settings.database_url,
             user_id=request.user_id,
             result=result,
         )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentPolicyBlockedError as exc:
+        return _vnext_permission_response(exc.decision)
     except VNextConnectorValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext connector sync request is invalid")
 
@@ -552,23 +621,31 @@ def sync_vnext_connector(connector_name: str, request: VNextConnectorSyncRequest
 
 
 @connectors_router.post("/v0/vnext/connectors/telegram/sync")
-def sync_vnext_telegram_connector(request: VNextTelegramSyncRequest) -> JSONResponse:
+def sync_vnext_telegram_connector(
+    request: VNextTelegramSyncRequest, authorization: str | None = Header(default=None)
+) -> JSONResponse:
     settings = get_settings()
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
-            service = VNextConnectorService(PostgresVNextStore(conn), defer_embeddings=True)
+            store = PostgresVNextStore(conn)
+            guard = _connector_sync_caller_guard(store, user_id=request.user_id, authorization=authorization)
+            service = VNextConnectorService(store, defer_embeddings=True)
             result = service.sync_telegram_updates(
                 request.updates,
                 allowed_chat_ids=request.allowed_chat_ids,
                 default_domain=request.default_domain,
                 default_sensitivity=request.default_sensitivity,
             )
-            payload = result.to_record()
+            payload = service.shown_sync_record(result, guard=guard)
         _persist_vnext_deferred_embeddings(
             database_url=settings.database_url,
             user_id=request.user_id,
             result=result,
         )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentPolicyBlockedError as exc:
+        return _vnext_permission_response(exc.decision)
     except VNextConnectorValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext Telegram sync request is invalid")
     return JSONResponse(
@@ -577,7 +654,9 @@ def sync_vnext_telegram_connector(request: VNextTelegramSyncRequest) -> JSONResp
 
 
 @connectors_router.post("/v0/vnext/connectors/local-folder/sync")
-def sync_vnext_local_folder_connector(request: VNextLocalFolderSyncRequest) -> JSONResponse:
+def sync_vnext_local_folder_connector(
+    request: VNextLocalFolderSyncRequest, authorization: str | None = Header(default=None)
+) -> JSONResponse:
     settings = get_settings()
     try:
         paths = list(request.paths)
@@ -599,17 +678,24 @@ def sync_vnext_local_folder_connector(request: VNextLocalFolderSyncRequest) -> J
             ignore_patterns=request.ignore_patterns,
         )
         with user_connection(settings.database_url, request.user_id) as conn:
-            result = VNextConnectorService(PostgresVNextStore(conn), defer_embeddings=True).sync_local_folder_scan(
+            store = PostgresVNextStore(conn)
+            guard = _connector_sync_caller_guard(store, user_id=request.user_id, authorization=authorization)
+            service = VNextConnectorService(store, defer_embeddings=True)
+            result = service.sync_local_folder_scan(
                 scan,
                 default_domain=request.default_domain,
                 default_sensitivity=request.default_sensitivity,
             )
-            payload = result.to_record()
+            payload = service.shown_sync_record(result, guard=guard)
         _persist_vnext_deferred_embeddings(
             database_url=settings.database_url,
             user_id=request.user_id,
             result=result,
         )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentPolicyBlockedError as exc:
+        return _vnext_permission_response(exc.decision)
     except VNextConnectorValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext local folder sync request is invalid")
     return JSONResponse(
@@ -755,19 +841,20 @@ def get_vnext_dogfooding_dashboard(
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 
-def _doctor_content_visible(store: PostgresVNextStore, *, user_id: UUID, authorization: str | None) -> bool:
-    """True when the caller has no limits, so the doctor may read the vault's content for it.
+def _doctor_caller_guard(store: PostgresVNextStore, *, user_id: UUID, authorization: str | None) -> LabelGuard:
+    """The guard of the doctor's caller. It is inactive when the caller has no limits.
 
     The content checks list the ids of sources that carry credential material and count derived rows, whatever
-    their label. Only the owner and an unbound admin key are shown them. This is the workspace's condition.
+    their label, and the connector block names the last captured source and cursor. Only the owner and an unbound
+    admin key are shown the content checks and the whole connector block. This is the workspace's condition.
     """
 
-    from alicebot_api.vnext_source_fence import SourceReadFence
+    from alicebot_api.vnext_label_guard import guard_for_caller
 
     identity = resolve_protected_agent_identity(
         store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}
     )
-    return not SourceReadFence.for_identity(identity).entity_read_fenced
+    return guard_for_caller(store, identity)
 
 
 @connectors_router.get("/v0/vnext/doctor")
@@ -776,10 +863,12 @@ def get_vnext_doctor(user_id: UUID, ci: bool = True, authorization: str | None =
     try:
         with user_connection(settings.database_url, user_id) as conn:
             store = PostgresVNextStore(conn)
-            content_visible = _doctor_content_visible(store, user_id=user_id, authorization=authorization)
-            payload = VNextDoctorService(store).run(ci=ci, include_content_diagnostics=content_visible)
+            guard = _doctor_caller_guard(store, user_id=user_id, authorization=authorization)
+            payload = VNextDoctorService(store).run(ci=ci, include_content_diagnostics=not guard.active, label_guard=guard)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
+    except AgentPolicyBlockedError as exc:
+        return _vnext_permission_response(exc.decision)
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 
@@ -789,12 +878,14 @@ def run_vnext_doctor(request: VNextDoctorRunRequest, authorization: str | None =
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
-            content_visible = _doctor_content_visible(store, user_id=request.user_id, authorization=authorization)
+            guard = _doctor_caller_guard(store, user_id=request.user_id, authorization=authorization)
             payload = VNextDoctorService(store).run(
-                fix_safe=request.fix_safe, ci=request.ci, include_content_diagnostics=content_visible
+                fix_safe=request.fix_safe, ci=request.ci, include_content_diagnostics=not guard.active, label_guard=guard
             )
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
+    except AgentPolicyBlockedError as exc:
+        return _vnext_permission_response(exc.decision)
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 
@@ -2010,11 +2101,25 @@ def redact_vnext_memory(
 
 
 @memory_router.get("/v0/vnext/memories/recent-commits")
-def list_vnext_recent_memory_commits(user_id: UUID, limit: int = Query(default=20, ge=1, le=100)) -> JSONResponse:
+def list_vnext_recent_memory_commits(
+    user_id: UUID,
+    limit: int = Query(default=20, ge=1, le=100),
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings = get_settings()
-    with user_connection(settings.database_url, user_id) as conn:
-        store = PostgresVNextStore(conn)
-        payload = VNextMemoryCommitService(store).recent_commits(limit=limit)
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
+            # The list and its count hold the commits this caller may read now. The owner and an unbound admin key
+            # are shown every commit.
+            payload = VNextMemoryCommitService(store).recent_commits(limit=limit, identity=identity)
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentPolicyBlockedError as exc:
+        return _vnext_permission_response(exc.decision)
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 

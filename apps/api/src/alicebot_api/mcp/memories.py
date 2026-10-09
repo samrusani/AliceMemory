@@ -663,8 +663,11 @@ def _handle_alice_vnext_recent_memory_commits(
         if decision.decision == "blocked":
             blocked_decision = decision
         else:
+            # The list holds the commits this caller may read, judged on their effective labels. The declared profile
+            # of a call with no key binds it the same way a key does.
             payload = VNextMemoryCommitService(store).recent_commits(
-                limit=_parse_int(arguments, key="limit", default=20, minimum=1, maximum=100)
+                limit=_parse_int(arguments, key="limit", default=20, minimum=1, maximum=100),
+                identity=identity,
             )
     if blocked_decision is not None:
         _raise_mcp_policy_blocked(blocked_decision)

@@ -76,11 +76,11 @@ def _row(identifier, sensitivity="public", **kwargs):
 def _quiet_services(monkeypatch):
     for name in ("VNextSchedulerService", "VNextConnectorService", "VNextDoctorService", "VNextProjectService", "VNextMemoryCommitService"):
         monkeypatch.setattr(workspaces, name, lambda store: SimpleNamespace(
-            status=lambda: {}, connector_health_all=lambda: [], run=lambda **kwargs: {},
+            status=lambda: {}, connector_health_all=lambda **kwargs: [], run=lambda **kwargs: {},
             project_dashboard=lambda **kwargs: {}, recent_commits=lambda **kwargs: {"recent_commits": []},
             inline_confirmations=lambda **kwargs: []))
     monkeypatch.setattr(workspaces, "daemon_status", lambda: {})
-    monkeypatch.setattr("alicebot_api.vnext_dogfooding.VNextConnectorService.connector_health_all", lambda self: [])
+    monkeypatch.setattr("alicebot_api.vnext_dogfooding.VNextConnectorService.connector_health_all", lambda self, **kwargs: [])
 
 
 def test_workspace_counts_sql_hidden_and_beyond_display_page(monkeypatch):

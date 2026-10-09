@@ -292,7 +292,7 @@ def _run_vnext_memory_recent(ctx: CLIContext, args: argparse.Namespace) -> str:
             action="memory.recent_commits",
         )
         ensure_policy_allowed(decision)
-        payload = VNextMemoryCommitService(store).recent_commits(limit=args.limit)
+        payload = VNextMemoryCommitService(store).recent_commits(limit=args.limit, identity=identity)
     return _json_dumps(payload)
 
 

@@ -91,6 +91,7 @@ from alicebot_api.vnext_project_update_guard import (
     is_pending_project_update_memory,
 )
 from alicebot_api.vnext_derived_labels import group_scope
+from alicebot_api.vnext_label_guard import guard_for_caller, label_read_request, newest_admitted_rows
 from alicebot_api.vnext_project_scope import normalize_project_scope, project_scope_identity
 from alicebot_api.vnext_repositories import EventStore, JsonObject
 from alicebot_api.store import ContinuityStoreInvariantError
@@ -2873,15 +2874,37 @@ class VNextMemoryCommitService:
             )
         return envelope
 
-    def recent_commits(self, *, limit: int = 20) -> JsonObject:
-        rows = []
-        for memory in self.store.list_memories(status=None):
-            agentic = _agentic_metadata(memory)
-            if agentic.get("kind") == "agentic_memory_commit":
-                rows.append(memory)
-            if len(rows) >= limit:
-                break
+    @label_read_request
+    def recent_commits(self, *, limit: int = 20, identity: AgentIdentity | None) -> JsonObject:
+        """The newest commits this caller may read, and how many that is.
+
+        ``identity`` has no default. The owner passes ``None`` and an unbound admin key passes its own; both are shown
+        every commit as it was stored. Any other caller is shown the commits its policy and its effective labels admit:
+        a commit above its ceiling, in a domain it may not read, in another project, or made from an input it may not
+        read is left out of the list and of the count, and the list is refilled from older commits so it is as long as
+        the caller may read, up to ``limit``. A commit that is listed loses the saved quote of a source the caller may
+        not read, as the row of every verb does. A ``limit`` below 1 is read as 1, as it always was.
+        """
+
+        guard = guard_for_caller(self.store, identity, action="memory.recent_commits")
+        rows = newest_admitted_rows(guard, "memory", self._newest_commits, want=max(limit, 1))
+        if guard.active:
+            rows = SavedProvenanceReader(self.store, fence=SourceReadFence.for_identity(identity)).memories(rows)
         return {"recent_commits": rows, "count": len(rows)}
+
+    def _newest_commits(self, size: int) -> list[VNextRow]:
+        """The newest ``size`` commits, newest first, whatever their labels."""
+
+        newest = getattr(self.store, "list_recent_agentic_commits", None)
+        if callable(newest):
+            return list(newest(limit=size))
+        rows: list[VNextRow] = []
+        for memory in self.store.list_memories(status=None):
+            if _agentic_metadata(memory).get("kind") == "agentic_memory_commit":
+                rows.append(memory)
+            if len(rows) >= size:
+                break
+        return rows
 
     def refresh_memory_derived_state(
         self,

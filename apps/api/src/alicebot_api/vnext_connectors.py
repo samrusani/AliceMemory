@@ -17,8 +17,8 @@ import os
 from pathlib import Path
 import tempfile
 import time
-from typing import Any, Protocol, cast
-from uuid import uuid4
+from typing import TYPE_CHECKING, Any, Protocol, cast
+from uuid import UUID, uuid4
 
 from alicebot_api.connector_payloads import ConnectorPayloadValidationError, normalize_telegram_source_item
 from alicebot_api.importer_paths import ContainedReadRefused, read_text_beneath
@@ -41,6 +41,17 @@ from alicebot_api.vnext_secrets import (
 )
 
 
+if TYPE_CHECKING:
+    from alicebot_api.vnext_label_guard import LabelGuard
+
+# The payload fields of a connector event that hold a cursor. A cursor is the position of the last item imported, and for a
+# file or a page it is the path or the address of that item.
+CONNECTOR_EVENT_CURSOR_FIELDS: dict[str, tuple[str, ...]] = {
+    "connector.state_updated": ("cursor_value",),
+    "connector.sync_started": ("previous_cursor",),
+    "connector.sync_completed": ("previous_cursor", "sync_cursor"),
+    "connector.sync_failed": ("previous_cursor", "sync_cursor"),
+}
 CONNECTOR_ITEM_IMPORT_ERROR_CODE = "connector_item_import_failed"
 CONNECTOR_ITEM_IMPORT_ERROR_MESSAGE = "Connector item could not be imported"
 CONNECTOR_SYNC_ERROR_CODE = "connector_sync_failed"
@@ -60,6 +71,8 @@ class VNextConnectorValidationError(ValueError):
 
 class VNextConnectorStore(VNextCaptureStore, Protocol):
     def list_events(self, *, target_type: str | None = None, target_id: str | None = None) -> list[JsonObject]: ...
+
+    def get_source(self, source_id: str) -> JsonObject | None: ...
 
     def create_artifact(self, artifact: JsonObject, *, actor_type: str = "system") -> JsonObject: ...
 
@@ -1377,7 +1390,16 @@ class VNextConnectorService:
             "updated_at": None,
         }
 
-    def connector_health(self, connector_name: str) -> JsonObject:
+    def connector_health(self, connector_name: str, *, guard: LabelGuard) -> JsonObject:
+        """The health of one connector, as ``guard``'s caller may be shown it.
+
+        ``guard`` is required. The owner and an unbound admin key pass an inactive guard and get the block as it was
+        stored. For any other caller, ``last_captured_item`` names a captured source by id and external id, and
+        ``cursor_state`` is the cursor of an imported item (for a file, its path), so each is shown only when every
+        source it names is stored, not deleted, and admitted by ``guard`` on its effective labels. Counters, times and
+        public error codes carry no row text and stay.
+        """
+
         definition = get_connector_definition(connector_name)
         config = self.get_config(definition.name)
         candidate_state = self._connector_row("states", "get_connector_state", definition.name)
@@ -1458,6 +1480,18 @@ class VNextConnectorService:
                 "refused_count": _int_count(latest_scan_payload.get("refused_count")),
                 "truncated": latest_scan_payload.get("truncated") is True,
             }
+        last_captured_item = latest_import_payload if isinstance(latest_import_payload, dict) else None
+        if guard.active and last_captured_item is not None:
+            if not self._caller_reads_sources(guard, [last_captured_item.get("source_id")]):
+                last_captured_item = None
+        cursor_value = self.shown_cursor(
+            definition.name,
+            _as_optional_text(state.get("cursor_value"))
+            if state is not None
+            else cursor_state or self.get_cursor(definition.name),
+            guard=guard,
+            events=events,
+        )
         return {
             "connector_name": definition.name,
             "display_name": definition.display_name,
@@ -1486,21 +1520,131 @@ class VNextConnectorService:
             else None,
             "last_error": state_last_error if state_last_error is not None else last_error,
             "last_error_code": state_error_code or last_error_code,
-            "last_captured_item": latest_import_payload if isinstance(latest_import_payload, dict) else None,
+            "last_captured_item": last_captured_item,
             "last_scan": last_scan,
             "items_seen": int(state.get("items_seen", 0)) if state is not None else items_seen,
             "items_captured": int(state.get("items_captured", 0)) if state is not None else items_captured,
             "items_deduped": int(state.get("items_deduped", 0)) if state is not None else items_deduped,
             "items_failed": int(state.get("items_failed", 0)) if state is not None else items_failed,
-            "cursor_state": _as_optional_text(state.get("cursor_value"))
-            if state is not None
-            else cursor_state or self.get_cursor(definition.name),
+            "cursor_state": cursor_value,
             "average_processing_time": state.get("average_processing_time_ms")
             if state is not None
             else round(sum(processing_times) / len(processing_times), 3)
             if processing_times
             else None,
         }
+
+    def shown_cursor(
+        self,
+        connector_name: str,
+        cursor: str | None,
+        *,
+        guard: LabelGuard,
+        events: Sequence[Mapping[str, object]] | None = None,
+    ) -> str | None:
+        """``cursor`` as ``guard``'s caller may be shown it.
+
+        A cursor is the position of the last item imported, and for a file or a page it is the path or the address of
+        that item. It is shown to a caller with limits only when at least one import carries it and every import that
+        carries it names a source the caller may read. A cursor that no import carries cannot be tied to a source, so it
+        is not shown. The owner and an unbound admin key get the cursor as stored.
+        """
+
+        if cursor is None or not guard.active:
+            return cursor
+        known = events if events is not None else self._connector_events(connector_name)
+        carriers: list[Mapping[str, object]] = []
+        for event in known:
+            payload = event.get("payload_json")
+            if (
+                event.get("event_type") == "connector.item_imported"
+                and isinstance(payload, dict)
+                and payload.get("sync_cursor") == cursor
+            ):
+                carriers.append(payload)
+        if not carriers or not self._caller_reads_sources(guard, [item.get("source_id") for item in carriers]):
+            return None
+        return cursor
+
+    def shown_sync_record(self, result: ConnectorSyncResult, *, guard: LabelGuard) -> JsonObject:
+        """The record of a sync as ``guard``'s caller may be shown it: its two cursors pass through ``shown_cursor``.
+
+        The previous cursor is where an earlier call, perhaps another caller's, left off, so it can name an item the
+        caller may not read. The ids of the sources and of the failed items are the ones the call itself handled.
+        """
+
+        record = result.to_record()
+        if guard.active:
+            for name in ("previous_cursor", "sync_cursor"):
+                cursor = record.get(name)
+                record[name] = self.shown_cursor(
+                    result.connector_name, cursor if isinstance(cursor, str) else None, guard=guard
+                )
+        return record
+
+    def shown_event_cursors(
+        self, events: Sequence[Mapping[str, Any]], *, guard: LabelGuard
+    ) -> list[Mapping[str, Any]]:
+        """Connector events as ``guard``'s caller may be shown them: the cursors an event recorded pass through ``shown_cursor``.
+
+        A sync event records where the connector stood (``cursor_value`` of a state update, ``previous_cursor`` and
+        ``sync_cursor`` of a sync), and for a file or a page that is its path or its address. Each one is shown when the
+        caller may read the source it came from and is ``null`` otherwise, the same rule as the health block. An event
+        that is not one of those, and a field that is empty, are left as they are (a failed item names only what the call
+        that failed it sent, and it never became a row). The events handed in are not edited: an event with a cursor that
+        is not shown is copied.
+        """
+
+        if not guard.active:
+            return list(events)
+        recorded: dict[str, list[Mapping[str, Any]]] = {}
+        decided: dict[tuple[str, str], str | None] = {}
+        shown: list[Mapping[str, Any]] = []
+        for event in events:
+            fields = CONNECTOR_EVENT_CURSOR_FIELDS.get(str(event.get("event_type")))
+            payload = event.get("payload_json")
+            if fields is None or not isinstance(payload, dict):
+                shown.append(event)
+                continue
+            name = event.get("target_id") if event.get("target_type") == "connector" else payload.get("connector_name")
+            cleaned = dict(payload)
+            for field in fields:
+                cursor = payload.get(field)
+                if cursor is None or cursor == "":
+                    continue
+                # A cursor that is not text, and one of a connector the event does not name, cannot be tied to an import.
+                if not isinstance(cursor, str) or not isinstance(name, str):
+                    cleaned[field] = None
+                    continue
+                if (name, cursor) not in decided:
+                    if name not in recorded:
+                        recorded[name] = self._connector_events(name, copy=False)
+                    decided[(name, cursor)] = self.shown_cursor(name, cursor, guard=guard, events=recorded[name])
+                cleaned[field] = decided[(name, cursor)]
+            shown.append(event if cleaned == payload else {**event, "payload_json": cleaned})
+        return shown
+
+    def _caller_reads_sources(self, guard: LabelGuard, source_ids: Sequence[object]) -> bool:
+        """True when every id names a stored, undeleted source that ``guard`` admits on its effective labels.
+
+        An empty list, an id that is not a source id, a source that is missing and a source that is deleted all answer
+        False, so a block that cannot be tied to a readable source is not shown.
+        """
+
+        getter = getattr(self.store, "get_source", None)
+        if not callable(getter) or not source_ids:
+            return False
+        rows: list[Mapping[str, object]] = []
+        for raw in dict.fromkeys(source_ids):
+            try:
+                source_id = str(UUID(str(raw)))
+            except (ValueError, AttributeError, TypeError):
+                return False
+            row = getter(source_id)
+            if not isinstance(row, Mapping) or row.get("deleted_at") is not None:
+                return False
+            rows.append(row)
+        return len(guard.admit_rows("source", rows)) == len(rows)
 
     def _connector_row(self, namespace: str, method: str, name: str):
         from alicebot_api.vnext_label_guard import request_row_cache
@@ -1514,27 +1658,31 @@ class VNextConnectorService:
             cache.setdefault(namespace, {})[name] = deepcopy(row)
         return row
 
-    def _connector_events(self, name: str):
+    def _connector_events(self, name: str, *, copy: bool = True):
+        """The events of one connector. ``copy=False`` is for a reader that edits nothing: it may be the request's own list."""
+
         from alicebot_api.vnext_label_guard import request_row_cache
 
         cache = request_row_cache(self.store, "connector_health_inputs")
         if cache is not None and name in cache.get("events", {}):
-            return deepcopy(cache["events"][name])
+            return deepcopy(cache["events"][name]) if copy else cache["events"][name]
         events = self.store.list_events(target_type="connector", target_id=name)
         if cache is not None:
             cache.setdefault("events", {})[name] = deepcopy(events)
         return events
 
-    def connector_health_all(self) -> JsonObject:
+    def connector_health_all(self, *, guard: LabelGuard) -> JsonObject:
         from copy import deepcopy
         from alicebot_api.vnext_label_guard import request_row_cache
 
         # Workspace, dogfooding and doctor render the same connector snapshot
-        # in one guarded request. Keep this raw census request-local, with the
-        # same store/write invalidation as label input rows.
+        # in one guarded request. Keep this census request-local, with the
+        # same store/write invalidation as label input rows. A snapshot is
+        # reused only for the grant it was judged under.
         cache = request_row_cache(self.store, "connector_health_all")
-        if cache is not None and "result" in cache:
-            return deepcopy(cache["result"])
+        grant = ("result", guard.active, guard.domains, guard.sensitivity_allowed, guard.projects, guard.all_of)
+        if cache is not None and grant in cache:
+            return deepcopy(cache[grant])
         definitions = list_connector_definitions()
         inputs = request_row_cache(self.store, "connector_health_inputs")
         if inputs is not None:
@@ -1547,10 +1695,10 @@ class VNextConnectorService:
                                if isinstance(row, dict) and row.get("connector_name")
                                and (namespace != "states" or row.get("cursor_type") == "sync_cursor")}
                     inputs[namespace] = {definition.name: by_name.get(definition.name) for definition in definitions}
-        items = [self.connector_health(definition.name) for definition in definitions]
+        items = [self.connector_health(definition.name, guard=guard) for definition in definitions]
         result: JsonObject = {"items": items, "count": len(items), "order": [str(item["connector_name"]) for item in items]}
         if cache is not None:
-            cache["result"] = deepcopy(result)
+            cache[grant] = deepcopy(result)
         return result
 
     def set_connector_secret(self, connector_name: str, *, secret_ref: str, secret_value: str) -> JsonObject:
