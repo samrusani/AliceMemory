@@ -34,5 +34,5 @@ def test_the_changelog_says_redact_completes_for_a_promoted_copy_and_what_it_lea
     entry = changelog[changelog.index(MARK + " redacting a memory that a promotion made now completes.") :][:2600]
 
     assert "In v0.19.2, in v0.20.0 and on main until now" in entry
-    assert "the append-only trigger is unchanged" in entry
+    assert "No migration is required. The append-only trigger is unchanged." in entry
     assert "An artifact event that holds anything more still stops the redaction, so no text is left behind." in entry
