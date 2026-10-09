@@ -84,6 +84,7 @@ def test_the_tool_reference_names_the_reason_the_doors_the_regeneration_and_the_
     assert "the old report stays restricted until it is deleted" in text
     assert "no command deletes a report today: archiving a report keeps its row and its text, so an archived report stays restricted" in text
     assert "redacting a memory needs no relabel pass" in text
+    assert "the recommended fix of the check is to regenerate or delete those reports, and not `alicebot vnext labels repair`" in text
     assert "`get /v0/vnext/graph/neighborhood/{target_id}` returns it to the owner and to an unbound admin or trusted key" in text
     assert "(#redacted-memories-and-the-graph)" in text
 

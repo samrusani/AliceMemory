@@ -822,8 +822,8 @@
           "file": "apps/api/src/alicebot_api/vnext_doctor.py",
           "before": "            fields = tuple(row.get(key) for key in (\"title\", \"author\", \"uri\", \"raw_path\", \"external_id\"))",
           "after": "            fields = tuple(row.get(key) for key in (\"title\",))",
-          "line": 365,
-          "sha256": "e0382cd7f34d4401164bfd1c30ee43f6db851bc2c72dffd341cb89ca958e1104"
+          "line": 369,
+          "sha256": "1a8b0836b66ce73d2359f702411d5823f4943d5b0d10b510b204b43d100d3d5b"
         }
       ],
       "pytest": [
@@ -838,8 +838,8 @@
           "file": "apps/api/src/alicebot_api/vnext_doctor.py",
           "before": "        if isinstance(row, Mapping) and type(row.get(\"metadata_json\")) is dict and not row[\"metadata_json\"]:",
           "after": "        if isinstance(row, Mapping) and type(row.get(\"metadata_json\")) is dict:",
-          "line": 364,
-          "sha256": "e0382cd7f34d4401164bfd1c30ee43f6db851bc2c72dffd341cb89ca958e1104"
+          "line": 368,
+          "sha256": "1a8b0836b66ce73d2359f702411d5823f4943d5b0d10b510b204b43d100d3d5b"
         }
       ],
       "pytest": [
@@ -1879,7 +1879,7 @@
           "line": 964,
           "before": "A call answered HTTP 404 changes nothing",
           "after": "A call answered HTTP 404 may change a thing",
-          "sha256": "448d0f13d1975fd259ae6b451e82908c6abce928ddb1a54f82929cbf1dbefaf0"
+          "sha256": "3c6d32def0e4916fd6061298340aa0d29f460cd4c335c07681fe29caa13650a1"
         }
       ],
       "pytest": [
@@ -2043,7 +2043,7 @@
           "line": 964,
           "before": "the only row it adds is the policy event that the operator gate records for its own refusal",
           "after": "it adds no row",
-          "sha256": "448d0f13d1975fd259ae6b451e82908c6abce928ddb1a54f82929cbf1dbefaf0"
+          "sha256": "3c6d32def0e4916fd6061298340aa0d29f460cd4c335c07681fe29caa13650a1"
         }
       ],
       "pytest": [
@@ -2059,7 +2059,7 @@
           "line": 964,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "448d0f13d1975fd259ae6b451e82908c6abce928ddb1a54f82929cbf1dbefaf0"
+          "sha256": "3c6d32def0e4916fd6061298340aa0d29f460cd4c335c07681fe29caa13650a1"
         }
       ],
       "pytest": [
@@ -2223,7 +2223,7 @@
           "line": 271,
           "before": "message=\"Content diagnostics are available to the owner and an unbound admin key.\",",
           "after": "message=\"Content diagnostics are omitted.\",",
-          "sha256": "e0382cd7f34d4401164bfd1c30ee43f6db851bc2c72dffd341cb89ca958e1104"
+          "sha256": "1a8b0836b66ce73d2359f702411d5823f4943d5b0d10b510b204b43d100d3d5b"
         }
       ],
       "pytest": [
@@ -3011,10 +3011,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_doctor.py",
-          "line": 321,
+          "line": 322,
           "before": "            if redacted_inputs:",
           "after": "            if False:",
-          "sha256": "e0382cd7f34d4401164bfd1c30ee43f6db851bc2c72dffd341cb89ca958e1104"
+          "sha256": "1a8b0836b66ce73d2359f702411d5823f4943d5b0d10b510b204b43d100d3d5b"
         }
       ],
       "pytest": [
@@ -3118,7 +3118,7 @@
           "line": 1110,
           "before": "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "448d0f13d1975fd259ae6b451e82908c6abce928ddb1a54f82929cbf1dbefaf0"
+          "sha256": "3c6d32def0e4916fd6061298340aa0d29f460cd4c335c07681fe29caa13650a1"
         }
       ],
       "pytest": [
@@ -3182,7 +3182,7 @@
           "line": 1114,
           "before": "Archiving keeps reports' historical content and does not restrict them.",
           "after": "Archiving restricts them.",
-          "sha256": "448d0f13d1975fd259ae6b451e82908c6abce928ddb1a54f82929cbf1dbefaf0"
+          "sha256": "3c6d32def0e4916fd6061298340aa0d29f460cd4c335c07681fe29caa13650a1"
         }
       ],
       "pytest": [
@@ -3287,6 +3287,40 @@
         "tests/unit/test_redacted_input_containment_docs.py"
       ],
       "expected_failure": "test_the_doctor_line_in_the_code_says_what_the_pages_say"
+    },
+    {
+      "name": "doctor-redacted-recommended-fix",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_doctor.py",
+          "line": 326,
+          "before": "label_fix = \"Regenerate or delete the reports built from a redacted memory.\"",
+          "after": "label_fix = \"alicebot vnext labels repair\"",
+          "sha256": "1a8b0836b66ce73d2359f702411d5823f4943d5b0d10b510b204b43d100d3d5b"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_redacted_input_containment_postgres.py",
+        "-k",
+        "doctor_counts_the_rows"
+      ],
+      "expected_failure": "test_the_doctor_counts_the_rows_as_unverified_and_says_to_regenerate_or_delete"
+    },
+    {
+      "name": "redaction-docs-recommended-fix",
+      "edits": [
+        {
+          "file": "docs/alpha/mcp-tools.md",
+          "line": 1116,
+          "before": "The recommended fix of the check is to regenerate or delete those reports, and not `alicebot vnext labels repair`",
+          "after": "The recommended fix of the check is labels repair",
+          "sha256": "3c6d32def0e4916fd6061298340aa0d29f460cd4c335c07681fe29caa13650a1"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_redacted_input_containment_docs.py"
+      ],
+      "expected_failure": "test_the_tool_reference_names_the_reason_the_doors_the_regeneration_and_the_graph_exception"
     }
   ]
 }

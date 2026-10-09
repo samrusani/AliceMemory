@@ -315,11 +315,15 @@ class VNextDoctorService:
 
         from alicebot_api.vnext_label_repair import REDACTED_INPUT_ADVICE, LabelCheckUnavailable, label_gap_report
 
+        label_fix = "alicebot vnext labels repair"
         try:
             below, unverified, redacted_inputs = label_gap_report(self.store)
             label_line = f"derived labels: {below} below their inputs, {unverified} unverified"
             if redacted_inputs:
                 label_line += f" ({redacted_inputs} built from a redacted memory). {REDACTED_INPUT_ADVICE}"
+                if not below:
+                    # Repair raises rows below their inputs. It cannot clear a row that kept a redacted memory's words.
+                    label_fix = "Regenerate or delete the reports built from a redacted memory."
             labels_available = True
         except LabelCheckUnavailable:
             below, unverified = 0, 0
@@ -332,7 +336,7 @@ class VNextDoctorService:
             severity="warning",
             message_ok=label_line,
             message_fail=label_line,
-            recommended_fix="alicebot vnext labels repair",
+            recommended_fix=label_fix,
         )
 
 

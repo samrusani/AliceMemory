@@ -351,6 +351,8 @@ def test_the_doctor_counts_the_rows_as_unverified_and_says_to_regenerate_or_dele
     assert f"{unverified} unverified" in check["message"] and f"{redacted_inputs} built from a redacted memory" in check["message"]
     assert REDACTED_INPUT_ADVICE in check["message"]
     assert "regenerate or delete" in check["message"].lower() and "cannot fix" in check["message"]
+    # The fix the check recommends is not the repair that cannot clear these rows.
+    assert check["recommended_fix"] == "Regenerate or delete the reports built from a redacted memory."
     # A key with limits gets no content check, and so no count of rows it may not read.
     status, limited, _ = h.request("GET", "/v0/vnext/doctor", key=keys["trusted"])
     skipped = next(item for item in limited["checks"] if item["name"] == "derived_labels")
