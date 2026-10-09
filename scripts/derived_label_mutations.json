@@ -5062,9 +5062,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_connector_health_limits_sqlite.py::test_an_import_whose_source_is_deleted_or_missing_is_not_shown_to_a_caller_with_limits"
+        "tests/unit/test_connector_health_limits_sqlite.py::test_a_source_row_marked_deleted_is_not_shown_even_when_the_store_returns_it"
       ],
-      "expected_failure": "test_an_import_whose_source_is_deleted_or_missing_is_not_shown_to_a_caller_with_limits"
+      "expected_failure": "test_a_source_row_marked_deleted_is_not_shown_even_when_the_store_returns_it"
     },
     {
       "name": "connector-source-id-not-a-source-shown",
