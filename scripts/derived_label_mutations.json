@@ -1247,9 +1247,11 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_the_belief_and_edge_doors_apply_the_callers_limits"
+        "tests/unit/test_edge_and_belief_helpers_judge_the_callers_ends.py",
+        "-k",
+        "review_vnext_belief"
       ],
-      "expected_failure": "test_the_belief_and_edge_doors_apply_the_callers_limits"
+      "expected_failure": "test_each_review_route_hands_the_callers_identity_to_its_helper"
     },
     {
       "name": "belief-review-replacement-unchecked",
@@ -1279,9 +1281,11 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_the_belief_and_edge_doors_apply_the_callers_limits"
+        "tests/unit/test_edge_and_belief_helpers_judge_the_callers_ends.py",
+        "-k",
+        "review_vnext_graph_edge"
       ],
-      "expected_failure": "test_the_belief_and_edge_doors_apply_the_callers_limits"
+      "expected_failure": "test_each_review_route_hands_the_callers_identity_to_its_helper"
     },
     {
       "name": "belief-backing-memory-unchecked",
@@ -1327,9 +1331,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_the_belief_and_edge_doors_apply_the_callers_limits"
+        "tests/unit/test_edge_and_belief_helpers_judge_the_callers_ends.py::test_the_edge_helper_hands_back_an_edge_only_when_the_caller_may_read_each_end_it_names"
       ],
-      "expected_failure": "test_the_belief_and_edge_doors_apply_the_callers_limits"
+      "expected_failure": "test_the_edge_helper_hands_back_an_edge_only_when_the_caller_may_read_each_end_it_names"
     },
     {
       "name": "edge-memory-end-unchecked",
@@ -1343,9 +1347,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_an_edge_with_an_end_the_caller_cannot_read_or_find_is_not_the_callers_to_review"
+        "tests/unit/test_edge_and_belief_helpers_judge_the_callers_ends.py::test_the_edge_helper_hands_back_an_edge_only_when_the_caller_may_read_each_end_it_names"
       ],
-      "expected_failure": "test_an_edge_with_an_end_the_caller_cannot_read_or_find_is_not_the_callers_to_review"
+      "expected_failure": "test_the_edge_helper_hands_back_an_edge_only_when_the_caller_may_read_each_end_it_names"
     },
     {
       "name": "edge-belief-end-unchecked",
@@ -1359,9 +1363,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_an_edge_with_an_end_the_caller_cannot_read_or_find_is_not_the_callers_to_review"
+        "tests/unit/test_edge_and_belief_helpers_judge_the_callers_ends.py::test_the_edge_helper_hands_back_an_edge_only_when_the_caller_may_read_each_end_it_names"
       ],
-      "expected_failure": "test_an_edge_with_an_end_the_caller_cannot_read_or_find_is_not_the_callers_to_review"
+      "expected_failure": "test_the_edge_helper_hands_back_an_edge_only_when_the_caller_may_read_each_end_it_names"
     },
     {
       "name": "edge-source-end-unchecked",
@@ -1375,9 +1379,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_an_edge_with_an_end_the_caller_cannot_read_or_find_is_not_the_callers_to_review"
+        "tests/unit/test_edge_and_belief_helpers_judge_the_callers_ends.py::test_the_edge_helper_hands_back_an_edge_only_when_the_caller_may_read_each_end_it_names"
       ],
-      "expected_failure": "test_an_edge_with_an_end_the_caller_cannot_read_or_find_is_not_the_callers_to_review"
+      "expected_failure": "test_the_edge_helper_hands_back_an_edge_only_when_the_caller_may_read_each_end_it_names"
     },
     {
       "name": "edge-unknown-end-kind-allowed",
@@ -1407,9 +1411,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_an_edge_with_an_end_the_caller_cannot_read_or_find_is_not_the_callers_to_review"
+        "tests/unit/test_edge_and_belief_helpers_judge_the_callers_ends.py::test_the_edge_helper_hands_back_an_edge_only_when_the_caller_may_read_each_end_it_names"
       ],
-      "expected_failure": "test_an_edge_with_an_end_the_caller_cannot_read_or_find_is_not_the_callers_to_review"
+      "expected_failure": "test_the_edge_helper_hands_back_an_edge_only_when_the_caller_may_read_each_end_it_names"
     },
     {
       "name": "memory-door-fence-removed",
@@ -1423,9 +1427,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_an_edge_with_an_end_the_caller_cannot_read_or_find_is_not_the_callers_to_review"
+        "tests/unit/test_edge_and_belief_helpers_judge_the_callers_ends.py::test_the_edge_helper_hands_back_an_edge_only_when_the_caller_may_read_each_end_it_names"
       ],
-      "expected_failure": "test_an_edge_with_an_end_the_caller_cannot_read_or_find_is_not_the_callers_to_review"
+      "expected_failure": "test_the_edge_helper_hands_back_an_edge_only_when_the_caller_may_read_each_end_it_names"
     },
     {
       "name": "artifact-door-block-removed",
