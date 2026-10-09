@@ -338,21 +338,38 @@ def get_vnext_context_tree(
     sensitivity_allowed: Annotated[list[str] | None, Query()] = None,
     limit: int = 12,
     include_events: bool = True,
+    authorization: str | None = Header(default=None),
 ) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import clamp_request_filters
+
     settings = get_settings()
     try:
         with user_connection(settings.database_url, user_id) as conn:
             store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
+            # The domains and sensitivities in the query string select what to show, and never widen what the key may
+            # read: a level above its ceiling is read at the key's own levels.
+            tree_domains, tree_sensitivity = clamp_request_filters(
+                identity,
+                domains=tuple(domains or ()),
+                sensitivity_allowed=tuple(sensitivity_allowed or ("public", "internal", "private", "unknown")),
+            )
             payload = VNextContextTreeService(cast(VNextContextTreeStore, store)).build_tree(
                 ContextTreeRequest(
                     query=query,
-                    domains=tuple(domains or ()),
-                    sensitivity_allowed=tuple(sensitivity_allowed or ("public", "internal", "private", "unknown")),
+                    domains=tree_domains,
+                    sensitivity_allowed=tree_sensitivity,
                     limit=limit,
                     include_events=include_events,
                     generated_by="user",
                 )
             )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentPolicyBlockedError as exc:
+        return _vnext_permission_response(exc.decision)
     except VNextContextTreeValidationError as exc:
         return public_exception_response(exc, status_code=400)
 

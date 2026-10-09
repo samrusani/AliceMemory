@@ -1486,7 +1486,7 @@ def _run_vnext_smoke_agentic_memory_commit(ctx: CLIContext, _args: argparse.Name
             for event in _object_list(audit.get("events"))
             if isinstance(event, dict)
         )
-        recent = service.recent_commits(limit=20)
+        recent = service.recent_commits(limit=20, identity=None)
         gates["recent_commits_visible"] = any(
             str(memory.get("id")) == committed_memory_id
             for memory in _object_list(recent.get("recent_commits"))

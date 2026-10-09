@@ -463,15 +463,24 @@ def get_vnext_connectors_health(user_id: UUID) -> JSONResponse:
 
 
 @connectors_router.get("/v0/vnext/connectors/{connector_name}/status")
-def get_vnext_connector_status(connector_name: str, user_id: UUID) -> JSONResponse:
+def get_vnext_connector_status(
+    connector_name: str,
+    user_id: UUID,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import guard_for_caller
+
     settings = get_settings()
     try:
         with user_connection(settings.database_url, user_id) as conn:
             store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
             service = VNextConnectorService(store)
-            sources = [
-                source for source in store.list_sources(limit=50) if source.get("connector_name") == connector_name
-            ]
+            # The captures listed are the ones this caller may read. The owner and an unbound admin key see them all.
+            readable_sources = guard_for_caller(store, identity).admit_rows("source", store.list_sources(limit=50))
+            sources = [source for source in readable_sources if source.get("connector_name") == connector_name]
             failures = [
                 event
                 for event in store.list_events(target_type="connector", target_id=connector_name, limit=50)
@@ -483,6 +492,10 @@ def get_vnext_connector_status(connector_name: str, user_id: UUID) -> JSONRespon
                 "recent_captures": sources[:10],
                 "recent_failures": failures[:10],
             }
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentPolicyBlockedError as exc:
+        return _vnext_permission_response(exc.decision)
     except VNextConnectorValidationError:
         return _vnext_public_error_response(status_code=404, detail="vNext connector was not found")
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
@@ -2010,11 +2023,25 @@ def redact_vnext_memory(
 
 
 @memory_router.get("/v0/vnext/memories/recent-commits")
-def list_vnext_recent_memory_commits(user_id: UUID, limit: int = Query(default=20, ge=1, le=100)) -> JSONResponse:
+def list_vnext_recent_memory_commits(
+    user_id: UUID,
+    limit: int = Query(default=20, ge=1, le=100),
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings = get_settings()
-    with user_connection(settings.database_url, user_id) as conn:
-        store = PostgresVNextStore(conn)
-        payload = VNextMemoryCommitService(store).recent_commits(limit=limit)
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
+            # The list and its count hold the commits this caller may read now. The owner and an unbound admin key
+            # are shown every commit.
+            payload = VNextMemoryCommitService(store).recent_commits(limit=limit, identity=identity)
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentPolicyBlockedError as exc:
+        return _vnext_permission_response(exc.decision)
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 

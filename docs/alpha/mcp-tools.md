@@ -948,9 +948,7 @@ one string, an id under another key) is stored without it and is judged only
 when it is read; memory proposals (`alice_vnext_propose_memory`,
 `POST /v0/vnext/memory-proposals`) and the agent-output ingest
 (`alice_vnext_ingest_agent_output`, `POST /v0/vnext/agents/ingest-output`) store
-the `source_refs` they are given and check none of them; the legacy tool
-`alice_vnext_recent_memory_commits` lists commit rows with no row-level fence;
-the provenance links of artifacts are not held to this fence; the operator
+the `source_refs` they are given and check none of them; the provenance links of artifacts are not held to this fence; the operator
 routes `GET /v0/vnext/memories/{id}/audit`,
 `GET /v0/vnext/memories/recent-commits` and `GET /v0/vnext/sources/{id}`, which
 only the owner and a `trusted_local_agent` or `admin_agent` key bound to no
@@ -978,6 +976,19 @@ Unreleased (on main, not in v0.20.0): a row a key can read may list in its metad
 Unreleased (on main, not in v0.20.0): the doors that act on one row by id answer a row above the key's limits as a row that does not exist. For a key with limits, a row it may not read now gets the status and body of a missing row at the artifact get, trace, review, feedback, quality-rating and export routes, the project-update review route, the memory audit, review, correct, expire, forget, redact, undo, unexpire and accept-consolidation routes and the open-loop review route, and the tool's not-found error at `alice_memory_review` (detail), `alice_memory_correct`, `alice_memory_manage` and `alice_open_loops` (close, edit, snooze, reopen). Until now these doors answered HTTP 403 with the policy decision, or the tool's policy error, and that answer repeated the row's domain, sensitivity and project scope. The call now writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry. An archived or redacted memory is read by no door but redact, and it is outside the limits of every key that has any, so a refused redact of one is answered and written exactly as a redact of a missing id is: HTTP 404 or the tool's not-found error, and no policy event and no agent record. A row the key may read keeps its refusals. The owner and an unbound `admin_agent` key are unchanged.
 
 Unreleased (on main, not in v0.20.0): `POST /v0/vnext/open-loops` holds `project_id` to the key's project binding. A project outside the binding, a project that does not exist and an id that is not well formed answer HTTP 404 with `{"detail": "vNext project was not found"}` and write nothing.
+
+Unreleased (on main, not in v0.20.0): seven operator reads and writes, and one legacy tool, apply the caller's limits. In v0.19.2, in v0.20.0 and on main until now each of them read the vault as the owner whatever key called it, so an unbound `trusted_local_agent` key, whose ceiling is `public`, `internal`, `private` and `unknown`, was shown rows above that ceiling. Each now lists, counts and returns only what the caller may read now, judged on effective labels (the stored label raised to the labels of every input), and the owner and an unbound `admin_agent` key are shown what they were. The routes and what an unbound `trusted_local_agent` key is shown now:
+
+| Route or tool | What the key is shown now |
+|---|---|
+| `GET /v0/vnext/memories/recent-commits` and the tool `alice_vnext_recent_memory_commits` | The newest commits it may read. `count` is the length of that list. A commit above its ceiling, in a domain it may not read, in another project or made from an input it may not read is left out, and the list is refilled from older commits up to `limit`, reading at most 2,000 commits to fill it. A listed commit loses the saved quote of a source the caller may not read. The tool holds a call that declares a permission profile to that profile. |
+| `GET /v0/vnext/context-tree` | `sensitivity_allowed` and `domains` in the query select what to show and never widen it. A level above the ceiling is read at the key's own levels. |
+| `POST /v0/vnext/open-loops/extract` | Reads only sources it may read. `options.sensitivity_allowed` and the domains of `scope` are cut down the same way, so no loop is made from a source above the ceiling or returned to the key. |
+| `GET /v0/vnext/settings/brain-charter`, and `brain_charter` and `tasks` of `GET /v0/vnext/workspace` | A charter above the ceiling answers as no charter, `{"brain_charter": null}`. Only the queued tasks it may read are listed. |
+| `PUT /v0/vnext/settings/brain-charter` | HTTP 403 when the stored charter is above the key's ceiling. The save replaces the whole charter, so a key that may not read it may not replace it. Nothing is written and the refusal repeats none of the charter's labels. |
+| `GET /v0/vnext/connectors/{connector_name}/status` | `recent_captures` lists only the sources it may read. |
+
+A permanent test reads the routes of the application at run time and runs one probe for each `/v0/vnext` route against a vault that holds a hidden and a visible row of every kind, a row built from a hidden input, and the exact text of a hidden row. A route added without a probe fails the test. Not covered by this change: `GET /v0/vnext/graph/neighborhood/{target_id}` still lists an edge whose far end the key may not read, with the explanation the edge was made with; the failure list in `recent_failures` of the connector status names the id the importer gave to an item that failed to import, which is never stored as a row and so has no label; and `POST /v0/vnext/queue/process-next` answers HTTP 500 to every caller because its claim statement is ambiguous in PostgreSQL.
 
 ## Domains a profile may read
 

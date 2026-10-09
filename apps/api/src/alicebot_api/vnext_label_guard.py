@@ -1204,3 +1204,102 @@ def apply_unverified_rule(
         return decision
     reasons = tuple(dict.fromkeys((*decision.reasons, "derived_labels_unverified")))
     return replace(decision, decision="blocked", reasons=reasons)
+
+
+# The reach of a row feed for a caller with limits, the same bound as an event feed.
+ROW_FEED_SCAN_LIMIT = EVENT_FEED_SCAN_LIMIT
+
+
+def guard_for_caller(store: Any, identity: AgentIdentity | None, *, action: str = "http.operator.access") -> LabelGuard:
+    """The list guard of one caller: the filters its policy allows and the project binding it is locked to.
+
+    The owner and an unbound admin key have no limits, so their guard is inactive and returns its input. Every other
+    caller gets the domains, the sensitivities and the projects the policy engine grants it for ``action``, the same
+    ones a list door reads from a decision, and a key locked to a project must have every input of a row inside it.
+    A decision that blocks the caller raises ``AgentPolicyBlockedError`` and no guard is made.
+    """
+
+    from alicebot_api.vnext_agent_control import AgentPolicyBlockedError, evaluate_agent_policy
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    if not SourceReadFence.for_identity(identity).entity_read_fenced:
+        return LabelGuard(store=store, active=False)
+    decision = evaluate_agent_policy(identity=identity, action=action)
+    if decision.decision == "blocked":
+        raise AgentPolicyBlockedError(decision)
+    projects = decision.effective_project_scope
+    locked = identity is not None and identity.project_scope_locked
+    return LabelGuard.for_filters(
+        store,
+        decision.effective_domains,
+        decision.effective_sensitivity_allowed,
+        projects,
+        all_of=projects if locked else None,
+    )
+
+
+def newest_admitted_rows(
+    guard: LabelGuard,
+    kind: str,
+    fetch: Callable[[int], Sequence[_Row]],
+    *,
+    want: int,
+) -> list[_Row]:
+    """The ``want`` newest rows ``guard`` admits. ``fetch(n)`` returns the newest ``n`` rows, newest first.
+
+    A feed that read only its own limit would show a caller with limits fewer rows than it may read whenever the newest
+    rows are hidden from it. The read widens, five times at a time, up to ``ROW_FEED_SCAN_LIMIT`` rows, so the feed is
+    shorter than ``want`` only when fewer readable rows lie within that reach.
+    """
+
+    size = want
+    while True:
+        fetched = fetch(size)
+        admitted = guard.admit_rows(kind, fetched)
+        if len(admitted) >= want or len(fetched) < size or size >= ROW_FEED_SCAN_LIMIT:
+            return admitted[:want]
+        size = min(size * 5, ROW_FEED_SCAN_LIMIT)
+
+
+def clamp_request_filters(
+    identity: AgentIdentity | None,
+    *,
+    domains: Sequence[str],
+    sensitivity_allowed: Sequence[str],
+    action: str = "http.operator.access",
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The domains and sensitivities a request may use: what it asked for, cut down to what its caller may read.
+
+    A request filter is a selection, never a grant. The owner and an unbound admin key get what they asked for. A caller
+    with limits asking for a level above its ceiling is read at its own levels, as the policy engine answers it, and a
+    request the policy blocks outright raises ``AgentPolicyBlockedError``.
+    """
+
+    from alicebot_api.vnext_agent_control import AgentPolicyBlockedError, evaluate_agent_policy
+
+    asked_domains, asked_sensitivity = tuple(domains), tuple(sensitivity_allowed)
+    if identity is None:
+        return asked_domains, asked_sensitivity
+    decision = evaluate_agent_policy(
+        identity=identity, action=action, domains=asked_domains, sensitivity_allowed=asked_sensitivity
+    )
+    if decision.decision == "blocked":
+        raise AgentPolicyBlockedError(decision)
+    return decision.effective_domains, decision.effective_sensitivity_allowed
+
+
+def readable_own_label_rows(identity: AgentIdentity | None, rows: Sequence[_Row]) -> list[_Row]:
+    """The rows this caller may read, for rows that carry labels of their own and are made from no input.
+
+    A queued task and the brain charter are not derived, so their stored labels are the labels they have. The owner and
+    an unbound admin key get every row. A caller with limits gets the rows its fence admits: a row above its ceiling is
+    left out, and so is a row with no project to a key locked to a project.
+    """
+
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    items = [row for row in rows if isinstance(row, Mapping)]
+    fence = SourceReadFence.for_identity(identity)
+    if not fence.entity_read_fenced:
+        return items
+    return [row for row in items if fence.admits_memory(row)]

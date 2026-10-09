@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from typing import Annotated
 from uuid import UUID
 
@@ -34,7 +35,9 @@ from alicebot_api.vnext_agent_control import (
     AgentIdentity,
     AgentIdentityValidationError,
     AgentPolicyBlockedError,
+    PolicyDecision,
     agent_metadata,
+    append_policy_events,
     summarize_agent_policy_telemetry,
 )
 from alicebot_api.vnext_agent_keys import (
@@ -44,7 +47,10 @@ from alicebot_api.vnext_agent_keys import (
 )
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
-from alicebot_api.vnext_open_loop_references import withhold_unreadable_references_from_loop
+from alicebot_api.vnext_open_loop_references import (
+    withhold_unreadable_references,
+    withhold_unreadable_references_from_loop,
+)
 from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_projects import (
     VNextProjectService,
@@ -345,34 +351,76 @@ def create_vnext_open_loop(
     return JSONResponse(status_code=201, content=jsonable_encoder({"open_loop": payload}))
 
 @project_operations_router.get("/v0/vnext/settings/brain-charter")
-def get_vnext_brain_charter(user_id: UUID) -> JSONResponse:
+def get_vnext_brain_charter(user_id: UUID, authorization: str | None = Header(default=None)) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import readable_own_label_rows
+
     settings = get_settings()
 
-    with user_connection(settings.database_url, user_id) as conn:
-        payload = PostgresVNextStore(conn).get_brain_charter()
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},
+            )
+            charter = store.get_brain_charter()
+            # A charter above the caller's ceiling answers as no charter at all.
+            readable = readable_own_label_rows(identity, [charter] if charter is not None else [])
+            payload = readable[0] if readable else None
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
 
     return JSONResponse(status_code=200, content=jsonable_encoder({"brain_charter": payload}))
 
 @project_operations_router.put("/v0/vnext/settings/brain-charter")
-def upsert_vnext_brain_charter(request: VNextBrainCharterUpsertRequest) -> JSONResponse:
+def upsert_vnext_brain_charter(
+    request: VNextBrainCharterUpsertRequest,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import readable_own_label_rows
+
     settings = get_settings()
 
-    with user_connection(settings.database_url, request.user_id) as conn:
-        payload = PostgresVNextStore(conn).upsert_brain_charter(
-            {
-                "content_markdown": request.content_markdown,
-                "owner_json": request.owner_json,
-                "memory_philosophy_json": request.memory_philosophy_json,
-                "life_domains_json": request.life_domains_json,
-                "active_projects_json": request.active_projects_json,
-                "communication_style_json": request.communication_style_json,
-                "priorities_json": request.priorities_json,
-                "autonomous_rules_json": request.autonomous_rules_json,
-                "quality_standard_json": request.quality_standard_json,
-                "sensitivity": request.sensitivity,
-            },
-            actor_type="user",
-        )
+    try:
+        _vnext_agent_identity(request)
+        with user_connection(settings.database_url, request.user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = _vnext_authenticated_agent_identity(
+                store, request, user_id=request.user_id, authorization=authorization
+            )
+            stored = store.get_brain_charter()
+            if stored is not None and not readable_own_label_rows(identity, [stored]):
+                # The save replaces the whole charter. A key that may not read the stored one may not replace it, so
+                # nothing is written and the refusal repeats none of its labels.
+                refusal = PolicyDecision(
+                    decision="blocked",
+                    action="http.operator.access",
+                    permission_profile=identity.permission_profile if identity is not None else "user_or_system",
+                    reasons=("brain_charter_outside_caller_limits",),
+                )
+                append_policy_events(
+                    store, identity=identity, decision=refusal, target_type="http_route",
+                    target_id="/v0/vnext/settings/brain-charter",
+                )
+                return _vnext_permission_response(refusal)
+            payload = store.upsert_brain_charter(
+                {
+                    "content_markdown": request.content_markdown,
+                    "owner_json": request.owner_json,
+                    "memory_philosophy_json": request.memory_philosophy_json,
+                    "life_domains_json": request.life_domains_json,
+                    "active_projects_json": request.active_projects_json,
+                    "communication_style_json": request.communication_style_json,
+                    "priorities_json": request.priorities_json,
+                    "autonomous_rules_json": request.autonomous_rules_json,
+                    "quality_standard_json": request.quality_standard_json,
+                    "sensitivity": request.sensitivity,
+                },
+                actor_type="user",
+            )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentIdentityValidationError:
+        return _vnext_public_error_response(status_code=400, detail="vNext agent identity claims are invalid")
 
     return JSONResponse(status_code=200, content=jsonable_encoder({"brain_charter": payload}))
 
@@ -659,14 +707,38 @@ def _vnext_scheduler_global_control(
     return JSONResponse(status_code=200, content=jsonable_encoder({**payload, "policy_decision": decision.to_record()}))
 
 @project_operations_router.post("/v0/vnext/open-loops/extract")
-def extract_vnext_open_loops(request: VNextProjectAutomationRequest) -> JSONResponse:
+def extract_vnext_open_loops(
+    request: VNextProjectAutomationRequest,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import clamp_request_filters
+
     settings = get_settings()
 
     try:
+        _vnext_agent_identity(request)
         with user_connection(settings.database_url, request.user_id) as conn:
-            loops = VNextProjectService(PostgresVNextStore(conn)).extract_open_loops(
-                _vnext_project_automation_request(request)
+            store = PostgresVNextStore(conn)
+            identity = _vnext_authenticated_agent_identity(
+                store, request, user_id=request.user_id, authorization=authorization
             )
+            automation = _vnext_project_automation_request(request)
+            # The sensitivities and domains in `options` and `scope` select the sources to read. They never widen what
+            # the key may read: a source above its ceiling is not read, and no loop is made from it.
+            domains, sensitivity_allowed = clamp_request_filters(
+                identity, domains=automation.domains, sensitivity_allowed=automation.sensitivity_allowed
+            )
+            loops = VNextProjectService(store).extract_open_loops(
+                replace(automation, domains=domains, sensitivity_allowed=sensitivity_allowed)
+            )
+            # A loop names its source and memory in its own columns; a name the caller's fence does not admit is null.
+            loops = withhold_unreadable_references(store, loops, fence=SourceReadFence.for_identity(identity))
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentIdentityValidationError:
+        return _vnext_public_error_response(status_code=400, detail="vNext agent identity claims are invalid")
+    except AgentPolicyBlockedError as exc:
+        return _vnext_permission_response(exc.decision)
     except (ValueError, VNextProjectValidationError):
         return _vnext_public_error_response(status_code=400, detail="vNext open-loop extraction request is invalid")
 
