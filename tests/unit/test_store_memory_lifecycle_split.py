@@ -90,7 +90,11 @@ SOURCE_RECEIPTS = {
     COMMON_PATH: "8fc077dc71f0e631a2df81de2ebeec1fb6c768f341c2e7891309e4753eef7bb5",
     # Re-minted for the ``clamp_follows`` argument of the label hook in ``update_memory`` (reviewed change).
     # Previous postgres receipt 2b540dc4..., method AST d9f50023...; the metadata manifest is unchanged.
-    POSTGRES_CARRIER_PATH: "a0865fb842918ba015477748675395d1050e766ab3363d633dd70b9c321cdba4",
+    # Re-minted again so that ``redact_memory_bundle`` and ``memory_redaction_bundle_is_exact`` leave the promotion
+    # record of an ordinary artifact as it is (reviewed change): the event holds the memory id and no text, and the
+    # append-only trigger refuses to rewrite it. Previous postgres receipt a0865fb8..., method AST b092e14f...; the
+    # metadata manifest is unchanged.
+    POSTGRES_CARRIER_PATH: "474720b27a752657b170cb4b1518d538d679c534ba78ac614b32b245df6c4adb",
     # SQLite carrier re-minted for the Phase 4 Stage 2 resident vector cache
     # (reviewed change): redaction paths that NULL a live embedding now bump
     # the embedding_stamp token in the same transaction (prompt eviction).
@@ -101,11 +105,13 @@ SOURCE_RECEIPTS = {
     # back between two reads cannot fail memories_seen_range_check. Previous
     # sqlite receipt 67adaa61..., method AST 3f134ac9...; the metadata
     # manifests are unchanged.
-    SQLITE_CARRIER_PATH: "0e8c2d50857d1064fc94b703c7cc05da234df63d4c278bc08a062fc90d450c3d",
+    # Re-minted for the same artifact event on the SQLite side (reviewed change). Previous sqlite receipt 0e8c2d50...,
+    # method AST e5eecd8c...; the metadata manifest is unchanged.
+    SQLITE_CARRIER_PATH: "a182806fa8da6fd4336ee73b2bdab28f4ac51ca150229e0fc621ab381ebb2a7b",
 }
 EXPECTED_METHOD_AST_MANIFESTS = {
-    "postgres": "b092e14fa637bf779fd97e76de5f4c551a35104df46b12823c71f81da4c1bfba",
-    "sqlite": "e5eecd8cc9b7922957adcf1a04b6238efa1fafb9e39eeefb310da86c4760ae24",
+    "postgres": "7ec2875a7afa4b471dde1cb725f7333447359a78630e55f279c04c088947c98e",
+    "sqlite": "cce0aae4d157f1f8f5c5267b8735c479ec8154e829fe5ada0b37a1b3c4ac7593",
 }
 EXPECTED_METADATA_MANIFESTS = {
     "postgres": "07a567e26d0f7c4f51ae2a1910d059397b513a575d85f06c2f8c0396ac1bb2ef",

@@ -3455,9 +3455,11 @@ def test_redact_memory_bundle_only_reuses_authorized_prior_redaction_timestamp(
         if "UPDATE event_log" in query and "jsonb_build_object" in query
     )
     # PostgreSQL cannot infer a type for a bare bind used only as a
-    # jsonb_build_object value.  Keep both copies explicitly textual so the
-    # role-separated live path cannot regress to IndeterminateDatatype.
-    assert event_update_query.count("'memory_id', %s::text") == 2
+    # jsonb_build_object value.  Keep every copy explicitly textual (the
+    # skeleton it writes, the skeleton it compares against, and the artifact
+    # promotion record it leaves alone) so the role-separated live path cannot
+    # regress to IndeterminateDatatype.
+    assert event_update_query.count("'memory_id', %s::text") == 3
 
 
 def test_redact_memory_content_wraps_marker_update_in_redaction_mode() -> None:

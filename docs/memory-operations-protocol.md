@@ -460,6 +460,16 @@ redacted row records nothing, as a redact of an id the vault never held records
 nothing, because a key reads its policy events and its agent record back in its
 own telemetry.
 
+Unreleased (on main, not in v0.20.0): redact completes for a memory made by
+promoting a generated artifact, whether or not the memory was forgotten or undone
+first. In v0.20.0 it failed with a server error and scrubbed nothing. The
+`artifact.promoted_to_memory` event that the promotion appended is retained as it
+was: it is aimed at the artifact, its whole payload is the id of the new memory,
+it holds no text, and the append-only log lets a redaction rewrite an event aimed
+at an artifact only for a coupled project update. The artifact is not rewritten
+either, so the text a promoted copy was made from stays in it, as the text of a
+plain memory stays in its source.
+
 ---
 
 For the full MCP tool schemas see [docs/alpha/mcp-tools.md](alpha/mcp-tools.md);
