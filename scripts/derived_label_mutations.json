@@ -743,7 +743,7 @@
           "line": 67,
           "before": "omit content diagnostics for a caller with limits",
           "after": "show content diagnostics to a caller",
-          "sha256": "712fbbe8d6cda7e75960b6aa0ca6c5e5b521864d76f752570335e64cf62861a6"
+          "sha256": "ba3f0d885271135d53f373ebf9b3aba4b4b31e2563c0fb571985c0fab81be9cc"
         }
       ],
       "pytest": [
@@ -1895,7 +1895,7 @@
           "line": 12,
           "before": "stays refused to every key but an unbound `admin_agent`",
           "after": "stays refused",
-          "sha256": "712fbbe8d6cda7e75960b6aa0ca6c5e5b521864d76f752570335e64cf62861a6"
+          "sha256": "ba3f0d885271135d53f373ebf9b3aba4b4b31e2563c0fb571985c0fab81be9cc"
         }
       ],
       "pytest": [
@@ -2075,7 +2075,7 @@
           "line": 12,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "712fbbe8d6cda7e75960b6aa0ca6c5e5b521864d76f752570335e64cf62861a6"
+          "sha256": "ba3f0d885271135d53f373ebf9b3aba4b4b31e2563c0fb571985c0fab81be9cc"
         }
       ],
       "pytest": [
@@ -3102,7 +3102,7 @@
           "line": 5,
           "before": "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "712fbbe8d6cda7e75960b6aa0ca6c5e5b521864d76f752570335e64cf62861a6"
+          "sha256": "ba3f0d885271135d53f373ebf9b3aba4b4b31e2563c0fb571985c0fab81be9cc"
         }
       ],
       "pytest": [
@@ -3150,7 +3150,7 @@
           "line": 5,
           "before": "This is temporary access containment, not removal",
           "after": "This is removal",
-          "sha256": "712fbbe8d6cda7e75960b6aa0ca6c5e5b521864d76f752570335e64cf62861a6"
+          "sha256": "ba3f0d885271135d53f373ebf9b3aba4b4b31e2563c0fb571985c0fab81be9cc"
         }
       ],
       "pytest": [
@@ -3214,7 +3214,7 @@
           "line": 5,
           "before": "say to regenerate or delete the reports built from a redacted memory",
           "after": "say nothing",
-          "sha256": "712fbbe8d6cda7e75960b6aa0ca6c5e5b521864d76f752570335e64cf62861a6"
+          "sha256": "ba3f0d885271135d53f373ebf9b3aba4b4b31e2563c0fb571985c0fab81be9cc"
         }
       ],
       "pytest": [
@@ -3564,7 +3564,7 @@
           "line": 5,
           "before": "is refused to a key that may not read the belief, with the answer of a missing belief, and a refused review changes nothing.",
           "after": "is open to every key.",
-          "sha256": "712fbbe8d6cda7e75960b6aa0ca6c5e5b521864d76f752570335e64cf62861a6"
+          "sha256": "ba3f0d885271135d53f373ebf9b3aba4b4b31e2563c0fb571985c0fab81be9cc"
         }
       ],
       "pytest": [
