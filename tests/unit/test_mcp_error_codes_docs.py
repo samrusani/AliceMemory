@@ -224,7 +224,8 @@ def test_the_protocol_page_says_redact_asks_the_policy_before_the_state() -> Non
     start = section.index(MARK)
     paragraph = section[start : start + 800]
 
-    assert section.count(MARK) == 1
+    # The section holds two marked paragraphs: this one, and the one that says redact completes for a promoted copy.
+    assert section.count(MARK) == 2
     assert "redact asks the policy before it reads the state of the row" in paragraph
     assert "(`not_found` over stdio, 404 over HTTP)" in paragraph
     assert "In v0.20.0 such a caller was refused (403 over HTTP) for the row" in paragraph
