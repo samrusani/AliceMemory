@@ -202,19 +202,27 @@ def test_regenerating_a_report_restores_access_only_when_the_redacted_text_is_no
     # The dashboard of the project is hidden from a limited key while its state was copied from a report that read the memory.
     assert h.request("GET", f"/v0/vnext/projects/{world.alpha}/dashboard", key=keys["trusted"])[0] == 404
     redacted = set(world.redacted_ids)
-    fresh = {}
-    for producer in ("daily", "weekly", "connections", "contradictions", "project_update", "consolidation"):
-        fresh[producer] = generate(h, producer, world.alpha, world.admin)
-        assert fresh[producer]["id"] != old[producer], producer
+    # Every producer runs first and nothing is asserted about a report until all of them have run, so a producer that
+    # selects the redacted memory fails at the assertion below that says so, and not at whatever its run happens to return.
+    fresh = {
+        producer: generate(h, producer, world.alpha, world.admin)
+        for producer in ("daily", "weekly", "connections", "contradictions", "project_update", "consolidation")
+    }
     rows = stored_rows(h)
     contained = contained_ids(h)
     with h.store() as store, store.conn.cursor() as cur:
         cur.execute("SELECT id::text AS id, row_to_json(t)::text AS body FROM generated_artifacts t")
         bodies = {row["id"]: row["body"] for row in cur.fetchall()}
+    # No producer selects the redacted memory again: the inputs each new report recorded hold none of the redacted rows.
+    selected = {
+        producer: sorted(rows[report["id"]].inputs & redacted) for producer, report in fresh.items() if report is not None
+    }
+    assert selected == {producer: [] for producer in selected}, "a producer recorded a redacted memory as an input again"
+    assert all(report is not None for report in fresh.values()), [name for name, report in fresh.items() if report is None]
     for producer, report in fresh.items():
         row_id = report["id"]
-        # No producer selects the redacted memory again, and nothing it printed holds the words.
-        assert not rows[row_id].inputs & redacted, producer
+        assert row_id != old[producer], producer
+        # Nothing the new report printed holds the words.
         assert world.sentinel not in bodies[row_id], producer
         assert row_id not in contained, producer
         # It is readable by the profiles that read the control report, and by nobody else.
