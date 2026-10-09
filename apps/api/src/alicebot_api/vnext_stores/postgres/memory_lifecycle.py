@@ -310,6 +310,12 @@ def memory_redaction_bundle_is_exact(self, memory_id: str, artifact_ids: Sequenc
                         OR event.payload_candidate_memory_id = input.memory_id::text
                         OR event.payload_memory_id = input.memory_id::text
                       )
+                      -- The same promotion record the redaction leaves as it is.
+                      AND NOT (
+                        event.target_type IS NOT DISTINCT FROM 'artifact'
+                        AND NOT COALESCE(event.target_id = ANY(input.artifact_ids), FALSE)
+                        AND event.payload_json = jsonb_build_object('memory_id', input.memory_id::text)
+                      )
                       AND (
                         event.payload_json IS DISTINCT FROM jsonb_build_object(
                           'redacted', true,
@@ -816,6 +822,18 @@ def redact_memory_bundle(
                     OR payload_candidate_memory_id = %s
                     OR payload_memory_id = %s
                   )
+                  -- The promotion record of an ordinary artifact (a brief or a
+                  -- report promoted to this memory) is aimed at that artifact and
+                  -- holds the memory id and nothing else. Migration 0092 lets a
+                  -- redaction rewrite an event aimed at an artifact only for a
+                  -- coupled project update, so rewriting this one raised
+                  -- 'event_log is append-only' and aborted the redaction. It holds
+                  -- no text, so it stays as it is.
+                  AND NOT (
+                    target_type IS NOT DISTINCT FROM 'artifact'
+                    AND NOT COALESCE(target_id = ANY(%s::text[]), FALSE)
+                    AND payload_json = jsonb_build_object('memory_id', %s::text)
+                  )
                   AND (
                     payload_json IS DISTINCT FROM jsonb_build_object(
                       'redacted', true,
@@ -832,6 +850,8 @@ def redact_memory_bundle(
                 artifact_ids,
                 artifact_ids,
                 memory_id,
+                memory_id,
+                artifact_ids,
                 memory_id,
                 memory_id,
             ),

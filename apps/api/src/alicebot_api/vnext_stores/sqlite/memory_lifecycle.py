@@ -266,6 +266,11 @@ def memory_redaction_bundle_is_exact(self, memory_id: str, artifact_ids: Sequenc
                         OR json_extract(payload_json, '$.memory_id') = ?
                         OR json_extract(payload_json, '$.candidate_memory_id') = ?
                       )
+                      -- The same artifact event the redaction leaves as it is.
+                      AND NOT (
+                        target_type IS 'artifact'
+                        AND json(payload_json) IS json(json_object('memory_id', ?))
+                      )
                       AND (
                         json(payload_json) IS NOT json(json_object(
                           'redacted', json('true'), 'memory_id', ?, 'event_type', event_type
@@ -287,6 +292,7 @@ def memory_redaction_bundle_is_exact(self, memory_id: str, artifact_ids: Sequenc
             self.user_id,
             mid,
             self.user_id,
+            mid,
             mid,
             mid,
             mid,
@@ -637,6 +643,16 @@ def redact_memory_bundle(
                       AND json_extract(payload_json, '$.candidate_memory_id') = ?
                     )
                   )
+                  -- An event aimed at an artifact that holds the memory id and
+                  -- nothing else is left as it is. The trigger lets a redaction
+                  -- rewrite an event aimed at an artifact only for a coupled
+                  -- project update, and SQLite has none, so rewriting it would
+                  -- abort the redaction. It holds no text. Postgres leaves the
+                  -- promotion record of an artifact the same way.
+                  AND NOT (
+                    target_type IS 'artifact'
+                    AND json(payload_json) IS json(json_object('memory_id', ?))
+                  )
                   AND (
                     json(payload_json) IS NOT json(json_object(
                       'redacted', json('true'),
@@ -646,7 +662,7 @@ def redact_memory_bundle(
                     OR integrity_hash IS NOT NULL
                   )
                 """,
-            (mid, self.user_id, mid, mid, mid, mid),
+            (mid, self.user_id, mid, mid, mid, mid, mid),
         )
         redacted_events = events.rowcount
 
