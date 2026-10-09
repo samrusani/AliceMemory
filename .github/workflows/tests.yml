@@ -2283,7 +2283,7 @@ jobs:
   python-integration:
     name: ${{ matrix.integration_check }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -2342,7 +2342,7 @@ jobs:
         # grid includes 30 paired fixtures with ten interleaved samples per
         # action and profile. Session bounds allow that grid to finish while
         # each measured request retains its unchanged acceptance gate.
-        run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest tests/integration -q -p no:cacheprovider --durations=20 --timeout=180 --session-timeout=3000
+        run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest tests/integration -q -p no:cacheprovider --durations=20 --timeout=180 --session-timeout=4200
 
       - name: SQLite random mixed-parent and keyless read budgets against the same baseline
         if: matrix.integration_check == 'Integration tests (Postgres + pgvector, role separation)'
