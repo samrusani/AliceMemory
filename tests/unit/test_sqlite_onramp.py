@@ -1255,7 +1255,8 @@ def test_project_scope_bound_key_is_enforced_in_sqlite_mode(sqlite_context, monk
         )
     assert outside_id not in str(explain_error.value)
 
-    with pytest.raises(MCPToolError, match="project_scope_binding_violation"):
+    # A memory of another project is not the key's to read, so a forget names no memory it knows.
+    with pytest.raises(MCPToolError, match="memory was not found"):
         call_mcp_tool(
             sqlite_context,
             name="alice_memory_manage",
@@ -1349,19 +1350,19 @@ def test_read_only_project_key_cannot_read_or_mutate_other_project_or_filtered_d
     assert [item["id"] for item in review["items"]] == [visible_id]
     assert private_id not in {item["id"] for item in review["items"]}
     assert restricted_id not in {item["id"] for item in review["items"]}
-    with pytest.raises(MCPToolError, match="project_scope_binding_violation"):
+    with pytest.raises(MCPToolError, match=f"memory {outside_id} was not found"):
         call_mcp_tool(
             sqlite_context,
             name="alice_memory_review",
             arguments={"review_item_id": outside_id},
         )
-    with pytest.raises(MCPToolError, match="outside the effective review filters"):
+    with pytest.raises(MCPToolError, match=f"memory {private_id} was not found"):
         call_mcp_tool(
             sqlite_context,
             name="alice_memory_review",
             arguments={"review_item_id": private_id},
         )
-    with pytest.raises(MCPToolError, match="agent policy blocked"):
+    with pytest.raises(MCPToolError, match="memory was not found"):
         call_mcp_tool(
             sqlite_context,
             name="alice_memory_manage",
@@ -1380,7 +1381,7 @@ def test_read_only_project_key_cannot_read_or_mutate_other_project_or_filtered_d
             project_scope="project-a",
         )
     monkeypatch.setenv(mcp_tools_module.AGENT_API_KEY_ENV, admin_key)
-    with pytest.raises(MCPToolError, match="project_scope_binding_violation"):
+    with pytest.raises(MCPToolError, match="memory was not found"):
         call_mcp_tool(
             sqlite_context,
             name="alice_memory_manage",
@@ -1391,7 +1392,7 @@ def test_read_only_project_key_cannot_read_or_mutate_other_project_or_filtered_d
             memory_id=outside_id,
             patch={"status": "superseded"},
         )
-    with pytest.raises(MCPToolError, match="project_scope_binding_violation"):
+    with pytest.raises(MCPToolError, match="memory was not found"):
         call_mcp_tool(
             sqlite_context,
             name="alice_memory_manage",

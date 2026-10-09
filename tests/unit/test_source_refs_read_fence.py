@@ -798,7 +798,8 @@ def test_the_fence_and_explain_authorize_under_one_action(monkeypatch: pytest.Mo
         for keyword in node.keywords
         if keyword.arg == "action"
     ]
-    assert [ast.unparse(action) for action in actions] == ["EXPLAIN_DISCLOSURE_ACTION"]
+    # The key-bound probe and the recorded check both ask under the constant; no call asks under anything else.
+    assert actions and {ast.unparse(action) for action in actions} == {"EXPLAIN_DISCLOSURE_ACTION"}
 
 
 # -- 3. the review door -----------------------------------------------------------------------------------------

@@ -82,6 +82,7 @@ def test_stamp_derived_from_counts_match_the_lists() -> None:
 from uuid import UUID
 from alicebot_api.vnext_agent_control import AgentIdentity, AgentPolicyBlockedError
 from alicebot_api.routers._vnext_shared import _vnext_authorized_artifact
+from alicebot_api.vnext_queue import VNextQueueNotFoundError
 
 def provenance(sources=(), memories=()):
     refs = {'sources': list(sources), 'memories': list(memories), 'open_loops': [], 'artifacts': [], 'beliefs': []}
@@ -103,7 +104,9 @@ def test_locked_weekly_producer_rejects_effective_out_of_scope_artifact(source_p
     identity = AgentIdentity(agent_id='alpha-key', permission_profile='trusted_local_agent', project_scope=(ALPHA,), project_scope_locked=True)
     store.upsert_agent_identity = lambda *args, **kwargs: None
     if source_project == BETA:
-        with pytest.raises(AgentPolicyBlockedError):
+        # The artifact is out of the key's scope through its input, so the key may not read it and the exact door
+        # answers as it answers an artifact that does not exist.
+        with pytest.raises(VNextQueueNotFoundError):
             _vnext_authorized_artifact(store=store, identity=identity, artifact_id=artifact['id'], action='artifact.read', for_update=False)
     else:
         _vnext_authorized_artifact(store=store, identity=identity, artifact_id=artifact['id'], action='artifact.read', for_update=False)

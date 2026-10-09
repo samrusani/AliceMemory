@@ -14,6 +14,7 @@ from alicebot_api.vnext_memory_commit import (
     MEMORY_STATUSES,
     VALID_TO_UNBOUNDED_SENTINEL,
     MemoryCommitRequest,
+    MemoryNotFoundError,
     VNextMemoryCommitService,
     VNextMemoryCommitValidationError,
     evaluate_memory_commit_policy,
@@ -471,6 +472,11 @@ class TargetedLookupStore:
 
     def get_memory(self, memory_id: str) -> dict[str, object] | None:
         return self.memories.get(memory_id)
+
+    def read_label_rows(self, kind: str, ids: list[str]) -> list[dict[str, object]]:
+        """The rows a derived memory records as its inputs, which the label guard reads to settle the candidate."""
+
+        return [self.memories[row_id] for row_id in ids if kind == "memory" and row_id in self.memories]
 
     def list_memories(self, *, status: str | None = None) -> list[dict[str, object]]:
         raise AssertionError("commit path must use targeted lookups, not full-table scans")
@@ -2094,17 +2100,18 @@ def test_expire_is_policy_blocked_for_an_out_of_scope_agent_identity() -> None:
     service = VNextMemoryCommitService(store)
     memory_id = _seed_row(store, title="Family fact", text="A family fact.", domain="family", sensitivity="private")
 
-    with pytest.raises(AgentPolicyBlockedError) as blocked:
+    # A family fact is in a domain this profile is held back from, so the agent may not read it: the expire is answered as
+    # a memory that does not exist, and nothing is recorded.
+    with pytest.raises(MemoryNotFoundError):
         service.expire(
             memory_id,
             reason="Out of scope expire.",
             identity=_identity("project_scoped_agent", project_scope=("Alice",)),
         )
 
-    assert "all_requested_domains_restricted" in blocked.value.decision.reasons
     assert store.memories[memory_id].get("valid_to") is None
     assert store.memories[memory_id]["status"] == "active"
-    assert any(event.get("event_type") == "agent.policy_blocked" for event in store.events)
+    assert not any(event.get("event_type") == "agent.policy_blocked" for event in store.events)
 
     # Read-only profiles cannot write, even for an unrestricted domain:
     # expire mirrors the WRITE_ACTIONS block.

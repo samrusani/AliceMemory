@@ -6,12 +6,18 @@ the policy engine returned ``allowed_with_filtering`` and the write path
 stopped only on ``blocked``. These tests pin the service block on every
 route, the commit-time refusal, who may resolve a pending write, and a
 second confirm of a committed row.
+
+A row above the caller's ceiling is a row the caller may not read, so the
+doors that name it by id answer it as a row that does not exist, and write
+what a missing id writes, which is nothing. A confirmation is named by its
+token and not by the id of a row, so it keeps its refusal and its audit row.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -148,7 +154,8 @@ def _assert_memory_unchanged(context, memory_id: str, before: dict) -> None:
     assert after["canonical_text"] == SECRET
     assert after["sensitivity"] == "confidential"
     assert after.get("valid_to") == before.get("valid_to")
-    _assert_blocked_names_target(context, target_type="memory", target_id=memory_id)
+    # A row above the ceiling is not the caller's to read: the call is answered as a missing id and records nothing.
+    assert _blocked_for(context, target_type="memory", target_id=memory_id) == []
 
 
 @pytest.mark.parametrize("action", ["forget", "expire", "undo"])
@@ -158,7 +165,7 @@ def test_manage_mutation_refuses_above_the_caller_ceiling(
     from alicebot_api.mcp_tools import MCPToolError
 
     context, memory_id, before = _keyed_confidential_target(tmp_path, monkeypatch)
-    with pytest.raises(MCPToolError, match="sensitivity_above_agent_ceiling"):
+    with pytest.raises(MCPToolError, match="^memory was not found$"):
         _call(context, "alice_memory_manage", action=action, memory_id=memory_id, reason="should not land")
     _assert_memory_unchanged(context, memory_id, before)
 
@@ -175,18 +182,17 @@ def test_legacy_mutation_refuses_above_the_caller_ceiling(
     them directly with the key configured."""
 
     import alicebot_api.mcp.memories as memories
-    from alicebot_api.mcp_tools import MCPToolError
+    from alicebot_api.vnext_memory_commit import MemoryNotFoundError
 
     context, memory_id, before = _keyed_confidential_target(tmp_path, monkeypatch)
     handler = getattr(memories, handler_name)
-    with pytest.raises(MCPToolError, match="sensitivity_above_agent_ceiling"):
+    # The registry turns this error into the tool's not-found error; the handler itself raises it.
+    with pytest.raises(MemoryNotFoundError, match="^memory was not found$"):
         handler(context, {"memory_id": memory_id, "reason": "should not land"})
     _assert_memory_unchanged(context, memory_id, before)
 
 
 def _http_confidential_target(monkeypatch: pytest.MonkeyPatch):
-    from uuid import uuid4
-
     from alicebot_api.vnext_agent_keys import create_agent_key
     from tests.unit.test_vnext_main import FakeVNextStore, _install_fake_vnext_store, _seed_active_memory
 
@@ -204,21 +210,17 @@ def _http_confidential_target(monkeypatch: pytest.MonkeyPatch):
     return store, user_id, memory_id, f"Bearer {raw_key}"
 
 
-def _assert_http_blocked(store, memory_id: str, response) -> None:
-    assert response.status_code == 403, response.body
-    body = json.loads(response.body)
-    assert "sensitivity_above_agent_ceiling" in body["policy_decision"]["reasons"]
+def _assert_http_blocked(store, memory_id: str, response, missing_response) -> None:
+    """The memory is above the key's ceiling, so the route answers it as the memory that does not exist."""
+
+    assert (response.status_code, response.body) == (missing_response.status_code, missing_response.body)
+    assert response.status_code == 400, response.body
+    assert "sensitivity_above_agent_ceiling" not in response.body.decode()
     memory = store.get_memory(memory_id)
     assert memory["status"] == "active"
     assert memory["canonical_text"] == SECRET
     assert memory.get("valid_to") is None
-    blocked = [
-        event
-        for event in store.events
-        if event.get("event_type") == "agent.policy_blocked" and event.get("target_id") == memory_id
-    ]
-    assert blocked
-    assert all(event.get("target_type") == "memory" for event in blocked)
+    assert not any(event.get("target_id") == memory_id for event in store.events)
 
 
 def test_http_forget_refuses_above_the_caller_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -229,7 +231,11 @@ def test_http_forget_refuses_above_the_caller_ceiling(monkeypatch: pytest.Monkey
         vnext_memories_router.VNextMemoryForgetRequest(user_id=user_id, memory_id=memory_id, reason="no"),
         authorization=authorization,
     )
-    _assert_http_blocked(store, memory_id, response)
+    missing = vnext_memories_router.forget_vnext_memory(
+        vnext_memories_router.VNextMemoryForgetRequest(user_id=user_id, memory_id=str(uuid4()), reason="no"),
+        authorization=authorization,
+    )
+    _assert_http_blocked(store, memory_id, response, missing)
 
 
 def test_http_expire_refuses_above_the_caller_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -240,7 +246,11 @@ def test_http_expire_refuses_above_the_caller_ceiling(monkeypatch: pytest.Monkey
         vnext_memories_router.VNextMemoryExpireRequest(user_id=user_id, memory_id=memory_id, reason="no"),
         authorization=authorization,
     )
-    _assert_http_blocked(store, memory_id, response)
+    missing = vnext_memories_router.expire_vnext_memory(
+        vnext_memories_router.VNextMemoryExpireRequest(user_id=user_id, memory_id=str(uuid4()), reason="no"),
+        authorization=authorization,
+    )
+    _assert_http_blocked(store, memory_id, response, missing)
 
 
 def test_http_undo_refuses_above_the_caller_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -251,7 +261,11 @@ def test_http_undo_refuses_above_the_caller_ceiling(monkeypatch: pytest.MonkeyPa
         vnext_memories_router.VNextMemoryUndoRequest(user_id=user_id, memory_id=memory_id, reason="no"),
         authorization=authorization,
     )
-    _assert_http_blocked(store, memory_id, response)
+    missing = vnext_memories_router.undo_vnext_memory(
+        vnext_memories_router.VNextMemoryUndoRequest(user_id=user_id, memory_id=str(uuid4()), reason="no"),
+        authorization=authorization,
+    )
+    _assert_http_blocked(store, memory_id, response, missing)
 
 
 @pytest.mark.parametrize("action", ["close", "reopen", "snooze", "edit"])
@@ -282,13 +296,14 @@ def test_open_loop_mutations_refuse_above_the_caller_ceiling(
         arguments["due_at"] = "2026-12-01T00:00:00Z"
     if action == "edit":
         arguments["title"] = "Renamed above the ceiling"
-    with pytest.raises(MCPToolError, match="sensitivity_above_agent_ceiling"):
+    with pytest.raises(MCPToolError, match=f"^open loop {loop_id} was not found$"):
         _call(context, "alice_open_loops", **arguments)
     after = _store_read(context, lambda store: store.get_open_loop(loop_id))
     assert after["status"] == status
     assert after["title"] == "Highly sensitive follow-up"
     assert after["sensitivity"] == "highly_sensitive"
-    _assert_blocked_names_target(context, target_type="open_loop", target_id=loop_id)
+    # A loop above the ceiling is not the caller's to read: the call is answered as a missing id and records nothing.
+    assert _blocked_for(context, target_type="open_loop", target_id=loop_id) == []
 
 
 def test_commit_route_refuses_confirm_above_the_caller_ceiling(
@@ -548,20 +563,14 @@ def test_http_open_loop_review_refuses_above_the_caller_ceiling(
         vnext_projects_router.VNextOpenLoopReviewRequest(**request_fields),
         authorization=authorization,
     )
-    assert response.status_code == 403, response.body
-    body = json.loads(response.body)
-    assert "sensitivity_above_agent_ceiling" in body["policy_decision"]["reasons"]
+    # The loop is above the key's ceiling, so the route answers it as the loop that does not exist.
+    assert response.status_code == 404, response.body
+    assert json.loads(response.body) == {"detail": "vNext open loop was not found"}
     after = store.get_open_loop(loop_id)
     assert after["status"] == status
     assert after["title"] == "Highly sensitive follow-up"
     assert after["sensitivity"] == "highly_sensitive"
-    blocked = [
-        event
-        for event in store.events
-        if event.get("event_type") == "agent.policy_blocked" and event.get("target_id") == loop_id
-    ]
-    assert blocked
-    assert all(event.get("target_type") == "open_loop" for event in blocked)
+    assert not any(event.get("target_id") == loop_id for event in store.events)
 
 
 def test_hermes_confidential_secret_keeps_the_credential_refusal(

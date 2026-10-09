@@ -290,6 +290,24 @@ def _authorize_explain_resource(
             # Original legacy memories may keep scope in value. The caller
             # already resolved that fallback; derived rows use effective labels.
             judged_scope = project_scope
+    if _is_key_bound_explain(identity):
+        # A key-bound caller gets one opaque answer whether the target is missing or unreadable, and an unreadable target
+        # must leave what a missing one leaves. The policy events and the agent record are events the key reads back in
+        # its own telemetry, so a target the policy would not allow is stopped here, by the same rule and before
+        # anything is recorded, and only a target it allows reaches the recording check below.
+        from alicebot_api.vnext_agent_control import evaluate_agent_policy
+
+        probe = evaluate_agent_policy(
+            identity=identity,
+            action=EXPLAIN_DISCLOSURE_ACTION,
+            domains=(str(judged.get("domain") or "unknown"),),
+            sensitivity_allowed=(str(judged.get("sensitivity") or "unknown"),),
+            project_scope=judged_scope,
+            project_floor=judged_floor,
+            require_explicit_project_scope=True,
+        )
+        if apply_unverified_rule(probe, judged, identity).decision != "allowed":
+            raise _ExplainAuthorizationError()
     _actor_type, _actor_id, decision = _policy_checked(
         store,  # type: ignore[arg-type]
         identity=identity,

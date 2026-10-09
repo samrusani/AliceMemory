@@ -72,7 +72,7 @@ def test_a_report_built_from_stale_inputs_is_floored_at_insert(label_harness, mo
         for loop in loops:
             assert_raised(loop)
             assert "project_floor" in loop["metadata_json"]
-    assert h.request("GET", f"/v0/vnext/artifacts/{body['id']}", key=reader)[0] == 403
+    assert h.request("GET", f"/v0/vnext/artifacts/{body['id']}", key=reader)[0] == 404
 
 
 def test_a_relabel_waits_for_an_open_generation_and_then_labels_its_report(label_harness):

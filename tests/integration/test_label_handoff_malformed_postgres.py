@@ -39,16 +39,16 @@ def test_non_uuid_record_does_not_crash_get_or_recall(label_harness, key):
         # A free-text source_refs entry is not a dependency. The remaining
         # explicitly typed or canonical records cannot be resolved.
         if key != "source_refs":
-            assert status == 403, body
-            if key_value == bound:
-                assert "derived_labels_unverified" in str(body), body
+            # The report is unverified, which a key with limits may not read: for the key it does not exist.
+            assert (status, body) == (404, {"detail": "vNext artifact was not found"}), body
     if key != "source_refs":
         from alicebot_api.routers import vnext_memories
         from uuid import UUID
         response = vnext_memories.get_vnext_memory_audit(UUID(str(memory["id"])), h.user_id,
                                                        authorization=f"Bearer {bound}")
-        assert response.status_code == 403, response.body
-        assert b"derived_labels_unverified" in response.body
+        # The memory is unverified, so for a key with limits it does not exist, and nothing in the answer says why.
+        assert response.status_code == 404, response.body
+        assert b"derived_labels_unverified" not in response.body
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
     result = call_mcp_tool(context, name="alice_recall", arguments={"query": "Synthetic malformed", "agent_id": "synthetic-reader", "permission_profile": "read_only_agent"})
     if key != "source_refs":

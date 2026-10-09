@@ -128,8 +128,8 @@ def test_rollup_only_report_over_confidential_memories_is_refused_to_a_trusted_a
 
     artifact_id = str(artifact["id"])
     status, body = _get_artifact(artifact_id, user_id, trusted_key)
-    assert status == 403, body
-    assert "restricted_sensitivity_filtered" in body["policy_decision"]["reasons"]
+    # The report is above the key's ceiling, so for the key it does not exist.
+    assert (status, body) == (404, {"detail": "vNext artifact was not found"}), body
     leaked = json.dumps(body)
     assert "hours played" not in leaked
     assert not any(member_id in leaked for member_id in member_ids)
@@ -169,7 +169,7 @@ def test_rollup_only_report_over_private_memories_is_refused_to_a_read_only_agen
     assert len(artifact["metadata_json"]["rollups"]["proposals"]) == 1
 
     status, body = _get_artifact(str(artifact["id"]), user_id, read_only_key)
-    assert status == 403, body
+    assert (status, body) == (404, {"detail": "vNext artifact was not found"}), body
     assert "hours played" not in json.dumps(body)
     status, body = _get_artifact(str(artifact["id"]), user_id, trusted_key)
     assert status == 200, body
@@ -222,7 +222,7 @@ def test_open_loop_review_naming_a_confidential_source_is_refused_to_a_trusted_a
     assert f"source:{source_id}" in artifact["content_markdown"]
 
     status, body = _get_artifact(str(artifact["id"]), user_id, trusted_key)
-    assert status == 403, body
+    assert (status, body) == (404, {"detail": "vNext artifact was not found"}), body
     assert source_id not in json.dumps(body)
 
     status, body = _get_artifact(str(artifact["id"]), user_id, admin_key)
@@ -306,7 +306,7 @@ def test_cluster_member_citing_a_confidential_health_source_is_refused_to_a_trus
 
     # The read is the judge: the key below confidential is refused, and the id is nowhere in what it is told.
     status, body = _get_artifact(str(artifact["id"]), user_id, trusted_key)
-    assert status == 403, body
+    assert (status, body) == (404, {"detail": "vNext artifact was not found"}), body
     assert source_id not in json.dumps(body)
     assert (artifact["domain"], artifact["sensitivity"]) == ("health", "confidential")
 

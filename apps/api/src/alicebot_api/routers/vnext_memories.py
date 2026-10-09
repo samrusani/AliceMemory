@@ -81,7 +81,7 @@ from alicebot_api.vnext_doctor import VNextDoctorService
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_memory_commit import (
     IdempotencyKeyConflictError,
-    RefusedOnDeletedMemoryError,
+    MemoryNotFoundError,
     VNextMemoryCommitService,
     VNextMemoryCommitValidationError,
     _brain_charter_row,
@@ -1102,13 +1102,18 @@ def review_vnext_memory(
                 authorization=authorization,
             )
             target = auth_store.get_memory(str(memory_id))
-            if target is None:
-                return _vnext_public_error_response(status_code=404, detail="vNext memory was not found")
             from alicebot_api.vnext_label_guard import (
                 apply_unverified_rule,
                 effective_row_for_fence,
+                outside_caller_limits,
                 policy_labels,
             )
+
+            # A memory the caller may not read is answered as one that does not exist, before a policy decision is
+            # built from its labels (that decision would repeat them) and before anything is recorded: the policy
+            # events and the agent record are events a key can read back.
+            if target is None or outside_caller_limits(auth_store, identity, "memory", target):
+                return _vnext_public_error_response(status_code=404, detail="vNext memory was not found")
 
             judged = effective_row_for_fence(auth_store, identity, "memory", target)
             domains, sensitivity_allowed, target_scope, target_floor = policy_labels(judged)
@@ -1215,7 +1220,7 @@ def review_vnext_memory(
             else:
                 store.lock_label_writes()
             preview = store.get_memory(str(memory_id))
-            if preview is None:
+            if preview is None or outside_caller_limits(store, identity, "memory", preview):
                 return _vnext_public_error_response(status_code=404, detail="vNext memory was not found")
             # Delegate consolidation approval before this adapter takes a row lock.
             # The service reacquires the already-held transaction advisory lock
@@ -1250,7 +1255,7 @@ def review_vnext_memory(
                 if callable(get_memory_for_update)
                 else store.get_memory(str(memory_id))
             )
-            if existing is None:
+            if existing is None or outside_caller_limits(store, identity, "memory", existing):
                 return _vnext_public_error_response(status_code=404, detail="vNext memory was not found")
             # Re-authorize the locked record so a concurrent reassignment cannot
             # move it outside the bound agent project between the first check and
@@ -1992,10 +1997,6 @@ def redact_vnext_memory(
                     reason=request.reason,
                     identity=identity,
                 )
-            except RefusedOnDeletedMemoryError:
-                # Returned inside the connection, so the refusal's audit rows commit. An archived or redacted
-                # row is "not found" to a caller the policy refuses, as for an id the vault never held.
-                return _vnext_public_error_response(status_code=404, detail="vNext memory was not found")
             except AgentPolicyBlockedError as exc:
                 return _vnext_permission_response(exc.decision)
     except AgentKeyAuthenticationError as exc:
@@ -2023,7 +2024,7 @@ def get_vnext_memory_audit(
     user_id: UUID,
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
-    from alicebot_api.vnext_label_guard import apply_unverified_rule, effective_row_for_fence
+    from alicebot_api.vnext_label_guard import apply_unverified_rule, effective_row_for_fence, outside_caller_limits
 
     settings = get_settings()
     try:
@@ -2034,6 +2035,11 @@ def get_vnext_memory_audit(
             )
 
             def authorize_memory(memory: Mapping[str, object]) -> None:
+                # The root and every memory of its replacement chain: one the caller may not read is answered as a
+                # memory that does not exist, before a policy decision is built from its labels and before anything is
+                # recorded.
+                if outside_caller_limits(store, identity, "memory", memory):
+                    raise MemoryNotFoundError("memory was not found")
                 effective = effective_row_for_fence(store, identity, "memory", memory)
                 decision = _vnext_exact_resource_policy(identity=identity, action="memory.audit", resource=dict(effective))
                 decision = apply_unverified_rule(decision, effective, identity)
