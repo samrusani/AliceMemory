@@ -5465,10 +5465,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_operator_routes_limits_postgres.py::test_the_workspace_event_feed_shows_no_path_of_a_confidential_import_to_a_key_with_a_ceiling",
         "tests/unit/test_connector_health_limits_sqlite.py::test_the_events_of_a_sync_hold_the_cursors_the_caller_may_read"
       ],
-      "expected_failure": "test_the_workspace_event_feed_shows_no_path_of_a_confidential_import_to_a_key_with_a_ceiling"
+      "expected_failure": "test_the_events_of_a_sync_hold_the_cursors_the_caller_may_read"
     },
     {
       "name": "event-feed-sync-started-cursor-unlisted",
