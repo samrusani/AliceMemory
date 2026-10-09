@@ -101,8 +101,8 @@ def _readable_events(store):
 def test_a_project_id_an_event_repeats_in_another_spelling_is_judged_as_the_project(label_harness):
     """A client may send the id of a project in capitals or with spaces round it, and the event repeats what it sent.
 
-    The reviewer's case: a source assigned to a readable project twice, once with the lower-case id and once with the
-    capitals, gives two events that a trusted key is shown. A project the key may not read hides the event whatever the
+    A source assigned to a readable project twice, once with the lower-case id and once with the capitals, gives two
+    events that a trusted key is shown. A project the key may not read hides the event whatever the
     spelling, and text that is not an id of any project hides it too.
     """
     h = label_harness
