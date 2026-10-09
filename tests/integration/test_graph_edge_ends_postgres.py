@@ -8,8 +8,9 @@ id that finds no project row, names no row and hides nothing, as an entity end h
 is not readable (above the ceiling, or built from a redacted memory) still hides the edge.
 
 Every kind of end is checked in both positions: as the end an edge points to, and as the end an edge starts from. The
-neighborhood and the edge review give the same verdict, a refused review changes nothing, and the unbound admin key still
-reads every edge.
+edge review refuses every edge the neighborhood hides, and also an edge with an end of a kind the route has no check for (an
+artifact, an open loop or a project), which it refuses to every key with limits as it refuses an end that is missing. A
+refused review changes nothing, and the unbound admin key still reads every edge.
 
 Mutations that these tests must fail (the manifest replays each one): the guard stops reading the source, artifact, open
 loop or project end of an edge; a named project end hides the edge; a review is not refused before it changes the edge.
@@ -35,6 +36,9 @@ TABLES = {
 }
 NAMED = "atlas-project"
 SLUG = "secret-slug"
+# The kinds of end the review route checks before it changes an edge for a key with limits. An edge with an end of any other
+# kind is refused to such a key whether or not it may read that row.
+REVIEW_CHECKED = ("memory", "source", "belief", "entity")
 
 
 def _stored(h, kind: str, row_id: str):
@@ -192,16 +196,18 @@ def test_a_key_reads_an_edge_only_when_it_may_read_the_row_at_each_end_whatever_
         assert status == 200 and body["edge_count"] == 2, name
 
 
-def test_the_review_of_an_edge_gives_the_verdict_of_the_neighborhood_and_a_refused_review_changes_nothing(label_harness, ends):
+def test_the_review_of_an_edge_refuses_what_the_neighborhood_hides_and_the_kinds_of_end_it_does_not_check(label_harness, ends):
     h = label_harness
     keys = ends.world.keys()
     hidden = [edge for edge in ends.edges if edge["hidden"]]
-    clear = [edge for edge in ends.edges if not edge["hidden"]]
-    assert hidden and clear
+    unchecked = [edge for edge in ends.edges if not edge["hidden"] and edge["kind"] not in REVIEW_CHECKED]
+    clear = [edge for edge in ends.edges if not edge["hidden"] and edge["kind"] in REVIEW_CHECKED]
+    assert hidden and clear and {edge["kind"] for edge in unchecked} == {"artifact", "open_loop", "project"}
+    refused = [*hidden, *unchecked]
     missing = "/v0/vnext/graph/edges/00000000-0000-4000-8000-000000000003/review"
-    secrets = [edge["marker"] for edge in hidden]
+    secrets = [edge["marker"] for edge in refused]
     before = snapshot(h)
-    for edge in hidden:
+    for edge in refused:
         for action in ("review", "accept", "reject"):
             status, body, _ = h.request("POST", f"/v0/vnext/graph/edges/{edge['id']}/review", payload={"action": action}, key=keys["trusted"])
             assert status == 404, (edge["name"], edge["position"], action, status)
@@ -211,15 +217,17 @@ def test_the_review_of_an_edge_gives_the_verdict_of_the_neighborhood_and_a_refus
     for edge in clear:
         status, body, _ = h.request("POST", f"/v0/vnext/graph/edges/{edge['id']}/review", payload={"action": "review"}, key=keys["trusted"])
         assert status == 200 and body["metadata_json"]["status"] == "reviewed", (edge["name"], edge["position"], body)
-    # The unbound admin key is not limited: it reviews a hidden edge and reads the explanation that edge was made with.
-    for edge in hidden:
+    # The unbound admin key is not limited: it reviews every edge and reads the explanation that edge was made with.
+    for edge in refused:
         status, body, _ = h.request("POST", f"/v0/vnext/graph/edges/{edge['id']}/review", payload={"action": "accept"}, key=keys["admin"])
         assert status == 200 and edge["marker"] in json.dumps(body), (edge["name"], edge["position"])
 
 
-def test_a_review_checks_its_action_first_and_answers_a_malformed_id_as_a_missing_row(label_harness):
-    """The two review routes for a key with limits: the action is checked before the row is looked up, and an id that is not an
-    id answers as a row that is not there does, instead of reaching the database as a value it cannot read."""
+def test_a_review_answers_a_malformed_id_as_a_missing_row_and_an_unknown_action_as_a_bad_request_for_a_row_the_key_may_read(label_harness):
+    """The two review routes for a key with limits: an id that is not an id answers as a row that is not there does, instead of
+    reaching the database as a value it cannot read. The row is looked up first, so a row the key may not read, a row that is not
+    there and an id that is not an id answer the same whatever the action is, and an action that does not exist is a bad request
+    for a row the key may read, before anything is written."""
     h = label_harness
     trusted = h.key("trusted_local_agent")
     with h.store() as store:
@@ -251,12 +259,17 @@ def test_a_review_checks_its_action_first_and_answers_a_malformed_id_as_a_missin
         status, body, _ = h.request("POST", f"/v0/vnext/{route}/{row_id}/review", payload={"action": action}, key=trusted)
         return status, body
 
-    for kind, ids, good in (("edge", (clear_edge, hidden_edge, missing_edge, "not-an-id"), "review"),
-                            ("belief", (clear_belief, hidden_belief, missing_belief, "not-an-id"), "reinforce")):
+    for kind, readable, unreadable, missing, good in (
+        ("edge", clear_edge, (hidden_edge, missing_edge, "not-an-id"), missing_edge, "review"),
+        ("belief", clear_belief, (hidden_belief, missing_belief, "not-an-id"), missing_belief, "reinforce"),
+    ):
         refused = review(kind, "not-an-id", good)
-        assert refused[0] == 404 and refused == review(kind, missing_edge if kind == "edge" else missing_belief, good), kind
-        # An action that does not exist is a bad request whatever the row is, and is answered the same for every row.
-        invalid = {review(kind, row_id, "no-such-action")[0] for row_id in ids}
-        assert invalid == {400}, (kind, invalid)
-        assert len({json.dumps(review(kind, row_id, "no-such-action")[1]) for row_id in ids}) == 1, kind
+        assert refused[0] == 404 and refused == review(kind, missing, good), kind
+        # A row the key may not read answers as a missing row does, for a good action and for one that does not exist.
+        for row_id in unreadable:
+            for action in (good, "no-such-action"):
+                assert review(kind, row_id, action) == review(kind, missing, good), (kind, row_id, action)
+        # An action that does not exist is a bad request for a row the key may read, and nothing is written.
+        status, body = review(kind, readable, "no-such-action")
+        assert status == 400, (kind, status, body)
     assert snapshot(h) == before, "a refused call changed a belief, an edge or the events about them"

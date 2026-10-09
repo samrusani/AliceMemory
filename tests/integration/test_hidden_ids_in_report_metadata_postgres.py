@@ -9,8 +9,10 @@ least as strict as its inputs, so an input made confidential makes the report co
 * a source a report was made from is archived;
 * a memory a report was made from is forgotten (explain and review still show its history, so it is not hidden, and it
   is the control for that);
-* a memory a report was made from is redacted, and another is archived. A deleted memory is read by no door but redact,
-  and a report keeps listing it.
+* two memories a report was made from are archived. A deleted memory is read by no door but redact, and a report keeps
+  listing it. A memory a report was made from that is redacted afterwards is not in this list: a report that recorded it is
+  read by the owner and an unbound admin key only, so no key below that reads the id in it (the last test redacts one of
+  the archived memories to pin that).
 
 A trusted key, a read-only key, a project-scoped key and a project-bound admin key then read through every door each can
 reach that returns stored metadata. The tests pin these things:
@@ -27,8 +29,10 @@ reach that returns stored metadata. The tests pin these things:
    not by the event feed (a chunk event names its source in the payload), not by the agent feed, and not by the event
    count, while the owner and an unbound admin key still see its events.
 7. The ids are not the only thing a report keeps. It keeps the words and values it was made with, so the text of a source
-   that was archived and of a memory that was redacted afterwards stays in the reports that quoted it. The security note
-   says so, and this file pins what is kept so that the note and the behaviour change together.
+   and of a memory that were archived afterwards stays in the reports that quoted it, and a key that may read the report
+   reads it. The text of a memory that is redacted afterwards stays in the reports too, but they are then read by the owner
+   and an unbound admin key only. The security note says so, and this file pins what is kept and who reads it so that the
+   note and the behaviour change together.
 """
 from __future__ import annotations
 
@@ -64,6 +68,8 @@ LISTING_KEYS = frozenset(
 # lists its members with a status, an update time and a digest. The last segment alone (``id``, ``memory_id``) is too
 # common to allow on its own.
 LISTING_PATHS = (".consolidation.member_snapshots.id", ".rollup.instances.memory_id")
+# The fields of an event that name the row it is about.
+EVENT_TARGETS = ("target_id", "memory_id")
 
 
 def _paths(value, path=""):
@@ -259,20 +265,33 @@ class World:
             "POST", "/v0/vnext/memories/forget", payload={"memory_id": str(self.memories[2]["id"]), "reason": "r"}, key=self.admin
         )
         assert status == 200, body
-        # One memory is redacted and one archived after the reports were made. A deleted memory is read by no door but
-        # redact, and every report that used it keeps listing it.
-        self.redacted = str(self.memories[3]["id"])
+        # Two memories are archived after the reports were made. A deleted memory is read by no door but redact, and every
+        # report that used it keeps listing it. The first is redacted later by the last test, which pins that a report that
+        # recorded a redacted memory is then read by the owner and an unbound admin key only.
+        self.to_redact = str(self.memories[3]["id"])
         self.archived = str(self.memories[4]["id"])
+        with h.store() as store:
+            for memory_id in (self.to_redact, self.archived):
+                store.update_memory(memory_id=memory_id, patch={"status": "archived"}, actor_type="system")
+        # A third memory is made and redacted at once. No report used it, so no report lists it; it stands for a redacted id
+        # that a key already holds, to be named to every door.
+        with h.store() as store:
+            extra = store.create_memory(
+                {
+                    "memory_key": "alpha.extra", "memory_type": "episode", "title": "EXTRA Atlas note",
+                    "canonical_text": "EXTRA Atlas note", "status": "active", "domain": "project", "sensitivity": "public",
+                    "metadata_json": {"project_scope": [self.alpha]},
+                }
+            )
+        self.redacted = str(extra["id"])
         status, body, _ = h.request(
             "POST", "/v0/vnext/memories/redact", payload={"memory_id": self.redacted, "reason": "r"}, key=self.admin
         )
         assert status == 200, body
-        with h.store() as store:
-            store.update_memory(memory_id=self.archived, patch={"status": "archived"}, actor_type="system")
         self.hidden = {
             str(self.candidate["id"]): "candidate made confidential",
             str(self.sources[1]["id"]): "source archived",
-            self.redacted: "memory redacted",
+            self.to_redact: "second memory archived",
             self.archived: "memory archived",
         }
         self.forgotten = str(self.memories[2]["id"])
@@ -381,6 +400,11 @@ def test_a_hidden_id_stands_only_under_the_fields_that_list_ids(world, label_har
             if row_id not in hidden:
                 continue
             reason, last = hidden[row_id], path.rsplit(".", 1)[-1]
+            if door == "workspace" and ".recent_events." in path and reason.endswith("memory archived") and last in EVENT_TARGETS:
+                # The event feed judges an event by the label of the rows it names, and an archived memory keeps its label,
+                # so the events about the memory name it as their target. Whether they stand in the latest events depends on
+                # how many events the other calls of this sweep wrote, so the test does not count on them either way.
+                continue
             keys_by_reason.setdefault(reason, set()).add(last)
             doors_by_key.setdefault(key_name, set()).add(door)
             if door == "memory audit":
@@ -393,15 +417,15 @@ def test_a_hidden_id_stands_only_under_the_fields_that_list_ids(world, label_har
     assert not named, named[:10]
     # Every kind of hidden row really does appear, so the checks above ran on something.
     assert set(keys_by_reason) == {
-        "candidate made confidential", "source archived", "memory redacted", "memory archived",
+        "candidate made confidential", "source archived", "memory archived", "second memory archived",
     }, keys_by_reason
     assert "candidate_memory_ids" in keys_by_reason["candidate made confidential"]
     assert {"source_ids", "source_refs"} <= keys_by_reason["source archived"]
-    for reason in ("memory redacted", "memory archived"):
+    for reason in ("memory archived", "second memory archived"):
         assert {"memories", "memory_ids", "member_ids", "source_refs"} <= keys_by_reason[reason], (reason, keys_by_reason[reason])
     # The memory audit returns the lists of a derived memory in the memory, in its revisions and in the changes its events
-    # recorded, and a redacted or archived member stands in each of them. The security note, the tool reference, the
-    # known limitations and the changelog name the route; this fails when a field is added or goes.
+    # recorded, and an archived member stands in each of them. The security note, the tool reference, the known
+    # limitations and the changelog name the route; this fails when a field is added or goes.
     assert {
         ".memory.metadata_json.consolidation.cluster_member_ids", ".memory.metadata_json.derived_from.memories",
         ".memory.metadata_json.source_refs", ".memory.value.rollup.member_ids",
@@ -630,20 +654,33 @@ def test_the_door_for_a_hidden_id_answers_as_a_missing_row(world, label_harness,
     assert archived[:2] == missing[:2] == (404, {"detail": "vNext source was not found"})
 
 
-def test_the_graph_neighborhood_returns_the_titles_an_edge_joins_for_any_id(world, label_harness):
-    """A known limit that predates this set, pinned with the connection finder's own edges.
+def test_the_graph_neighborhood_lists_an_edge_only_when_the_key_may_read_the_rows_it_joins(world, label_harness):
+    """The explanation of an edge is made from the rows it joins, so a key with limits is listed the edges whose ends it may read.
 
-    The neighborhood route is an operator route that applies no label fence to the id it is given. Its edges carry an
-    explanation the connection finder made from the rows the edge joins, so after a joined memory is made confidential and
-    renamed, the route still returns its old title, and the title of a source that was archived since. Every other door
-    answers that memory as a missing one. The security note names the limit, so this test fails when the route is fenced
-    and the note has to change with it.
+    The connection finder made the edges of this vault, and each explanation holds the titles of the rows it joins. After a
+    joined memory is made confidential and renamed, the edge still holds the title the memory had, and the title of a source
+    archived since. Every other door answers that memory as a missing one. The neighborhood of the memory, and of the other
+    end of the edge, no longer lists the edge to the unbound trusted key; it is answered as an id with no edges is. The unbound
+    admin key is not limited and still reads it. The security note names the rule, so this test fails when it changes.
     """
     h = label_harness
     trusted = h.key("trusted_local_agent")
     with h.store() as store, store.conn.cursor() as cur:
-        cur.execute("SELECT to_id FROM graph_edges WHERE to_type = 'memory' ORDER BY created_at, id LIMIT 1")
-        memory_id = str(cur.fetchone()["to_id"])
+        cur.execute("SELECT id::text AS id, from_id::text AS from_id, to_id::text AS to_id FROM graph_edges WHERE to_type = 'memory' ORDER BY created_at, id LIMIT 1")
+        edge = cur.fetchone()
+    memory_id, edge_id = edge["to_id"], edge["id"]
+
+    def neighborhood(target, key):
+        status, body, _ = h.request("GET", f"/v0/vnext/graph/neighborhood/{target}", key=key)
+        assert status == 200, (target, status)
+        return body
+
+    def listed(body):
+        return {item["id"] for item in (*body["from_edges"], *body["to_edges"])}
+
+    # While the memory is readable the key is listed the edge, with the title the connection finder wrote.
+    assert edge_id in listed(neighborhood(memory_id, trusted))
+    assert "BELIEF title" in json.dumps(neighborhood(memory_id, trusted))
     renamed = f"NEWTITLE-{uuid4().hex}"
     status, body, _ = h.request(
         "POST", f"/v0/vnext/memories/{memory_id}/review", key=world.admin,
@@ -652,12 +689,21 @@ def test_the_graph_neighborhood_returns_the_titles_an_edge_joins_for_any_id(worl
     assert status == 200, body
     absent = h.request("GET", f"/v0/vnext/memories/{uuid4()}/audit", key=trusted)
     assert h.request("GET", f"/v0/vnext/memories/{memory_id}/audit", key=trusted)[:2] == absent[:2]
-    status, body, _ = h.request("GET", f"/v0/vnext/graph/neighborhood/{memory_id}", key=trusted)
-    text = json.dumps(body)
-    assert status == 200 and body["edge_count"] >= 1
-    assert "BELIEF title" in text  # the title the memory had when the edge was made
-    assert "SOURCE1 Atlas" in text  # the title of the archived source the edge joins
-    assert renamed not in text  # the new title is not in the old explanation
+    for target in (memory_id, edge["from_id"]):
+        body = neighborhood(target, trusted)
+        assert edge_id not in listed(body), target
+        assert renamed not in json.dumps(body), target
+        assert body["edge_count"] == len(listed(body))
+    memory_text = json.dumps(neighborhood(memory_id, trusted))
+    assert "BELIEF title" not in memory_text and "SOURCE1 Atlas" not in memory_text
+    # The memory has no edge the key may read, so its neighborhood is the neighborhood of an id that has none.
+    gone = neighborhood(str(uuid4()), trusted)
+    assert neighborhood(memory_id, trusted) == {**gone, "target_id": memory_id}
+    # The unbound admin key is not limited. It lists the edge, with the title the memory had and not the new one.
+    for target in (memory_id, edge["from_id"]):
+        assert edge_id in listed(neighborhood(target, world.admin)), target
+    admin_text = json.dumps(neighborhood(memory_id, world.admin))
+    assert "BELIEF title" in admin_text and "SOURCE1 Atlas" in admin_text and renamed not in admin_text
 
 
 def test_every_producer_names_its_inputs_by_bare_id_and_a_reader_sees_them_unchanged(world, label_harness):
@@ -692,7 +738,10 @@ MEMORY_DOORS = (
 def test_the_id_of_a_deleted_memory_read_from_a_report_is_a_missing_id_to_every_memory_door(
     world, label_harness, monkeypatch, tmp_path, profile
 ):
-    """A key reads a redacted and an archived memory's id in a report it may read, and names it to every door.
+    """A key reads the ids of archived memories in a report it may read, holds the id of a redacted one, and names them to every door.
+
+    No report lists the redacted memory here: a report that recorded a redacted memory is read by the owner and an unbound
+    admin key only, so a key below them learns such an id from somewhere else. The doors answer it as a missing id all the same.
 
     Each door must answer it as it answers an id that was never stored, add and remove the rows that call adds and removes
     (the event log and the agent records included), and leave the key's telemetry where a call on a missing id leaves it.
@@ -712,11 +761,11 @@ def test_the_id_of_a_deleted_memory_read_from_a_report_is_a_missing_id_to_every_
     # The ids come out of a report this key reads, when its limits admit the report.
     update = h.request("GET", f"/v0/vnext/artifacts/{world.reports['project_update']['id']}", key=key)
     if update[0] == 200:
-        assert {world.redacted, world.archived} <= set(update[1]["metadata_json"]["derived_from"]["memories"]), profile
+        assert {world.to_redact, world.archived} <= set(update[1]["metadata_json"]["derived_from"]["memories"]), profile
     else:
         assert profile in {"memory_proposal"}, (profile, update[0])  # a profile the artifact door does not admit
         update = h.request("GET", f"/v0/vnext/artifacts/{world.reports['project_update']['id']}", key=observer)
-        assert {world.redacted, world.archived} <= set(update[1]["metadata_json"]["derived_from"]["memories"])
+        assert {world.to_redact, world.archived} <= set(update[1]["metadata_json"]["derived_from"]["memories"])
 
     def telemetry():
         status, body, _ = h.request("GET", "/v0/vnext/agents/policy-telemetry", key=observer)
@@ -729,14 +778,15 @@ def test_the_id_of_a_deleted_memory_read_from_a_report_is_a_missing_id_to_every_
     telemetry()
     t0 = telemetry()
     missing_changes = {}
+    deleted = (("redacted", world.redacted), ("archived", world.archived), ("second archived", world.to_redact))
     for door in doors:
-        for _ in range(2):
+        for _ in deleted:
             before = snapshot(h)
             assert door.call(env, key, str(uuid4())) == missing[door.name]
             missing_changes[door.name] = changes(before, snapshot(h))
     t1 = telemetry()
     failures = []
-    for reason, row_id in (("redacted", world.redacted), ("archived", world.archived)):
+    for reason, row_id in deleted:
         for door in doors:
             before = snapshot(h)
             got = door.call(env, key, row_id)
@@ -744,7 +794,7 @@ def test_the_id_of_a_deleted_memory_read_from_a_report_is_a_missing_id_to_every_
                 failures.append(f"{profile} / {door.name} / {reason}: {got} differs from a missing id: {missing[door.name]}")
             if changes(before, snapshot(h)) != missing_changes[door.name]:
                 failures.append(f"{profile} / {door.name} / {reason}: changed {list(changes(before, snapshot(h)))}")
-            for token in ("MEMORY3", "MEMORY4"):
+            for token in ("MEMORY3", "MEMORY4", "EXTRA"):
                 if token in got.body:
                     failures.append(f"{profile} / {door.name} / {reason}: answered with {token}")
     assert not failures, "\n".join(failures[:20])
@@ -753,36 +803,36 @@ def test_the_id_of_a_deleted_memory_read_from_a_report_is_a_missing_id_to_every_
 
 
 def test_a_report_keeps_the_words_of_a_row_that_was_archived_or_redacted_after_it_was_made(world, label_harness, monkeypatch):
-    """What stays beside the ids, pinned so that the security note and the behaviour change together.
+    """What stays beside the ids, and who reads it, pinned so that the security note and the behaviour change together.
 
-    A report is written once. An archived source and a redacted or archived memory leave the reads of every door, but the
-    reports and cards that copied from them keep what they copied, and a key that may read the report reads it. The
-    security note and the known limitations page say so. When a report stops keeping these, this test fails and the pages
-    change with it.
+    A report is written once. An archived source and an archived memory leave the reads of every door, but the reports and
+    cards that copied from them keep what they copied, and a key that may read the report reads it, as before. A memory that
+    is redacted after the report was made leaves its words in the report as well, but the report is then contained: the owner
+    and an unbound admin key read it, and no other key does. That is containment and not removal. The security note and the
+    known limitations page say so. When a report stops keeping these words, or a key below an unbound admin key reads the
+    words of a redacted memory, this test fails and the pages change with it.
     """
     h = label_harness
     trusted = h.key("trusted_local_agent")
 
-    def report(name):
-        status, body, _ = h.request("GET", f"/v0/vnext/artifacts/{world.reports[name]['id']}", key=trusted)
+    def report(name, key=trusted):
+        status, body, _ = h.request("GET", f"/v0/vnext/artifacts/{world.reports[name]['id']}", key=key)
         assert status == 200, (name, status)
         return body
 
     # Both sources are archived now (the world archived one, this test archives the other, so the choice a producer makes
-    # between two equal sources does not matter), the memory is scrubbed, and no door shows any of them.
+    # between two equal sources does not matter), the two memories are archived, and no door shows any of them.
     with h.store() as store:
         store.delete_source(source_id=str(world.sources[0]["id"]), actor_type="user")
-    with h.store() as store, store.conn.cursor() as cur:
-        cur.execute("SELECT canonical_text FROM memories WHERE id = %s", (world.redacted,))
-        assert cur.fetchone()["canonical_text"] == "[REDACTED]"
     for source in world.sources:
         assert h.request("GET", f"/v0/vnext/traces/sources/{source['id']}", key=trusted)[0] == 404
-    # Reports keep the lines they printed. The project update prints every memory and source it used, so it still prints the
-    # redacted and the archived memory's text and both sources' titles, and so does any other report that printed an id.
+    # Reports keep the lines they printed, and the key that reads them reads the words of what was archived. The project
+    # update prints every memory and source it used, so it still prints both memories' text and both sources' titles, and so
+    # does any other report that printed an id.
     update = report("project_update")
     assert "MEMORY3" in update["content_markdown"] and "MEMORY4" in update["content_markdown"]
     assert "SOURCE0 Atlas" in update["content_markdown"] and "SOURCE1 Atlas" in update["content_markdown"]
-    printing = [name for name in world.reports if f"memory:{world.redacted}" in report(name).get("content_markdown", "")]
+    printing = [name for name in world.reports if f"memory:{world.to_redact}" in report(name).get("content_markdown", "")]
     assert "project_update" in printing
     assert all("MEMORY3" in report(name)["content_markdown"] for name in printing), printing
     assert "SOURCE0 Atlas" in report("daily")["content_markdown"] and "SOURCE1 Atlas" in report("daily")["content_markdown"]
@@ -798,14 +848,42 @@ def test_a_report_keeps_the_words_of_a_row_that_was_archived_or_redacted_after_i
         cur.execute("SELECT id::text AS id FROM memories WHERE metadata_json ? 'consolidation' ORDER BY created_at")
         candidates = [row["id"] for row in cur.fetchall()]
     assert rollups and candidates
+
+    def explain_card(key):
+        monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
+        context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+        return call_mcp_tool(context, name="alice_explain", arguments={"memory_id": rollups[0]})
+
+    instances = explain_card(trusted)["memory"]["value"]["rollup"]["instances"]
+    assert any(
+        instance["memory_id"] == world.to_redact and "MEMORY3" in instance["text"] for instance in instances
+    ), "the card no longer keeps the text of the archived memory"
     monkeypatch.setenv("ALICE_AGENT_API_KEY", trusted)
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
-    card = call_mcp_tool(context, name="alice_explain", arguments={"memory_id": rollups[0]})
-    instances = card["memory"]["value"]["rollup"]["instances"]
-    assert {"id": world.redacted} and any(
-        instance["memory_id"] == world.redacted and "MEMORY3" in instance["text"] for instance in instances
-    ), "the card no longer keeps the text of the redacted memory"
     detail = call_mcp_tool(context, name="alice_memory_review", arguments={"review_item_id": candidates[0]})
     snapshots = {item["id"]: item for item in detail["review"]["memory"]["metadata_json"]["consolidation"]["member_snapshots"]}
-    assert re.fullmatch(r"[0-9a-f]{16}", snapshots[world.redacted]["content_digest"])
-    assert snapshots[world.redacted]["status"] == "active"  # the digest and status are those of the member as it was
+    assert re.fullmatch(r"[0-9a-f]{16}", snapshots[world.to_redact]["content_digest"])
+    assert snapshots[world.to_redact]["status"] == "active"  # the digest and status are those of the member as it was
+
+    # A memory that is redacted now keeps its words in the same reports, and the reports that recorded it are contained:
+    # the owner and an unbound admin key read them, and the key that read them a moment ago is answered as for a report that
+    # does not exist. The rows are not rewritten. This is containment, not removal.
+    status, body, _ = h.request(
+        "POST", "/v0/vnext/memories/redact", payload={"memory_id": world.to_redact, "reason": "r"}, key=world.admin
+    )
+    assert status == 200, body
+    with h.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT canonical_text FROM memories WHERE id = %s", (world.to_redact,))
+        assert cur.fetchone()["canonical_text"] == "[REDACTED]"
+    for name in printing:
+        status, body, _ = h.request("GET", f"/v0/vnext/artifacts/{world.reports[name]['id']}", key=trusted)
+        assert (status, body) == h.request("GET", f"/v0/vnext/artifacts/{uuid4()}", key=trusted)[:2], name
+        assert "MEMORY3" in report(name, world.admin)["content_markdown"], name
+    assert "MEMORY3" in report("project_update", world.admin)["content_markdown"]
+    with pytest.raises(MCPToolError):
+        explain_card(trusted)
+    admin_instances = explain_card(world.admin)["memory"]["value"]["rollup"]["instances"]
+    assert any(instance["memory_id"] == world.to_redact and "MEMORY3" in instance["text"] for instance in admin_instances)
+    # The archived memory's words stand in the same rows and are contained with them: the rule follows the recorded input
+    # that was redacted, and the report that kept both is no longer read below an unbound admin key.
+    assert "MEMORY4" in report("project_update", world.admin)["content_markdown"]
