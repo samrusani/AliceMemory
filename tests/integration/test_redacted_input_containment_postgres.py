@@ -5,7 +5,7 @@ This is temporary access containment, not removal: a row that recorded a redacte
 is read, only by the owner and an unbound admin key, and so is every row built from it. The text stays in those rows, and the
 owner and an unbound admin key still read it. Full removal of redacted text from reports is planned for v0.21.0.
 
-The three owner tests are the first three. Each runs through the mounted application on a vault where every producer ran with
+The first three tests are the ones the requirement names. Each runs through the mounted application on a vault where every producer ran with
 an admin key over a project with a memory that holds a sentinel string, and the sentinel is in the reports made from it.
 
 Mutations that these tests must fail (the manifest replays each one):
