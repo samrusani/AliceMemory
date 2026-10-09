@@ -6,7 +6,7 @@ import random
 import subprocess
 import sys
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -19,6 +19,24 @@ from alicebot_api.vnext_label_repair import label_gap_counts, relabel_labels_sql
 USER = "11111111-1111-4111-8111-111111111111"
 CASES = ("half-hidden", "all-hidden", "all-visible", "deeper-ancestry", "extra-rows")
 SOURCE_COUNTS = (300, 1000, 3000)
+# Every fixture holds public memories with no derived marker. Every caller may read them,
+# whatever its ceiling, so a read that returns fewer than the default limit has lost rows.
+VISIBLE_ORIGINALS = 12
+READ_LIMIT = 8
+NOTE_WORDS = ("alpha", "bravo", "cobalt", "delta", "ember", "fjord", "gamma", "harbor", "ivory", "juniper",
+              "kepler", "lumen", "mosaic", "nectar", "onyx", "prism", "quartz", "riddle", "saffron", "tundra",
+              "umber", "vellum", "willow", "xenon")
+
+
+def unique_metadata(rng, index):
+    """Metadata no two rows share: an index, a nine-word note ending in a random hex suffix,
+    three tags, and a nested object holding a uuid and a float."""
+    return {
+        "observation_index": index,
+        "capture_note": " ".join(rng.choice(NOTE_WORDS) for _ in range(9)) + f" #{rng.getrandbits(40):x}",
+        "tags": [rng.choice(NOTE_WORDS) + str(rng.randrange(10000)) for _ in range(3)],
+        "nested": {"uuid": str(UUID(int=rng.getrandbits(128), version=4)), "weight": rng.random()},
+    }
 
 
 def seed_grid(store, *, postgres=False, count=5000, source_count=300, case="half-hidden", identical=False, provision_keys=True):
@@ -38,7 +56,9 @@ def seed_grid(store, *, postgres=False, count=5000, source_count=300, case="half
     values = []
     for i, row_id in enumerate(ids):
         metadata = {"project_scope": [], "project_floor": []}
-        if not identical:
+        if case == "extra-rows" and not identical:
+            metadata.update(unique_metadata(rng, i))
+        elif not identical:
             metadata["observation_index"] = i
         selected_sources = rng.sample(sources, min(source_count, 1 if shapes[i] == "copy" else rng.randint(1, 3)))
         shape = "copy" if identical else shapes[i]
@@ -63,19 +83,66 @@ def seed_grid(store, *, postgres=False, count=5000, source_count=300, case="half
     else:
         store.conn.executemany("INSERT INTO memories(id,user_id,memory_key,canonical_text,metadata_json,value,source_event_ids,status,domain,sensitivity) VALUES(?,?,?,?,?,'{}','[]','active','project','public')", values)
         store.conn.executemany("INSERT INTO event_log(id,user_id,target_id,event_type,actor_type,target_type,payload_json) VALUES(?,?,?,'memory.created','system','memory','{}')", [(str(uuid4()), user, row_id) for row_id in ids])
+    insert_visible_originals(store, postgres=postgres, user=user, count=count)
     if case == "extra-rows":
-        for i in range(400):
-            source = rng.choice(sources)
-            loop = store.create_open_loop({"title": "Synthetic loop " + str(i), "status": "open", "source_id": str(source["id"]),
-                "domain": "project", "sensitivity": "public", "metadata_json": with_derived_from({"observation_index": i, "discovered_by": "vnext_project_open_loop_extraction"}, {"sources": [source]})})
-            assert is_derived("open_loop", loop)
-            assert ("source", str(source["id"])) in dependencies_of("open_loop", loop)
-        if postgres:
-            for i in range(500):
-                store.create_artifact({"artifact_type": "weekly_synthesis", "title": "Synthetic artifact " + str(i),
-                    "content_markdown": "Synthetic report", "domain": "project", "sensitivity": "public",
-                    "metadata_json": with_derived_from({"observation_index": i}, {"sources": rng.sample(sources, 2)})})
+        weekly = [row_id for row_id, shape in zip(ids, shapes) if shape == "weekly"]
+        insert_extra_rows(store, rng, sources, ids, weekly, postgres=postgres, user=user)
     return budget_keys(store, user_id=user) if provision_keys else {}
+
+
+def insert_visible_originals(store, *, postgres, user, count):
+    """Public memories with no derived marker: a read must return them for every caller."""
+    rows = []
+    for n in range(VISIBLE_ORIGINALS):
+        row_id = str(uuid4())
+        metadata = {"project_scope": [], "project_floor": [], "observation_index": count + n}
+        assert "source_id" not in metadata and "derived_from" not in metadata
+        rows.append((row_id, user, "budget.original." + row_id, "synthetic budget observation original " + str(n), json.dumps(metadata)))
+    if postgres:
+        with store.conn.cursor() as cur:
+            cur.executemany("INSERT INTO memories(id,user_id,memory_key,canonical_text,metadata_json,value,source_event_ids,status,domain,sensitivity) VALUES(%s::uuid,%s::uuid,%s,%s,%s::jsonb,'{}','{}','active','project','public')", rows)
+            cur.executemany("INSERT INTO event_log(id,user_id,target_id,event_type,actor_type,target_type,payload_json) VALUES(%s::uuid,%s::uuid,%s::uuid,'memory.created','system','memory','{}')", [(str(uuid4()), user, row[0]) for row in rows])
+    else:
+        store.conn.executemany("INSERT INTO memories(id,user_id,memory_key,canonical_text,metadata_json,value,source_event_ids,status,domain,sensitivity) VALUES(?,?,?,?,?,'{}','[]','active','project','public')", rows)
+        store.conn.executemany("INSERT INTO event_log(id,user_id,target_id,event_type,actor_type,target_type,payload_json) VALUES(?,?,?,'memory.created','system','memory','{}')", [(str(uuid4()), user, row[0]) for row in rows])
+
+
+def insert_extra_rows(store, rng, sources, ids, weekly, *, postgres, user):
+    """Artifacts and open loops stored public, domain project, with an empty scope and floor.
+
+    Like the memories above they are written without the insert floor, so an unrepaired fixture
+    holds rows whose stored label is below their inputs. Every row carries unique metadata.
+    PostgreSQL holds 250 daily briefs and 250 weekly syntheses; SQLite has no artifact table.
+    """
+    open_loops, artifacts = [], []
+    for i in range(400):
+        source = rng.choice(sources)
+        metadata = {"project_scope": [], "project_floor": [], "discovered_by": "vnext_project_open_loop_extraction",
+                    **unique_metadata(rng, i)}
+        metadata = with_derived_from(metadata, {"sources": [source]})
+        assert is_derived("open_loop", {"source_id": str(source["id"]), "metadata_json": metadata})
+        assert ("source", str(source["id"])) in dependencies_of("open_loop", {"source_id": str(source["id"]), "metadata_json": metadata})
+        open_loops.append((str(uuid4()), user, "Synthetic loop " + str(i), str(source["id"]), json.dumps(metadata)))
+    if postgres:
+        for i in range(250):
+            picked = rng.sample(sources, min(len(sources), rng.randint(1, 3)))
+            memories = [{"id": rng.choice(ids)} for _ in range(rng.randint(0, 3))]
+            metadata = {"workflow": "daily_brief", "project_scope": [], "project_floor": [], **unique_metadata(rng, i)}
+            metadata = with_derived_from(metadata, {"sources": picked, "memories": memories})
+            artifacts.append((str(uuid4()), user, "daily_brief", "Synthetic daily brief " + str(i), json.dumps(metadata)))
+        for i in range(250):
+            picked = rng.sample(sources, min(len(sources), rng.randint(1, 2)))
+            input_summary = {"source_ids": [str(row["id"]) for row in picked], "memory_ids": [], "open_loop_ids": [],
+                             "artifact_ids": [], "counts": {"sources": len(picked), "memories": 0, "open_loops": 0, "artifacts": 0}}
+            metadata = {"workflow": "weekly_synthesis", "input_summary": input_summary,
+                        "candidate_memory_ids": [rng.choice(weekly) for _ in range(2)],
+                        "project_scope": [], "project_floor": [], **unique_metadata(rng, 1000 + i)}
+            artifacts.append((str(uuid4()), user, "weekly_synthesis", "Synthetic weekly synthesis " + str(i), json.dumps(metadata)))
+        with store.conn.cursor() as cur:
+            cur.executemany("INSERT INTO open_loops(id,user_id,title,status,source_id,domain,sensitivity,metadata_json) VALUES(%s::uuid,%s::uuid,%s,'open',%s::uuid,'project','public',%s::jsonb)", open_loops)
+            cur.executemany("INSERT INTO generated_artifacts(id,user_id,artifact_type,title,content_markdown,status,domain,sensitivity,generated_by,metadata_json) VALUES(%s::uuid,%s::uuid,%s,%s,'Synthetic report','draft','project','public','budget',%s::jsonb)", artifacts)
+    else:
+        store.conn.executemany("INSERT INTO open_loops(id,user_id,title,status,source_id,domain,sensitivity,metadata_json) VALUES(?,?,?,'open',?,'project','public',?)", open_loops)
 
 
 def budget_keys(store, *, user_id=None):
@@ -139,6 +206,23 @@ def capture_read_profiles(backend, location, user, keys, *, case, source_count, 
     return failures
 
 
+def returned_memories_ok(profile, action, case, measurements):
+    """A fast read that returns nothing passes no budget.
+
+    Every fixture holds VISIBLE_ORIGINALS public memories, so head must return at least
+    min(READ_LIMIT, VISIBLE_ORIGINALS) in every sample. Where no input is hidden from the
+    caller (a fixture of visible sources only, or the admin key, which has no ceiling) head
+    must return exactly what main returns.
+    """
+    head = measurements["head"][action]["returned_memories"]
+    main = measurements["main"][action]["returned_memories"]
+    if not head or not main or min(head) < min(READ_LIMIT, VISIBLE_ORIGINALS):
+        return False
+    if case in {"all-visible", "identical-copies"} or profile == "admin_agent":
+        return len(set(head)) == len(set(main)) == 1 and head == main
+    return True
+
+
 def paired_budgets(backend, location, user, keys, *, case, source_count, repaired, samples=10, assert_budget=True):
     assert samples >= 10
     repo = Path(__file__).resolve().parents[2]
@@ -178,7 +262,8 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
                                                      "minimum_cpu": min(arrays[index]["cpu"])}
             row = {"store": backend, "case": case, "source_count": source_count, "repaired": repaired,
                    "profile": profile, "revisions": revisions, "samples": samples, "seed": 20261007,
-                   "memories": 5000, "mix": ({"source_copy": 5000} if case == "identical-copies" else {"source_copy": 1500, "stamped_report": 1250, "consolidation": 1250, "weekly": 1000}),
+                   "memories": 5000, "visible_originals": VISIBLE_ORIGINALS,
+                   "mix": ({"source_copy": 5000} if case == "identical-copies" else {"source_copy": 1500, "stamped_report": 1250, "consolidation": 1250, "weekly": 1000}),
                    "artifacts": 500 if backend == "postgres" and case == "extra-rows" else 0,
                    "derived_loops": 400 if case == "extra-rows" else 0, "real_repair_zero_check": repaired, **measurements}
             encoded_row = json.dumps(row)
@@ -193,7 +278,14 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
                 for clock in ("minimum_wall", "minimum_cpu"):
                     if measurements["head"][action][clock] > 2 * measurements["main"][action][clock] + .1:
                         failures.append((profile, action, clock, row))
-            if backend == "postgres":
+                if not returned_memories_ok(profile, action, case, measurements):
+                    failures.append((profile, action, "returned_memories", row))
+            # The one-second wall gate for the operator screens is an absolute
+            # number, so it holds only on a known machine: the reference run and
+            # the separate maximum-workload smoke job set ALICE_READ_ABSOLUTE_GATE.
+            # Shared CI runners differ in speed, so the required jobs keep the
+            # gates measured against main on the same runner and the returned counts.
+            if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
                 for action in ("workspace", "dogfooding"):
                     if measurements["head"][action]["minimum_wall"] > 1:
                         failures.append((profile, action, "minimum_wall", row))

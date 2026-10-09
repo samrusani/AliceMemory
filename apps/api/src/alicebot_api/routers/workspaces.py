@@ -316,6 +316,11 @@ def get_vnext_workspace(user_id: UUID, authorization: str | None = Header(defaul
 
     try:
         with user_connection(settings.database_url, user_id) as conn:
+            # The project dashboards read artifacts through a long scope expression. Its estimated
+            # cost is above PostgreSQL's JIT threshold, so each such read spent about a quarter of
+            # a second compiling a query that runs in two milliseconds. Compilation never pays for
+            # these short reads. The setting ends with this transaction.
+            conn.execute("SET LOCAL jit = off")
             store = PostgresVNextStore(conn)
             identity = resolve_protected_agent_identity(
                 store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={},

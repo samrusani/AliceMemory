@@ -278,8 +278,10 @@ def test_native_json_decode_cache_preserves_recorded_reference_forms_and_refresh
 
 
 def test_native_projection_reuse_keeps_filters_and_refreshes_after_writes():
+    # The legacy project alias keeps the graph out of the reduced sensitivity proof, so this test
+    # reaches the complete-kernel native labels it pins. The canonical scope still wins over the alias.
     source = {"kind": "source", "id": UUID(int=1), "domain": "project", "sensitivity": "public",
-              "metadata_json": {"project_scope": ["P1"]}}
+              "metadata_json": {"project_scope": ["P1"], "project_id": "P1"}}
     hidden = {**deepcopy(source), "id": UUID(int=3), "sensitivity": "confidential"}
     root = {"kind": "memory", "id": UUID(int=2), "domain": "project", "sensitivity": "public", "status": "active",
             "metadata_json": {"source_id": str(source["id"]), "project_scope": ["P1"], "project_floor": ["P1"]}}
@@ -297,6 +299,7 @@ def test_native_projection_reuse_keeps_filters_and_refreshes_after_writes():
     with label_read_scope(store):
         guard = LabelGuard(store, active=True, sensitivity_allowed=("public",))
         assert guard.readable_status_counts("memory") == {"active": 1}
+        assert guard._state().native_labels and not guard._state().rank_origins
         reloaded = {**deepcopy(root), "canonical_text": "Reloaded display row", "memory_key": "display"}
         assert guard.admit_rows("memory", [reloaded]) == [reloaded]
         assert replace(guard, domains=("health",)).admit_rows("memory", [reloaded]) == []
