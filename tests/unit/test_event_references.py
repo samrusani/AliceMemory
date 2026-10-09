@@ -444,8 +444,9 @@ PAYLOAD_IDS_WITHOUT_A_LABEL = {
     "trace_id": "a trace token",
     "request_id": "a request token",
 }
-# Id fields of the payload that name a row the target is made of. A target of this kind is a derived row, whose label already
-# includes the labels of the rows it was made from, so the field adds no row the target does not already stand for.
+# Id fields of the payload that name a row the target is made of. A target of this kind is a derived row, whose label was raised
+# to the labels of the rows it was made from when it was made, so the field adds no row the target did not already stand for
+# then. Once one of those rows is archived or redacted its id stays listed, as in the other lists of ids that the notes describe.
 PAYLOAD_IDS_OF_THE_TARGETS_INPUTS = {
     "skipped_members": "members of a consolidation that were not superseded, with the reason; all are inputs of the accepted memory",
     "supersedes": "the survivor of a merge of memories; one of the members the accepted consolidation was made from",

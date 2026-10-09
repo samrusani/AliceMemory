@@ -4474,10 +4474,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 554,
+          "line": 555,
           "before": "                            found |= self._key_of(target)",
           "after": "                            pass",
-          "sha256": "3e9849adc11d126647b0164f1a9075aeee29b3a1d9c5dfa88e7fb669f55798c4"
+          "sha256": "677d75f1315e95a7933b68ad8956b12086751c4da90f07387ecb9a66a7c9dcef"
         }
       ],
       "pytest": [
@@ -4491,10 +4491,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 556,
+          "line": 557,
           "before": "                    if part.func.attr == \"update\":",
           "after": "                    if False:",
-          "sha256": "3e9849adc11d126647b0164f1a9075aeee29b3a1d9c5dfa88e7fb669f55798c4"
+          "sha256": "677d75f1315e95a7933b68ad8956b12086751c4da90f07387ecb9a66a7c9dcef"
         }
       ],
       "pytest": [
@@ -4507,10 +4507,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 526,
+          "line": 527,
           "before": "            elif len(self.functions.get(callee, ())) == 1:",
           "after": "            elif False:",
-          "sha256": "3e9849adc11d126647b0164f1a9075aeee29b3a1d9c5dfa88e7fb669f55798c4"
+          "sha256": "677d75f1315e95a7933b68ad8956b12086751c4da90f07387ecb9a66a7c9dcef"
         }
       ],
       "pytest": [
@@ -4523,10 +4523,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 570,
+          "line": 571,
           "before": "        self.unfollowed.append(name)\n        return found\n",
           "after": "        return found\n",
-          "sha256": "3e9849adc11d126647b0164f1a9075aeee29b3a1d9c5dfa88e7fb669f55798c4"
+          "sha256": "677d75f1315e95a7933b68ad8956b12086751c4da90f07387ecb9a66a7c9dcef"
         }
       ],
       "pytest": [
