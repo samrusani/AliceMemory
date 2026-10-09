@@ -129,6 +129,22 @@ def test_the_graphs_reach_every_case():
     assert direct > 50 and chain > 50 and clear > 50 and redacted_derived > 50, (direct, chain, clear, redacted_derived)
 
 
+def test_the_seeds_put_a_redacted_row_at_every_depth_and_a_contained_row_above_it():
+    """A redacted row stands as an original and as a derived row redacted later, at depth 0, 1, 2 and 3 or more."""
+    redacted_depths: set[int] = set()
+    contained_above: set[int] = set()
+    for seed in SEEDS:
+        graph = random_graph(seed)
+        contained = graph.contained()
+        for node in graph.nodes:
+            if node.redacted:
+                redacted_depths.add(min(node.depth, 3))
+            if contained[node.key]:
+                contained_above.add(min(node.depth, 4))
+    assert redacted_depths == {0, 1, 2, 3}, redacted_depths
+    assert {1, 2, 3, 4} <= contained_above, contained_above
+
+
 def _label_of(effective):
     return bool(effective["unverified"]), SENSITIVITY_RANK[str(effective["sensitivity"])]
 

@@ -30,6 +30,8 @@ class Node:
     row: dict
     inputs: list["Node"] = field(default_factory=list)
     redacted: bool = False
+    # How many rows deep the row was built, counted before it could be redacted: 0 for a source or a base memory.
+    depth: int = 0
 
     @property
     def key(self) -> tuple[str, str]:
@@ -113,7 +115,7 @@ def random_graph(seed: int, *, redact_chance: float = 0.25, artifacts: bool = Tr
         return row
 
     def add(kind: str, row: dict, inputs: list[Node]) -> Node:
-        node = Node(kind, row, inputs)
+        node = Node(kind, row, inputs, depth=1 + max((item.depth for item in inputs), default=-1))
         nodes.append(node)
         return node
 

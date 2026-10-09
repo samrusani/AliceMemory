@@ -441,3 +441,37 @@ def test_a_belief_whose_backing_memory_is_redacted_is_read_by_the_owner_and_an_u
     assert status == 404 and claim not in json.dumps(body)
     trusted_workspace = h.request("GET", "/v0/vnext/workspace", key=keys["trusted"])[1]
     assert belief["id"] not in own_ids(trusted_workspace) and claim not in json.dumps(trusted_workspace)
+
+
+def test_a_restricted_key_cannot_export_rate_or_review_a_report_that_read_the_redacted_memory(label_harness, tmp_path):
+    """The write doors that return a report's text, or change it, refuse a key with limits and change nothing."""
+    h = label_harness
+    world = World(h)
+    keys = world.keys()
+    report = world.reports["weekly"]["id"]
+
+    def counts():
+        with h.store() as store, store.conn.cursor() as cur:
+            cur.execute("SELECT (SELECT count(*) FROM artifact_quality_ratings) AS ratings, (SELECT count(*) FROM event_log) AS events, "
+                        "(SELECT status FROM generated_artifacts WHERE id = %s) AS status", (report,))
+            row = cur.fetchone()
+        return row["ratings"], row["status"]
+
+    before = counts()
+    for name in RESTRICTED:
+        key = keys[name]
+        for path, payload in (
+            (f"/v0/vnext/artifacts/{report}/export", {"output_dir": str(tmp_path / name)}),
+            (f"/v0/vnext/artifacts/{report}/review", {"action": "reject"}),
+            (f"/v0/vnext/artifacts/{report}/quality-ratings", {"usefulness": 3, "accuracy": 3, "reviewer_id": "reader"}),
+            (f"/v0/vnext/artifacts/{report}/insight-feedback", {"useful_insight": "yes", "comments": "ok"}),
+        ):
+            status, body, _ = h.request("POST", path, payload=payload, key=key)
+            assert status not in (200, 201), (name, path, status)
+            assert world.sentinel not in json.dumps(body), (name, path)
+        assert not list(tmp_path.glob(f"{name}/*")), name
+    assert counts() == before
+    # The unbound admin key is not limited: it exports the report, and the file holds the words it kept.
+    status, body, _ = h.request("POST", f"/v0/vnext/artifacts/{report}/export", payload={"output_dir": str(tmp_path / "admin")}, key=keys["admin"])
+    assert status == 200, body
+    assert any(world.sentinel in path.read_text() for path in (tmp_path / "admin").rglob("*") if path.is_file())
