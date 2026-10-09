@@ -58,11 +58,13 @@ from alicebot_api.vnext_brain import (
 )
 from alicebot_api.vnext_connections import (
     ConnectionFinderRequest,
+    VNextConnectionNotFoundError,
     VNextConnectionService,
     VNextConnectionValidationError,
 )
 from alicebot_api.vnext_contradictions import (
     ContradictionFinderRequest,
+    VNextContradictionNotFoundError,
     VNextContradictionService,
     VNextContradictionValidationError,
 )
@@ -893,6 +895,8 @@ def review_vnext_graph_edge(
     request: VNextGraphEdgeReviewRequest,
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import sensitivity_ceiling
+
     settings = get_settings()
 
     try:
@@ -909,11 +913,14 @@ def review_vnext_graph_edge(
             payload = VNextConnectionService(store).review_edge(
                 edge_id=str(edge["id"]),
                 action=request.action,
+                sensitivity_allowed=sensitivity_ceiling(identity),
             )
     except AgentIdentityValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext agent identity claims are invalid")
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
+    except VNextConnectionNotFoundError:
+        return _vnext_public_error_response(status_code=404, detail="vNext graph edge was not found")
     except VNextConnectionValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext graph edge review request is invalid")
 
@@ -923,11 +930,30 @@ def review_vnext_graph_edge(
     )
 
 @review_router.get("/v0/vnext/graph/neighborhood/{target_id}")
-def get_vnext_graph_neighborhood(target_id: str, user_id: UUID) -> JSONResponse:
+def get_vnext_graph_neighborhood(
+    target_id: str,
+    user_id: UUID,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import sensitivity_ceiling
+
     settings = get_settings()
 
-    with user_connection(settings.database_url, user_id) as conn:
-        payload = VNextConnectionService(PostgresVNextStore(conn)).graph_neighborhood(target_id=target_id)
+    try:
+        with user_connection(settings.database_url, user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = resolve_protected_agent_identity(
+                store,
+                user_id=user_id,
+                raw_key=agent_key_from_authorization(authorization),
+                payload={},
+            )
+            payload = VNextConnectionService(store).graph_neighborhood(
+                target_id=target_id,
+                sensitivity_allowed=sensitivity_ceiling(identity),
+            )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
 
     return JSONResponse(
         status_code=200,
@@ -940,6 +966,8 @@ def review_vnext_belief(
     request: VNextBeliefReviewRequest,
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
+    from alicebot_api.vnext_label_guard import sensitivity_ceiling
+
     settings = get_settings()
 
     try:
@@ -964,11 +992,14 @@ def review_vnext_belief(
                 action=request.action,
                 confidence=request.confidence,
                 superseded_by=str(replacement["id"]) if replacement is not None else None,
+                sensitivity_allowed=sensitivity_ceiling(identity),
             )
     except AgentIdentityValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext agent identity claims are invalid")
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
+    except VNextContradictionNotFoundError:
+        return _vnext_public_error_response(status_code=404, detail="vNext belief was not found")
     except VNextContradictionValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext belief review request is invalid")
 

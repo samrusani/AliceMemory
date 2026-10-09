@@ -36,6 +36,7 @@ from alicebot_api.vnext_derived_labels import (
     identifier,
     has_implicit_weekly_inputs,
     is_derived,
+    is_redacted_row,
     input_admitted,
     settle_labels,
     settle_verified_inputs,
@@ -279,6 +280,10 @@ def _filters_admit_every(
     return domains_open and sensitivity_open and not tuple(projects or ())
 
 
+# The endpoint kinds of a graph edge that carry a label. Entities and source chunks carry none.
+_EDGE_ENDPOINT_KINDS = ("memory", "source", "belief", "artifact", "open_loop", "project")
+
+
 @dataclass
 class LabelGuard:
     """The labels a door may trust for one request."""
@@ -468,6 +473,9 @@ class LabelGuard:
                 return None
             parent = self._settled_inputs(parent_kind, raw[0], trail | {root})
             if parent is None or root in parent[1]:
+                return None
+            if parent[0].redacted:
+                # A row built from a redacted row is unverified, which only the complete kernel answers.
                 return None
             parents.append(parent[0])
             ancestry.update(parent[1])
@@ -736,6 +744,7 @@ class LabelGuard:
         graph: dict[tuple[str, str, str], frozenset[tuple[str, str, str]]] = {}
         ranks: dict[tuple[str, str, str], int] = {}
         origins: list[tuple[str, str, str]] = []
+        redacted_nodes: set[tuple[str, str, str]] = set()
         for (node_kind, node_id), found in state.nodes.items():
             node_kind = canon_kind(node_kind)
             if len(found) != 1:
@@ -760,9 +769,18 @@ class LabelGuard:
             ranks[key] = SENSITIVITY_RANK[sensitivity]
             if derived:
                 origins.append(key)
+            if is_redacted_row(row):
+                redacted_nodes.add(key)
         # Redundant: a missing input never completes, so the visited count below refuses the graph as well.
         if any(ref not in graph for refs in graph.values() for ref in refs):
             return False
+        if redacted_nodes:
+            # A row that recorded a redacted row is unverified, which the complete kernel reads as regulated, and so is
+            # every row built from it: count it at the top rank before the ranks spread to the rows that read it.
+            regulated = SENSITIVITY_RANK["regulated"]
+            for key, input_keys in graph.items():
+                if input_keys & redacted_nodes:
+                    ranks[key] = max(ranks[key], regulated)
         pending_count = {key: len(refs) for key, refs in graph.items()}
         dependants: dict[tuple[str, str, str], list[tuple[str, str, str]]] = {}
         for node_key, input_keys in graph.items():
@@ -990,12 +1008,62 @@ class LabelGuard:
             for row in reader("memory", ids):
                 if isinstance(row, Mapping) and row.get("id") is not None:
                     found[str(row.get("id"))] = row
-        admitted = {str(row.get("id")) for row in self.admit_rows("memory", list(found.values()))}
+        # A belief keeps the claim it copied from its memory. When that memory is redacted the claim is the redacted text,
+        # so the belief is read as a derived row with a redacted input is: by the owner and an unbound admin key only.
+        live = [row for row in found.values() if not is_redacted_row(row)]
+        admitted = {str(row.get("id")) for row in self.admit_rows("memory", live)}
         return [
             row
             for row in beliefs
             if isinstance(row, Mapping) and str(row.get("memory_id") or "") in admitted
         ]
+
+    def admit_edges(self, edges: Sequence[_Row]) -> list[_Row]:
+        """Graph edges whose labelled endpoints are all readable and none of them redacted.
+
+        An edge has no label of its own. It keeps the explanation it was made with, which holds the titles and shared
+        terms of the rows it joins, so it is read only by a caller who may read every row it names. A memory that is
+        redacted since is not readable here: the edge still holds what the memory said. An endpoint of a kind that
+        carries no label (an entity, a source chunk) adds nothing to the decision. A project end is named by the id of
+        its row or by any identifier the caller typed, and only an id that finds a row carries a label: a named project
+        finds none, so it hides nothing, as an entity end hides nothing. A project row that exists and is not readable
+        still hides the edge.
+        """
+
+        if not self.active:
+            return [row for row in edges if isinstance(row, Mapping)]
+        reader = getattr(self.store, "read_label_rows", None)
+        if not callable(reader):
+            return []
+        kept = {index: edge for index, edge in enumerate(edges) if isinstance(edge, Mapping)}
+        for kind in _EDGE_ENDPOINT_KINDS:
+            wanted: dict[str, None] = {}
+            for edge in kept.values():
+                for side in ("from", "to"):
+                    if str(edge.get(f"{side}_type") or "") == kind and edge.get(f"{side}_id"):
+                        wanted[str(edge[f"{side}_id"])] = None
+            if not wanted:
+                continue
+            found = [row for row in reader(kind, list(wanted)) if isinstance(row, Mapping) and row.get("id") is not None]
+            if kind == "belief":
+                # A belief keeps the claim it copied from its memory; admit_beliefs settles the memory, redacted or not.
+                readable_rows = self.admit_beliefs(found)
+            else:
+                readable_rows = self.admit_rows(kind, [row for row in found if not is_redacted_row(row)])
+            readable = {identifier(row.get("id")) for row in readable_rows}
+            # Every other kind must find its row. A project end that finds none names no project row and hides nothing.
+            known = {identifier(row.get("id")) for row in found} if kind == "project" else None
+            for index, edge in list(kept.items()):
+                for side in ("from", "to"):
+                    end = identifier(edge.get(f"{side}_id"))
+                    if (
+                        str(edge.get(f"{side}_type") or "") == kind
+                        and end not in readable
+                        and (known is None or end in known)
+                    ):
+                        del kept[index]
+                        break
+        return list(kept.values())
 
     def _admits_effective(self, row: Mapping[str, object], *, kind: str) -> bool:
         if self.all_of is not None and (row.get("unverified") or not input_admitted(kind, row, self.all_of)):

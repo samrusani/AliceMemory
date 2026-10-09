@@ -465,8 +465,12 @@ def test_the_owner_keeps_review_of_every_belief_and_edge(label_harness):
         assert (status, body) == (404, {"detail": detail}), route
 
 
-def test_the_graph_neighborhood_returns_edges_and_none_of_the_row(label_harness):
-    """Edge explanations stay outside the ceiling, which the notes already state. The row itself must not come back."""
+def test_the_graph_neighborhood_of_a_row_the_key_cannot_read_lists_no_edge_and_none_of_the_row(label_harness):
+    """An edge keeps the explanation made from the rows it joins, so a key is listed only the edges whose ends it may read.
+
+    The neighborhood of a hidden memory is the neighborhood of an id with no edges, and the neighborhood of a readable source
+    lists its edge to a readable memory and not its edge to the hidden one. The row itself never comes back.
+    """
     h = label_harness
     vault = build_vault(h)
     trusted = h.key("trusted_local_agent")
@@ -474,19 +478,30 @@ def test_the_graph_neighborhood_returns_edges_and_none_of_the_row(label_harness)
     status, body, _ = h.request("GET", f"/v0/vnext/graph/neighborhood/{hidden_memory}", key=trusted)
     assert status == 200
     assert set(body) == {"target_id", "from_edges", "to_edges", "edge_count"}
+    assert body["from_edges"] == [] and body["to_edges"] == [] and body["edge_count"] == 0
+    absent = h.request("GET", f"/v0/vnext/graph/neighborhood/{uuid4()}", key=trusted)[1]
+    assert body == {**absent, "target_id": hidden_memory}
     text = json.dumps(body)
     for word in vault.secrets[("memory", "confidential")]:
         assert word not in text
+    assert UUID(body["target_id"]) == UUID(hidden_memory)
+    # The source the edges start at is readable: it is listed the edge to the readable memory and not the edge to the hidden one.
+    status, body, _ = h.request("GET", f"/v0/vnext/graph/neighborhood/{vault.ids[('source', 'visible')]}", key=trusted)
+    assert status == 200
+    listed = {edge["id"] for edge in (*body["from_edges"], *body["to_edges"])}
+    assert vault.ids[("edge", "visible")] in listed and vault.ids[("edge", "confidential")] not in listed
+    assert body["edge_count"] == len(listed)
     for edge in (*body["from_edges"], *body["to_edges"]):
         assert set(edge) <= {
             "id", "user_id", "from_type", "from_id", "to_type", "to_id", "edge_type", "confidence", "explanation",
             "created_by", "observed_at", "valid_from", "valid_to", "metadata_json", "created_at",
         }
-    assert UUID(body["target_id"]) == UUID(hidden_memory)
+    for word in vault.secrets[("memory", "confidential")]:
+        assert word not in json.dumps(body)
 
 
 def test_a_commit_that_cites_a_hidden_source_answers_as_for_a_missing_one_except_under_a_prefix_that_is_not_source(label_harness):
-    """The third answer the security note lists: a ref under another prefix is withheld from the answer, once, for a hidden source.
+    """The second answer the security note lists: a ref under another prefix is withheld from the answer, once, for a hidden source.
 
     A ref written as a bare id or with the ``source:`` prefix names a source, so a hidden source and a missing one are
     refused alike (HTTP 404). A ref under another prefix (``artifact:``, ``belief:``, ``open_loop:``, in any case) names

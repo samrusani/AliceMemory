@@ -50,6 +50,7 @@ GUARD_CALLS = {
     "admit_loaded",
     "apply_sensitivity_ceiling",
     "sensitivity_ceiling",
+    "admit_edges",
     "admit_events", "admit_related_rows", "readable_status_counts", "readable_event_count",
 }
 
@@ -104,6 +105,9 @@ DOORS = {
     "vnext_context_tree.py:VNextContextTreeService.build_tree": None,
     "vnext_dogfooding.py:VNextDogfoodingService.dashboard": None,
     "vnext_contradictions.py:VNextContradictionService.belief_state": None,
+    "vnext_contradictions.py:VNextContradictionService._readable_belief": None,
+    "vnext_connections.py:VNextConnectionService.review_edge": None,
+    "vnext_connections.py:VNextConnectionService.graph_neighborhood": None,
     "vnext_retrieval.py:expand_provenance_once": None,
     "vnext_retrieval.py:VNextRetrievalService._memories_by_ids": None,
     "vnext_retrieval.py:VNextRetrievalService._memory_fts_rows": None,

@@ -447,6 +447,15 @@ inside the store is intentionally out of this memory-lifecycle operation's
 scope because it may be shared. Upstream providers, prior exports, replicas,
 and backups also need their own erasure policy.
 
+On main, not in v0.20.0, redact does not rewrite the reports and derived rows
+made from the memory before. A daily brief, weekly synthesis,
+project update, connection report or roll-up card keeps the words it copied, and
+a belief keeps its claim. Redacting the memory now restricts those rows to the
+owner and an unbound admin key until they are regenerated without it. This is
+temporary access containment, not removal: the text stays in those rows, and
+full removal is planned for v0.21.0. Archiving a memory restricts nothing. See
+[Redacted memories](alpha/mcp-tools.md#redacted-memories).
+
 Unreleased (on main, not in v0.20.0): redact asks the policy before it reads the
 state of the row, as forget, undo, correct and confirm do. A caller the policy
 refuses (its project scope, its profile, its ceiling) is told the refusal,
