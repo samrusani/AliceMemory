@@ -2883,13 +2883,13 @@ class VNextMemoryCommitService:
         a commit above its ceiling, in a domain it may not read, in another project, or made from an input it may not
         read is left out of the list and of the count, and the list is refilled from older commits so it is as long as
         the caller may read, up to ``limit``. A commit that is listed loses the saved quote of a source the caller may
-        not read, as the row of every verb does.
+        not read, as the row of every verb does. A ``limit`` below 1 is read as 1, as it always was.
         """
 
         guard = guard_for_caller(self.store, identity, action="memory.recent_commits")
-        rows = newest_admitted_rows(guard, "memory", self._newest_commits, want=limit)
+        rows = newest_admitted_rows(guard, "memory", self._newest_commits, want=max(limit, 1))
         if guard.active:
-            rows = SavedProvenanceReader(self.store, fence=SourceReadFence.for_identity(identity)).tree(rows)
+            rows = SavedProvenanceReader(self.store, fence=SourceReadFence.for_identity(identity)).memories(rows)
         return {"recent_commits": rows, "count": len(rows)}
 
     def _newest_commits(self, size: int) -> list[VNextRow]:

@@ -22,6 +22,7 @@ import pytest
 
 from alicebot_api import importer_paths, vnext_connectors as vc
 from alicebot_api.vnext_connectors import VNextConnectorService
+from alicebot_api.vnext_label_guard import LabelGuard
 from tests.unit.test_vnext_connectors import InMemoryConnectorSettingsStore
 
 
@@ -399,10 +400,10 @@ def test_connector_health_reports_the_last_scan_for_the_local_folder_only(
     (root / "d.md").write_text("delta", encoding="utf-8")
     store = InMemoryConnectorSettingsStore()
     service = VNextConnectorService(store)
-    assert service.connector_health("local_folder")["last_scan"] is None
+    assert service.connector_health("local_folder", guard=LabelGuard.unlimited(store))["last_scan"] is None
 
     service.sync_local_folder((root,))
-    first = service.connector_health("local_folder")["last_scan"]
+    first = service.connector_health("local_folder", guard=LabelGuard.unlimited(store))["last_scan"]
     assert isinstance(first, dict)
     assert first["refused_count"] == 1
     assert first["truncated"] is True
@@ -415,9 +416,9 @@ def test_connector_health_reports_the_last_scan_for_the_local_folder_only(
     for event in store.events:
         event["occurred_at"] = "2026-01-01T00:00:00Z"
     service.sync_local_folder((root,))
-    second = service.connector_health("local_folder")["last_scan"]
+    second = service.connector_health("local_folder", guard=LabelGuard.unlimited(store))["last_scan"]
 
     assert isinstance(second, dict)
     assert second["refused_count"] == 0
     assert second["truncated"] is False
-    assert service.connector_health("telegram")["last_scan"] is None
+    assert service.connector_health("telegram", guard=LabelGuard.unlimited(store))["last_scan"] is None

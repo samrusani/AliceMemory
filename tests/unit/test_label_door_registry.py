@@ -145,6 +145,7 @@ NOT_A_DOOR = {
     "vnext_memory_commit.py:VNextMemoryCommitService.unexpire": "write path; _write_policy_decision settles the row",
     "vnext_memory_commit.py:VNextMemoryCommitService.quarantine_by_agent_key": "write path; _write_policy_decision settles the row",
     "vnext_memory_commit.py:VNextMemoryCommitService._newest_commits": "private loader; recent_commits admits every row it returns",
+    "vnext_connectors.py:VNextConnectorService._caller_reads_sources": "answers a boolean from guard.admit_rows and returns no row",
     "vnext_memory_commit.py:VNextMemoryCommitService.audit": "the authorize_memory callback settles each memory",
     "vnext_memory_commit.py:VNextMemoryCommitService._supersession_chain": "audit walks this after authorize_memory",
     "vnext_memory_commit.py:VNextMemoryCommitService.inline_confirmations": "owner list; stays label-agnostic",

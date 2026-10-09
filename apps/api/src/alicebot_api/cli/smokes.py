@@ -517,6 +517,8 @@ def _run_vnext_smoke_model_backed(ctx: CLIContext, _args: argparse.Namespace) ->
 
 
 def _run_vnext_smoke_live_capture_connectors(ctx: CLIContext, _args: argparse.Namespace) -> str:
+    from alicebot_api.vnext_label_guard import LabelGuard
+
     smoke_id = str(uuid4())
     telegram_update_id = int(time.time() * 1000)
     browser_capture_token = f"clip-smoke-{smoke_id}"
@@ -596,7 +598,7 @@ def _run_vnext_smoke_live_capture_connectors(ctx: CLIContext, _args: argparse.Na
                 },
                 policy_decision={"decision": "allowed", "action": "source.capture"},
             )
-            health = service.connector_health_all()
+            health = service.connector_health_all(guard=LabelGuard.unlimited(store))
     _persist_deferred_embedding_inputs(
         ctx,
         (
@@ -695,6 +697,8 @@ def _run_vnext_smoke_capture_to_brief(ctx: CLIContext, _args: argparse.Namespace
 
 
 def _run_vnext_smoke_operator_console(ctx: CLIContext, _args: argparse.Namespace) -> str:
+    from alicebot_api.vnext_label_guard import LabelGuard
+
     smoke_id = str(uuid4())
     browser_capture_token = f"operator-console-smoke-{smoke_id}"
     secrets = InMemorySecretProvider(
@@ -870,7 +874,7 @@ def _run_vnext_smoke_operator_console(ctx: CLIContext, _args: argparse.Namespace
             VNextRetrievalRequest(query=smoke_id, domains=("project",), sensitivity_allowed=("private", "unknown")),
             source_fence=_SourceReadFence.unfenced()
         )
-        health = connector_service.connector_health_all()
+        health = connector_service.connector_health_all(guard=LabelGuard.unlimited(store))
         doctor = VNextDoctorService(store, secret_provider=secrets).run(fix_safe=True, ci=True)
         events = store.list_events(limit=100)
     _persist_deferred_capture_embeddings(ctx, capture)
@@ -1676,6 +1680,8 @@ def _run_vnext_alpha_check(ctx: CLIContext, args: argparse.Namespace) -> str:
 
 
 def _run_vnext_smoke_connector_hardening(ctx: CLIContext, _args: argparse.Namespace) -> str:
+    from alicebot_api.vnext_label_guard import LabelGuard
+
     smoke_id = str(uuid4())
     telegram_update_id = int(time.time() * 1000)
     with tempfile.TemporaryDirectory(prefix="alice-connector-hardening-") as temp_dir:
@@ -1751,7 +1757,7 @@ def _run_vnext_smoke_connector_hardening(ctx: CLIContext, _args: argparse.Namesp
                 default_domain="project",
                 default_sensitivity="private",
             )
-            health = restarted.connector_health_all()
+            health = restarted.connector_health_all(guard=LabelGuard.unlimited(store))
             events = store.list_events(target_type="connector", target_id="telegram", limit=25)
     _persist_deferred_embedding_inputs(
         ctx,

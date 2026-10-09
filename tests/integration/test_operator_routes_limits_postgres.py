@@ -186,6 +186,82 @@ def test_the_connector_status_lists_the_captures_a_key_may_read(label_harness):
     assert vault.text("capture_hidden-title") in titles and vault.text("capture_shown-title") in titles
 
 
+def _sync(vault: Vault, key, items, *, sensitivity="public", path="/v0/vnext/connectors/local_folder/sync"):
+    return run_call(
+        vault, "POST", path, Call("ad hoc", body={"default_sensitivity": sensitivity, "items": items}), key
+    )
+
+
+def _health(vault: Vault, key) -> dict:
+    status, text = _get(vault, "/v0/vnext/connectors/local_folder/status", key)
+    assert status == 200
+    return json.loads(text)
+
+
+def test_the_connector_screens_name_a_capture_and_a_cursor_only_to_a_caller_who_may_read_the_source(label_harness):
+    vault = Vault(label_harness, "h").build()
+    trusted, admin = vault.keys["trusted"], vault.keys["admin"]
+    hidden_path = f"/vault/{vault.text('synced-file')}.md"
+    hidden_source = vault.ids["synced_source"]
+
+    # The last import is a confidential file, and its path is the cursor. Only the unbound admin key is shown either.
+    seen = _health(vault, admin)["health"]
+    assert seen["last_captured_item"]["external_id"] == hidden_path and seen["last_captured_item"]["source_id"] == hidden_source
+    assert seen["cursor_state"] == hidden_path
+    held = _health(vault, trusted)
+    assert held["health"]["last_captured_item"] is None and held["health"]["cursor_state"] is None
+    assert held["health"]["items_captured"] == seen["items_captured"]
+    # The failed sync recorded both cursors. The key is shown the failure and not the cursors.
+    failed = [row for row in held["recent_failures"] if row["event_type"] == "connector.sync_failed"]
+    assert failed and all(row["payload_json"]["previous_cursor"] is None for row in failed)
+    assert all(row["payload_json"]["sync_cursor"] is None for row in failed)
+    assert vault.text("synced-file") not in json.dumps(held)
+    unlimited = [row for row in _health(vault, admin)["recent_failures"] if row["event_type"] == "connector.sync_failed"]
+    assert unlimited and all(row["payload_json"]["sync_cursor"] == hidden_path for row in unlimited)
+
+    # A sync by the key answers with the cursors it may read: its item sorts below the cursor, so it is skipped.
+    status, text = _sync(vault, trusted, [{"path": "/vault/A.md", "title": "a", "text": "a note the key sent"}])
+    answer = json.loads(text)
+    assert status == 201 and answer["skipped_count"] == 1
+    assert answer["previous_cursor"] is None and answer["sync_cursor"] is None
+    assert vault.text("synced-file") not in text
+    status, text = _sync(vault, admin, [{"path": "/vault/B.md", "title": "b", "text": "a note the admin sent"}])
+    assert status == 201 and json.loads(text)["previous_cursor"] == hidden_path
+
+    # A failed item holds the cursor back, so the cursor still names the confidential file while the last import is a
+    # public one. The two are judged apart.
+    public_a = f"/vault/{vault.shown('synced-a')}.md"
+    status, text = _sync(
+        vault, admin,
+        [{"path": "", "external_id": "x"}, {"path": public_a, "title": "t", "text": "public a", "mtime_ns": 7}],
+    )
+    assert status == 207, text
+    seen = _health(vault, admin)["health"]
+    assert seen["last_captured_item"]["external_id"] == public_a and seen["cursor_state"] == hidden_path
+    held = _health(vault, trusted)["health"]
+    assert held["last_captured_item"]["external_id"] == public_a
+    assert held["cursor_state"] is None
+
+    # Once a public import moves the cursor, the key is shown it.
+    public_b = f"/vault/{vault.shown('synced-b')}.md"
+    status, text = _sync(vault, admin, [{"path": public_b, "title": "t", "text": "public b", "mtime_ns": 9}])
+    assert status == 201, text
+    held = _health(vault, trusted)["health"]
+    assert held["cursor_state"] == f"9:{public_b}" and held["last_captured_item"]["external_id"] == public_b
+    assert vault.text("synced-file") not in json.dumps(_health(vault, trusted))
+
+
+def test_the_connector_health_of_the_owner_is_the_block_as_stored(label_harness):
+    vault = Vault(label_harness, "ho", owner=True).build()
+    hidden_path = f"/vault/{vault.text('synced-file')}.md"
+    seen = _health(vault, None)["health"]
+    assert seen["last_captured_item"]["external_id"] == hidden_path and seen["cursor_state"] == hidden_path
+    status, text = _get(vault, "/v0/vnext/connectors/health", None)
+    local = next(item for item in json.loads(text)["items"] if item["connector_name"] == "local_folder")
+    assert status == 200 and local["last_captured_item"]["external_id"] == hidden_path
+    assert local["cursor_state"] == hidden_path
+
+
 def test_the_context_tree_reads_a_filter_as_a_selection_and_never_as_a_grant(label_harness):
     vault = Vault(label_harness, "x").build()
     path = "/v0/vnext/context-tree"

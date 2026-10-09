@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import re
 import shlex
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from alicebot_api.config import Settings, get_settings
 from alicebot_api.vault_doctor import source_row_is_flagged
@@ -15,6 +15,9 @@ from alicebot_api.vnext_connectors import CORE_SETTINGS_CONNECTORS, VNextConnect
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_scheduler_runtime import daemon_status
 from alicebot_api.vnext_secrets import SecretProvider, default_secret_provider
+
+if TYPE_CHECKING:
+    from alicebot_api.vnext_label_guard import LabelGuard
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +129,21 @@ class VNextDoctorService:
     def local_live_cors_status(self, settings: Settings | None = None) -> JsonObject:
         return local_live_cors_status(settings=settings or get_settings(), env=self.env, cwd=self.cwd)
 
-    def run(self, *, fix_safe: bool = False, ci: bool = False, include_content_diagnostics: bool = True) -> JsonObject:
+    def run(
+        self,
+        *,
+        fix_safe: bool = False,
+        ci: bool = False,
+        include_content_diagnostics: bool = True,
+        label_guard: LabelGuard | None = None,
+    ) -> JsonObject:
+        """Run the checks. ``label_guard`` is the caller's: ``None`` is the owner, who is shown the connector block as
+        it was stored; a caller with limits passes its guard, and the last captured item and cursor of each connector
+        are shown only when it may read the source they came from."""
+
+        from alicebot_api.vnext_label_guard import LabelGuard
+
+        guard = label_guard if label_guard is not None else LabelGuard(store=self.store, active=False)
         if fix_safe:
             VNextConnectorService(cast(Any, self.store), secret_provider=self.secret_provider).ensure_default_settings()
 
@@ -231,7 +248,7 @@ class VNextDoctorService:
 
         health = VNextConnectorService(
             cast(Any, self.store), secret_provider=self.secret_provider
-        ).connector_health_all()
+        ).connector_health_all(guard=guard)
         failing_connectors = []
         for item in cast(list[JsonObject], health.get("items", [])):
             failed_value = item.get("items_failed", 0)

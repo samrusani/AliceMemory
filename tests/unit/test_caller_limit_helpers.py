@@ -13,7 +13,13 @@ from __future__ import annotations
 import pytest
 
 from alicebot_api.vnext_agent_control import AgentIdentity, AgentPolicyBlockedError
-from alicebot_api.vnext_label_guard import clamp_request_filters, guard_for_caller, readable_own_label_rows
+from alicebot_api.vnext_label_guard import (
+    ROW_FEED_SCAN_LIMIT,
+    clamp_request_filters,
+    guard_for_caller,
+    newest_admitted_rows,
+    readable_own_label_rows,
+)
 
 ALPHA = "prj_" + "a" * 16
 LEVELS = ("public", "internal", "private", "confidential", "highly_sensitive", "sacred", "regulated", "unknown")
@@ -111,3 +117,57 @@ def test_the_guard_of_a_caller_with_limits_carries_the_filters_its_policy_grants
 def test_the_guard_of_a_blocked_caller_is_not_built() -> None:
     with pytest.raises(AgentPolicyBlockedError):
         guard_for_caller(object(), _who("read_only_agent"))
+
+
+class _Feed:
+    """A store of ``total`` rows, newest first, of which the ones at ``readable`` positions are readable.
+
+    ``asked`` records the size of every read, and a feed that never stops is cut off after a dozen reads so a broken
+    bound fails the test instead of hanging it.
+    """
+
+    def __init__(self, total: int, readable: set[int]) -> None:
+        self.total, self.readable, self.asked = total, readable, []
+
+    def fetch(self, size: int) -> list[dict]:
+        self.asked.append(size)
+        assert len(self.asked) <= 12, f"the read did not stop: {self.asked}"
+        return [{"id": index} for index in range(min(size, self.total))]
+
+    def guard(self):
+        feed = self
+
+        class Guard:
+            def admit_rows(self, kind, rows):
+                return [row for row in rows if row["id"] in feed.readable]
+
+        return Guard()
+
+
+def test_the_refill_of_a_row_feed_never_reads_past_the_scan_limit() -> None:
+    # Ten thousand rows and none readable beyond the first few: the read widens, and stops at the bound.
+    feed = _Feed(total=10_000, readable={3, 7})
+    rows = newest_admitted_rows(feed.guard(), "memory", feed.fetch, want=20)
+    assert [row["id"] for row in rows] == [3, 7]
+    assert max(feed.asked) == ROW_FEED_SCAN_LIMIT
+    assert feed.asked == [20, 100, 500, ROW_FEED_SCAN_LIMIT]
+
+
+def test_a_readable_row_beyond_the_scan_limit_is_not_reached() -> None:
+    feed = _Feed(total=10_000, readable={3, ROW_FEED_SCAN_LIMIT + 5})
+    rows = newest_admitted_rows(feed.guard(), "memory", feed.fetch, want=20)
+    assert [row["id"] for row in rows] == [3]
+    assert all(size <= ROW_FEED_SCAN_LIMIT for size in feed.asked)
+
+
+def test_a_feed_that_has_enough_readable_rows_stops_at_the_first_read() -> None:
+    feed = _Feed(total=100, readable=set(range(100)))
+    rows = newest_admitted_rows(feed.guard(), "memory", feed.fetch, want=5)
+    assert [row["id"] for row in rows] == [0, 1, 2, 3, 4] and feed.asked == [5]
+
+
+def test_a_feed_with_fewer_rows_than_asked_stops_when_the_store_runs_out() -> None:
+    feed = _Feed(total=30, readable={1})
+    assert [row["id"] for row in newest_admitted_rows(feed.guard(), "memory", feed.fetch, want=20)] == [1]
+    assert feed.asked == [20, 100]
+

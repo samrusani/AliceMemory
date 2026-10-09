@@ -466,6 +466,19 @@ SCHEDULER_RUN_COLUMNS = """
 
 
 
+def lock_brain_charter(store: Any) -> None:
+    """Serialize the saves of the brain charter, and the readability check before one, per user.
+
+    A transaction-scoped advisory lock on the current user. A save takes it before it writes, and a route that reads the
+    stored charter to decide whether the caller may replace it takes it before that read, so a charter that is
+    classified between the read and the write is not replaced by a caller who could no longer read it. The lock is
+    released at commit or rollback, and a session that holds it takes it again without waiting.
+    """
+
+    with store.conn.cursor() as cur:
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext('vnext_brain_charter'), hashtext(app.current_user_id()::text))")
+
+
 class PostgresVNextStore:
     """SQL-backed vNext repository facade for the second-brain kernel."""
 
@@ -2916,6 +2929,7 @@ class PostgresVNextStore:
         )
 
     def upsert_brain_charter(self, charter: JsonObject, *, actor_type: str = "system") -> VNextRow:
+        lock_brain_charter(self)
         row = self._fetch_one(
             "upsert_brain_charter",
             f"""

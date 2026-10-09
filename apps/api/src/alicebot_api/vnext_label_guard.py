@@ -309,6 +309,12 @@ class LabelGuard:
         return cls(store=store, active=fenced)
 
     @classmethod
+    def unlimited(cls, store: Any) -> LabelGuard:
+        """The guard of the owner and of an unbound admin key: inactive, so it returns what it is given."""
+
+        return cls(store=store, active=False)
+
+    @classmethod
     def for_filters(
         cls,
         store: Any,

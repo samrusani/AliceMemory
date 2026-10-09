@@ -95,7 +95,7 @@ MAIN_PRUNED_BINDINGS = {
 EXPECTED_ROUTE_AST_SHA256 = "7045d27156861c06b2283bb09416e522c59a5064941f40e81c87634577dd1b08"
 # Re-pin 2026-10-08: the payload reads its two event feeds through the guard, which widens the read while the newest events are
 # hidden from the caller (``LabelGuard.newest_admitted_events``). One definition changed, ``_vnext_workspace_payload``.
-EXPECTED_SUPPORT_AST_SHA256 = "f4e6d25c0969fcfde244cfcdbe50d694d9f4374ec5052ca5245cca51392ddff9"
+EXPECTED_SUPPORT_AST_SHA256 = "6bb9b9770016803174b17dfbdce3390d245944dc28a816886b2c50e911a82e7d"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "e8c18d6831ca012b55b22f46c9b2151d62575773a2452ef0d0f2e869cabc8abb"
@@ -143,7 +143,8 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # central vNext route policy; the app carrier keeps the same definitions.
 # Round two moves source GET to the route-local full fence; definitions are unchanged.
 # Re-pin 2026-10-09: _vnext_workspace_payload lists the queued tasks and the brain charter the caller may read
-# (readable_own_label_rows), and the recent-commits fallback names its caller; no other definition changed.
+# (readable_own_label_rows), names its caller for the recent-commits fallback, and holds the connector health block and
+# the doctor to the caller's guard; no other definition changed.
 EXPECTED_CARRIER_AST_SHA256 = "7aade286308c3e4aeb2775eaa350eb739681f3e68d7f20435adf5495bede2c60"
 EXPECTED_ROUTE_NODE_SHA256 = {
     "get_vnext_workspace": "62f9a0dec65229b3ff523d12e99529f1e4751f7953e26ed69fc52d184ebc9d2d",
@@ -152,7 +153,7 @@ EXPECTED_ROUTE_NODE_SHA256 = {
 }
 EXPECTED_SUPPORT_NODE_SHA256 = {
     "_vnext_status_counts": "0bf0ed228a14bd648a9d18fcd5f99ebf8c585bd29f4b5e81e1df17fe0201fd15",
-    "_vnext_workspace_payload": "5acfb513eacb6f8e1704beae491817e328624901bfd42ac177936c3e6bb3bec5",
+    "_vnext_workspace_payload": "9e6ab5ac1ae1dc86e3bc721ddab10b930c5c23aa3099e60c47d242e4c425831b",
     "_workspace_rows": "070bdfbd1eae10608bd8208b08367e1c0ea10e2064f03ad5a84121a190ed4cf0",
     "_workspace_event_visible": "8343c060909326a5cb69fa6f671ac62f160630ecf989f04d78e792ea74c0ea90",
 }

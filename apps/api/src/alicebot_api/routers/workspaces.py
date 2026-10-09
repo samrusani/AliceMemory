@@ -170,9 +170,9 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     inline_confirmations = guard.admit_rows("memory", inline_confirmations)
     scheduler_status = VNextSchedulerService(store).status()
     scheduler_status = {**scheduler_status, "daemon": daemon_status()}
-    connector_health = VNextConnectorService(store).connector_health_all()
+    connector_health = VNextConnectorService(store).connector_health_all(guard=guard)
     dogfooding = VNextDogfoodingService(store).dashboard() if unfenced else VNextDogfoodingService(store).dashboard(sensitivity_allowed=tuple(sensitivity_allowed), label_guard=guard)
-    doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=unfenced)
+    doctor = VNextDoctorService(store).run(ci=True, include_content_diagnostics=unfenced, label_guard=guard)
     policy_telemetry = summarize_agent_policy_telemetry(
         agent_events=agent_events,
         artifacts=artifacts,

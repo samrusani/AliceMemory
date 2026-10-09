@@ -442,10 +442,14 @@ class Vault:
             assert status in {200, 201}, (status, str(body)[:300])
 
     def _connector_sync(self) -> None:
-        """A confidential connector import, and one item that fails under a name of its own.
+        """A confidential connector import, then one item that fails under a name of its own.
 
-        The failed item never became a row, so it has no label to judge. The connector status screen lists the id the
-        importer gave it, and the security note names that as a known limit; the sweep does not look for it.
+        The import is the connector's last captured item and sets its cursor: the path of the file is a title-like
+        string and the source id is an id, both above the key's ceiling, so the health block of the connector screens
+        must not show either to the trusted key. The failed item never became a row, so it has no label to judge. The
+        connector status screen lists the id the importer gave it, and the security note names that as a known limit;
+        the sweep does not look for it. It comes second and in a call of its own because a failed item in the same
+        call would stop the cursor from moving.
         """
 
         status, body = self.admin_request(
@@ -455,13 +459,20 @@ class Vault:
                 "default_sensitivity": "confidential",
                 "items": [
                     {
-                        "path": f"/vault/{self.hidden('synced-file')}.md",
+                        "path": f"/vault/{self._text('synced-file', hidden=True)}.md",
                         "title": self._text("synced-title", hidden=True),
                         "text": self._text("synced-text", hidden=True),
                     },
-                    {"path": "", "external_id": f"{self.tag}-failed-item-path"},
                 ],
             },
+        )
+        assert status in {200, 201, 207}, (status, str(body)[:300])
+        self.ids["synced_source"] = str(body["source_ids"][0])
+        self.remember_hidden("sources", self.ids["synced_source"])
+        status, body = self.admin_request(
+            "POST",
+            "/v0/vnext/connectors/local_folder/sync",
+            {"default_sensitivity": "confidential", "items": [{"path": "", "external_id": f"{self.tag}-failed-item-path"}]},
         )
         assert status in {200, 201, 207, 400}, (status, str(body)[:300])
 

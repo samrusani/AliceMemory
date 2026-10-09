@@ -295,7 +295,7 @@ class VNextDogfoodingService:
                 "event_types": _status_counts(policy_events, field="event_type"),
             },
             "last_successful_scheduler_run": last_successful_scheduler_run,
-            "connector_health": VNextConnectorService(self.store).connector_health_all(),
+            "connector_health": VNextConnectorService(self.store).connector_health_all(guard=guard),
             "dogfood_readiness": _readiness(
                 captures_today=captures_today,
                 connector_failures=connector_failures,

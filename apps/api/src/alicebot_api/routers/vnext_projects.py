@@ -377,6 +377,7 @@ def upsert_vnext_brain_charter(
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
     from alicebot_api.vnext_label_guard import readable_own_label_rows
+    from alicebot_api.vnext_store import lock_brain_charter
 
     settings = get_settings()
 
@@ -387,10 +388,14 @@ def upsert_vnext_brain_charter(
             identity = _vnext_authenticated_agent_identity(
                 store, request, user_id=request.user_id, authorization=authorization
             )
+            # The check below and the save that follows are one step: a charter classified in between would
+            # otherwise be replaced by a key that can no longer read it.
+            lock_brain_charter(store)
             stored = store.get_brain_charter()
             if stored is not None and not readable_own_label_rows(identity, [stored]):
                 # The save replaces the whole charter. A key that may not read the stored one may not replace it, so
-                # nothing is written and the refusal repeats none of its labels.
+                # no charter row changes and the refusal repeats none of its labels. The policy event of the refusal
+                # is recorded.
                 refusal = PolicyDecision(
                     decision="blocked",
                     action="http.operator.access",

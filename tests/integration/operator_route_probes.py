@@ -467,6 +467,8 @@ def _(v):
             admin_sees=(
                 "artifact_derived-title", "task_hidden-title", "task_hidden-instructions",
                 "charter-body", "charter-owner", "charter-priority", "charter-project", "charter-rule",
+                # The connector health block names the file of the last import, which is confidential.
+                "synced-file",
             ),
             trusted_sees=("source_shown-title", "task_shown-title"),
             statuses=(200,),
@@ -495,17 +497,23 @@ def _(v):
 
 @probe("GET", "/v0/vnext/dogfooding")
 def _(v):
-    return [Call("default", statuses=(200,))]
+    return [Call("default", admin_sees=("synced-file",), statuses=(200,))]
 
 
 @probe("GET", "/v0/vnext/doctor")
 def _(v):
-    return [Call("default", statuses=(200,)), Call("ci", query={"ci": "true"}, statuses=(200,))]
+    return [
+        Call("default", admin_sees=("synced-file",), statuses=(200,)),
+        Call("ci", query={"ci": "true"}, statuses=(200,)),
+    ]
 
 
 @probe("POST", "/v0/vnext/doctor/run")
 def _(v):
-    return [Call("default", body={}, statuses=(200,)), Call("fix_safe", body={"fix_safe": True, "ci": True})]
+    return [
+        Call("default", body={}, admin_sees=("synced-file",), statuses=(200,)),
+        Call("fix_safe", body={"fix_safe": True, "ci": True}),
+    ]
 
 
 @probe("GET", "/v0/vnext/agents/policy-telemetry")
@@ -613,12 +621,12 @@ def _(v):
 
 @probe("GET", "/v0/vnext/connectors")
 def _(v):
-    return [Call("default", statuses=(200,))]
+    return [Call("default", admin_sees=("synced-file",), statuses=(200,))]
 
 
 @probe("GET", "/v0/vnext/connectors/health")
 def _(v):
-    return [Call("default", statuses=(200,))]
+    return [Call("default", admin_sees=("synced-file",), statuses=(200,))]
 
 
 @probe("GET", "/v0/vnext/connectors/{connector_name}/status")
@@ -627,7 +635,7 @@ def _(v):
         Call(
             "local_folder",
             path={"connector_name": "local_folder"},
-            admin_sees=("capture_hidden-title", "capture_hidden-raw", "synced-title"),
+            admin_sees=("capture_hidden-title", "capture_hidden-raw", "synced-title", "synced-file"),
             trusted_sees=("capture_shown-title",),
             statuses=(200,),
         ),

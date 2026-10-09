@@ -242,6 +242,25 @@ def test_the_command_line_verb_lists_for_the_declared_profile(vault, monkeypatch
     assert set(_texts(read_only)) == {"ALPHA-COMMIT", "PUBLIC-COMMIT"}
 
 
+@pytest.mark.parametrize("limit", [0, -1])
+def test_a_limit_below_one_lists_the_newest_commit_it_may_read_as_it_always_did(vault, limit):
+    trusted = AgentIdentity(agent_id="reader", permission_profile="trusted_local_agent", auth="agent_api_key")
+    assert _texts(_list(vault, None, limit=limit)) == ["DERIVED-COMMIT"]
+    assert _texts(_list(vault, trusted, limit=limit)) == ["ALPHA-COMMIT"]
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "two", "1.5"])
+def test_the_command_line_verb_refuses_a_limit_that_is_not_a_positive_whole_number(value, capsys):
+    from alicebot_api.cli.parser import build_parser
+
+    with pytest.raises(SystemExit) as stopped:
+        build_parser().parse_args(["vnext", "memories", "recent", "--limit", value])
+    assert stopped.value.code == 2
+    assert "--limit" in capsys.readouterr().err
+    assert build_parser().parse_args(["vnext", "memories", "recent", "--limit", "3"]).limit == 3
+    assert build_parser().parse_args(["vnext", "memories", "recent"]).limit == 20
+
+
 def test_the_service_has_no_default_for_who_is_asking():
     with pytest.raises(TypeError):
         VNextMemoryCommitService(object()).recent_commits(limit=1)  # type: ignore[call-arg]
