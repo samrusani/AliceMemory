@@ -314,6 +314,20 @@ def _scrubbed(row: Mapping[str, object]) -> bool:
     return _metadata(row).get("scrubbed") is True
 
 
+def is_redacted_row(row: Mapping[str, object]) -> bool:
+    """True for a row whose text was replaced by the redaction marker.
+
+    A derived row that recorded a redacted row as an input kept the words it copied
+    from it, so such a row is unverified (reason ``input_redacted``). A plain dict
+    needs no decoding to read one boolean, so it is read in place.
+    """
+
+    raw = row.get("metadata_json")
+    if type(raw) is dict:
+        return raw.get("redacted") is True
+    return _metadata(row).get("redacted") is True
+
+
 def ordered_identifiers(values: Iterable[object]) -> tuple[str, ...]:
     """Stored spellings, first one kept, ordered by project identity."""
 
@@ -966,6 +980,7 @@ class SettledLabel:
     carries_scope: bool
     derived: bool
     row_class: str
+    redacted: bool = False
 
     @property
     def key(self) -> tuple[str, str, str]:
@@ -1015,6 +1030,7 @@ def _node_label(kind: str, row: Mapping[str, object]) -> SettledLabel:
         carries_scope=carries_scope(kind, row),
         derived=derived,
         row_class=_derived_row_class(kind, row) if derived else "original",
+        redacted=is_redacted_row(row),
     )
 
 
@@ -1072,7 +1088,8 @@ def dependency_label_signature(kind: str, row: Mapping[str, object]) -> tuple:
     # rather than allocating a full node label and normalizing unused IDs.
     return (name, deps, problem, row_class(name, row), str(row.get("domain") or "unknown"),
             str(row.get("sensitivity") or "unknown"), stored_scope(name, row),
-            floor if floor_shape == "list" else (), carries_scope(name, row), str(row.get("user_id") or ""))
+            floor if floor_shape == "list" else (), carries_scope(name, row), str(row.get("user_id") or ""),
+            is_redacted_row(row))
 
 
 def has_implicit_weekly_inputs(kind: str, row: Mapping[str, object]) -> bool:
@@ -1185,7 +1202,9 @@ def settle_verified_inputs(kind: str, row: Mapping[str, object], parents: Sequen
         return label
     refs, problem = dependency_record(kind, row)
     supplied = {(item.kind, item.normalized_id) for item in parents}
-    if problem or supplied != set(refs) or any(item.unverified or item.user_id != label.user_id for item in parents):
+    if problem or supplied != set(refs) or any(
+        item.unverified or item.redacted or item.user_id != label.user_id for item in parents
+    ):
         raise ValueError("verified labels require the complete input set")
     return _apply_dependencies(label, parents, domain_fallback=label.stored_domain,
                                sensitivity_fallback=label.stored_sensitivity,
@@ -1315,6 +1334,7 @@ def settle_labels(
     for key, resolved_refs in resolved.items():
         if key in problems and problems[key] not in {"", "no_record"}:
             continue
+        redacted_input = False
         for ref in resolved_refs:
             if ref[0] in unavailable:
                 problems[key] = "missing_table"
@@ -1322,6 +1342,13 @@ def settle_labels(
             if ref not in labels:
                 problems[key] = "missing_dependency"
                 break
+            redacted_input = redacted_input or labels[ref].redacted
+        else:
+            # A row that recorded a redacted row as an input kept the words it copied from it. It is unverified, as a
+            # row with a missing input is, and every row built from it is unverified through the spread below. A missing
+            # input is the more basic problem, so it keeps its own reason whichever order the inputs come in.
+            if redacted_input:
+                problems[key] = "input_redacted"
 
     if max_hops is not None or max_nodes is not None:
         _mark_bounds(labels, resolved, problems, max_hops=max_hops, max_nodes=max_nodes)
@@ -1642,6 +1669,7 @@ __all__ = [
     "input_admitted",
     "intersect_scope",
     "is_derived",
+    "is_redacted_row",
     "locked_projects",
     "with_derived_from",
     "labels_raised_payload",

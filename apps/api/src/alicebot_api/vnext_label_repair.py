@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import psycopg
 from collections.abc import Mapping, Sequence
-from typing import TypedDict
+from typing import NamedTuple, TypedDict
 
 from alicebot_api.vnext_derived_domain_backfill import DerivedDomainRepairError, require_changed
 from alicebot_api.vnext_derived_labels import _cache_native_json_metadata, _share_metadata_decode, labels_raised_payload, settle_labels
@@ -27,6 +27,13 @@ class LabelParts(TypedDict):
 LabelRepair = tuple[str, str, str, LabelParts, LabelParts, dict[str, object]]
 
 REPAIR_STATE_KEY = "derived_labels_v3"
+# The reason a derived row is unverified when it recorded a redacted row as an input.
+REDACTED_INPUT_REASON = "input_redacted"
+REDACTED_INPUT_ADVICE = (
+    "input_redacted rows were built from a redacted memory and still hold the words they copied from it. "
+    "Regenerate or delete those reports and every report built from them; labels repair cannot fix them. "
+    "Until then only the owner and an unbound admin key read them."
+)
 _TABLE_KIND = {
     "sources": "source",
     "memories": "memory",
@@ -299,6 +306,8 @@ def format_label_check(
         lines.append(f"{reason} {len(ids)}")
         for row_id in ids[:limit]:
             lines.append(f"  {row_id}")
+        if reason == REDACTED_INPUT_REASON and ids:
+            lines.append(REDACTED_INPUT_ADVICE)
     return "\n".join(lines)
 
 
@@ -319,11 +328,28 @@ def load_postgres_label_tables(conn) -> dict[str, list[dict[str, object]]]:
     return tables
 
 
+class LabelGap(NamedTuple):
+    """What the doctor counts: rows below their inputs, unverified rows, and the unverified rows built from a redacted row."""
+
+    below: int
+    unverified: int
+    redacted_inputs: int
+
+
 def label_gap_counts(store: object) -> tuple[int, int]:
+    """Counts from the real store, or an explicit unavailable result."""
+
+    gap = label_gap_report(store)
+    return gap.below, gap.unverified
+
+
+def label_gap_report(store: object) -> LabelGap:
     """Counts from the real store, or an explicit unavailable result.
 
     PostgreSQL reads use a savepoint so an unavailable table does not poison
-    the doctor's surrounding application transaction.
+    the doctor's surrounding application transaction. ``redacted_inputs`` counts
+    the rows that recorded a redacted row directly; the rows built from them are
+    unverified too and are in ``unverified``.
     """
 
     conn = getattr(store, "conn", None)
@@ -343,7 +369,11 @@ def label_gap_counts(store: object) -> tuple[int, int]:
         raise
     except Exception as exc:
         raise LabelCheckUnavailable("derived label counts could not be read") from exc
-    return len(below), sum(len(ids) for ids in unverified.values())
+    return LabelGap(
+        len(below),
+        sum(len(ids) for ids in unverified.values()),
+        len(unverified.get(REDACTED_INPUT_REASON, ())),
+    )
 
 
 def recorded_sqlite_label_repairs(conn, user_id: str) -> dict[tuple[str, str, str], set[str]]:
@@ -401,9 +431,13 @@ __all__ = [
     "load_postgres_label_tables",
     "REPAIR_STATE_KEY",
     "DerivedDomainRepairError",
+    "REDACTED_INPUT_ADVICE",
+    "REDACTED_INPUT_REASON",
+    "LabelGap",
     "classify_stored_labels",
     "format_label_check",
     "label_gap_counts",
+    "label_gap_report",
     "plan_label_repairs",
     "recorded_sqlite_label_repairs",
     "relabel_labels_sqlite",

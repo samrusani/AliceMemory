@@ -36,6 +36,7 @@ from alicebot_api.vnext_derived_labels import (
     identifier,
     has_implicit_weekly_inputs,
     is_derived,
+    is_redacted_row,
     input_admitted,
     settle_labels,
     settle_verified_inputs,
@@ -373,6 +374,9 @@ class LabelGuard:
             parent = self._settled_inputs(parent_kind, raw[0], trail | {root})
             if parent is None or root in parent[1]:
                 return None
+            if parent[0].redacted:
+                # A row built from a redacted row is unverified, which only the complete kernel answers.
+                return None
             parents.append(parent[0])
             ancestry.update(parent[1])
             depth = max(depth, parent[2] + 1)
@@ -640,6 +644,7 @@ class LabelGuard:
         graph: dict[tuple[str, str, str], frozenset[tuple[str, str, str]]] = {}
         ranks: dict[tuple[str, str, str], int] = {}
         origins: list[tuple[str, str, str]] = []
+        redacted_nodes: set[tuple[str, str, str]] = set()
         for (node_kind, node_id), found in state.nodes.items():
             node_kind = canon_kind(node_kind)
             if len(found) != 1:
@@ -664,9 +669,18 @@ class LabelGuard:
             ranks[key] = SENSITIVITY_RANK[sensitivity]
             if derived:
                 origins.append(key)
+            if is_redacted_row(row):
+                redacted_nodes.add(key)
         # Redundant: a missing input never completes, so the visited count below refuses the graph as well.
         if any(ref not in graph for refs in graph.values() for ref in refs):
             return False
+        if redacted_nodes:
+            # A row that recorded a redacted row is unverified, which the complete kernel reads as regulated, and so is
+            # every row built from it: count it at the top rank before the ranks spread to the rows that read it.
+            regulated = SENSITIVITY_RANK["regulated"]
+            for key, refs in graph.items():
+                if refs & redacted_nodes:
+                    ranks[key] = max(ranks[key], regulated)
         pending_count = {key: len(refs) for key, refs in graph.items()}
         dependants: dict[tuple[str, str, str], list[tuple[str, str, str]]] = {}
         for node_key, input_keys in graph.items():
@@ -809,7 +823,10 @@ class LabelGuard:
             for row in reader("memory", ids):
                 if isinstance(row, Mapping) and row.get("id") is not None:
                     found[str(row.get("id"))] = row
-        admitted = {str(row.get("id")) for row in self.admit_rows("memory", list(found.values()))}
+        # A belief keeps the claim it copied from its memory. When that memory is redacted the claim is the redacted text,
+        # so the belief is read as a derived row with a redacted input is: by the owner and an unbound admin key only.
+        live = [row for row in found.values() if not is_redacted_row(row)]
+        admitted = {str(row.get("id")) for row in self.admit_rows("memory", live)}
         return [
             row
             for row in beliefs

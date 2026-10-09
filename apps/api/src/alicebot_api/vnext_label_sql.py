@@ -3,11 +3,13 @@ from alicebot_api.vnext_derived_labels import MARKER_KEYS, DERIVED_ARTIFACT_TYPE
 
 
 def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "m") -> str:
-    """Reject only a proved source floor above the highest requested rank.
+    """Reject only a row proved hidden from the highest requested rank.
 
     A direct canonical source, or a direct source of one recorded memory
-    input, suffices for rejection. Anything else reaches effective admission.
-    This predicate never grants a row and never filters by a derived domain.
+    input, suffices for rejection. So does a recorded memory input that is
+    redacted: such a row is unverified, which the kernel reads as regulated.
+    Anything else reaches effective admission. This predicate never grants a
+    row and never filters by a derived domain.
     """
 
     if alias not in {"m", "memories"}:
@@ -29,7 +31,14 @@ def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "
         memory = f"lower(COALESCE(CASE WHEN jsonb_typeof({meta}->'consolidation'->'cluster_member_ids')='array' AND jsonb_typeof({meta}->'consolidation'->'cluster_member_ids'->0)='string' THEN {meta}->'consolidation'->'cluster_member_ids'->>0 END, CASE WHEN jsonb_typeof({meta}->'derived_from'->'memories')='array' AND jsonb_typeof({meta}->'derived_from'->'memories'->0)='string' THEN {meta}->'derived_from'->'memories'->>0 END))"
         parent_source = "lower(" + source_hint("label_input.metadata_json") + ")"
     not_redacted = "TRUE" if sqlite else f"{alias}.metadata_json->'redacted' IS DISTINCT FROM 'true'::jsonb"
-    input_not_redacted = "TRUE" if sqlite else "label_input.metadata_json->'redacted' IS DISTINCT FROM 'true'::jsonb"
+    # A redacted memory is the hidden input itself. A row that is not redacted and lists one first is unverified.
+    if sqlite:
+        safe_input = "CASE WHEN json_valid(label_input.metadata_json) THEN label_input.metadata_json ELSE 'null' END"
+        input_redacted = f"COALESCE(json_extract({safe_input}, '$.redacted') = 1, 0)"
+        input_not_redacted = f"NOT {input_redacted}"
+    else:
+        input_redacted = "label_input.metadata_json->'redacted' IS NOT DISTINCT FROM 'true'::jsonb"
+        input_not_redacted = "label_input.metadata_json->'redacted' IS DISTINCT FROM 'true'::jsonb"
     if not sqlite:
         # Hash canonical and compact UUID spellings without casting untrusted
         # JSON. Exact text membership accepts the same case-insensitive forms
@@ -44,9 +53,9 @@ def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "
                 OR COALESCE(({alias}.user_id, {memory}) IN (
                     SELECT label_input.user_id, unnest(ARRAY[label_input.id::text, replace(label_input.id::text, '-', '')])
                     FROM memories label_input
-                    WHERE {input_not_redacted} AND COALESCE((label_input.user_id, {parent_source}) IN (
+                    WHERE {input_redacted} OR ({input_not_redacted} AND COALESCE((label_input.user_id, {parent_source}) IN (
                         {source_set}
-                    ), FALSE)
+                    ), FALSE))
                 ), FALSE)
             )))"""  # nosec B608
     return f"""({alias}.sensitivity NOT IN ({names}) AND NOT (
@@ -54,10 +63,13 @@ def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "
             SELECT 1 FROM sources label_source WHERE label_source.user_id={alias}.user_id
             AND label_source.id={source} AND label_source.sensitivity IN ({names})
         ) OR EXISTS (
-            SELECT 1 FROM memories label_input JOIN sources label_source
-            ON label_source.user_id=label_input.user_id AND label_source.id={parent_source}
+            SELECT 1 FROM memories label_input
             WHERE label_input.user_id={alias}.user_id AND label_input.id={memory}
-            AND {input_not_redacted} AND label_source.sensitivity IN ({names})
+            AND ({input_redacted} OR ({input_not_redacted} AND EXISTS (
+                SELECT 1 FROM sources label_source
+                WHERE label_source.user_id=label_input.user_id AND label_source.id={parent_source}
+                AND label_source.sensitivity IN ({names})
+            )))
         ))))"""  # nosec B608
 
 

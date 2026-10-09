@@ -109,11 +109,13 @@ def compile_local_vault_doctor(
             (uid, CANDIDATE_STATUS),
         )
         missing_vector_line = _missing_vector_line(store)
-        from alicebot_api.vnext_label_repair import LabelCheckUnavailable, label_gap_counts
+        from alicebot_api.vnext_label_repair import REDACTED_INPUT_ADVICE, LabelCheckUnavailable, label_gap_report
 
         try:
-            below, unverified = label_gap_counts(store)
+            below, unverified, redacted_inputs = label_gap_report(store)
             label_line = f"derived labels: {below} below their inputs, {unverified} unverified"
+            if redacted_inputs:
+                label_line += f" ({redacted_inputs} built from a redacted memory). {REDACTED_INPUT_ADVICE}"
             labels_available = True
         except LabelCheckUnavailable:
             below, unverified = 0, 0
