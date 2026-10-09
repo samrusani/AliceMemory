@@ -5343,11 +5343,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_redacted_input_containment_postgres.py",
-        "-k",
-        "cannot_review_a_belief_or_an_edge"
+        "tests/unit/test_review_services_apply_the_callers_ceiling.py::test_a_caller_with_a_ceiling_reviews_an_edge_only_when_it_may_read_both_ends_and_a_refusal_writes_nothing"
       ],
-      "expected_failure": "test_a_restricted_key_cannot_review_a_belief_or_an_edge_it_cannot_read_and_a_refused_review_changes_nothing"
+      "expected_failure": "test_a_caller_with_a_ceiling_reviews_an_edge_only_when_it_may_read_both_ends_and_a_refusal_writes_nothing"
     },
     {
       "name": "graph-edge-review-route-ceiling",
@@ -5361,11 +5359,11 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_redacted_input_containment_postgres.py",
+        "tests/unit/test_review_services_apply_the_callers_ceiling.py",
         "-k",
-        "cannot_review_a_belief_or_an_edge"
+        "review_edge"
       ],
-      "expected_failure": "test_a_restricted_key_cannot_review_a_belief_or_an_edge_it_cannot_read_and_a_refused_review_changes_nothing"
+      "expected_failure": "test_each_route_hands_the_callers_ceiling_to_the_service"
     },
     {
       "name": "belief-review-guard",
@@ -5379,11 +5377,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_redacted_input_containment_postgres.py",
-        "-k",
-        "cannot_review_a_belief_or_an_edge"
+        "tests/unit/test_review_services_apply_the_callers_ceiling.py::test_a_caller_with_a_ceiling_reviews_a_belief_only_when_it_may_read_the_memory_behind_it_and_a_refusal_writes_nothing"
       ],
-      "expected_failure": "test_a_restricted_key_cannot_review_a_belief_or_an_edge_it_cannot_read_and_a_refused_review_changes_nothing"
+      "expected_failure": "test_a_caller_with_a_ceiling_reviews_a_belief_only_when_it_may_read_the_memory_behind_it_and_a_refusal_writes_nothing"
     },
     {
       "name": "belief-review-route-ceiling",
@@ -5397,11 +5393,11 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_redacted_input_containment_postgres.py",
+        "tests/unit/test_review_services_apply_the_callers_ceiling.py",
         "-k",
-        "belief_whose_backing_memory"
+        "review_belief"
       ],
-      "expected_failure": "test_a_belief_whose_backing_memory_is_redacted_is_read_by_the_owner_and_an_unbound_admin_key_only"
+      "expected_failure": "test_each_route_hands_the_callers_ceiling_to_the_service"
     },
     {
       "name": "belief-readable-ceiling",
@@ -5415,11 +5411,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_redacted_input_containment_postgres.py",
-        "-k",
-        "belief_whose_backing_memory"
+        "tests/unit/test_review_services_apply_the_callers_ceiling.py::test_a_caller_with_a_ceiling_reviews_a_belief_only_when_it_may_read_the_memory_behind_it_and_a_refusal_writes_nothing"
       ],
-      "expected_failure": "test_a_belief_whose_backing_memory_is_redacted_is_read_by_the_owner_and_an_unbound_admin_key_only"
+      "expected_failure": "test_a_caller_with_a_ceiling_reviews_a_belief_only_when_it_may_read_the_memory_behind_it_and_a_refusal_writes_nothing"
     },
     {
       "name": "edge-end-redacted-memory-ignored",
