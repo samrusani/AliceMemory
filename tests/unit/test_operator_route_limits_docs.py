@@ -5,7 +5,7 @@ and, for the recent-commits list on SQLite, in ``tests/unit/test_recent_commits_
 
 Mutations, each one alone: delete a route from the table of the tool reference; delete ``reading at most 2,000 commits``
 from the tool reference; delete ``answers as no charter`` from the tool reference, the changelog or the security note;
-delete ``the sweep holds that route as an expected failure`` from the changelog; delete ``take no agent key`` from the
+delete ``now holds to the rows an edge joins`` from the changelog, or say again that the graph neighborhood still lists an edge whose far end the key may not read; delete ``take no agent key`` from the
 security note; delete the row for the workspace event feed from the tool reference; delete ``the four connector events`` from
 the changelog or the security note; delete the sentence that the event feed still lists the id of a queued task, a person
 and the charter from any of the three pages; say again that the clipper capture route answers cursors to a capability
@@ -77,7 +77,7 @@ def test_the_tool_reference_names_every_route_and_what_a_key_with_a_ceiling_is_s
     assert "the workspace event feed still lists the id of a queued task, a person and the charter above the ceiling" in paragraph
     assert "the owner and an unbound `admin_agent` key are shown what they were" in paragraph
     assert "A route added without a probe fails the test" in paragraph
-    assert "`GET /v0/vnext/graph/neighborhood/{target_id}` still lists an edge whose far end the key may not read" in paragraph
+    assert "still lists an edge whose far end the key may not read" not in paragraph
     assert "`recent_failures` of the connector status names the id the importer gave to an item that failed" in paragraph
 
 
@@ -110,7 +110,8 @@ def test_the_changelog_has_one_entry_for_the_operator_routes() -> None:
     assert "the workspace event feed still lists the id of a queued task, a person and the charter above the ceiling" in entry
     assert "`agent.task_created`, `queue.task_enqueued`, `task.created`, `person.created`, `brain_charter.upserted`" in entry
     assert "takes `identity` with no default" in entry
-    assert "the sweep holds that route as an expected failure" in entry
+    assert "now holds to the rows an edge joins" in entry
+    assert "the sweep holds that route as an expected failure" not in entry
     assert "`POST /v0/vnext/queue/process-next` answers HTTP 500 to every caller on PostgreSQL" in entry
     assert "take no agent key" in entry
     assert entry.endswith("No migration is required.")
@@ -139,7 +140,7 @@ def test_the_security_note_covers_disclosure_the_charter_write_and_the_limits_it
     assert "the workspace event feed still lists the id of a queued task, a person and the charter above the ceiling" in paragraph
     assert "the events hold the id and the names of the fields and no text" in paragraph
     assert "the probe table must list exactly the routes of the application" in paragraph
-    assert "graph neighborhood still lists an edge whose far end the key may not read" in paragraph
+    assert "graph neighborhood still lists an edge whose far end the key may not read" not in paragraph
     assert "such as a file path" in paragraph
     assert "take no agent key and list rows whatever their label while `APP_ENV` is `development` or `test`" in paragraph
     assert "answer HTTP 404 in any other environment" in paragraph

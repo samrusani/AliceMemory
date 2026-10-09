@@ -683,12 +683,9 @@ def _(v):
 
 #: Routes whose probe fails today for a reason this change does not own. Each is run, and the run must still fail
 #: (strict), so the day the owning change lands the test fails and this entry is deleted.
-PENDING: dict[tuple[str, str], str] = {
-    ("GET", "/v0/vnext/graph/neighborhood/{target_id}"): (
-        "the neighborhood lists an edge whose far end the key may not read, with the explanation it was made with; the "
-        "redaction containment change judges the rows an edge joins"
-    ),
-}
+# Routes the sweep holds as a strict expected failure until a known gap is closed. The graph neighborhood was one;
+# the redaction containment change made it judge both ends of an edge, so none is left.
+PENDING: dict[tuple[str, str], str] = {}
 
 
 def control_routes() -> list[tuple[str, str]]:
