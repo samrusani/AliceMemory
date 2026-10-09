@@ -82,8 +82,9 @@ def test_the_tool_reference_names_the_reason_the_doors_the_regeneration_and_the_
         assert door in text, door
     assert "regenerating restores access, and only when the redacted text is no longer included" in text
     assert "the old report stays restricted until it is deleted" in text
+    assert "no command deletes a report today: archiving a report keeps its row and its text, so an archived report stays restricted" in text
     assert "redacting a memory needs no relabel pass" in text
-    assert "`get /v0/vnext/graph/neighborhood/{target_id}` and `alice_graph_neighborhood` return it to the owner and to an unbound admin or trusted key" in text
+    assert "`get /v0/vnext/graph/neighborhood/{target_id}` returns it to the owner and to an unbound admin or trusted key" in text
     assert "(#redacted-memories-and-the-graph)" in text
 
 

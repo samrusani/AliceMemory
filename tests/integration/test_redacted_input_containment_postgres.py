@@ -18,7 +18,6 @@ Mutations that these tests must fail (the manifest replays each one):
 from __future__ import annotations
 
 import json
-import re
 
 import pytest
 
@@ -28,7 +27,6 @@ from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
 from alicebot_api.vnext_label_repair import REDACTED_INPUT_ADVICE, label_gap_report
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 from tests.integration.redaction_containment_support import (
-    PRODUCERS,
     RESTRICTED,
     World,
     contained_ids,
@@ -182,6 +180,12 @@ def test_no_restricted_profile_recovers_the_text_of_a_redacted_memory_through_an
         assert status == 403 and status_dogfooding in (200, 403)
 
 
+def stored_text_of(h, artifact_id) -> str:
+    with h.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT row_to_json(t)::text AS body FROM generated_artifacts t WHERE id = %s", (artifact_id,))
+        return cur.fetchone()["body"]
+
+
 def _readable_by(h, keys, artifact_id) -> dict[str, bool]:
     return {name: _status(h, key, artifact_id) == 200 for name, key in keys.items()}
 
@@ -220,6 +224,11 @@ def test_regenerating_a_report_restores_access_only_when_the_redacted_text_is_no
         with keyless_owner(h):
             assert owner_artifact(h, old[producer])[0] == 200
     assert world.sentinel in bodies[old["weekly"]] and world.sentinel in bodies[old["project_update"]]
+    # Archiving the old report keeps its row and its words, so it stays restricted. Nothing deletes it but the database.
+    status, body, _ = h.request("POST", f"/v0/vnext/artifacts/{old['connections']}/review", payload={"action": "archive"}, key=world.admin)
+    assert status == 200, body
+    assert not any(_readable_by(h, restricted_keys, old["connections"]).values())
+    assert world.sentinel in stored_text_of(h, old["connections"])
     # The old cards stay restricted. The new roll-up card reads no redacted member and is read like any other memory.
     cards = _rollup_cards(h)
     old_cards = [card for card in cards if rows[card].inputs & redacted]
@@ -478,3 +487,21 @@ def test_a_restricted_key_cannot_export_rate_or_review_a_report_that_read_the_re
     status, body, _ = h.request("POST", f"/v0/vnext/artifacts/{report}/export", payload={"output_dir": str(tmp_path / "admin")}, key=keys["admin"])
     assert status == 200, body
     assert any(world.sentinel in path.read_text() for path in (tmp_path / "admin").rglob("*") if path.is_file())
+
+
+def test_a_staleness_report_that_listed_a_memory_is_contained_when_that_memory_is_redacted(label_harness):
+    """The staleness report prints the titles of the memories it marked, and records their ids as ``stale_marked_memory_ids``."""
+    h = label_harness
+    world = World(h, redact=False)
+    keys = world.keys()
+    report = world.reports["staleness"]
+    marked = report["metadata_json"]["stale_marked_memory_ids"]
+    assert marked and "OLD" in report["content_markdown"]
+    assert h.request("GET", f"/v0/vnext/artifacts/{report['id']}", key=keys["trusted"])[0] == 200
+    status, body, _ = h.request("POST", "/v0/vnext/memories/redact", payload={"memory_id": marked[0], "reason": "r"}, key=world.admin)
+    assert status == 200, body
+    assert report["id"] in contained_ids(h)
+    for name in RESTRICTED:
+        assert _status(h, keys[name], report["id"]) != 200, name
+    assert _status(h, keys["admin"], report["id"]) == 200
+    assert report["id"] not in own_ids(h.request("GET", "/v0/vnext/artifacts", key=keys["trusted"])[1])

@@ -8,9 +8,10 @@ The sentinel appears only in the text of the redacted memory. A body that holds 
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from contextlib import contextmanager
+from dataclasses import dataclass
 import json
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.vnext_derived_labels import with_derived_from
@@ -156,7 +157,7 @@ class World:
         self.redacted_ids = [self.redacted, str(self.contra["id"])]
         self.accepted_update = None
         if accept_update:
-            # The reviewer edits the state before accepting it, and the state copies the memory that is redacted later.
+            # The update is edited before it is accepted, and the state it stores copies the memory that is redacted later.
             state = f"Atlas state: {self.memories[REDACTED_INDEX]['canonical_text']}"
             status, body, _ = h.request(
                 "POST", f"/v0/vnext/projects/update-candidates/{self.reports['project_update']['id']}/review",
@@ -424,9 +425,6 @@ def owner_artifact(h, artifact_id: str) -> tuple[int, object]:
 
     result = vnext_review.get_vnext_artifact(UUID(str(artifact_id)), h.user_id, None)
     return result.status_code, json.loads(result.body)
-
-
-from contextlib import contextmanager
 
 
 @contextmanager

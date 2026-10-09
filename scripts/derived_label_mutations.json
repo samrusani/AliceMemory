@@ -1879,7 +1879,7 @@
           "line": 964,
           "before": "A call answered HTTP 404 changes nothing",
           "after": "A call answered HTTP 404 may change a thing",
-          "sha256": "f11dcf3d4c5b29694cf70feb2fc5df660761a36bd6aba83c3b53833d2175e28b"
+          "sha256": "448d0f13d1975fd259ae6b451e82908c6abce928ddb1a54f82929cbf1dbefaf0"
         }
       ],
       "pytest": [
@@ -2043,7 +2043,7 @@
           "line": 964,
           "before": "the only row it adds is the policy event that the operator gate records for its own refusal",
           "after": "it adds no row",
-          "sha256": "f11dcf3d4c5b29694cf70feb2fc5df660761a36bd6aba83c3b53833d2175e28b"
+          "sha256": "448d0f13d1975fd259ae6b451e82908c6abce928ddb1a54f82929cbf1dbefaf0"
         }
       ],
       "pytest": [
@@ -2059,7 +2059,7 @@
           "line": 964,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "f11dcf3d4c5b29694cf70feb2fc5df660761a36bd6aba83c3b53833d2175e28b"
+          "sha256": "448d0f13d1975fd259ae6b451e82908c6abce928ddb1a54f82929cbf1dbefaf0"
         }
       ],
       "pytest": [
@@ -3118,7 +3118,7 @@
           "line": 1110,
           "before": "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "f11dcf3d4c5b29694cf70feb2fc5df660761a36bd6aba83c3b53833d2175e28b"
+          "sha256": "448d0f13d1975fd259ae6b451e82908c6abce928ddb1a54f82929cbf1dbefaf0"
         }
       ],
       "pytest": [
@@ -3182,7 +3182,7 @@
           "line": 1114,
           "before": "Archiving keeps reports' historical content and does not restrict them.",
           "after": "Archiving restricts them.",
-          "sha256": "f11dcf3d4c5b29694cf70feb2fc5df660761a36bd6aba83c3b53833d2175e28b"
+          "sha256": "448d0f13d1975fd259ae6b451e82908c6abce928ddb1a54f82929cbf1dbefaf0"
         }
       ],
       "pytest": [
