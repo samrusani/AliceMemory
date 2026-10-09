@@ -100,11 +100,13 @@ def test_exact_entrypoint_checks_effective_floor(migrated_database_urls, monkeyp
         try:
             result = _invoke(door, app_url=app_url, user_id=user_id, target_id=str(row["id"]), key=key, tmp_path=tmp_path)
         except MCPToolError as exc:
+            # A row out of the key's scope through its input is a row that does not exist for the key.
             assert blocked, (door, reader, hidden, type(exc).__name__, str(exc))
-            assert "policy" in type(exc).__name__.lower() or "project" in str(exc).lower(), (type(exc).__name__, str(exc))
+            assert type(exc).__name__ == "MCPReferenceNotFoundError", (type(exc).__name__, str(exc))
+            assert "Door sentinel" not in str(exc)
         else:
             if hasattr(result, "status_code"):
-                assert (result.status_code == 403) is blocked, (door, reader, hidden, result.status_code, result.body)
+                assert (result.status_code == 404) is blocked, (door, reader, hidden, result.status_code, result.body)
                 if blocked:
                     assert str(row["id"]) not in result.body.decode()
                     assert "Door sentinel" not in result.body.decode()

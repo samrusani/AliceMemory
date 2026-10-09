@@ -757,10 +757,12 @@ def _handle_alice_open_loops(context: MCPRuntimeContext, arguments: Mapping[str,
     loop: VNextJsonObject | None = None
     with _vnext_store_context(context) as store:
         target = store.get_open_loop(loop_id)
-        if target is None:
-            raise MCPReferenceNotFoundError(f"open loop {loop_id} was not found")
-        from alicebot_api.vnext_label_guard import effective_row_for_fence
+        from alicebot_api.vnext_label_guard import effective_row_for_fence, outside_caller_limits
 
+        # A loop the caller may not read is the same error as one that does not exist, before a policy decision is
+        # built from its labels (that decision would repeat them) and before anything is recorded.
+        if target is None or outside_caller_limits(store, identity, "open_loop", target):
+            raise MCPReferenceNotFoundError(f"open loop {loop_id} was not found")
         judged = effective_row_for_fence(store, identity, "open_loop", target)
         # Same ceiling block as memory mutations. The policy event names
         # this loop; the previous check logged the decision with no target.

@@ -309,19 +309,6 @@ class MemoryNotFoundError(VNextMemoryCommitValidationError):
     """
 
 
-class RefusedOnDeletedMemoryError(AgentPolicyBlockedError):
-    """The policy refused a redact of an archived or redacted row, which the caller must hear as "not found".
-
-    Redact reads such a row on purpose, to scrub and to replay it, while every other verb reads it as absent. A
-    refused caller is told "not found" for it, as for an id the vault never held, or redact would tell it which ids
-    were deleted. The refusal itself is still a refusal: the decision was recorded and is audited like any other, and
-    a surface that catches ``AgentPolicyBlockedError`` leaves its transaction normally so that audit row is
-    committed. Raising a plain ``MemoryNotFoundError`` there would roll the audit row back with the call. The surface
-    then turns this class into its own "not found" (``not_found`` over MCP, 404 over HTTP) instead of its refusal
-    (``not_permitted``, 403). A surface that does not know the class, the command line, answers the refusal.
-    """
-
-
 class MemoryStateError(VNextMemoryCommitValidationError):
     """The row exists and the caller may act on it, but its state forbids the call.
 
@@ -1417,11 +1404,13 @@ class VNextMemoryCommitService:
         # that is not pending still raises before any write.
         if not caller_may_resolve_pending_write(identity, memory):
             self._refuse_unauthorized_pending_resolver(identity=identity, memory=memory)
+        # A confirmation is named by its token and not by the id of a row, so a refusal stays a refusal here.
         self.refuse_unauthorized_write(
             identity=identity,
             action="memory.confirm",
             memory=memory,
             allow_above_ceiling=normalized_action == "reject",
+            answer_as_missing=False,
         )
         confirmation_now = _agentic_metadata(memory).get("confirmation")
         confirmation_status = confirmation_now.get("status") if isinstance(confirmation_now, Mapping) else None
@@ -1434,6 +1423,7 @@ class VNextMemoryCommitService:
             action="memory.confirm",
             memory=memory,
             allow_above_ceiling=normalized_action == "reject",
+            answer_as_missing=False,
         )
         metadata = _memory_metadata(memory)
         agentic = _agentic_metadata(memory)
@@ -1769,7 +1759,12 @@ class VNextMemoryCommitService:
                 if callable(get_memory_for_update)
                 else self.store.get_memory(superseded_by_memory_id)
             )
-            if successor is None:
+            from alicebot_api.vnext_label_guard import outside_caller_limits
+
+            # A successor the caller may not read is a successor that does not exist, and it is reported the same way:
+            # with a plain error, so the call leaves the trace of a missing successor and no other. The pointer would
+            # write to the successor, and a refusal would repeat its labels.
+            if successor is None or outside_caller_limits(self.store, identity, "memory", successor):
                 raise MemoryNotFoundError("superseding memory was not found")
             if str(successor["id"]) == str(memory["id"]):
                 raise VNextMemoryCommitValidationError("a memory cannot supersede itself")
@@ -2576,6 +2571,36 @@ class VNextMemoryCommitService:
             raise AgentPolicyBlockedError(decision)
         return decision
 
+    def _answer_as_missing_if_unreadable(
+        self,
+        *,
+        identity: AgentIdentity | None,
+        decision: PolicyDecision,
+        memory: Mapping[str, object],
+        target_type: str,
+        answer_as_missing: bool,
+    ) -> None:
+        """Raise the error a missing target raises when a refused call names a target the caller may not read.
+
+        The decision is built from the labels of the target and a refusal would repeat them, so the caller is answered as
+        for an id that does not exist, and nothing is recorded: the policy events and the agent record are events a key
+        can read back, and a key must not be able to tell the id from one that names no row. A decision that allows the
+        call is not touched. A deleted row (archived or redacted) is outside the limits of every caller that has any,
+        because the read fence admits no row with ``deleted_at`` set, so a caller refused on one is answered as for a
+        missing id and nothing is recorded. ``redact`` is the one verb that reads such a row on purpose, to scrub and to
+        replay it, and it relies on this: a recorded refusal on a deleted row would tell a key which ids were deleted,
+        and a redacted memory can stay listed in a report the key reads. A door that names its target by something
+        other than the id of a row (a confirmation token, an idempotency key) passes ``answer_as_missing=False``.
+        """
+
+        if not answer_as_missing or decision.decision != "blocked":
+            return
+        from alicebot_api.vnext_label_guard import outside_caller_limits
+
+        kind = "open_loop" if target_type == "open_loop" else "memory"
+        if outside_caller_limits(self.store, identity, kind, memory):
+            raise MemoryNotFoundError("memory was not found")
+
     def _policy_checked_write(
         self,
         *,
@@ -2584,6 +2609,7 @@ class VNextMemoryCommitService:
         memory: Mapping[str, object],
         target_type: str = "memory",
         allow_above_ceiling: bool = False,
+        answer_as_missing: bool = True,
     ) -> PolicyDecision:
         """Authorize one mutation of a stored target and record the decision.
 
@@ -2607,6 +2633,9 @@ class VNextMemoryCommitService:
             allow_above_ceiling=allow_above_ceiling,
             kind="open_loop" if target_type == "open_loop" else "memory",
         )
+        self._answer_as_missing_if_unreadable(
+            identity=identity, decision=decision, memory=memory, target_type=target_type, answer_as_missing=answer_as_missing
+        )
         return self._record_write_decision(
             identity=identity,
             decision=decision,
@@ -2621,6 +2650,7 @@ class VNextMemoryCommitService:
         action: str,
         memory: Mapping[str, object],
         allow_above_ceiling: bool = False,
+        answer_as_missing: bool = True,
     ) -> None:
         """Refuse a caller the policy blocks, before any check of the row's state.
 
@@ -2643,6 +2673,9 @@ class VNextMemoryCommitService:
         )
         if decision.decision == "blocked":
             # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.
+            self._answer_as_missing_if_unreadable(
+                identity=identity, decision=decision, memory=memory, target_type="memory", answer_as_missing=answer_as_missing
+            )
             self._record_write_decision(identity=identity, decision=decision, memory=memory)
 
     def authorize_memory_action(
@@ -3009,7 +3042,8 @@ class VNextMemoryCommitService:
         identity: AgentIdentity | None,
     ) -> JsonObject:
         try:
-            self._policy_checked_write(identity=identity, action="memory.commit", memory=memory)
+            # An idempotency key names the commit and not the id of a row, so a refusal stays a refusal here.
+            self._policy_checked_write(identity=identity, action="memory.commit", memory=memory, answer_as_missing=False)
         except AgentPolicyBlockedError:
             content_differs = False
             try:

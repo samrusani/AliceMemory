@@ -365,7 +365,9 @@ def test_native_event_counts_batch_sources_without_changing_admission():
         {"target_type": "source", "target_id": str(UUID(int=10000)), "event_type": "source.created"},
         {"target_type": "source", "target_id": str(sources[0]["id"]).replace("-", ""), "event_type": "source.created"},
         {"target_type": "source_chunk", "event_type": "source_chunk.labels_raised"},
+        # A chunk takes the label of the source its payload names, and a chunk event that names none is not admitted.
         {"target_type": "source_chunk", "event_type": "source_chunk.created"},
+        {"target_type": "source_chunk", "event_type": "source_chunk.created", "payload_json": {"source_id": str(sources[0]["id"])}},
     ])
 
     class NativeEvents(Rows):
@@ -388,11 +390,11 @@ def test_native_event_counts_batch_sources_without_changing_admission():
         guard = LabelGuard(store, active=True, sensitivity_allowed=("public",))
         assert guard.readable_event_count() == 4501
         assert store.reads <= 2
-        assert replace(guard, domains=("health",)).readable_event_count() == 1
+        assert replace(guard, domains=("health",)).readable_event_count() == 0
         before_write = store.reads
         sources[0]["sensitivity"] = "confidential"
         invalidate_read_labels(store)
-        assert guard.readable_event_count() == 4498
+        assert guard.readable_event_count() == 4497
         assert store.reads - before_write <= 2
 
 

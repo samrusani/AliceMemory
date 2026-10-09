@@ -513,6 +513,13 @@ class SQLiteVNextStore:
         wanted = [str(item) for item in ids if str(item)]
         if not wanted:
             return []
+        if kind == "edge":
+            # An edge carries no label. Its ends are what the guard judges.
+            marks = ",".join("?" for _ in wanted)
+            return self._fetch_all(
+                f"SELECT id, user_id, from_type, from_id, to_type, to_id FROM graph_edges WHERE user_id = ? AND id IN ({marks})",
+                (self.user_id, *wanted),
+            )
         table = {"source": "sources", "memory": "memories", "open_loop": "open_loops"}.get(kind)
         if table is None:
             return []
@@ -617,17 +624,18 @@ class SQLiteVNextStore:
                 return
 
     def iter_label_events(self, *, batch_size: int = 200, reject_sensitivity_allowed: Sequence[str] = ()) -> Iterator[list[VNextRow]]:
-        """Complete event targets for readable counts, without event payloads."""
+        """Complete event targets for readable counts. The payload is cut down to the fields that name a row."""
 
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
-        from alicebot_api.vnext_label_sql import hidden_memory_event_sql
+        from alicebot_api.vnext_label_sql import event_references_sql, hidden_memory_event_sql
         label_sql = hidden_memory_event_sql(reject_sensitivity_allowed, sqlite=True)
         query_size = max(batch_size, 5000) if reject_sensitivity_allowed else batch_size
         after = ""
         while True:
             rows = self._fetch_all(
-                f"""SELECT id, target_type, target_id, event_type FROM event_log
+                f"""SELECT id, target_type, target_id, event_type, {event_references_sql(sqlite=True)} AS payload_json
+                   FROM event_log
                    WHERE user_id = ? AND id > ? AND {label_sql} ORDER BY id LIMIT ?""",
                 (self.user_id, after, query_size),
             )

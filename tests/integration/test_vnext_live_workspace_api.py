@@ -1860,23 +1860,24 @@ def test_vnext_artifact_routes_enforce_persisted_scope_with_live_postgres(
         )
 
     artifact_id = str(artifact["id"])
-    feedback_status, _feedback_payload = invoke_request(
+    # The artifact is private, which a read-only key may not read, so the key is answered as for an artifact that does not
+    # exist.
+    feedback_status, feedback_payload = invoke_request(
         "POST",
         f"/v0/vnext/artifacts/{artifact_id}/insight-feedback",
         authorization=f"Bearer {reader_key}",
         payload={"user_id": user_id_text, "useful_insight": "yes"},
     )
-    assert feedback_status == 403
+    assert (feedback_status, feedback_payload) == (404, {"detail": "vNext artifact was not found"})
 
+    # The artifact is in project-b, outside the binding of this key, so it is a missing artifact to it too.
     denied_status, denied_payload = invoke_request(
         "GET",
         f"/v0/vnext/artifacts/{artifact_id}",
         authorization=f"Bearer {admin_a_key}",
         query_params={"user_id": user_id_text},
     )
-    assert denied_status == 403
-    assert "project_scope_binding_violation" in denied_payload["policy_decision"]["reasons"]
-    assert "content_markdown" not in denied_payload
+    assert (denied_status, denied_payload) == (404, {"detail": "vNext artifact was not found"})
 
     allowed_status, allowed_payload = invoke_request(
         "GET",

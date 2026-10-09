@@ -718,39 +718,47 @@ that was raised, never from its message text.
 What an id tells a caller. A caller that authenticates with an agent key gets
 `tool_request_failed` from `alice_explain` whether the target is missing or
 unreadable, because explain expands related rows and a different code would
-tell it which. Every other tool that takes an id answers the difference, to a
-key-bound caller too: an id that the key's project scope refuses answers
-`not_permitted` from `alice_memory_review` by id, `alice_memory_correct` and
-`alice_memory_manage`, and an id that does not exist answers `not_found`. So a
-key bound to one project can learn that an id it already holds exists in
-another project. That is what the codes are for, the HTTP memory routes also
-tell a refusal (403) from a missing id (404 from the review, redact and audit
-routes, 400 from the others), and an id is a random UUID, so the answer only
-tells a caller about an id it already has. A review item the caller's own
-filters hide answers `not_found`, the same as a missing one.
+tell it which. Every other tool that takes an id answers a row the key may not
+read as it answers an id that does not exist, `not_found`, to a key-bound caller
+too. A row the key may not read is one
+in another project, above the key's sensitivity ceiling, in a domain the profile
+is held back from, or unverified. The id may be listed in the metadata of a row
+the key can read, so the answer must say no more than the answer to a random id:
+`alice_memory_review` by id, `alice_memory_correct` and `alice_memory_manage`
+(a `superseded_by` the key may not read included) answer `not_found`, and the call
+writes what a call on a missing id writes, which is nothing. `not_permitted`
+stays for a row the key may read and the policy still refuses the call on, such
+as `human_or_admin_review_required`. The HTTP memory routes answer the same way:
+a row the key may not read gets the missing-row answer of that route (404 from
+the review, redact and audit routes, 400 from the others), where it used to get
+403 with a policy decision that repeated the row's labels. A review item the
+caller's own filters hide answers `not_found`, the same as a missing one. A
+confirmation is named by its token and not by the id of a row, so a refused
+confirm keeps `not_permitted`.
 
-A refused caller hears `not_permitted` for a live row and `not_found` for an
-archived or redacted row, the same as for an id the vault never held. That is
-the rule on every verb, `alice_memory_manage` with `action: redact` included.
-So an id a caller holds in another project answers `not_permitted` while the
-row is live, and `not_found` once the row is archived or redacted. A caller
-that asks with an id it has never seen cannot tell a deleted row from one that
-never existed. A caller that held the id can see the answer change, and learns
-only that the row is gone.
+A caller that may read a live row and is refused by the policy hears
+`not_permitted` for it and `not_found` for an archived or redacted row, the same
+as for an id the vault never held. That is the rule on every verb,
+`alice_memory_manage` with `action: redact` included. A caller that asks with an
+id it has never seen cannot tell a deleted row from one that never existed. A
+caller that held the id can see the answer change, and learns only that the row
+is gone. A refused `redact` of an archived or redacted row writes nothing, as a
+`redact` of an id the vault never held writes nothing: no policy event and no
+agent record, because a key reads both back in its own telemetry.
 
-Authorization comes before state. A caller the policy refuses (its project
-scope, its permission profile, its sensitivity ceiling, or, for a pending
-write, who may resolve it) gets `not_permitted` whatever state the row is in:
-waiting for a confirmation, answered, expired, superseded, stale, a
-consolidation candidate, or a project update that still awaits review. So
-`precondition_failed` only ever reaches a caller the policy allows, and a
-refused caller learns nothing about a row beyond the fact that it exists
-outside its scope. The same holds for the memory named in `superseded_by` and
-for the HTTP routes, which call the same service. A memory that has been
-archived or redacted is gone from the API, and every verb answers a refused
-caller `not_found` for it, as for an id the vault never held. That includes
-`alice_memory_manage` with `action: redact`, the one verb that reads such a
-row on purpose, so that it can scrub and replay it.
+Authorization comes before state. A caller the policy refuses on a row it can
+read (its permission profile or, for a pending write, who may resolve it) gets
+`not_permitted` whatever state the row is in: waiting for a confirmation,
+answered, expired, superseded, stale, a consolidation candidate, or a project
+update that still awaits review. A caller who may not read the row at all gets
+`not_found` whatever its state. So `precondition_failed` only ever reaches a
+caller the policy allows, and a refused caller learns nothing about the state of
+a row. The same holds for the memory named in `superseded_by` and for the HTTP
+routes, which call the same service. A memory that has been archived or redacted
+is gone from the API, and every verb answers a refused caller `not_found` for
+it, as for an id the vault never held. That includes `alice_memory_manage` with
+`action: redact`, the one verb that reads such a row on purpose, so that it can
+scrub and replay it.
 
 These stay `tool_request_failed`: an idempotency key already bound to a
 different request, a credential refusal, a malformed database URL, and an
@@ -962,6 +970,14 @@ Unreleased (on main, not in v0.20.0): the routes that review, update, assign, ar
 | `read_only_agent`, `memory_proposal_agent`, `project_scoped_agent`, or any key bound to a project | HTTP 403 for every source, a missing id included. |
 
 A call answered HTTP 404 changes nothing: no field of the source, no chunk, no memory, no open loop and no event, and the answer holds no title, text or chunk of the source. A call answered HTTP 403 changes nothing either; the only row it adds is the policy event that the operator gate records for its own refusal, as it did before. A source that is above the ceiling and a source that does not exist give one answer, so an id says nothing about the row behind it. A review of a missing source by a key with a ceiling carries the id in its text, as the source GET does; the owner and an unbound `admin_agent` key keep the earlier text, `{"detail": "vNext source was not found"}`. A review whose agent claims contradict each other answers HTTP 400 with a fixed message. The preview that an `assign_project` call returns before `confirm_label_hide` counts only the derived rows the caller may read now, judged on their effective labels. A key with a ceiling is never told how many rows exist above it: a source whose dependants are all above the ceiling moves with the plain answer a source with no dependant gets, and the owner and an unbound `admin_agent` key keep the exact count. In v0.19.2, in v0.20.0 and on main before this change, a `trusted_local_agent` key could read the whole source (its title and `metadata_json.raw_text`), rename it, move it to a project, archive it and delete it through these two routes when it was above the key's ceiling. The trace inside a review answer is the one `GET /v0/vnext/traces/sources/{id}` gives the same caller: memories, artifacts and open loops that name the source and sit above the caller's ceiling are left out of it, and the owner and an unbound admin key still get the whole trace. A key that moves its own source above its ceiling gets an empty trace. A delete waits for a relabel that is in flight and then judges the new label, so a source made confidential during a delete is refused and its row is not handed back. `POST /v0/vnext/sources/{id}/regenerate` is unchanged: only the owner and an unbound `admin_agent` key may call it, and every other key receives HTTP 403 before the source is looked up. The SQLite install has no HTTP route for these verbs; its `sources delete` and `sources prune` commands are owner commands. `GET /v0/vnext/graph/neighborhood/{target_id}` is not covered by this change: it is an operator route that applies the operator gate and no label fence to the node it is given, and its limit is listed in the release security note.
+
+Unreleased (on main, not in v0.20.0): `POST /v0/vnext/beliefs/{id}/review` and `POST /v0/vnext/graph/edges/{id}/review` apply the same operator gate and the caller's read fence. A caller with limits (an unbound `trusted_local_agent` key is the only one that reaches them) may review a belief only if it may read the memory the belief was made from, and a belief it would be replaced by is held to the same rule. It may review an edge only if it may read every source, memory and belief at the edge's ends; an end that no longer exists cannot be shown readable. Anything else answers HTTP 404 with the body of a missing row, `{"detail": "vNext belief was not found"}` or `{"detail": "vNext graph edge was not found"}`, shows no claim or explanation, and changes nothing. A missing belief or edge, and an id that is not well formed, answers the same for every caller. The owner and an unbound `admin_agent` key review every belief and edge, and read-only, proposal and project-bound keys keep HTTP 403 before the lookup. The route code was the same in v0.19.2 and v0.20.0, and it took no key into account after the operator gate.
+
+Unreleased (on main, not in v0.20.0): a row a key can read may list in its metadata the id of a row the key cannot read. The ids stand in the lists a report writes and in its printed text (`candidate_memory_ids`, `derived_from`, `source_ids`, `memory_ids`, `source_refs`, `content_markdown`), and the artifact get and artifact trace routes return them as stored to any key whose limits admit the report, a read-only, project-scoped or project-bound key included, while the artifact list, source trace, workspace and project dashboard (operator routes) return them to the owner and to an unbound admin or trusted key. The detail modes of `alice_explain` and `alice_memory_review` return them for a derived memory, such as a project update that lists its sources, and the list modes of the other memory tools return none. `GET /v0/vnext/memories/{id}/audit` returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, the ids of redacted and archived members included. A memory made from a captured source also keeps its `source_id`, `source_event_ids` and `capture_content_hash` (the SHA-256 of the source's whole captured text) after the source is archived, and the detail mode of `alice_memory_review` and the memory audit return them, as does the event feed of the workspace; `alice_explain` returns them while the source can be read. The scheduler's run records in the workspace and the dogfooding view carry the `artifact_id` of the report a run made, also after the report was made confidential. An id reveals that the row exists and how a report links to it. It grants no access: a key with limits that names it to a door that takes a row id is answered as a missing id is, with the same status and body or the same tool error, and nothing is changed. Three answers show a little more and are named in the release security note: the search tools, which take the id as query text and show nothing of the row; the graph neighborhood route, which returns the edges of any id with their explanations; and a memory commit that cites the id under a prefix other than `source:`, whose answer leaves that entry out when the id names a source the key cannot read. This is a known exception to the rule that a hidden id is not shown, tracked for v0.21.0. A report also keeps the words it was made with, so the title, text or quote of a row that was archived or redacted after the report was made stays in the report's text, in the `explanation` of a connection, in the `quote_new` of a contradiction, in the text of a roll-up card and as the digest of a consolidation member, and redacting a memory does not rewrite the reports that printed it; a key that can read the report reads those words, and withholding them is tracked for v0.21.0 too.
+
+Unreleased (on main, not in v0.20.0): the doors that act on one row by id answer a row above the key's limits as a row that does not exist. For a key with limits, a row it may not read now gets the status and body of a missing row at the artifact get, trace, review, feedback, quality-rating and export routes, the project-update review route, the memory audit, review, correct, expire, forget, redact, undo, unexpire and accept-consolidation routes and the open-loop review route, and the tool's not-found error at `alice_memory_review` (detail), `alice_memory_correct`, `alice_memory_manage` and `alice_open_loops` (close, edit, snooze, reopen). Until now these doors answered HTTP 403 with the policy decision, or the tool's policy error, and that answer repeated the row's domain, sensitivity and project scope. The call now writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry. An archived or redacted memory is read by no door but redact, and it is outside the limits of every key that has any, so a refused redact of one is answered and written exactly as a redact of a missing id is: HTTP 404 or the tool's not-found error, and no policy event and no agent record. A row the key may read keeps its refusals. The owner and an unbound `admin_agent` key are unchanged.
+
+Unreleased (on main, not in v0.20.0): `POST /v0/vnext/open-loops` holds `project_id` to the key's project binding. A project outside the binding, a project that does not exist and an id that is not well formed answer HTTP 404 with `{"detail": "vNext project was not found"}` and write nothing.
 
 ## Domains a profile may read
 

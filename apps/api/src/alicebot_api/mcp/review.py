@@ -136,14 +136,18 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
         payload: dict[str, object] | None = None
         with _vnext_store_context(context) as store:
             memory = store.get_memory(memory_id)
-            if memory is None:
-                raise MCPReferenceNotFoundError(f"memory {memory_id} was not found")
             from alicebot_api.vnext_label_guard import (
                 apply_unverified_rule,
                 effective_row_for_fence,
+                outside_caller_limits,
                 policy_labels,
             )
 
+            # A memory the caller may not read is the same error as one that does not exist, before a policy decision is
+            # built from its labels (that decision would repeat them, and so would the review filters it falls outside)
+            # and before anything is recorded: the policy events and the agent record are events a key can read back.
+            if memory is None or outside_caller_limits(store, identity, "memory", memory):
+                raise MCPReferenceNotFoundError(f"memory {memory_id} was not found")
             judged = effective_row_for_fence(store, identity, "memory", memory)
             target_domains, target_sensitivity_allowed, target_projects, target_floor = policy_labels(judged)
             target_domain = target_domains[0]
@@ -500,14 +504,17 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
         # below re-authorizes after taking its locks; taking a row lock here
         # would invert graph -> row ordering for consolidation acceptance.
         target = store.get_memory(memory_id)
-        if target is None:
-            raise MCPReferenceNotFoundError(f"memory {memory_id} was not found")
         from alicebot_api.vnext_label_guard import (
             apply_unverified_rule,
             effective_row_for_fence,
+            outside_caller_limits,
             policy_labels,
         )
 
+        # A memory the caller may not read is the same error as one that does not exist, before a policy decision is
+        # built from its labels (that decision would repeat them) and before anything is recorded.
+        if target is None or outside_caller_limits(store, identity, "memory", target):
+            raise MCPReferenceNotFoundError(f"memory {memory_id} was not found")
         judged = effective_row_for_fence(store, identity, "memory", target)
         domains, sensitivity_allowed, project_scope, project_floor = policy_labels(judged)
         _checked_actor_type, _checked_actor_id, decision = _policy_checked(
@@ -574,7 +581,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
         store.lock_label_writes()
         get_memory_for_update = getattr(store, "get_memory_for_update", None)
         memory = get_memory_for_update(memory_id) if callable(get_memory_for_update) else store.get_memory(memory_id)
-        if memory is None:
+        if memory is None or outside_caller_limits(store, identity, "memory", memory):
             raise MCPReferenceNotFoundError(f"memory {memory_id} was not found")
         # Re-authorize the row after acquiring its mutation lock. The earlier
         # check commits a durable policy audit event; this second check closes

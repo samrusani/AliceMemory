@@ -85,6 +85,7 @@ from alicebot_api.vnext_stores.postgres.events_revisions import (
 )
 from alicebot_api.vnext_stores.postgres.graph_open_loops import (
     create_edge as _graph_create_edge,
+    get_edge as _graph_get_edge,
     find_edge_by_idempotency_digest as _graph_find_edge_by_idempotency_digest,
     upsert_edge_by_idempotency_digest as _graph_upsert_edge_by_idempotency_digest,
     list_edges as _graph_list_edges,
@@ -504,6 +505,12 @@ class PostgresVNextStore:
                 continue
         if not wanted:
             return []
+        if kind == "edge":
+            # An edge carries no label. Its ends are what the guard judges.
+            return self._fetch_all(
+                "SELECT id, user_id, from_type, from_id, to_type, to_id FROM graph_edges WHERE id = ANY(%s::uuid[])",
+                (wanted,),
+            )
         table = {
             "source": "sources",
             "memory": "memories",
@@ -603,33 +610,37 @@ class PostgresVNextStore:
         event IDs. Deleted source rows remain readable by the label reader.
         RLS and the explicit tenant join preserve the same input population.
         """
+        from alicebot_api.vnext_label_sql import event_names_a_row_sql
+
         row = self._fetch_one(
             "count_source_label_events",
-            """SELECT COUNT(*) AS count FROM event_log AS e
+            f"""SELECT COUNT(*) AS count FROM event_log AS e
                JOIN sources AS s ON s.user_id = e.user_id AND e.target_id = s.id::text
                WHERE e.target_type = 'source'
                  AND (%s::text[] IS NULL OR COALESCE(NULLIF(s.domain, ''), 'unknown') = ANY(%s::text[])
                       OR COALESCE(NULLIF(s.domain, ''), 'unknown') = 'unknown')
-                 AND (%s::text[] IS NULL OR COALESCE(NULLIF(s.sensitivity, ''), 'unknown') = ANY(%s::text[]))""",
+                 AND (%s::text[] IS NULL OR COALESCE(NULLIF(s.sensitivity, ''), 'unknown') = ANY(%s::text[]))
+                 AND NOT {event_names_a_row_sql("e")}""",
             (list(domains) or None, list(domains) or None,
              list(sensitivity_allowed) or None, list(sensitivity_allowed) or None),
         )
         return int(cast(int, row["count"]))
 
     def iter_label_events(self, *, batch_size: int = 1000, reject_sensitivity_allowed: Sequence[str] = (), exclude_source_targets: bool = False) -> Iterator[list[VNextRow]]:
-        """Complete event targets for readable counts, without event payloads."""
+        """Complete event targets for readable counts. The payload is cut down to the fields that name a row."""
 
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
-        from alicebot_api.vnext_label_sql import hidden_memory_event_sql
+        from alicebot_api.vnext_label_sql import event_names_a_row_sql, event_references_sql, hidden_memory_event_sql
         label_sql = hidden_memory_event_sql(reject_sensitivity_allowed, sqlite=False)
         query_size = max(batch_size, 5000) if reject_sensitivity_allowed else batch_size
         after: str | None = None
         while True:
             rows = self._fetch_all(
-                f"""SELECT id, target_type, target_id, event_type FROM event_log
+                f"""SELECT id, target_type, target_id, event_type, {event_references_sql(sqlite=False)} AS payload_json
+                   FROM event_log
                    WHERE (%s::uuid IS NULL OR id > %s::uuid) AND {label_sql}
-                     AND (NOT %s::boolean OR COALESCE(target_type, '') <> 'source')
+                     AND (NOT %s::boolean OR COALESCE(target_type, '') <> 'source' OR {event_names_a_row_sql()})
                    ORDER BY id LIMIT %s""",
                 (after, after, exclude_source_targets, query_size),
             )
@@ -1886,6 +1897,8 @@ class PostgresVNextStore:
         )
 
     create_edge = _graph_create_edge
+
+    get_edge = _graph_get_edge
 
     find_edge_by_idempotency_digest = _graph_find_edge_by_idempotency_digest
 

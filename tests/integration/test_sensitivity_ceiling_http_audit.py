@@ -3,6 +3,11 @@
 Raising AgentPolicyBlockedError out of user_connection rolls the audit
 event back with the mutation. Returning 403 from inside the connection
 keeps the event. A second connection reads the event.
+
+A row above the caller's ceiling is a row the caller may not read, so the doors
+that name it by id answer it as a row that does not exist and write what a
+missing id writes, which is nothing. The refusals of a row the caller may read
+keep the rules above.
 """
 
 from __future__ import annotations
@@ -41,7 +46,7 @@ def _blocked(store: PostgresVNextStore, *, target_type: str, target_id: str) -> 
     ]
 
 
-def test_http_ceiling_refusal_keeps_the_policy_event(migrated_database_urls, monkeypatch) -> None:
+def test_http_ceiling_refusal_of_a_row_the_key_may_not_read_writes_no_policy_event(migrated_database_urls, monkeypatch) -> None:
     app_url = migrated_database_urls["app"]
     user_id = seed_user(app_url, email="ceiling-audit@example.com")
     settings = Settings(database_url=app_url)
@@ -90,8 +95,14 @@ def test_http_ceiling_refusal_keeps_the_policy_event(migrated_database_urls, mon
         payload={"user_id": user_id_text, "memory_id": memory_id, "reason": "should not land"},
         authorization=authorization,
     )
-    assert forget_status == 403, forget_body
-    assert "sensitivity_above_agent_ceiling" in forget_body["policy_decision"]["reasons"]
+    # The note is confidential, above the ceiling of a trusted key: the route answers as for a memory that does not exist.
+    missing_status, missing_body = invoke_request(
+        "POST",
+        "/v0/vnext/memories/forget",
+        payload={"user_id": user_id_text, "memory_id": str(uuid4()), "reason": "should not land"},
+        authorization=authorization,
+    )
+    assert (forget_status, forget_body) == (missing_status, missing_body) and forget_status == 400, forget_body
 
     review_status, review_body = invoke_request(
         "POST",
@@ -99,8 +110,7 @@ def test_http_ceiling_refusal_keeps_the_policy_event(migrated_database_urls, mon
         payload={"user_id": user_id_text, "action": "close"},
         authorization=authorization,
     )
-    assert review_status == 403, review_body
-    assert "sensitivity_above_agent_ceiling" in review_body["policy_decision"]["reasons"]
+    assert (review_status, review_body) == (404, {"detail": "vNext open loop was not found"}), review_body
 
     with user_connection(app_url, user_id) as conn:
         store = PostgresVNextStore(conn)
@@ -114,10 +124,8 @@ def test_http_ceiling_refusal_keeps_the_policy_event(migrated_database_urls, mon
         assert kept_loop["title"] == "Highly sensitive follow-up"
         memory_events = _blocked(store, target_type="memory", target_id=memory_id)
         loop_events = _blocked(store, target_type="open_loop", target_id=loop_id)
-    assert memory_events, "forget refusal did not keep agent.policy_blocked"
-    assert all(event.get("target_type") == "memory" for event in memory_events)
-    assert loop_events, "open-loop refusal did not keep agent.policy_blocked"
-    assert all(event.get("target_type") == "open_loop" for event in loop_events)
+    assert memory_events == [], "a row the key may not read recorded agent.policy_blocked"
+    assert loop_events == [], "a loop the key may not read recorded agent.policy_blocked"
 
 
 def test_http_quality_rating_refusal_drops_the_policy_event(migrated_database_urls, monkeypatch) -> None:
@@ -140,11 +148,18 @@ def test_http_quality_rating_refusal_drops_the_policy_event(migrated_database_ur
         artifact = store.create_artifact(
             {
                 "artifact_type": "daily_brief",
-                "title": "Private brief a read-only agent must not rate",
+                "title": "Brief a read-only agent must not rate",
                 "content_markdown": "Stored brief text.",
                 "status": "needs_review",
                 "domain": "professional",
-                "sensitivity": "private",
+                "sensitivity": "internal",
+                # A report with its inputs recorded, so that a key with limits may read it.
+                "metadata_json": {
+                    "derived_from": {
+                        "v": 1, "sources": [], "memories": [], "open_loops": [], "artifacts": [], "beliefs": [],
+                        "counts": {"sources": 0, "memories": 0, "open_loops": 0, "artifacts": 0, "beliefs": 0},
+                    }
+                },
             },
             actor_type="user",
         )

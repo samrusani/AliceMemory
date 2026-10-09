@@ -256,7 +256,8 @@ def test_the_owner_keeps_the_cross_project_brief_and_bound_keys_cannot_read_it(m
     for key in (alpha_key, beta_key, unbound):
         for path in (f"/v0/vnext/artifacts/{artifact_id}", f"/v0/vnext/traces/artifacts/{artifact_id}"):
             status, body = invoke_request("GET", path, query_params={"user_id": str(user_id)}, headers={"authorization": f"Bearer {key}"})
-            assert status == (200 if key == unbound else 403), (status, body)
+            # A bound key may not read the cross-project brief, so for it the brief does not exist.
+            assert (status == 200) if key == unbound else (status, body) == (404, {"detail": "vNext artifact was not found"}), (status, body)
     status, promoted = invoke_request("POST", f"/v0/vnext/artifacts/{artifact_id}/review",
                                      payload={"user_id": str(user_id), "action": "promote"}, headers={"authorization": f"Bearer {unbound}"})
     assert status == 200, promoted

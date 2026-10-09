@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import sqlite3
 from urllib.parse import urlencode
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import anyio
 import pytest
@@ -33,6 +33,16 @@ from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_memory_version import memory_version_snapshot
 from alicebot_api.vnext_projects import VNextProjectService
 from alicebot_api.vnext_project_scope import memory_project_scope
+
+
+def _fake_edge_id(number: int) -> str:
+    """Edge ids are UUIDs, as the stored ones are, so the review routes read them as well-formed ids."""
+
+    return str(UUID(int=0xED6E0000 + number))
+
+
+def _fake_belief_id(number: int) -> str:
+    return str(UUID(int=0xBE11EF00 + number))
 
 
 class FakeVNextStore:
@@ -654,9 +664,12 @@ class FakeVNextStore:
 
     def create_edge(self, edge: dict[str, object], *, actor_type: str = "system") -> dict[str, object]:
         del actor_type
-        row = {**edge, "id": f"edge-{len(self.edges) + 1}"}
+        row = {**edge, "id": _fake_edge_id(len(self.edges) + 1)}
         self.edges[str(row["id"])] = row
         return row
+
+    def get_edge(self, edge_id: str) -> dict[str, object] | None:
+        return self.edges.get(edge_id)
 
     def update_edge_status(self, *, edge_id: str, status: str) -> dict[str, object]:
         edge = self.edges[edge_id]
@@ -679,7 +692,7 @@ class FakeVNextStore:
         ]
 
     def create_belief(self, belief: dict[str, object]) -> dict[str, object]:
-        row = {**belief, "id": f"belief-{len(self.beliefs) + 1}"}
+        row = {**belief, "id": _fake_belief_id(len(self.beliefs) + 1)}
         self.beliefs[str(row["id"])] = row
         return row
 
@@ -2575,7 +2588,7 @@ def test_vnext_connection_and_graph_endpoints(monkeypatch) -> None:
         )
     )
     review_response = vnext_review_router.review_vnext_graph_edge(
-        "edge-1",
+        _fake_edge_id(1),
         vnext_review_router.VNextGraphEdgeReviewRequest(user_id=user_id, action="accept"),
     )
     neighborhood_response = vnext_review_router.get_vnext_graph_neighborhood(source_id, user_id=user_id)
@@ -2590,12 +2603,12 @@ def test_vnext_connection_and_graph_endpoints(monkeypatch) -> None:
         ]
     ) - {"created_at", "promoted_at", "reviewed_at", "user_id"}
     assert generate_payload["artifact_type"] == "connection_report"
-    assert generate_payload["metadata_json"]["candidate_edge_ids"] == ["edge-1"]
+    assert generate_payload["metadata_json"]["candidate_edge_ids"] == [_fake_edge_id(1)]
     assert review_response.status_code == 200
     assert review_payload["metadata_json"]["status"] == "accepted"
     assert neighborhood_response.status_code == 200
     assert neighborhood_payload["edge_count"] == 1
-    assert neighborhood_payload["from_edges"][0]["id"] == "edge-1"
+    assert neighborhood_payload["from_edges"][0]["id"] == _fake_edge_id(1)
 
 
 def test_vnext_contradiction_and_belief_endpoints(monkeypatch) -> None:
@@ -2611,8 +2624,8 @@ def test_vnext_contradiction_and_belief_endpoints(monkeypatch) -> None:
         "sensitivity": "private",
         "metadata_json": {"raw_text": "Alice should not auto-promote generated artifacts into memory."},
     }
-    store.beliefs["belief-1"] = {
-        "id": "belief-1",
+    store.beliefs[_fake_belief_id(1)] = {
+        "id": _fake_belief_id(1),
         "memory_id": "memory-belief-1",
         "claim": "Alice should auto-promote generated artifacts into memory.",
         "status": "active",
@@ -2633,10 +2646,10 @@ def test_vnext_contradiction_and_belief_endpoints(monkeypatch) -> None:
         )
     )
     review_response = vnext_review_router.review_vnext_belief(
-        "belief-1",
+        _fake_belief_id(1),
         vnext_review_router.VNextBeliefReviewRequest(user_id=user_id, action="challenge", confidence=0.25),
     )
-    state_response = vnext_review_router.get_vnext_belief_state("belief-1", user_id=user_id)
+    state_response = vnext_review_router.get_vnext_belief_state(_fake_belief_id(1), user_id=user_id)
 
     generate_payload = json.loads(generate_response.body)
     review_payload = json.loads(review_response.body)
@@ -2648,7 +2661,7 @@ def test_vnext_contradiction_and_belief_endpoints(monkeypatch) -> None:
         ]
     ) - {"created_at", "promoted_at", "reviewed_at", "user_id"}
     assert generate_payload["artifact_type"] == "contradiction_report"
-    assert generate_payload["metadata_json"]["candidate_edge_ids"] == ["edge-1"]
+    assert generate_payload["metadata_json"]["candidate_edge_ids"] == [_fake_edge_id(1)]
     assert review_response.status_code == 200
     assert review_payload["status"] == "challenged"
     assert review_payload["confidence"] == 0.25
@@ -4404,14 +4417,18 @@ def test_http_memory_review_rejects_non_admin_and_out_of_scope_keys(monkeypatch)
         permission_profile="admin_agent",
         project_scope="project-a",
     )
+    events_before = deepcopy(store.events)
     scope_response = vnext_memories_router.review_vnext_memory(
         main_module.UUID(memory_id),
         vnext_memories_router.VNextMemoryReviewRequest(user_id=user_id, action="accept"),
         authorization=f"Bearer {admin_key}",
     )
-    assert scope_response.status_code == 403
+    # The memory is in project-b, outside the admin key's binding, so the answer is the one for a memory that does not exist.
+    assert scope_response.status_code == 404
+    assert json.loads(scope_response.body) == {"detail": "vNext memory was not found"}
     assert store.get_memory(memory_id)["status"] == "candidate"
-    assert "project_scope_binding_violation" in json.loads(scope_response.body)["policy_decision"]["reasons"]
+    # A call on a memory the key may not read writes what a call on a missing memory writes: no policy event.
+    assert store.events == events_before
 
 
 def test_http_memory_lifecycle_authorizes_the_persisted_target_scope(monkeypatch) -> None:
@@ -4439,9 +4456,19 @@ def test_http_memory_lifecycle_authorizes_the_persisted_target_scope(monkeypatch
         authorization=f"Bearer {raw_key}",
     )
 
-    assert response.status_code == 403
+    # The memory is in project-b, outside the key's binding: the answer is the one for a memory that does not exist.
+    missing = vnext_memories_router.forget_vnext_memory(
+        vnext_memories_router.VNextMemoryForgetRequest(
+            user_id=user_id,
+            memory_id=str(uuid4()),
+            reason="Cross-project attempt.",
+        ),
+        authorization=f"Bearer {raw_key}",
+    )
+    assert (response.status_code, response.body) == (missing.status_code, missing.body)
+    assert response.status_code == 400
     assert store.get_memory(memory_id)["status"] == "active"
-    assert "project_scope_binding_violation" in json.loads(response.body)["policy_decision"]["reasons"]
+    assert not any(event.get("target_id") == memory_id for event in store.events)
 
 
 def test_agent_output_ingest_api_creates_review_only_records(monkeypatch) -> None:
@@ -4642,9 +4669,31 @@ def test_artifact_routes_authorize_persisted_target_scope_and_profile(monkeypatc
         permission_profile="read_only_agent",
         project_scope="project-b",
     )
+    # The private artifact is above a read-only key's ceiling, so the key is told what it is told for an artifact that
+    # does not exist.
     feedback_status, feedback_payload = _invoke_vnext_request(
         "POST",
         f"/v0/vnext/artifacts/{artifact_id}/insight-feedback",
+        authorization=f"Bearer {reader_key}",
+        payload={"user_id": str(user_id), "useful_insight": "yes"},
+    )
+    assert (feedback_status, feedback_payload) == (404, {"detail": "vNext artifact was not found"})
+    # A public artifact of the same project is the key's to read, and it is still refused a write by its profile.
+    readable_id = str(uuid4())
+    store.artifacts[readable_id] = {
+        "id": readable_id,
+        "artifact_type": "daily_brief",
+        "title": "Project B public brief",
+        "content_markdown": "# Project B\n\nPublic target content.",
+        "status": "needs_review",
+        "domain": "project",
+        "sensitivity": "public",
+        "metadata_json": {"project_id": "project-b"},
+    }
+    stamp_derived_from(store.artifacts[readable_id], {})
+    feedback_status, feedback_payload = _invoke_vnext_request(
+        "POST",
+        f"/v0/vnext/artifacts/{readable_id}/insight-feedback",
         authorization=f"Bearer {reader_key}",
         payload={"user_id": str(user_id), "useful_insight": "yes"},
     )
@@ -4676,7 +4725,7 @@ def test_artifact_routes_authorize_persisted_target_scope_and_profile(monkeypatc
         "GET", f"/v0/vnext/traces/artifacts/{public_artifact_id}",
         query={"user_id": str(user_id)}, authorization=f"Bearer {reader_key}",
     )
-    assert derived_status == 403
+    assert derived_status == 404  # above the key's ceiling through its input: a missing artifact to this key
     # A manual original public artifact exercises per-source trace projection separately.
     store.artifacts[public_artifact_id]["artifact_type"] = "manual_note"
     trace_status, trace_payload = _invoke_vnext_request(
@@ -4730,9 +4779,8 @@ def test_artifact_routes_authorize_persisted_target_scope_and_profile(monkeypatc
             authorization=f"Bearer {project_a_key}",
             **kwargs,
         )
-        assert status == 403, (method, path, payload)
-        assert "project_scope_binding_violation" in payload["policy_decision"]["reasons"]
-        assert "content_markdown" not in payload
+        # The artifact is in project-b, outside the key's binding, so it is answered as an artifact that does not exist.
+        assert (status, payload) == (404, {"detail": "vNext artifact was not found"}), (method, path, payload)
 
     _trusted_b_record, trusted_b_key = create_agent_key(
         store,

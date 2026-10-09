@@ -453,9 +453,10 @@ def test_review_refusals_write_nothing_but_the_audit_rows(
     A policy block raises after the store context has committed, so a write
     made on that path would persist. Both blocked shapes are run, each with
     every table snapshotted around them: a detail call on a memory a read-only
-    agent may not see, and a list call for a domain and sensitivity it may not
-    see; then, with a project-scoped agent API key, a list call for another
-    project and a detail call on a memory outside the key's project. The
+    agent may not see (answered as a memory that does not exist, and writing
+    nothing), and a list call for a domain and sensitivity it may not see; then, with a
+    project-scoped agent API key, a list call for another project and a detail
+    call on a memory outside the key's project. The
     not-found id and the detail call filtered out by the caller's own domains
     or projects are run too. Only ``event_log``, ``agent_identities`` and, with
     a key, ``agent_api_keys`` may differ, and the blocked calls do leave an
@@ -473,7 +474,9 @@ def test_review_refusals_write_nothing_but_the_audit_rows(
     blocked = "agent policy blocked"
 
     before = _snapshot(database)
-    _review_refused(context, blocked, review_item_id=sensitive_id, **_READ_ONLY_IDENTITY)
+    # A memory the agent may not see is answered as a memory that does not exist, and writes what a missing id writes.
+    _review_refused(context, "was not found", review_item_id=sensitive_id, **_READ_ONLY_IDENTITY)
+    assert _snapshot(database) == before
     _review_refused(
         context,
         blocked,
@@ -509,7 +512,7 @@ def test_review_refusals_write_nothing_but_the_audit_rows(
     monkeypatch.setenv(AGENT_API_KEY_ENV, raw_key)
     before_key = _snapshot(database)
     _review_refused(context, blocked, status="all", projects=["nope"])
-    _review_refused(context, blocked, review_item_id=candidate_id)
+    _review_refused(context, "was not found", review_item_id=candidate_id)
     _review_refused(
         context, "outside the effective review filters", review_item_id=active_id, projects=["nope"]
     )

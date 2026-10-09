@@ -7,6 +7,8 @@ import pytest
 from alicebot_api.routers._vnext_shared import _vnext_authorized_artifact
 from alicebot_api.vnext_agent_control import AgentIdentity, AgentPolicyBlockedError
 from alicebot_api.vnext_label_guard import LabelGuard, apply_unverified_rule
+from alicebot_api.vnext_memory_commit import MemoryNotFoundError
+from alicebot_api.vnext_queue import VNextQueueNotFoundError
 from alicebot_api.vnext_source_fence import (
     MemoryRefNotFoundError,
     SourceReadFence,
@@ -102,8 +104,9 @@ def _locked_admin() -> AgentIdentity:
 
 
 def test_an_exact_artifact_door_uses_the_input_label() -> None:
+    """The input is above the key's ceiling, so the artifact is one the key may not read and the door answers as a missing one."""
     store = _LabelStore()
-    with pytest.raises(AgentPolicyBlockedError):
+    with pytest.raises(VNextQueueNotFoundError):
         _vnext_authorized_artifact(
             store=store,  # type: ignore[arg-type]
             identity=_trusted(),
@@ -231,13 +234,16 @@ def test_an_open_loop_update_uses_the_input_label() -> None:
             },
         },
     }
-    with pytest.raises(AgentPolicyBlockedError):
+    # The loop is above the key's ceiling through its input, so the key may not read it: it is answered as a missing
+    # row, and nothing is recorded, because the policy events and the agent record are events a key can read back.
+    with pytest.raises(MemoryNotFoundError):
         VNextMemoryCommitService(store).authorize_memory_action(
             identity=_trusted(),
             action="open_loop.update",
             memory=loop,
             target_type="open_loop",
         )
+    assert store.events == []
 
 
 def test_a_cited_memory_is_judged_by_its_source() -> None:
@@ -324,5 +330,5 @@ def test_ambiguous_source_alias_blocks_locked_admin() -> None:
     effective = LabelGuard(store, active=True).effective_row("artifact", store.artifact)
     assert effective["unverified"] is True
     identity = AgentIdentity(agent_id="locked-admin", permission_profile="admin", project_scope=(ALPHA,), project_scope_locked=True)
-    with pytest.raises(AgentPolicyBlockedError):
+    with pytest.raises(VNextQueueNotFoundError):
         _vnext_authorized_artifact(store=store, identity=identity, artifact_id=ARTIFACT_ID, action="artifact.read", for_update=False)

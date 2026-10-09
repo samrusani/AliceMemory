@@ -153,7 +153,7 @@ def test_a_source_relabel_reaches_the_extracted_memories_the_loop_every_report_a
                 status, body, _ = h.request(
                     "POST", f"/v0/vnext/open-loops/{row_id}/review", payload={"action": "close"}, key=key
                 )
-                assert status == 403, (profile, kind, body)
+                assert status == 404, (profile, kind, body)  # a loop the key may not read is a missing loop to it
                 continue
             else:
                 exact = f"/v0/vnext/projects/{row_id}/dashboard"
@@ -162,7 +162,9 @@ def test_a_source_relabel_reaches_the_extracted_memories_the_loop_every_report_a
                 # O12 operator screens redact the response rather than requiring an exact policy refusal.
                 assert row_id not in json.dumps(body), (profile, kind, status, body)
             else:
-                assert status == 403, (profile, kind, status, body)
+                # A row the key may not read is a missing row to it. The read-only key is refused the audit route of a
+                # memory whatever the id, which a missing id gets too.
+                assert status == (403 if profile == "read_only_agent" and kind == "memory" else 404), (profile, kind, status, body)
         for path in ("/v0/vnext/artifacts", "/v0/vnext/projects", "/v0/vnext/workspace", "/v0/vnext/context-tree"):
             status, body, _ = h.request("GET", path, key=key)
             # Read-only keys cannot use operator routes. Their refusal must carry no row data.
@@ -207,4 +209,4 @@ def test_a_source_relabel_reaches_the_extracted_memories_the_loop_every_report_a
             else:
                 assert {str(project["id"]), beta}.issubset(row["metadata_json"]["project_floor"]), (kind, row)
             if kind == "artifact":
-                assert h.request("GET", f"/v0/vnext/artifacts/{row_id}", key=bound)[0] == 403
+                assert h.request("GET", f"/v0/vnext/artifacts/{row_id}", key=bound)[0] == 404

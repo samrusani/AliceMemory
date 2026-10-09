@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "apps/api/src"
 
 READS = {
-    "get_source", "list_sources", "get_sources_by_ids",
+    "get_source", "list_sources", "get_sources_by_ids", "get_edge",
     "get_memory",
     "get_memory_for_update",
     "get_memories_by_ids",
@@ -59,6 +59,11 @@ DOORS = {
     "routers/vnext_memories.py:review_vnext_source": "_vnext_readable_source",
     "routers/vnext_memories.py:delete_vnext_source": "_vnext_readable_source",
     "routers/vnext_memories.py:_vnext_readable_source": None,
+    "routers/_vnext_shared.py:_vnext_readable_memory": None,
+    "routers/_vnext_shared.py:_vnext_readable_belief": "_vnext_readable_memory",
+    "routers/_vnext_shared.py:_vnext_readable_edge": "_vnext_readable_memory",
+    "routers/vnext_review.py:review_vnext_belief": "routers/_vnext_shared.py:_vnext_readable_belief",
+    "routers/vnext_review.py:review_vnext_graph_edge": "routers/_vnext_shared.py:_vnext_readable_edge",
     "mcp/evidence_artifacts.py:_handle_alice_vnext_review_items": None,
     "routers/_vnext_shared.py:_vnext_authorized_artifact": None,
     "vnext_source_fence.py:resolve_attachable_memory_id": None,
@@ -176,6 +181,7 @@ NOT_A_DOOR = {
     "vnext_dogfooding.py:VNextDogfoodingStore.list_artifact_quality_ratings": "store protocol declaration; no execution or response",
     "vnext_artifact_review.py:dispatch_vnext_artifact_review": "writer entry; calling route or MCP authorizes the artifact before dispatch",
     "vnext_memory_commit.py:VNextMemoryCommitService._guard_supersession_acyclic": "write validation traverses pointers without exposing their content",
+    "routers/vnext_projects.py:_vnext_project_id_within_binding": "a project has no labels; the open-loop create route holds the id to the key's project binding, and a project outside it reads as a missing one",
 }
 
 SCAN_MODULES = tuple(sorted({
@@ -246,6 +252,13 @@ def _has_guard(node: ast.AST) -> bool:
     return bool(_called_names(node) & GUARD_CALLS)
 
 
+def _delegates_to_a_registered_door(node: ast.AST) -> bool:
+    """A helper that composes the doors of other kinds (an edge is read through its ends) may call them instead."""
+
+    registered = {key.split(":", 1)[1].rsplit(".", 1)[-1] for key, helper in DOORS.items() if helper is None}
+    return bool(_called_names(node) & registered)
+
+
 def test_every_exact_door_calls_the_guard() -> None:
     modules: dict[str, ast.Module] = {}
     for key, helper in DOORS.items():
@@ -263,7 +276,9 @@ def test_every_exact_door_calls_the_guard() -> None:
                 modules[helper_path] = ast.parse((SRC / "alicebot_api" / helper_path).read_text(encoding="utf-8"))
             helper_functions = dict(_functions(modules[helper_path]))
             assert helper_name in helper_functions, key
-            assert _has_guard(helper_functions[helper_name]), helper
+            assert _has_guard(helper_functions[helper_name]) or _delegates_to_a_registered_door(
+                helper_functions[helper_name]
+            ), helper
 
 
 def test_every_scanned_reader_is_classified() -> None:
