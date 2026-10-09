@@ -107,10 +107,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_lifecycle.py",
-          "line": 530,
+          "line": 536,
           "before": "            project_patch_present,",
           "after": "            False,",
-          "sha256": "a0865fb842918ba015477748675395d1050e766ab3363d633dd70b9c321cdba4"
+          "sha256": "474720b27a752657b170cb4b1518d538d679c534ba78ac614b32b245df6c4adb"
         }
       ],
       "pytest": [
@@ -125,10 +125,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_lifecycle.py",
-          "line": 381,
+          "line": 387,
           "before": "            project_patch_present,",
           "after": "            False,",
-          "sha256": "0e8c2d50857d1064fc94b703c7cc05da234df63d4c278bc08a062fc90d450c3d"
+          "sha256": "a182806fa8da6fd4336ee73b2bdab28f4ac51ca150229e0fc621ab381ebb2a7b"
         }
       ],
       "pytest": [
@@ -339,10 +339,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 71,
+          "line": 72,
           "before": "omit content diagnostics for a caller with limits",
           "after": "show content diagnostics to a caller",
-          "sha256": "644ea9954e4936877b9deb4d9fe1cd8814378c7f08fc55bf1ca7f6aa5aa10dbb"
+          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
         }
       ],
       "pytest": [
@@ -1012,10 +1012,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 11,
+          "line": 12,
           "before": "stays refused to every key but an unbound `admin_agent`",
           "after": "stays refused",
-          "sha256": "644ea9954e4936877b9deb4d9fe1cd8814378c7f08fc55bf1ca7f6aa5aa10dbb"
+          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
         }
       ],
       "pytest": [
@@ -1192,10 +1192,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 11,
+          "line": 12,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "644ea9954e4936877b9deb4d9fe1cd8814378c7f08fc55bf1ca7f6aa5aa10dbb"
+          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
         }
       ],
       "pytest": [
@@ -1560,10 +1560,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 12,
+          "line": 13,
           "before": "where it raised a server error",
           "after": "",
-          "sha256": "644ea9954e4936877b9deb4d9fe1cd8814378c7f08fc55bf1ca7f6aa5aa10dbb"
+          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
         }
       ],
       "pytest": [
@@ -2071,10 +2071,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 14,
+          "line": 15,
           "before": "and the call writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry.",
           "after": "and the call is recorded.",
-          "sha256": "644ea9954e4936877b9deb4d9fe1cd8814378c7f08fc55bf1ca7f6aa5aa10dbb"
+          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
         }
       ],
       "pytest": [
@@ -2279,10 +2279,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 13,
+          "line": 14,
           "before": ", and redacting a memory does not rewrite the reports that printed it. Withholding those words",
           "after": ". Withholding those words",
-          "sha256": "644ea9954e4936877b9deb4d9fe1cd8814378c7f08fc55bf1ca7f6aa5aa10dbb"
+          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
         }
       ],
       "pytest": [
@@ -2330,7 +2330,7 @@
           "line": 459,
           "before": "redacted row records nothing, as a redact of an id the vault never held records",
           "after": "redacted row is recorded, as a redact of an id the vault never held records",
-          "sha256": "c3647790c77b8d7e133d5f8ab1c9b9a6afde508bb9d90e95f0830e76132e4247"
+          "sha256": "9087542cd565d1442793ff48abbfb03aecf30682a2196c6fab4624efb50bb7ac"
         }
       ],
       "pytest": [
@@ -2343,10 +2343,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 54,
+          "line": 55,
           "before": "A refused redact of an archived or redacted row now writes nothing, as a redact of an id the vault never held writes nothing: no policy event and no agent record.",
           "after": "A refused redact of an archived or redacted row is still recorded.",
-          "sha256": "644ea9954e4936877b9deb4d9fe1cd8814378c7f08fc55bf1ca7f6aa5aa10dbb"
+          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
         }
       ],
       "pytest": [
@@ -2876,10 +2876,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_lifecycle.py",
-          "line": 460,
+          "line": 466,
           "before": "patch = clamp_owner_patch(self, kind=\"memory\", before=before_label, patch=patch)",
           "after": "patch = patch",
-          "sha256": "a0865fb842918ba015477748675395d1050e766ab3363d633dd70b9c321cdba4"
+          "sha256": "474720b27a752657b170cb4b1518d538d679c534ba78ac614b32b245df6c4adb"
         }
       ],
       "pytest": [
@@ -4121,10 +4121,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 13,
+          "line": 14,
           "before": "The memory audit route (`GET /v0/vnext/memories/{id}/audit`) returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, so the ids of redacted and archived members stand there too, ",
           "after": "",
-          "sha256": "644ea9954e4936877b9deb4d9fe1cd8814378c7f08fc55bf1ca7f6aa5aa10dbb"
+          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
         }
       ],
       "pytest": [
@@ -4137,10 +4137,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 5,
+          "line": 6,
           "before": "The context tree and the dogfooding view read the same rule. ",
           "after": "",
-          "sha256": "644ea9954e4936877b9deb4d9fe1cd8814378c7f08fc55bf1ca7f6aa5aa10dbb"
+          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
         }
       ],
       "pytest": [
@@ -4665,6 +4665,150 @@
         "tests/integration/test_event_references_postgres.py::test_events_that_name_a_row_are_judged_alike_by_the_native_count_the_list_and_the_per_row_guard"
       ],
       "expected_failure": "test_events_that_name_a_row_are_judged_alike_by_the_native_count_the_list_and_the_per_row_guard"
+    },
+    {
+      "name": "redact-promoted-copy-leaves-the-promotion-record",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_lifecycle.py",
+          "line": 833,
+          "before": "                    target_type IS NOT DISTINCT FROM 'artifact'",
+          "after": "                    target_type IS NOT DISTINCT FROM 'never'",
+          "sha256": "474720b27a752657b170cb4b1518d538d679c534ba78ac614b32b245df6c4adb"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_redact_promoted_copy_postgres.py::test_a_promoted_copy_is_redacted_whatever_state_it_is_in"
+      ],
+      "expected_failure": "test_a_promoted_copy_is_redacted_whatever_state_it_is_in"
+    },
+    {
+      "name": "redact-promoted-copy-replay-reads-the-promotion-record",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_lifecycle.py",
+          "line": 315,
+          "before": "                        event.target_type IS NOT DISTINCT FROM 'artifact'",
+          "after": "                        event.target_type IS NOT DISTINCT FROM 'never'",
+          "sha256": "474720b27a752657b170cb4b1518d538d679c534ba78ac614b32b245df6c4adb"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_redact_promoted_copy_postgres.py::test_a_second_redaction_of_a_promoted_copy_is_a_replay_that_writes_nothing"
+      ],
+      "expected_failure": "test_a_second_redaction_of_a_promoted_copy_is_a_replay_that_writes_nothing"
+    },
+    {
+      "name": "redact-promoted-copy-leaves-only-an-id-record",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_lifecycle.py",
+          "line": 835,
+          "before": "                    AND payload_json = jsonb_build_object('memory_id', %s::text)",
+          "after": "                    AND %s::text IS NOT NULL",
+          "sha256": "474720b27a752657b170cb4b1518d538d679c534ba78ac614b32b245df6c4adb"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_redact_promoted_copy_postgres.py::test_an_artifact_event_that_holds_more_than_the_id_is_not_left_behind"
+      ],
+      "expected_failure": "test_an_artifact_event_that_holds_more_than_the_id_is_not_left_behind"
+    },
+    {
+      "name": "redact-promoted-copy-trigger-stays-append-only",
+      "edits": [
+        {
+          "file": "apps/api/alembic/versions/20260716_0092_project_update_artifact_redaction.py",
+          "line": 71,
+          "before": "OLD.target_type IS DISTINCT FROM 'artifact'",
+          "after": "OLD.target_type IS DISTINCT FROM 'never'",
+          "sha256": "55424bba49bc61cf1107888d4a265d6bf3fac86a2c209b415243001aed75b232"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_redact_promoted_copy_postgres.py::test_the_promotion_record_and_the_trigger_are_left_as_they_were"
+      ],
+      "expected_failure": "test_the_promotion_record_and_the_trigger_are_left_as_they_were"
+    },
+    {
+      "name": "sqlite-redact-leaves-the-artifact-record",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_lifecycle.py",
+          "line": 652,
+          "before": "AND NOT (\n                    target_type IS 'artifact'",
+          "after": "AND NOT (\n                    target_type IS 'never'",
+          "sha256": "a182806fa8da6fd4336ee73b2bdab28f4ac51ca150229e0fc621ab381ebb2a7b"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_redact_promoted_copy_sqlite.py::test_an_artifact_event_that_holds_only_the_memory_id_is_left_and_the_redaction_completes"
+      ],
+      "expected_failure": "test_an_artifact_event_that_holds_only_the_memory_id_is_left_and_the_redaction_completes"
+    },
+    {
+      "name": "sqlite-redact-replay-reads-the-artifact-record",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_lifecycle.py",
+          "line": 270,
+          "before": "AND NOT (\n                        target_type IS 'artifact'",
+          "after": "AND NOT (\n                        target_type IS 'never'",
+          "sha256": "a182806fa8da6fd4336ee73b2bdab28f4ac51ca150229e0fc621ab381ebb2a7b"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_redact_promoted_copy_sqlite.py::test_an_artifact_event_that_holds_only_the_memory_id_is_left_and_the_redaction_completes"
+      ],
+      "expected_failure": "test_an_artifact_event_that_holds_only_the_memory_id_is_left_and_the_redaction_completes"
+    },
+    {
+      "name": "sqlite-redact-leaves-only-an-id-record",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_lifecycle.py",
+          "line": 653,
+          "before": "\n                    AND json(payload_json) IS json(json_object('memory_id', ?))",
+          "after": "\n                    AND ? IS NOT NULL",
+          "sha256": "a182806fa8da6fd4336ee73b2bdab28f4ac51ca150229e0fc621ab381ebb2a7b"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_redact_promoted_copy_sqlite.py::test_an_artifact_event_that_holds_more_than_the_id_is_not_left_behind"
+      ],
+      "expected_failure": "test_an_artifact_event_that_holds_more_than_the_id_is_not_left_behind"
+    },
+    {
+      "name": "redact-promoted-copy-protocol-page-says-no-text",
+      "edits": [
+        {
+          "file": "docs/memory-operations-protocol.md",
+          "line": 468,
+          "before": "it holds no text, and the append-only log lets a redaction rewrite an event aimed",
+          "after": "it holds text, and the append-only log lets a redaction rewrite an event aimed",
+          "sha256": "9087542cd565d1442793ff48abbfb03aecf30682a2196c6fab4624efb50bb7ac"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_redact_promoted_copy_docs.py::test_the_protocol_page_says_what_redact_leaves_of_a_promoted_copy"
+      ],
+      "expected_failure": "test_the_protocol_page_says_what_redact_leaves_of_a_promoted_copy"
+    },
+    {
+      "name": "redact-promoted-copy-changelog-says-more-than-the-id-stops-it",
+      "edits": [
+        {
+          "file": "CHANGELOG.md",
+          "line": 5,
+          "before": "An artifact event that holds anything more still stops the redaction, so no text is left behind. ",
+          "after": "",
+          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_redact_promoted_copy_docs.py::test_the_changelog_says_redact_completes_for_a_promoted_copy_and_what_it_leaves"
+      ],
+      "expected_failure": "test_the_changelog_says_redact_completes_for_a_promoted_copy_and_what_it_leaves"
     }
   ]
 }
