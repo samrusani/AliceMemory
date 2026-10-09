@@ -284,6 +284,9 @@ def test_archiving_a_memory_does_not_restrict_the_reports_built_from_it(label_ha
         store.update_memory(memory_id=world.redacted, patch={"status": "archived"}, actor_type="system")
     status, body, _ = h.request("POST", "/v0/vnext/memories/forget", payload={"memory_id": str(world.contra["id"]), "reason": "r"}, key=world.admin)
     assert status == 200, body
+    # A source is archived too, which the reports that listed it record as an input.
+    with h.store() as store:
+        store.delete_source(source_id=str(world.sources[1]["id"]), actor_type="user")
     assert contained_ids(h) == set()
     after = {name: _status(h, keys["trusted"], report["id"]) for name, report in world.reports.items()}
     assert after == before
