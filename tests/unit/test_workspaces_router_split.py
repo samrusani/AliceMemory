@@ -85,9 +85,14 @@ MAIN_PRUNED_BINDINGS = {
 # Two local helpers admit rows and check event targets; the payload uses them
 # before returning lists/counts. Route bodies, mounts and middleware are unchanged.
 
+# Re-pin 2026-10-08: the route turns JIT compilation off for the workspace
+# transaction before any read. One definition changed, found by a per-definition
+# AST diff: get_vnext_workspace. The set of definitions is the same, and the
+# payload builder is unchanged: the owner and an unbound admin still get a live
+# derived-labels check.
 # Re-pin 2026-10-06: workspace reads authenticate the protected identity and
 # admit rows through effective labels before totals or dashboard disclosure.
-EXPECTED_ROUTE_AST_SHA256 = "b99f1435de67d9499819acb9ed7ed61b588a3fb0ff037e782eeca070b39af742"
+EXPECTED_ROUTE_AST_SHA256 = "7045d27156861c06b2283bb09416e522c59a5064941f40e81c87634577dd1b08"
 EXPECTED_SUPPORT_AST_SHA256 = "701353bcdfe16d5502eafbd3df6d0659acc2e8b85a911c33b7a594348cae5b9b"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
@@ -137,7 +142,7 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # Round two moves source GET to the route-local full fence; definitions are unchanged.
 EXPECTED_CARRIER_AST_SHA256 = "7aade286308c3e4aeb2775eaa350eb739681f3e68d7f20435adf5495bede2c60"
 EXPECTED_ROUTE_NODE_SHA256 = {
-    "get_vnext_workspace": "52c12b20d7bb33759f8dafa2249b2d775b54666130402c0c75045e9ad57ed587",
+    "get_vnext_workspace": "62f9a0dec65229b3ff523d12e99529f1e4751f7953e26ed69fc52d184ebc9d2d",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",
     "get_v1_workspace_bootstrap_status": "2849d7126ee37b6e3ffd9ebe84b2a8e719eb0f811da750a29f7e0a0798305faa",
 }

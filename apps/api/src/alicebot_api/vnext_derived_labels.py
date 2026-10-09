@@ -1199,30 +1199,33 @@ def _weekly_parent_deps(
 ) -> None:
     """Old weekly candidates take the input lists of the artifact that names them."""
 
-    artifacts = [
-        (label, _metadata(row))
-        for label, row in nodes
-        if label.kind == "artifact" and isinstance(_metadata(row).get("input_summary"), Mapping)
-    ]
-    for label, meta in artifacts:
+    named: list[tuple[tuple[str, str, str], tuple[str, str, str]]] = []
+    for label, row in nodes:
+        if label.kind != "artifact":
+            continue
+        meta = _metadata(row)
+        if not isinstance(meta.get("input_summary"), Mapping):
+            continue
         for candidate in _strings(meta.get("candidate_memory_ids")):
             candidate_key = ("memory", label.user_id, candidate)
             candidate_label = labels.get(candidate_key)
             if candidate_label is None or candidate_label.row_class != "aggregate":
                 continue
-            if _metadata_discovered(nodes, candidate_key) != "vnext_weekly_synthesis":
-                continue
-            own.setdefault(candidate_key, set()).update(own.get(label.key, set()))
-
-
-def _metadata_discovered(
-    nodes: Sequence[tuple[SettledLabel, Mapping[str, object]]],
-    key: tuple[str, str, str],
-) -> object:
+            named.append((label.key, candidate_key))
+    if not named:
+        return
+    # One pass finds the marker of every named candidate. The first row that
+    # carries a key answers for it, as the earlier per-candidate scan did.
+    wanted = {candidate_key for _artifact_key, candidate_key in named}
+    discovered: dict[tuple[str, str, str], object] = {}
     for label, row in nodes:
-        if label.key == key:
-            return _metadata(row).get("discovered_by")
-    return None
+        key = label.key
+        if key in wanted and key not in discovered:
+            discovered[key] = _metadata(row).get("discovered_by")
+    for artifact_key, candidate_key in named:
+        if discovered.get(candidate_key) != "vnext_weekly_synthesis":
+            continue
+        own.setdefault(candidate_key, set()).update(own.get(artifact_key, set()))
 
 
 def settle_labels(

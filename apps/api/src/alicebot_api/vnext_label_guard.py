@@ -56,13 +56,18 @@ def _row_label_key(kind: str, row: Mapping[str, object]) -> tuple:
 
 
 def _rank_projection_supported(row: Mapping[str, object]) -> bool:
-    """Only canonical empty scope/floor shapes use a reduced admission proof."""
+    """Only canonical scope/floor shapes use a reduced admission proof.
+
+    A reduced proof answers a sensitivity-only question, and a project scope or floor
+    never changes a sensitivity: a list of any length is a canonical shape. A scope or
+    floor of another type, and every legacy project alias, still take the full kernel.
+    """
     metadata = row.get("metadata_json")
     if type(metadata) is not dict:
         return False
     for container in (row, metadata):
         for name in ("project_scope", "project_floor"):
-            if name in container and (type(container[name]) not in (list, tuple) or container[name]):
+            if name in container and type(container[name]) not in (list, tuple):
                 return False
         for name in ("project_id", "project", "projects", "scope_json", "agent_identity", "agentic_memory"):
             if name in container and container[name] is not None:
