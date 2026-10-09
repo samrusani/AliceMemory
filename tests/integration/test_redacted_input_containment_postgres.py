@@ -223,12 +223,15 @@ def test_regenerating_a_report_restores_access_only_when_the_redacted_text_is_no
         assert _status(h, keys["admin"], old[producer]) == 200
         with keyless_owner(h):
             assert owner_artifact(h, old[producer])[0] == 200
-    assert world.sentinel in bodies[old["weekly"]] and world.sentinel in bodies[old["project_update"]]
-    # Archiving the old report keeps its row and its words, so it stays restricted. Nothing deletes it but the database.
-    status, body, _ = h.request("POST", f"/v0/vnext/artifacts/{old['connections']}/review", payload={"action": "archive"}, key=world.admin)
+    held = [name for name, row_id in old.items() if world.sentinel in bodies[row_id]]
+    assert {"daily", "weekly", "project_update"} <= set(held), held
+    # Archiving the old report keeps its row and its words, so it stays restricted. Nothing deletes it but the database. (The
+    # daily report was promoted to a memory, which closes its review, so another is archived.)
+    target = next(name for name in held if name != "daily")
+    status, body, _ = h.request("POST", f"/v0/vnext/artifacts/{old[target]}/review", payload={"action": "archive"}, key=world.admin)
     assert status == 200, body
-    assert not any(_readable_by(h, restricted_keys, old["connections"]).values())
-    assert world.sentinel in stored_text_of(h, old["connections"])
+    assert not any(_readable_by(h, restricted_keys, old[target]).values())
+    assert world.sentinel in stored_text_of(h, old[target])
     # The old cards stay restricted. The new roll-up card reads no redacted member and is read like any other memory.
     cards = _rollup_cards(h)
     old_cards = [card for card in cards if rows[card].inputs & redacted]
@@ -381,11 +384,13 @@ def test_the_text_of_a_redacted_memory_is_kept_in_the_reports_for_the_owner(worl
     """Containment is not removal: the words are in the stored rows, and the owner reads them."""
     stored = world.stored_text()
     kinds = sorted(name.split(":")[0] for name in stored)
-    # Which reports print the memory depends on the order of the vault's rows, so the count is a floor and not a number.
-    assert kinds.count("generated_artifacts") >= 2 and kinds.count("memories") >= 1 and kinds.count("projects") == 1, stored.keys()
+    # The newest memories print first, and the sentinel is among the newest, so the reports that print it are the same every run.
+    assert kinds.count("generated_artifacts") >= 5 and kinds.count("memories") >= 1 and kinds.count("projects") == 1, stored.keys()
+    holding = [name.split(":")[1] for name in stored if name.startswith("generated_artifacts:")]
     with keyless_owner(label_harness):
-        status, body = owner_artifact(label_harness, world.reports["weekly"]["id"])
-    assert status == 200 and world.sentinel in json.dumps(body)
+        for artifact_id in holding:
+            status, body = owner_artifact(label_harness, artifact_id)
+            assert status == 200 and world.sentinel in json.dumps(body), artifact_id
 
 
 def test_a_restricted_key_cannot_review_a_project_update_that_read_the_redacted_memory(label_harness):

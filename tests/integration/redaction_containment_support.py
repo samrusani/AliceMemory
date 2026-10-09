@@ -142,6 +142,15 @@ class World:
                 "first_seen_at='2026-10-05T09:00:00Z', last_seen_at='2026-10-05T09:00:00Z'"
             )
             store.conn.execute("UPDATE open_loops SET created_at='2026-10-05T09:00:00Z'")
+            # The reports print the newest memories first. With equal times the order is the order of random ids, so each game is a
+            # minute newer than the one before and the contradicting memory is the newest, and the sentinel is always printed.
+            for offset, key in [(index, f"alpha.game.{index}") for index in range(len(GAMES))] + [(10, "alpha.contra")]:
+                store.conn.execute(
+                    "UPDATE memories SET created_at = created_at + make_interval(mins => %s), updated_at = updated_at + make_interval(mins => %s), "
+                    "first_seen_at = first_seen_at + make_interval(mins => %s), last_seen_at = last_seen_at + make_interval(mins => %s) "
+                    "WHERE memory_key = %s",
+                    (offset, offset, offset, offset, key),
+                )
             for i in range(2):
                 store.create_memory(
                     {
