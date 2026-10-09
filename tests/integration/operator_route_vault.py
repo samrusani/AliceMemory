@@ -118,6 +118,7 @@ class Vault:
         self._insight_feedback()
         self._connector_sync()
         self._scheduler_runs()
+        self._connector_sync_again()
         return self
 
     def _source(self, store, name: str, *, hidden: bool, sensitivity: str):
@@ -475,6 +476,32 @@ class Vault:
             {"default_sensitivity": "confidential", "items": [{"path": "", "external_id": f"{self.tag}-failed-item-path"}]},
         )
         assert status in {200, 201, 207, 400}, (status, str(body)[:300])
+
+    def _connector_sync_again(self) -> None:
+        """The confidential file sent once more, after the scheduler runs, so the newest events are the connector's own.
+
+        The workspace lists the 20 newest events a key may read. The scheduler runs above leave events a key may read
+        (they name no hidden row), and they push the events of the first import out of that window. A sync that comes
+        last puts its events (``connector.sync_started``, ``connector.state_updated`` and ``connector.sync_completed``,
+        each holding the path of the confidential file as a cursor) inside it, so a screen that prints the events of the
+        connector can be seen to print the path. The file is a duplicate, so the cursor and the last captured item stay.
+        """
+
+        status, body = self.admin_request(
+            "POST",
+            "/v0/vnext/connectors/local_folder/sync",
+            {
+                "default_sensitivity": "confidential",
+                "items": [
+                    {
+                        "path": f"/vault/{self.text('synced-file')}.md",
+                        "title": self.text("synced-title"),
+                        "text": self.text("synced-text"),
+                    },
+                ],
+            },
+        )
+        assert status in {200, 201, 207}, (status, str(body)[:300])
 
     def _scheduler_runs(self) -> None:
         """Runs by the admin key, so the scheduler history holds work done over the hidden rows."""

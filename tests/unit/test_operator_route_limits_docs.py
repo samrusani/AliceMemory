@@ -6,7 +6,10 @@ and, for the recent-commits list on SQLite, in ``tests/unit/test_recent_commits_
 Mutations, each one alone: delete a route from the table of the tool reference; delete ``reading at most 2,000 commits``
 from the tool reference; delete ``answers as no charter`` from the tool reference, the changelog or the security note;
 delete ``the sweep holds that route as an expected failure`` from the changelog; delete ``take no agent key`` from the
-security note; delete ``so a trusted key cannot learn how many confidential commits exist`` from the security note; say
+security note; delete the row for the workspace event feed from the tool reference; delete ``the four connector events`` from
+the changelog or the security note; delete the sentence that the event feed still lists the id of a queued task, a person
+and the charter from any of the three pages; say again that the clipper capture route answers cursors to a capability
+holder; delete ``so a trusted key cannot learn how many confidential commits exist`` from the security note; say
 again that the refused charter save writes nothing; delete the sentence that the refusal tells the key a charter exists.
 """
 
@@ -65,7 +68,13 @@ def test_the_tool_reference_names_every_route_and_what_a_key_with_a_ceiling_is_s
     assert "A cursor that no import carries cannot be tied to a source and is not shown" in paragraph
     assert "`previous_cursor` and `sync_cursor` of the answer follow the same rule" in paragraph
     assert "a connector keeps one cursor, and an item at or below it is skipped and counted in `skipped_count`" in paragraph
-    assert "`POST /v0/vnext/connectors/browser-clipper/capture` answers the cursors of the clipper connector" in paragraph
+    assert "browser-clipper" not in paragraph
+    assert "`recent_events` of `GET /v0/vnext/workspace`, and the traceability items built from it" in paragraph
+    for event in ("connector.state_updated", "connector.sync_started", "connector.sync_completed", "connector.sync_failed"):
+        assert f"`{event}`" in paragraph, event
+    assert "`cursor_value`" in paragraph and "`previous_cursor` and `sync_cursor`" in paragraph
+    assert "The events are still listed and counted, and the stored event is not edited" in paragraph
+    assert "the workspace event feed still lists the id of a queued task, a person and the charter above the ceiling" in paragraph
     assert "the owner and an unbound `admin_agent` key are shown what they were" in paragraph
     assert "A route added without a probe fails the test" in paragraph
     assert "`GET /v0/vnext/graph/neighborhood/{target_id}` still lists an edge whose far end the key may not read" in paragraph
@@ -94,7 +103,12 @@ def test_the_changelog_has_one_entry_for_the_operator_routes() -> None:
     assert "the same cursors were in the answer of `POST /v0/vnext/connectors/{connector_name}/sync`" in entry
     assert "On main 13 of the 72 routes answered with a sentinel or changed a hidden row" in entry
     assert "`--limit` must be at least 1" in entry
-    assert "skipped_count" in entry and "browser-clipper/capture" in entry
+    assert "skipped_count" in entry and "browser-clipper" not in entry
+    assert "in the event feed of `GET /v0/vnext/workspace` (`recent_events`, and the traceability items built from it)" in entry
+    assert "of the failed syncs and of the four connector events in the workspace feed are shown only when the key may read the source" in entry
+    assert "an event with a cursor that is not shown is copied and the stored event is not edited, and the event count does not change" in entry
+    assert "the workspace event feed still lists the id of a queued task, a person and the charter above the ceiling" in entry
+    assert "`agent.task_created`, `queue.task_enqueued`, `task.created`, `person.created`, `brain_charter.upserted`" in entry
     assert "takes `identity` with no default" in entry
     assert "the sweep holds that route as an expected failure" in entry
     assert "`POST /v0/vnext/queue/process-next` answers HTTP 500 to every caller on PostgreSQL" in entry
@@ -114,10 +128,16 @@ def test_the_security_note_covers_disclosure_the_charter_write_and_the_limits_it
     assert "no charter row changes and the policy event of the refusal is recorded" in paragraph
     assert "the refusal tells the key that a charter above its ceiling exists" in paragraph
     assert "The read of the stored charter and the save run under one lock" in paragraph
-    assert "The last captured item and the cursors are shown to a key only when it may read the source they come from" in paragraph
+    assert "are shown to a key only when it may read the source they come from, and are `null` otherwise" in paragraph
     assert "its external id, which for a file is its path" in paragraph
     assert "so a key that syncs can learn whether an item it sent sorts below a cursor it may not read" in paragraph
-    assert "`POST /v0/vnext/connectors/browser-clipper/capture` answers the cursors of the clipper connector" in paragraph
+    assert "browser-clipper" not in paragraph
+    assert "and in the event feed of `GET /v0/vnext/workspace`, whose `connector.state_updated`, `connector.sync_started`" in paragraph
+    assert "after any later sync, its own included, the path the sync started from" in paragraph
+    assert "in the health block, in the sync answer, in the failed syncs and in the four connector events of the workspace feed" in paragraph
+    assert "the stored event is not edited, and the event count does not change" in paragraph
+    assert "the workspace event feed still lists the id of a queued task, a person and the charter above the ceiling" in paragraph
+    assert "the events hold the id and the names of the fields and no text" in paragraph
     assert "the probe table must list exactly the routes of the application" in paragraph
     assert "graph neighborhood still lists an edge whose far end the key may not read" in paragraph
     assert "such as a file path" in paragraph

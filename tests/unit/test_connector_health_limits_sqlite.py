@@ -3,7 +3,8 @@
 A connector keeps one cursor, the position of the last item it imported, and for a file or a page that is the path or the
 address of the item. The health block also names the last captured item by source id and external id. Each is shown to a
 caller with limits only when the source it came from is stored, not deleted, and inside the caller's limits on its
-effective labels. The owner and an unbound admin key are shown the block as it was stored.
+effective labels. The owner and an unbound admin key are shown the block as it was stored. The events of a sync record the
+same cursors, so a feed of events holds them to the same rule.
 """
 from __future__ import annotations
 
@@ -190,11 +191,130 @@ def test_the_cursors_a_failed_sync_recorded_are_the_ones_the_caller_may_read(sto
         if event["event_type"] in {"connector.item_failed", "connector.sync_failed"}
     ]
     assert {event["event_type"] for event in events} == {"connector.item_failed", "connector.sync_failed"}
-    owner = service.shown_failures("local_folder", events, guard=LabelGuard.unlimited(store))
+    owner = service.shown_event_cursors(events, guard=LabelGuard.unlimited(store))
     assert owner == events
-    shown = service.shown_failures("local_folder", events, guard=guard_for_caller(store, TRUSTED))
+    shown = service.shown_event_cursors(events, guard=guard_for_caller(store, TRUSTED))
     sync_failed = next(event for event in shown if event["event_type"] == "connector.sync_failed")
     assert sync_failed["payload_json"]["previous_cursor"] is None and sync_failed["payload_json"]["sync_cursor"] is None
     # The stored event is not edited, and the owner still reads the cursor in it.
     stored = next(event for event in events if event["event_type"] == "connector.sync_failed")
     assert stored["payload_json"]["previous_cursor"] == HIDDEN_PATH
+
+
+def test_a_cursor_is_shown_only_when_every_import_that_carries_it_is_readable(store):
+    service = VNextConnectorService(store)
+    _import(service, HIDDEN_PATH, "confidential")
+    readable = _import(service, SHOWN_PATH, "public", mtime_ns=5)
+    trusted = guard_for_caller(store, TRUSTED)
+    assert service.shown_cursor("local_folder", HIDDEN_PATH, guard=trusted) is None
+    # A second import, of a source the caller may read, names the same cursor. The first still does not let it through.
+    store.append_event(
+        {
+            "target_type": "connector", "target_id": "local_folder", "event_type": "connector.item_imported",
+            "actor_type": "system", "occurred_at": "2026-10-09T00:00:00Z",
+            "payload_json": {"external_id": SHOWN_PATH, "sync_cursor": HIDDEN_PATH, "source_id": readable.source_ids[0]},
+        }
+    )
+    assert service.shown_cursor("local_folder", HIDDEN_PATH, guard=trusted) is None
+    assert service.shown_cursor("local_folder", HIDDEN_PATH, guard=LabelGuard.unlimited(store)) == HIDDEN_PATH
+    # Both imports readable: the cursor is shown.
+    store.conn.execute("UPDATE sources SET sensitivity = 'public' WHERE title = ?", (HIDDEN_PATH,))
+    assert service.shown_cursor("local_folder", HIDDEN_PATH, guard=trusted) == HIDDEN_PATH
+
+
+def _feed(store, identity) -> list:
+    return guard_for_caller(store, identity).admit_events(store.list_events())
+
+
+def _cursors(events) -> set:
+    found = set()
+    for event in events:
+        payload = event.get("payload_json") or {}
+        found.update(payload.get(name) for name in ("cursor_value", "previous_cursor", "sync_cursor") if payload.get(name))
+    return found
+
+
+def _state_updated(store, cursor, **extra):
+    return store.append_event(
+        {
+            "target_type": "connector", "target_id": "local_folder", "event_type": "connector.state_updated",
+            "actor_type": "system", "occurred_at": "2026-10-09T00:00:01Z",
+            "payload_json": {"connector_name": "local_folder", "cursor_type": "sync_cursor", "cursor_value": cursor, **extra},
+        }
+    )
+
+
+def test_the_events_of_a_sync_hold_the_cursors_the_caller_may_read(store):
+    service = VNextConnectorService(store)
+    _import(service, HIDDEN_PATH, "confidential")
+    # The next sync starts where the confidential one stopped and ends on a public file.
+    _import(service, SHOWN_PATH, "public", mtime_ns=5)
+    _state_updated(store, HIDDEN_PATH)
+    _state_updated(store, f"5:{SHOWN_PATH}")
+    stored = store.list_events()
+    assert {"connector.sync_started", "connector.sync_completed", "connector.state_updated"} <= {
+        event["event_type"] for event in stored
+    }
+
+    # The owner and an unbound admin key read every event as it was stored.
+    for identity in (None, ADMIN):
+        assert _feed(store, identity) == stored
+    assert HIDDEN_PATH in _cursors(stored)
+
+    limited = _feed(store, TRUSTED)
+    assert HIDDEN_PATH not in str(limited)
+    by_type: dict[str, list[dict]] = {}
+    for event in limited:
+        by_type.setdefault(event["event_type"], []).append(event["payload_json"])
+    # Both syncs started with a null previous cursor in front of this key, the second one where the file of the
+    # confidential import stopped. Only the second sync is shown to it whole.
+    assert [p["previous_cursor"] for p in by_type["connector.sync_started"]] == [None, None]
+    assert [(p["previous_cursor"], p["sync_cursor"]) for p in by_type["connector.sync_completed"]] == [
+        (None, f"5:{SHOWN_PATH}")
+    ]
+    # The cursor of the public file is still shown, and the one of the confidential file is not.
+    assert sorted(str(p["cursor_value"]) for p in by_type["connector.state_updated"]) == sorted(["None", f"5:{SHOWN_PATH}"])
+    # Nothing else in an event changed, and the stored events are not edited.
+    completed = by_type["connector.sync_completed"][0]
+    assert completed["imported_count"] == 1 and completed["connector_name"] == "local_folder"
+    assert HIDDEN_PATH in str(store.list_events())
+
+
+def test_the_event_feeds_follow_the_same_rule(store):
+    service = VNextConnectorService(store)
+    _import(service, HIDDEN_PATH, "confidential")
+    _import(service, SHOWN_PATH, "public", mtime_ns=5)
+    _state_updated(store, HIDDEN_PATH)
+    guard = guard_for_caller(store, TRUSTED)
+    newest = guard.newest_admitted_events(lambda size: store.list_events(limit=size), want=20)
+    assert newest and HIDDEN_PATH not in str(newest) and f"5:{SHOWN_PATH}" in str(newest)
+    # A reader that counts the events does not need the cursors, and the count is the same with or without them.
+    counted = guard.admit_events(store.list_events(), cursors=False)
+    assert len(counted) == len(guard.admit_events(store.list_events())) == guard.readable_event_count()
+    assert HIDDEN_PATH in str(counted)
+    # A guard with no limits hands the events back as they are.
+    assert LabelGuard.unlimited(store).admit_events(store.list_events()) == store.list_events()
+
+
+def test_a_cursor_that_cannot_be_tied_to_a_connector_or_to_text_is_not_shown(store):
+    service = VNextConnectorService(store)
+    _import(service, SHOWN_PATH, "public")
+    _state_updated(store, 12345)
+    _state_updated(store, "")
+    store.append_event(
+        {
+            "target_type": "other", "target_id": "x", "event_type": "connector.sync_started", "actor_type": "system",
+            "occurred_at": "2026-10-09T00:00:02Z",
+            "payload_json": {"connector_name": None, "previous_cursor": SHOWN_PATH},
+        }
+    )
+    shown = [
+        event["payload_json"]
+        for event in _feed(store, TRUSTED)
+        if event["event_type"] == "connector.state_updated" or event["payload_json"].get("connector_name") is None
+    ]
+    values = [p["cursor_value"] for p in shown if "cursor_value" in p]
+    # The number is not shown and the empty text stays empty.
+    assert sorted(str(value) for value in values) == ["", "None"]
+    # The cursor of an event that names no connector cannot be tied to an import, though the file it names is readable.
+    assert [p["previous_cursor"] for p in shown if "previous_cursor" in p] == [None]

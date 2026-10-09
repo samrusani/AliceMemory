@@ -44,6 +44,14 @@ from alicebot_api.vnext_secrets import (
 if TYPE_CHECKING:
     from alicebot_api.vnext_label_guard import LabelGuard
 
+# The payload fields of a connector event that hold a cursor. A cursor is the position of the last item imported, and for a
+# file or a page it is the path or the address of that item.
+CONNECTOR_EVENT_CURSOR_FIELDS: dict[str, tuple[str, ...]] = {
+    "connector.state_updated": ("cursor_value",),
+    "connector.sync_started": ("previous_cursor",),
+    "connector.sync_completed": ("previous_cursor", "sync_cursor"),
+    "connector.sync_failed": ("previous_cursor", "sync_cursor"),
+}
 CONNECTOR_ITEM_IMPORT_ERROR_CODE = "connector_item_import_failed"
 CONNECTOR_ITEM_IMPORT_ERROR_MESSAGE = "Connector item could not be imported"
 CONNECTOR_SYNC_ERROR_CODE = "connector_sync_failed"
@@ -1574,34 +1582,46 @@ class VNextConnectorService:
                 )
         return record
 
-    def shown_failures(
-        self, connector_name: str, events: Sequence[JsonObject], *, guard: LabelGuard
-    ) -> list[JsonObject]:
-        """Failure events as ``guard``'s caller may be shown them: the cursors a failed sync recorded pass through
-        ``shown_cursor``. A failed item names only what the call that failed it sent, and it never became a row."""
+    def shown_event_cursors(
+        self, events: Sequence[Mapping[str, Any]], *, guard: LabelGuard
+    ) -> list[Mapping[str, Any]]:
+        """Connector events as ``guard``'s caller may be shown them: the cursors an event recorded pass through ``shown_cursor``.
+
+        A sync event records where the connector stood (``cursor_value`` of a state update, ``previous_cursor`` and
+        ``sync_cursor`` of a sync), and for a file or a page that is its path or its address. Each one is shown when the
+        caller may read the source it came from and is ``null`` otherwise, the same rule as the health block. An event
+        that is not one of those, and a field that is empty, are left as they are (a failed item names only what the call
+        that failed it sent, and it never became a row). The events handed in are not edited: an event with a cursor that
+        is not shown is copied.
+        """
 
         if not guard.active:
             return list(events)
-        known = self._connector_events(connector_name)
-        shown: list[JsonObject] = []
+        recorded: dict[str, list[Mapping[str, Any]]] = {}
+        decided: dict[tuple[str, str], str | None] = {}
+        shown: list[Mapping[str, Any]] = []
         for event in events:
+            fields = CONNECTOR_EVENT_CURSOR_FIELDS.get(str(event.get("event_type")))
             payload = event.get("payload_json")
-            if event.get("event_type") == "connector.sync_failed" and isinstance(payload, dict):
-                cleaned = {
-                    **payload,
-                    **{
-                        name: self.shown_cursor(
-                            connector_name,
-                            payload[name] if isinstance(payload.get(name), str) else None,
-                            guard=guard,
-                            events=known,
-                        )
-                        for name in ("previous_cursor", "sync_cursor")
-                        if name in payload
-                    },
-                }
-                event = {**event, "payload_json": cleaned}
-            shown.append(event)
+            if fields is None or not isinstance(payload, dict):
+                shown.append(event)
+                continue
+            name = event.get("target_id") if event.get("target_type") == "connector" else payload.get("connector_name")
+            cleaned = dict(payload)
+            for field in fields:
+                cursor = payload.get(field)
+                if cursor is None or cursor == "":
+                    continue
+                # A cursor that is not text, and one of a connector the event does not name, cannot be tied to an import.
+                if not isinstance(cursor, str) or not isinstance(name, str) or not name:
+                    cleaned[field] = None
+                    continue
+                if (name, cursor) not in decided:
+                    if name not in recorded:
+                        recorded[name] = list(self._connector_events(name))
+                    decided[(name, cursor)] = self.shown_cursor(name, cursor, guard=guard, events=recorded[name])
+                cleaned[field] = decided[(name, cursor)]
+            shown.append(event if cleaned == payload else {**event, "payload_json": cleaned})
         return shown
 
     def _caller_reads_sources(self, guard: LabelGuard, source_ids: Sequence[object]) -> bool:

@@ -135,6 +135,29 @@ def test_recent_commits_for_an_owner_without_keys_lists_every_commit(label_harne
         assert vault.text(name) in text
 
 
+def _event_rows(vault: Vault) -> list[dict]:
+    with vault.harness.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT id, event_type, target_type, target_id, actor_id FROM event_log")
+        return [{**row, "id": str(row["id"])} for row in cur.fetchall()]
+
+
+def _event_ids(vault: Vault) -> set[str]:
+    return {row["id"] for row in _event_rows(vault)}
+
+
+def _row_counts(vault: Vault) -> dict[str, int]:
+    """The number of rows in every table of the vault's schema, to show a call wrote nothing but what it should."""
+
+    with vault.harness.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")
+        names = sorted(row["table_name"] for row in cur.fetchall())
+        counts = {}
+        for name in names:
+            cur.execute(f"SELECT count(*) AS n FROM {name}")  # closed list of table names read from the catalog
+            counts[name] = cur.fetchone()["n"]
+        return counts
+
+
 def test_the_charter_is_one_row_and_a_key_that_cannot_read_it_cannot_replace_it(label_harness):
     vault = Vault(label_harness, "c").build()
     path = "/v0/vnext/settings/brain-charter"
@@ -142,9 +165,21 @@ def test_the_charter_is_one_row_and_a_key_that_cannot_read_it_cannot_replace_it(
     before = vault.hidden_rows()
     status, text = _get(vault, path, trusted)
     assert (status, json.loads(text)) == (200, {"brain_charter": None})
+    rows_before = _row_counts(vault)
+    events_before = _event_ids(vault)
     status, text = run_call(vault, "PUT", path, Call("ad hoc", body={"content_markdown": "mine"}), trusted)
     assert status == 403 and _hidden_in(vault, text) == []
     assert vault.hidden_rows() == before
+    # The refusal records its policy event: the decision and the block, for this route and this key, and no other row.
+    added = [row for row in _event_rows(vault) if row["id"] not in events_before]
+    assert sorted(row["event_type"] for row in added) == ["agent.policy_blocked", "policy.decision"]
+    assert {(row["target_type"], row["target_id"], row["actor_id"]) for row in added} == {
+        ("http_route", path, vault.agent_ids["trusted_local_agent"])
+    }
+    after = _row_counts(vault)
+    assert {table: after[table] - rows_before[table] for table in after if after[table] != rows_before[table]} == {
+        "event_log": 2
+    }
     # The unbound admin key still reads it and replaces it, and once it is private the trusted key does both.
     status, text = _get(vault, path, admin)
     assert status == 200 and vault.text("charter-body") in text
@@ -260,6 +295,97 @@ def test_the_connector_health_of_the_owner_is_the_block_as_stored(label_harness)
     local = next(item for item in json.loads(text)["items"] if item["connector_name"] == "local_folder")
     assert status == 200 and local["last_captured_item"]["external_id"] == hidden_path
     assert local["cursor_state"] == hidden_path
+
+
+_CURSOR_FIELDS = ("cursor_value", "previous_cursor", "sync_cursor")
+
+
+def _connector_events(vault: Vault, key) -> tuple[str, list[dict]]:
+    """The text of the workspace answer and the connector events in its event feed."""
+
+    status, text = _get(vault, "/v0/vnext/workspace", key)
+    assert status == 200
+    return text, [event for event in json.loads(text)["recent_events"] if str(event["event_type"]).startswith("connector.")]
+
+
+def _cursors(events: list[dict]) -> list[str]:
+    return [event["payload_json"][name] for event in events for name in _CURSOR_FIELDS if event["payload_json"].get(name)]
+
+
+def _keys_only_vault(label_harness, tag: str) -> Vault:
+    """A vault with the two keys and nothing else, so the first events in it are the ones a test makes."""
+
+    vault = Vault(label_harness, tag)
+    vault.keys["admin"] = label_harness.key("admin_agent")
+    vault.keys["trusted"] = label_harness.key("trusted_local_agent")
+    return vault
+
+
+def test_the_workspace_event_feed_shows_no_path_of_a_confidential_import_to_a_key_with_a_ceiling(label_harness):
+    vault = _keys_only_vault(label_harness, "ev")
+    trusted, admin = vault.keys["trusted"], vault.keys["admin"]
+    hidden_path = f"/vault/{vault._text('synced-file', hidden=True)}.md"
+
+    # Right after a confidential import: the connector status already holds the path back from the key, and so must the feed.
+    status, text = _sync(vault, admin, [{"path": hidden_path, "title": "t", "text": "a confidential note"}], sensitivity="confidential")
+    assert status == 201, text
+    assert _health(vault, trusted)["health"]["cursor_state"] is None
+    text, held = _connector_events(vault, trusted)
+    assert vault.text("synced-file") not in text
+    # The event is in the feed and does not carry the cursor, so the check above has something to fail on.
+    assert [event["event_type"] for event in held] == ["connector.state_updated", "connector.sync_started"]
+    assert _cursors(held) == []
+    text, seen = _connector_events(vault, admin)
+    assert hidden_path in _cursors(seen) and vault.text("synced-file") in text
+
+    # A sync by the key itself: it is told no previous cursor, and the feed does not tell it either.
+    own = "/zz/after.md"
+    status, text = _sync(vault, trusted, [{"path": own, "title": "a", "text": "b", "mtime_ns": 5}])
+    assert status == 201 and json.loads(text)["previous_cursor"] is None, text
+    text, held = _connector_events(vault, trusted)
+    assert vault.text("synced-file") not in text
+    started = [event for event in held if event["event_type"] == "connector.sync_started"]
+    assert len(started) == 2 and all(event["payload_json"]["previous_cursor"] is None for event in started)
+    # The cursor its own public import set is shown to it, so the feed is held back only where it must be.
+    assert f"5:{own}" in _cursors(held)
+    assert [event["payload_json"]["sync_cursor"] for event in held if event["event_type"] == "connector.sync_completed"] == [f"5:{own}"]
+    # The unbound admin key still reads the previous cursor in the feed.
+    _text, seen = _connector_events(vault, admin)
+    assert hidden_path in [
+        event["payload_json"]["previous_cursor"] for event in seen if event["event_type"] == "connector.sync_started"
+    ]
+
+
+def test_the_workspace_event_feed_after_later_syncs_shows_a_key_no_cursor_it_may_not_read(label_harness):
+    vault = Vault(label_harness, "ef").build()
+    hidden_path = f"/vault/{vault.text('synced-file')}.md"
+    # The scheduler runs of the vault come after the first import, and the last sync of the vault is the newest event.
+    text, held = _connector_events(vault, vault.keys["trusted"])
+    assert {event["event_type"] for event in held} >= {"connector.sync_started", "connector.state_updated", "connector.sync_completed"}
+    assert _cursors(held) == [] and vault.text("synced-file") not in text
+    # The key's own sync adds events that name the confidential file as the previous cursor. They name it to no one but the admin.
+    status, answer = _sync(vault, vault.keys["trusted"], [{"path": "/zz/b.md", "title": "b", "text": "c", "mtime_ns": 5}])
+    assert status == 201 and json.loads(answer)["previous_cursor"] is None
+    text, held = _connector_events(vault, vault.keys["trusted"])
+    assert vault.text("synced-file") not in text and f"5:/zz/b.md" in _cursors(held)
+    _text, seen = _connector_events(vault, vault.keys["admin"])
+    assert hidden_path in _cursors(seen)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "the event guard judges events about a source, memory, open loop, artifact, project or belief, and not about a "
+        "queued task, a person or the charter, so their creation events keep the id of a row above the ceiling in the "
+        "workspace feed (ids and field names only, no text); the security note lists it, and the day those events are "
+        "judged on the label of their target this test fails and the entry is deleted"
+    ),
+)
+def test_the_workspace_event_feed_names_no_task_person_or_charter_above_the_ceiling(label_harness):
+    vault = Vault(label_harness, "ids").build()
+    hidden = [vault.ids["task_hidden"], vault.ids["person_hidden"], *vault.hidden_ids["brain_charters"]]
+    text, _events = _connector_events(vault, vault.keys["trusted"])
+    assert [row_id for row_id in hidden if row_id in text] == []
 
 
 def test_the_context_tree_reads_a_filter_as_a_selection_and_never_as_a_grant(label_harness):

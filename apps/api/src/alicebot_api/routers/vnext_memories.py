@@ -511,8 +511,7 @@ def get_vnext_connector_status(
             guard = guard_for_caller(store, identity)
             readable_sources = guard.admit_rows("source", store.list_sources(limit=50))
             sources = [source for source in readable_sources if source.get("connector_name") == connector_name]
-            failures = service.shown_failures(
-                connector_name,
+            failures = service.shown_event_cursors(
                 [
                     event
                     for event in store.list_events(target_type="connector", target_id=connector_name, limit=50)

@@ -204,7 +204,8 @@ class VNextDogfoodingService:
                 events = self.store.list_events(limit=5_000)
         except TypeError:  # Compatibility for external/test stores on the old protocol.
             events = self.store.list_events()[:5_000]
-        events = guard.admit_events(events)
+        # Only the kinds and the counts of the events are read here, so the cursors they record are not judged.
+        events = guard.admit_events(events, cursors=False)
         ratings = guard.admit_related_rows(ratings, kind="artifact", field="artifact_id")
         scheduler_runs = self.store.list_scheduler_runs(limit=20)
         now = datetime.now(UTC)

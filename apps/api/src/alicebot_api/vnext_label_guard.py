@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace, field
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 from contextvars import ContextVar
 from functools import wraps
 from contextlib import contextmanager
@@ -910,15 +910,28 @@ class LabelGuard:
         admitted = self._admitted_target_ids(kind, [str(row.get(field)) for row in rows if row.get(field)])
         return [row for row in rows if str(row.get(field) or "") in admitted]
 
-    def admit_events(self, rows: Sequence[_Row]) -> list[_Row]:
+    def admit_events(self, rows: Sequence[_Row], *, cursors: bool = True) -> list[_Row]:
         """An event is admitted when the guard admits every row it names, before it exposes their IDs.
 
         It names its target, when the target is a labelled row or an edge, and every id in the payload fields that hold
         the id of a labelled row (see ``event_references``). A chunk of a source has no label, so its event takes the
         label of the source it names. An event whose target has no label and whose payload names no row is admitted,
         except a ``labels_raised`` event, which says what a label was.
+
+        A connector event also records a cursor (see ``CONNECTOR_EVENT_CURSOR_FIELDS``), and for a file or a page that is
+        its path or its address. An admitted event shows each cursor only when the caller may read the source it came
+        from and holds ``null`` in its place otherwise, the rule of the connector screens; the event is copied and the row
+        it came from is not edited. ``cursors=False`` is for a caller that reads only how many events are admitted.
         """
 
+        kept = self._admitted_events(rows)
+        if not cursors or not self.active or not any(str(row.get("event_type", "")).startswith("connector.") for row in kept):
+            return kept
+        from alicebot_api.vnext_connectors import VNextConnectorService
+
+        return cast("list[_Row]", VNextConnectorService(self.store).shown_event_cursors(kept, guard=self))
+
+    def _admitted_events(self, rows: Sequence[_Row]) -> list[_Row]:
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
         named = []
@@ -980,7 +993,7 @@ class LabelGuard:
             # splitting its missing source reads into five database trips.
             # Every target still goes through its current effective guard.
             prefilter["batch_size"] = 5000
-        return source_count + sum(len(self.admit_events(batch)) for batch in iterator(**prefilter))
+        return source_count + sum(len(self._admitted_events(batch)) for batch in iterator(**prefilter))
 
     def admit_beliefs(self, beliefs: Sequence[_Row]) -> list[_Row]:
         """Beliefs whose backing memory the filters admit. One batched read."""
