@@ -342,7 +342,7 @@
           "line": 72,
           "before": "omit content diagnostics for a caller with limits",
           "after": "show content diagnostics to a caller",
-          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
+          "sha256": "d5d2ab2f0622869cf10ce3a4149d3adee11b172f38f5c89e1f6d7946d58b7b90"
         }
       ],
       "pytest": [
@@ -1015,7 +1015,7 @@
           "line": 12,
           "before": "stays refused to every key but an unbound `admin_agent`",
           "after": "stays refused",
-          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
+          "sha256": "d5d2ab2f0622869cf10ce3a4149d3adee11b172f38f5c89e1f6d7946d58b7b90"
         }
       ],
       "pytest": [
@@ -1195,7 +1195,7 @@
           "line": 12,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
+          "sha256": "d5d2ab2f0622869cf10ce3a4149d3adee11b172f38f5c89e1f6d7946d58b7b90"
         }
       ],
       "pytest": [
@@ -1563,7 +1563,7 @@
           "line": 13,
           "before": "where it raised a server error",
           "after": "",
-          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
+          "sha256": "d5d2ab2f0622869cf10ce3a4149d3adee11b172f38f5c89e1f6d7946d58b7b90"
         }
       ],
       "pytest": [
@@ -2074,7 +2074,7 @@
           "line": 15,
           "before": "and the call writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry.",
           "after": "and the call is recorded.",
-          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
+          "sha256": "d5d2ab2f0622869cf10ce3a4149d3adee11b172f38f5c89e1f6d7946d58b7b90"
         }
       ],
       "pytest": [
@@ -2282,7 +2282,7 @@
           "line": 14,
           "before": ", and redacting a memory does not rewrite the reports that printed it. Withholding those words",
           "after": ". Withholding those words",
-          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
+          "sha256": "d5d2ab2f0622869cf10ce3a4149d3adee11b172f38f5c89e1f6d7946d58b7b90"
         }
       ],
       "pytest": [
@@ -2346,7 +2346,7 @@
           "line": 55,
           "before": "A refused redact of an archived or redacted row now writes nothing, as a redact of an id the vault never held writes nothing: no policy event and no agent record.",
           "after": "A refused redact of an archived or redacted row is still recorded.",
-          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
+          "sha256": "d5d2ab2f0622869cf10ce3a4149d3adee11b172f38f5c89e1f6d7946d58b7b90"
         }
       ],
       "pytest": [
@@ -4124,7 +4124,7 @@
           "line": 14,
           "before": "The memory audit route (`GET /v0/vnext/memories/{id}/audit`) returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, so the ids of redacted and archived members stand there too, ",
           "after": "",
-          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
+          "sha256": "d5d2ab2f0622869cf10ce3a4149d3adee11b172f38f5c89e1f6d7946d58b7b90"
         }
       ],
       "pytest": [
@@ -4140,7 +4140,7 @@
           "line": 6,
           "before": "The context tree and the dogfooding view read the same rule. ",
           "after": "",
-          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
+          "sha256": "d5d2ab2f0622869cf10ce3a4149d3adee11b172f38f5c89e1f6d7946d58b7b90"
         }
       ],
       "pytest": [
@@ -4802,7 +4802,7 @@
           "line": 5,
           "before": "An artifact event that holds anything more still stops the redaction, so no text is left behind. ",
           "after": "",
-          "sha256": "fc3b8ffd3ba4594356b7f10a8d24733368c60a2aadf956a858d539400ef37b74"
+          "sha256": "d5d2ab2f0622869cf10ce3a4149d3adee11b172f38f5c89e1f6d7946d58b7b90"
         }
       ],
       "pytest": [
