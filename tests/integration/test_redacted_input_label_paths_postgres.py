@@ -3,7 +3,8 @@
 The random graphs of ``tests/unit/test_redacted_input_label_paths.py`` are stored in real tables, one user per seed, with a
 redacted row at every depth. The bulk kernel reads the tables as the doctor does, the guard reads them through the store as a
 restricted request does (counts, admission, and the exact label of each derived row), and the SQL prefilter runs as the
-full-text stage runs it. An oracle that states the rule in plain recursion judges all of them.
+full-text stage runs it, and the guard reads one graph edge between each memory and the next. An oracle that states the rule in
+plain recursion judges all of them.
 """
 from __future__ import annotations
 
@@ -26,7 +27,9 @@ from tests.unit.test_redacted_input_label_paths import first_memory_input_is_red
 SEEDS = range(12)
 
 
-def _store_graph(urls, user, graph: Graph) -> None:
+def _store_graph(urls, user, graph: Graph) -> dict:
+    """Store the graph, and one edge from each memory to the next. Returns the edges with the two nodes each joins."""
+    edges: dict = {}
     with user_connection(urls["app"], user) as conn, without_insert_floor():
         ContinuityStore(conn).create_user(user, f"paths-{user}@example.invalid", "Synthetic paths")
         store = PostgresVNextStore(conn)
@@ -43,16 +46,25 @@ def _store_graph(urls, user, graph: Graph) -> None:
                 store.create_artifact({"id": str(row["id"]), "artifact_type": row["artifact_type"], "title": "report",
                                        "content_markdown": "text", "domain": "project", "sensitivity": row["sensitivity"],
                                        "metadata_json": row["metadata_json"]})
+        memories = [node for node in graph.nodes if node.kind == "memory"]
+        for index, node in enumerate(memories if len(memories) > 1 else []):
+            other = memories[(index + 1) % len(memories)]
+            made = store.create_edge(
+                {"from_type": "memory", "from_id": str(node.row["id"]), "to_type": "memory", "to_id": str(other.row["id"]),
+                 "edge_type": "mentions", "confidence": 0.5, "explanation": "joins two memories", "created_by": "test"}
+            )
+            edges[str(made["id"])] = (node, other)
+    return edges
 
 
 @pytest.mark.parametrize("ceiling", CEILINGS, ids=lambda value: value[-1])
 def test_postgres_tables_store_readers_and_sql_prefilter_agree_with_the_oracle(label_harness, ceiling):
     urls = label_harness.urls
-    seen = {"unverified": 0, "rejected": 0, "hidden": 0}
+    seen = {"unverified": 0, "rejected": 0, "hidden": 0, "edges": 0, "edges_refused": 0}
     for seed in SEEDS:
         user = uuid4()
         graph = random_graph(seed, id_base=0xA0000 + seed * 1000)
-        _store_graph(urls, user, graph)
+        edges = _store_graph(urls, user, graph)
         contained, ranks = graph.contained(), graph.ranks()
         hidden = graph.hidden_from(ceiling)
         with user_connection(urls["app"], user) as conn:
@@ -88,6 +100,16 @@ def test_postgres_tables_store_readers_and_sql_prefilter_agree_with_the_oracle(l
                         rows = [row for batch in store.iter_label_rows(kind) for row in batch]
                         admitted = {identifier(row["id"]) for row in guard.admit_rows(kind, rows)}
                         assert admitted == wanted, (seed, ceiling, kind, domains)
+            # The edges: one is read when neither memory at its ends is hidden from the ceiling or redacted.
+            with guards.label_read_scope(store):
+                guard = guards.LabelGuard.for_filters(store, (), ceiling)
+                admitted_edges = {identifier(row["id"]) for row in guard.admit_edges(store.list_edges())}
+            wanted_edges = {
+                identifier(edge_id) for edge_id, ends in edges.items() if not any(end.key in hidden or end.redacted for end in ends)
+            }
+            assert admitted_edges == wanted_edges, (seed, ceiling, admitted_edges ^ wanted_edges)
+            seen["edges"] += len(wanted_edges)
+            seen["edges_refused"] += len(edges) - len(wanted_edges)
             # The exact label of each derived row, in one shared request and on its own.
             derived = [node for node in graph.nodes if is_derived(node.kind, node.row)]
             with guards.label_read_scope(store):
@@ -98,4 +120,4 @@ def test_postgres_tables_store_readers_and_sql_prefilter_agree_with_the_oracle(l
                     expected = (contained[node.key], REGULATED if contained[node.key] else ranks[node.key])
                     assert (bool(effective["unverified"]), SENSITIVITY_RANK[effective["sensitivity"]]) == expected, (seed, node.kind)
     # The graphs gave every path something to decide, so agreement above is not agreement about nothing.
-    assert seen["unverified"] > 30 and seen["rejected"] > 5 and seen["hidden"] > 30, seen
+    assert seen["unverified"] > 30 and seen["rejected"] > 5 and seen["hidden"] > 30 and seen["edges"] > 0 and seen["edges_refused"] > 5, seen

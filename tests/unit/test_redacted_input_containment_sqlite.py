@@ -1,7 +1,8 @@
 """On SQLite a card, candidate or copy made from a memory that is redacted afterwards is unverified until it is regenerated.
 
-The same rule as on PostgreSQL, through the doors SQLite has: recall, the context pack, resume, recent decisions, the review
-queue and its detail, explain, the memory audit, the open-loop list, the doctor and ``labels check``. A real key of each
+The same rule as on PostgreSQL, through the doors SQLite has and a key can call: recall, the context pack, resume, recent
+decisions, the review queue and its detail, explain, the open-loop list, the doctor and ``labels check``. The graph routes are
+PostgreSQL only; the guard that judges a graph edge is run here on the SQLite store. A real key of each
 profile reads a vault where a roll-up card, a weekly candidate, a project-update candidate, a consolidation candidate and a copy
 of a copy hold the words of a memory that holds a sentinel, and the memory is redacted through the flow the redact verb uses.
 
@@ -21,6 +22,7 @@ from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext, MCPToolError, MCPToolNotFoundError
 from alicebot_api.onramp import bootstrap_database, sqlite_url_for_path
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
 from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
@@ -130,8 +132,7 @@ class Vault:
         with sqlite_user_connection(self.path, self.user) as conn:
             ids = [row["id"] for row in conn.execute("SELECT id FROM memories").fetchall()]
         for memory_id in ids:
-            calls += [("alice_explain", {"memory_id": memory_id}), ("alice_memory_review", {"review_item_id": memory_id}),
-                      ("alice_vnext_memory_audit", {"memory_id": memory_id})]
+            calls += [("alice_explain", {"memory_id": memory_id}), ("alice_memory_review", {"review_item_id": memory_id})]
         for tool, arguments in calls:
             try:
                 answers.append((tool, arguments, self.call(key, tool, arguments)))
@@ -276,3 +277,38 @@ def test_the_sqlite_doctor_and_labels_check_say_to_regenerate_or_delete(vault, c
     assert "labels repair updated 0" in capsys.readouterr().out
     with sqlite_user_connection(vault.path, vault.user) as conn:
         assert label_gap_report(SQLiteVNextStore(conn, vault.user)) == gap
+
+
+def test_a_guard_admits_a_graph_edge_only_when_every_labelled_end_is_readable_and_not_redacted(vault):
+    """An edge has no label and keeps the explanation it was made with. The guard reads each end of it, on the SQLite store too."""
+    vault.redact()
+    source_id = str(vault.source["id"])
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        store = SQLiteVNextStore(conn, vault.user)
+        confidential = store.create_memory(
+            {"memory_key": "alpha.confidential", "memory_type": "episode", "title": "CONFSECRET", "canonical_text": "CONFSECRET",
+             "status": "active", "domain": "project", "sensitivity": "confidential", "metadata_json": {"project_scope": [ALPHA]}}
+        )
+
+        def edge(name, to_type, to_id):
+            row = store.create_graph_edge(
+                {"from_type": "source", "from_id": source_id, "to_type": to_type, "to_id": str(to_id), "edge_type": "mentions",
+                 "confidence": 0.5, "explanation": name, "created_by": "test", "metadata_json": {"status": "candidate"}}
+            )
+            return str(row["id"])
+
+        made = {
+            "clear": edge("clear", "memory", vault.clear["id"]),
+            "redacted": edge("redacted", "memory", vault.redacted),
+            "above the ceiling": edge("above the ceiling", "memory", confidential["id"]),
+            "contained copy": edge("contained copy", "memory", vault.chain["id"]),
+            "missing": edge("missing", "memory", uuid4()),
+            "entity": edge("entity", "entity", uuid4()),
+        }
+        stored = store.list_edges(from_id=source_id)
+        assert {row["id"] for row in stored} == set(made.values())
+        limited = LabelGuard.for_filters(store, (), ("public", "internal", "private", "unknown"), ())
+        assert {row["id"] for row in limited.admit_edges(stored)} == {made["clear"], made["entity"]}
+        # A caller with no ceiling is not limited, so every edge stays, the redacted memory's too.
+        open_guard = LabelGuard.for_filters(store, (), ALL_SENSITIVITY, ())
+        assert {row["id"] for row in open_guard.admit_edges(stored)} == set(made.values())

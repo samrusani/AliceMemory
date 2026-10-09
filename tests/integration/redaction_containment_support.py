@@ -39,6 +39,14 @@ OPTIONS = {
 GAMES = ("Hollow Knight", "Stardew Valley", "Celeste", "Hades", "Tunic")
 # The memory that gets redacted. The others stay readable.
 REDACTED_INDEX = 3
+# The MCP tools outside the core set. A key can call none of them: the server turns the surface off whenever a key is
+# configured, because its handlers do not all enforce the key's limits. Among them are the twins of the two review routes
+# and of the neighborhood and belief state routes.
+LEGACY_TOOLS = (
+    "alice_belief_review", "alice_belief_state", "alice_graph_edge_review", "alice_graph_neighborhood",
+    "alice_vnext_artifact_get", "alice_vnext_memory_audit", "alice_vnext_project_dashboard", "alice_vnext_context_tree",
+    "alice_artifact_inspect",
+)
 # Queries that reach the redacted text through its other words. A query never holds the sentinel, because a door echoes it.
 QUERIES = ("Atlas played hours", "Atlas launch games", "MEMORY3 Atlas", "Atlas contradicts the belief")
 
@@ -219,6 +227,28 @@ class World:
             )
             assert status == 200, body
 
+    def add_redacted_belief(self) -> str:
+        """A belief made from a memory that holds a second sentinel, and the memory redacted. Returns the belief id.
+
+        The belief keeps the claim it copied, so the second sentinel stays in the belief row after the memory is redacted.
+        """
+        self.belief_secret = f"ZQXBELIEF{uuid4().hex[:10]}"
+        with self.h.store() as store:
+            memory = store.create_memory(
+                {
+                    "memory_key": "alpha.belief.redacted", "memory_type": "belief", "title": "REDACTED BELIEF title",
+                    "canonical_text": f"Atlas holds {self.belief_secret}.", "status": "active", "domain": "project",
+                    "sensitivity": "public", "metadata_json": {"project_scope": [self.alpha]},
+                }
+            )
+            belief = store.create_belief({"memory_id": str(memory["id"]), "claim": memory["canonical_text"], "confidence": 0.9})
+        status, body, _ = self.h.request(
+            "POST", "/v0/vnext/memories/redact", payload={"memory_id": str(memory["id"]), "reason": "r"}, key=self.admin
+        )
+        assert status == 200, body
+        self.redacted_belief_memory = str(memory["id"])
+        return str(belief["id"])
+
     def keys(self) -> dict[str, str]:
         return {
             name: self.h.key(permission, project=self.alpha if bound else None)
@@ -237,6 +267,28 @@ class World:
         return found
 
 
+def snapshot(h) -> dict[str, str]:
+    """The rows the two review verbs change, and the events they append, each table as one digest.
+
+    Taken before and after a refused call, equal snapshots say the call changed no belief, no edge and recorded no event about
+    either.
+    """
+    queries = {
+        "beliefs": "SELECT md5(coalesce(string_agg(row_to_json(t)::text, '|' ORDER BY t.id), '')) AS digest FROM beliefs t",
+        "graph_edges": "SELECT md5(coalesce(string_agg(row_to_json(t)::text, '|' ORDER BY t.id), '')) AS digest FROM graph_edges t",
+        "events": (
+            "SELECT md5(coalesce(string_agg(row_to_json(t)::text, '|' ORDER BY t.id), '')) AS digest FROM event_log t "
+            "WHERE t.event_type LIKE 'belief.%' OR t.event_type LIKE 'graph_edge.%' OR t.target_type IN ('belief', 'graph_edge')"
+        ),
+    }
+    found: dict[str, str] = {}
+    with h.store() as store, store.conn.cursor() as cur:
+        for name, query in queries.items():
+            cur.execute(query)
+            found[name] = cur.fetchone()["digest"]
+    return found
+
+
 def _get(h, responses, key_name, label, path, key):
     status, body, _ = h.request("GET", path, key=key)
     responses.append(Response(key_name, label, status, body))
@@ -250,7 +302,12 @@ def _post(h, responses, key_name, label, path, key, payload):
 
 
 def sweep(h, world: World, monkeypatch, keys: dict[str, str], *, only: tuple[str, ...] | None = None) -> list[Response]:
-    """Every response of every door that returns a report or a memory, for each key given."""
+    """Every response of every door that returns a report or a memory, for each key given.
+
+    The doors are the GET routes that return a report, a memory or a count of them, the context pack route, the two review
+    routes that answer with the row they change (a belief and a graph edge), and the MCP tools a key can call. Under a key the
+    server offers the core tools only; the rest of the surface is off (see ``LEGACY_TOOLS``).
+    """
     responses: list[Response] = []
     with h.store() as store, store.conn.cursor() as cur:
         cur.execute("SELECT id::text AS id FROM memories ORDER BY created_at, id")
@@ -259,6 +316,8 @@ def sweep(h, world: World, monkeypatch, keys: dict[str, str], *, only: tuple[str
         artifact_ids = [row["id"] for row in cur.fetchall()]
         cur.execute("SELECT id::text AS id FROM beliefs ORDER BY id")
         belief_ids = [row["id"] for row in cur.fetchall()]
+        cur.execute("SELECT id::text AS id FROM graph_edges ORDER BY created_at, id")
+        edge_ids = [row["id"] for row in cur.fetchall()]
     for key_name, key in keys.items():
         if only is not None and key_name not in only:
             continue
@@ -291,6 +350,12 @@ def sweep(h, world: World, monkeypatch, keys: dict[str, str], *, only: tuple[str
             _get(h, responses, key_name, "belief state", f"/v0/vnext/beliefs/{belief_id}/state", key)
         for query in QUERIES:
             _post(h, responses, key_name, "context pack", "/v0/vnext/context-packs", key, {"query": query})
+        # The review verbs answer with the row they change: the claim of a belief and the explanation of an edge. A refused call
+        # answers with neither, and (see ``Snapshot``) changes neither row.
+        for belief_id in belief_ids:
+            _post(h, responses, key_name, "belief review", f"/v0/vnext/beliefs/{belief_id}/review", key, {"action": "reinforce"})
+        for edge_id in edge_ids:
+            _post(h, responses, key_name, "edge review", f"/v0/vnext/graph/edges/{edge_id}/review", key, {"action": "review"})
     for key_name, key in keys.items():
         if only is not None and key_name not in only:
             continue
@@ -300,30 +365,15 @@ def sweep(h, world: World, monkeypatch, keys: dict[str, str], *, only: tuple[str
         for query in QUERIES:
             calls.append(("alice_recall", "recall", {"query": query, "limit": 50}))
             calls.append(("alice_context_pack", "context pack", {"query": query}))
-            calls.append(("alice_vnext_context_pack", "context pack", {"query": query}))
         calls += [
             ("alice_resume", "resume", {}),
             ("alice_recent_decisions", "recent decisions", {}),
-            ("alice_vnext_recent_decisions", "recent decisions", {}),
-            ("alice_vnext_recent_changes", "recent changes", {}),
             ("alice_open_loops", "open loops", {"action": "list"}),
-            ("alice_vnext_open_loops", "open loops", {}),
             ("alice_memory_review", "review list", {"status": "all", "limit": 100}),
-            ("alice_vnext_review_items", "review list", {"status": "all", "limit": 100}),
-            ("alice_vnext_context_tree", "context tree", {"include_events": True}),
-            ("alice_vnext_project_dashboard", "project dashboard", {"project_id": world.alpha}),
-            ("alice_project_dashboard", "project dashboard", {"project_id": world.alpha}),
-            ("alice_vnext_scheduler_status", "scheduler status", {}),
         ]
         for memory_id in memory_ids:
             calls.append(("alice_explain", "explain", {"memory_id": memory_id}))
             calls.append(("alice_memory_review", "review detail", {"review_item_id": memory_id}))
-            calls.append(("alice_vnext_memory_audit", "memory audit", {"memory_id": memory_id}))
-        for artifact_id in artifact_ids:
-            calls.append(("alice_vnext_artifact_get", "artifact get", {"artifact_id": artifact_id}))
-            calls.append(("alice_artifact_inspect", "artifact inspect", {"artifact_id": artifact_id}))
-        for belief_id in belief_ids:
-            calls.append(("alice_belief_state", "belief state", {"belief_id": belief_id}))
         for tool, label, arguments in calls:
             try:
                 result = call_mcp_tool(context, name=tool, arguments=arguments)

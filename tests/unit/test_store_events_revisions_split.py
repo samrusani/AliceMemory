@@ -155,7 +155,8 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted for the per-file importer savepoint (2026-10-02): ``savepoint`` is appended last on both façades.
     # Previous receipt: 650e2e0ff088d67c... Proof: the class key list equals the list at origin/main 040a2a10
     # plus ``savepoint`` before ``__dict__``, with every other key in the same order.
-    "postgres": "cc43f69fcf43c87332e24786f58cbddb6b64bce2af9d1f559d02eb5e4f18f288",
+    # Re-minted for ``get_edge`` (2026-10-08): one Postgres-only graph reader joins the class keys. Previous receipt cc43f69f...
+    "postgres": "a135045951dab378f865c4190901dbbebf00b32e2c3001901530d196e826c6db",
     # Re-minted for the merge of #500 and #502: ``check_literal_match_query``.
     # Re-minted again for per-project memory S2 (2026-10-02): the two single-scan partition reads
     # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``, SQLite only on purpose

@@ -18,6 +18,7 @@ Mutations that these tests must fail (the manifest replays each one):
 from __future__ import annotations
 
 import json
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -27,6 +28,8 @@ from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
 from alicebot_api.vnext_label_repair import REDACTED_INPUT_ADVICE, label_gap_report
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 from tests.integration.redaction_containment_support import (
+    LEGACY_TOOLS,
+    PROFILES,
     RESTRICTED,
     World,
     contained_ids,
@@ -35,14 +38,11 @@ from tests.integration.redaction_containment_support import (
     leaks,
     own_ids,
     owner_artifact,
+    snapshot,
     stored_rows,
     sweep,
 )
 
-# The one door that returns the words of a redacted memory to a restricted profile: the edges of the graph have no labels, and a
-# connection edge keeps the explanation it was made with. It is a known limit that predates this change, named in the security
-# note and the known limitations page, and it is reached only by the owner and an unbound admin or trusted key.
-GRAPH_DOOR = "graph neighborhood"
 CLEAR = ("open_loop_review", "staleness")
 BUILT_FROM_THE_MEMORY = ("daily", "weekly", "connections", "contradictions", "project_update", "consolidation")
 
@@ -122,8 +122,6 @@ def test_a_row_built_from_a_redacted_memory_is_unverified_through_every_door_inc
         responses = sweep(h, world, monkeypatch, {name: key}, only=(name,))
         monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
         for item in responses:
-            if item.door == GRAPH_DOOR:
-                continue
             shown = own_ids(item.body) & contained
             assert not shown, (name, item.door, sorted(shown))
         # The profile still reads a report that recorded nothing redacted, wherever the door admits the profile at all.
@@ -143,10 +141,10 @@ def test_no_restricted_profile_recovers_the_text_of_a_redacted_memory_through_an
     assert len(responses) > 100
     # The profile's answers are real answers: it is admitted at some doors and refused at others, as its profile says.
     assert any(item.status in (200, "tool-ok") for item in responses)
-    found = leaks(responses, world.sentinel)
-    # The one pinned exception: the graph door, for the one restricted profile that reaches it.
-    allowed = {(profile, GRAPH_DOOR, 200)} if profile == "trusted" else set()
-    assert set(found) == allowed, found
+    # No door answers with the sentinel, the graph and the review doors included.
+    assert leaks(responses, world.sentinel) == []
+    doors = {item.door for item in responses}
+    assert {"graph neighborhood", "belief review", "edge review"} <= doors
     # What the key sees of the whole vault is smaller than what the owner sees, by exactly the contained rows.
     contained = contained_ids(h)
     stored = stored_rows(h)
@@ -253,8 +251,7 @@ def test_regenerating_a_report_restores_access_only_when_the_redacted_text_is_no
     # Nothing a restricted profile gets from any door holds the sentinel, now that the reports it can read are all new.
     for name in ("trusted", "read_only", "alpha_only"):
         responses = sweep(h, world, monkeypatch, {name: keys[name]}, only=(name,))
-        found = {(who, door) for who, door, _ in leaks(responses, world.sentinel)}
-        assert found <= ({(name, GRAPH_DOOR)} if name == "trusted" else set()), found
+        assert leaks(responses, world.sentinel) == [], name
 
 
 ALL_SENSITIVITIES = ["public", "internal", "private", "unknown", "confidential", "highly_sensitive", "sacred", "regulated"]
@@ -460,6 +457,13 @@ def test_a_belief_whose_backing_memory_is_redacted_is_read_by_the_owner_and_an_u
     assert status == 404 and claim not in json.dumps(body)
     trusted_workspace = h.request("GET", "/v0/vnext/workspace", key=keys["trusted"])[1]
     assert belief["id"] not in own_ids(trusted_workspace) and claim not in json.dumps(trusted_workspace)
+    # The review route answers with the claim and changes the belief, so it refuses the trusted key the way the state route does.
+    before = snapshot(h)
+    status, body, _ = h.request("POST", f"/v0/vnext/beliefs/{belief['id']}/review", payload={"action": "retire"}, key=keys["trusted"])
+    assert status == 404 and claim not in json.dumps(body)
+    assert snapshot(h) == before
+    status, body, _ = h.request("POST", f"/v0/vnext/beliefs/{belief['id']}/review", payload={"action": "retire"}, key=keys["admin"])
+    assert status == 200 and claim in json.dumps(body) and body["status"] == "retired"
 
 
 def test_a_restricted_key_cannot_export_rate_or_review_a_report_that_read_the_redacted_memory(label_harness, tmp_path):
@@ -512,3 +516,177 @@ def test_a_staleness_report_that_listed_a_memory_is_contained_when_that_memory_i
         assert _status(h, keys[name], report["id"]) != 200, name
     assert _status(h, keys["admin"], report["id"]) == 200
     assert report["id"] not in own_ids(h.request("GET", "/v0/vnext/artifacts", key=keys["trusted"])[1])
+
+
+def _edges_naming(h, memory_ids) -> list[str]:
+    with h.store() as store, store.conn.cursor() as cur:
+        cur.execute(
+            "SELECT id::text AS id FROM graph_edges WHERE (from_type = 'memory' AND from_id::text = ANY(%s)) "
+            "OR (to_type = 'memory' AND to_id::text = ANY(%s)) ORDER BY id",
+            (list(memory_ids), list(memory_ids)),
+        )
+        return [row["id"] for row in cur.fetchall()]
+
+
+def test_a_restricted_key_cannot_review_a_belief_or_an_edge_it_cannot_read_and_a_refused_review_changes_nothing(label_harness):
+    """The review verbs answer with the row they change, the claim of a belief and the explanation of an edge.
+
+    A belief whose memory is redacted keeps its claim, and an edge that joined the memory keeps the title it was made with. The
+    unbound trusted key reaches both routes, so both refuse it as they refuse a row that is not there, before they write, and the
+    owner and an unbound admin key still review both and read the words they kept.
+    """
+    h = label_harness
+    world = World(h)
+    belief_id = world.add_redacted_belief()
+    keys = world.keys()
+    with h.store() as store:
+        # A producer reads only beliefs its caller may read, so this edge is made by hand: a readable memory and the belief.
+        store.create_edge(
+            {
+                "from_type": "memory", "from_id": str(world.memories[0]["id"]), "to_type": "belief", "to_id": belief_id,
+                "edge_type": "contradicts", "confidence": 0.7, "explanation": f"Atlas holds {world.belief_secret}.",
+                "created_by": "test", "metadata_json": {"status": "candidate", "candidate": True},
+            }
+        )
+    with h.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT id::text AS id FROM beliefs WHERE id::text <> %s", (belief_id,))
+        clear_belief = cur.fetchone()["id"]
+        cur.execute("SELECT id::text AS id FROM graph_edges WHERE explanation LIKE %s", (f"%{world.belief_secret}%",))
+        belief_edge = cur.fetchone()["id"]
+    hidden_edges = sorted({*_edges_naming(h, world.redacted_ids), belief_edge})
+    assert len(hidden_edges) >= 4
+    with h.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT id::text AS id FROM graph_edges WHERE id::text <> ALL(%s) ORDER BY id", (hidden_edges,))
+        clear_edges = [row["id"] for row in cur.fetchall()]
+    assert clear_edges, "the vault must hold an edge the trusted key may review"
+    secrets = (world.sentinel, world.belief_secret)
+
+    def refused(name, path, action, missing_path):
+        status, body, _ = h.request("POST", path, payload={"action": action}, key=keys[name])
+        text = json.dumps(body)
+        assert status in (403, 404), (name, path, action, status)
+        assert not any(secret in text for secret in secrets), (name, path, action)
+        if name == "trusted":
+            # It reaches the route, and the answer is the one a row that is not there gets.
+            assert status == 404 and body == h.request("POST", missing_path, payload={"action": action}, key=keys[name])[1]
+
+    before = snapshot(h)
+    missing_belief = "/v0/vnext/beliefs/00000000-0000-4000-8000-000000000001/review"
+    missing_edge = "/v0/vnext/graph/edges/00000000-0000-4000-8000-000000000002/review"
+    for name in RESTRICTED:
+        for action in ("reinforce", "challenge", "supersede", "retire"):
+            refused(name, f"/v0/vnext/beliefs/{belief_id}/review", action, missing_belief)
+        for edge_id in hidden_edges:
+            for action in ("review", "accept", "reject"):
+                refused(name, f"/v0/vnext/graph/edges/{edge_id}/review", action, missing_edge)
+    assert snapshot(h) == before, "a refused review changed a belief, an edge or the events about them"
+
+    # What the trusted key may read, it may still review.
+    status, body, _ = h.request("POST", f"/v0/vnext/beliefs/{clear_belief}/review", payload={"action": "reinforce"}, key=keys["trusted"])
+    assert status == 200 and body["status"] == "active", body
+    status, body, _ = h.request("POST", f"/v0/vnext/graph/edges/{clear_edges[0]}/review", payload={"action": "review"}, key=keys["trusted"])
+    assert status == 200 and body["metadata_json"]["status"] == "reviewed", body
+    # The unbound admin key and the owner are not limited: both review the hidden rows and read the words the rows kept.
+    status, body, _ = h.request("POST", f"/v0/vnext/beliefs/{belief_id}/review", payload={"action": "challenge"}, key=keys["admin"])
+    assert status == 200 and world.belief_secret in json.dumps(body) and body["status"] == "challenged", body
+    edge_with_title = next(edge_id for edge_id in hidden_edges if edge_id != belief_edge)
+    status, body, _ = h.request("POST", f"/v0/vnext/graph/edges/{edge_with_title}/review", payload={"action": "accept"}, key=keys["admin"])
+    assert status == 200 and body["metadata_json"]["status"] == "accepted", body
+    from alicebot_api.routers import vnext_review
+
+    with keyless_owner(h):
+        answer = vnext_review.review_vnext_belief(
+            UUID(belief_id), vnext_review.VNextBeliefReviewRequest(user_id=h.user_id, action="retire"), authorization=None
+        )
+        assert answer.status_code == 200 and world.belief_secret in answer.body.decode()
+        answer = vnext_review.review_vnext_graph_edge(
+            hidden_edges[0], vnext_review.VNextGraphEdgeReviewRequest(user_id=h.user_id, action="review"), authorization=None
+        )
+        assert answer.status_code == 200
+
+
+def test_the_graph_neighborhood_a_key_gets_holds_only_the_edges_whose_rows_it_can_read(label_harness):
+    """An edge has no label and keeps the explanation it was made with, so it is shown to a key that may read each row it joins.
+
+    The trusted key's answer is judged against an oracle written from the stored rows: an edge is hidden when a memory at one end
+    is redacted, or is above the key's ceiling, or when a belief at one end was made from a redacted memory. An end that is an
+    entity carries no label and hides nothing.
+    """
+    h = label_harness
+    world = World(h)
+    belief_id = world.add_redacted_belief()
+    keys = world.keys()
+    first_memory = str(world.memories[0]["id"])
+    first_source = str(world.sources[0]["id"])
+    entity_id = str(uuid4())
+    with h.store() as store:
+        confidential = store.create_memory(
+            {
+                "memory_key": "alpha.confidential", "memory_type": "episode", "title": "CONFSECRET title",
+                "canonical_text": "Atlas CONFSECRET text", "status": "active", "domain": "project", "sensitivity": "confidential",
+                "metadata_json": {"project_scope": [world.alpha]},
+            }
+        )
+        for kind, other, explanation in (
+            ("memory", str(confidential["id"]), "Atlas shares CONFSECRET with the first source."),
+            ("belief", belief_id, f"Atlas holds {world.belief_secret}."),
+            ("entity", entity_id, "Atlas names the entity."),
+        ):
+            store.create_edge(
+                {
+                    "from_type": "source", "from_id": first_source, "to_type": kind, "to_id": other, "edge_type": "mentions",
+                    "confidence": 0.5, "explanation": explanation, "created_by": "test", "metadata_json": {"status": "candidate"},
+                }
+            )
+    hidden_ends = {*world.redacted_ids, str(confidential["id"]), belief_id}
+    with h.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT id::text AS id, from_id::text AS from_id, to_id::text AS to_id FROM graph_edges WHERE valid_to IS NULL")
+        edges = cur.fetchall()
+        cur.execute("SELECT id::text AS id FROM memories")
+        memory_ids = [row["id"] for row in cur.fetchall()]
+    assert any(edge["to_id"] == entity_id for edge in edges)
+    targets = [*memory_ids, *(str(source["id"]) for source in world.sources), belief_id, entity_id]
+    seen_by_admin: set[str] = set()
+    for target in targets:
+        every = {edge["id"] for edge in edges if target in (edge["from_id"], edge["to_id"])}
+        readable = {edge["id"] for edge in edges if target in (edge["from_id"], edge["to_id"]) and not {edge["from_id"], edge["to_id"]} & hidden_ends}
+        status, admin_body, _ = h.request("GET", f"/v0/vnext/graph/neighborhood/{target}", key=keys["admin"])
+        assert status == 200
+        assert {edge["id"] for edge in admin_body["from_edges"] + admin_body["to_edges"]} == every, target
+        seen_by_admin |= every
+        status, body, _ = h.request("GET", f"/v0/vnext/graph/neighborhood/{target}", key=keys["trusted"])
+        assert status == 200
+        shown = {edge["id"] for edge in body["from_edges"] + body["to_edges"]}
+        assert shown == readable, (target, shown ^ readable)
+        assert body["edge_count"] == len(body["from_edges"]) + len(body["to_edges"])
+        text = json.dumps(body)
+        assert not any(secret in text for secret in (world.sentinel, world.belief_secret, "CONFSECRET")), target
+        for name in RESTRICTED:
+            if name != "trusted":
+                assert h.request("GET", f"/v0/vnext/graph/neighborhood/{target}", key=keys[name])[0] == 403, name
+    assert len(seen_by_admin) >= 8
+    # The edges the key may read are not all hidden with the rest: the entity edge and the edges of the clear memories show.
+    status, body, _ = h.request("GET", f"/v0/vnext/graph/neighborhood/{entity_id}", key=keys["trusted"])
+    assert status == 200 and body["edge_count"] == 1
+    # Containment is not removal: the unbound admin key reads the explanations that kept the words.
+    status, body, _ = h.request("GET", f"/v0/vnext/graph/neighborhood/{world.redacted_ids[1]}", key=keys["admin"])
+    assert status == 200 and world.sentinel in json.dumps(body)
+
+
+@pytest.mark.parametrize("profile", list(PROFILES))
+def test_a_key_can_call_no_tool_outside_the_core_set_so_the_mcp_twins_of_the_review_doors_are_closed(label_harness, monkeypatch, profile):
+    """The server turns the legacy MCP surface off whenever a key is configured. The twins of the belief and edge review doors,
+    of the neighborhood route and of the belief state route are on that surface, as are the tools that wrap the dashboard and the
+    artifact doors, so a key reaches the content doors only through the core tools the sweep calls."""
+    from alicebot_api.mcp import registry
+    from alicebot_api.mcp.types import MCPToolNotFoundError
+
+    h = label_harness
+    world = World(h)
+    keys = world.keys()
+    assert set(LEGACY_TOOLS) <= registry._LEGACY_TOOL_NAMES
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", keys[profile])
+    context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+    for tool in LEGACY_TOOLS:
+        with pytest.raises(MCPToolNotFoundError, match="legacy MCP surface, which is disabled whenever"):
+            call_mcp_tool(context, name=tool, arguments={"belief_id": str(uuid4()), "edge_id": str(uuid4()), "target_id": world.redacted, "action": "retire"})

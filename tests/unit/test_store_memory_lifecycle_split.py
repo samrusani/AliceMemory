@@ -123,7 +123,9 @@ EXPECTED_CLASS_ORDERS = {
     # Per-file importer savepoint (2026-10-02): one paired method more, ``savepoint``, appended last.
     # Previous receipt: (171, 526374782104a2a1...). Proof: the member list equals the list at origin/main
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
-    "PostgresVNextStore": (184, "e5bb6fbb9a63e4027d028928a9fafb6f4a65e64e85c15bbb48f0a605b9326511"),
+    # One Postgres-only method more, ``get_edge``, after ``create_edge`` (2026-10-08): the edge review route reads one edge
+    # by id before it judges its ends. Previous receipt (184, e5bb6fbb...). Every other member keeps its order.
+    "PostgresVNextStore": (185, "f3c9a2f37c8f697df1b30ae72d4bf40abd965b0844779eeffe0afc6514b0761c"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,

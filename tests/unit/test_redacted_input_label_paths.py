@@ -106,7 +106,6 @@ def test_bulk_kernel_marks_exactly_the_rows_built_from_a_redacted_row(seed):
             assert label.carries_scope is False
         else:
             assert SENSITIVITY_RANK[label.sensitivity] == ranks[node.key], (seed, node.kind)
-    assert any(contained.values()) or not any(node.redacted for node in graph.nodes) or seed >= 0
 
 
 def test_the_graphs_reach_every_case():
@@ -116,8 +115,6 @@ def test_the_graphs_reach_every_case():
         graph = random_graph(seed)
         contained = graph.contained()
         for node in graph.nodes:
-            if node.redacted and not is_derived(node.kind, node.row) and node.inputs == [] and node.row["metadata_json"].get("redacted"):
-                pass
             if contained[node.key]:
                 if any(item.redacted for item in node.inputs):
                     direct += 1
@@ -267,7 +264,8 @@ def test_a_sqlite_store_gives_the_oracle_s_answer_through_the_guard_and_its_sql_
     """The real SQLite store, its readers and its SQL partition agree with the oracle on the same random graph.
 
     The SQL partition may leave a hidden row to the kernel. It must never reject a row the kernel reads, and it must reject a
-    row whose first listed memory is redacted, before the limit applies.
+    row whose first listed memory is redacted, before the limit applies. The guard reads a graph edge between each memory and the
+    next: it keeps the edge when neither end is hidden from the ceiling or redacted.
     """
     from alicebot_api.onramp import bootstrap_database
     from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
@@ -288,8 +286,27 @@ def test_a_sqlite_store_gives_the_oracle_s_answer_through_the_guard_and_its_sql_
                                      "domain": "project", "sensitivity": node.row["sensitivity"],
                                      "metadata_json": node.row["metadata_json"], "value": node.row.get("value") or {}})
         sure = first_memory_input_is_redacted(graph)
+        # One edge joins each memory to the next, so every memory stands at the end of two edges.
+        memories = [node for node in graph.nodes if node.kind == "memory"]
+        edges = {}
+        for index, node in enumerate(memories if len(memories) > 1 else []):
+            other = memories[(index + 1) % len(memories)]
+            made = store.create_graph_edge(
+                {"from_type": "memory", "from_id": str(node.row["id"]), "to_type": "memory", "to_id": str(other.row["id"]),
+                 "edge_type": "mentions", "confidence": 0.5, "explanation": "joins two memories", "created_by": "test"}
+            )
+            edges[str(made["id"])] = (node, other)
         for ceiling in CEILINGS:
             hidden = graph.hidden_from(ceiling)
+            with guards.label_read_scope(store):
+                guard = guards.LabelGuard.for_filters(store, (), ceiling)
+                admitted_edges = {row["id"] for row in guard.admit_edges(store.list_edges())}
+            # An edge is read when neither memory at its ends is hidden from the ceiling or redacted: it keeps both titles.
+            wanted_edges = {
+                edge_id for edge_id, ends in edges.items()
+                if not any(end.key in hidden or end.redacted for end in ends)
+            }
+            assert admitted_edges == wanted_edges, (seed, ceiling, admitted_edges ^ wanted_edges)
             hidden_memories = {identifier(key[1]) for key in hidden if key[0] == "memory"}
             sql = hidden_memory_input_sql(ceiling, sqlite=True)
             rejected = {identifier(row["id"]) for row in conn.execute(f"SELECT m.id FROM memories m WHERE NOT ({sql})").fetchall()}  # nosec B608 - closed kernel constants

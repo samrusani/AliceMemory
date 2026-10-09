@@ -184,6 +184,10 @@ def _filters_admit_every(
     return domains_open and sensitivity_open and not tuple(projects or ())
 
 
+# The endpoint kinds of a graph edge that carry a label. Entities and source chunks carry none.
+_EDGE_ENDPOINT_KINDS = ("memory", "source", "belief", "artifact", "open_loop", "project")
+
+
 @dataclass
 class LabelGuard:
     """The labels a door may trust for one request."""
@@ -678,8 +682,8 @@ class LabelGuard:
             # A row that recorded a redacted row is unverified, which the complete kernel reads as regulated, and so is
             # every row built from it: count it at the top rank before the ranks spread to the rows that read it.
             regulated = SENSITIVITY_RANK["regulated"]
-            for key, refs in graph.items():
-                if refs & redacted_nodes:
+            for key, input_keys in graph.items():
+                if input_keys & redacted_nodes:
                     ranks[key] = max(ranks[key], regulated)
         pending_count = {key: len(refs) for key, refs in graph.items()}
         dependants: dict[tuple[str, str, str], list[tuple[str, str, str]]] = {}
@@ -832,6 +836,43 @@ class LabelGuard:
             for row in beliefs
             if isinstance(row, Mapping) and str(row.get("memory_id") or "") in admitted
         ]
+
+    def admit_edges(self, edges: Sequence[_Row]) -> list[_Row]:
+        """Graph edges whose labelled endpoints are all readable and none of them redacted.
+
+        An edge has no label of its own. It keeps the explanation it was made with, which holds the titles and shared
+        terms of the rows it joins, so it is read only by a caller who may read every row it names. A memory that is
+        redacted since is not readable here: the edge still holds what the memory said. An endpoint of a kind that
+        carries no label (an entity, a source chunk) adds nothing to the decision.
+        """
+
+        if not self.active:
+            return [row for row in edges if isinstance(row, Mapping)]
+        reader = getattr(self.store, "read_label_rows", None)
+        if not callable(reader):
+            return []
+        kept = {index: edge for index, edge in enumerate(edges) if isinstance(edge, Mapping)}
+        for kind in _EDGE_ENDPOINT_KINDS:
+            wanted: dict[str, None] = {}
+            for edge in kept.values():
+                for side in ("from", "to"):
+                    if str(edge.get(f"{side}_type") or "") == kind and edge.get(f"{side}_id"):
+                        wanted[str(edge[f"{side}_id"])] = None
+            if not wanted:
+                continue
+            found = [row for row in reader(kind, list(wanted)) if isinstance(row, Mapping) and row.get("id") is not None]
+            if kind == "belief":
+                # A belief keeps the claim it copied from its memory; admit_beliefs settles the memory, redacted or not.
+                readable_rows = self.admit_beliefs(found)
+            else:
+                readable_rows = self.admit_rows(kind, [row for row in found if not is_redacted_row(row)])
+            readable = {identifier(row.get("id")) for row in readable_rows}
+            for index, edge in list(kept.items()):
+                for side in ("from", "to"):
+                    if str(edge.get(f"{side}_type") or "") == kind and identifier(edge.get(f"{side}_id")) not in readable:
+                        del kept[index]
+                        break
+        return list(kept.values())
 
     def _admits_effective(self, row: Mapping[str, object], *, kind: str) -> bool:
         if self.all_of is not None and (row.get("unverified") or not input_admitted(kind, row, self.all_of)):

@@ -9,7 +9,10 @@ change together.
 Mutations, each one alone: delete the sentence that says redaction restricts reports from the security note, the known
 limitations page, the tool reference or the changelog; replace ``not removal`` with ``removal``; delete ``planned for
 v0.21.0`` from any of the four; delete the archived sentence from any of the four; delete ``input_redacted`` from the tool
-reference; delete the graph edge sentence from the tool reference or the security note; delete the belief sentence from the security note, the tool reference or the changelog; delete the doctor instruction
+reference; delete the graph edge sentence or the belief review sentence from the tool reference, the security note or the
+changelog; restore a sentence that calls the graph an exception from any page; delete the belief sentence from the security note,
+the tool reference or the changelog; delete the cross-reference from the redact section of the tool reference or of the
+protocol; delete the doctor instruction
 (``regenerate or delete``) from the tool reference or the changelog; change the doctor line in the code so that it no
 longer says it, or the reason name in the code.
 """
@@ -37,6 +40,25 @@ CONTAINMENT = (
 )
 REMOVAL = "full removal of redacted text from reports is planned for v0.21.0"
 ARCHIVED = "archiving keeps reports' historical content and does not restrict them"
+# The graph and the belief review route are contained like the reports, on the three pages that describe the doors.
+EDGE = (
+    "a graph edge has no label and keeps the explanation it was made with, which can hold the title of a memory redacted since, "
+    "so `get /v0/vnext/graph/neighborhood/{target_id}` lists and `post /v0/vnext/graph/edges/{edge_id}/review` changes an edge "
+    "for a key with limits only when that key may read every labelled row the edge joins and none of them is redacted"
+)
+BELIEF_REVIEW = (
+    "`post /v0/vnext/beliefs/{belief_id}/review` is refused to a key that may not read the belief, with the answer of a missing "
+    "belief, and a refused review changes nothing"
+)
+# Sentences an earlier version of the pages held, which the behaviour no longer matches.
+RETIRED = (
+    "the one place that still returns the words",
+    "the graph edges are the exception",
+    "graph edge explanations also keep it",
+    "events follow the rows it may read",
+    "no total, preview, snippet, quote, title or event payload",
+    "tracked for v0.21.0",
+)
 
 
 def _flat(path: str) -> str:
@@ -73,7 +95,7 @@ def test_each_sentence_stands_in_an_unreleased_paragraph_and_not_beside_a_releas
         assert RESTRICTS not in " ".join(release.read_text(encoding="utf-8").split()).lower(), release.name
 
 
-def test_the_tool_reference_names_the_reason_the_doors_the_regeneration_and_the_graph_exception() -> None:
+def test_the_tool_reference_names_the_reason_the_doors_the_regeneration_and_the_legacy_tools() -> None:
     text = _flat(PAGES["tool reference"])
     assert "`input_redacted`" in text
     assert "a derived row that recorded a redacted row as an input is now unverified" in text
@@ -85,20 +107,45 @@ def test_the_tool_reference_names_the_reason_the_doors_the_regeneration_and_the_
     assert "no command deletes a report today: archiving a report keeps its row and its text, so an archived report stays restricted" in text
     assert "redacting a memory needs no relabel pass" in text
     assert "the recommended fix of the check is to regenerate or delete those reports, and not `alicebot vnext labels repair`" in text
-    assert "`get /v0/vnext/graph/neighborhood/{target_id}` returns it to the owner and to an unbound admin or trusted key" in text
     assert "(#redacted-memories-and-the-graph)" in text
+    assert "no text, title, preview, snippet or quote of a hidden report is shown" in text
+    assert "the only tools a key can call are the core tools" in text
+    assert "`alice_graph_neighborhood`, `alice_graph_edge_review`, `alice_belief_review` and `alice_belief_state` are the mcp twins" in text
 
 
-def test_the_security_note_and_the_changelog_name_the_graph_exception_and_the_doctor_instruction() -> None:
+def test_three_pages_say_a_graph_edge_and_a_belief_review_are_judged_by_the_rows_they_join() -> None:
+    for name in ("security note", "tool reference", "changelog"):
+        text = _flat(PAGES[name])
+        assert EDGE in text, name
+        assert BELIEF_REVIEW in text, name
+        assert "any other edge answers as a missing edge does (the review answers 404), and a refused review changes nothing" in text, name
+
+
+def test_no_page_still_calls_the_graph_an_exception_or_claims_what_the_doors_do_not_do() -> None:
+    for name, path in PAGES.items():
+        text = _flat(path)
+        for sentence in RETIRED:
+            assert sentence not in text, (name, sentence)
+
+
+def test_the_older_redact_sections_point_to_the_reports_that_kept_the_words() -> None:
+    tools = _flat(PAGES["tool reference"])
+    assert "it does not rewrite the reports and cards made from the memory before: they keep the words they copied" in tools
+    assert "(unreleased, see [redacted memories](#redacted-memories))" in tools
+    protocol = _flat("docs/memory-operations-protocol.md")
+    assert "redact does not rewrite the reports and derived rows made from the memory before" in protocol
+    assert "temporary access containment, not removal" in protocol and "full removal is planned for v0.21.0" in protocol
+    assert "archiving a memory restricts nothing" in protocol
+    assert "[redacted memories](alpha/mcp-tools.md#redacted-memories)" in protocol
+
+
+def test_the_security_note_and_the_changelog_name_the_doctor_instruction() -> None:
     note = _flat(PAGES["security note"])
-    assert "the graph edges are the exception: they have no label" in note
-    assert "that predates this change and is tracked for v0.21.0" in note
     assert "count these rows as unverified and say to regenerate or delete the reports built from a redacted memory" in note
     assert "because `labels repair` cannot fix them" in note
     log = _flat(PAGES["changelog"])
     assert "count these rows as unverified and say to regenerate or delete the reports built from a redacted memory" in log
     assert "because `labels repair` cannot fix them" in log
-    assert "the edges of the connection graph are the one place that still returns the words" in log
     assert "redacting a memory needs no relabel pass, because the read check decides" in log
 
 
