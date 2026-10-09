@@ -921,15 +921,19 @@ class LabelGuard:
         A connector event also records a cursor (see ``CONNECTOR_EVENT_CURSOR_FIELDS``), and for a file or a page that is
         its path or its address. An admitted event shows each cursor only when the caller may read the source it came
         from and holds ``null`` in its place otherwise, the rule of the connector screens; the event is copied and the row
-        it came from is not edited. ``cursors=False`` is for a caller that reads only how many events are admitted.
+        it came from is not edited. ``cursors=False`` returns the admitted events as they are, for a caller that reads only
+        how many there are or what kind they are, and for a read that widens before it settles which events it shows.
         """
 
         kept = self._admitted_events(rows)
-        if not cursors or not self.active or not any(str(row.get("event_type", "")).startswith("connector.") for row in kept):
-            return kept
+        return self._with_shown_cursors(kept) if cursors else kept
+
+    def _with_shown_cursors(self, events: list[_Row]) -> list[_Row]:
+        if not self.active or not any(str(row.get("event_type", "")).startswith("connector.") for row in events):
+            return events
         from alicebot_api.vnext_connectors import VNextConnectorService
 
-        return cast("list[_Row]", VNextConnectorService(self.store).shown_event_cursors(kept, guard=self))
+        return cast("list[_Row]", VNextConnectorService(self.store).shown_event_cursors(events, guard=self))
 
     def _admitted_events(self, rows: Sequence[_Row]) -> list[_Row]:
         if not self.active:
@@ -965,9 +969,10 @@ class LabelGuard:
         size = want
         while True:
             fetched = fetch(size)
-            admitted = self.admit_events(fetched)
+            admitted = self.admit_events(fetched, cursors=False)
             if len(admitted) >= want or len(fetched) < size or size >= EVENT_FEED_SCAN_LIMIT:
-                return admitted[:want]
+                # The cursors of a connector event are judged for the events shown and not for the whole read.
+                return self._with_shown_cursors(admitted[:want])
             size = min(size * 5, EVENT_FEED_SCAN_LIMIT)
 
     def readable_event_count(self) -> int:

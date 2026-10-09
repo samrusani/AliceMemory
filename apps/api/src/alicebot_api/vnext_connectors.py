@@ -1618,7 +1618,7 @@ class VNextConnectorService:
                     continue
                 if (name, cursor) not in decided:
                     if name not in recorded:
-                        recorded[name] = list(self._connector_events(name))
+                        recorded[name] = self._connector_events(name, copy=False)
                     decided[(name, cursor)] = self.shown_cursor(name, cursor, guard=guard, events=recorded[name])
                 cleaned[field] = decided[(name, cursor)]
             shown.append(event if cleaned == payload else {**event, "payload_json": cleaned})
@@ -1658,12 +1658,14 @@ class VNextConnectorService:
             cache.setdefault(namespace, {})[name] = deepcopy(row)
         return row
 
-    def _connector_events(self, name: str):
+    def _connector_events(self, name: str, *, copy: bool = True):
+        """The events of one connector. ``copy=False`` is for a reader that edits nothing: it may be the request's own list."""
+
         from alicebot_api.vnext_label_guard import request_row_cache
 
         cache = request_row_cache(self.store, "connector_health_inputs")
         if cache is not None and name in cache.get("events", {}):
-            return deepcopy(cache["events"][name])
+            return deepcopy(cache["events"][name]) if copy else cache["events"][name]
         events = self.store.list_events(target_type="connector", target_id=name)
         if cache is not None:
             cache.setdefault("events", {})[name] = deepcopy(events)

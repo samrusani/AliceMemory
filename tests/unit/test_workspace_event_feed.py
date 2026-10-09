@@ -10,8 +10,9 @@ from alicebot_api.vnext_label_guard import EVENT_FEED_SCAN_LIMIT, LabelGuard
 class Guard(LabelGuard):
     """A guard that admits the events marked readable, so that the feed read is tested alone."""
 
-    def admit_events(self, rows):
-        return [row for row in rows if row["readable"]]
+    def admit_events(self, rows, *, cursors=True):
+        kept = [row for row in rows if row["readable"]]
+        return self._with_shown_cursors(kept) if cursors else kept
 
 
 def _log(size, *, readable):
@@ -60,3 +61,22 @@ def test_a_feed_of_fifty_widens_in_the_same_steps():
     feed, reads = _feed(_log(10_000, readable=lambda index: index % 20 == 19), want=50)
     assert len(feed) == 50
     assert reads == [50, 250, 1250]
+
+
+def test_the_cursors_of_connector_events_are_judged_for_the_events_shown_and_not_for_the_whole_read(monkeypatch):
+    from alicebot_api.vnext_connectors import VNextConnectorService
+
+    judged = []
+
+    def record(self, events, *, guard):
+        judged.append(len(events))
+        return list(events)
+
+    monkeypatch.setattr(VNextConnectorService, "shown_event_cursors", record)
+    log = [
+        {"id": index, "readable": index % 3 == 0, "event_type": "connector.sync_started"} for index in range(5_000)
+    ]
+    feed, reads = _feed(log, want=20)
+    assert len(feed) == 20 and reads == [20, 100]
+    # The second read of 100 events admitted 34. Only the 20 shown were judged, and once.
+    assert judged == [20]
