@@ -90,6 +90,15 @@ def _rank_projection_supported(row: Mapping[str, object]) -> bool:
 _EDGE_END_KINDS = frozenset({"source", "memory", "belief"})
 
 
+def _spellings(row_id: str) -> tuple[str, str]:
+    """The id an event holds with the spaces taken off, and the canonical text of a UUID (lower case, hyphenated).
+
+    Text that is not a UUID has the one spelling, so it is found only when a row is stored under exactly that text.
+    """
+    text = row_id.strip()
+    return text, identifier(text)
+
+
 def _payload_ids(value: object) -> list[str] | None:
     """The ids that an event payload field holds, or None when the field is not an id or a list of ids."""
     if value is None:
@@ -119,20 +128,25 @@ def _typed_reference_kind(event_type: str, key: str) -> str | None:
     return None
 
 
-def event_references(row: Mapping[str, object]) -> list[tuple[str, str]]:
-    """Every row an event names, as (kind, id): the row it is about and the rows its payload holds the ids of.
+def event_target_references(row: Mapping[str, object]) -> list[tuple[str, str]]:
+    """The labelled row, or the edge, that an event is about, as (kind, id). The id is kept exactly as the event holds it."""
+    target_type = str(row.get("target_type"))
+    if target_type in EVENT_TARGET_KINDS:
+        return [(target_type, str(row.get("target_id") or ""))]
+    if target_type == EVENT_EDGE_TARGET:
+        return [("edge", str(row.get("target_id") or ""))]
+    return []
+
+
+def event_payload_references(row: Mapping[str, object]) -> list[tuple[str, str]]:
+    """The rows the payload of an event names, as (kind, id), in the spelling the payload holds.
 
     A reference that cannot be resolved carries the empty id, which no row has, so a caller with limits is never admitted
     for it: a payload field that is not an id, and a chunk event that names no source.
     """
-    target_type = str(row.get("target_type"))
-    references: list[tuple[str, str]] = []
-    if target_type in EVENT_TARGET_KINDS:
-        references.append((target_type, str(row.get("target_id") or "")))
-    elif target_type == EVENT_EDGE_TARGET:
-        references.append(("edge", str(row.get("target_id") or "")))
     payload = row.get("payload_json")
     fields: Mapping[str, object] = payload if isinstance(payload, Mapping) else {}
+    references: list[tuple[str, str]] = []
     event_type = ""
     for key, value in fields.items():
         kind = EVENT_PAYLOAD_REFERENCES.get(key)
@@ -146,10 +160,15 @@ def event_references(row: Mapping[str, object]) -> list[tuple[str, str]]:
             references.append((kind, ""))
         else:
             references.extend((kind, row_id) for row_id in ids)
-    child = EVENT_CHILD_TARGETS.get(target_type)
+    child = EVENT_CHILD_TARGETS.get(str(row.get("target_type")))
     if child is not None and not _payload_ids(fields.get(child[1])):
         references.append((child[0], ""))
     return references
+
+
+def event_references(row: Mapping[str, object]) -> list[tuple[str, str]]:
+    """Every row an event names, as (kind, id): the row it is about and the rows its payload holds the ids of."""
+    return [*event_target_references(row), *event_payload_references(row)]
 
 
 @dataclass
@@ -808,8 +827,14 @@ class LabelGuard:
         # are checked separately; writes and rollback clear this map together.
         return label
 
-    def _admitted_target_ids(self, kind: str, ids: Sequence[str]) -> set[str]:
-        """The ids, as given, of the rows of this kind that the guard admits now. One batched read for the ids not yet read."""
+    def _admitted_target_ids(self, kind: str, ids: Sequence[str], *, echoed: bool = False) -> set[str]:
+        """The ids, as given, of the rows of this kind that the guard admits now. One batched read for the ids not yet read.
+
+        An id is looked up exactly as given. An ``echoed`` id is one a client wrote and an event repeats (the id of a project
+        sent in capitals, or with spaces round it), so it is looked up as given with the spaces taken off and by its canonical
+        spelling too, because the stores answer in lower case. The row stored under the spelling given is the one judged,
+        and the canonical spelling stands in only when there is none.
+        """
 
         if kind == "edge":
             return self._admitted_edge_ids(ids)
@@ -817,8 +842,10 @@ class LabelGuard:
         if not callable(reader):
             return set()
         ids = list(dict.fromkeys(str(row_id) for row_id in ids if row_id))
+        spelled = {row_id: _spellings(row_id) if echoed else (row_id, row_id) for row_id in ids}
+        wanted = list(dict.fromkeys(text for pair in spelled.values() for text in pair if text))
         state = self._state()
-        missing = [row_id for row_id in ids if (kind, row_id) not in state.targets]
+        missing = [row_id for row_id in wanted if (kind, row_id) not in state.targets]
         if kind == "source":
             for row_id in missing:
                 cached = state.nodes.get((kind, identifier(row_id)), ())
@@ -827,10 +854,14 @@ class LabelGuard:
             missing = [row_id for row_id in missing if (kind, row_id) not in state.targets]
         for row in reader(kind, missing) if missing else []:
             state.targets[(kind, str(row.get("id")))] = row
-        found = [state.targets[(kind, row_id)] for row_id in ids if (kind, row_id) in state.targets]
-        return {str(row.get("id")) for row in (
+        found = [state.targets[(kind, row_id)] for row_id in wanted if (kind, row_id) in state.targets]
+        admitted = {str(row.get("id")) for row in (
             self.admit_beliefs(found) if kind == "belief" else self.admit_rows(kind, found)
         )}
+        return {
+            row_id for row_id, (text, canonical) in spelled.items()
+            if (text in admitted if (kind, text) in state.targets else canonical in admitted)
+        }
 
     def _admitted_edge_ids(self, ids: Sequence[str]) -> set[str]:
         """Edges whose every labelled end the guard admits. An edge has no label of its own."""
@@ -885,17 +916,18 @@ class LabelGuard:
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
         named = []
-        wanted: dict[str, list[str]] = {}
+        wanted: dict[tuple[str, bool], list[str]] = {}
         for row in rows:
-            references = event_references(row)
+            references = [(kind, row_id, False) for kind, row_id in event_target_references(row)]
+            references.extend((kind, row_id, True) for kind, row_id in event_payload_references(row))
             named.append((row, references))
-            for kind, row_id in references:
-                wanted.setdefault(kind, []).append(row_id)
-        admitted = {kind: self._admitted_target_ids(kind, ids) for kind, ids in wanted.items()}
+            for kind, row_id, echoed in references:
+                wanted.setdefault((kind, echoed), []).append(row_id)
+        admitted = {key: self._admitted_target_ids(key[0], ids, echoed=key[1]) for key, ids in wanted.items()}
         kept = []
         for row, references in named:
-            for kind, row_id in references:
-                if row_id not in admitted[kind]:
+            for kind, row_id, echoed in references:
+                if row_id not in admitted[(kind, echoed)]:
                     break
             else:
                 if str(row.get("target_type")) in EVENT_TARGET_KINDS or not str(row.get("event_type", "")).endswith(".labels_raised"):

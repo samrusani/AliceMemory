@@ -83,6 +83,7 @@ EVENT_PAYLOAD_REFERENCES = {
     "expired_memory_ids": "memory",
     "superseded_member_ids": "memory",
     "member_id": "memory",
+    "replacement_memory_id": "memory",
     "artifact_id": "artifact",
     "artifact_ids": "artifact",
     "belief_id": "belief",
