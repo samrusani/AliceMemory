@@ -273,14 +273,15 @@ def test_the_context_tree_shows_the_policy_event_of_an_explain_of_a_continuity_o
     with h.store() as store:
         written = {f"event:{event['id']}" for event in store.list_events() if event["target_type"] == "continuity_object"}
     assert len(written) == 2 and by_hand in written
+    (explained,) = written - {by_hand}
 
-    # Through the mounted application, right after the explain so that the event is among the newest the default page holds.
+    # Through the mounted application, right after the explain so that its event is among the newest the default page holds.
     status, tree, _ = h.request("GET", "/v0/vnext/context-tree", key=admin)
     assert status == 200, tree
-    assert written <= _tree_event_refs(tree)
+    assert explained in _tree_event_refs(tree)
     status, tree, _ = h.request("GET", "/v0/vnext/context-tree", key=trusted)
     assert status == 200, tree
-    assert not written & _tree_event_refs(tree)
+    assert explained not in _tree_event_refs(tree)
 
     def tool(identity):
         arguments = {"limit": 50, **({"agent_identity": identity} if identity else {})}
