@@ -15,6 +15,7 @@ from alicebot_api.vnext_capture import capture_dedupe_key_for_text
 from alicebot_api.vnext_embeddings import memory_embedding_content_sha256
 from alicebot_api.vnext_event_log import build_event_log_record
 from alicebot_api.vnext_stores.postgres import memory_lifecycle as postgres_memory_lifecycle
+from alicebot_api.vnext_stores.postgres.project_slug import PROJECT_SLUG_CONSTRAINT, ProjectSlugConflictError
 from alicebot_api.vnext_store import (
     PostgresVNextStore,
     _jsonb_project_scope_values_sql,
@@ -3700,10 +3701,10 @@ class _InsertingProjectFails(RecordingCursor):
 
 
 def test_a_unique_violation_on_the_project_slug_is_a_slug_conflict() -> None:
-    cursor = _InsertingProjectFails(vnext_store_module.PROJECT_SLUG_CONSTRAINT)
+    cursor = _InsertingProjectFails(PROJECT_SLUG_CONSTRAINT)
     store = PostgresVNextStore(RecordingConnection(cursor))
 
-    with pytest.raises(vnext_store_module.ProjectSlugConflictError) as caught:
+    with pytest.raises(ProjectSlugConflictError) as caught:
         store.create_project({"name": "Alice", "slug": "alice"})
 
     assert isinstance(caught.value, ContinuityStoreInvariantError)
@@ -3719,4 +3720,4 @@ def test_a_unique_violation_on_another_constraint_is_not_a_slug_conflict() -> No
     with pytest.raises(psycopg.errors.UniqueViolation) as caught:
         store.create_project({"name": "Alice", "slug": "alice"})
 
-    assert not isinstance(caught.value, vnext_store_module.ProjectSlugConflictError)
+    assert not isinstance(caught.value, ProjectSlugConflictError)

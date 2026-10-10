@@ -517,8 +517,8 @@
           "file": "apps/api/src/alicebot_api/vnext_store.py",
           "before": "OR COALESCE(NULLIF(s.domain, ''), 'unknown') = ANY(%s::text[])",
           "after": "OR %s::text[] IS NOT NULL",
-          "line": 644,
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "line": 635,
+          "sha256": "9e4c263a585c189a74a006f175869374a55358bd9cf20dbf4f027c2bb1b9eeff"
         }
       ],
       "pytest": [
@@ -533,8 +533,8 @@
           "file": "apps/api/src/alicebot_api/vnext_store.py",
           "before": "COALESCE(NULLIF(s.sensitivity, ''), 'unknown') = ANY(%s::text[])",
           "after": "%s::text[] IS NOT NULL",
-          "line": 646,
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "line": 637,
+          "sha256": "9e4c263a585c189a74a006f175869374a55358bd9cf20dbf4f027c2bb1b9eeff"
         }
       ],
       "pytest": [
@@ -565,8 +565,8 @@
           "file": "apps/api/src/alicebot_api/vnext_store.py",
           "before": "e.target_id = s.id::text",
           "after": "lower(e.target_id) = s.id::text",
-          "line": 642,
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "line": 633,
+          "sha256": "9e4c263a585c189a74a006f175869374a55358bd9cf20dbf4f027c2bb1b9eeff"
         }
       ],
       "pytest": [
@@ -1227,7 +1227,7 @@
           "line": 1001,
           "before": "belief = _vnext_readable_belief(store, identity, belief_id)",
           "after": "belief = _vnext_readable_belief(store, None, belief_id)",
-          "sha256": "4428b35cd7d43cf49d3541ce971bd801ab9f8af0cd9dad69fd2f6c0cb5334d67"
+          "sha256": "d8bcd32ab1913053b3f6e38f27de5251881444c9d0f8fd8d15bcd91e8b1bbda3"
         }
       ],
       "pytest": [
@@ -1245,7 +1245,7 @@
           "line": 1007,
           "before": "if belief is None or (request.superseded_by is not None and replacement is None):",
           "after": "if belief is None:",
-          "sha256": "4428b35cd7d43cf49d3541ce971bd801ab9f8af0cd9dad69fd2f6c0cb5334d67"
+          "sha256": "d8bcd32ab1913053b3f6e38f27de5251881444c9d0f8fd8d15bcd91e8b1bbda3"
         }
       ],
       "pytest": [
@@ -1261,7 +1261,7 @@
           "line": 929,
           "before": "edge = _vnext_readable_edge(store, identity, edge_id)",
           "after": "edge = _vnext_readable_edge(store, None, edge_id)",
-          "sha256": "4428b35cd7d43cf49d3541ce971bd801ab9f8af0cd9dad69fd2f6c0cb5334d67"
+          "sha256": "d8bcd32ab1913053b3f6e38f27de5251881444c9d0f8fd8d15bcd91e8b1bbda3"
         }
       ],
       "pytest": [
@@ -1722,10 +1722,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 783,
+          "line": 784,
           "before": "            if target is None or outside_caller_limits(store, identity, \"open_loop\", target):",
           "after": "            if target is None:",
-          "sha256": "b40e92dc770c8b269262a59106186708d0ced7d2f72ad6a2981d9bf675544a6c"
+          "sha256": "03370656066c9b3f739cbbfbeae6f112d16493cb92d58d8b22c2c7ae9380aa5c"
         }
       ],
       "pytest": [
@@ -1899,10 +1899,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 259,
+          "line": 260,
           "before": "        if not named & bound:\n            return None",
           "after": "        if False:\n            return None",
-          "sha256": "b40e92dc770c8b269262a59106186708d0ced7d2f72ad6a2981d9bf675544a6c"
+          "sha256": "03370656066c9b3f739cbbfbeae6f112d16493cb92d58d8b22c2c7ae9380aa5c"
         }
       ],
       "pytest": [
@@ -1915,10 +1915,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 249,
+          "line": 250,
           "before": "    try:\n        canonical = str(UUID(str(project_id).strip()))\n    except ValueError:\n        return None\n    project = store.get_project(canonical)",
           "after": "    canonical = str(project_id)\n    project = store.get_project(canonical)",
-          "sha256": "b40e92dc770c8b269262a59106186708d0ced7d2f72ad6a2981d9bf675544a6c"
+          "sha256": "03370656066c9b3f739cbbfbeae6f112d16493cb92d58d8b22c2c7ae9380aa5c"
         }
       ],
       "pytest": [
@@ -3663,10 +3663,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 647,
+          "line": 638,
           "before": "                 AND NOT {event_names_a_row_sql(\"e\")}\"\"\",",
           "after": "                 AND TRUE\"\"\",",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "sha256": "9e4c263a585c189a74a006f175869374a55358bd9cf20dbf4f027c2bb1b9eeff"
         }
       ],
       "pytest": [
@@ -3679,10 +3679,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 667,
+          "line": 658,
           "before": " <> 'source' OR {event_names_a_row_sql()})",
           "after": " <> 'source')",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "sha256": "9e4c263a585c189a74a006f175869374a55358bd9cf20dbf4f027c2bb1b9eeff"
         }
       ],
       "pytest": [
@@ -3695,10 +3695,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 532,
+          "line": 523,
           "before": "        if kind == \"edge\":",
           "after": "        if False:",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "sha256": "9e4c263a585c189a74a006f175869374a55358bd9cf20dbf4f027c2bb1b9eeff"
         }
       ],
       "pytest": [
@@ -5469,7 +5469,7 @@
           "line": 970,
           "before": "            payload = VNextConnectionService(store).graph_neighborhood(\n                target_id=target_id,\n                sensitivity_allowed=sensitivity_ceiling(identity),",
           "after": "            payload = VNextConnectionService(store).graph_neighborhood(\n                target_id=target_id,\n                sensitivity_allowed=None,",
-          "sha256": "4428b35cd7d43cf49d3541ce971bd801ab9f8af0cd9dad69fd2f6c0cb5334d67"
+          "sha256": "d8bcd32ab1913053b3f6e38f27de5251881444c9d0f8fd8d15bcd91e8b1bbda3"
         }
       ],
       "pytest": [
@@ -5503,7 +5503,7 @@
           "line": 933,
           "before": "                edge_id=str(edge[\"id\"]),\n                action=request.action,\n                sensitivity_allowed=sensitivity_ceiling(identity),",
           "after": "                edge_id=str(edge[\"id\"]),\n                action=request.action,\n                sensitivity_allowed=None,",
-          "sha256": "4428b35cd7d43cf49d3541ce971bd801ab9f8af0cd9dad69fd2f6c0cb5334d67"
+          "sha256": "d8bcd32ab1913053b3f6e38f27de5251881444c9d0f8fd8d15bcd91e8b1bbda3"
         }
       ],
       "pytest": [
@@ -5537,7 +5537,7 @@
           "line": 1013,
           "before": "                superseded_by=str(replacement[\"id\"]) if replacement is not None else None,\n                sensitivity_allowed=sensitivity_ceiling(identity),",
           "after": "                superseded_by=str(replacement[\"id\"]) if replacement is not None else None,\n                sensitivity_allowed=None,",
-          "sha256": "4428b35cd7d43cf49d3541ce971bd801ab9f8af0cd9dad69fd2f6c0cb5334d67"
+          "sha256": "d8bcd32ab1913053b3f6e38f27de5251881444c9d0f8fd8d15bcd91e8b1bbda3"
         }
       ],
       "pytest": [
@@ -6540,10 +6540,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 745,
+          "line": 746,
           "before": "                replace(automation, domains=domains, sensitivity_allowed=sensitivity_allowed)",
           "after": "                automation",
-          "sha256": "b40e92dc770c8b269262a59106186708d0ced7d2f72ad6a2981d9bf675544a6c"
+          "sha256": "03370656066c9b3f739cbbfbeae6f112d16493cb92d58d8b22c2c7ae9380aa5c"
         }
       ],
       "pytest": [
@@ -6572,10 +6572,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 376,
+          "line": 377,
           "before": "            payload = readable[0] if readable else None",
           "after": "            payload = charter",
-          "sha256": "b40e92dc770c8b269262a59106186708d0ced7d2f72ad6a2981d9bf675544a6c"
+          "sha256": "03370656066c9b3f739cbbfbeae6f112d16493cb92d58d8b22c2c7ae9380aa5c"
         }
       ],
       "pytest": [
@@ -6588,10 +6588,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 403,
+          "line": 404,
           "before": "            if stored is not None and not readable_own_label_rows(identity, [stored]):",
           "after": "            if False:",
-          "sha256": "b40e92dc770c8b269262a59106186708d0ced7d2f72ad6a2981d9bf675544a6c"
+          "sha256": "03370656066c9b3f739cbbfbeae6f112d16493cb92d58d8b22c2c7ae9380aa5c"
         }
       ],
       "pytest": [
@@ -7068,10 +7068,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 401,
+          "line": 402,
           "before": "            lock_brain_charter(store)\n            stored = store.get_brain_charter()",
           "after": "            stored = store.get_brain_charter()",
-          "sha256": "b40e92dc770c8b269262a59106186708d0ced7d2f72ad6a2981d9bf675544a6c"
+          "sha256": "03370656066c9b3f739cbbfbeae6f112d16493cb92d58d8b22c2c7ae9380aa5c"
         }
       ],
       "pytest": [
@@ -7085,10 +7085,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 2972,
+          "line": 2938,
           "before": "        lock_brain_charter(self)\n        row = self._fetch_one(\n            \"upsert_brain_charter\",",
           "after": "        row = self._fetch_one(\n            \"upsert_brain_charter\",",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "sha256": "9e4c263a585c189a74a006f175869374a55358bd9cf20dbf4f027c2bb1b9eeff"
         }
       ],
       "pytest": [
@@ -7411,10 +7411,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 413,
+          "line": 414,
           "before": "                append_policy_events(\n                    store, identity=identity, decision=refusal, target_type=\"http_route\",\n                    target_id=\"/v0/vnext/settings/brain-charter\",\n                )\n",
           "after": "",
-          "sha256": "b40e92dc770c8b269262a59106186708d0ced7d2f72ad6a2981d9bf675544a6c"
+          "sha256": "03370656066c9b3f739cbbfbeae6f112d16493cb92d58d8b22c2c7ae9380aa5c"
         }
       ],
       "pytest": [
@@ -7427,17 +7427,17 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 2882,
+          "line": 2848,
           "before": "                  SELECT id AS next_id\n",
           "after": "                  SELECT id\n",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "sha256": "9e4c263a585c189a74a006f175869374a55358bd9cf20dbf4f027c2bb1b9eeff"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 2896,
+          "line": 2862,
           "before": "                WHERE task_queue.id = next_task.next_id\n",
           "after": "                WHERE task_queue.id = next_task.id\n",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "sha256": "9e4c263a585c189a74a006f175869374a55358bd9cf20dbf4f027c2bb1b9eeff"
         }
       ],
       "pytest": [
@@ -7450,17 +7450,17 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 2882,
+          "line": 2848,
           "before": "                  SELECT id AS next_id\n",
           "after": "                  SELECT id\n",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "sha256": "9e4c263a585c189a74a006f175869374a55358bd9cf20dbf4f027c2bb1b9eeff"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 2896,
+          "line": 2862,
           "before": "                WHERE task_queue.id = next_task.next_id\n",
           "after": "                WHERE task_queue.id = next_task.id\n",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "sha256": "9e4c263a585c189a74a006f175869374a55358bd9cf20dbf4f027c2bb1b9eeff"
         }
       ],
       "pytest": [
@@ -7472,11 +7472,11 @@
       "name": "claim-label-filter-not-applied",
       "edits": [
         {
-          "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 2877,
-          "before": "            label_filter = \"AND (domain, sensitivity) IN (SELECT * FROM unnest(%s::text[], %s::text[]))\"\n",
-          "after": "            label_filter = \"AND ((domain, sensitivity) IN (SELECT * FROM unnest(%s::text[], %s::text[])) OR true)\"\n",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/task_claim.py",
+          "line": 25,
+          "before": "    condition = \"AND (domain, sensitivity) IN (SELECT * FROM unnest(%s::text[], %s::text[]))\"\n",
+          "after": "    condition = \"AND ((domain, sensitivity) IN (SELECT * FROM unnest(%s::text[], %s::text[])) OR true)\"\n",
+          "sha256": "cc57494e6a4311cea5b0aa8d514d7932f5579d2ccb0aa53ff4c46a59a32dd8fa"
         }
       ],
       "pytest": [
@@ -7488,11 +7488,11 @@
       "name": "sweep-gate-process-next-claims-a-hidden-task",
       "edits": [
         {
-          "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 2877,
-          "before": "            label_filter = \"AND (domain, sensitivity) IN (SELECT * FROM unnest(%s::text[], %s::text[]))\"\n",
-          "after": "            label_filter = \"AND ((domain, sensitivity) IN (SELECT * FROM unnest(%s::text[], %s::text[])) OR true)\"\n",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/task_claim.py",
+          "line": 25,
+          "before": "    condition = \"AND (domain, sensitivity) IN (SELECT * FROM unnest(%s::text[], %s::text[]))\"\n",
+          "after": "    condition = \"AND ((domain, sensitivity) IN (SELECT * FROM unnest(%s::text[], %s::text[])) OR true)\"\n",
+          "sha256": "cc57494e6a4311cea5b0aa8d514d7932f5579d2ccb0aa53ff4c46a59a32dd8fa"
         }
       ],
       "pytest": [
@@ -7508,7 +7508,7 @@
           "line": 579,
           "before": "                .process_next_task(readable_labels=claimable_task_labels(identity))\n",
           "after": "                .process_next_task()\n",
-          "sha256": "4428b35cd7d43cf49d3541ce971bd801ab9f8af0cd9dad69fd2f6c0cb5334d67"
+          "sha256": "d8bcd32ab1913053b3f6e38f27de5251881444c9d0f8fd8d15bcd91e8b1bbda3"
         }
       ],
       "pytest": [
@@ -7552,11 +7552,11 @@
       "name": "project-slug-conflict-reraised-as-a-raw-violation",
       "edits": [
         {
-          "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 1991,
-          "before": "            raise ProjectSlugConflictError(\"a project with this slug already exists\") from exc\n",
-          "after": "            raise\n",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/project_slug.py",
+          "line": 33,
+          "before": "        raise ProjectSlugConflictError(\"a project with this slug already exists\") from exc\n",
+          "after": "        raise\n",
+          "sha256": "a7897de921b1030fd8db30745d6646423e637f17b7fc6571060f4ed80b56edc5"
         }
       ],
       "pytest": [
@@ -7568,11 +7568,11 @@
       "name": "sweep-gate-project-slug-conflict-crashes",
       "edits": [
         {
-          "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 1991,
-          "before": "            raise ProjectSlugConflictError(\"a project with this slug already exists\") from exc\n",
-          "after": "            raise\n",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/project_slug.py",
+          "line": 33,
+          "before": "        raise ProjectSlugConflictError(\"a project with this slug already exists\") from exc\n",
+          "after": "        raise\n",
+          "sha256": "a7897de921b1030fd8db30745d6646423e637f17b7fc6571060f4ed80b56edc5"
         }
       ],
       "pytest": [
@@ -7584,11 +7584,11 @@
       "name": "project-slug-conflict-answers-500-to-every-caller",
       "edits": [
         {
-          "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 1991,
-          "before": "            raise ProjectSlugConflictError(\"a project with this slug already exists\") from exc\n",
-          "after": "            raise\n",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/project_slug.py",
+          "line": 33,
+          "before": "        raise ProjectSlugConflictError(\"a project with this slug already exists\") from exc\n",
+          "after": "        raise\n",
+          "sha256": "a7897de921b1030fd8db30745d6646423e637f17b7fc6571060f4ed80b56edc5"
         }
       ],
       "pytest": [
@@ -7600,11 +7600,11 @@
       "name": "project-slug-guard-reads-any-unique-violation",
       "edits": [
         {
-          "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 1989,
-          "before": "            if exc.diag.constraint_name != PROJECT_SLUG_CONSTRAINT:\n                raise\n",
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/project_slug.py",
+          "line": 31,
+          "before": "        if exc.diag.constraint_name != PROJECT_SLUG_CONSTRAINT:\n            raise\n",
           "after": "",
-          "sha256": "3372298830197a4551f696b44bc741788dcefc0f673e51776b703d44123e1716"
+          "sha256": "a7897de921b1030fd8db30745d6646423e637f17b7fc6571060f4ed80b56edc5"
         }
       ],
       "pytest": [
@@ -7617,10 +7617,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 173,
+          "line": 174,
           "before": "    except ProjectSlugConflictError:\n        # Outside the connection block, so the refused call rolls back and writes nothing. One answer for every caller\n        # and every holder of the slug: it names no project, so the owner, an admin and a key with a ceiling are told\n        # the same whether the project that has the slug is readable, hidden, archived or does not show in any list.\n        return _vnext_public_error_response(status_code=409, detail=PROJECT_SLUG_CONFLICT_DETAIL)\n",
           "after": "    except ProjectSlugConflictError:\n        raise\n",
-          "sha256": "b40e92dc770c8b269262a59106186708d0ced7d2f72ad6a2981d9bf675544a6c"
+          "sha256": "03370656066c9b3f739cbbfbeae6f112d16493cb92d58d8b22c2c7ae9380aa5c"
         }
       ],
       "pytest": [

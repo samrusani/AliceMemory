@@ -74,7 +74,8 @@ from alicebot_api.vnext_source_fence import (
     resolve_attachable_memory_id,
     resolve_attachable_source_id,
 )
-from alicebot_api.vnext_store import PostgresVNextStore, ProjectSlugConflictError
+from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_stores.postgres.project_slug import ProjectSlugConflictError
 
 
 PROJECT_SLUG_CONFLICT_DETAIL = "vNext project slug is already in use"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import itertools
 import re
-from collections.abc import Collection, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -171,6 +171,7 @@ from alicebot_api.vnext_stores.postgres.primitives import (
     _json_safe as _json_safe,
     _sorted_field_names as _sorted_field_names,
 )
+from alicebot_api.vnext_stores.postgres.project_slug import project_slug_conflicts
 from alicebot_api.vnext_stores.postgres.query_predicates import (
     _ARTIFACT_SCOPE_PROJECT_SQL as _ARTIFACT_SCOPE_PROJECT_SQL,
     _PROJECT_FLOOR_SQL as _PROJECT_FLOOR_SQL,
@@ -201,6 +202,7 @@ from alicebot_api.vnext_stores.postgres.query_predicates import (
     _project_identifier_identity_sql as _project_identifier_identity_sql,
     _tsquery_any_expression as _tsquery_any_expression,
 )
+from alicebot_api.vnext_stores.postgres.task_claim import LabelPairs, task_label_filter
 from alicebot_api.vnext_stores.retrieval_common import (
     FTS_QUERY_STOPWORDS as FTS_QUERY_STOPWORDS,
     _search_patterns as _search_patterns,
@@ -214,17 +216,6 @@ MAX_SOURCE_CHUNKS_PER_READ = 501
 # Names for nested savepoints. One counter for the process, so a nested block
 # never reuses its parent's name.
 _SAVEPOINT_NAMES = itertools.count(1)
-
-# The unique constraint on (user_id, slug) of ``projects``, named by Postgres from the table and the columns.
-PROJECT_SLUG_CONSTRAINT = "projects_user_id_slug_key"
-
-
-class ProjectSlugConflictError(ContinuityStoreInvariantError):
-    """A project with this slug already exists.
-
-    The failed insert leaves the transaction aborted, so the caller rolls it back, as it does for any store error.
-    The error holds no detail of the project that has the slug.
-    """
 
 
 
@@ -1943,7 +1934,7 @@ class PostgresVNextStore:
         from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
 
         project, floor_event = apply_insert_floor(self, "project", project)
-        try:
+        with project_slug_conflicts():
             row = self._fetch_one(
                 "create_project",
                 f"""
@@ -1985,10 +1976,6 @@ class PostgresVNextStore:
                     _json_object(project.get("metadata_json")),
                 ),
             )
-        except psycopg.errors.UniqueViolation as exc:
-            if exc.diag.constraint_name != PROJECT_SLUG_CONSTRAINT:
-                raise
-            raise ProjectSlugConflictError("a project with this slug already exists") from exc
         self._append_mutation_event(
             event_type="project.created",
             actor_type=actor_type,
@@ -2853,29 +2840,8 @@ class PostgresVNextStore:
         )
         return row
 
-    def claim_next_task(
-        self,
-        *,
-        actor_type: str = "system",
-        readable_labels: Collection[tuple[str, str]] | None = None,
-    ) -> VNextRow | None:
-        """Claim the oldest due pending task, or return None when there is none.
-
-        ``readable_labels`` limits the claim to the tasks a caller with limits may read: a task is claimed only when
-        its (domain, sensitivity) pair is in the collection. A task outside it is neither claimed nor locked, so a
-        worker with no limits still takes it. ``None`` is a caller with no limits, and an empty collection claims
-        nothing.
-
-        The chosen id leaves the CTE as ``next_id``. Named ``id`` it would be a second ``id`` beside the column of
-        ``task_queue``, and ``RETURNING`` would be ambiguous.
-        """
-
-        label_filter = ""
-        params: tuple[object, ...] | None = None
-        if readable_labels is not None:
-            pairs = sorted(set(readable_labels))
-            label_filter = "AND (domain, sensitivity) IN (SELECT * FROM unnest(%s::text[], %s::text[]))"
-            params = ([domain for domain, _sensitivity in pairs], [sensitivity for _domain, sensitivity in pairs])
+    def claim_next_task(self, *, actor_type: str = "system", readable_labels: LabelPairs | None = None) -> VNextRow | None:
+        label_filter, params = task_label_filter(readable_labels)
         row = self._fetch_optional_one(
             f"""
                 WITH next_task AS MATERIALIZED (

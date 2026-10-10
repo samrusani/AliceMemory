@@ -17,7 +17,7 @@ from collections import Counter
 import psycopg
 import pytest
 
-from alicebot_api.vnext_store import PROJECT_SLUG_CONSTRAINT, ProjectSlugConflictError
+from alicebot_api.vnext_stores.postgres.project_slug import PROJECT_SLUG_CONSTRAINT, ProjectSlugConflictError
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 from tests.integration.operator_route_probes import Call
 from tests.integration.operator_route_runner import run_call

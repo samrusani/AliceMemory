@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 
 from alicebot_api.vnext_agent_keys import create_agent_key
-from alicebot_api.vnext_store import ProjectSlugConflictError
+from alicebot_api.vnext_stores.postgres.project_slug import ProjectSlugConflictError
 from tests.unit.test_vnext_main import FakeVNextStore, _install_fake_vnext_store, _invoke_vnext_request
 
 CONFLICT = {"detail": "vNext project slug is already in use"}
