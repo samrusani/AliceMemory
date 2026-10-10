@@ -4239,8 +4239,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py -q",
           "after": "tests/performance/test_label_read_handoff_budget.py -q",
-          "sha256": "91e0f3741d904970cece4c4f5002b383f25e00656e0806e3e52317f8dbae65a6",
-          "line": 2366
+          "sha256": "c36194682cca26e0edbc544192a784906d77b4071007e43a26887d973226f5d3",
+          "line": 2367
         }
       ],
       "pytest": [
