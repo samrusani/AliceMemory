@@ -18,7 +18,8 @@ pages; change a key in the list of source keys on the tool reference or the secu
 the loop sentence or the context pack sentence from any of the three pages that carry it; change a key in the list of reference
 keys on the tool reference, or in ``MEMORY_REFERENCE_KEYS`` in ``vnext_source_fence.py``; restore the sentence that said the
 memory audit route returns what was stored; restore the sentence that said an id with no marker names no memory; restore the
-sentence that said recall takes no sensitivity argument; delete the sentence about the project update candidate.
+sentence that said recall takes no sensitivity argument; delete the sentence about the project update candidate; delete the
+paragraph about the other rows, or its sentence about the doors, from the tool reference or the security note.
 """
 from __future__ import annotations
 
@@ -62,9 +63,54 @@ KEEPS = {
     "changelog": "the owner and an unbound admin key keep the quote",
 }
 NOT_JUDGED = (
-    "not judged: text in an entry that names no refused memory, beside an entry that does (an entry that names nothing loses its "
-    "`quote` and `conversation_excerpt` and the fields whose names the product does not write, and no other string); and "
-    "`alice_explain` for a call that declares a profile with no agent key, which was never held to it"
+    "not judged: the text of an entry beside a refused ref that names a stored source or memory the caller may read (the reader "
+    "cannot tell whose words they are); words a writer typed in a field that is not a ref, such as the rationale and the "
+    "contradiction refs of a commit or the comments of a rating; what the writer chose to encode in the shape of what stays (the "
+    "length of a list, the order of its entries, a number or a boolean under a field the product writes); and `alice_explain` for "
+    "a call that declares a profile with no agent key, which was never held to it"
+)
+COMPANION = (
+    "it takes the text of an entry beside such a ref that names no source and no memory the caller may read, as in `\"memory:<id>\"` "
+    "followed by `{\"quote\": \"...\"}`, by a bare string, by a `text` field or by a nested list, and the same beside a refused "
+    "source. an entry names a row when a reference position says so (`source_id`, `memory_id`, a `source:` or `memory:` ref) and the "
+    "row is stored and readable by the caller, and only then does it keep its text; an id under `chunk_id`, in a sentence or in a "
+    "quote, and an id that names no stored row, name nothing, so adding one to an entry keeps no quote"
+)
+QUOTE_STRUCTURE = (
+    "a quote or an excerpt that is an object or a list is read like the rest of the ref, and an id typed in the text of a quote or "
+    "of the commit's excerpt (`memory:<id> words`) takes the quote when it names a stored memory the caller may not read"
+)
+ROWS_PARAGRAPH = (
+    "the same rule holds the other rows that keep a structure their writer chose. a source made by the agent-output ingest keeps "
+    "the `source_refs` it was sent in its `metadata_json` and again in `metadata_json.raw_payload`"
+)
+ROWS_DOORS = (
+    "`get /v0/vnext/sources/{id}`, the review and delete answers of a source, `get /v0/vnext/traces/sources/{id}`, "
+    "`get /v0/vnext/traces/artifacts/{id}`, `post /v0/vnext/context-packs`, `get /v0/vnext/workspace` (its sources and the "
+    "traceability items built from them) and `get /v0/vnext/connectors/{name}/status` now show a key with limits both copies of "
+    "the refs with the ids and a `null` quote, and drop an entry that names a source the key may not read; the stored row is not "
+    "changed"
+)
+ROWS_OTHERS = (
+    "the metadata of a quality rating (the artifact trace, `get /v0/vnext/quality-evals` and the workspace) and the allowed "
+    "sources and scope of a queued task (the workspace) are held to the same rule"
+)
+ROWS_DERIVED = (
+    "the artifact a queue worker makes prints the scope and the allowed sources of its task, and the report of a consolidation run "
+    "copies the refs of its members, so each is now derived from the memories and sources those structures name, in any spelling: "
+    "redacting a memory takes the artifact out of every route of a key with limits, and a report whose refs name a confidential "
+    "memory is labelled over it. a report or an artifact made by an earlier release keeps what it printed"
+)
+ROWS_CLI = (
+    "`alicebot vnext memories audit` with an agent key now authorizes the memory and its replacement chain as the audit route does "
+    "and holds the result to the reader; until now it returned the audit as stored to a key that reached it"
+)
+CHANGELOG_ROWS = (
+    "an entry beside such a ref that names nothing the caller may read is held to the same rule (a bare string and a `text` field go "
+    "with the `quote`), and so are the refs a source made by the agent-output ingest keeps (the source routes, the source trace, the "
+    "artifact trace, the context pack, the workspace and the connector status), the metadata of a quality rating and the allowed "
+    "sources and scope of a queued task; the report of a consolidation run and the artifact a queue worker makes are derived from "
+    "the memories their refs and tasks name, and `alicebot vnext memories audit` with an agent key applies the reader"
 )
 STRINGS = (
     "a refused memory takes the strings of every entry that names it: the `quote` and the `conversation_excerpt` become `null`, "
@@ -213,14 +259,41 @@ def test_the_tool_reference_lists_the_reference_keys_the_reader_takes_and_what_i
         FIELD_NAMES_GOES,
         FIELD_NAMES_WRITE_SIDE,
         COST,
+        COMPANION,
+        QUOTE_STRUCTURE,
     ):
         assert sentence in text, sentence
     note = _flat("security note")
     for sentence in (
         NOT_JUDGED, STRINGS, FIELD_NAMES, FIELD_NAMES_GOES, FIELD_NAMES_WRITE_SIDE, UNMARKED_NOTE, EVENTS_NOTE, COST,
-        WORKSPACE_DOORS_NOTE,
+        WORKSPACE_DOORS_NOTE, COMPANION, QUOTE_STRUCTURE,
     ):
         assert sentence in note, sentence
+
+
+def test_two_pages_say_which_other_rows_are_held_to_the_rule_in_an_unreleased_paragraph_of_their_own() -> None:
+    """The refs a source made by the agent-output ingest keeps, the metadata of a quality rating, the allowed sources and scope of a
+    queued task, the artifact a queue worker makes, the report of a consolidation run and the command line audit are held to the
+    caller by the same rule. The tool reference and the security note say so in one paragraph each, with the doors, what is derived
+    and what the stored row keeps, and the changelog says it in the entry of the saved quote.
+
+    Mutations: delete the paragraph from either page; delete the sentence about the doors; restore the sentence that said the
+    source route returns what was stored; delete the clause of the changelog entry.
+    """
+
+    for name in ("tool reference", "security note"):
+        text = _flat(name)
+        for sentence in (ROWS_PARAGRAPH, ROWS_DOORS, ROWS_OTHERS, ROWS_DERIVED, ROWS_CLI):
+            assert sentence in text, (name, sentence)
+        paragraphs = [
+            item
+            for item in re.split(r"\n\s*\n|\n(?=- )", (ROOT / PAGES[name]).read_text(encoding="utf-8"))
+            if ROWS_PARAGRAPH in " ".join(item.split()).lower()
+        ]
+        assert len(paragraphs) == 1, name
+        assert MARK in " ".join(paragraphs[0].split()), name
+        assert "returns what was stored subject to the route's current read fence" not in text, name
+    assert CHANGELOG_ROWS in _flat("changelog")
 
 
 def test_the_pages_list_the_field_names_a_withheld_entry_keeps_as_the_reader_does() -> None:
