@@ -74,7 +74,7 @@ STRINGS = (
 )
 COST = (
     "a ref that lists tens of thousands of ids is read in several passes and its ids are looked up in slices of 500, so each page "
-    "that returns the commit takes longer in proportion to the size of the ref, bounded by the body limit: about seven times as long "
+    "that returns the commit takes longer in proportion to the size of the ref, bounded by the body limit: about eight times as long "
     "at 100,000 ids on sqlite, against a few milliseconds more for a page of ordinary commits"
 )
 WORKSPACE_DOORS = (

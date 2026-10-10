@@ -310,7 +310,7 @@
           "line": 5,
           "before": "`GET /v0/vnext/doctor` and `POST /v0/vnext/doctor/run` now omit their content diagnostics for callers with limits: the owner and an unbound admin key receive the flagged-source ids and the derived-label counts, and a trusted key receives both checks as skipped, with no id, count or message taken from the vault. The flagged-source ids were returned to trusted keys in v0.20.0 and baseline main 48873b03.",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -983,7 +983,7 @@
           "line": 975,
           "before": "A call answered HTTP 404 changes nothing",
           "after": "A call answered HTTP 404 may change a thing",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -1015,7 +1015,7 @@
           "line": 7,
           "before": "disclosure, unauthorized modification and unauthorized deletion",
           "after": "disclosure",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -1147,7 +1147,7 @@
           "line": 975,
           "before": "the only row it adds is the policy event that the operator gate records for its own refusal",
           "after": "it adds no row",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -1163,7 +1163,7 @@
           "line": 975,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -1195,7 +1195,7 @@
           "line": 7,
           "before": "the count now covers only the rows the caller may read",
           "after": "the count now covers every row",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -1455,7 +1455,7 @@
           "line": 13,
           "before": "This is a known exception, not a way of meeting the requirement to filter hidden ids. ",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -1471,7 +1471,7 @@
           "line": 13,
           "before": "They grant no access. ",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -1487,7 +1487,7 @@
           "line": 19,
           "before": "The full-text stage does refill until its limit is met. ",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -1503,7 +1503,7 @@
           "line": 9,
           "before": "The exposure covers disclosure and unauthorized modification. The route code is identical",
           "after": "The route code is identical",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -1629,7 +1629,7 @@
           "line": 13,
           "before": "none of these is the member's text. ",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -1966,7 +1966,7 @@
           "line": 13,
           "before": "is answered exactly as for a missing id: the same status and body, or the same tool error, and no stored row changes. ",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -1982,7 +1982,7 @@
           "line": 13,
           "before": "The detail modes of `alice_explain` and `alice_memory_review` return them for a derived memory, such as a project update that lists the sources it was made from, and the list modes of the other memory tools return none of them.",
           "after": "The memory tools return none of them.",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -1998,7 +1998,7 @@
           "line": 15,
           "before": "That includes the policy events and the agent record: a key reads them back in its own policy telemetry, so a count that moved would tell it that the id named a row. ",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -2014,7 +2014,7 @@
           "line": 17,
           "before": " and write nothing. The owner and a key with no binding may file a loop under any stored project.",
           "after": ". The owner and a key with no binding may file a loop under any stored project.",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -2030,7 +2030,7 @@
           "line": 981,
           "before": "The call now writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry. ",
           "after": "",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -2174,7 +2174,7 @@
           "line": 13,
           "before": "Ids are not the only thing a report keeps. ",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -2190,7 +2190,7 @@
           "line": 15,
           "before": "An archived or redacted memory is read by no door but redact, and it is outside the limits of every key that has any, so a refused redact of one is answered and written exactly as a redact of a missing id is: HTTP 404 or the tool's not-found error, and no policy event and no agent record. ",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -2206,7 +2206,7 @@
           "line": 748,
           "before": "A refused `redact` of an archived or redacted row writes nothing, as a",
           "after": "A refused `redact` of an archived or redacted row is audited, as a",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -3888,7 +3888,7 @@
           "line": 13,
           "before": "The memory audit route (`GET /v0/vnext/memories/{id}/audit`) returns the same lists for a readable derived memory as stored",
           "after": "The memory audit route returns lists",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -3904,7 +3904,7 @@
           "line": 13,
           "before": "It is not the text, but it tells a caller who holds a text whether it is the one the source had. ",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -3920,7 +3920,7 @@
           "line": 13,
           "before": " `alice_explain` returns them while the source can be read and answers the memory of an archived source as unavailable.",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -3936,7 +3936,7 @@
           "line": 13,
           "before": " The scheduler's run records, in the workspace (`scheduler.recent_runs` and `scheduler.last_success_by_workflow`) and in the dogfooding view (`last_successful_scheduler_run`), carry the `artifact_id` of the report a run made, also after that report was made confidential.",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -3952,7 +3952,7 @@
           "line": 11,
           "before": "A chunk of a source has no label, so its `source_chunk.created` event takes the label of the source its payload names, and a chunk event that names no source, or one that is not stored, is not shown to a caller with limits. ",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -3968,7 +3968,7 @@
           "line": 11,
           "before": "An edge with an end of another kind, or an end that is not stored, cannot be shown to be readable and is not shown to a caller with limits either. ",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -4000,7 +4000,7 @@
           "line": 979,
           "before": "`GET /v0/vnext/memories/{id}/audit` returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, the ids of archived members included. ",
           "after": "",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -4726,7 +4726,7 @@
           "line": 13,
           "before": " And a memory commit whose",
           "after": " The graph neighborhood route returns the edges of any id with their explanations, which hold the titles and shared terms of the rows an edge joins, as the graph-edge limit named above says. And a memory commit whose",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -4758,7 +4758,7 @@
           "line": 13,
           "before": ", so a redacted memory's text stays in them",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -4790,7 +4790,7 @@
           "line": 979,
           "before": " The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only (see [Redacted memories](#redacted-memories)).",
           "after": "",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -5189,7 +5189,7 @@
           "line": 29,
           "before": "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -5221,7 +5221,7 @@
           "line": 1145,
           "before": "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -5285,7 +5285,7 @@
           "line": 1149,
           "before": "Archiving keeps reports' historical content and does not restrict them.",
           "after": "Archiving restricts them.",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -5301,7 +5301,7 @@
           "line": 29,
           "before": "only when that key may read every labelled row the edge joins and none of them is redacted",
           "after": "for every key",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -5367,7 +5367,7 @@
           "line": 29,
           "before": "A belief keeps the claim it copied from its memory",
           "after": "A belief keeps nothing of its memory",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -5417,7 +5417,7 @@
           "line": 1151,
           "before": "The recommended fix of the check is to regenerate or delete those reports, and not `alicebot vnext labels repair`",
           "after": "The recommended fix of the check is labels repair",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -5677,7 +5677,7 @@
           "line": 1159,
           "before": "only when that key may read every labelled row the edge joins and none of them is redacted",
           "after": "for every key",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -5693,7 +5693,7 @@
           "line": 1159,
           "before": "Unreleased (on main, not in v0.20.0): a graph edge has no label",
           "after": "Unreleased (on main, not in v0.20.0): the graph edges are the exception: they have no label",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -5709,7 +5709,7 @@
           "line": 1161,
           "before": "The only tools a key can call are the core tools",
           "after": "A key can call any tool",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -5725,7 +5725,7 @@
           "line": 287,
           "before": "It does not rewrite\n  the reports and cards made from the memory before: they keep the words they\n  copied",
           "after": "It rewrites\n  the reports and cards made from the memory before: they lose the words they\n  copied",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -5983,7 +5983,7 @@
           "line": 29,
           "before": "A project end that names the project by a name or by an id that finds no project row hides nothing",
           "after": "A project end hides every edge",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -5999,7 +5999,7 @@
           "line": 1159,
           "before": "A project end that names the project by a name or by an id that finds no project row hides nothing",
           "after": "A project end hides every edge",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -6031,7 +6031,7 @@
           "line": 13,
           "before": "Two answers show a little more, and they belong to this exception.",
           "after": "Three answers show a little more, and they belong to this exception.",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -6047,7 +6047,7 @@
           "line": 13,
           "before": " The words of a redacted memory are not read that way: a report that recorded a redacted memory is read by the owner and an unbound admin key only (see the paragraph on redacted memories), so no other key reads them.",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -6063,7 +6063,7 @@
           "line": 13,
           "before": "A key reads the words of an archived row as it read them in the report",
           "after": "A key reads the words of a row as it read them in the report",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -6111,7 +6111,7 @@
           "line": 979,
           "before": "but a report that recorded a redacted memory is read by the owner and an unbound admin key only (see [Redacted memories](#redacted-memories))",
           "after": "but a report that recorded a redacted memory is read like any other report (see [Redacted memories](#redacted-memories))",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -6127,7 +6127,7 @@
           "line": 979,
           "before": "and a key that can read the report reads those words; withholding them is tracked for v0.21.0 too.",
           "after": "withholding them is tracked for v0.21.0 too.",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -6159,7 +6159,7 @@
           "line": 5,
           "before": "baseline main 48873b03; it now lists only the edges whose ends the key may read (see the paragraph on redacted memories).",
           "after": "baseline main 48873b03; it still does (see the paragraph on redacted memories).",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -6191,7 +6191,7 @@
           "line": 975,
           "before": "and the rule that fences it is under [Graph edges and beliefs](#redacted-memories-and-the-graph).",
           "after": "and its limit is listed in the release security note.",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -6223,7 +6223,7 @@
           "line": 29,
           "before": "The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. ",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -6239,7 +6239,7 @@
           "line": 1159,
           "before": "The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. ",
           "after": "",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -6303,7 +6303,7 @@
           "line": 13,
           "before": "so a redacted memory's text stays in them. A key reads the words of an archived row",
           "after": "so a redacted memory's text can still be read in them. A key reads the words of an archived row",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -7883,7 +7883,7 @@
           "line": 31,
           "before": "Unreleased (on main, not in v0.20.0): the quote a commit saved of a memory is withheld from a caller who may not read that memory",
           "after": "Unreleased (on main, not in v0.20.0): the quote a commit saved of a memory is shown to every caller",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -7899,7 +7899,7 @@
           "line": 962,
           "before": "a quote saved of a memory follows that memory as a quote saved of a source follows its source",
           "after": "a quote saved of a memory is shown to every caller",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -7931,7 +7931,7 @@
           "line": 962,
           "before": "`memory_ids`, `memory_ref`, `memory_refs`, `memory_references`, `source_memory_ids`",
           "after": "`memory_ids`, `memory_ref`, `memory_refs`, `memory_references`, `source_memory_ids`, `memory_notes`",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -7963,7 +7963,7 @@
           "line": 1155,
           "before": "but not through recall, the context pack or the default context tree, because the default sensitivity filter of those three reads an unverified row as regulated.",
           "after": "and through recall, the context pack and the default context tree, because the default sensitivity filter of those three reads an unverified row as regulated.",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -7979,7 +7979,7 @@
           "line": 35,
           "before": "but not through recall, the context pack or the default context tree, because the default sensitivity filter of those three reads an unverified row as regulated.",
           "after": "and through recall, the context pack and the default context tree, because the default sensitivity filter of those three reads an unverified row as regulated.",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -8556,7 +8556,7 @@
           "line": 962,
           "before": "is looked up as well, because it may name a memory:",
           "after": "is not looked up, because it names no memory:",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -8572,7 +8572,7 @@
           "line": 31,
           "before": "and every other id in the ref, outside the text of a `quote` or `conversation_excerpt`, is looked up as well because it may name a memory",
           "after": "and an id with no marker outside those keys names no memory, so it is not looked up",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -8588,7 +8588,7 @@
           "line": 962,
           "before": "the `quote` and the `conversation_excerpt` become `null`, and so does any other text in the entry (a `text`, `excerpt`, `snippet` or `note` field, a sentence that has the id in it, or a string in a `memory_id`, `source_id`, `id` or `ref` field that holds more than an id), while the entry keeps its ids, its numbers and its booleans",
           "after": "the `quote` and the `conversation_excerpt` become `null` while the entry keeps every other field",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -8604,7 +8604,7 @@
           "line": 1155,
           "before": "A request that names every sensitivity lists them: the `sensitivity_allowed` argument of `alice_recall` and of the context pack, and the `sensitivity_allowed` query of the context tree.",
           "after": "A request that names every sensitivity (the `sensitivity_allowed` option of the context pack, the `sensitivity_allowed` query of the context tree) lists them. Recall takes no sensitivity argument, so it never lists them.",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -8620,7 +8620,7 @@
           "line": 35,
           "before": "A request that names every sensitivity lists them: the `sensitivity_allowed` argument of `alice_recall` and of the context pack, and the `sensitivity_allowed` query of the context tree.",
           "after": "A request that names every sensitivity (the `sensitivity_allowed` option of the context pack, the `sensitivity_allowed` query of the context tree) lists them. Recall takes no sensitivity argument, so it never lists them.",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -8636,7 +8636,7 @@
           "line": 962,
           "before": "and the three feeds of events (the recent events and the agent activity of the workspace, and the events of a source trace) hold that payload to the same rule as the events of one memory in its audit",
           "after": "and nothing else holds that payload",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -8668,7 +8668,7 @@
           "line": 37,
           "before": "is not contained. A project is contained when its state was copied from a memory that is then redacted.",
           "after": "is contained. A project is contained when its state was copied from a memory that is then redacted.",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -8910,7 +8910,7 @@
           "line": 962,
           "before": "recent events, agent activity and the source traces it embeds), the project dashboard",
           "after": "recent events and the source traces it embeds), the project dashboard",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -8926,7 +8926,7 @@
           "line": 31,
           "before": "recent events, agent activity and the source traces it embeds), the project dashboard",
           "after": "recent events and the source traces it embeds), the project dashboard",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -8958,7 +8958,7 @@
           "line": 962,
           "before": "and a `#` and what follows it after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`",
           "after": "and a `#` fragment after a reference is kept",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -8974,7 +8974,7 @@
           "line": 31,
           "before": "and a `#` and what follows it after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`",
           "after": "and a `#` fragment after a reference is kept",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -9006,7 +9006,7 @@
           "line": 962,
           "before": "Not judged: the name of a field, which is kept as written (a word used as a key cannot be told from a label); text in an entry",
           "after": "Not judged: text in an entry",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -9022,7 +9022,7 @@
           "line": 31,
           "before": "Not judged: the name of a field, which is kept as written (a word used as a key cannot be told from a label); text in an entry",
           "after": "Not judged: text in an entry",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
@@ -9036,9 +9036,9 @@
         {
           "file": "docs/alpha/mcp-tools.md",
           "line": 962,
-          "before": " A ref that lists tens of thousands of ids is read in several passes and its ids are looked up in slices of 500, so each page that returns the commit takes longer in proportion to the size of the ref, bounded by the body limit: about seven times as long at 100,000 ids on SQLite, against a few milliseconds more for a page of ordinary commits.",
+          "before": " A ref that lists tens of thousands of ids is read in several passes and its ids are looked up in slices of 500, so each page that returns the commit takes longer in proportion to the size of the ref, bounded by the body limit: about eight times as long at 100,000 ids on SQLite, against a few milliseconds more for a page of ordinary commits.",
           "after": "",
-          "sha256": "6243aac823c3d711ebd3fe276e468eee40877edbfdfdc899b5d3f0c39484bb28"
+          "sha256": "42de1707f62b8458ba4d7eb428ff0cfbfab78c168de9c9f1d14abf063111bc53"
         }
       ],
       "pytest": [
@@ -9052,9 +9052,9 @@
         {
           "file": "docs/release/derived-labels-security-note-draft.md",
           "line": 31,
-          "before": " A ref that lists tens of thousands of ids is read in several passes and its ids are looked up in slices of 500, so each page that returns the commit takes longer in proportion to the size of the ref, bounded by the body limit: about seven times as long at 100,000 ids on SQLite, against a few milliseconds more for a page of ordinary commits.",
+          "before": " A ref that lists tens of thousands of ids is read in several passes and its ids are looked up in slices of 500, so each page that returns the commit takes longer in proportion to the size of the ref, bounded by the body limit: about eight times as long at 100,000 ids on SQLite, against a few milliseconds more for a page of ordinary commits.",
           "after": "",
-          "sha256": "46951f37418703c5964f1bb37dce72b670cd80a78394bd6dfb668622c42c974b"
+          "sha256": "b1a1a4469f8538f05900f9013464eb5ff99ea3392d96b4cae7caf60de4989b5b"
         }
       ],
       "pytest": [
