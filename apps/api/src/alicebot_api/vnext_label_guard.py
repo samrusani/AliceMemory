@@ -49,6 +49,7 @@ from alicebot_api.vnext_label_sql import (
     EVENT_PAYLOAD_REFERENCES,
     EVENT_TARGET_KINDS,
     EVENT_TYPE_REFERENCES,
+    EVENT_UNJUDGED_TARGETS,
 )
 from alicebot_api.vnext_project_scope import project_floor_shape, project_scope_identity, project_scopes_overlap, resolve_project_scope
 
@@ -933,8 +934,9 @@ class LabelGuard:
 
         It names its target, when the target is a labelled row or an edge, and every id in the payload fields that hold
         the id of a labelled row (see ``event_references``). A chunk of a source has no label, so its event takes the
-        label of the source it names. An event whose target has no label and whose payload names no row is admitted,
-        except a ``labels_raised`` event, which says what a label was.
+        label of the source it names. An event about a row whose label the guard cannot read (a continuity object,
+        see ``EVENT_UNJUDGED_TARGETS``) is not admitted. An event whose target has no label and whose payload names no row
+        is admitted, except a ``labels_raised`` event, which says what a label was.
 
         A connector event also records a cursor (see ``CONNECTOR_EVENT_CURSOR_FIELDS``), and for a file or a page that is
         its path or its address. An admitted event shows each cursor only when the caller may read the source it came
@@ -959,6 +961,8 @@ class LabelGuard:
         named = []
         wanted: dict[tuple[str, bool], list[str]] = {}
         for row in rows:
+            if str(row.get("target_type")) in EVENT_UNJUDGED_TARGETS:
+                continue
             references = [(kind, row_id, False) for kind, row_id in event_target_references(row)]
             references.extend((kind, row_id, True) for kind, row_id in event_payload_references(row))
             named.append((row, references))

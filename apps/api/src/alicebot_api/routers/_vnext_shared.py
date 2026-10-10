@@ -314,13 +314,21 @@ def _vnext_load_source_trace(
     the response carries neither its title nor its id.
     """
 
-    from alicebot_api.vnext_agent_control import AgentIdentity
-    from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling
+    from alicebot_api.vnext_agent_control import AgentIdentity, AgentPolicyBlockedError
+    from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling, guard_for_caller
     from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
 
     caller = identity if isinstance(identity, AgentIdentity) else None
     if not apply_sensitivity_ceiling(store, kind="source", rows=[source], identity=caller):
         return None
+    read_fence = SourceReadFence.for_identity(caller)
+    event_guard = None
+    if read_fence.entity_read_fenced:
+        try:
+            event_guard = guard_for_caller(store, caller)
+        except AgentPolicyBlockedError:
+            # A profile the operator gate refuses never reaches here. If one did, the trace is answered as a missing one.
+            return None
     source_id = str(source["id"])
     memories, memories_complete = _vnext_readable_trace_rows(
         store, "memory", lambda limit: store.list_memories_referencing_source(source_id=source_id, limit=limit), caller
@@ -331,7 +339,7 @@ def _vnext_load_source_trace(
     open_loops, open_loops_complete = _vnext_readable_trace_rows(
         store, "open_loop", lambda limit: store.list_open_loops_referencing_source(source_id=source_id, limit=limit), caller
     )
-    open_loops = withhold_unreadable_references(store, open_loops, fence=SourceReadFence.for_identity(caller))
+    open_loops = withhold_unreadable_references(store, open_loops, fence=read_fence)
     kept_ids = {str(row.get("id")) for row in (*memories, *artifacts, *open_loops)}
     kept_ids.add(source_id)
     events, direct_events_complete = _vnext_readable_trace_rows(
@@ -342,8 +350,11 @@ def _vnext_load_source_trace(
             open_loop_ids=[str(open_loop["id"]) for open_loop in open_loops],
             limit=limit,
         ), caller,
-        admit=(lambda rows: [event for event in rows if str(event.get("target_id") or "") in kept_ids])
-        if SourceReadFence.for_identity(caller).entity_read_fenced else None,
+        # A caller with limits sees the events that target the source or a row kept above, and only those that name no row
+        # it may not read (a correction names the memory that replaced the target in its payload). The owner and an
+        # unbound admin key keep every event of the source.
+        admit=(lambda rows: event_guard.admit_events([event for event in rows if str(event.get("target_id") or "") in kept_ids]))
+        if event_guard is not None else None,
     )
     events_complete = direct_events_complete and memories_complete and artifacts_complete and open_loops_complete
     return _vnext_source_trace(

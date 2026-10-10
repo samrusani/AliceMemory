@@ -28,7 +28,7 @@ def test_events_that_name_a_row_are_judged_alike_by_the_native_count_the_list_an
                 return store.iter_label_events()
 
         shown, withheld = assert_events_are_judged_by_the_rows_they_name(store, oracle=PerTarget(), beliefs=True)
-    assert len(shown) == 18 and len(withheld) == 32
+    assert len(shown) == 18 and len(withheld) == 33
 
 
 def test_a_source_event_that_names_another_row_leaves_the_native_source_count(label_harness):
@@ -190,3 +190,48 @@ def test_a_correction_that_replaces_a_memory_names_the_replacement_and_the_repla
         assert not [event for event in kept if event["event_type"] == "memory.reviewed" and replacement in json.dumps(event, default=str)]
     # The count the workspace gives a trusted key is the number of events it may be shown, the corrected memory's included.
     assert workspace["summary"]["event_count"] == count
+
+
+def test_the_policy_event_of_an_explain_of_a_continuity_object_is_shown_to_the_owner_and_an_unbound_admin_only(label_harness, monkeypatch):
+    """A key-bound explain of a continuity object leaves a policy event that names the object, and only for an object the key's
+    policy allows. The labels of the object sit in its provenance, in the legacy store, so the guard cannot show that a
+    reader with narrower limits may read it: the event is not shown to a caller with limits, in the feed or in the count.
+    """
+    from alicebot_api.mcp.registry import call_mcp_tool
+    from alicebot_api.mcp.types import MCPRuntimeContext
+    from alicebot_api.store import ContinuityStore
+
+    h = label_harness
+    ids = {}
+    with h.store() as store:
+        legacy = ContinuityStore(store.conn)
+        for name, provenance in (("default", {}), ("confidential", {"sensitivity": "confidential", "domain": "project"})):
+            capture = legacy.create_continuity_capture_event(raw_content=f"Decision: {name}", explicit_signal="decision", admission_posture="DERIVED", admission_reason="explicit_signal_decision")
+            ids[name] = str(legacy.create_continuity_object(capture_event_id=capture["id"], object_type="Decision", status="active", title=f"Decision: {name}", body={"decision_text": name}, provenance=provenance, confidence=0.9)["id"])
+    admin, trusted = h.key("admin_agent"), h.key("trusted_local_agent")
+    context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+    for key in (admin, trusted):
+        monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
+        for object_id in ids.values():
+            try:
+                call_mcp_tool(context, name="alice_explain", arguments={"continuity_object_id": object_id})
+            except Exception:  # noqa: BLE001 - only the policy event that the authorization wrote is read
+                pass
+    monkeypatch.delenv("ALICE_AGENT_API_KEY")
+    with h.store() as store:
+        written = [event for event in store.list_events() if event["target_type"] == "continuity_object"]
+        # The admin key is allowed both objects and the trusted key the one that carries no label, and no key left an event
+        # for an object it may not read.
+        assert sorted(event["target_id"] for event in written) == sorted([ids["default"], ids["confidential"], ids["default"]])
+        assert all(event["event_type"] == "policy.decision" for event in written)
+        kept, count = _readable_events(store)
+        assert count == len(kept)
+        assert not [event for event in kept if event["target_type"] == "continuity_object"]
+    status, workspace, _ = h.request("GET", "/v0/vnext/workspace", key=trusted)
+    assert status == 200, workspace
+    for feed in (workspace["recent_events"], workspace["agent_activity"]["recent_events"]):
+        assert not [event for event in feed if event["target_type"] == "continuity_object"]
+        assert not [event for event in feed if any(object_id in json.dumps(event, default=str) for object_id in ids.values())]
+    status, workspace, _ = h.request("GET", "/v0/vnext/workspace", key=admin)
+    assert status == 200, workspace
+    assert [event for event in workspace["agent_activity"]["recent_events"] if event["target_type"] == "continuity_object"]
