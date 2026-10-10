@@ -10,8 +10,9 @@ by the admin key (no limits, the control) and by the trusted key (the ceiling: p
 ``redacted_family=True`` adds a public memory that is redacted through the route before the vault is returned, and the rows
 that hold or point at its words: a derived commit, a derived loop, a derived report and a derived project state (copies that
 redaction contains with the reports), and four commits that quote the memory, one with the ref ``{"memory_id": ..., "quote":
-...}``, one with the two entries ``"memory:<id>"`` and ``{"quote": ...}``, one held for review, and one that asked for an inline
-confirmation and was confirmed (the lifecycle whose event holds the refs the commit was sent with). The memory is not above any
+...}``, one with the two entries ``"memory:<id>"`` and ``{"quote": ...}``, one held for review, and two that asked for an inline
+confirmation and were confirmed, one by the owner and one by the admin key (the lifecycle whose event holds the refs the commit was
+sent with; the admin key's event is an agent event, which the workspace lists in its agent activity). The memory is not above any
 ceiling, so it is hidden from a key with limits only because it is redacted. The commits that quote it are public and readable,
 and carry shown text of their own: a restricted key may read the commit and must not read the quote. It is off by default so the
 tests that count the rows of the vault keep their numbers; ``tests/integration/test_saved_quote_memory_refs_postgres.py`` sweeps
@@ -142,8 +143,9 @@ class Vault:
             self._redacted_project()
         self._connector_sync_again()
         if self.redacted_family:
-            # Last, so its events are among the newest the workspace lists.
+            # Last, so their events are among the newest the workspace lists.
             self._confirmed_quote()
+            self._confirmed_quote_by_an_agent()
         return self
 
     def _source(self, store, name: str, *, hidden: bool, sensitivity: str):
@@ -564,6 +566,47 @@ class Vault:
                 identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm"
             )
         self.ids["commit_confirmed_quotes_redacted"] = str(asked["memory"]["id"])
+
+    def _confirmed_quote_by_an_agent(self) -> None:
+        """A commit that quotes the redacted memory, asks for an inline confirmation and is confirmed by the admin key.
+
+        The confirmation appends the same ``memory.updated`` event as the owner's, with the actor an agent, and the workspace lists
+        the events an agent caused in a feed of their own (``agent_activity.recent_events``, the newest fifty). That feed admits the
+        event by the commit it is about, which a restricted key may read, and the payload holds the refs and the excerpt the commit
+        was sent with. It is the last row of the vault, so its event is the newest of that feed; an owner vault has no agent, and
+        the feed holds nothing of it.
+        """
+
+        words = self.text("memory_redacted-text")
+        status, body = self.admin_request(
+            "POST",
+            "/v0/vnext/memories/commit",
+            {
+                "title": self._text("commit_agent_confirmed_quotes_redacted-title", hidden=False),
+                "canonical_text": self._text("commit_agent_confirmed_quotes_redacted-text", hidden=False),
+                "memory_type": "fact",
+                "domain": "project",
+                "sensitivity": "public",
+                "confidence": 0.6,
+                "source_type": "agent",
+                "source_refs": [{"memory_id": self.ids["memory_redacted"], "quote": words}],
+                "conversation_excerpt": words,
+            },
+        )
+        assert status in {200, 201} and body["status"] == "confirmation_required", (status, str(body)[:300])
+        status, confirmed = self.admin_request(
+            "POST", "/v0/vnext/memories/confirm", {"confirmation_id": body["memory"]["confirmation_id"], "action": "confirm"}
+        )
+        assert status == 200, (status, str(confirmed)[:300])
+        self.ids["commit_agent_confirmed_quotes_redacted"] = str(body["memory"]["id"])
+        if self.owner:
+            return
+        with self.harness.store() as store:
+            feed = store.list_agent_events(limit=50)
+        assert any(
+            event["event_type"] == "memory.updated" and str(event["target_id"]) == self.ids["commit_agent_confirmed_quotes_redacted"]
+            for event in feed
+        ), "the confirmation is an agent event inside the newest fifty, so the workspace lists it in its agent activity"
 
     def _queue_task(self) -> None:
         for name, hidden, sensitivity in (("task_hidden", True, "confidential"), ("task_shown", False, "public")):

@@ -163,6 +163,10 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     agent_identities = store.list_agent_identities(limit=20)
     agent_count = store.count_agent_identities()
     agent_events = guard.newest_admitted_events(lambda size: store.list_agent_events(limit=size), want=50)
+    # The agent feed is the events an agent key caused, and an agent that confirms or edits a commit appends the same event with
+    # the same payload as the recent events carry. The activity list and the policy blocks drawn from it are held to the rule too.
+    if saved_quotes is not None:
+        agent_events = saved_quotes.events(agent_events)
     list_recent_agentic_commits = getattr(store, "list_recent_agentic_commits", None)
     list_pending_inline_confirmations = getattr(store, "list_pending_inline_confirmations", None)
     memory_commit_service = VNextMemoryCommitService(store)

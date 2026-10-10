@@ -161,6 +161,24 @@ class Vault:
         service.confirm(identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm")
         self.commits[name] = str(asked["memory"]["id"])
 
+    def _confirmed_by_an_agent(self, store) -> None:
+        """The same lifecycle with an agent key doing it: the confirmation appends the ``memory.updated`` event with an agent for its
+        actor, which the workspace lists in the agent activity as well as among the recent events."""
+
+        service = VNextMemoryCommitService(store)
+        identity = _identity_of("admin")
+        name = "confirmed by an agent"
+        request = MemoryCommitRequest(
+            user_id=str(self.user), title=f"Follow up {name}", canonical_text=f"Follow up on the games note {name}",
+            memory_type="semantic", domain="project", sensitivity="public", confidence=0.6,
+            source_refs=({"memory_id": self.cited_id, "quote": _quote(self.sentinel, name)},),
+            conversation_excerpt=_quote(self.sentinel, f"{name} excerpt"), project_scope=(ALPHA,),
+        )
+        asked = service.commit(identity=identity, request=request)
+        assert asked["status"] == "confirmation_required", asked
+        service.confirm(identity=identity, confirmation_id=asked["memory"]["confirmation_id"], action="confirm")
+        self.commits[name] = str(asked["memory"]["id"])
+
     def _commit_every_spelling(self, store) -> None:
         """One commit per spelling of a memory ref. Each quote holds the sentinel and a tag of its own."""
 
@@ -219,7 +237,18 @@ class Vault:
         if self.unmarked:
             self._commit(store, "memory id and a quote entry", [f"alice://memory/{m}", {"quote": q("memory id and a quote entry")}])
             self._commit(store, "sentence with the words", [f"{q('sentence with the words')} (see memory {m})"])
+        # Words typed behind the id: in a fragment of a reference, and after the id in a field that holds an id.
+        for name, ref in {
+            "memory prefix and a fragment": f"memory:{m}#{q('memory prefix and a fragment').replace(' ', '-')}",
+            "alice url and a fragment": f"alice://memories/{m}#{q('alice url and a fragment').replace(' ', '-')}",
+            "text directive": f"memory:{m}#:~:text={q('text directive').replace(' ', '%20')}",
+            "ref key and a fragment": {"ref": f"memory:{m}#{q('ref key and a fragment').replace(' ', '-')}"},
+            "memory_id and a fragment": {"memory_id": f"{m}#{q('memory_id and a fragment').replace(' ', '-')}"},
+            "memory_id and words": {"memory_id": f"{m}: {q('memory_id and words')}"},
+        }.items():
+            self._commit(store, name, [ref])
         self._confirmed_commit(store)
+        self._confirmed_by_an_agent(store)
 
     def _cite_in_the_capture(self, store) -> None:
         """The source trace lists a memory whose metadata names the source at the top (a memory proposal keeps the refs it was
@@ -445,6 +474,42 @@ def _event_feed(vault: "Vault", who: str | None) -> dict[str, object]:
         return {"body": feed}
 
 
+def _agent_event_feed(vault: "Vault", who: str | None) -> dict[str, object]:
+    """The agent activity of the workspace for one caller: the events an agent key caused that its guard admits, then the reader of
+    saved quotes. This is the code ``GET /v0/vnext/workspace`` runs for ``agent_activity.recent_events``, on the SQLite store
+    (``tests/unit/test_saved_quote_memory_refs_doors.py`` runs the whole workspace builder on a stub store). The workspace asks for
+    the newest 50, and every read of a door by a key appends events of its own, so the source of events here is the agent events
+    about the commits, as ``_event_feed`` takes the events about them."""
+
+    from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope, sensitivity_ceiling
+    from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
+
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        store = SQLiteVNextStore(conn, vault.user)
+        identity = _identity_of(who) if who is not None else None
+        allowed = ["public", "internal", "private", "unknown"]
+        ceiling = sensitivity_ceiling(identity)
+        if ceiling is not None:
+            allowed = [value for value in allowed if value in ceiling]
+        projects = identity.project_scope if identity is not None else ()
+        guard = LabelGuard.for_filters(
+            store, (), allowed, projects, all_of=projects if identity is not None and identity.project_scope_locked else None
+        )
+        fence = SourceReadFence.for_identity(identity)
+        if not fence.entity_read_fenced:
+            guard = LabelGuard(store=store, active=False)
+        commits = set(vault.commits.values())
+
+        def newest(size: int) -> list[dict[str, object]]:
+            return [event for event in store.list_agent_events(limit=100_000) if str(event["target_id"]) in commits][:size]
+
+        with label_read_scope(store):
+            feed = guard.newest_admitted_events(newest, want=1000)
+        if fence.entity_read_fenced:
+            feed = SavedProvenanceReader(store, fence=fence).events(feed)
+        return {"body": feed}
+
+
 def _text(answer: dict[str, object] | None) -> str:
     return json.dumps(answer["body"], default=str) if answer is not None else ""
 
@@ -464,6 +529,7 @@ def _keyed_doors(vault: Vault, who: str) -> dict[str, dict[str, object] | None]:
         answers[f"explain {name}"] = vault.try_call(who, "alice_explain", {"memory_id": memory_id})
         answers[f"review detail {name}"] = vault.try_call(who, "alice_memory_review", {"review_item_id": memory_id})
     answers["event feed"] = _event_feed(vault, who)
+    answers["agent event feed"] = _agent_event_feed(vault, who)
     answers["review list"] = vault.try_call(who, "alice_memory_review", {"status": "all", "limit": 100})
     answers["pack"] = vault.try_call(who, "alice_context_pack", {"query": "Follow up on the games note"})
     answers["recall"] = vault.try_call(who, "alice_recall", {"query": "Follow up on the games note", "limit": 50})
@@ -498,6 +564,7 @@ def test_the_control_finds_the_quote_at_every_door_before_the_memory_changes(vau
         assert any(door.startswith("explain") for door in carried), who
         assert any(door.startswith("review detail") for door in carried), who
         assert "event feed" in carried, (who, "the confirmed commit's event carries the quote")
+        assert "agent event feed" in carried, (who, "the event of the commit an agent confirmed carries the quote")
         if who in {"admin", "trusted"}:
             assert "recent_commits route" in carried and "recent_commits route limit 1" in carried, who
             assert any(door.startswith("audit route") for door in carried), who
@@ -602,6 +669,13 @@ def test_the_id_of_the_cited_memory_stays_and_the_rest_of_the_commit_is_untouche
     assert refs("upper case") == [{"memory_id": vault.cited_id.upper(), "quote": None}]
     assert json.loads(refs("json text")[0]) == {"memory_id": vault.cited_id, "quote": None}
     assert refs("alice url") == [f"alice://memories/{vault.cited_id}", {"quote": None}]
+    # Words typed behind the id go with the quote; the reference stays without its fragment.
+    assert refs("memory prefix and a fragment") == [f"memory:{vault.cited_id}"]
+    assert refs("alice url and a fragment") == [f"alice://memories/{vault.cited_id}"]
+    assert refs("text directive") == [f"memory:{vault.cited_id}"]
+    assert refs("ref key and a fragment") == [{"ref": f"memory:{vault.cited_id}"}]
+    assert refs("memory_id and a fragment") == [{"memory_id": vault.cited_id}]
+    assert refs("memory_id and words") == [{"memory_id": None}]
 
 
 def test_the_conversation_excerpt_of_a_commit_that_cites_an_unreadable_memory_is_withheld(vault: Vault) -> None:

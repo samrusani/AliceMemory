@@ -121,16 +121,18 @@ product removes one. All the ids of all the rows of a read are looked up in slic
 A memory is readable when its policy allows it now (``admits_memory`` on the row's effective labels; a memory that is
 archived, redacted or outside the fence is refused alike). A refused memory withholds the words the row saved: the three
 copies are removed, and every string of an entry that names it is set to ``null`` except the ids (``_withhold_entry_text``: the
-``quote`` and ``conversation_excerpt``, any other text such as a ``text``, ``excerpt``, ``snippet`` or ``note`` field, and a
-sentence that has the id in it; an id, a string that is a reference, anything under a reference key, a number and a boolean
-stay, because an id alone is covered by the hidden-ids disclosure). The quote of an entry beside it that names nothing goes too
+``quote`` and ``conversation_excerpt``, any other text such as a ``text``, ``excerpt``, ``snippet`` or ``note`` field, a
+sentence that has the id in it, and a string in a ``memory_id``, ``source_id``, ``id`` or ``ref`` field that holds more than an
+id; a string made of references and nothing else (``<id>``, ``memory:<id>``, a list of them), a number and a boolean stay, and a
+``#`` fragment after a reference is dropped, because an id alone is covered by the hidden-ids disclosure and a fragment is a
+place to type words). The quote of an entry beside it that names nothing goes too
 (the shape ``"memory:<id>"`` followed by ``{"quote": ...}``), and the same applies beside a refused source, whose entry is
 dropped whole. The owner and an unbound ``admin_agent`` key have no limits and keep every quote. The memories of a row are
-looked up only when the row holds words to withhold (a quote, an excerpt, or a string beside an id: ``_holds_words``), so a
-roll-up card that lists its members as bare ``memory:<id>`` references costs no read.
+looked up only when the row holds words to withhold (a quote, an excerpt, a ``#`` fragment, or any string that is not made of
+references: ``_holds_words``), so a roll-up card that lists its members as bare ``memory:<id>`` references costs no read.
 
-The events of a feed (the workspace's recent events, the events of a source trace) hold the changes a commit was confirmed or
-edited with, and those changes hold the refs and the quote it was sent with. The feed admits an event by the row it is about, so
+The events of a feed (the workspace's recent events and its agent activity, the events of a source trace) hold the changes a
+commit was confirmed or edited with, and those changes hold the refs and the quote it was sent with. The feed admits an event by the row it is about, so
 ``SavedProvenanceReader.events`` holds the payload to the same rule as the events of one memory in its audit.
 
 A ref string is stored as sent and the proposal door bounds only the size of the
@@ -996,43 +998,52 @@ def _withhold_quote_text(value: object, texts: set[str] | None, depth: int = 0) 
     return value
 
 
-# The keys whose strings are ids. An entry that names a refused memory keeps what is under them, because an id alone is
-# covered by the hidden-ids disclosure; every other string in the entry is text somebody typed.
-_ID_KEYS = MEMORY_REFERENCE_KEYS | _REFERENCE_KEYS | _OWN_ID_KEYS
+_SEPARATED = re.compile(r"([\s,;|]+)")
 
 
 def _is_reference_word(word: str) -> bool:
     """True when ``word`` is an id, or an id behind a marker that says what it names (``memory:``, ``source:``, an
-    ``alice://memories/`` or ``alice://sources/`` URL), optionally with a ``#fragment`` after it."""
+    ``alice://memories/`` or ``alice://sources/`` URL), and nothing else. A ``#`` and what follows it is not part of a reference."""
 
     start = _marked_memory_start(word) or _source_prefixes_end(word)
     if not start and word[: len(_ALICE_SOURCE_URL)].lower() == _ALICE_SOURCE_URL:
         start = len(_ALICE_SOURCE_URL)
-    rest = word[start:]
-    if _uuid_text(rest) is not None:
-        return True
-    found = _ID_IN_TEXT.match(rest)
-    return found is not None and (found.end() == len(rest) or rest[found.end()] == "#")
+    return _uuid_text(word[start:]) is not None
 
 
-def _is_reference_text(text: str) -> bool:
-    """True when ``text`` is made of references and nothing else (``memory:<id>``, a list of ids, an id): nothing a person
-    typed. Text with any other word in it (a sentence, a URL, a label) is not."""
+def _canonical_references(text: str) -> str | None:
+    """``text`` as the references it is made of and nothing else, or None when it is anything more.
 
-    words = [word for word in _TOKEN_BREAK.split(text.strip()) if word]
-    return all(_is_reference_word(word) for word in words)
+    A reference is an id, or an id behind a marker (``memory:<id>``, ``source:<id>``, an ``alice://memories/<id>`` URL). The text
+    may hold several, apart by whitespace, commas, semicolons or bars, and they stay as they were written. A ``#`` after a
+    reference and everything behind it is dropped (``memory:<id>#chunk-1`` reads ``memory:<id>``): a fragment is a page anchor
+    in a link, and also a place where a person can type any words that have no space in them, so an entry that names a refused
+    memory keeps the reference and not the fragment. A string with any other word in it (a sentence, a URL, a label, an id
+    with punctuation or words after it) is not made of references. The text is walked once.
+    """
+
+    pieces = _SEPARATED.split(text)
+    for index in range(0, len(pieces), 2):
+        word = pieces[index]
+        if not word:
+            continue
+        head = word.split("#", 1)[0]
+        if not _is_reference_word(head):
+            return None
+        pieces[index] = head
+    return "".join(pieces)
 
 
-def _withhold_entry_text(value: object, texts: set[str] | None, depth: int = 0, *, id_key: bool = False) -> object:
+def _withhold_entry_text(value: object, texts: set[str] | None, depth: int = 0) -> object:
     """``value``, an entry of a ref list that names a refused memory, with every string in it set to ``None`` except the ids.
 
     A ``quote`` or ``conversation_excerpt`` at any depth goes, as ``_withhold_quote_text`` does it. So does every other string
-    that is not an id: a ``text``, an ``excerpt``, a ``snippet``, a ``note``, or a sentence that has the id in it, because
-    the entry says whose words they are and nothing says they are not the memory's. What stays is a string that is a
-    reference (an id, ``memory:<id>``, a list of them) and anything under a reference key (``memory_id``, ``source_id``,
-    ``id``, ``ref``), and every number and boolean. A string that is JSON text is decoded, held to the same rule and encoded
-    again. The same object when nothing changes. ``texts`` collects the words that are withheld, so a copy of them on a link is
-    withheld too.
+    that is not an id: a ``text``, an ``excerpt``, a ``snippet``, a ``note``, a sentence that has the id in it, and a string
+    under ``memory_id``, ``source_id``, ``id`` or ``ref`` that holds more than an id, because the entry says whose words they are
+    and nothing says they are not the memory's. What stays is a string made of references and nothing else (an id,
+    ``memory:<id>``, a list of them), without the ``#`` fragment of a reference (``_canonical_references``), and every number and
+    boolean. A string that is JSON text is decoded, held to the same rule and encoded again. The same object when nothing
+    changes. ``texts`` collects the words that are withheld, so a copy of them on a link is withheld too.
     """
 
     if depth > _SCRUB_DEPTH:
@@ -1049,22 +1060,23 @@ def _withhold_entry_text(value: object, texts: set[str] | None, depth: int = 0, 
                         texts.add(text)
                 rebuilt[key] = None
                 continue
-            scrubbed = _withhold_entry_text(child, texts, depth + 1, id_key=lowered in _ID_KEYS)
+            scrubbed = _withhold_entry_text(child, texts, depth + 1)
             changed = changed or scrubbed is not child
             rebuilt[key] = scrubbed
         return rebuilt if changed else value
     if isinstance(value, (list, tuple)):
-        items = [_withhold_entry_text(child, texts, depth + 1, id_key=id_key) for child in value]
+        items = [_withhold_entry_text(child, texts, depth + 1) for child in value]
         if all(new is old for new, old in zip(items, value, strict=True)):
             return value
         return items if isinstance(value, list) else tuple(items)
     if isinstance(value, str):
         nested = _json_container(value)
         if nested is not None:
-            scrubbed = _withhold_entry_text(nested, texts, depth + 1, id_key=id_key)
+            scrubbed = _withhold_entry_text(nested, texts, depth + 1)
             return value if scrubbed is nested else json.dumps(scrubbed, ensure_ascii=False)
-        if id_key or _is_reference_text(value):
-            return value
+        references = _canonical_references(value)
+        if references is not None:
+            return references
         if texts is not None and (text := _quote_text(value)) is not None:
             texts.add(text)
         return None
@@ -1073,12 +1085,13 @@ def _withhold_entry_text(value: object, texts: set[str] | None, depth: int = 0, 
 
 def _holds_words(value: object) -> bool:
     """True when ``value`` holds words to withhold from a reader who may not read the memory it cites: a ``quote`` or
-    ``conversation_excerpt`` with words in it, or any string that is not an id and not under a reference key, at any depth
-    (JSON text included). A list of references alone (``memory:<id>`` and the like) holds none."""
+    ``conversation_excerpt`` with words in it, or any string that is not made of references and nothing else (a ``#`` fragment
+    is words), at any depth (JSON text included), under a reference key as well. A list of references alone (``memory:<id>``
+    and the like) holds none."""
 
-    pending: list[tuple[object, bool]] = [(value, False)]
+    pending: list[object] = [value]
     while pending:
-        node, id_key = pending.pop()
+        node = pending.pop()
         if isinstance(node, Mapping):
             for key, child in node.items():
                 lowered = key.lower() if isinstance(key, str) else ""
@@ -1086,14 +1099,14 @@ def _holds_words(value: object) -> bool:
                     if _quote_text(child) is not None:
                         return True
                 else:
-                    pending.append((child, lowered in _ID_KEYS))
+                    pending.append(child)
         elif isinstance(node, (list, tuple)):
-            pending.extend((child, id_key) for child in node)
+            pending.extend(node)
         elif isinstance(node, str):
             nested = _json_container(node)
             if nested is not None:
-                pending.append((nested, id_key))
-            elif not id_key and not _is_reference_text(node):
+                pending.append(nested)
+            elif _canonical_references(node) != node:
                 return True
     return False
 
@@ -1455,8 +1468,9 @@ class SavedProvenanceReader:
       every other id of the ref outside the text of a quote) and the caller may not read now (missing where a marker says it is a
       memory, archived, redacted, outside the fence, or unverified because an input of it was redacted) withholds the quotes the
       same way, with differences: the entry that names it stays, with its ids, its numbers and its booleans, and every other
-      string in it becomes ``None`` (the ``quote`` and ``conversation_excerpt`` and any other text), because an id alone is covered
-      by the hidden-ids disclosure. The quote of an entry beside such a ref that names nothing goes too, in a list that holds a
+      string in it becomes ``None`` (the ``quote`` and ``conversation_excerpt`` and any other text, a string in an id field that
+      holds more than an id included), and a ``#`` fragment after a reference is dropped, because an id alone is covered by the
+      hidden-ids disclosure and a fragment is a place to type words. The quote of an entry beside such a ref that names nothing goes too, in a list that holds a
       refused memory or a refused source. An id that no marker says is a memory is refused only when it names a memory the store
       holds a row for. The memories of a row are looked up only when the row holds words to withhold, and not at all for the owner
       and for an unbound admin key, who have no limits. ``events`` holds the events of a feed to the same rule.

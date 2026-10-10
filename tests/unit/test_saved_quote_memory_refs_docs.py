@@ -60,13 +60,30 @@ KEEPS = {
     "changelog": "the owner and an unbound admin key keep the quote",
 }
 NOT_JUDGED = (
-    "text in an entry that names no id, beside an entry that does (only its `quote` and `conversation_excerpt` are withheld), and "
-    "`alice_explain` for a call that declares a profile with no agent key, which was never held to it"
+    "not judged: the name of a field, which is kept as written (a word used as a key cannot be told from a label); text in an "
+    "entry that names no refused memory, beside an entry that does (an entry that names nothing loses its `quote` and "
+    "`conversation_excerpt`, and no other string); and `alice_explain` for a call that declares a profile with no agent key, "
+    "which was never held to it"
 )
 STRINGS = (
     "a refused memory takes the strings of every entry that names it: the `quote` and the `conversation_excerpt` become `null`, "
-    "and so does any other text in the entry (a `text`, `excerpt`, `snippet` or `note` field, or a sentence that has the id in "
-    "it), while the entry keeps its ids, its numbers and its booleans"
+    "and so does any other text in the entry (a `text`, `excerpt`, `snippet` or `note` field, a sentence that has the id in it, "
+    "or a string in a `memory_id`, `source_id`, `id` or `ref` field that holds more than an id), while the entry keeps its ids, its "
+    "numbers and its booleans; an id here is a string made of references and nothing else (`<id>`, `memory:<id>`, a list of "
+    "them), and a `#` and what follows it after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`"
+)
+COST = (
+    "a ref that lists tens of thousands of ids is read in several passes and its ids are looked up in slices of 500, so each page "
+    "that returns the commit takes longer in proportion to the size of the ref, bounded by the body limit: about six times as long "
+    "at 100,000 ids on sqlite, against a few milliseconds more for a page of ordinary commits"
+)
+WORKSPACE_DOORS = (
+    "the workspace (its review memories, recent commits, inline confirmations, recent events, agent activity and the source "
+    "traces it embeds), the project dashboard, the source trace routes with their events"
+)
+WORKSPACE_DOORS_NOTE = (
+    "the workspace (its review memories, recent commits, inline confirmations, recent events, agent activity and the source "
+    "traces it embeds), the project dashboard and the source trace routes with their events now apply the reader"
 )
 UNMARKED_TOOLS = (
     "every other id in the ref, outside the text of a `quote` or `conversation_excerpt`, is looked up as well, because it may "
@@ -84,11 +101,15 @@ UNMARKED_NOTE = (
 )
 EVENTS_TOOLS = (
     "a commit that is confirmed or edited appends an event whose payload holds the refs and the quote the commit was sent with, "
-    "and the two feeds of events hold that payload to the same rule as the events of one memory in its audit"
+    "and the three feeds of events (the recent events and the agent activity of the workspace, and the events of a source trace) "
+    "hold that payload to the same rule as the events of one memory in its audit; the agent activity lists the events an agent "
+    "key caused, so a commit that an agent key confirms is in it as well as among the recent events"
 )
 EVENTS_NOTE = (
     "(a commit that is confirmed or edited appends an event whose payload holds the refs and the quote it was sent with, and the "
-    "two feeds of events hold that payload to the same rule as the events of one memory in its audit)"
+    "three feeds of events, the recent events and the agent activity of the workspace and the events of a source trace, hold that "
+    "payload to the same rule as the events of one memory in its audit; an agent key that confirms a commit appends the same "
+    "event, which the agent activity lists)"
 )
 PROJECT_CANDIDATE = (
     "the update candidate that the project update scan writes for a project that is itself contained is not contained. a project "
@@ -167,13 +188,14 @@ def test_the_tool_reference_lists_the_reference_keys_the_reader_takes_and_what_i
         STRINGS,
         EVENTS_TOOLS,
         "the recent commits route and the legacy tool `alice_vnext_recent_memory_commits`, the memory audit route",
-        "the workspace (its review memories, recent commits, inline confirmations, recent events and the source traces it embeds), the project dashboard, the source trace routes with their events",
-        "a row that holds no words to withhold (no quote, no excerpt and no string beside an id) costs no lookup",
+        WORKSPACE_DOORS,
+        "a row that holds no words to withhold (no quote, no excerpt, no `#` fragment and no string beside an id) costs no lookup",
         NOT_JUDGED,
+        COST,
     ):
         assert sentence in text, sentence
     note = _flat("security note")
-    for sentence in (NOT_JUDGED, STRINGS, UNMARKED_NOTE, EVENTS_NOTE):
+    for sentence in (NOT_JUDGED, STRINGS, UNMARKED_NOTE, EVENTS_NOTE, COST, WORKSPACE_DOORS_NOTE):
         assert sentence in note, sentence
 
 
@@ -243,7 +265,8 @@ def test_the_changelog_names_the_doors_and_says_no_migration_is_needed() -> None
     text = _flat("changelog")
     for door in ("the recent commits list and legacy tool", "the memory audit", "`alice_explain`", "`alice_memory_review` detail", "the workspace"):
         assert door in text, door
-    assert "the recent events of the workspace and the events of a source trace hold the payload of a confirmed commit" in text
+    assert "the recent events and the agent activity of the workspace and the events of a source trace hold the payload of a confirmed commit" in text
+    assert "a `#` fragment after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`" in text
     assert "an id the reader has no marker for (`memory <id>`, a url, an id under `origin`) is looked up as a possible memory" in text
     assert (
         "the audit route, `alice_explain`, the workspace, the project dashboard and the source traces apply the saved-quote reader "

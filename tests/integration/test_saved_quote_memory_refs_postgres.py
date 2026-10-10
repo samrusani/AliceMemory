@@ -6,15 +6,16 @@ under ``origin``). The quote holds words of the memory, the write check reads no
 reader of the commit returned the words after the memory was redacted. The reader of saved quotes now withholds them from a
 caller who may not read the memory. These tests run that on PostgreSQL through the mounted application, with real keys, over the
 vault of the operator route sweep with ``redacted_family=True``: a public memory that is redacted, a derived commit, loop, report
-and project state built from it, and four commits that quote it (one confirmed inline).
+and project state built from it, and five commits that quote it (two confirmed inline, one of them by an agent key).
 
 * ``test_no_restricted_profile_is_shown_the_words_of_a_redacted_memory_on_any_route`` is the sweep. For each restricted profile it
   calls every ``/v0/vnext`` route the way the probe table does (plus the same call aimed at the redacted and derived rows by id,
   and every sensitivity where the route takes a filter) and requires that no answer carries a sentinel of the vault's hidden set,
   the words of the redacted memory included, and that no hidden row changed. It collects every leak before it fails.
 * ``test_the_doors_withhold_the_quote_and_keep_the_id`` names the doors of the finding (recent commits with and without a short
-  limit, the memory audit, the workspace and its recent events, ``alice_explain``, ``alice_memory_review`` detail and the legacy
-  recent commits tool) and reads the ref a restricted key is shown, so an answer that is silent for another reason cannot pass.
+  limit, the memory audit, the workspace with its recent events and its agent activity, ``alice_explain``,
+  ``alice_memory_review`` detail and the legacy recent commits tool) and reads the ref a restricted key is shown, so an answer that
+  is silent for another reason cannot pass.
 * ``test_the_owner_and_an_unbound_admin_key_keep_the_quote_and_read_the_contained_rows`` is the control the other way, and says
   what the owner reads after a redaction (by id, in the lists and the dashboard; not through recall, the pack or the tree, which a
   request naming every sensitivity widens).
@@ -24,7 +25,7 @@ and project state built from it, and four commits that quote it (one confirmed i
 * ``test_the_update_candidate_of_a_contained_project_is_contained`` records a gap found while building the sweep.
 
 Why the sweep is a file of its own and not a case of ``test_operator_routes_limits_postgres.py``: that file builds the plain
-vault once per route and counts its rows, and the family is a second vault with a redacted memory, four more commits and
+vault once per route and counts its rows, and the family is a second vault with a redacted memory, five more commits and
 a project made after the scheduler runs. The two files read the same probe table (``PROBES``), so a route added to the
 application gets a probe once and is swept by both, and ``tests/unit/test_operator_route_inventory.py`` still requires the table
 to hold exactly the routes of the application.
@@ -63,9 +64,13 @@ LAST = {
     ("PUT", "/v0/vnext/settings/brain-charter"),
 }
 QUOTING = ("commit_quotes_redacted", "commit_quotes_redacted_typed", "commit_pending_quotes_redacted", "commit_confirmed_quotes_redacted")
-REDACTED_MEMORIES = ("memory_redacted", "commit_of_redacted", *QUOTING)
+# The commit the admin key asked to confirm inline and confirmed itself: its confirmation is an agent event, which the workspace
+# lists in its agent activity as well as among the recent events.
+BY_AN_AGENT = "commit_agent_confirmed_quotes_redacted"
+REDACTED_MEMORIES = ("memory_redacted", "commit_of_redacted", *QUOTING, BY_AN_AGENT)
 # The profiles that read the commits that quote the redacted memory but are shut out of the operator routes (a 403 on each).
 SHUT_OUT_OF_ROUTES = ("read_only", "memory_proposal")
+WORKSPACE = ("GET", "/v0/vnext/workspace")
 
 
 def _keys(vault: Vault, harness) -> dict[str, str]:
@@ -114,26 +119,29 @@ def _aimed_at_the_redacted_rows(vault: Vault, route: tuple[str, str], base: list
 
 @pytest.mark.parametrize("profile", sorted(RESTRICTED))
 def test_no_restricted_profile_is_shown_the_words_of_a_redacted_memory_on_any_route(label_harness, profile):
-    """The vault holds a redacted public memory, rows built from it, and commits that quote it (one of them confirmed inline, so
-    that its event holds the quote). Every route is called by one restricted profile, and no answer carries the words of the
-    memory, a title or text of a copy, or any other sentinel of the hidden set. No hidden row changes. Every leak is collected
-    before the test fails, so one run names them all.
+    """The vault holds a redacted public memory, rows built from it, and commits that quote it (two of them confirmed inline, so
+    that their events hold the quote, one by the owner and one by an agent key). Every route is called by one restricted profile,
+    and no answer carries the words of the memory, a title or text of a copy, or any other sentinel of the hidden set. No hidden
+    row changes. Every leak is collected before the test fails, so one run names them all.
 
     The finding was that a commit's saved quote of a memory came back to an unbound ``trusted_local_agent`` key from the recent
     commits route, the memory audit and the workspace. This sweep reaches them (the quoting commits are public, so each key may
-    read the commit) and every other route a commit's metadata could ride out of, the event feeds included. The unbound trusted
+    read the commit) and every other route a commit's metadata could ride out of, the event feeds included (the workspace lists the
+    confirmation of the agent key in its agent activity, which the owner's confirmation never reaches). The unbound trusted
     key must be shown the quoting commit somewhere; a read-only and a proposal key are shut out of every route (a 403) and are
     held to the same rule at the tools, in ``test_the_doors_withhold_the_quote_and_keep_the_id``.
 
     Mutations: delete the ``audit`` call on the reader in ``get_vnext_memory_audit``; delete the first ``withhold_saved_quotes``
-    call of the workspace; delete the ``events`` call of the workspace; replace ``refused_memories`` with ``frozenset()`` in
-    ``_verdict``. Each is in the manifest.
+    call of the workspace; delete the ``events`` call on the recent events of the workspace; delete the ``events`` call on its
+    agent events; replace ``refused_memories`` with ``frozenset()`` in ``_verdict``. Each is in the manifest.
     """
 
     vault = Vault(label_harness, "q", redacted_family=True).build()
     key = _keys(vault, label_harness)[profile]
     before = vault.hidden_rows()
-    routes = sorted(PROBES, key=lambda route: (route in LAST, route[0] != "GET", route))
+    # The workspace is read first: every other read of a restricted key appends policy events, and the agent activity lists only the
+    # newest fifty agent events, so a later read could push the vault's own confirmation out of the window and the sweep would be silent.
+    routes = sorted(PROBES, key=lambda route: (route in LAST, route != WORKSPACE, route[0] != "GET", route))
     shown: list[str] = []
     leaks: list[tuple[object, ...]] = []
     for route in routes:
@@ -182,11 +190,12 @@ def _get(vault: Vault, template: str, key, **path_and_query):
 def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch):
     """The doors of the finding, one by one, for every restricted profile that reaches them. A key that may read the quoting
     commit is shown the ref with the id of the memory and a ``null`` quote, in both spellings; none is shown the words. The
-    workspace lists the events of the commit that was confirmed, and the event holds the ref with its id and no quote.
+    workspace lists the events of the commit that was confirmed, among its recent events and, for the commit an agent key
+    confirmed, in its agent activity too, and each event holds the ref with its id and no quote.
 
     Mutations: delete the reader call at the recent commits service (``if guard.active`` made false); delete the ``audit`` call
     of the audit route; delete the ``audit`` call of ``alice_explain``; delete the workspace's ``withhold_saved_quotes`` calls;
-    delete the workspace's ``events`` call.
+    delete the workspace's ``events`` call on the recent events; delete its ``events`` call on the agent events.
     """
 
     vault = Vault(label_harness, "d", redacted_family=True).build()
@@ -194,11 +203,13 @@ def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch
     words = vault.text("memory_redacted-text")
     cited = vault.ids["memory_redacted"]
     plain, typed, pending, confirmed = (vault.ids[name] for name in QUOTING)
+    by_an_agent = vault.ids[BY_AN_AGENT]
     expected = {
         plain: [{"memory_id": cited, "quote": None}],
         typed: [f"memory:{cited}", {"quote": None}],
         pending: [{"memory_id": cited, "quote": None}],
         confirmed: [{"memory_id": cited, "quote": None}],
+        by_an_agent: [{"memory_id": cited, "quote": None}],
     }
     problems: list[object] = []
 
@@ -219,20 +230,25 @@ def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch
         check(("workspace review memory", pending), pending in review and refs_of(review[pending]) == expected[pending])
         recent = {row["id"]: row for row in workspace["agent_activity"]["recent_commits"]}
         check(("workspace recent commit", plain), plain in recent and refs_of(recent[plain]) == expected[plain])
-        events = [event for event in workspace["recent_events"] if event.get("target_id") == confirmed]
-        check(("workspace lists the events of the confirmed commit", len(events)), any(event.get("event_type") == "memory.updated" for event in events))
-        for event in events:
-            changes = (event.get("payload_json") or {}).get("changes") or {}
-            agentic = (changes.get("metadata_json") or {}).get("agentic_memory") or {}
-            if "source_refs" in agentic:
-                check(("event keeps the ref and loses the quote", event.get("event_type")), agentic["source_refs"] == expected[confirmed])
-                check(("event loses the excerpt", event.get("event_type")), "conversation_excerpt" not in agentic)
+        for feed, label, commit in (
+            (workspace["recent_events"], "recent events", confirmed),
+            (workspace["agent_activity"]["recent_events"], "agent activity", by_an_agent),
+        ):
+            events = [event for event in feed if event.get("target_id") == commit]
+            check((f"workspace {label} list the events of the confirmed commit", len(events)), any(event.get("event_type") == "memory.updated" for event in events))
+            for event in events:
+                changes = (event.get("payload_json") or {}).get("changes") or {}
+                agentic = (changes.get("metadata_json") or {}).get("agentic_memory") or {}
+                if "source_refs" in agentic:
+                    check((f"{label}: the event keeps the ref and loses the quote", event.get("event_type")), agentic["source_refs"] == expected[commit])
+                    check((f"{label}: the event loses the excerpt", event.get("event_type")), "conversation_excerpt" not in agentic)
+                    check((f"{label}: the event loses the quote of the value", event.get("event_type")), (changes.get("value") or {}).get("source_refs") == expected[commit])
     for limit in (100, 1):
         status, text = _get(vault, "/v0/vnext/memories/recent-commits", key, limit=limit)
         check(("recent commits", limit, status), status == 200 and words not in text)
     status, text = _get(vault, "/v0/vnext/memories/recent-commits", key, limit=100)
     listed = {row["id"]: row for row in json.loads(text)["recent_commits"]} if status == 200 else {}
-    for memory_id in (plain, typed, confirmed):
+    for memory_id in (plain, typed, confirmed, by_an_agent):
         check(("recent commits lists the ref", memory_id), memory_id in listed and refs_of(listed[memory_id]) == expected[memory_id])
     for memory_id, refs in expected.items():
         status, text = _get(vault, "/v0/vnext/memories/{memory_id}/audit", key, memory_id=memory_id)
@@ -245,7 +261,7 @@ def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch
                 all(words not in json.dumps(part, default=str) for part in (body["revisions"], body["events"], body["provenance_links"])),
             )
     for profile, profile_key in keys.items():
-        for memory_id in (plain, typed, confirmed):
+        for memory_id in (plain, typed, confirmed, by_an_agent):
             explained = _tool(monkeypatch, label_harness, profile_key, "alice_explain", {"memory_id": memory_id})
             check(("explain", profile, memory_id), words not in _all_text(explained))
             detail = _tool(monkeypatch, label_harness, profile_key, "alice_memory_review", {"review_item_id": memory_id})
@@ -290,7 +306,15 @@ def test_the_owner_and_an_unbound_admin_key_keep_the_quote_and_read_the_containe
         if not condition:
             problems.append(label)
 
-    for name in QUOTING:
+    # The workspace first (every other read appends events). The unbound admin key is shown the events as stored: the quote is in
+    # the recent events and in the agent activity, so the restricted keys' silence at both is the reader's doing and not an empty feed.
+    status, text = _get(vault, "/v0/vnext/workspace", admin)
+    check(("workspace", status), status == 200)
+    if status == 200:
+        workspace = json.loads(text)
+        for label, feed in (("recent events", workspace["recent_events"]), ("agent activity", workspace["agent_activity"]["recent_events"])):
+            check((f"workspace {label} keep the quote", label), any(words in json.dumps(event, default=str) for event in feed))
+    for name in (*QUOTING, BY_AN_AGENT):
         status, text = _get(vault, "/v0/vnext/memories/{memory_id}/audit", admin, memory_id=vault.ids[name])
         check(("audit keeps the quote", name, status), status == 200 and words in text)
         check(("explain keeps the quote", name), words in _all_text(_tool(monkeypatch, label_harness, admin, "alice_explain", {"memory_id": vault.ids[name]})))
@@ -345,7 +369,7 @@ def test_the_owner_reads_the_quote_on_an_install_with_no_keys(label_harness):
 
     vault = Vault(label_harness, "ow", owner=True, redacted_family=True).build()
     words = vault.text("memory_redacted-text")
-    for name in QUOTING:
+    for name in (*QUOTING, BY_AN_AGENT):
         status, text = _get(vault, "/v0/vnext/memories/{memory_id}/audit", None, memory_id=vault.ids[name])
         assert status == 200 and words in text, name
     status, text = _get(vault, "/v0/vnext/memories/recent-commits", None, limit=100)
@@ -498,6 +522,13 @@ def _spellings(cited: str, quote_of) -> dict[str, tuple[list[object], bool]]:
         "key parent_memory_id": ([{"parent_memory_id": cited, "quote": q("key parent_memory_id")}], False),
         "key supersedes": ([{"supersedes": cited, "quote": q("key supersedes")}], False),
         "text beside the id": ([{"memory_id": cited, "text": q("text beside the id")}], False),
+        # Words typed behind the id: in a fragment of a reference, and after the id in a field that holds an id.
+        "marker and a fragment": ([f"memory:{cited}#{q('marker and a fragment').replace(' ', '-')}"], False),
+        "alice url and a fragment": ([f"alice://memories/{cited}#{q('alice url and a fragment').replace(' ', '-')}"], False),
+        "text directive": ([f"memory:{cited}#:~:text={q('text directive').replace(' ', '%20')}"], False),
+        "ref key and a fragment": ([{"ref": f"memory:{cited}#{q('ref key and a fragment').replace(' ', '-')}"}], False),
+        "memory_id and a fragment": ([{"memory_id": f"{cited}#{q('memory_id and a fragment').replace(' ', '-')}"}], False),
+        "memory_id and words": ([{"memory_id": f"{cited}: {q('memory_id and words')}"}], False),
     }
 
 

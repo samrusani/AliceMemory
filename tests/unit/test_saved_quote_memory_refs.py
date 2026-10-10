@@ -43,7 +43,8 @@ from alicebot_api.vnext_source_fence import (
 from tests.unit.test_saved_provenance_reader import _identity, _revision
 from tests.unit.test_saved_quote_copies_reader import _MemoryStore, _row
 
-_WORDS = "Atlas played ZQXSENTINEL for 115 hours"
+_SENTINEL = "ZQXSENTINEL"
+_WORDS = f"Atlas played {_SENTINEL} for 115 hours"
 
 
 class _Store(_MemoryStore):
@@ -460,6 +461,76 @@ def test_a_revision_that_cites_a_refused_memory_loses_the_quote_and_keeps_the_id
     assert _reader(store).revision(fine) is fine
 
 
+def test_a_revision_that_names_a_refused_memory_only_in_its_own_metadata_loses_the_quote() -> None:
+    """A memory proposal writes the ``source_refs`` it was given into the ``metadata_json`` of its revision, quotes included, and
+    the memory can be edited afterwards so that neither the row nor the values of the revision name the memory any more. The
+    revision alone names it, and the audit lists the revision. It is read as a memory's own metadata is, for the memories it
+    names as well as the sources.
+
+    Mutation: replace the read of the revision's own ``metadata_json`` in ``_memory_ids_named_by_revision`` with
+    ``_NO_CITED_MEMORIES``: the quote stays.
+    """
+
+    store = _Store()
+    refused = store.add_memory(sensitivity="confidential")
+    readable = store.add_memory()
+    revision = {
+        **_revision("m1", []),
+        "new_value": {"text": "x"},
+        "metadata_json": {"source_refs": [{"memory_id": refused, "quote": _WORDS}, {"memory_id": readable, "quote": "readable words"}]},
+    }
+    shown = _reader(store).revision(revision)
+    assert shown["metadata_json"]["source_refs"] == [  # type: ignore[index]
+        {"memory_id": refused, "quote": None},
+        {"memory_id": readable, "quote": "readable words"},
+    ]
+    assert _SENTINEL not in json.dumps(shown)
+    fine = {**revision, "metadata_json": {"source_refs": [{"memory_id": readable, "quote": _WORDS}]}}
+    assert _reader(store).revision(fine) is fine
+
+
+def test_a_revision_that_cites_a_refused_memory_loses_its_copies_of_a_quote_when_its_memory_is_not_known() -> None:
+    """A revision that names a refused memory in a value loses the copies of a quote that value holds (``provenance``,
+    ``replacement_provenance`` and the excerpt of ``agentic_memory``), and so does its ``metadata_json``, whether or not the
+    reader knows the memory the revision belongs to or the memory's row cites anything: the revision is judged by what it names.
+    A revision that names only readable memories keeps its copies.
+
+    Mutation: drop ``bool(refused_memories)`` from ``withhold_quotes`` in ``SavedProvenanceReader._revision`` (the refs lose their
+    quote and the copies stay).
+    """
+
+    store = _Store()
+    refused = store.add_memory(sensitivity="confidential")
+    readable = store.add_memory()
+
+    def revision(cited: str) -> dict[str, object]:
+        ref = {"memory_id": cited, "quote": _WORDS}
+        value = {
+            "text": "x",
+            "source_refs": [ref],
+            "provenance": {"quote": _WORDS},
+            "replacement_provenance": {"quote": _WORDS},
+            "agentic_memory": {"conversation_excerpt": _WORDS, "kind": "agentic_memory_commit"},
+        }
+        return {
+            **_revision("unknown-memory", [ref]),
+            "previous_value": dict(value),
+            "new_value": dict(value),
+            "metadata_json": {"agentic_memory": {"conversation_excerpt": _WORDS}, "source_refs": [ref]},
+        }
+
+    shown = _reader(store).revision(revision(refused))
+    for key in ("previous_value", "new_value"):
+        value = shown[key]  # type: ignore[index]
+        assert value["source_refs"] == [{"memory_id": refused, "quote": None}], key
+        assert "provenance" not in value and "replacement_provenance" not in value, key
+        assert value["agentic_memory"] == {"kind": "agentic_memory_commit"}, key
+    assert shown["metadata_json"] == {"agentic_memory": {}, "source_refs": [{"memory_id": refused, "quote": None}]}  # type: ignore[index]
+    assert _SENTINEL not in json.dumps(shown)
+    fine = revision(readable)
+    assert _reader(store).revision(fine) is fine
+
+
 def test_a_ref_that_is_json_text_keeps_its_id_and_loses_its_quote() -> None:
     """A JSON string in a ref position is decoded, scrubbed and encoded again: the quote becomes ``null`` and every other
     field stays.
@@ -735,6 +806,98 @@ def test_an_entry_that_names_a_refused_memory_keeps_its_ids_and_loses_every_othe
     assert kept[7] == refs[7] and kept[8] == refs[8]
     assert shown["value"]["source_refs"] == kept  # type: ignore[index]
     assert "ZQXSENTINEL" not in json.dumps(shown)
+
+
+def _after_the_id(m: str) -> dict[str, tuple[object, object]]:
+    """Wordings that put words behind the id of a reference to the memory ``m`` (in a ``#`` fragment, or after the id in a field
+    that holds an id), each with what the entry is shown as: the reference without the fragment, and ``None`` for a string that
+    holds more than references."""
+
+    w = f"Atlas-played-{_SENTINEL}-for-115-hours"
+    spaced = _WORDS
+    return {
+        "marker and a fragment": (f"memory:{m}#{w}", f"memory:{m}"),
+        "alice url and a fragment": (f"alice://memories/{m}#{w}", f"alice://memories/{m}"),
+        "text directive": (f"memory:{m}#:~:text=Atlas%20played%20{_SENTINEL}%20for%20115%20hours", f"memory:{m}"),
+        "bare id and a fragment": (f"{m}#{w}", m),
+        "ref key and a fragment": ({"ref": f"memory:{m}#{w}"}, {"ref": f"memory:{m}"}),
+        "id key and a fragment": ({"id": f"memory:{m}#{w}"}, {"id": f"memory:{m}"}),
+        "memory_id and a fragment": ({"memory_id": f"{m}#{w}"}, {"memory_id": m}),
+        "memory_id and words after a colon": ({"memory_id": f"{m}: {spaced}"}, {"memory_id": None}),
+        "memory_id and a word after a colon": ({"memory_id": f"{m}:Atlas-played-{_SENTINEL}"}, {"memory_id": None}),
+        "memory_id and words": ({"memory_id": f"{spaced} {m}"}, {"memory_id": None}),
+        "a list of ids with fragments": (
+            {"memory_ids": [f"memory:{m}#a{_SENTINEL}", f"{m}#b"], "id": f"memory:{m}#{w}"},
+            {"memory_ids": [f"memory:{m}", m], "id": f"memory:{m}"},
+        ),
+        "words in a source id field": ({"memory_id": m, "source_ids": [spaced]}, {"memory_id": m, "source_ids": [None]}),
+        "several references with fragments": (f"memory:{m}#a, memory:{m}#{w}|{m}#c", f"memory:{m}, memory:{m}|{m}"),
+        "JSON text with a fragment": (json.dumps({"memory_id": f"{m}#{w}"}), json.dumps({"memory_id": m})),
+    }
+
+
+@pytest.mark.parametrize("kind", ["above the ceiling", "redacted"])
+def test_an_entry_that_names_a_refused_memory_keeps_the_reference_and_not_what_is_typed_behind_it(kind: str) -> None:
+    """A person can type any words that have no space in them after the ``#`` of a reference, and can write words after an id in
+    a field that holds an id (``memory_id``, ``ref``, ``id``). Neither is a quote, and neither is an id. The entry that names a
+    refused memory keeps the reference and drops the fragment (``memory:<id>#chunk-1`` reads ``memory:<id>``), and a string under
+    a reference key that holds more than references reads ``None``. The words reach no door: not the row, and not the copy of it
+    in ``value``.
+
+    Mutations: keep the fragment in ``_canonical_references`` (``head = word`` : every fragment row fails); keep every string
+    under a reference key (``_withhold_entry_text`` returns a string that is not made of references: the colon and the words rows
+    fail); read a ``#`` as the end of a word in ``_is_reference_word`` only (the fragment rows fail when the row is gated on
+    words: see ``test_a_row_whose_refs_hold_text_and_no_quote_still_has_its_memories_looked_up``).
+    """
+
+    store = _Store()
+    refused = store.add_memory(**({"sensitivity": "confidential"} if kind == "above the ceiling" else {"deleted": True}))
+    for label, (ref, expected) in _after_the_id(refused).items():
+        row = _commit(str(uuid4()), [ref], copy_kind="none")
+        before = copy.deepcopy(row)
+        shown = _reader(store).memory(row)
+        assert row == before, label
+        assert shown["metadata_json"]["agentic_memory"]["source_refs"] == [expected], (kind, label)  # type: ignore[index]
+        assert shown["value"]["source_refs"] == [expected], (kind, label)  # type: ignore[index]
+        assert _SENTINEL not in json.dumps(shown), (kind, label)
+    readable = store.add_memory()
+    for label, (ref, _expected) in _after_the_id(readable).items():
+        row = _commit(str(uuid4()), [ref], copy_kind="none")
+        assert _reader(store).memory(row) is row, ("a readable memory is not touched", label)
+
+
+def test_a_fragment_is_words_to_a_row_and_a_bare_reference_is_not() -> None:
+    """A row is looked up for memories to refuse only when it holds words. A reference with a ``#`` fragment holds words, so the
+    memory it names is looked up and refused; a reference without one (the roll-up card) costs no read.
+
+    Mutation: read a fragment as part of a reference in ``_holds_words`` (``_canonical_references(node) != node`` replaced with
+    a test that ignores the fragment): the first assertion fails.
+    """
+
+    store = _Store()
+    refused = store.add_memory(sensitivity="confidential")
+    row = _commit(str(uuid4()), [f"memory:{refused}#Atlas-played-{_SENTINEL}"], copy_kind="none")
+    assert _SENTINEL not in json.dumps(_reader(store).memory(row)) and store.memory_batches == [1]
+    store.memory_batches.clear()
+    bare = _commit(str(uuid4()), [f"memory:{refused}", {"memory_id": refused}, f"memory:{refused}, alice://memories/{refused}"], copy_kind="none")
+    assert _reader(store).memory(bare) is bare and store.memory_batches == []
+
+
+def test_the_name_of_a_field_of_an_entry_that_names_a_refused_memory_is_kept_as_written() -> None:
+    """The limit the pages state under "not judged": a key of an entry is not text the reader can tell from a label (``page``,
+    ``primary``), so it is kept as written, and a writer who types words into a key keeps them. The test pins the limit, and the day a
+    key is withheld the pages change with it.
+
+    Mutation: none; it fails when the keys of an entry are rewritten.
+    """
+
+    store = _Store()
+    refused = store.add_memory(sensitivity="confidential")
+    row = _commit(str(uuid4()), [{"memory_id": refused, "page": 3, "Atlas played a word for 115 hours": True}], copy_kind="none")
+    shown = _reader(store).memory(row)
+    assert shown["metadata_json"]["agentic_memory"]["source_refs"] == [  # type: ignore[index]
+        {"memory_id": refused, "page": 3, "Atlas played a word for 115 hours": True}
+    ]
 
 
 def test_a_row_whose_refs_hold_text_and_no_quote_still_has_its_memories_looked_up() -> None:
