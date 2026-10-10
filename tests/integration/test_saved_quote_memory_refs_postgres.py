@@ -64,10 +64,12 @@ LAST = {
     ("PUT", "/v0/vnext/settings/brain-charter"),
 }
 QUOTING = ("commit_quotes_redacted", "commit_quotes_redacted_typed", "commit_pending_quotes_redacted", "commit_confirmed_quotes_redacted")
+# The commits that write the words of the memory as the name of a field, in the entry that names it and in the entry beside it.
+KEYED = ("commit_keys_redacted", "commit_keys_redacted_typed")
 # The commit the admin key asked to confirm inline and confirmed itself: its confirmation is an agent event, which the workspace
 # lists in its agent activity as well as among the recent events.
 BY_AN_AGENT = "commit_agent_confirmed_quotes_redacted"
-REDACTED_MEMORIES = ("memory_redacted", "commit_of_redacted", *QUOTING, BY_AN_AGENT)
+REDACTED_MEMORIES = ("memory_redacted", "commit_of_redacted", *QUOTING, *KEYED, BY_AN_AGENT)
 # The profiles that read the commits that quote the redacted memory but are shut out of the operator routes (a 403 on each).
 SHUT_OUT_OF_ROUTES = ("read_only", "memory_proposal")
 WORKSPACE = ("GET", "/v0/vnext/workspace")
@@ -214,12 +216,17 @@ def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch
     cited = vault.ids["memory_redacted"]
     plain, typed, pending, confirmed = (vault.ids[name] for name in QUOTING)
     by_an_agent = vault.ids[BY_AN_AGENT]
+    keyed, keyed_typed = (vault.ids[name] for name in KEYED)
+    # The commits that wrote the words as the name of a field (and the two confirmed commits, which wrote the words as a name beside
+    # the quote) are shown the id and the quote marker, and no name of the field.
     expected = {
         plain: [{"memory_id": cited, "quote": None}],
         typed: [f"memory:{cited}", {"quote": None}],
         pending: [{"memory_id": cited, "quote": None}],
         confirmed: [{"memory_id": cited, "quote": None}],
         by_an_agent: [{"memory_id": cited, "quote": None}],
+        keyed: [{"memory_id": cited}],
+        keyed_typed: [f"memory:{cited}", {}],
     }
     problems: list[object] = []
 
@@ -258,7 +265,7 @@ def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch
         check(("recent commits", limit, status), status == 200 and words not in text)
     status, text = _get(vault, "/v0/vnext/memories/recent-commits", key, limit=100)
     listed = {row["id"]: row for row in json.loads(text)["recent_commits"]} if status == 200 else {}
-    for memory_id in (plain, typed, confirmed, by_an_agent):
+    for memory_id in (plain, typed, confirmed, by_an_agent, keyed, keyed_typed):
         check(("recent commits lists the ref", memory_id), memory_id in listed and refs_of(listed[memory_id]) == expected[memory_id])
     for memory_id, refs in expected.items():
         status, text = _get(vault, "/v0/vnext/memories/{memory_id}/audit", key, memory_id=memory_id)
@@ -271,7 +278,7 @@ def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch
                 all(words not in json.dumps(part, default=str) for part in (body["revisions"], body["events"], body["provenance_links"])),
             )
     for profile, profile_key in keys.items():
-        for memory_id in (plain, typed, confirmed, by_an_agent):
+        for memory_id in (plain, typed, confirmed, by_an_agent, keyed, keyed_typed):
             explained = _tool(monkeypatch, label_harness, profile_key, "alice_explain", {"memory_id": memory_id})
             check(("explain", profile, memory_id), words not in _all_text(explained))
             detail = _tool(monkeypatch, label_harness, profile_key, "alice_memory_review", {"review_item_id": memory_id})
@@ -532,6 +539,15 @@ def _spellings(cited: str, quote_of) -> dict[str, tuple[list[object], bool]]:
         "key parent_memory_id": ([{"parent_memory_id": cited, "quote": q("key parent_memory_id")}], False),
         "key supersedes": ([{"supersedes": cited, "quote": q("key supersedes")}], False),
         "text beside the id": ([{"memory_id": cited, "text": q("text beside the id")}], False),
+        # Words written as the name of a field, whatever its value is: the name goes with the value.
+        "key with a string value": ([{"memory_id": cited, q("key with a string value"): "x"}], False),
+        "key with a null value": ([{"memory_id": cited, q("key with a null value"): None}], False),
+        "key with a number value": ([{"memory_id": cited, q("key with a number value"): 1}], False),
+        "key nested": ([{"memory_id": cited, "evidence": {q("key nested"): None}}], False),
+        "key in json text": ([json.dumps({"memory_id": cited, q("key in json text"): None})], False),
+        "key in the entry beside": ([f"memory:{cited}", {q("key in the entry beside"): None}], False),
+        "key and a quote null": ([{"memory_id": cited, "quote": None, q("key and a quote null"): True}], False),
+        "key beside an unmarked id": ([{"origin": cited, q("key beside an unmarked id"): None}], False),
         # Words typed behind the id: in a fragment of a reference, and after the id in a field that holds an id.
         "marker and a fragment": ([f"memory:{cited}#{q('marker and a fragment').replace(' ', '-')}"], False),
         "alice url and a fragment": ([f"alice://memories/{cited}#{q('alice url and a fragment').replace(' ', '-')}"], False),

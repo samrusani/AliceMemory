@@ -12,7 +12,9 @@ Unreleased (on main, not in v0.20.0). Three statements are pinned here, each on 
   request naming every sensitivity lists them, in recall as in the pack (the same three pages);
 * the update candidate the project update scan writes for a project that is itself contained is not contained (the security note).
 
-Mutations, each one alone: delete the saved-quote sentence from the security note, the tool reference or the changelog; delete
+Mutations, each one alone: delete the saved-quote sentence from the security note, the tool reference or the changelog; restore the
+sentence that said the name of a field is kept as written; delete the sentence about the names of the fields from any of the three
+pages; change a key in the list of source keys on the tool reference or the security note; delete
 the loop sentence or the context pack sentence from any of the three pages that carry it; change a key in the list of reference
 keys on the tool reference, or in ``MEMORY_REFERENCE_KEYS`` in ``vnext_source_fence.py``; restore the sentence that said the
 memory audit route returns what was stored; restore the sentence that said an id with no marker names no memory; restore the
@@ -23,7 +25,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from alicebot_api.vnext_source_fence import MEMORY_REFERENCE_KEYS
+from alicebot_api.vnext_source_fence import MEMORY_REFERENCE_KEYS, PRODUCT_REF_KEYS
 
 ROOT = Path(__file__).resolve().parents[2]
 PAGES = {
@@ -60,17 +62,32 @@ KEEPS = {
     "changelog": "the owner and an unbound admin key keep the quote",
 }
 NOT_JUDGED = (
-    "not judged: the name of a field, which is kept as written (a word used as a key cannot be told from a label); text in an "
-    "entry that names no refused memory, beside an entry that does (an entry that names nothing loses its `quote` and "
-    "`conversation_excerpt`, and no other string); and `alice_explain` for a call that declares a profile with no agent key, "
-    "which was never held to it"
+    "not judged: text in an entry that names no refused memory, beside an entry that does (an entry that names nothing loses its "
+    "`quote` and `conversation_excerpt` and the fields whose names the product does not write, and no other string); and "
+    "`alice_explain` for a call that declares a profile with no agent key, which was never held to it"
 )
 STRINGS = (
     "a refused memory takes the strings of every entry that names it: the `quote` and the `conversation_excerpt` become `null`, "
-    "and so does any other text in the entry (a `text`, `excerpt`, `snippet` or `note` field, a sentence that has the id in it, "
-    "or a string in a `memory_id`, `source_id`, `id` or `ref` field that holds more than an id), while the entry keeps its ids, its "
-    "numbers and its booleans; an id here is a string made of references and nothing else (`<id>`, `memory:<id>`, a list of "
+    "and so does any other text in the entry (a sentence that has the id in it, or a string in a `memory_id`, `source_id`, `id` or "
+    "`ref` field that holds more than an id), while the entry keeps its ids, its numbers and its booleans under the fields the "
+    "product writes; an id here is a string made of references and nothing else (`<id>`, `memory:<id>`, a list of "
     "them), and a `#` and what follows it after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`"
+)
+FIELD_NAMES = (
+    "the names of the fields are withheld with their values. a name holds words whatever its value is, so the entry keeps a field "
+    "only when its name is one the product writes"
+)
+FIELD_NAMES_GOES = (
+    "and drops every other field with its value, at any depth, inside json text and whatever the value is (`null`, a number, a "
+    "boolean, a string, an object): a `text`, `excerpt`, `snippet`, `note` or `page` field goes whole, and so does an id that sits "
+    "under a name such as `origin`, `ref_id` or `evidence`"
+)
+FIELD_NAMES_WRITE_SIDE = (
+    "the commit route, the memory proposal and the agent-output ingest still accept any name in an object ref, so the reader is the "
+    "fence for new rows and for the rows stored by earlier releases"
+)
+FIELD_NAMES_CHANGELOG = (
+    "the names of the fields are withheld with their values: the entry keeps a field only when its name is one the product writes"
 )
 COST = (
     "a ref that lists tens of thousands of ids is read in several passes and its ids are looked up in slices of 500, so each page "
@@ -189,14 +206,38 @@ def test_the_tool_reference_lists_the_reference_keys_the_reader_takes_and_what_i
         EVENTS_TOOLS,
         "the recent commits route and the legacy tool `alice_vnext_recent_memory_commits`, the memory audit route",
         WORKSPACE_DOORS,
-        "a row that holds no words to withhold (no quote, no excerpt, no `#` fragment and no string beside an id) costs no lookup",
+        "a row that holds no words to withhold (no quote, no excerpt, no `#` fragment, no string beside an id and no field whose "
+        "name the product does not write) costs no lookup",
         NOT_JUDGED,
+        FIELD_NAMES,
+        FIELD_NAMES_GOES,
+        FIELD_NAMES_WRITE_SIDE,
         COST,
     ):
         assert sentence in text, sentence
     note = _flat("security note")
-    for sentence in (NOT_JUDGED, STRINGS, UNMARKED_NOTE, EVENTS_NOTE, COST, WORKSPACE_DOORS_NOTE):
+    for sentence in (
+        NOT_JUDGED, STRINGS, FIELD_NAMES, FIELD_NAMES_GOES, FIELD_NAMES_WRITE_SIDE, UNMARKED_NOTE, EVENTS_NOTE, COST,
+        WORKSPACE_DOORS_NOTE,
+    ):
         assert sentence in note, sentence
+
+
+def test_the_pages_list_the_field_names_a_withheld_entry_keeps_as_the_reader_does() -> None:
+    """The tool reference and the security note name the fields a withheld entry keeps: the memory keys (checked above), the source
+    keys, ``id``, ``ref``, ``quote`` and ``conversation_excerpt``. The names they print are the ones in ``PRODUCT_REF_KEYS``, no
+    more and no fewer, so a name added to or removed from the reader changes the pages with it.
+
+    Mutation: change a key in the list of source keys on the tool reference or on the security note (the set differs).
+    """
+
+    for name in ("tool reference", "security note"):
+        text = _flat(name)
+        listed = re.search(r"the source keys (.*?), in any case\)", text)
+        assert listed is not None, name
+        printed = set(re.findall(r"`([a-z_]+)`", listed.group(1)))
+        assert printed | set(MEMORY_REFERENCE_KEYS) == set(PRODUCT_REF_KEYS), (name, printed ^ set(PRODUCT_REF_KEYS))
+    assert FIELD_NAMES_CHANGELOG in _flat("changelog")
 
 
 def test_no_current_page_still_says_the_memory_audit_route_returns_what_was_stored() -> None:

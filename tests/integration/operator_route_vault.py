@@ -10,7 +10,8 @@ by the admin key (no limits, the control) and by the trusted key (the ceiling: p
 ``redacted_family=True`` adds a public memory that is redacted through the route before the vault is returned, and the rows
 that hold or point at its words: a derived commit, a derived loop, a derived report and a derived project state (copies that
 redaction contains with the reports), and four commits that quote the memory, one with the ref ``{"memory_id": ..., "quote":
-...}``, one with the two entries ``"memory:<id>"`` and ``{"quote": ...}``, one held for review, and two that asked for an inline
+...}``, one with the two entries ``"memory:<id>"`` and ``{"quote": ...}``, one held for review, two that write the words of the
+memory as the name of a field (in the entry that names it and in the entry beside it), and two that asked for an inline
 confirmation and were confirmed, one by the owner and one by the admin key (the lifecycle whose event holds the refs the commit was
 sent with; the admin key's event is an agent event, which the workspace lists in its agent activity). The memory is not above any
 ceiling, so it is hidden from a key with limits only because it is redacted. The commits that quote it are public and readable,
@@ -489,6 +490,9 @@ class Vault:
             ("commit_quotes_redacted", [{"memory_id": cited, "quote": words}], 0.99),
             ("commit_quotes_redacted_typed", [f"memory:{cited}", {"quote": words}], 0.99),
             ("commit_pending_quotes_redacted", [{"memory_id": cited, "quote": words}], 0.3),
+            # The words of the memory written as the name of a field, which a restricted reader must not be shown either.
+            ("commit_keys_redacted", [{"memory_id": cited, words: None}], 0.99),
+            ("commit_keys_redacted_typed", [f"memory:{cited}", {words: 1}], 0.99),
         ):
             status, body = self.admin_request(
                 "POST",
@@ -557,7 +561,7 @@ class Vault:
                     domain="project",
                     sensitivity="public",
                     confidence=0.6,
-                    source_refs=({"memory_id": self.ids["memory_redacted"], "quote": words},),
+                    source_refs=({"memory_id": self.ids["memory_redacted"], "quote": words, words: None},),
                     conversation_excerpt=words,
                 ),
             )
@@ -590,7 +594,7 @@ class Vault:
                 "sensitivity": "public",
                 "confidence": 0.6,
                 "source_type": "agent",
-                "source_refs": [{"memory_id": self.ids["memory_redacted"], "quote": words}],
+                "source_refs": [{"memory_id": self.ids["memory_redacted"], "quote": words, words: True}],
                 "conversation_excerpt": words,
             },
         )
