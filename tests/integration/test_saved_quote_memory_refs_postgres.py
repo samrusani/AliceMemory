@@ -144,6 +144,7 @@ def test_no_restricted_profile_is_shown_the_words_of_a_redacted_memory_on_any_ro
     routes = sorted(PROBES, key=lambda route: (route in LAST, route != WORKSPACE, route[0] != "GET", route))
     shown: list[str] = []
     leaks: list[tuple[object, ...]] = []
+    lists_the_agents_confirmation = False
     for route in routes:
         method, template = route
         for call in _aimed_at_the_redacted_rows(vault, route, PROBES[route](vault)):
@@ -153,11 +154,20 @@ def test_no_restricted_profile_is_shown_the_words_of_a_redacted_memory_on_any_ro
                 leaks.append((method, template, call.name, status, leaked))
             if status == 200 and vault.text("commit_quotes_redacted-title") in text:
                 shown.append(f"{method} {template}")
+            if route == WORKSPACE and status == 200:
+                lists_the_agents_confirmation = lists_the_agents_confirmation or any(
+                    event.get("target_id") == vault.ids[BY_AN_AGENT] and event.get("event_type") == "memory.updated"
+                    for event in json.loads(text)["agent_activity"]["recent_events"]
+                )
     assert leaks == [], (profile, len(leaks), leaks[:25])
     after = vault.hidden_rows()
     assert after == before, [key for key in after if after[key] != before.get(key)][:5]
     if profile == "trusted":
         assert shown, "a key that may read the quoting commit is shown the commit somewhere, so the sweep is not vacuous"
+        assert lists_the_agents_confirmation, (
+            "the workspace lists the confirmation an agent key made in its agent activity, so the sweep reaches that feed and is not "
+            "silent because the feed holds nothing of the vault"
+        )
 
 
 def _all_text(*parts: object) -> str:
