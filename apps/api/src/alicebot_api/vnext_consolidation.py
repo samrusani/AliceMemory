@@ -1565,7 +1565,7 @@ class VNextConsolidationService:
         # counted apart: an id is unique only within its own table, so a source may carry the id of a memory, and
         # one must never stand in for the other's label.
         labelled_rows = [
-            *_one_row_per_id([*all_cluster_rows, *(rollups.input_rows if rollups is not None else []), *named_memories]),
+            *_one_row_per_id([*all_cluster_rows, *(rollups.input_rows if rollups is not None else [])]),
             *_one_row_per_id(named_sources),
         ]
         artifact = self.store.create_artifact(

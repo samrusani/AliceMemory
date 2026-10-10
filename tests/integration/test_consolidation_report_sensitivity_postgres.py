@@ -399,7 +399,9 @@ def test_a_report_whose_member_refs_quote_a_confidential_memory_is_refused_to_a_
     the report, so the label of the report did not cover the memory and a key below confidential read the words of a confidential
     memory in ``metadata_json.source_refs``. The report is labelled over the memories its refs name, as it is over the sources.
 
-    Mutation: leave ``named_memories`` out of ``labelled_rows`` in ``generate_memory_consolidation``.
+    Mutation: leave ``named_memories`` out of the memories the report is derived from (``with_derived_from`` in
+    ``generate_memory_consolidation``): the stored label is raised by the inputs of the report, so the report keeps the label of its
+    members and the key reads the words.
     """
     database_url = migrated_database_urls["app"]
     _point_routes_at(monkeypatch, database_url)
@@ -482,32 +484,36 @@ def test_refs_that_name_no_memory_or_only_the_members_leave_the_report_readable_
     assert "meeting notes" in body["metadata_json"]["source_refs"]
 
 
-def test_a_memory_the_refs_name_that_is_raised_between_two_runs_makes_a_new_report(migrated_database_urls, monkeypatch) -> None:
-    """The report is stored once for the digest of its run, and a run returns the report it already made. The digest covers the
-    memories the refs name beside the cluster, so a memory that is raised above the members between two runs makes a new report,
-    labelled over it, and the first report is not returned for it.
+def test_the_digest_of_a_run_covers_the_memories_its_refs_name_beside_the_cluster(migrated_database_urls, monkeypatch) -> None:
+    """The report is stored once for the digest of its run. The digest covers the memories the refs name besides the members of the
+    cluster (their id, domain and sensitivity), as it covers the sources, so a memory that is raised between two runs changes the
+    digest. A run whose refs name no memory beside its members has the digest it always had: the key is absent, and the members, which
+    the digest covers through the membership of the cluster, are not counted twice.
 
-    Mutation: leave ``named_memories`` out of the digest in ``generate_memory_consolidation`` (the second run returns the first
-    report, which a trusted key can read and which names the memory it can no longer read).
+    Mutations: leave ``named_memories`` out of the digest in ``generate_memory_consolidation`` (the first run has no key); drop the
+    members from the exclusion (the control run has a key and the digest of every existing run changes).
     """
+    import alicebot_api.vnext_consolidation as consolidation_module
+
     database_url = migrated_database_urls["app"]
     _point_routes_at(monkeypatch, database_url)
-    user_id = seed_user(database_url, email="consolidation-raised-memory-digest@example.com")
+    payloads: list[dict] = []
+    real_digest = consolidation_module._digest_payload
 
+    def spy(value):
+        if isinstance(value, dict) and "cluster_membership" in value:
+            payloads.append(value)
+        return real_digest(value)
+
+    monkeypatch.setattr(consolidation_module, "_digest_payload", spy)
+
+    user_id = seed_user(database_url, email="consolidation-digest-names-memories@example.com")
     first, cited = _consolidate_a_cluster_whose_refs_name_a_memory(
         database_url, user_id, memory_fields={}, ref_for=_MEMORY_REFS["json quote"]
     )
-    assert first["sensitivity"] == "internal"
-    from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+    assert len(payloads) == 1 and first["metadata_json"]["consolidation"]["cluster_membership"]
+    assert payloads[0]["named_memories"] == [{"id": str(cited["id"]), "domain": "personal", "sensitivity": "public"}]
 
-    with user_connection(database_url, user_id) as conn:
-        store = PostgresVNextStore(conn)
-        acquire_exclusive_label_lock(store)
-        store.update_memory(memory_id=str(cited["id"]), patch={"sensitivity": "confidential"}, actor_type="system")
-    with user_connection(database_url, user_id) as conn:
-        store = PostgresVNextStore(conn)
-        second = VNextConsolidationService(store, embedding_provider=_OneVector()).generate_memory_consolidation(
-            MemoryConsolidationRequest(agent_identity=None, sensitivity_allowed=list(ALLOWED_WITH_CONFIDENTIAL))
-        )
-    assert str(second["id"]) != str(first["id"]), "a memory the refs name changed, so the run is a new one"
-    assert second["sensitivity"] == "confidential"
+    user_id = seed_user(database_url, email="consolidation-digest-names-no-memory@example.com")
+    _consolidate_a_cluster_whose_refs_name_a_memory(database_url, user_id, memory_fields={}, ref_for=lambda _m: "meeting notes")
+    assert len(payloads) == 2 and "named_memories" not in payloads[1]
