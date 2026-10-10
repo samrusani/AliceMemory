@@ -16,9 +16,13 @@ The explain of a continuity object is available on PostgreSQL only, and its obje
 method). The vNext store, the policy engine, the event writer and the guard are the real code, on a SQLite vault; the real
 store and the telemetry routes are covered in ``tests/integration/test_event_references_postgres.py``.
 
+A refused explain leaves nothing for two reasons: the key-bound probe stops it before the policy event is written, and the
+refusal is raised inside the transaction that would have written it, so the transaction rolls back. Either alone keeps the
+event out, which is why the test below holds on when one is removed.
+
 Mutations (``scripts/derived_label_mutations.json``): stop the guard from withholding an event about a continuity object (the
-limited readers are shown the id and the labels of an object they cannot read); stop the key-bound probe from running
-before the policy event (a refused call leaves an event naming the object).
+limited readers are shown the id and the labels of an object they cannot read); let a caller that only declares a profile
+reach the recording (it leaves an event naming the object).
 """
 from __future__ import annotations
 

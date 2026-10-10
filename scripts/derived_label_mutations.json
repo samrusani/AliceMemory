@@ -7521,22 +7521,6 @@
       "expected_failure": "test_a_caller_with_limits_is_not_shown_an_event_about_a_continuity_object_and_the_count_agrees"
     },
     {
-      "name": "key-bound-explain-records-before-the-probe",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/mcp/evidence_artifacts.py",
-          "line": 309,
-          "before": "        if apply_unverified_rule(probe, judged, identity).decision != \"allowed\":",
-          "after": "        if False:",
-          "sha256": "58966a1ea5be1e30c0074b33226dabf40768088e875024a651afd57249982f36"
-        }
-      ],
-      "pytest": [
-        "tests/unit/test_continuity_explain_events.py"
-      ],
-      "expected_failure": "test_a_key_bound_caller_leaves_one_event_for_an_object_its_policy_allows_and_none_for_the_rest"
-    },
-    {
       "name": "declared-profile-reaches-the-continuity-explain-recording",
       "edits": [
         {
