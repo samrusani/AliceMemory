@@ -1296,6 +1296,99 @@ def test_a_readable_source_in_the_same_entry_does_not_keep_the_names_of_a_refuse
     assert _SENTINEL not in json.dumps([shown, shown_single])
 
 
+def _strings_and_names(value: object) -> tuple[list[str], list[str]]:
+    """Every string and every name inside ``value``, at any depth, a JSON text decoded as the reader decodes it. A judge that does not
+    use the reader's own functions: the standard decoder, and a walk of its own."""
+
+    strings: list[str] = []
+    names: list[str] = []
+    pending = [value]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, str):
+            strings.append(node)
+            if node.strip()[:1] in ("{", "["):
+                try:
+                    pending.append(json.loads(node, strict=False))
+                except ValueError:
+                    pass
+        elif isinstance(node, dict):
+            for key, child in node.items():
+                names.append(key)
+                pending.append(key)
+                pending.append(child)
+        elif isinstance(node, (list, tuple)):
+            pending.extend(node)
+    return strings, names
+
+
+def _random_entry(rng: random.Random, refused: str, depth: int = 0) -> object:
+    """A random value that puts the sentinel in names and in values, under the names the product writes and under names it does not."""
+
+    words = f"Atlas played {_SENTINEL} for {rng.randint(1, 999)} hours"
+    product = ("memory_id", "MEMORY_IDS", "source_id", "Id", "ref", "quote", "Conversation_Excerpt", "memories", "sources")
+    free = (words, "text", "page", "evidence", "note", f"{words} key", " quote", "quote ", "memory id", "origin")
+    leaves: tuple[object, ...] = (
+        words, "x", f"memory:{refused}", f"{refused}#{_SENTINEL}", f"see memory {refused} {_SENTINEL}", "https://example.test/x", 3, 2.5, True, False, None
+    )
+    kind = rng.choice(("leaf", "leaf", "dict", "dict", "list", "json"))
+    if depth > 4 or kind == "leaf":
+        return rng.choice(leaves)
+    if kind == "list":
+        return [_random_entry(rng, refused, depth + 1) for _ in range(rng.randint(0, 3))]
+    value = {rng.choice(product if rng.random() < 0.5 else free): _random_entry(rng, refused, depth + 1) for _ in range(rng.randint(1, 4))}
+    return json.dumps(value) if kind == "json" else value
+
+
+def _random_companion(rng: random.Random) -> object:
+    """An entry that names nothing, to stand beside a ref that names a refused memory: the sentinel in a quote and in names. (A string
+    beside it is not judged, the limit the pages state.)"""
+
+    words = f"Atlas played {_SENTINEL} for {rng.randint(1, 999)} hours"
+    names = ("quote", "Conversation_Excerpt", "memories", "page", words, "text", " quote")
+    companion: dict[str, object] = {}
+    for name in rng.sample(names, rng.randint(1, 4)):
+        if name.lower() in ("quote", "conversation_excerpt"):
+            companion[name] = rng.choice((words, [words], {"inner": words}))
+        else:
+            companion[name] = rng.choice((None, 1, True, [], {words: None}))
+    return json.dumps(companion) if rng.random() < 0.3 else companion
+
+
+def test_a_random_entry_that_names_a_refused_memory_is_shown_with_no_word_in_a_name_or_a_value_and_no_name_the_product_does_not_write() -> None:
+    """A seeded generator builds 1,500 entries that name a refused memory under ``memory_id``, with the sentinel written as the name
+    of a field and as a value, under the names the product writes (in any case) and under names it does not, nested in objects,
+    lists and JSON text. The judge is a walk of its own with the standard decoder: no string, name or value, at any depth, carries the
+    sentinel, and every name left is one the product writes. The entries beside it, and the same entries for a memory the caller may
+    read, are checked too: the readable memory's row is returned as the same object.
+
+    Mutations: keep the fields the product does not write (``_product_key`` returns the lower-cased key whatever it is); stop decoding
+    JSON text in ``_withhold_entry_text`` (the JSON rows keep their names).
+    """
+
+    rng = random.Random(20261010)
+    store = _Store()
+    refused = store.add_memory(sensitivity="confidential")
+    readable = store.add_memory()
+    reader = _reader(store)
+    kept_names = 0
+    for index in range(1500):
+        entry = {"memory_id": refused, **{f"n{n}": _random_entry(rng, refused) for n in range(rng.randint(1, 3))}}
+        beside = _random_companion(rng)
+        row = _commit(str(uuid4()), [entry, beside, f"memory:{refused}"], copy_kind="none")
+        shown = reader.memory(row)
+        refs = shown["metadata_json"]["agentic_memory"]["source_refs"]  # type: ignore[index]
+        assert shown["value"]["source_refs"] == refs
+        strings, names = _strings_and_names(refs)
+        assert not [text for text in strings if _SENTINEL in text], (index, entry)
+        assert not [name for name in names if name.lower() not in PRODUCT_REF_KEYS], (index, entry)
+        kept_names += len(names)
+        calm = {"memory_id": readable, **{f"n{n}": _random_entry(rng, readable) for n in range(rng.randint(1, 3))}}
+        fine = _commit(str(uuid4()), [calm, f"memory:{readable}"], copy_kind="none")
+        assert _reader(store).memory(fine) is fine, index
+    assert kept_names > 1500, "the generator keeps names the product writes, so the judge of the names is not vacuous"
+
+
 def test_the_fields_a_withheld_entry_keeps_are_the_names_the_reader_already_reads_and_no_other() -> None:
     """``PRODUCT_REF_KEYS`` is the reader's own vocabularies (the source keys, ``sources``, the memory keys, ``id`` and ``ref``,
     the quote and excerpt keys) and nothing the product does not write. No producer writes an object into ``source_refs``

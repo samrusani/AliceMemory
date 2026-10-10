@@ -5,7 +5,7 @@ saved quotes keeps in an entry that names a memory the caller may not read; any 
 writer can type words as a name. The SQLite twin, ``tests/unit/test_saved_quote_producer_ref_keys.py``, runs the doors that work
 on SQLite. This test runs the rest on PostgreSQL: it builds the vault of the operator route sweep (sources, memories, a commit
 through the HTTP route, the scheduler's daily brief, weekly synthesis, open-loop review, memory consolidation and project update
-scan, a connector sync), then a memory proposal over HTTP and a commit that cites a memory and a source by string, and reads every
+scan, a connector sync), then a memory proposal over HTTP and a commit that cites a source and a URL by string, and reads every
 JSON column of the database for ``source_refs``. Every entry a producer stored must be a string, and no field name outside the
 list may be stored.
 
@@ -13,9 +13,8 @@ The vault plants a few rows by hand (a derived report whose ``source_refs`` hold
 count a client's object: the routes that take one (the commit route, the proposal route and the agent-output ingest) are sent
 strings here, and the entries found are the producers' own.
 
-Mutation: have the scheduler's roll-up write an object into ``source_refs`` (``[f"memory:{member_id}" ...]`` in ``vnext_rollups.py``
-replaced with ``{"memory_id": member_id}`` entries, or the daily brief's ``_source_refs`` with ``{"source_id": ...}``): the
-test fails on the object. It is in the manifest.
+Mutation: have the daily brief's ``_source_refs`` (``vnext_brain.py``) return ``{"source_id": ..., "label": ...}`` entries instead of
+strings: the test fails on the object. It is in the manifest.
 """
 from __future__ import annotations
 

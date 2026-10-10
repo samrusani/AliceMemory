@@ -14,9 +14,9 @@ models take any object); the MCP tools take an array of strings and refuse an ob
 string, which may be JSON text. A client's object is not a producer's, and the test reads a stored client object to show that the
 scan would have seen a producer's.
 
-Mutations: have the commit service write an object entry (``json_safe(list(request.source_refs))`` replaced with a list of
-``{"source_id": ..., "label": ...}`` built from the strings): the producers' test fails; take a field out of ``PRODUCT_REF_KEYS``
-that a producer writes: the same.
+Mutation: have the commit service write an object entry (``json_safe(list(request.source_refs))`` in ``_base_metadata`` replaced
+with a list of ``{"source_id": ..., "label": ...}`` built from the strings): the producers' test fails on the object and on the name
+``label``. It is in the manifest.
 """
 
 from __future__ import annotations

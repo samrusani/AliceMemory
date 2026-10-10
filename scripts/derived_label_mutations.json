@@ -11014,6 +11014,22 @@
         "tests/unit/test_saved_quote_memory_refs_docs.py::test_the_pages_list_the_field_names_a_withheld_entry_keeps_as_the_reader_does"
       ],
       "expected_failure": "test_the_pages_list_the_field_names_a_withheld_entry_keeps_as_the_reader_does"
+    },
+    {
+      "name": "memory-quote-names-the-product-does-not-write-are-kept-by-a-random-entry",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_source_fence.py",
+          "line": 1002,
+          "before": "    if isinstance(key, str):\n        lowered = key.lower()\n        if lowered in PRODUCT_REF_KEYS:\n            return lowered\n    return None\n",
+          "after": "    if isinstance(key, str):\n        return key.lower()\n    return None\n",
+          "sha256": "f52c456bf7018d1709a95beaa465e274d66e02c768bdf86fc5641d8b994caeff"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_saved_quote_memory_refs.py::test_a_random_entry_that_names_a_refused_memory_is_shown_with_no_word_in_a_name_or_a_value_and_no_name_the_product_does_not_write"
+      ],
+      "expected_failure": "test_a_random_entry_that_names_a_refused_memory_is_shown_with_no_word_in_a_name_or_a_value_and_no_name_the_product_does_not_write"
     }
   ]
 }
