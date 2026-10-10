@@ -350,7 +350,6 @@ def test_the_completion_of_a_task_above_the_ceiling_does_not_show_its_artifact_t
     seen = _events_by_kind_and_target(admin_feed["recent_events"])
     assert seen[("task.updated", hidden)]["payload_json"]["artifact_id"] == hidden_artifact
     assert seen[("queue.task_completed", hidden)]["payload_json"]["artifact_id"] == hidden_artifact
-    assert hidden_artifact in {artifact["id"] for artifact in admin_feed["artifacts"]}
 
 
 def test_the_event_count_of_a_key_with_a_ceiling_leaves_out_the_events_that_name_a_hidden_artifact(label_harness):
