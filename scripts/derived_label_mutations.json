@@ -8000,6 +8000,22 @@
         "tests/unit/test_trace_and_policy_event_docs.py"
       ],
       "expected_failure": "test_the_changelog_has_one_entry_for_each"
+    },
+    {
+      "name": "context-tree-guard-drops-the-selection-flag",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 358,
+          "before": "            selection_only=selection_only,\n        )",
+          "after": "            selection_only=False,\n        )",
+          "sha256": "6f69a6cf0ab1604398dd9335ad85061c2d7d32a4fa27b0ca874be8cf7c542217"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_continuity_explain_events.py"
+      ],
+      "expected_failure": "test_the_context_tree_keeps_the_event_of_a_continuity_object_for_a_caller_without_limits_whatever_it_selects"
     }
   ]
 }
