@@ -179,9 +179,10 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
 
     The single unit job had a 20 minute limit and a measurement of 70 successful runs on 2026-10-02
     and 2026-10-03 put it at a median of 13.9 and a maximum of 17.8 minutes, past the 17 minute line.
-    The job is now three parallel shard jobs with the same limit and line, behind a summary job that
-    keeps the old name, the required status check. The tests of this release may add 90 seconds, and
-    the shards are split again before another test lands if a shard passes 17 minutes.
+    The job was first split into three parallel shard jobs with the same limit and line, behind a summary
+    job that keeps the old name, the required status check. The tests of this release may add 90 seconds,
+    and the shards are split again before another test lands if a shard passes 17 minutes. The unit
+    tests grew until the longest of the three took 17.5, 18.7 and over 20 minutes, so they run as four.
 
     Mutation: change ``timeout-minutes`` of the shard job in the workflow (the budget then describes
     a different job), change the shard count or the required check name in the workflow alone, record
@@ -199,9 +200,9 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     shard_job = workflow["jobs"]["python-unit-shards"]
     summary_job = workflow["jobs"]["python-unit"]
     assert shard_job["timeout-minutes"] == budget["timeout_minutes"] == 20
-    assert budget["shard_count"] == len(shard_job["strategy"]["matrix"]["include"]) == 3
+    assert budget["shard_count"] == len(shard_job["strategy"]["matrix"]["include"]) == 4
     assert budget["required_check"] == summary_job["name"] == "Unit tests + live eval battery (SQLite)"
-    assert budget["job"].startswith("python-unit-shards ") and "shard N of 3" in budget["job"]
+    assert budget["job"].startswith("python-unit-shards ") and "shard N of 4" in budget["job"]
     assert budget["split_threshold_minutes"] == 17 < budget["timeout_minutes"]
     assert budget["new_test_budget_seconds"] == 90
     measured = budget["measured_seconds"]

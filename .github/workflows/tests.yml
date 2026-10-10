@@ -18,7 +18,7 @@ jobs:
   # job named below stays the required status check of the main ruleset by
   # failing unless every one of those jobs succeeded.
   python-unit-shards:
-    name: Unit tests, shard ${{ matrix.shard }} of 3 (SQLite)
+    name: Unit tests, shard ${{ matrix.shard }} of 4 (SQLite)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -30,25 +30,26 @@ jobs:
         # (tests/unit/test_ci_unit_job_split.py) fails if a file matches none.
         #
         # The shards are balanced by the time their files took in CI with coverage
-        # on, about 15 minutes each as jobs against the 20 minute limit (the mean
-        # of two runs, since one runner is slower than another). The saved-quote
-        # files are the heaviest family and are split by name over all three: the
-        # vault tests (test_saved_quote_memory_refs_vault.py) run in shard 1 with
-        # the other memory reference files. A new file that no pattern selects
-        # fails the split test.
+        # on (the mean of three runs, since one runner is slower than another):
+        # about 11 minutes of tests each, 12 to 14 minutes as jobs, against the 20
+        # minute limit and the 17 minute split line recorded in gates.json. The
+        # saved-quote files are the heaviest family and are split by name over
+        # three shards; the vault tests (test_saved_quote_memory_refs_vault.py)
+        # run in shard 4. A new file that no pattern selects fails the split test.
         include:
           - shard: 1
-            selection: >-
-              tests/unit/test_[0-9a-d]*.py tests/unit/test_[j-m]*.py
-              tests/unit/test_saved_quote_[m-z]*.py
+            selection: "tests/unit/test_[0-9a-d]*.py tests/unit/test_saved_quote_[a-l]*.py"
           - shard: 2
-            selection: >-
-              tests/unit/test_[e-i]*.py tests/unit/test_[pq]*.py tests/unit/test_saved_[!q]*.py
-              tests/unit/test_saved_quotes_*.py
+            selection: "tests/unit/test_e*.py tests/unit/test_[j-m]*.py"
           - shard: 3
             selection: >-
-              tests/unit/test_[no]*.py tests/unit/test_r*.py tests/unit/test_s[!a]*.py
-              tests/unit/test_saved_quote_[a-l]*.py tests/unit/test_[t-z]*.py
+              tests/unit/test_[f-i]*.py tests/unit/test_[no]*.py tests/unit/test_r*.py
+              tests/unit/test_s[!a]*.py
+          - shard: 4
+            selection: >-
+              tests/unit/test_[pq]*.py tests/unit/test_saved_[!q]*.py
+              tests/unit/test_saved_quote_[m-z]*.py tests/unit/test_saved_quotes_*.py
+              tests/unit/test_[t-z]*.py
     env:
       COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
@@ -170,7 +171,7 @@ jobs:
           merge-multiple: true
           path: coverage-data
       - name: Combine the shard coverage data (every shard must have written some)
-        run: python scripts/combine_python_coverage.py --data-dir coverage-data --shards 3
+        run: python scripts/combine_python_coverage.py --data-dir coverage-data --shards 4
       - name: Combined coverage baseline
         # The same threshold, configuration and per-file floor that the single
         # unit job enforced, now on the combined data of all shards.
