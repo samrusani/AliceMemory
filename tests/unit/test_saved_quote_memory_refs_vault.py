@@ -725,8 +725,12 @@ def test_the_project_dashboard_and_the_source_trace_withhold_the_quote_from_a_ke
     ``_vnext_load_source_trace``.
     """
 
+    # Before the memory is redacted every caller that reaches a door reads the quote. The source trace answers a profile
+    # its guard refuses (read_only) as a missing trace, as the operator gate refuses it over HTTP, so that door is read
+    # by the owner, the admin key and the trusted key here.
+    readers = {_dashboard: (None, "admin", "trusted", "read_only"), _source_trace: (None, "admin", "trusted")}
     for door in (_dashboard, _source_trace):
-        before = {who: door(vault, who) for who in (None, "admin", "trusted", "read_only")}
+        before = {who: door(vault, who) for who in readers[door]}
         assert all(vault.sentinel in _text(answer) for answer in before.values()), door.__name__
     vault.make_unreadable("redacted")
     for door in (_dashboard, _source_trace):
