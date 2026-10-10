@@ -242,8 +242,9 @@ def test_a_ref_that_names_a_refused_memory_keeps_its_id_and_loses_its_quote(kind
     """For each way a memory stops being readable (a raised ceiling, a restricted domain, another project, a global memory
     under a key bound to a project, archived, deleted from the table), the quote of the ref that names it and the three
     saved copies of a quote are withheld, the ref keeps its id and every field the product writes but the quote, a field it
-    does not write (``page``) goes with its value, and the quote beside it that names nothing goes too. A ref to a memory the
-    caller may read keeps its quote. Nothing else on the row changes.
+    does not write (``page``) goes with its value, and the entry beside it that names nothing readable loses its text (a quote
+    entry, and a plain label or URL as well). A ref to a memory the caller may read keeps its quote. Nothing else on the row
+    changes.
 
     Mutations, each alone, in ``vnext_source_fence.py``: ``return True`` from ``SourceReadFence._admits`` (every kind but
     ``archived`` and ``missing``, which the lookup decides); admit a memory that has no row (``missing``); drop the
@@ -273,7 +274,7 @@ def test_a_ref_that_names_a_refused_memory_keeps_its_id_and_loses_its_quote(kind
         f"memory:{refused}",
         {"quote": None},
         {"memory_id": readable, "quote": "readable words"},
-        "https://example.test/doc",
+        None,
     ]
     assert shown["metadata_json"]["agentic_memory"]["source_refs"] == expected  # type: ignore[index]
     assert shown["value"]["source_refs"] == expected  # type: ignore[index]
@@ -557,7 +558,7 @@ def test_a_json_text_beside_a_refused_ref_that_names_nothing_loses_its_quote() -
     """The entry beside a refused ref that names no id loses its quote, and when that entry is JSON text it is decoded, scrubbed
     and encoded again. A JSON text that names a readable memory beside it is not touched.
 
-    Mutation: leave a string alone in ``_withhold_quote_text`` (``nested = None`` in its ``str`` branch): the sibling keeps it.
+    Mutation: leave a string alone in ``_withhold_entry_text`` (``nested = None`` in its ``str`` branch): the sibling keeps it.
     """
 
     store = _Store()
@@ -658,11 +659,12 @@ def _unmarked(m: str) -> dict[str, tuple[object, bool]]:
 def test_cited_memory_refs_reads_an_id_in_any_wording_and_none_from_the_text_of_a_quote() -> None:
     """``cited_memory_refs`` returns the ids a ref says are memories as ``named`` and every other id outside the text of a
     ``quote`` or ``conversation_excerpt`` as ``incidental``: in a sentence, in a URL, beside punctuation, under any key, as a
-    key, in JSON text and in any spelling ``uuid.UUID`` takes. An id inside a quote names nothing, and ``cited_memory_ids``
-    still returns the named ones alone.
+    key, in JSON text and in any spelling ``uuid.UUID`` takes. An id typed in the text of a quote or an excerpt is incidental as
+    well (the quote of an entry that holds the words of a memory may hold its id), never named, and ``cited_memory_ids`` still
+    returns the named ones alone.
 
     Mutations, each alone: skip the key ids in ``cited_memory_refs`` (the ``id as a key`` row); drop the ``_every_id_in_text``
-    read of a string (every incidental row); read the text of a ``quote`` (the last assertion).
+    read of a string (every incidental row); read the text of a ``quote`` as named (the last assertions).
     """
 
     m, other = str(uuid4()), str(uuid4())
@@ -675,7 +677,10 @@ def test_cited_memory_refs_reads_an_id_in_any_wording_and_none_from_the_text_of_
     assert marked == CitedMemoryIds(named=frozenset({m}), incidental=frozenset({other}))
     assert marked.every == {m, other}
     assert cited_memory_refs({"memory_id": m, "origin": m}).incidental == frozenset(), "an id named once is not incidental too"
-    assert cited_memory_refs({"origin": "meeting notes", "quote": f"memory:{m}", "conversation_excerpt": m}) == CitedMemoryIds()
+    typed = cited_memory_refs({"origin": "meeting notes", "quote": f"memory:{m}", "conversation_excerpt": other})
+    assert typed == CitedMemoryIds(incidental=frozenset({m, other})), "an id typed in a quote or an excerpt is incidental"
+    assert typed.named == frozenset() and cited_memory_ids({"quote": f"memory:{m}", "conversation_excerpt": other}) == frozenset()
+    assert cited_memory_refs({"quote": "words", "conversation_excerpt": "more words"}) == CitedMemoryIds()
     assert cited_memory_refs(None) == CitedMemoryIds()
 
 
@@ -778,8 +783,7 @@ def test_an_entry_that_names_a_refused_memory_keeps_its_ids_and_loses_every_othe
     (a string that is an id or an id behind a marker) under a name the product writes, and the numbers and the booleans under
     such a name. An entry that names a readable memory is not touched.
 
-    Mutations: drop ``_withhold_entry_text`` for ``_withhold_quote_text`` in ``_without_refused_refs`` (the sentence row keeps
-    its words); treat a string that is not an id as an id (``_is_reference_text`` returns ``True``: the sentence row keeps
+    Mutations: leave a string alone in ``_withhold_entry_text`` (the sentence row keeps its words); treat a string that is not an id as an id (``_is_reference_text`` returns ``True``: the sentence row keeps
     them); null the strings under a reference key (``id_key`` ignored: ``memory_id`` reads ``null``); keep the fields the
     product does not write (``_product_key`` returns the lower-cased key whatever it is: the ``text`` rows keep their fields).
     """
@@ -812,7 +816,8 @@ def test_an_entry_that_names_a_refused_memory_keeps_its_ids_and_loses_every_othe
     assert kept[4] is None
     assert json.loads(kept[5]) == {"memory_id": refused}
     assert kept[6] == {"memory_ids": [refused, f"memory:{refused}"]}
-    assert kept[7] == refs[7] and kept[8] == refs[8]
+    assert kept[7] == refs[7], "an entry that names a readable memory is not touched"
+    assert kept[8] is None, "a plain URL beside a refused ref names nothing the caller may read, so it is withheld with the rest"
     assert kept[9] == {"memory_ids": [refused, 4, True, None], "quote": None}, "numbers and booleans stay under a name the product writes"
     assert shown["value"]["source_refs"] == kept  # type: ignore[index]
     assert "ZQXSENTINEL" not in json.dumps(shown)
@@ -964,8 +969,9 @@ def test_a_quote_key_is_matched_in_any_case_in_the_entry_that_names_a_memory_and
     The value of a quote key is withheld whole, whatever its shape (a list, an object): the entry row holds a list and an object
     under the two keys, which the string rule alone would rebuild as lists and objects of ``null``.
 
-    Mutations, each alone: compare the key without ``lower()`` in ``_withhold_quote_text`` (the sibling row keeps its words);
-    in ``_withhold_entry_text`` (the entry row is rebuilt as ``[null, null]`` and ``{"text": null}`` and not as ``null``).
+    Mutations, each alone: compare the key without ``lower()`` in ``_product_key`` (the sibling row keeps its words);
+    drop the ``_TEXT_KEYS`` branch of ``_withhold_entry_text`` (the entry row is rebuilt as ``[null, null]`` and ``{"text": null}``
+    and not as ``null``).
     """
 
     store = _Store()
@@ -1129,7 +1135,8 @@ def test_the_name_of_a_field_the_product_does_not_write_is_withheld_with_its_val
 
     Mutations, each alone, in ``vnext_source_fence.py``: keep a name the product does not write (``_product_key`` returns the
     lower-cased key whatever it is: every row fails); stop dropping a name in ``_withhold_entry_text`` (the rows that carry the
-    id in the entry fail); stop dropping it in ``_withhold_quote_text`` (the rows with an entry beside the id fail).
+    id in the entry fail); stop dropping it for the entry beside the id (the rows with an entry beside the id fail: the entry
+    beside is rebuilt by ``_withhold_entry_text`` in the second branch of ``_without_refused_refs``).
     """
 
     store = _Store()
@@ -1202,7 +1209,8 @@ def test_the_entry_beside_a_refused_ref_loses_the_names_the_product_does_not_wri
     """The entry beside a ref that names a refused memory (or a refused source) and names nothing itself loses its quote, as it
     did, and now every name the product does not write as well, with its value. A list that holds nothing refused is not touched.
 
-    Mutation: stop dropping the names in ``_withhold_quote_text`` (the entry beside keeps ``page`` and the words in the name).
+    Mutation: leave the entry beside alone in the second branch of ``_without_refused_refs`` (it keeps ``page`` and the words in
+    the name).
     """
 
     store = _Store()

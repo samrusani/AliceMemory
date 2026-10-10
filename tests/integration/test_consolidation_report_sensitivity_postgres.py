@@ -331,3 +331,183 @@ def test_cluster_member_citing_an_internal_source_leaves_the_report_readable_to_
     status, body = _get_artifact(str(artifact["id"]), user_id, trusted_key)
     assert status == 200, body
     assert f"source:{source['id']}" in body["metadata_json"]["source_refs"]
+
+
+# -- the refs a report copies can name a memory in more ways than ``memory:<id>`` ------------------------------------------
+
+_CITED_WORDS = "Atlas played ZQXCONSOLIDATED for 115 hours"
+# Every way a ref a member keeps can name a memory and carry words of it. ``memory:<id>`` alone is the one spelling the report
+# already treated as an input.
+_MEMORY_REFS = {
+    "json quote": lambda m: json.dumps({"memory_id": m, "quote": _CITED_WORDS}),
+    "json key": lambda m: json.dumps({"memory_id": m, f"{_CITED_WORDS} key words": None}),
+    "sentence": lambda m: f"see memory {m}: {_CITED_WORDS}",
+    "url": lambda m: f"https://example.test/memories/{m}?q={_CITED_WORDS.replace(' ', '+')}",
+    "alice url and words": lambda m: f"alice://memories/{m} {_CITED_WORDS}",
+}
+
+
+def _consolidate_a_cluster_whose_refs_name_a_memory(
+    database_url: str, user_id: UUID, *, memory_fields: dict, ref_for
+) -> tuple[dict, dict]:
+    """Three near-duplicate internal memories whose refs name one other memory in the spelling ``ref_for`` writes, clustered and
+    reported on Postgres. Returns the stored report and the memory the refs name (the words in its text are ``_CITED_WORDS``)."""
+
+    with user_connection(database_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        cited = store.create_memory(
+            {
+                "memory_key": f"cited-{uuid4().hex[:8]}",
+                "memory_type": "episode",
+                "title": "Atlas hours",
+                "canonical_text": _CITED_WORDS,
+                "status": "active",
+                "value": {"text": _CITED_WORDS},
+                "domain": "personal",
+                "sensitivity": "public",
+                "metadata_json": {},
+                **memory_fields,
+            }
+        )
+        for index in range(3):
+            member = store.create_memory(
+                {
+                    "memory_key": f"launch-window-{index}-{uuid4().hex[:8]}",
+                    "memory_type": "semantic",
+                    "title": f"Launch window fact {index}",
+                    "canonical_text": "The launch window moves to March after the review.",
+                    "status": "active",
+                    "value": {"text": "The launch window moves to March after the review."},
+                    "domain": "personal",
+                    "sensitivity": "internal",
+                    "metadata_json": {"source_refs": [ref_for(str(cited["id"]))]},
+                }
+            )
+            store.update_memory_embedding(memory_id=str(member["id"]), vector=pad_embedding_vector([0.5, 0.1, 0.2]))
+        artifact = VNextConsolidationService(store, embedding_provider=_OneVector()).generate_memory_consolidation(
+            MemoryConsolidationRequest(agent_identity=None, sensitivity_allowed=list(ALLOWED_WITH_CONFIDENTIAL))
+        )
+    return artifact, cited
+
+
+@pytest.mark.parametrize("shape", list(_MEMORY_REFS))
+def test_a_report_whose_member_refs_quote_a_confidential_memory_is_refused_to_a_trusted_agent(
+    migrated_database_urls, monkeypatch, shape: str
+) -> None:
+    """A member keeps its refs as it was given them, and the report copies them (and so do the candidates). A ref that names a
+    memory some way other than ``memory:<id>`` (a JSON text that quotes it, a sentence, a URL) was not counted among the inputs of
+    the report, so the label of the report did not cover the memory and a key below confidential read the words of a confidential
+    memory in ``metadata_json.source_refs``. The report is labelled over the memories its refs name, as it is over the sources.
+
+    Mutation: leave ``named_memories`` out of ``labelled_rows`` in ``generate_memory_consolidation``.
+    """
+    database_url = migrated_database_urls["app"]
+    _point_routes_at(monkeypatch, database_url)
+    user_id = seed_user(database_url, email=f"consolidation-cited-memory-label-{shape.replace(' ', '-')}@example.com")
+
+    artifact, cited = _consolidate_a_cluster_whose_refs_name_a_memory(
+        database_url, user_id, memory_fields={"sensitivity": "confidential"}, ref_for=_MEMORY_REFS[shape]
+    )
+    trusted_key, admin_key = _keys(database_url, user_id)
+
+    assert artifact["metadata_json"]["consolidation"]["cluster_membership"], "the run must have a cluster"
+    assert artifact["sensitivity"] == "confidential"
+    status, body = _get_artifact(str(artifact["id"]), user_id, trusted_key)
+    assert (status, body) == (404, {"detail": "vNext artifact was not found"}), body
+    assert "ZQXCONSOLIDATED" not in json.dumps(body)
+
+    status, body = _get_artifact(str(artifact["id"]), user_id, admin_key)
+    assert status == 200, body
+    assert "ZQXCONSOLIDATED" in json.dumps(body["metadata_json"]["source_refs"])
+
+
+@pytest.mark.parametrize("shape", list(_MEMORY_REFS))
+def test_a_report_whose_member_refs_quote_a_memory_that_is_redacted_afterwards_is_refused_to_a_trusted_agent(
+    migrated_database_urls, monkeypatch, shape: str
+) -> None:
+    """The report records the memories its refs name as inputs, so redacting one of them contains the report with the rest of
+    the rows made from it: a key with a ceiling is told there is no such artifact, and the list does not carry it. An unbound
+    admin key still reads it.
+
+    Mutation: leave ``named_memories`` out of the memories the report is derived from (``with_derived_from`` in
+    ``generate_memory_consolidation``): the redacted memory no longer contains the report and the key reads the words.
+    """
+    database_url = migrated_database_urls["app"]
+    _point_routes_at(monkeypatch, database_url)
+    user_id = seed_user(database_url, email=f"consolidation-redacted-memory-{shape.replace(' ', '-')}@example.com")
+
+    artifact, cited = _consolidate_a_cluster_whose_refs_name_a_memory(
+        database_url, user_id, memory_fields={}, ref_for=_MEMORY_REFS[shape]
+    )
+    trusted_key, admin_key = _keys(database_url, user_id)
+    assert artifact["sensitivity"] == "internal"
+    status, body = _get_artifact(str(artifact["id"]), user_id, trusted_key)
+    assert status == 200, "readable before the memory is redacted"
+    assert str(cited["id"]) in json.dumps(artifact["metadata_json"]["derived_from"]), "the memory the refs name is an input of the report"
+
+    from alicebot_api.mcp.memories import redact_memory_flow
+
+    with user_connection(database_url, user_id) as conn:
+        redact_memory_flow(PostgresVNextStore(conn), memory_id=str(cited["id"]), reason="synthetic")
+
+    status, body = _get_artifact(str(artifact["id"]), user_id, trusted_key)
+    assert (status, body) == (404, {"detail": "vNext artifact was not found"}), body
+    status, listed = invoke_request(
+        "GET", "/v0/vnext/artifacts", authorization=f"Bearer {trusted_key}", query_params={"user_id": str(user_id)}
+    )
+    assert status == 200 and "ZQXCONSOLIDATED" not in json.dumps(listed) and str(artifact["id"]) not in json.dumps(listed)
+    status, body = _get_artifact(str(artifact["id"]), user_id, admin_key)
+    assert status == 200, body
+    assert "ZQXCONSOLIDATED" in json.dumps(body["metadata_json"]["source_refs"])
+
+
+def test_refs_that_name_no_memory_or_only_the_members_leave_the_report_readable_to_a_trusted_agent(
+    migrated_database_urls, monkeypatch
+) -> None:
+    """The control: a label such as ``meeting notes``, a URL with no id, and the ``memory:<id>`` of the members themselves add no
+    input, so the report keeps the label of its members and a trusted key reads it.
+    """
+    database_url = migrated_database_urls["app"]
+    _point_routes_at(monkeypatch, database_url)
+    user_id = seed_user(database_url, email="consolidation-refs-without-memories@example.com")
+
+    artifact, cited = _consolidate_a_cluster_whose_refs_name_a_memory(
+        database_url, user_id, memory_fields={"sensitivity": "confidential"}, ref_for=lambda _m: "meeting notes"
+    )
+    trusted_key, _admin_key = _keys(database_url, user_id)
+    assert artifact["metadata_json"]["consolidation"]["cluster_membership"]
+    assert artifact["sensitivity"] == "internal"
+    status, body = _get_artifact(str(artifact["id"]), user_id, trusted_key)
+    assert status == 200, body
+    assert "meeting notes" in body["metadata_json"]["source_refs"]
+
+
+def test_a_memory_the_refs_name_that_is_raised_between_two_runs_makes_a_new_report(migrated_database_urls, monkeypatch) -> None:
+    """The report is stored once for the digest of its run, and a run returns the report it already made. The digest covers the
+    memories the refs name beside the cluster, so a memory that is raised above the members between two runs makes a new report,
+    labelled over it, and the first report is not returned for it.
+
+    Mutation: leave ``named_memories`` out of the digest in ``generate_memory_consolidation`` (the second run returns the first
+    report, which a trusted key can read and which names the memory it can no longer read).
+    """
+    database_url = migrated_database_urls["app"]
+    _point_routes_at(monkeypatch, database_url)
+    user_id = seed_user(database_url, email="consolidation-raised-memory-digest@example.com")
+
+    first, cited = _consolidate_a_cluster_whose_refs_name_a_memory(
+        database_url, user_id, memory_fields={}, ref_for=_MEMORY_REFS["json quote"]
+    )
+    assert first["sensitivity"] == "internal"
+    from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+
+    with user_connection(database_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        acquire_exclusive_label_lock(store)
+        store.update_memory(memory_id=str(cited["id"]), patch={"sensitivity": "confidential"}, actor_type="system")
+    with user_connection(database_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        second = VNextConsolidationService(store, embedding_provider=_OneVector()).generate_memory_consolidation(
+            MemoryConsolidationRequest(agent_identity=None, sensitivity_allowed=list(ALLOWED_WITH_CONFIDENTIAL))
+        )
+    assert str(second["id"]) != str(first["id"]), "a memory the refs name changed, so the run is a new one"
+    assert second["sensitivity"] == "confidential"

@@ -102,7 +102,10 @@ EXPECTED_ROUTE_AST_SHA256 = "7045d27156861c06b2283bb09416e522c59a5064941f40e81c8
 # confirmed or edited a commit loses the quote of a source or a memory the caller may not read. Same definition.
 # Re-pin 2026-10-10 (third): the payload passes the agent events, the feed the agent activity and the policy blocks are drawn from,
 # through the reader as well, because an agent key that confirms a commit appends the same event. Same definition.
-EXPECTED_SUPPORT_AST_SHA256 = "0fe3807e39c5954414df4a71c45e488dcd7a854c92034b35cc833da624bf0485"
+# Re-pin 2026-10-10 (fourth): the payload passes the sources, the metadata of the quality ratings and the allowed sources and scope of
+# the queued tasks through the reader as well, because each keeps a structure its writer chose that can quote a memory or a source.
+# Same definition.
+EXPECTED_SUPPORT_AST_SHA256 = "42407afbff582448dce389500c2173b29c45434dc13865ebcfbe4a2ce657303f"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "e8c18d6831ca012b55b22f46c9b2151d62575773a2452ef0d0f2e869cabc8abb"
@@ -160,7 +163,7 @@ EXPECTED_ROUTE_NODE_SHA256 = {
 }
 EXPECTED_SUPPORT_NODE_SHA256 = {
     "_vnext_status_counts": "0bf0ed228a14bd648a9d18fcd5f99ebf8c585bd29f4b5e81e1df17fe0201fd15",
-    "_vnext_workspace_payload": "fb9ff073b85395def87de96f2a3181a8de6a810352bfedbe0f754724d7de3388",
+    "_vnext_workspace_payload": "ddf299ff32173e526ef006d36c6346321103ed68169d733507cd8f97d04e33a2",
     "_workspace_rows": "070bdfbd1eae10608bd8208b08367e1c0ea10e2064f03ad5a84121a190ed4cf0",
     "_workspace_event_visible": "8343c060909326a5cb69fa6f671ac62f160630ecf989f04d78e792ea74c0ea90",
 }

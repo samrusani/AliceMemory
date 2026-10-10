@@ -70,7 +70,7 @@ from alicebot_api.vnext_model_intelligence import (
     generate_consolidation_merge,
     resolve_model_route,
 )
-from alicebot_api.vnext_open_loop_references import sources_named_by_refs
+from alicebot_api.vnext_open_loop_references import memories_named_by_refs, sources_named_by_refs
 from alicebot_api.vnext_project_scope import project_scope_identity, refuse_global_marker
 from alicebot_api.vnext_recall_visibility import drop_expired_memories
 from alicebot_api.vnext_repositories import JsonObject
@@ -1249,6 +1249,17 @@ class VNextConsolidationService:
             dict.fromkeys(ref for members in clusters_for_proposals for ref in _member_source_refs(members))
         )
         named_sources = sources_named_by_refs(self.store, report_source_refs)
+        # The same for the memories the refs name by anything but ``memory:<id>`` (a JSON text that quotes one, a sentence, a
+        # URL): the report keeps those words, so it is derived from those memories too and is hidden when one is redacted.
+        # The members are named by their own ``memory:<id>`` and are inputs already, so only the others are read here.
+        cluster_member_ids = {str(row.get("id")) for members in clustering.clusters for row in members}
+        named_memories = _one_row_per_id(
+            [
+                row
+                for row in memories_named_by_refs(self.store, report_source_refs)
+                if str(row.get("id")) not in cluster_member_ids
+            ]
+        )
         run_digest = _digest_payload(
             {
                 "scope": {
@@ -1303,6 +1314,16 @@ class VNextConsolidationService:
                         ]
                     }
                     if named_sources
+                    else {}
+                ),
+                **(
+                    {
+                        "named_memories": [
+                            {"id": str(row.get("id")), "domain": row.get("domain"), "sensitivity": row.get("sensitivity")}
+                            for row in named_memories
+                        ]
+                    }
+                    if named_memories
                     else {}
                 ),
             }
@@ -1525,10 +1546,13 @@ class VNextConsolidationService:
             metadata,
             {
                 "sources": named_sources,
-                "memories": [
-                    *all_cluster_rows,
-                    *(rollups.input_rows if rollups is not None else []),
-                ],
+                "memories": _one_row_per_id(
+                    [
+                        *all_cluster_rows,
+                        *(rollups.input_rows if rollups is not None else []),
+                        *named_memories,
+                    ]
+                ),
                 "artifacts": artifacts,
             },
         )
@@ -1541,7 +1565,7 @@ class VNextConsolidationService:
         # counted apart: an id is unique only within its own table, so a source may carry the id of a memory, and
         # one must never stand in for the other's label.
         labelled_rows = [
-            *_one_row_per_id([*all_cluster_rows, *(rollups.input_rows if rollups is not None else [])]),
+            *_one_row_per_id([*all_cluster_rows, *(rollups.input_rows if rollups is not None else []), *named_memories]),
             *_one_row_per_id(named_sources),
         ]
         artifact = self.store.create_artifact(

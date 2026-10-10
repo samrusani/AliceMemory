@@ -74,7 +74,14 @@ import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from uuid import UUID
 
-from alicebot_api.vnext_source_fence import SOURCE_REFERENCE_KEYS, SourceReadFence, _json_container, cited_source_ids
+from alicebot_api.vnext_source_fence import (
+    SOURCE_REFERENCE_KEYS,
+    SourceReadFence,
+    _json_container,
+    cited_memory_refs,
+    cited_source_ids,
+    memory_rows_including_deleted,
+)
 
 JsonObject = dict[str, object]
 
@@ -211,6 +218,22 @@ def sources_named_by_refs(store: object, refs: Iterable[object]) -> list[JsonObj
     """
 
     return source_rows_by_ids(store, sorted(cited_source_ids(list(refs)).every))
+
+
+def memories_named_by_refs(store: object, refs: Iterable[object]) -> list[JsonObject]:
+    """The memory rows that ``refs`` name, one row for each memory, in id order.
+
+    The same read as ``sources_named_by_refs``, for memories. A ref can name a memory in more ways than ``memory:<id>``: a
+    JSON text, a sentence, a URL or an object that holds the id and words (``cited_memory_refs`` reads them all). A report
+    that prints the refs of its members as they were stored keeps those words, and it is read behind its label alone, so
+    the label has to be at least as strict as every memory they name, a redacted or archived one included.
+    """
+
+    ids = sorted(cited_memory_refs(list(refs)).every)
+    if not ids:
+        return []
+    rows = memory_rows_including_deleted(store, ids)
+    return [dict(rows[memory_id]) for memory_id in ids if memory_id in rows]
 
 
 def withhold_unreadable_references_from_loop(

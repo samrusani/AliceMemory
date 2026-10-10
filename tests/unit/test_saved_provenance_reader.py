@@ -230,7 +230,10 @@ def test_a_refused_source_is_withheld_with_every_copy_of_its_quote(kind: str) ->
     metadata = shown["metadata_json"]
     assert "provenance" not in metadata and "replacement_provenance" not in metadata  # type: ignore[operator]
     assert "conversation_excerpt" not in metadata["agentic_memory"]  # type: ignore[index]
-    expected_refs = [own, "https://example.test/doc"]
+    # The URL names nothing the caller may read, and it stands in a list that held a refused ref, so it is withheld with the rest of
+    # an entry that names nothing: nothing says it is not the words of the source.
+    # A link whose source id was set to null leaves no ref to refuse, so the list holds nothing refused and the URL stays.
+    expected_refs = [own, None] if refused is not None else [own, "https://example.test/doc"]
     assert metadata["source_refs"] == expected_refs  # type: ignore[index]
     assert metadata["agentic_memory"]["source_refs"] == expected_refs  # type: ignore[index]
     assert shown["value"]["source_refs"] == expected_refs  # type: ignore[index]

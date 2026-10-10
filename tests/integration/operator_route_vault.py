@@ -510,10 +510,79 @@ class Vault:
             )
             assert status in {200, 201}, (status, str(body)[:300])
             self.ids[name] = str(body["memory"]["id"])
+        self._ingested_quote(cited, words)
+        self._queued_quote(cited, words)
+        self._rated_quote(cited, words)
         status, body = self.admin_request(
             "POST", "/v0/vnext/memories/redact", {"memory_id": cited, "reason": "sweep"}
         )
         assert status == 200, (status, str(body)[:300])
+
+    def _ingested_quote(self, cited: str, words: str) -> None:
+        """A source made by the agent-output ingest, whose ``source_refs`` quote the memory (and write its words as a field name).
+
+        The ingest keeps the refs it was sent on the source it makes, twice: in ``metadata_json.source_refs`` and in
+        ``metadata_json.raw_payload.source_refs``. Every route that returns a source returns them, so a restricted key must be shown
+        the ids and the quote marker and none of the words once the memory is redacted.
+        """
+
+        status, body = self.admin_request(
+            "POST",
+            "/v0/vnext/agents/ingest-output",
+            {
+                "agent_id": self.agent_ids.get("admin_agent", "sweep-ingest"),
+                "title": self._text("ingest_quotes_redacted-title", hidden=False),
+                "content": self._text("ingest_quotes_redacted-text", hidden=False),
+                "domain": "project",
+                "sensitivity": "public",
+                "source_refs": [{"memory_id": cited, "quote": words, words: True}, f"memory:{cited}", {"quote": words}],
+            },
+        )
+        assert status in {200, 201}, (status, str(body)[:300])
+        self.ids["ingest_quotes_redacted"] = str(body["source_id"])
+        self.ids["ingest_quotes_redacted_artifact"] = str(body["artifact_id"])
+
+    def _queued_quote(self, cited: str, words: str) -> None:
+        """A queued task whose allowed sources quote the memory and whose scope writes its words as a field name, then processed.
+
+        The worker prints both structures into the artifact it makes, and the workspace lists the task as stored. The artifact is
+        derived from the memory the task names, so redacting the memory takes it out of every route of a key with limits; the task
+        row is held to the reader. It is the only task queued when it is processed, so the worker claims it.
+        """
+
+        status, body = self.admin_request(
+            "POST",
+            "/v0/vnext/queue/tasks",
+            {
+                "title": self._text("task_quotes_redacted-title", hidden=False),
+                "task_type": "summarize",
+                "instructions": self._text("task_quotes_redacted-instructions", hidden=False),
+                "domain": "project",
+                "sensitivity": "public",
+                "scope_json": {words: cited},
+                "allowed_sources_json": [{"memory_id": cited, "quote": words, words: True}],
+            },
+        )
+        assert status in {200, 201}, (status, str(body)[:300])
+        task = body.get("task") or body
+        self.ids["task_quotes_redacted"] = str(task["id"])
+        status, body = self.admin_request("POST", "/v0/vnext/queue/process-next", {})
+        assert status == 200 and body["status"] == "completed", (status, str(body)[:300])
+        assert body["task_id"] == self.ids["task_quotes_redacted"], "the worker claimed the task of this vault"
+        self.ids["task_quotes_redacted_artifact"] = str(body["artifact_id"])
+        self.remember_hidden("generated_artifacts", body["artifact_id"])
+
+    def _rated_quote(self, cited: str, words: str) -> None:
+        """A quality rating of a shown artifact whose metadata quotes the memory and writes its words as a field name. The artifact
+        is not derived from the memory, so redacting the memory does not contain it, and the rating is held to the reader."""
+
+        status, body = self.admin_request(
+            "POST",
+            f"/v0/vnext/artifacts/{self.ids['artifact_shown']}/quality-ratings",
+            {"verbosity": "right_sized", "metadata_json": {"memory_id": cited, "quote": words, words: 1}},
+        )
+        assert status in {200, 201}, (status, str(body)[:300])
+        self.ids["rating_quotes_redacted"] = str(body["id"])
 
     def _redacted_project_row(self, store, memory) -> None:
         project = store.create_project(

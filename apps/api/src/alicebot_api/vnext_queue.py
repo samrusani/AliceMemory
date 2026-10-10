@@ -14,6 +14,12 @@ from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_project_update_guard import is_project_update_artifact
 from alicebot_api.vnext_repositories import JsonObject
+from alicebot_api.vnext_source_fence import (
+    cited_memory_refs,
+    cited_source_ids,
+    memory_rows_including_deleted,
+    source_rows_including_archived,
+)
 
 if TYPE_CHECKING:
     from alicebot_api.vnext_agent_control import AgentIdentity
@@ -189,6 +195,35 @@ def _artifact_markdown_for_task(task: JsonObject) -> str:
     )
 
 
+def _task_artifact_metadata(metadata: JsonObject, named: dict[str, list[JsonObject]]) -> JsonObject:
+    """``metadata`` of a result artifact, derived from the rows its task names. A task that names none keeps the metadata it had."""
+
+    if not named["memories"] and not named["sources"]:
+        return metadata
+    return with_derived_from(metadata, named)
+
+
+def _rows_named_by_task(store: object, task: JsonObject) -> dict[str, list[JsonObject]]:
+    """The memories and the sources that the scope and the allowed sources of ``task`` name, as the rows the result is derived from.
+
+    The worker prints both structures into the artifact it makes (``_artifact_markdown_for_task``), and a task is written by a
+    caller: an entry can quote a memory (``{"memory_id": "<id>", "quote": "..."}``) and a field name can be words of one. The
+    artifact is read behind its own label, so it is derived from the rows those structures name (``cited_memory_refs`` and
+    ``cited_source_ids`` read them in every spelling a stored value can have, a redacted or archived row included): a memory that
+    is redacted or raised above a caller's ceiling afterwards takes the artifact with it. A task that names no row has none.
+    """
+
+    structure = [task.get("scope_json"), task.get("allowed_sources_json")]
+    memory_ids = sorted(cited_memory_refs(structure).every)
+    source_ids = sorted(cited_source_ids(structure).every)
+    memories = memory_rows_including_deleted(store, memory_ids) if memory_ids else {}
+    sources = source_rows_including_archived(store, source_ids) if source_ids else {}
+    return {
+        "memories": [dict(memories[row_id]) for row_id in memory_ids if row_id in memories],
+        "sources": [dict(sources[row_id]) for row_id in source_ids if row_id in sources],
+    }
+
+
 class VNextQueueService:
     def __init__(self, store: VNextQueueStore, *, defer_embeddings: bool = False) -> None:
         self.store = store
@@ -313,10 +348,10 @@ class VNextQueueService:
                     "domain": str(task.get("domain", "unknown")),
                     "sensitivity": str(task.get("sensitivity", "unknown")),
                     "generated_by": "vnext_queue_worker",
-                    "metadata_json": {
-                        "task_id": task_id,
-                        "task_type": task.get("task_type"),
-                    },
+                    "metadata_json": _task_artifact_metadata(
+                        {"task_id": task_id, "task_type": task.get("task_type")},
+                        _rows_named_by_task(self.store, task),
+                    ),
                 }
             )
             artifact_id = str(artifact["id"])

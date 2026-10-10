@@ -231,6 +231,28 @@ class Vault:
             "key beside a quote": [{"memory_id": m, "quote": q("key beside a quote"), self.key_words("key beside a quote"): "x"}],
             "key in the entry beside": [f"memory:{m}", {self.key_words("key in the entry beside"): None}],
             "key and a source": [{"source_id": self.source_id}, {"memory_id": m, self.key_words("key and a source"): None}],
+            # The entry beside the ref: every string and every field of it goes, not only a field called ``quote``.
+            "companion bare string": [f"memory:{m}", q("companion bare string")],
+            "companion text field": [f"memory:{m}", {"text": q("companion text field")}],
+            "companion excerpt field": [f"memory:{m}", {"excerpt": q("companion excerpt field")}],
+            "companion nested list": [f"memory:{m}", [[q("companion nested list")]]],
+            "companion json text": [f"memory:{m}", json.dumps({"note": q("companion json text")})],
+            "companion quote key with a space": [f"memory:{m}", {"quote ": q("companion quote key with a space")}],
+            # An id the entry beside carries, in no reference field, names nothing: it keeps no quote, whether the id names a
+            # source the caller may read or no row at all.
+            "companion quote and a chunk id": [f"memory:{m}", {"quote": q("companion quote and a chunk id"), "chunk_id": str(uuid4())}],
+            "companion quote and a source in a chunk id": [
+                f"memory:{m}", {"quote": q("companion quote and a source in a chunk id"), "chunk_id": self.source_id}
+            ],
+            "companion quote, nested, and an id elsewhere": [
+                f"memory:{m}", {"meta": {"first": str(uuid4())}, "memories": {"quote": q("companion quote, nested, and an id elsewhere")}}
+            ],
+            # A quote that is an object or a list is a structure that holds whatever its writer put in it, an id included.
+            "quote is an object that holds the id": [{"quote": {"memory_id": m, "text": q("quote is an object that holds the id")}}],
+            "excerpt is an object that holds the id": [
+                {"conversation_excerpt": {"memory_id": m, "text": q("excerpt is an object that holds the id")}}
+            ],
+            "quote is a list that holds the id": [{"quote": [{"memory_id": m, "text": q("quote is a list that holds the id")}]}],
         }
         for name, refs in spellings.items():
             self._commit(store, name, refs, excerpt=q(name) if name == "conversation_excerpt" else None)
@@ -261,6 +283,11 @@ class Vault:
         }.items():
             self._commit(store, name, [{**ref, "quote": q(name)} if "beside" not in name else ref])
         if self.unmarked:
+            # An id typed in the text of a quote or of the excerpt is incidental: the quote is withheld when it names a memory the
+            # caller may not read, so these are left out of the vault whose memory is removed from the table.
+            self._commit(store, "quote with the marker in its text", [{"quote": f"memory:{m} {q('quote with the marker in its text')}"}])
+            self._commit(store, "quote with the id in its text", [{"quote": f"{q('quote with the id in its text')} (memory {m})"}])
+            self._commit(store, "excerpt that names the memory", [], excerpt=f"[memory:{m}] {q('excerpt that names the memory')}")
             # An id under a field the reader has no marker for, and words in the name of a field beside it.
             self._commit(store, "key beside an unmarked id", [{"origin": m, self.key_words("key beside an unmarked id"): None}])
             self._commit(store, "key beside an unmarked sentence", [f"Memory {m}", {self.key_words("key beside an unmarked sentence"): 1}])
@@ -663,6 +690,42 @@ def test_a_key_that_may_read_the_cited_memory_is_shown_the_names_of_the_fields_i
             assert any(vault.key_words(name) in _text(answer) for answer in doors), (variant, who, name)
 
 
+def test_a_ref_that_is_json_text_with_an_escaped_surrogate_does_not_fail_a_route(vault: Vault) -> None:
+    """A ref string such as ``{"quote": "q", "note": "\\ud800"}`` is stored as six ASCII characters and decodes to a lone surrogate.
+    The reader wrote the decoded text again with ``ensure_ascii=False``, so the recent commits route and the memory audit route
+    raised ``UnicodeEncodeError`` when the response was encoded, for an unbound ``trusted_local_agent`` key, whether or not the
+    cited id named a memory. The answers of the routes and of the tools are encoded here; the owner and an unbound admin key
+    read the text as it was stored.
+
+    Mutation: write the decoded value again with ``ensure_ascii=False`` in ``_json_text`` (``vnext_source_fence.py``): the routes
+    raise for the unbound trusted key.
+    """
+
+    ghost = str(uuid4())
+    poison = '{"quote": "q", "note": "\\ud800"}'
+    shapes = {
+        "poison beside a missing memory": [f"memory:{ghost}", poison],
+        "poison in an entry that names the memory": [json.dumps({"memory_id": vault.cited_id, "k": 1}).replace('"k"', '"\\ud800k"')],
+        "poison in a quote": [json.dumps({"memory_id": vault.cited_id, "quote": "x"}).replace('"x"', '"\\ud800"')],
+    }
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        store = SQLiteVNextStore(conn, vault.user)
+        poisoned = {name: vault._commit(store, name, refs) for name, refs in shapes.items()}
+    for variant in ("redacted",):
+        vault.make_unreadable(variant)
+    for who in ("trusted", "admin"):
+        recent = vault.route(who, "recent", limit=100)
+        assert recent is not None, who
+        for name, memory_id in poisoned.items():
+            audit = vault.route(who, "audit", memory_id=memory_id)
+            assert audit is not None, (who, name)
+    for who in ("trusted", "read_only", "trusted_bound"):
+        for name, memory_id in poisoned.items():
+            for tool, arguments in (("alice_explain", {"memory_id": memory_id}), ("alice_memory_review", {"review_item_id": memory_id})):
+                answer = vault.try_call(who, tool, arguments)
+                assert answer is None or json.dumps(answer, ensure_ascii=False).encode("utf-8"), (who, name, tool)
+
+
 @pytest.mark.parametrize("variant", VARIANTS)
 def test_a_call_that_declares_a_profile_is_held_to_it_at_the_legacy_tool_and_review_detail(keyless: Vault, variant: str) -> None:
     """On an install with no agent keys a call may declare a permission profile. The legacy recent commits tool and review
@@ -711,7 +774,7 @@ def test_the_id_of_the_cited_memory_stays_and_the_rest_of_the_commit_is_untouche
     the id with it (a restricted reader is shown less, never more), and the entry that names the memory with a name made of words
     keeps ``memory_id`` and loses the words.
 
-    Mutations: replace ``_withhold_quote_text`` with a function that returns ``None`` (the entry goes, and the id with it); keep
+    Mutations: replace ``_withhold_entry_text`` with a function that returns ``None`` (the entry goes, and the id with it); keep
     the fields of an entry that the product does not write (``_product_key`` returns the lower-cased key whatever it is: the
     key rows keep their words).
     """
@@ -754,6 +817,23 @@ def test_the_id_of_the_cited_memory_stays_and_the_rest_of_the_commit_is_untouche
     assert refs("key and a source") == [{"source_id": vault.source_id}, {"memory_id": cited}]
     assert refs("key beside an unmarked id") == [{}]
     assert refs("key beside an unmarked sentence") == [None, {}]
+    # The entry beside the ref loses every string and every name the product does not write, as the entry that names the memory
+    # does; an id it carries in a field that is not a reference names nothing and keeps no quote.
+    assert refs("companion bare string") == [f"memory:{cited}", None]
+    assert refs("companion text field") == [f"memory:{cited}", {}]
+    assert refs("companion excerpt field") == [f"memory:{cited}", {}]
+    assert refs("companion nested list") == [f"memory:{cited}", [[None]]]
+    assert refs("companion quote key with a space") == [f"memory:{cited}", {}]
+    assert json.loads(refs("companion json text")[1]) == {}
+    assert refs("companion quote and a chunk id") == [f"memory:{cited}", {"quote": None}]
+    assert refs("companion quote and a source in a chunk id") == [f"memory:{cited}", {"quote": None}]
+    assert refs("companion quote, nested, and an id elsewhere") == [f"memory:{cited}", {"memories": {"quote": None}}]
+    # A quote that is a structure holds the id the entry names the memory by, and goes whole with it.
+    assert refs("quote is an object that holds the id") == [{"quote": None}]
+    assert refs("excerpt is an object that holds the id") == [{"conversation_excerpt": None}]
+    assert refs("quote is a list that holds the id") == [{"quote": None}]
+    assert refs("quote with the marker in its text") == [{"quote": None}]
+    assert refs("quote with the id in its text") == [{"quote": None}]
 
 
 def test_the_conversation_excerpt_of_a_commit_that_cites_an_unreadable_memory_is_withheld(vault: Vault) -> None:

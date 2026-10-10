@@ -34,6 +34,7 @@ from alicebot_api.routers._vnext_shared import (
     _vnext_permission_response,
     _vnext_policy_checked,
     _vnext_public_error_response,
+    _vnext_ratings_for_caller,
     _vnext_readable_belief,
     _vnext_readable_edge,
     _vnext_string_list,
@@ -838,6 +839,7 @@ def list_vnext_quality_evals(user_id: UUID, artifact_id: UUID | None = None, lim
                 artifact_id=str(artifact_id) if artifact_id is not None else None,
                 limit=bounded_limit,
             ), kind="artifact", field="artifact_id")
+            rows = _vnext_ratings_for_caller(store, identity, rows)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
     return JSONResponse(
