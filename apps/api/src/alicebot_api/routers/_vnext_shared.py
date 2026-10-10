@@ -34,7 +34,7 @@ from alicebot_api.vnext_label_guard import (
     policy_labels,
 )
 from alicebot_api.vnext_project_scope import source_project_scope
-from alicebot_api.vnext_source_fence import SourceReadFence
+from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 from alicebot_api.vnext_queue import VNextQueueNotFoundError
 from alicebot_api.vnext_store import PostgresVNextStore, is_redacted_project_update_artifact
 
@@ -349,6 +349,11 @@ def _vnext_load_source_trace(
         store, "open_loop", lambda limit: store.list_open_loops_referencing_source(source_id=source_id, limit=limit), caller
     )
     open_loops = withhold_unreadable_references(store, open_loops, fence=read_fence)
+    # The memories of a trace are commits and candidates that keep the quote of what they cite. The caller is shown the
+    # quotes it may read now.
+    quote_fence = read_fence
+    if quote_fence.entity_read_fenced:
+        memories = SavedProvenanceReader(store, fence=quote_fence).memories(memories)
     kept_ids = {str(row.get("id")) for row in (*memories, *artifacts, *open_loops)}
     kept_ids.add(source_id)
     # A caller with limits sees the events that target the source or a row kept above, and only those that name no row it
@@ -369,6 +374,9 @@ def _vnext_load_source_trace(
         if event_guard is not None else None,
         scan_limit=EVENT_FEED_SCAN_LIMIT if event_guard is not None else None,
     )
+    if quote_fence.entity_read_fenced:
+        # The events of the trace carry the changes a commit was confirmed or edited with, quotes included.
+        events = SavedProvenanceReader(store, fence=quote_fence).events(events)
     events_complete = direct_events_complete and memories_complete and artifacts_complete and open_loops_complete
     return _vnext_source_trace(
         store=store,

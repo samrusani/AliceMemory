@@ -164,6 +164,7 @@ NOT_A_DOOR = {
     "vnext_memory_commit.py:VNextMemoryCommitService._transition_memory": "writer checks source validity; no new read response",
     "vnext_source_fence.py:_rows_by_id": "narrow loader; SavedProvenanceReader applies effective labels before presenting",
     "vnext_source_fence.py:source_rows_including_archived": "original-source loader for provenance and producer label computation",
+    "vnext_source_fence.py:memory_rows_including_deleted": "narrow loader; SavedProvenanceReader._judge_memories settles each row with effective labels and admits_memory",
     "vnext_source_fence.py:SavedProvenanceReader._row_for": "private loader; SavedProvenanceReader._admits settles each row",
     "vnext_retrieval.py:_current_memory_id": "pointer loader; caller memory_visibility settles before exposing the pointer",
     "vnext_retrieval.py:_memories_referencing_sources": "internal loader; expand_provenance_once applies effective admission",

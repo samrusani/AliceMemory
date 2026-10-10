@@ -50,16 +50,27 @@ _QUOTE = "zinnwald-quote-8841 cone ten firing kiln log marlin-oxide-5520"
 
 
 class _MemoryStore(_Store):
-    """The stub store with ``get_memory``, as both real stores have it."""
+    """The stub store with ``get_memory`` and the bulk ``get_memories_by_ids``, as both real stores have them.
+
+    ``memory_reads`` counts the single reads. ``memory_batches`` holds the size of each bulk read, which is how the reader looks
+    up the memories a row may cite (``include_deleted`` returns a soft-deleted row, as the real stores do).
+    """
 
     def __init__(self) -> None:
         super().__init__()
         self.memories: dict[str, dict[str, object]] = {}
         self.memory_reads = 0
+        self.memory_batches: list[int] = []
 
     def get_memory(self, memory_id: str) -> dict[str, object] | None:
         self.memory_reads += 1
         return self.memories.get(memory_id)
+
+    def get_memories_by_ids(self, ids: list[str], *, include_deleted: bool = False) -> list[dict[str, object]]:
+        self.memory_batches.append(len(ids))
+        return [
+            self.memories[i] for i in ids if i in self.memories and (include_deleted or self.memories[i].get("deleted_at") is None)
+        ]
 
 
 def _row(
@@ -314,6 +325,8 @@ def test_a_memory_that_cites_only_readable_sources_is_returned_as_the_same_objec
     store = _MemoryStore()
     a, b = store.add_source(), store.add_source()
     c, m = str(uuid4()), str(uuid4())
+    # The memory the ``memory ref`` rows name is one the caller may read (a ref to a missing memory is refused).
+    store.memories[m] = {"id": m, "memory_key": "k", "domain": "project", "sensitivity": "internal", "metadata_json": {"project_scope": ["alpha"]}}
     for label, (ref, named, _incidental) in _shape_cases(a, b, c, m).items():
         if not named <= {a, b}:
             continue  # the integer names an id of its own, which is no stored source and so is refused, as a named id is
@@ -465,14 +478,17 @@ def test_a_memory_that_names_many_ids_reads_the_sources_in_slices_and_memory_ref
     a ``memory:`` ref names a memory, so it is not looked up as a source at all.
 
     Mutations: look the ids up in one call (``_judge`` without the slices: the largest batch is 1,200); read the id after
-    ``memory:`` as a source id (the first read is 300 ids and the second assertion fails).
+    ``memory:`` as a source id (the first read is 300 ids and the second assertion fails); drop the test for a quote at the
+    top of ``_memory_ids_named_by_memory_copies`` (the 300 members of the roll-up are looked up, one read each).
     """
 
     store = _BatchStore()
     readable = store.add_source()
-    rollup = _row(str(uuid4()), refs=[f"memory:{uuid4()}" for _ in range(300)])
+    # A roll-up card lists its members and holds no quote, so its memories are not looked up either.
+    rollup = _row(str(uuid4()), refs=[f"memory:{uuid4()}" for _ in range(300)], copy_kind="none")
     memories_only = _reader(store).memory(rollup)
     assert memories_only is rollup and store.batches == [], "a memory ref is not a source id"
+    assert store.memory_reads == 0, "a row with no quote has nothing to withhold, so its memories are not read"
     many = [{"source_id": readable, "origin": str(uuid4())} for _ in range(1200)]
     row = _row(str(uuid4()), refs=many)
     assert _reader(store).memory(row) is row
@@ -522,6 +538,8 @@ def test_the_pack_reads_each_memory_row_and_source_once_for_its_links() -> None:
     shown = [reader.shown_link(link) for link in store.links]
     assert all(link is not None and link["quote"] is None for link in shown)
     assert (store.link_reads, store.source_reads, store.memory_reads) == (1, 1, 0)
+    # The ids the rows cite are looked up as possible memories as well, once for all six rows.
+    assert store.memory_batches == [2]
 
 
 # -- alice_explain -----------------------------------------------------------------------------------------------
