@@ -31,25 +31,24 @@ jobs:
         #
         # The shards are balanced by the time their files took in CI with coverage
         # on (the mean of three runs, since one runner is slower than another):
-        # about 11 minutes of tests each, 12 to 14 minutes as jobs, against the 20
+        # about 11 minutes of tests each, 12 to 13 minutes as jobs, against the 20
         # minute limit and the 17 minute split line recorded in gates.json. The
         # saved-quote files are the heaviest family and are split by name over
         # three shards; the vault tests (test_saved_quote_memory_refs_vault.py)
-        # run in shard 4. A new file that no pattern selects fails the split test.
+        # run in shard 2. A new file that no pattern selects fails the split test.
         include:
           - shard: 1
-            selection: "tests/unit/test_[0-9a-d]*.py tests/unit/test_saved_quote_[a-l]*.py"
+            selection: "tests/unit/test_[b-e]*.py"
           - shard: 2
-            selection: "tests/unit/test_e*.py tests/unit/test_[j-m]*.py"
-          - shard: 3
-            selection: >-
-              tests/unit/test_[f-i]*.py tests/unit/test_[no]*.py tests/unit/test_r*.py
-              tests/unit/test_s[!a]*.py
-          - shard: 4
             selection: >-
               tests/unit/test_[pq]*.py tests/unit/test_saved_[!q]*.py
               tests/unit/test_saved_quote_[m-z]*.py tests/unit/test_saved_quotes_*.py
-              tests/unit/test_[t-z]*.py
+          - shard: 3
+            selection: "tests/unit/test_[0-9a]*.py tests/unit/test_[f-i]*.py tests/unit/test_[no]*.py tests/unit/test_r*.py"
+          - shard: 4
+            selection: >-
+              tests/unit/test_[j-m]*.py tests/unit/test_s[!a]*.py
+              tests/unit/test_saved_quote_[a-l]*.py tests/unit/test_[t-z]*.py
     env:
       COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
