@@ -725,6 +725,13 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
                 allowed_entity_ids=allowed_entity_ids,
                 include_entity_counts=not SourceReadFence.for_identity(identity).entity_read_fenced,
             )
+            # A memory that cites another memory keeps the words it quoted. Every source the audit names is authorized
+            # above, so what is left to hold back is the saved quote of a memory this caller may not read now (redacted,
+            # archived, over its ceiling, outside its project, or made from a redacted input): the ref keeps its id and
+            # loses its quote, as a link whose source is hidden loses its own.
+            quote_fence = SourceReadFence.for_identity(identity)
+            if _is_key_bound_explain(identity) and quote_fence.entity_read_fenced:
+                extended = SavedProvenanceReader(store, fence=quote_fence).audit(extended)
             # Quote the stored notes a model reads. The result states the
             # framing sentence once. Timeline summaries and event payloads
             # stay the audit record Alice wrote.

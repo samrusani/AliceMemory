@@ -34,7 +34,7 @@ from alicebot_api.vnext_label_guard import (
     policy_labels,
 )
 from alicebot_api.vnext_project_scope import source_project_scope
-from alicebot_api.vnext_source_fence import SourceReadFence
+from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 from alicebot_api.vnext_queue import VNextQueueNotFoundError
 from alicebot_api.vnext_store import PostgresVNextStore, is_redacted_project_update_artifact
 
@@ -332,6 +332,11 @@ def _vnext_load_source_trace(
         store, "open_loop", lambda limit: store.list_open_loops_referencing_source(source_id=source_id, limit=limit), caller
     )
     open_loops = withhold_unreadable_references(store, open_loops, fence=SourceReadFence.for_identity(caller))
+    # The memories of a trace are commits and candidates that keep the quote of what they cite. The caller is shown the
+    # quotes it may read now.
+    quote_fence = SourceReadFence.for_identity(caller)
+    if quote_fence.entity_read_fenced:
+        memories = SavedProvenanceReader(store, fence=quote_fence).memories(memories)
     kept_ids = {str(row.get("id")) for row in (*memories, *artifacts, *open_loops)}
     kept_ids.add(source_id)
     events, direct_events_complete = _vnext_readable_trace_rows(

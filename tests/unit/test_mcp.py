@@ -6942,6 +6942,8 @@ def test_alice_explain_key_scope_authorizes_root_chain_and_provenance(monkeypatc
             "metadata_json": {"project_scope": ["project-a"]},
         }
     )
+    # A stored source has a UUID for an id, and the reader of saved quotes leaves out a link that names anything else.
+    source["id"] = str(uuid4())
     chunk = store.create_source_chunk({"source_id": source["id"], "chunk_index": 0})
     store.create_provenance_link(
         {

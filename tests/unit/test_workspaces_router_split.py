@@ -95,7 +95,10 @@ MAIN_PRUNED_BINDINGS = {
 EXPECTED_ROUTE_AST_SHA256 = "7045d27156861c06b2283bb09416e522c59a5064941f40e81c87634577dd1b08"
 # Re-pin 2026-10-08: the payload reads its two event feeds through the guard, which widens the read while the newest events are
 # hidden from the caller (``LabelGuard.newest_admitted_events``). One definition changed, ``_vnext_workspace_payload``.
-EXPECTED_SUPPORT_AST_SHA256 = "6bb9b9770016803174b17dfbdce3390d245944dc28a816886b2c50e911a82e7d"
+# Re-pin 2026-10-10: the payload passes the review memories, the recent commits and the inline confirmations through the reader of
+# saved quotes when the caller has limits, so a quote of a source or a memory the caller may not read is withheld. One definition
+# changed, ``_vnext_workspace_payload``.
+EXPECTED_SUPPORT_AST_SHA256 = "eb1f98af26d2cb63843083996ca536efd34ea2a0e59897ac31d6bab1d596f588"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "e8c18d6831ca012b55b22f46c9b2151d62575773a2452ef0d0f2e869cabc8abb"
@@ -153,7 +156,7 @@ EXPECTED_ROUTE_NODE_SHA256 = {
 }
 EXPECTED_SUPPORT_NODE_SHA256 = {
     "_vnext_status_counts": "0bf0ed228a14bd648a9d18fcd5f99ebf8c585bd29f4b5e81e1df17fe0201fd15",
-    "_vnext_workspace_payload": "9e6ab5ac1ae1dc86e3bc721ddab10b930c5c23aa3099e60c47d242e4c425831b",
+    "_vnext_workspace_payload": "68b0f9694ad4a729b5eddccfad2e5fc4278f73245db20669bd8ee565ffed3ffc",
     "_workspace_rows": "070bdfbd1eae10608bd8208b08367e1c0ea10e2064f03ad5a84121a190ed4cf0",
     "_workspace_event_visible": "8343c060909326a5cb69fa6f671ac62f160630ecf989f04d78e792ea74c0ea90",
 }

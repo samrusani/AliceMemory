@@ -1378,7 +1378,7 @@ class VNextProjectService:
         from alicebot_api.vnext_agent_control import AgentIdentity
         from alicebot_api.vnext_label_guard import admit_loaded, apply_sensitivity_ceiling
         from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
-        from alicebot_api.vnext_source_fence import SourceReadFence
+        from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 
         project = self.store.get_project(project_id)
         if project is None:
@@ -1420,6 +1420,10 @@ class VNextProjectService:
             sensitivity_allowed=sensitivity_allowed,
             projects=(project_id,),
         )
+        # A commit keeps the quote of the source or memory it cites. The caller is shown the quotes it may read now.
+        quote_fence = SourceReadFence.for_identity(caller)
+        if quote_fence.entity_read_fenced:
+            memories = SavedProvenanceReader(self.store, fence=quote_fence).memories(memories)
         open_loops = admit_loaded(
             self.store,
             kind="open_loop",

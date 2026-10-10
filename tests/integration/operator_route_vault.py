@@ -6,6 +6,14 @@ apart from a route that answers with only what the caller may read.
 
 ``owner=True`` builds the same vault with no agent key at all, so every call is the owner's. A vault with keys is read
 by the admin key (no limits, the control) and by the trusted key (the ceiling: public, internal, private, unknown).
+
+``redacted_family=True`` adds a public memory that is redacted through the route before the vault is returned, and the rows
+that hold or point at its words: a derived commit, a derived loop, a derived report and a derived project state (copies that
+redaction contains with the reports), and three commits that quote the memory, one with the ref ``{"memory_id": ..., "quote":
+...}``, one with the two entries ``"memory:<id>"`` and ``{"quote": ...}``, and one held for review. The memory is not above any ceiling, so it is hidden from a key with limits only
+because it is redacted. The commits that quote it are public and readable, and carry shown text of their own: a restricted key
+may read the commit and must not read the quote. It is off by default so the tests that count the rows of the vault keep
+their numbers; ``tests/integration/test_saved_quote_memory_refs_postgres.py`` sweeps every route with it on.
 """
 from __future__ import annotations
 
@@ -13,6 +21,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from uuid import uuid4
 
+from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_label_writes import without_insert_floor
 
@@ -37,6 +46,7 @@ class Vault:
     harness: object
     tag: str
     owner: bool = False
+    redacted_family: bool = False
     ids: dict[str, str] = field(default_factory=dict)
     keys: dict[str, str | None] = field(default_factory=dict)
     agent_ids: dict[str, str] = field(default_factory=dict)
@@ -113,6 +123,8 @@ class Vault:
             self._graph(store)
         self._commits()
         self._dedupe_rows()
+        if self.redacted_family:
+            self._redacted_memory()
         self._queue_task()
         self._charter()
         self._insight_feedback()
@@ -397,6 +409,100 @@ class Vault:
             )
         self.ids["dedupe_project"] = str(project["id"])
         self.remember_hidden("projects", project["id"])
+
+    def _redacted_memory(self) -> None:
+        """A public memory, the rows that copy or quote it, and then the redaction.
+
+        The words are the sentinel of ``memory_redacted-text``. The derived commit and the derived loop record the memory as an
+        input and carry the sentinel of their own, as the copies a producer makes do. The two commits that quote it go through
+        the commit route as an agent sends them; their quote is the memory's text, and their own title and text are shown text.
+        """
+
+        with self.harness.store() as store:
+            memory = self._memory(store, "memory_redacted", hidden=True, sensitivity="public")
+            row = store.create_memory(
+                {
+                    "memory_key": f"{self.tag}-commit_of_redacted",
+                    "memory_type": "semantic",
+                    "canonical_text": self._text("commit_of_redacted-text", hidden=True),
+                    "title": self._text("commit_of_redacted-title", hidden=True),
+                    "status": "active",
+                    "domain": "project",
+                    "sensitivity": "public",
+                    "metadata_json": with_derived_from(
+                        {"agentic_memory": {"kind": "agentic_memory_commit", "agent_identity": {"agent_id": "sweep"}}},
+                        {"memories": [memory]},
+                    ),
+                }
+            )
+            self.ids["commit_of_redacted"] = str(row["id"])
+            self.remember_hidden("memories", row["id"])
+            loop = store.create_open_loop(
+                {
+                    "title": self._text("loop_of_redacted-title", hidden=True),
+                    "description": self._text("loop_of_redacted-description", hidden=True),
+                    "status": "open",
+                    "domain": "project",
+                    "sensitivity": "public",
+                    "memory_id": str(memory["id"]),
+                    "metadata_json": with_derived_from({}, {"memories": [memory]}),
+                }
+            )
+            self.ids["loop_of_redacted"] = str(loop["id"])
+            self.remember_hidden("open_loops", loop["id"])
+            artifact = store.create_artifact(
+                {
+                    "artifact_type": "daily_brief",
+                    "title": self._text("artifact_of_redacted-title", hidden=True),
+                    "content_markdown": self._text("artifact_of_redacted-body", hidden=True),
+                    "domain": "project",
+                    "sensitivity": "public",
+                    "metadata_json": with_derived_from({"workflow": "daily_brief"}, {"memories": [memory]}),
+                }
+            )
+            self.ids["artifact_of_redacted"] = str(artifact["id"])
+            self.remember_hidden("generated_artifacts", artifact["id"])
+            project = store.create_project(
+                {
+                    "name": self._text("project_of_redacted-name", hidden=True),
+                    "slug": f"{self.tag}-project_of_redacted".lower(),
+                    "description": self._text("project_of_redacted-description", hidden=True),
+                    "current_state": self._text("project_of_redacted-state", hidden=True),
+                    "domain": "project",
+                    "sensitivity": "public",
+                    "metadata_json": with_derived_from({}, {"memories": [memory]}),
+                }
+            )
+            self.ids["project_of_redacted"] = str(project["id"])
+            self.remember_hidden("projects", project["id"])
+        words = self.text("memory_redacted-text")
+        cited = self.ids["memory_redacted"]
+        # The last commit is held for review (its confidence is low), so the workspace lists it among the review memories.
+        for name, refs, confidence in (
+            ("commit_quotes_redacted", [{"memory_id": cited, "quote": words}], 0.99),
+            ("commit_quotes_redacted_typed", [f"memory:{cited}", {"quote": words}], 0.99),
+            ("commit_pending_quotes_redacted", [{"memory_id": cited, "quote": words}], 0.3),
+        ):
+            status, body = self.admin_request(
+                "POST",
+                "/v0/vnext/memories/commit",
+                {
+                    "title": self._text(f"{name}-title", hidden=False),
+                    "canonical_text": self._text(f"{name}-text", hidden=False),
+                    "memory_type": "fact",
+                    "domain": "project",
+                    "sensitivity": "public",
+                    "confidence": confidence,
+                    "source_type": "agent",
+                    "source_refs": refs,
+                },
+            )
+            assert status in {200, 201}, (status, str(body)[:300])
+            self.ids[name] = str(body["memory"]["id"])
+        status, body = self.admin_request(
+            "POST", "/v0/vnext/memories/redact", {"memory_id": cited, "reason": "sweep"}
+        )
+        assert status == 200, (status, str(body)[:300])
 
     def _queue_task(self) -> None:
         for name, hidden, sensitivity in (("task_hidden", True, "confidential"), ("task_shown", False, "public")):

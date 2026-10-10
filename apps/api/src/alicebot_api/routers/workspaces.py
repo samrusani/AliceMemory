@@ -90,7 +90,7 @@ def _workspace_rows(store: PostgresVNextStore, kind: str, rows: Sequence[Mapping
 def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdentity | None = None) -> dict[str, object]:
     from alicebot_api.vnext_label_guard import LabelGuard, readable_own_label_rows, sensitivity_ceiling
     from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
-    from alicebot_api.vnext_source_fence import SourceReadFence
+    from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 
     sensitivity_allowed = ["public", "internal", "private", "unknown"]
     ceiling = sensitivity_ceiling(identity)
@@ -117,7 +117,14 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
         fetched_memories = [
             memory for memory in store.list_memories(status=None) if str(memory.get("status")) in set(review_statuses)
         ][:30]
-    review_memories = guard.admit_rows("memory", fetched_memories)
+    # The reader judges the quote a memory saved of a source or of another memory against the caller's limits now. The
+    # owner and an unbound admin key have no limits, so the rows are theirs as stored.
+    saved_quotes = None if unfenced else SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity))
+
+    def withhold_saved_quotes(rows: list) -> list:
+        return rows if saved_quotes is None else saved_quotes.memories(rows)
+
+    review_memories = withhold_saved_quotes(guard.admit_rows("memory", fetched_memories))
     memory_status_counts = store.count_memories_by_status(sensitivity_allowed=sensitivity_allowed) if unfenced else guard.readable_status_counts("memory")
     review_memory_total = sum(memory_status_counts.get(status, 0) for status in review_statuses)
     fetched_artifacts = store.list_artifacts(sensitivity_allowed=sensitivity_allowed, limit=30)
@@ -166,8 +173,10 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
         if callable(list_pending_inline_confirmations)
         else memory_commit_service.inline_confirmations(limit=20)
     )
-    recent_memory_commits = guard.admit_rows("memory", recent_memory_commits if isinstance(recent_memory_commits, list) else [])
-    inline_confirmations = guard.admit_rows("memory", inline_confirmations)
+    recent_memory_commits = withhold_saved_quotes(
+        guard.admit_rows("memory", recent_memory_commits if isinstance(recent_memory_commits, list) else [])
+    )
+    inline_confirmations = withhold_saved_quotes(guard.admit_rows("memory", inline_confirmations))
     scheduler_status = VNextSchedulerService(store).status()
     scheduler_status = {**scheduler_status, "daemon": daemon_status()}
     connector_health = VNextConnectorService(store).connector_health_all(guard=guard)
