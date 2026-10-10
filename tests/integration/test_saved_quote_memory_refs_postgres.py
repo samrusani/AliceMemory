@@ -371,6 +371,8 @@ def test_the_dashboard_and_the_source_trace_withhold_the_quote(label_harness):
     cited_words = f"Atlas played {uuid4().hex} for 115 hours"
     quote = f"Atlas quote {uuid4().hex} of the notes"
     excerpt = f"Atlas excerpt {uuid4().hex} of the notes"
+    # One transaction for the rows, one for the commit, one for its confirmation and one for the metadata write, as the routes
+    # make them: a strict test refuses the graph lock after the label lock, and each of those takes one.
     with harness.store() as store:
         project = store.create_project({"name": "Atlas", "slug": f"atlas-{uuid4().hex[:8]}", "domain": "project", "sensitivity": "public"})
         project_id = str(project["id"])
@@ -400,8 +402,8 @@ def test_the_dashboard_and_the_source_trace_withhold_the_quote(label_harness):
             }
         )
         stored_id = str(stored["id"])
-        service = VNextMemoryCommitService(store, defer_embeddings=True)
-        asked = service.commit(
+    with harness.store() as store:
+        asked = VNextMemoryCommitService(store, defer_embeddings=True).commit(
             identity=None,
             request=MemoryCommitRequest(
                 user_id=str(harness.user_id), title="Atlas confirmed follow up", canonical_text="Atlas confirmed follow up on the games note",
@@ -409,9 +411,13 @@ def test_the_dashboard_and_the_source_trace_withhold_the_quote(label_harness):
                 source_refs=(source_id, {"memory_id": cited_id, "quote": quote}), conversation_excerpt=excerpt, project_scope=(project_id,),
             ),
         )
-        assert asked["status"] == "confirmation_required", str(asked)[:300]
-        service.confirm(identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm")
-        confirmed_id = str(asked["memory"]["id"])
+    assert asked["status"] == "confirmation_required", str(asked)[:300]
+    with harness.store() as store:
+        VNextMemoryCommitService(store, defer_embeddings=True).confirm(
+            identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm"
+        )
+    confirmed_id = str(asked["memory"]["id"])
+    with harness.store() as store:
         row = store.get_memory(confirmed_id)
         store.update_memory(
             memory_id=confirmed_id, patch={"metadata_json": {**row["metadata_json"], "source_refs": [source_id]}}, actor_type="system"

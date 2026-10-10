@@ -541,9 +541,10 @@ class Vault:
         from alicebot_api.vnext_memory_commit import MemoryCommitRequest, VNextMemoryCommitService
 
         words = self.text("memory_redacted-text")
+        # Two transactions, as the commit route and the confirm route are: a strict test refuses the graph lock after the label lock,
+        # and the commit takes the label lock.
         with self.harness.store() as store:
-            service = VNextMemoryCommitService(store, defer_embeddings=True)
-            asked = service.commit(
+            asked = VNextMemoryCommitService(store, defer_embeddings=True).commit(
                 identity=None,
                 request=MemoryCommitRequest(
                     user_id=str(self.harness.user_id),
@@ -557,9 +558,12 @@ class Vault:
                     conversation_excerpt=words,
                 ),
             )
-            assert asked["status"] == "confirmation_required", str(asked)[:300]
-            service.confirm(identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm")
-            self.ids["commit_confirmed_quotes_redacted"] = str(asked["memory"]["id"])
+        assert asked["status"] == "confirmation_required", str(asked)[:300]
+        with self.harness.store() as store:
+            VNextMemoryCommitService(store, defer_embeddings=True).confirm(
+                identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm"
+            )
+        self.ids["commit_confirmed_quotes_redacted"] = str(asked["memory"]["id"])
 
     def _queue_task(self) -> None:
         for name, hidden, sensitivity in (("task_hidden", True, "confidential"), ("task_shown", False, "public")):
