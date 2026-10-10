@@ -911,8 +911,10 @@ def test_the_name_of_a_field_the_product_does_not_write_goes_with_its_value() ->
 
 def test_a_row_whose_refs_hold_text_and_no_quote_still_has_its_memories_looked_up() -> None:
     """A row is checked for memories to refuse only when it holds words to withhold. Words are a quote or an excerpt and also
-    any string of a ref that is not an id, so a ref of the shape ``{"memory_id": ..., "text": ...}`` with no quote is judged,
-    and a list of bare references (the roll-up card) costs no read.
+    any string of a ref that is not an id, so a ref of the shape ``{"memory_id": ..., "ref": "<a sentence>"}`` with no quote is
+    judged (its names are all names the product writes, so only the string is words), and a list of bare references (the roll-up
+    card) costs no read. The name of a field the product does not write is words as well
+    (``test_a_row_whose_only_words_are_the_name_of_a_field_has_its_memories_looked_up``).
 
     Mutations: gate the lookup on a quote alone (``_holds_words`` made to look at the quote keys only: the first assertion
     fails); gate it on nothing (the roll-up row reads 300 memories).
@@ -920,7 +922,7 @@ def test_a_row_whose_refs_hold_text_and_no_quote_still_has_its_memories_looked_u
 
     store = _Store()
     refused = store.add_memory(sensitivity="confidential")
-    row = _commit(str(uuid4()), [{"memory_id": refused, "text": _WORDS}], copy_kind="none")
+    row = _commit(str(uuid4()), [{"memory_id": refused, "ref": _WORDS}], copy_kind="none")
     shown = _reader(store).memory(row)
     assert "ZQXSENTINEL" not in json.dumps(shown) and store.memory_batches == [1]
     rollup = _row(str(uuid4()), refs=[f"memory:{uuid4()}" for _ in range(300)], copy_kind="none")
