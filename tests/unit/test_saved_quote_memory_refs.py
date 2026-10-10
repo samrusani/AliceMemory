@@ -464,7 +464,7 @@ def test_a_ref_that_is_json_text_keeps_its_id_and_loses_its_quote() -> None:
     """A JSON string in a ref position is decoded, scrubbed and encoded again: the quote becomes ``null`` and every other
     field stays.
 
-    Mutation: leave a string alone in ``_withhold_quote_text`` (return ``value`` at the ``str`` test): the JSON row keeps it.
+    Mutation: leave a string alone in ``_withhold_entry_text`` (``nested = None`` in its ``str`` branch): the JSON row keeps it.
     """
 
     store = _Store()
@@ -477,6 +477,22 @@ def test_a_ref_that_is_json_text_keeps_its_id_and_loses_its_quote() -> None:
         "quote": None,
         "page": 2,
     }
+
+
+def test_a_json_text_beside_a_refused_ref_that_names_nothing_loses_its_quote() -> None:
+    """The entry beside a refused ref that names no id loses its quote, and when that entry is JSON text it is decoded, scrubbed
+    and encoded again. A JSON text that names a readable memory beside it is not touched.
+
+    Mutation: leave a string alone in ``_withhold_quote_text`` (``nested = None`` in its ``str`` branch): the sibling keeps it.
+    """
+
+    store = _Store()
+    refused = store.add_memory(sensitivity="confidential")
+    row = _commit(str(uuid4()), [f"memory:{refused}", json.dumps({"quote": _WORDS, "page": 2})], copy_kind="none")
+    shown = _reader(store).memory(row)
+    refs = shown["metadata_json"]["agentic_memory"]["source_refs"]  # type: ignore[index]
+    assert refs[0] == f"memory:{refused}" and json.loads(refs[1]) == {"quote": None, "page": 2}
+    assert "ZQXSENTINEL" not in json.dumps(shown)
 
 
 def test_a_quote_nested_past_the_bound_is_withheld_with_its_subtree() -> None:
@@ -771,9 +787,11 @@ def test_a_quote_key_is_matched_in_any_case_in_the_entry_that_names_a_memory_and
     """``Quote`` and ``Conversation_Excerpt`` hold a quote as ``quote`` does. The key is matched in any case for the entry that
     names a refused memory and for the entry beside it that names nothing, and in a ref of a refused source.
 
+    The value of a quote key is withheld whole, whatever its shape (a list, an object): the entry row holds a list and an object
+    under the two keys, which the string rule alone would rebuild as lists and objects of ``null``.
+
     Mutations, each alone: compare the key without ``lower()`` in ``_withhold_quote_text`` (the sibling row keeps its words);
-    in ``_withhold_entry_text`` (the entry row keeps them, and a string is nulled only if it is not an id); in
-    ``_holds_words`` (a row whose only words are in a ``Quote`` key is not looked up).
+    in ``_withhold_entry_text`` (the entry row is rebuilt as ``[null, null]`` and ``{"text": null}`` and not as ``null``).
     """
 
     store = _Store()
@@ -782,7 +800,7 @@ def test_a_quote_key_is_matched_in_any_case_in_the_entry_that_names_a_memory_and
     row = _commit(
         str(uuid4()),
         [
-            {"memory_id": refused_memory, "Quote": _WORDS, "Conversation_Excerpt": _WORDS},
+            {"memory_id": refused_memory, "Quote": [_WORDS, _WORDS], "Conversation_Excerpt": {"text": _WORDS}},
             f"memory:{refused_memory}",
             {"QUOTE": _WORDS},
             f"source:{refused_source}",

@@ -7690,9 +7690,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_saved_quote_memory_refs.py::test_a_ref_that_is_json_text_keeps_its_id_and_loses_its_quote"
+        "tests/unit/test_saved_quote_memory_refs.py::test_a_json_text_beside_a_refused_ref_that_names_nothing_loses_its_quote"
       ],
-      "expected_failure": "test_a_ref_that_is_json_text_keeps_its_id_and_loses_its_quote"
+      "expected_failure": "test_a_json_text_beside_a_refused_ref_that_names_nothing_loses_its_quote"
     },
     {
       "name": "memory-quote-scrub-depth-unbounded",
@@ -8175,7 +8175,7 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_saved_quote_memory_refs_vault.py::test_a_key_that_may_not_read_the_cited_memory_is_shown_none_of_its_words"
+        "tests/unit/test_saved_quote_memory_refs_vault.py::test_a_key_that_may_not_read_the_cited_memory_is_shown_none_of_its_words[redacted]"
       ],
       "expected_failure": "test_a_key_that_may_not_read_the_cited_memory_is_shown_none_of_its_words[redacted]"
     },
@@ -8293,6 +8293,22 @@
       "expected_failure": "test_a_row_whose_refs_hold_text_and_no_quote_still_has_its_memories_looked_up"
     },
     {
+      "name": "memory-quote-json-text-of-an-entry-is-left-alone",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_source_fence.py",
+          "line": 1062,
+          "before": "        nested = _json_container(value)\n        if nested is not None:\n            scrubbed = _withhold_entry_text(nested, texts, depth + 1, id_key=id_key)\n",
+          "after": "        nested = None\n        if nested is not None:\n            scrubbed = _withhold_entry_text(nested, texts, depth + 1, id_key=id_key)\n",
+          "sha256": "b19b912b65ab028fe07986cfdf22a3162f1c7a1f0ee5c23f0f428639ea94b7b7"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_saved_quote_memory_refs.py::test_a_ref_that_is_json_text_keeps_its_id_and_loses_its_quote"
+      ],
+      "expected_failure": "test_a_ref_that_is_json_text_keeps_its_id_and_loses_its_quote"
+    },
+    {
       "name": "memory-quote-non-list-source-refs-are-left-alone",
       "edits": [
         {
@@ -8368,7 +8384,7 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_saved_quote_memory_refs_vault.py::test_a_key_that_may_not_read_the_cited_memory_is_shown_none_of_its_words"
+        "tests/unit/test_saved_quote_memory_refs_vault.py::test_a_key_that_may_not_read_the_cited_memory_is_shown_none_of_its_words[column]"
       ],
       "expected_failure": "test_a_key_that_may_not_read_the_cited_memory_is_shown_none_of_its_words[column]"
     },
@@ -8464,7 +8480,7 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_saved_quote_memory_refs_vault.py::test_a_key_that_may_not_read_the_cited_memory_is_shown_none_of_its_words"
+        "tests/unit/test_saved_quote_memory_refs_vault.py::test_a_key_that_may_not_read_the_cited_memory_is_shown_none_of_its_words[redacted]"
       ],
       "expected_failure": "test_a_key_that_may_not_read_the_cited_memory_is_shown_none_of_its_words[redacted]"
     },
