@@ -143,9 +143,10 @@ class Vault:
             self._redacted_project()
         self._connector_sync_again()
         if self.redacted_family:
-            # Last, so their events are among the newest the workspace lists.
-            self._confirmed_quote()
+            # Last, so their events are among the newest the workspace lists. The agent's goes first: the owner's confirmation appends
+            # no agent event, so the agent's is still the newest of the agent activity, and the owner's the newest of the recent events.
             self._confirmed_quote_by_an_agent()
+            self._confirmed_quote()
         return self
 
     def _source(self, store, name: str, *, hidden: bool, sensitivity: str):
@@ -573,8 +574,8 @@ class Vault:
         The confirmation appends the same ``memory.updated`` event as the owner's, with the actor an agent, and the workspace lists
         the events an agent caused in a feed of their own (``agent_activity.recent_events``, the newest fifty). That feed admits the
         event by the commit it is about, which a restricted key may read, and the payload holds the refs and the excerpt the commit
-        was sent with. It is the last row of the vault, so its event is the newest of that feed; an owner vault has no agent, and
-        the feed holds nothing of it.
+        was sent with. It is made just before the owner's confirmation, which appends no agent event, so its event is the newest of that
+        feed; an owner vault has no agent, and the feed holds nothing of it.
         """
 
         words = self.text("memory_redacted-text")
