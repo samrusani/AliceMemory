@@ -9051,9 +9051,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_saved_quote_memory_refs.py::test_a_ref_that_names_a_refused_memory_keeps_its_id_and_loses_its_quote"
+        "tests/unit/test_saved_quote_memory_refs.py::test_a_readable_source_in_the_same_entry_does_not_keep_the_names_of_a_refused_memory"
       ],
-      "expected_failure": "test_a_ref_that_names_a_refused_memory_keeps_its_id_and_loses_its_quote[above the ceiling]"
+      "expected_failure": "test_a_readable_source_in_the_same_entry_does_not_keep_the_names_of_a_refused_memory"
     },
     {
       "name": "memory-quote-sibling-keeps-its-quote",
@@ -11816,22 +11816,6 @@
       "expected_failure": "test_a_task_that_names_a_memory_already_redacted_is_processed_and_its_artifact_is_contained"
     },
     {
-      "name": "consolidation-report-label-ignores-the-memories-its-refs-name",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/vnext_consolidation.py",
-          "line": 1568,
-          "before": "            *_one_row_per_id([*all_cluster_rows, *(rollups.input_rows if rollups is not None else []), *named_memories]),\n",
-          "after": "            *_one_row_per_id([*all_cluster_rows, *(rollups.input_rows if rollups is not None else [])]),\n",
-          "sha256": "a60b5c1447ef4a0f59a3b27b3b0e6c941838d6d186bb8b7b3a80487ce05d8fe0"
-        }
-      ],
-      "pytest": [
-        "tests/integration/test_consolidation_report_sensitivity_postgres.py::test_a_report_whose_member_refs_quote_a_confidential_memory_is_refused_to_a_trusted_agent[json quote]"
-      ],
-      "expected_failure": "test_a_report_whose_member_refs_quote_a_confidential_memory_is_refused_to_a_trusted_agent"
-    },
-    {
       "name": "consolidation-report-is-not-derived-from-the-memories-its-refs-name",
       "edits": [
         {
@@ -11839,13 +11823,30 @@
           "line": 1553,
           "before": "                        *named_memories,\n",
           "after": "",
-          "sha256": "a60b5c1447ef4a0f59a3b27b3b0e6c941838d6d186bb8b7b3a80487ce05d8fe0"
+          "sha256": "28e96a9ef0944a8b5804cf7083a5ca52091f8ecff1c693321981ee46ba95b48e"
         }
       ],
       "pytest": [
-        "tests/integration/test_consolidation_report_sensitivity_postgres.py::test_a_report_whose_member_refs_quote_a_memory_that_is_redacted_afterwards_is_refused_to_a_trusted_agent[json quote]"
+        "tests/integration/test_consolidation_report_sensitivity_postgres.py::test_a_report_whose_member_refs_quote_a_memory_that_is_redacted_afterwards_is_refused_to_a_trusted_agent[json quote]",
+        "tests/integration/test_consolidation_report_sensitivity_postgres.py::test_a_report_whose_member_refs_quote_a_confidential_memory_is_refused_to_a_trusted_agent[json quote]"
       ],
       "expected_failure": "test_a_report_whose_member_refs_quote_a_memory_that_is_redacted_afterwards_is_refused_to_a_trusted_agent"
+    },
+    {
+      "name": "consolidation-report-label-follows-the-memories-its-refs-name",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_consolidation.py",
+          "line": 1553,
+          "before": "                        *named_memories,\n",
+          "after": "",
+          "sha256": "28e96a9ef0944a8b5804cf7083a5ca52091f8ecff1c693321981ee46ba95b48e"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_consolidation_report_sensitivity_postgres.py::test_a_report_whose_member_refs_quote_a_confidential_memory_is_refused_to_a_trusted_agent[json quote]"
+      ],
+      "expected_failure": "test_a_report_whose_member_refs_quote_a_confidential_memory_is_refused_to_a_trusted_agent"
     },
     {
       "name": "consolidation-run-digest-ignores-the-memories-its-refs-name",
@@ -11855,13 +11856,13 @@
           "line": 1326,
           "before": "                    if named_memories\n                    else {}\n",
           "after": "                    if False\n                    else {}\n",
-          "sha256": "a60b5c1447ef4a0f59a3b27b3b0e6c941838d6d186bb8b7b3a80487ce05d8fe0"
+          "sha256": "28e96a9ef0944a8b5804cf7083a5ca52091f8ecff1c693321981ee46ba95b48e"
         }
       ],
       "pytest": [
-        "tests/integration/test_consolidation_report_sensitivity_postgres.py::test_a_memory_the_refs_name_that_is_raised_between_two_runs_makes_a_new_report"
+        "tests/integration/test_consolidation_report_sensitivity_postgres.py::test_the_digest_of_a_run_covers_the_memories_its_refs_name_beside_the_cluster"
       ],
-      "expected_failure": "test_a_memory_the_refs_name_that_is_raised_between_two_runs_makes_a_new_report"
+      "expected_failure": "test_the_digest_of_a_run_covers_the_memories_its_refs_name_beside_the_cluster"
     },
     {
       "name": "consolidation-report-counts-the-members-as-named-memories",
@@ -11871,13 +11872,13 @@
           "line": 1260,
           "before": "                if str(row.get(\"id\")) not in cluster_member_ids\n",
           "after": "                if True\n",
-          "sha256": "a60b5c1447ef4a0f59a3b27b3b0e6c941838d6d186bb8b7b3a80487ce05d8fe0"
+          "sha256": "28e96a9ef0944a8b5804cf7083a5ca52091f8ecff1c693321981ee46ba95b48e"
         }
       ],
       "pytest": [
-        "tests/integration/test_consolidation_report_sensitivity_postgres.py::test_refs_that_name_no_memory_or_only_the_members_leave_the_report_readable_to_a_trusted_agent"
+        "tests/integration/test_consolidation_report_sensitivity_postgres.py::test_the_digest_of_a_run_covers_the_memories_its_refs_name_beside_the_cluster"
       ],
-      "expected_failure": "test_refs_that_name_no_memory_or_only_the_members_leave_the_report_readable_to_a_trusted_agent"
+      "expected_failure": "test_the_digest_of_a_run_covers_the_memories_its_refs_name_beside_the_cluster"
     },
     {
       "name": "cli-memory-audit-authorizes-no-memory",
