@@ -112,7 +112,7 @@ def test_the_changelog_has_one_entry_for_the_operator_routes() -> None:
     assert "takes `identity` with no default" in entry
     assert "now holds to the rows an edge joins" in entry
     assert "the sweep holds that route as an expected failure" not in entry
-    assert "`POST /v0/vnext/queue/process-next` answers HTTP 500 to every caller on PostgreSQL" in entry
+    assert "process-next" not in entry
     assert "take no agent key" in entry
     assert entry.endswith("No migration is required.")
 
@@ -144,4 +144,4 @@ def test_the_security_note_covers_disclosure_the_charter_write_and_the_limits_it
     assert "such as a file path" in paragraph
     assert "take no agent key and list rows whatever their label while `APP_ENV` is `development` or `test`" in paragraph
     assert "answer HTTP 404 in any other environment" in paragraph
-    assert "`POST /v0/vnext/queue/process-next` answers HTTP 500 to every caller on PostgreSQL" in paragraph
+    assert "process-next" not in paragraph

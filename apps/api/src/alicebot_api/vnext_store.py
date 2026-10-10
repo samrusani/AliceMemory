@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import itertools
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -214,6 +214,17 @@ MAX_SOURCE_CHUNKS_PER_READ = 501
 # Names for nested savepoints. One counter for the process, so a nested block
 # never reuses its parent's name.
 _SAVEPOINT_NAMES = itertools.count(1)
+
+# The unique constraint on (user_id, slug) of ``projects``, named by Postgres from the table and the columns.
+PROJECT_SLUG_CONSTRAINT = "projects_user_id_slug_key"
+
+
+class ProjectSlugConflictError(ContinuityStoreInvariantError):
+    """A project with this slug already exists.
+
+    The failed insert leaves the transaction aborted, so the caller rolls it back, as it does for any store error.
+    The error holds no detail of the project that has the slug.
+    """
 
 
 
@@ -1932,47 +1943,52 @@ class PostgresVNextStore:
         from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
 
         project, floor_event = apply_insert_floor(self, "project", project)
-        row = self._fetch_one(
-            "create_project",
-            f"""
-                INSERT INTO projects (
-                  id,
-                  user_id,
-                  name,
-                  slug,
-                  status,
-                  description,
-                  current_state,
-                  domain,
-                  sensitivity,
-                  metadata_json
-                )
-                VALUES (
-                  COALESCE(%s::uuid, gen_random_uuid()),
-                  app.current_user_id(),
-                  %s,
-                  %s,
-                  %s,
-                  %s,
-                  %s,
-                  %s,
-                  %s,
-                  %s
-                )
-                RETURNING {PROJECT_COLUMNS}
-                """,
-            (
-                project.get("id"),
-                project["name"],
-                project["slug"],
-                project.get("status", "active"),
-                project.get("description"),
-                project.get("current_state"),
-                project.get("domain", "professional"),
-                project.get("sensitivity", "private"),
-                _json_object(project.get("metadata_json")),
-            ),
-        )
+        try:
+            row = self._fetch_one(
+                "create_project",
+                f"""
+                    INSERT INTO projects (
+                      id,
+                      user_id,
+                      name,
+                      slug,
+                      status,
+                      description,
+                      current_state,
+                      domain,
+                      sensitivity,
+                      metadata_json
+                    )
+                    VALUES (
+                      COALESCE(%s::uuid, gen_random_uuid()),
+                      app.current_user_id(),
+                      %s,
+                      %s,
+                      %s,
+                      %s,
+                      %s,
+                      %s,
+                      %s,
+                      %s
+                    )
+                    RETURNING {PROJECT_COLUMNS}
+                    """,
+                (
+                    project.get("id"),
+                    project["name"],
+                    project["slug"],
+                    project.get("status", "active"),
+                    project.get("description"),
+                    project.get("current_state"),
+                    project.get("domain", "professional"),
+                    project.get("sensitivity", "private"),
+                    _json_object(project.get("metadata_json")),
+                ),
+            )
+        except psycopg.errors.UniqueViolation as exc:
+            if exc.diag.constraint_name != PROJECT_SLUG_CONSTRAINT:
+                raise
+            raise ProjectSlugConflictError("a project with this slug already exists") from exc
         self._append_mutation_event(
             event_type="project.created",
             actor_type=actor_type,
@@ -2837,14 +2853,37 @@ class PostgresVNextStore:
         )
         return row
 
-    def claim_next_task(self, *, actor_type: str = "system") -> VNextRow | None:
+    def claim_next_task(
+        self,
+        *,
+        actor_type: str = "system",
+        readable_labels: Collection[tuple[str, str]] | None = None,
+    ) -> VNextRow | None:
+        """Claim the oldest due pending task, or return None when there is none.
+
+        ``readable_labels`` limits the claim to the tasks a caller with limits may read: a task is claimed only when
+        its (domain, sensitivity) pair is in the collection. A task outside it is neither claimed nor locked, so a
+        worker with no limits still takes it. ``None`` is a caller with no limits, and an empty collection claims
+        nothing.
+
+        The chosen id leaves the CTE as ``next_id``. Named ``id`` it would be a second ``id`` beside the column of
+        ``task_queue``, and ``RETURNING`` would be ambiguous.
+        """
+
+        label_filter = ""
+        params: tuple[object, ...] | None = None
+        if readable_labels is not None:
+            pairs = sorted(set(readable_labels))
+            label_filter = "AND (domain, sensitivity) IN (SELECT * FROM unnest(%s::text[], %s::text[]))"
+            params = ([domain for domain, _sensitivity in pairs], [sensitivity for _domain, sensitivity in pairs])
         row = self._fetch_optional_one(
             f"""
-                WITH next_task AS (
-                  SELECT id
+                WITH next_task AS MATERIALIZED (
+                  SELECT id AS next_id
                   FROM task_queue
                   WHERE status = 'pending'
                     AND (scheduled_for IS NULL OR scheduled_for <= clock_timestamp())
+                    {label_filter}
                   ORDER BY scheduled_for ASC NULLS FIRST, created_at ASC, id ASC
                   FOR UPDATE SKIP LOCKED
                   LIMIT 1
@@ -2854,9 +2893,10 @@ class PostgresVNextStore:
                     started_at = clock_timestamp(),
                     updated_at = clock_timestamp()
                 FROM next_task
-                WHERE task_queue.id = next_task.id
+                WHERE task_queue.id = next_task.next_id
                 RETURNING {TASK_COLUMNS}
-                """
+                """,
+            params,
         )
         if row is not None:
             self._append_mutation_event(

@@ -80,6 +80,7 @@ from alicebot_api.vnext_queue import (
     VNextQueueNotFoundError,
     VNextQueueService,
     VNextQueueValidationError,
+    claimable_task_labels,
 )
 from alicebot_api.vnext_store import PostgresVNextStore
 
@@ -559,11 +560,29 @@ def create_vnext_queue_task(
     )
 
 @review_router.post("/v0/vnext/queue/process-next")
-def process_next_vnext_queue_task(request: VNextQueueProcessNextRequest) -> JSONResponse:
+def process_next_vnext_queue_task(
+    request: VNextQueueProcessNextRequest,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings = get_settings()
 
-    with user_connection(settings.database_url, request.user_id) as conn:
-        payload = VNextQueueService(PostgresVNextStore(conn)).process_next_task().to_record()
+    try:
+        with user_connection(settings.database_url, request.user_id) as conn:
+            store = PostgresVNextStore(conn)
+            identity = _vnext_authenticated_agent_identity(
+                store, request, user_id=request.user_id, authorization=authorization
+            )
+            # The central gate lets an unbound trusted key in, and that key has a ceiling. It claims a task only when
+            # it may read the task's labels, and a queue with no such task answers as an empty queue.
+            payload = (
+                VNextQueueService(store)
+                .process_next_task(readable_labels=claimable_task_labels(identity))
+                .to_record()
+            )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentIdentityValidationError as exc:
+        return public_exception_response(exc, status_code=400)
 
     return JSONResponse(
         status_code=200,

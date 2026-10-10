@@ -372,11 +372,19 @@ def _(v):
 
 @probe("POST", "/v0/vnext/projects")
 def _(v):
+    # A slug in use is answered HTTP 409, in the same words whoever holds the slug, so the two calls below must both
+    # get it. A route that crashes on the unique constraint answers 500 and fails the status check here.
     return [
-        Call("new", body={"name": "a new project", "domain": "project", "sensitivity": "public"}),
+        Call("new", body={"name": "a new project", "domain": "project", "sensitivity": "public"}, statuses=(201,)),
         Call(
             "slug_of_hidden",
             body={"name": "again", "slug": f"{v.tag}-dedupe-project".lower(), "domain": "project", "sensitivity": "public"},
+            statuses=(409,),
+        ),
+        Call(
+            "slug_of_shown",
+            body={"name": "again", "slug": f"{v.tag}-project_shown".lower(), "domain": "project", "sensitivity": "public"},
+            statuses=(409,),
         ),
     ]
 
@@ -548,10 +556,13 @@ def _(v):
 
 @probe("POST", "/v0/vnext/queue/process-next")
 def _(v):
-    # The claim statement of the queue is ambiguous in PostgreSQL, so the route answers 500 to every caller today. The
-    # calls stay, so the day it works the oldest pending task (the hidden one) is claimed by the trusted key here and
-    # the answer is read for what it carries.
-    return [Call("first", body={}, mutates=True), Call("second", body={}, mutates=True), Call("third", body={}, mutates=True)]
+    # The oldest pending task is the hidden one. The trusted key skips it and claims the newer task it may read, then
+    # finds the queue idle, so the hidden task must be unchanged after all three calls and every answer must be 200.
+    return [
+        Call("first", body={}, mutates=True, statuses=(200,)),
+        Call("second", body={}, mutates=True, statuses=(200,)),
+        Call("third", body={}, mutates=True, statuses=(200,)),
+    ]
 
 
 @probe("GET", "/v0/vnext/scheduler/status")
