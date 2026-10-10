@@ -9,11 +9,18 @@ by the admin key (no limits, the control) and by the trusted key (the ceiling: p
 
 ``redacted_family=True`` adds a public memory that is redacted through the route before the vault is returned, and the rows
 that hold or point at its words: a derived commit, a derived loop, a derived report and a derived project state (copies that
-redaction contains with the reports), and three commits that quote the memory, one with the ref ``{"memory_id": ..., "quote":
-...}``, one with the two entries ``"memory:<id>"`` and ``{"quote": ...}``, and one held for review. The memory is not above any ceiling, so it is hidden from a key with limits only
-because it is redacted. The commits that quote it are public and readable, and carry shown text of their own: a restricted key
-may read the commit and must not read the quote. It is off by default so the tests that count the rows of the vault keep
-their numbers; ``tests/integration/test_saved_quote_memory_refs_postgres.py`` sweeps every route with it on.
+redaction contains with the reports), and four commits that quote the memory, one with the ref ``{"memory_id": ..., "quote":
+...}``, one with the two entries ``"memory:<id>"`` and ``{"quote": ...}``, one held for review, and one that asked for an inline
+confirmation and was confirmed (the lifecycle whose event holds the refs the commit was sent with). The memory is not above any
+ceiling, so it is hidden from a key with limits only because it is redacted. The commits that quote it are public and readable,
+and carry shown text of their own: a restricted key may read the commit and must not read the quote. It is off by default so the
+tests that count the rows of the vault keep their numbers; ``tests/integration/test_saved_quote_memory_refs_postgres.py`` sweeps
+every route with it on.
+
+The derived project is created after the scheduler runs. The scheduler's project update scan takes the newest active project, and
+an update candidate generated for a project that is itself derived from a redacted memory records the memory and the sources as
+its inputs and not the project, so its title names the project; with ``contained_project_scanned=True`` the project exists when the
+scan runs, and ``test_the_update_candidate_of_a_contained_project_is_contained`` records that gap as a failing test.
 """
 from __future__ import annotations
 
@@ -47,6 +54,7 @@ class Vault:
     tag: str
     owner: bool = False
     redacted_family: bool = False
+    contained_project_scanned: bool = False
     ids: dict[str, str] = field(default_factory=dict)
     keys: dict[str, str | None] = field(default_factory=dict)
     agent_ids: dict[str, str] = field(default_factory=dict)
@@ -130,7 +138,12 @@ class Vault:
         self._insight_feedback()
         self._connector_sync()
         self._scheduler_runs()
+        if self.redacted_family and not self.contained_project_scanned:
+            self._redacted_project()
         self._connector_sync_again()
+        if self.redacted_family:
+            # Last, so its events are among the newest the workspace lists.
+            self._confirmed_quote()
         return self
 
     def _source(self, store, name: str, *, hidden: bool, sensitivity: str):
@@ -420,6 +433,7 @@ class Vault:
 
         with self.harness.store() as store:
             memory = self._memory(store, "memory_redacted", hidden=True, sensitivity="public")
+            self._redacted_input = memory
             row = store.create_memory(
                 {
                     "memory_key": f"{self.tag}-commit_of_redacted",
@@ -462,19 +476,8 @@ class Vault:
             )
             self.ids["artifact_of_redacted"] = str(artifact["id"])
             self.remember_hidden("generated_artifacts", artifact["id"])
-            project = store.create_project(
-                {
-                    "name": self._text("project_of_redacted-name", hidden=True),
-                    "slug": f"{self.tag}-project_of_redacted".lower(),
-                    "description": self._text("project_of_redacted-description", hidden=True),
-                    "current_state": self._text("project_of_redacted-state", hidden=True),
-                    "domain": "project",
-                    "sensitivity": "public",
-                    "metadata_json": with_derived_from({}, {"memories": [memory]}),
-                }
-            )
-            self.ids["project_of_redacted"] = str(project["id"])
-            self.remember_hidden("projects", project["id"])
+            if self.contained_project_scanned:
+                self._redacted_project_row(store, memory)
         words = self.text("memory_redacted-text")
         cited = self.ids["memory_redacted"]
         # The last commit is held for review (its confidence is low), so the workspace lists it among the review memories.
@@ -503,6 +506,59 @@ class Vault:
             "POST", "/v0/vnext/memories/redact", {"memory_id": cited, "reason": "sweep"}
         )
         assert status == 200, (status, str(body)[:300])
+
+    def _redacted_project_row(self, store, memory) -> None:
+        project = store.create_project(
+            {
+                "name": self._text("project_of_redacted-name", hidden=True),
+                "slug": f"{self.tag}-project_of_redacted".lower(),
+                "description": self._text("project_of_redacted-description", hidden=True),
+                "current_state": self._text("project_of_redacted-state", hidden=True),
+                "domain": "project",
+                "sensitivity": "public",
+                "metadata_json": with_derived_from({}, {"memories": [memory]}),
+            }
+        )
+        self.ids["project_of_redacted"] = str(project["id"])
+        self.remember_hidden("projects", project["id"])
+
+    def _redacted_project(self) -> None:
+        """A project whose state was copied from the redacted memory, made after the scheduler ran (see the module docstring)."""
+
+        with self.harness.store() as store:
+            self._redacted_project_row(store, self._redacted_input)
+
+    def _confirmed_quote(self) -> None:
+        """A commit that quotes the redacted memory, asks for an inline confirmation and is confirmed by the owner.
+
+        The confirmation appends a ``memory.updated`` event whose payload holds the refs and the excerpt the commit was sent with,
+        and the feeds of events (the workspace, the source trace) admit that event by the commit it is about, which a restricted
+        key may read. It is made after the redaction, so the quote it carries is the words of a memory that is already redacted,
+        and it is the newest row of the vault, so its events are inside the window of the workspace's recent events.
+        """
+
+        from alicebot_api.vnext_memory_commit import MemoryCommitRequest, VNextMemoryCommitService
+
+        words = self.text("memory_redacted-text")
+        with self.harness.store() as store:
+            service = VNextMemoryCommitService(store, defer_embeddings=True)
+            asked = service.commit(
+                identity=None,
+                request=MemoryCommitRequest(
+                    user_id=str(self.harness.user_id),
+                    title=self._text("commit_confirmed_quotes_redacted-title", hidden=False),
+                    canonical_text=self._text("commit_confirmed_quotes_redacted-text", hidden=False),
+                    memory_type="semantic",
+                    domain="project",
+                    sensitivity="public",
+                    confidence=0.6,
+                    source_refs=({"memory_id": self.ids["memory_redacted"], "quote": words},),
+                    conversation_excerpt=words,
+                ),
+            )
+            assert asked["status"] == "confirmation_required", str(asked)[:300]
+            service.confirm(identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm")
+            self.ids["commit_confirmed_quotes_redacted"] = str(asked["memory"]["id"])
 
     def _queue_task(self) -> None:
         for name, hidden, sensitivity in (("task_hidden", True, "confidential"), ("task_shown", False, "public")):

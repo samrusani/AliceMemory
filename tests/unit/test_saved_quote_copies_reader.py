@@ -50,16 +50,27 @@ _QUOTE = "zinnwald-quote-8841 cone ten firing kiln log marlin-oxide-5520"
 
 
 class _MemoryStore(_Store):
-    """The stub store with ``get_memory``, as both real stores have it."""
+    """The stub store with ``get_memory`` and the bulk ``get_memories_by_ids``, as both real stores have them.
+
+    ``memory_reads`` counts the single reads. ``memory_batches`` holds the size of each bulk read, which is how the reader looks
+    up the memories a row may cite (``include_deleted`` returns a soft-deleted row, as the real stores do).
+    """
 
     def __init__(self) -> None:
         super().__init__()
         self.memories: dict[str, dict[str, object]] = {}
         self.memory_reads = 0
+        self.memory_batches: list[int] = []
 
     def get_memory(self, memory_id: str) -> dict[str, object] | None:
         self.memory_reads += 1
         return self.memories.get(memory_id)
+
+    def get_memories_by_ids(self, ids: list[str], *, include_deleted: bool = False) -> list[dict[str, object]]:
+        self.memory_batches.append(len(ids))
+        return [
+            self.memories[i] for i in ids if i in self.memories and (include_deleted or self.memories[i].get("deleted_at") is None)
+        ]
 
 
 def _row(
@@ -527,6 +538,8 @@ def test_the_pack_reads_each_memory_row_and_source_once_for_its_links() -> None:
     shown = [reader.shown_link(link) for link in store.links]
     assert all(link is not None and link["quote"] is None for link in shown)
     assert (store.link_reads, store.source_reads, store.memory_reads) == (1, 1, 0)
+    # The ids the rows cite are looked up as possible memories as well, once for all six rows.
+    assert store.memory_batches == [2]
 
 
 # -- alice_explain -----------------------------------------------------------------------------------------------

@@ -3,17 +3,20 @@
 Unreleased (on main, not in v0.20.0). Three statements are pinned here, each on the pages that carry it:
 
 * the quote a commit saved of a memory is withheld from a caller who may not read that memory (the security note, the tool
-  reference and the changelog), with the refs it is read in, the doors that apply it, who keeps the quote and what is not judged;
+  reference and the changelog), with the refs it is read in, the ids no marker covers, the doors and feeds of events that apply it,
+  who keeps the quote and what is not judged;
 * an open loop made over a memory with ``POST /v0/vnext/open-loops`` keeps the title and description its caller typed after the
   memory is redacted (the security note, the known limitations page and the tool reference);
 * after a memory is redacted the owner and an unbound admin key read the rows it contained by id, in the artifact and project
   lists, in recent commits and in the dashboard, but not through recall, the context pack or the default context tree, and a
-  request naming every sensitivity lists them (the same three pages).
+  request naming every sensitivity lists them, in recall as in the pack (the same three pages);
+* the update candidate the project update scan writes for a project that is itself contained is not contained (the security note).
 
 Mutations, each one alone: delete the saved-quote sentence from the security note, the tool reference or the changelog; delete
 the loop sentence or the context pack sentence from any of the three pages that carry it; change a key in the list of reference
 keys on the tool reference, or in ``MEMORY_REFERENCE_KEYS`` in ``vnext_source_fence.py``; restore the sentence that said the
-memory audit route returns what was stored; change ``a bare id in an entry of source_refs`` to say it names a memory.
+memory audit route returns what was stored; restore the sentence that said an id with no marker names no memory; restore the
+sentence that said recall takes no sensitivity argument; delete the sentence about the project update candidate.
 """
 from __future__ import annotations
 
@@ -57,9 +60,40 @@ KEEPS = {
     "changelog": "the owner and an unbound admin key keep the quote",
 }
 NOT_JUDGED = (
-    "other text an agent writes in a ref (a `note`, `text` or `excerpt` field), a bare id in an entry of `source_refs` (it names "
-    "a source and not a memory), and `alice_explain` for a call that declares a profile with no agent key, which was never held "
-    "to it"
+    "text in an entry that names no id, beside an entry that does (only its `quote` and `conversation_excerpt` are withheld), and "
+    "`alice_explain` for a call that declares a profile with no agent key, which was never held to it"
+)
+STRINGS = (
+    "a refused memory takes the strings of every entry that names it: the `quote` and the `conversation_excerpt` become `null`, "
+    "and so does any other text in the entry (a `text`, `excerpt`, `snippet` or `note` field, or a sentence that has the id in "
+    "it), while the entry keeps its ids, its numbers and its booleans"
+)
+UNMARKED_TOOLS = (
+    "every other id in the ref, outside the text of a `quote` or `conversation_excerpt`, is looked up as well, because it may "
+    "name a memory: a sentence such as `memory <id>` or `see memory: <id>`, a url, an id under `memory`, `origin`, `ref_id`, "
+    "`parent_memory_id` or `supersedes`. the caller is refused the quote when such an id names a memory the store holds a row "
+    "for, a redacted or archived one included, that the caller may not read. an id that names no memory row is left alone, "
+    "because it may be a source, a chunk or a session, and so is the id of a memory that was removed from the database, which no "
+    "door of the product does"
+)
+UNMARKED_NOTE = (
+    "and every other id in the ref, outside the text of a `quote` or `conversation_excerpt`, is looked up as well because it may "
+    "name a memory (`memory <id>`, a url, an id under `memory`, `origin` or `supersedes`): the caller is refused the quote when "
+    "such an id names a memory the store holds a row for, a redacted or archived one included, that the caller may not read, and "
+    "an id that names no memory row is left alone because it may be a source, a chunk or a session"
+)
+EVENTS_TOOLS = (
+    "a commit that is confirmed or edited appends an event whose payload holds the refs and the quote the commit was sent with, "
+    "and the two feeds of events hold that payload to the same rule as the events of one memory in its audit"
+)
+EVENTS_NOTE = (
+    "(a commit that is confirmed or edited appends an event whose payload holds the refs and the quote it was sent with, and the "
+    "two feeds of events hold that payload to the same rule as the events of one memory in its audit)"
+)
+PROJECT_CANDIDATE = (
+    "the update candidate that the project update scan writes for a project that is itself contained is not contained. a project "
+    "is contained when its state was copied from a memory that is then redacted. the scan takes the newest active project, and "
+    "the candidate it writes records the sources and memories of the project as its inputs and not the project"
 )
 LOOP_SENTENCE = (
     "an open loop made with `post /v0/vnext/open-loops` over a memory keeps the title and description its caller typed, so words "
@@ -90,9 +124,11 @@ OWNER_READS_TOOLS = (
     "because the default sensitivity filter of those three reads an unverified row as regulated"
 )
 NAMES_EVERY = (
-    "a request that names every sensitivity (the `sensitivity_allowed` option of the context pack, the `sensitivity_allowed` query "
-    "of the context tree) lists them. recall takes no sensitivity argument, so it never lists them"
+    "a request that names every sensitivity lists them: the `sensitivity_allowed` argument of `alice_recall` and of the context "
+    "pack, and the `sensitivity_allowed` query of the context tree"
 )
+RETIRED_RECALL = "recall takes no sensitivity argument"
+RETIRED_UNMARKED = "an id with no marker outside those keys names no memory"
 RETIRED = (
     "the operator routes `get /v0/vnext/memories/{id}/audit`, `get /v0/vnext/memories/recent-commits` and "
     "`get /v0/vnext/sources/{id}`, which only the owner",
@@ -127,14 +163,18 @@ def test_the_tool_reference_lists_the_reference_keys_the_reader_takes_and_what_i
     assert keys == set(MEMORY_REFERENCE_KEYS)
     for sentence in (
         "a memory is named by a `memory:` prefix in any case and any number, by an `alice://memories/<id>` url",
-        "an id with no marker outside those keys names no memory",
+        UNMARKED_TOOLS,
+        STRINGS,
+        EVENTS_TOOLS,
         "the recent commits route and the legacy tool `alice_vnext_recent_memory_commits`, the memory audit route",
-        "the workspace (its review memories, recent commits, inline confirmations and the source traces it embeds), the project dashboard",
-        "a row that holds no quote costs no lookup",
+        "the workspace (its review memories, recent commits, inline confirmations, recent events and the source traces it embeds), the project dashboard, the source trace routes with their events",
+        "a row that holds no words to withhold (no quote, no excerpt and no string beside an id) costs no lookup",
         NOT_JUDGED,
     ):
         assert sentence in text, sentence
-    assert NOT_JUDGED in _flat("security note")
+    note = _flat("security note")
+    for sentence in (NOT_JUDGED, STRINGS, UNMARKED_NOTE, EVENTS_NOTE):
+        assert sentence in note, sentence
 
 
 def test_no_current_page_still_says_the_memory_audit_route_returns_what_was_stored() -> None:
@@ -143,6 +183,16 @@ def test_no_current_page_still_says_the_memory_audit_route_returns_what_was_stor
     for name in ("security note", "known limitations", "tool reference"):
         for sentence in RETIRED:
             assert sentence not in _flat(name), (name, sentence)
+
+
+def test_no_current_page_still_says_recall_takes_no_sensitivity_argument_or_that_an_unmarked_id_names_no_memory() -> None:
+    """``alice_recall`` has a ``sensitivity_allowed`` argument and lists a contained row when it names every sensitivity, and the
+    reader looks up an id that no marker says is a memory. The pages that describe main say neither of the old sentences."""
+
+    for name in ("security note", "known limitations", "tool reference", "changelog"):
+        text = _flat(name)
+        assert RETIRED_RECALL not in text, name
+        assert RETIRED_UNMARKED not in text, name
 
 
 def test_three_pages_say_a_loop_its_caller_wrote_over_a_memory_stays_readable() -> None:
@@ -163,6 +213,23 @@ def test_three_pages_say_what_the_owner_reads_after_a_redaction() -> None:
     assert "a request that names every sensitivity lists them" in _flat("known limitations")
 
 
+def test_the_security_note_says_the_update_candidate_of_a_contained_project_is_not_contained() -> None:
+    """The expected failure ``test_the_update_candidate_of_a_contained_project_is_contained`` says the security note lists the gap.
+
+    Mutation: delete the paragraph from the security note.
+    """
+
+    note = _flat("security note")
+    assert PROJECT_CANDIDATE in note
+    assert "a permanent test marks this as an expected failure" in note
+    paragraph = [
+        item
+        for item in re.split(r"\n\s*\n", (ROOT / PAGES["security note"]).read_text(encoding="utf-8"))
+        if PROJECT_CANDIDATE in " ".join(item.split()).lower()
+    ]
+    assert len(paragraph) == 1 and MARK in " ".join(paragraph[0].split())
+
+
 def test_the_known_limitations_bullets_are_one_bullet_each_with_a_link_to_the_explanation() -> None:
     text = (ROOT / PAGES["known limitations"]).read_text(encoding="utf-8")
     for sentence in (LOOP_BULLET, OWNER_READS_BULLET):
@@ -176,6 +243,8 @@ def test_the_changelog_names_the_doors_and_says_no_migration_is_needed() -> None
     text = _flat("changelog")
     for door in ("the recent commits list and legacy tool", "the memory audit", "`alice_explain`", "`alice_memory_review` detail", "the workspace"):
         assert door in text, door
+    assert "the recent events of the workspace and the events of a source trace hold the payload of a confirmed commit" in text
+    assert "an id the reader has no marker for (`memory <id>`, a url, an id under `origin`) is looked up as a possible memory" in text
     assert (
         "the audit route, `alice_explain`, the workspace, the project dashboard and the source traces apply the saved-quote reader "
         "for the first time"

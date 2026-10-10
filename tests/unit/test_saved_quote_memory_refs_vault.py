@@ -14,6 +14,12 @@ means the reader withheld it and not that the door never carried it. A second va
 call that declares a permission profile reads the legacy recent commits tool. The Postgres doors (the workspace, the project
 dashboard, the source trace, the operator route sweep) are in ``tests/integration/test_saved_quote_memory_refs_postgres.py``.
 
+A memory can be cited in more ways than the reader has a marker for (``Memory <id>``, ``mem:<id>``, a URL, ``alice://memory/<id>``,
+an id under ``memory``, ``origin``, ``ref_id`` or ``supersedes``), and the commit route saves the excerpt it was sent whatever the
+ref says. The reader therefore looks up every id of a ref as a possible memory and refuses the caller the quote when the id names
+a memory the caller may not read; a commit that was confirmed inline appends an event that holds the same refs, and the feeds of
+events (the workspace, the source trace) are held to the rule too.
+
 Each test names the mutation that must fail it.
 """
 
@@ -59,6 +65,8 @@ READS_AFTER = {
     "confidential": {"admin", "admin_bound"},
     "health": {"admin", "trusted", "trusted_bound", "admin_bound"},
     "beta": {"admin", "trusted", "read_only", "memory_proposal"},
+    # The project column names another project than the metadata does; a memory is read by the column.
+    "column": {"admin", "trusted", "read_only", "memory_proposal"},
     "contained": {"admin"},
     "missing": {"admin"},
 }
@@ -73,7 +81,8 @@ def _quote(sentinel: str, tag: str) -> str:
 class Vault:
     """A SQLite vault, one memory that commits cite and the commits that cite it, with or without a key of each profile."""
 
-    def __init__(self, tmp_path, monkeypatch, *, with_keys: bool = True) -> None:
+    def __init__(self, tmp_path, monkeypatch, *, with_keys: bool = True, unmarked: bool = True) -> None:
+        self.unmarked = unmarked
         self.user = uuid4()
         self.path = tmp_path / "memory-quotes.sqlite3"
         self.sentinel = f"{SENTINEL_PREFIX}{uuid4().hex[:10]}"
@@ -134,6 +143,24 @@ class Vault:
         self.commits[name] = str(result["memory"]["id"])
         return self.commits[name]
 
+    def _confirmed_commit(self, store) -> None:
+        """A commit that asks for an inline confirmation (its confidence is middling) and is confirmed: the lifecycle that appends a
+        ``memory.updated`` event whose payload holds the refs and the excerpt the commit was sent with. It cites the source, so
+        the source trace lists it and its events, and the memory with a quote."""
+
+        service = VNextMemoryCommitService(store)
+        name = "confirmed"
+        request = MemoryCommitRequest(
+            user_id=str(self.user), title=f"Follow up {name}", canonical_text=f"Follow up on the games note {name}",
+            memory_type="semantic", domain="project", sensitivity="public", confidence=0.6,
+            source_refs=({"source_id": self.source_id}, {"memory_id": self.cited_id, "quote": _quote(self.sentinel, name)}),
+            conversation_excerpt=_quote(self.sentinel, f"{name} excerpt"), project_scope=(ALPHA,),
+        )
+        asked = service.commit(identity=None, request=request)
+        assert asked["status"] == "confirmation_required", asked
+        service.confirm(identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm")
+        self.commits[name] = str(asked["memory"]["id"])
+
     def _commit_every_spelling(self, store) -> None:
         """One commit per spelling of a memory ref. Each quote holds the sentinel and a tag of its own."""
 
@@ -163,15 +190,46 @@ class Vault:
         }
         for name, refs in spellings.items():
             self._commit(store, name, refs, excerpt=q(name) if name == "conversation_excerpt" else None)
+        # Wordings no marker covers. The first group names the memory in the ref and relies on the excerpt the commit route
+        # saves; the second holds the quote in the ref, under a key the reader does not list. The writer accepts every one, since
+        # none of them names a source.
+        for name, ref in {} if not self.unmarked else {
+            "Memory <id>": f"Memory {m}",
+            "memory id <id>": f"memory id {m}",
+            "mem:<id>": f"mem:{m}",
+            "see memory: <id>": f"see memory: {m}",
+            "markdown link": f"[memory]({m})",
+            "https url": f"https://host.example.test/memories/{m}",
+            "alice://memory/<id>": f"alice://memory/{m}",
+        }.items():
+            self._commit(store, name, [ref], excerpt=q(name))
+        for name, ref in {} if not self.unmarked else {
+            "key memory": {"memory": m},
+            "key memoryId": {"memoryId": m},
+            "key origin": {"origin": m},
+            "key ref_id": {"ref_id": m},
+            "key parent_memory_id": {"parent_memory_id": m},
+            "key supersedes": {"supersedes": m},
+            # Text beside the id that is not the quote: every string of the entry goes, not only the quote and the excerpt.
+            "text beside the id": {"memory_id": m, "text": q("text beside the id")},
+            "excerpt beside the id": {"memory_id": m, "excerpt": q("excerpt beside the id")},
+            "note beside the id": {"memory_id": m, "note": q("note beside the id")},
+        }.items():
+            self._commit(store, name, [{**ref, "quote": q(name)} if "beside" not in name else ref])
+        if self.unmarked:
+            self._commit(store, "memory id and a quote entry", [f"alice://memory/{m}", {"quote": q("memory id and a quote entry")}])
+            self._commit(store, "sentence with the words", [f"{q('sentence with the words')} (see memory {m})"])
+        self._confirmed_commit(store)
 
     def _cite_in_the_capture(self, store) -> None:
         """The source trace lists a memory whose metadata names the source at the top (a memory proposal keeps the refs it was
         given there). The commit that cites the source and the memory is given that list, and it is an original row, so the
         caller's ceiling lets it through."""
 
-        row = store.get_memory(self.commits["source and memory"])
-        metadata = {**row["metadata_json"], "source_refs": [self.source_id]}
-        store.update_memory(memory_id=str(row["id"]), patch={"metadata_json": metadata}, actor_type="system")
+        for name in ("source and memory", "confirmed"):
+            row = store.get_memory(self.commits[name])
+            metadata = {**row["metadata_json"], "source_refs": [self.source_id]}
+            store.update_memory(memory_id=str(row["id"]), patch={"metadata_json": metadata}, actor_type="system")
 
     # -- changing the cited memory -----------------------------------------------------------------------------
 
@@ -189,6 +247,12 @@ class Vault:
             elif variant == "beta":
                 row = store.get_memory(self.cited_id)
                 self._set_metadata(conn, {**row["metadata_json"], "project_scope": [BETA]})
+            elif variant == "column":
+                row = store.get_memory(self.cited_id)
+                conn.execute(
+                    "UPDATE memories SET project_id = ?, metadata_json = ? WHERE id = ? AND user_id = ?",
+                    (BETA, json.dumps({k: v for k, v in row["metadata_json"].items() if k != "project_scope"} | {"project_id": ALPHA}), self.cited_id, str(self.user)),
+                )
             elif variant == "contained":
                 # The commits cite a copy of the memory, and the memory the copy was made from is redacted afterwards.
                 original = self._memory(store, f"Atlas played {self.sentinel} in the original note.", "alpha.original")
@@ -289,9 +353,6 @@ class _PostgresOnlyReads(SQLiteVNextStore):
     def list_open_loops_referencing_source(self, **_kwargs):  # type: ignore[no-untyped-def]
         return []
 
-    def list_events_for_source_trace(self, **_kwargs):  # type: ignore[no-untyped-def]
-        return []
-
     def list_source_chunks(self, source_id, limit=None):  # type: ignore[no-untyped-def]
         return []
 
@@ -325,14 +386,63 @@ def _source_trace(vault: "Vault", who: str | None) -> dict[str, object]:
         return {"body": _vnext_load_source_trace(store=store, source=source, identity=identity)}
 
 
-@pytest.fixture
-def vault(tmp_path, monkeypatch):
-    return Vault(tmp_path, monkeypatch)
+def _without_unmarked(request) -> bool:
+    """The vault of the ``missing`` variant leaves out the commits whose ref names the memory in a way no marker covers: with the
+    row removed from the table their id names no memory, and ``test_an_unmarked_id_of_a_memory_that_is_not_in_the_table_...``
+    pins what the reader does with it."""
+
+    callspec = getattr(request.node, "callspec", None)
+    return callspec is not None and callspec.params.get("variant") == "missing"
 
 
 @pytest.fixture
-def keyless(tmp_path, monkeypatch):
-    return Vault(tmp_path / "keyless", monkeypatch, with_keys=False)
+def vault(tmp_path, monkeypatch, request):
+    return Vault(tmp_path, monkeypatch, unmarked=not _without_unmarked(request))
+
+
+@pytest.fixture
+def keyless(tmp_path, monkeypatch, request):
+    return Vault(tmp_path / "keyless", monkeypatch, with_keys=False, unmarked=not _without_unmarked(request))
+
+
+def _event_feed(vault: "Vault", who: str | None) -> dict[str, object]:
+    """The events about the commits of the vault as the workspace shows them to one caller: the events its guard admits, then the
+    reader of saved quotes. This is the code ``GET /v0/vnext/workspace`` runs for ``recent_events``, on the SQLite store. The
+    workspace asks for the newest 20 events of the store, and every read of a door appends events of its own, so the source of
+    events here is the events about the commits, newest first, which the guard and the reader then treat as the workspace's."""
+
+    from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope, sensitivity_ceiling
+    from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
+
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        store = SQLiteVNextStore(conn, vault.user)
+        identity = _identity_of(who) if who is not None else None
+        allowed = ["public", "internal", "private", "unknown"]
+        ceiling = sensitivity_ceiling(identity)
+        if ceiling is not None:
+            allowed = [value for value in allowed if value in ceiling]
+        projects = identity.project_scope if identity is not None else ()
+        guard = LabelGuard.for_filters(
+            store, (), allowed, projects, all_of=projects if identity is not None and identity.project_scope_locked else None
+        )
+        fence = SourceReadFence.for_identity(identity)
+        if not fence.entity_read_fenced:
+            guard = LabelGuard(store=store, active=False)
+
+        def newest(size: int) -> list[dict[str, object]]:
+            events = [
+                event
+                for memory_id in vault.commits.values()
+                for event in store.list_events(target_type="memory", target_id=memory_id)
+            ]
+            events.sort(key=lambda event: (str(event["occurred_at"]), str(event["id"])), reverse=True)
+            return events[:size]
+
+        with label_read_scope(store):
+            feed = guard.newest_admitted_events(newest, want=1000)
+        if fence.entity_read_fenced:
+            feed = SavedProvenanceReader(store, fence=fence).events(feed)
+        return {"body": feed}
 
 
 def _text(answer: dict[str, object] | None) -> str:
@@ -353,6 +463,7 @@ def _keyed_doors(vault: Vault, who: str) -> dict[str, dict[str, object] | None]:
             answers[f"audit route {name}"] = vault.route(who, "audit", memory_id=memory_id)
         answers[f"explain {name}"] = vault.try_call(who, "alice_explain", {"memory_id": memory_id})
         answers[f"review detail {name}"] = vault.try_call(who, "alice_memory_review", {"review_item_id": memory_id})
+    answers["event feed"] = _event_feed(vault, who)
     answers["review list"] = vault.try_call(who, "alice_memory_review", {"status": "all", "limit": 100})
     answers["pack"] = vault.try_call(who, "alice_context_pack", {"query": "Follow up on the games note"})
     answers["recall"] = vault.try_call(who, "alice_recall", {"query": "Follow up on the games note", "limit": 50})
@@ -386,6 +497,7 @@ def test_the_control_finds_the_quote_at_every_door_before_the_memory_changes(vau
         carried = _carried(_keyed_doors(vault, who), vault.sentinel)
         assert any(door.startswith("explain") for door in carried), who
         assert any(door.startswith("review detail") for door in carried), who
+        assert "event feed" in carried, (who, "the confirmed commit's event carries the quote")
         if who in {"admin", "trusted"}:
             assert "recent_commits route" in carried and "recent_commits route limit 1" in carried, who
             assert any(door.startswith("audit route") for door in carried), who
@@ -510,7 +622,7 @@ def test_the_conversation_excerpt_of_a_commit_that_cites_an_unreadable_memory_is
     assert kept["memory"]["metadata_json"]["agentic_memory"]["conversation_excerpt"] == _quote(vault.sentinel, name)
 
 
-@pytest.mark.parametrize("variant", ["confidential", "health", "beta", "contained"])
+@pytest.mark.parametrize("variant", ["confidential", "health", "beta", "column", "contained"])
 def test_the_table_is_what_explain_says(vault: Vault, variant: str) -> None:
     """``READS_AFTER`` is written from the policy of each profile. The cited memory itself is the judge here: a key reads the
     memory exactly when ``alice_explain`` of that memory answers, which is the test the reader applies. (A redacted, archived
@@ -569,3 +681,49 @@ def test_alice_explain_does_not_hold_a_call_that_declares_a_profile_with_no_key(
     for who in ("read_only", "memory_proposal", "trusted"):
         answer = keyless.declared(who, "alice_explain", {"memory_id": keyless.commits["memory_id"]})
         assert answer is not None and keyless.sentinel in _text(answer), who
+
+
+def test_an_unmarked_id_of_a_memory_that_is_not_in_the_table_names_nothing_and_keeps_the_quote(tmp_path, monkeypatch) -> None:
+    """The limit the pages state. An id that no marker says is a memory is refused the caller only when it names a memory the
+    store holds a row for, a redacted or archived one included. A memory removed from the table (no door of the product does
+    that: a memory is archived or redacted) leaves an id that cannot be told from a chunk id or a session id, so a commit that
+    names it in a way no marker covers keeps its quote. The same id behind ``memory:`` or under ``memory_id`` is refused.
+
+    Mutation: refuse an incidental id that names no row (``self._memory_exists`` ignored in ``_refused_memories``): the unmarked
+    commits lose the quote and the limit the pages state is no longer true.
+    """
+
+    vault = Vault(tmp_path, monkeypatch)
+    vault.make_unreadable("missing")
+    unmarked = ("Memory <id>", "mem:<id>", "https url", "key origin", "sentence with the words")
+    marked = ("memory_id", "memory prefix + quote entry", "alice url", "memory_ids list", "text beside the id")
+    for name in unmarked:
+        answer = vault.route("trusted", "audit", memory_id=vault.commits[name])
+        assert answer is not None and vault.sentinel in _text(answer), name
+    for name in marked:
+        answer = vault.route("trusted", "audit", memory_id=vault.commits[name])
+        assert answer is not None and vault.sentinel not in _text(answer), name
+
+
+def test_an_id_that_names_no_memory_leaves_the_quote_readable_after_the_memory_is_redacted(vault: Vault) -> None:
+    """A commit whose ref holds the id of a chunk and of a session, and a quote of its own, cites no memory the caller may not
+    read, so the quote stays for every key that reads the commit. The reader refuses on a memory row and not on the shape of an id.
+
+    Mutation: refuse every id of a ref that is not a source (``cited.incidental`` read as named in ``_refused_memories``): the
+    quote goes.
+    """
+
+    control = f"Atlas played ZQXCONTROL{vault.sentinel[-6:]} for 12 hours"
+    refs = [{"chunk_id": str(uuid4()), "session": str(uuid4()), "origin": str(uuid4()), "quote": control}]
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        commit_id = vault._commit(SQLiteVNextStore(conn, vault.user), "unrelated ids", refs)
+    del vault.commits["unrelated ids"]
+    vault.make_unreadable("redacted")
+    for who in ("admin", "trusted", "read_only", "trusted_bound"):
+        explained = vault.try_call(who, "alice_explain", {"memory_id": commit_id})
+        detail = vault.try_call(who, "alice_memory_review", {"review_item_id": commit_id})
+        assert control in _text(explained) + _text(detail), who
+    for who in ("admin", "trusted"):
+        answer = vault.route(who, "audit", memory_id=commit_id)
+        assert answer is not None and control in _text(answer), who
+        assert control in _text(vault.route(who, "recent", limit=100)), who

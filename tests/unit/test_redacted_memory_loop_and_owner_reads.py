@@ -9,9 +9,10 @@ SQLite vault with real keys, because the security note, the known limitations pa
   it is not contained; the ``memory_id`` column is an id and reads ``null`` once the memory is redacted. A loop that a producer
   made from the memory (it records the memory as an input) is a copy and is contained with the reports.
 * After the memory is redacted the owner and an unbound admin key read a contained row by id, but not through recall or the
-  context pack, because the default sensitivity filter of those two reads an unverified row as regulated. A pack that names every
-  sensitivity lists them. (The artifact and project lists, the recent commits list, the dashboard and the context tree are
-  PostgreSQL routes and are checked in ``tests/integration/test_saved_quote_memory_refs_postgres.py``.)
+  context pack, because the default sensitivity filter of those two reads an unverified row as regulated. A request that names
+  every sensitivity lists them: the ``sensitivity_allowed`` argument of ``alice_recall`` and of ``alice_context_pack`` both do it.
+  (The artifact and project lists, the recent commits list, the dashboard and the context tree are PostgreSQL routes and are
+  checked in ``tests/integration/test_saved_quote_memory_refs_postgres.py``.)
 
 Each test names the mutation that must fail it.
 """
@@ -128,11 +129,12 @@ def test_a_loop_its_caller_wrote_over_a_memory_stays_readable_after_the_memory_i
 def test_the_owner_and_an_unbound_admin_key_read_contained_rows_by_id_but_not_through_recall_or_the_pack(vault: Vault) -> None:
     """After the memory is redacted, the rows built from it are read by id by the owner and an unbound admin key
     (``alice_explain`` and ``alice_memory_review`` detail), and are listed by neither recall nor the context pack, because the
-    default sensitivity filter of those reads an unverified row as regulated. A pack that names every sensitivity lists them.
-    Recall takes no sensitivity argument, so it never lists them.
+    default sensitivity filter of those reads an unverified row as regulated. A request that names every sensitivity lists them,
+    in recall (the ``sensitivity_allowed`` argument of ``alice_recall``) as in the pack.
 
     Mutation: let ``is_unverified`` rows through the default filter (read an unverified row as its stored sensitivity in
-    ``LabelGuard.effective_row``): the pack and recall list them.
+    ``LabelGuard.effective_row``): the pack and recall list them by default. Make the ``sensitivity_allowed`` argument of
+    ``alice_recall`` count for nothing: the second assertion of each loop fails.
     """
 
     vault.redact()
@@ -148,10 +150,17 @@ def test_the_owner_and_an_unbound_admin_key_read_contained_rows_by_id_but_not_th
             assert not [row_id for row_id in vault.contained if row_id in recalled], (key is None, "recall", query)
             assert not [row_id for row_id in vault.contained if row_id in packed], (key is None, "pack", query)
         listed = set()
+        recalled_when_named = set()
         for query in queries:
             named = json.dumps(
                 vault.call(key, "alice_context_pack", {"query": query, "sensitivity_allowed": list(ALL_SENSITIVITY)}),
                 default=str,
             )
             listed |= {row_id for row_id in vault.contained if row_id in named}
-        assert listed, (key is None, "a request that names every sensitivity lists contained rows")
+            recalled = json.dumps(
+                vault.call(key, "alice_recall", {"query": query, "limit": 50, "sensitivity_allowed": list(ALL_SENSITIVITY)}),
+                default=str,
+            )
+            recalled_when_named |= {row_id for row_id in vault.contained if row_id in recalled}
+        assert listed, (key is None, "a pack that names every sensitivity lists contained rows")
+        assert recalled_when_named, (key is None, "recall that names every sensitivity lists contained rows")

@@ -9,8 +9,14 @@ reader to the same rule for a memory, with a stub store whose reads are counted:
 * a memory the caller may not read (missing, archived, redacted, over the ceiling, in a domain or project the caller may not
   read) takes the quote of every ref that names it, and the saved copies of the quote, and leaves the id;
 * a quote that stands beside such a ref and names nothing goes with it, beside a refused source as well;
+* an id in a ref that no marker says is a memory (``Memory <id>``, ``mem:<id>``, a URL, ``alice://memory/<id>``, an id under
+  ``memory``, ``origin``, ``ref_id``, ``supersedes``) is looked up as well, and refused the caller when it names a memory the
+  store holds a row for, a redacted or archived one included, that the caller may not read; an id that names no memory row
+  is left alone;
+* an entry that names a refused memory loses every string that is not an id, not the quote alone;
 * the owner and an unbound admin key are shown what was stored and cost no read;
-* a row with no quote to withhold costs no read, and the memories of one that has are looked up in slices.
+* a row with no quote to withhold costs no read, and the memories of one that has are looked up in slices;
+* the events of a feed are held to the same rule as the events of one memory's audit.
 
 ``tests/unit/test_saved_quote_memory_refs_vault.py`` runs the same rules on a real vault, with real keys, at every door.
 Each test names the mutation that must fail it, and ``scripts/derived_label_mutations.json`` replays it.
@@ -28,9 +34,11 @@ import pytest
 from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_source_fence import (
     MEMORY_REFERENCE_KEYS,
+    CitedMemoryIds,
     SavedProvenanceReader,
     SourceReadFence,
     cited_memory_ids,
+    cited_memory_refs,
 )
 from tests.unit.test_saved_provenance_reader import _identity, _revision
 from tests.unit.test_saved_quote_copies_reader import _MemoryStore, _row
@@ -43,12 +51,7 @@ class _Store(_MemoryStore):
 
     def __init__(self) -> None:
         super().__init__()
-        self.memory_batches: list[int] = []
         self.events: list[dict[str, object]] = []
-
-    def get_memories_by_ids(self, ids: list[str]) -> list[dict[str, object]]:
-        self.memory_batches.append(len(ids))
-        return [self.memories[i] for i in ids if i in self.memories and self.memories[i].get("deleted_at") is None]
 
     def add_memory(
         self, *, sensitivity: str = "internal", domain: str = "project", project: str | None = "alpha", deleted: bool = False
@@ -530,3 +533,426 @@ def test_the_audit_envelope_is_held_in_every_part() -> None:
     assert owner is envelope
     admin = _reader(store, _unbound("admin_agent")).audit(envelope)
     assert "ZQXSENTINEL" in json.dumps(admin, default=str)
+
+
+# -- 6. an id that no marker says is a memory --------------------------------------------------------------------------
+
+
+def _unmarked(m: str) -> dict[str, tuple[object, bool]]:
+    """Every wording of a ref to the memory ``m`` that the reader has no marker for, and whether the ref holds a quote of its own
+    (the others rely on the quote the commit route saves as ``conversation_excerpt``)."""
+
+    return {
+        "Memory <id>": (f"Memory {m}", False),
+        "memory id <id>": (f"memory id {m}", False),
+        "mem:<id>": (f"mem:{m}", False),
+        "see memory: <id>": (f"see memory: {m}", False),
+        "markdown link": (f"[memory]({m})", False),
+        "https url": (f"https://host.example.test/memories/{m}", False),
+        "alice://memory/<id> (singular)": (f"alice://memory/{m}", False),
+        "id and a page": (f"{m}#page=3", False),
+        "key memory": ({"memory": m, "quote": _WORDS}, True),
+        "key memoryId": ({"memoryId": m, "quote": _WORDS}, True),
+        "key origin": ({"origin": m, "quote": _WORDS}, True),
+        "key ref_id": ({"ref_id": m, "quote": _WORDS}, True),
+        "key parent_memory_id": ({"parent_memory_id": m, "quote": _WORDS}, True),
+        "key supersedes": ({"supersedes": m, "quote": _WORDS}, True),
+        "key type and id": ({"type": "memory", "id": m, "quote": _WORDS}, True),
+        "nested": ({"evidence": [{"origin": m, "quote": _WORDS}]}, True),
+        "json text": (json.dumps({"origin": m, "quote": _WORDS}), True),
+        "id as a key": ({m: "see this", "quote": _WORDS}, True),
+        "upper case": ({"origin": m.upper(), "quote": _WORDS}, True),
+    }
+
+
+def test_cited_memory_refs_reads_an_id_in_any_wording_and_none_from_the_text_of_a_quote() -> None:
+    """``cited_memory_refs`` returns the ids a ref says are memories as ``named`` and every other id outside the text of a
+    ``quote`` or ``conversation_excerpt`` as ``incidental``: in a sentence, in a URL, beside punctuation, under any key, as a
+    key, in JSON text and in any spelling ``uuid.UUID`` takes. An id inside a quote names nothing, and ``cited_memory_ids``
+    still returns the named ones alone.
+
+    Mutations, each alone: skip the key ids in ``cited_memory_refs`` (the ``id as a key`` row); drop the ``_every_id_in_text``
+    read of a string (every incidental row); read the text of a ``quote`` (the last assertion).
+    """
+
+    m, other = str(uuid4()), str(uuid4())
+    for label, (ref, _quote) in _unmarked(m).items():
+        cited = cited_memory_refs(ref)
+        assert cited.incidental == {m}, label
+        assert cited.named == frozenset(), label
+        assert cited_memory_ids(ref) == frozenset(), label
+    marked = cited_memory_refs([f"memory:{m}", {"origin": other, "quote": f"seen in {m} and memory:{other}"}])
+    assert marked == CitedMemoryIds(named=frozenset({m}), incidental=frozenset({other}))
+    assert marked.every == {m, other}
+    assert cited_memory_refs({"memory_id": m, "origin": m}).incidental == frozenset(), "an id named once is not incidental too"
+    assert cited_memory_refs({"origin": "meeting notes", "quote": f"memory:{m}", "conversation_excerpt": m}) == CitedMemoryIds()
+    assert cited_memory_refs(None) == CitedMemoryIds()
+
+
+@pytest.mark.parametrize("kind", [*_REFUSED, "redacted"])
+def test_an_id_with_no_marker_that_names_a_refused_memory_takes_the_quote(kind: str) -> None:
+    """A commit that names the memory some way no marker covers keeps its quote only when the caller may read the memory. For
+    each way a memory stops being readable (a raised ceiling, a restricted domain, another project, a global memory under a key
+    bound to a project, archived, redacted) and for each wording in the table above, the ref that holds the id and the copy the
+    commit route saved of its excerpt lose the words, and the quote the ref holds loses them too. The id stays.
+
+    Mutations, each alone, in ``vnext_source_fence.py``: read only the named ids of a row in ``_refused_memories`` (every row
+    fails); keep the ids behind a ``memory:`` prefix out of ``cited_memory_refs`` (nothing changes: they are named); look the
+    ids up without ``include_deleted`` (the ``archived`` and ``redacted`` rows fail, since a deleted row is then taken for an
+    id that names no memory).
+    """
+
+    store = _Store()
+    refused = store.add_memory(**(_REFUSED[kind] if kind in _REFUSED else {"deleted": True}))  # type: ignore[arg-type]
+    identity = _identity("project_scoped_agent") if kind == "restricted domain" else None
+    for label, (ref, has_quote) in _unmarked(refused).items():
+        row = _commit(str(uuid4()), [ref], text=_WORDS)
+        before = copy.deepcopy(row)
+        shown = _reader(store, identity).memory(row)
+        assert row == before, label
+        assert "ZQXSENTINEL" not in json.dumps(shown), (kind, label)
+        assert "conversation_excerpt" not in shown["metadata_json"]["agentic_memory"], (kind, label)  # type: ignore[index,operator]
+        if has_quote and label not in ("id as a key", "key type and id"):
+            # The ref keeps its id. (A key that is the id carries it in the key and is nulled with its text; an ``id`` key names a
+            # source, and an id that is no stored source is refused as a missing source is, so that entry goes whole.)
+            assert refused in json.dumps(shown).lower(), (kind, label)
+
+
+def test_an_id_that_names_no_memory_row_leaves_the_quote_and_a_marked_one_is_refused() -> None:
+    """An id that no marker says is a memory may be a source, a chunk or a session, and nothing refuses a caller the quote beside
+    it: the id names no memory row, so the quote stays. The same id behind ``memory:`` or under ``memory_id`` names a memory
+    that is missing, and is refused. An unmarked id of a memory the caller may read leaves the quote as well.
+
+    Mutations: treat an incidental id that names no row as refused (``cited.incidental`` without the ``_memory_exists`` test:
+    the first two rows lose the quote); read a marked id of a missing memory as readable (the last row keeps it).
+    """
+
+    store = _Store()
+    source = store.add_source()
+    chunk, session = str(uuid4()), str(uuid4())
+    readable = store.add_memory()
+    missing = str(uuid4())
+    for label, refs in {
+        "a source id": [{"source_id": source, "origin": source, "quote": _WORDS}],
+        "a chunk id and a session id": [{"chunk_id": chunk, "session": session, "quote": _WORDS}],
+        "an unmarked id of an unknown memory": [f"Memory {missing}"],
+        "a memory the caller may read": [{"origin": readable, "quote": _WORDS}],
+    }.items():
+        row = _commit(str(uuid4()), refs, text=_WORDS)
+        assert _reader(store).memory(row) is row, label
+    row = _commit(str(uuid4()), [f"memory:{missing}"], text=_WORDS)
+    assert "ZQXSENTINEL" not in json.dumps(_reader(store).memory(row))
+
+
+def test_the_unmarked_ids_of_many_rows_are_looked_up_together_with_the_deleted_rows_included() -> None:
+    """The ids a row holds are all looked up as possible memories (the source ids of its refs too), once for all the rows of a
+    read and in one call that asks for the soft-deleted rows, because an archived or redacted memory must be told from an id
+    that names no memory.
+
+    Mutations: drop ``include_deleted`` in ``memory_rows_including_deleted`` (the deleted memory is taken for no memory and the
+    words stay); look each row's ids up on its own (``wanted_memories`` dropped from ``_prefetch``: the batches are 1).
+    """
+
+    class Counting(_Store):
+        def __init__(self) -> None:
+            super().__init__()
+            self.asked_for_deleted: list[bool] = []
+
+        def get_memories_by_ids(self, ids, *, include_deleted=False):  # type: ignore[no-untyped-def]
+            self.asked_for_deleted.append(include_deleted)
+            return super().get_memories_by_ids(ids, include_deleted=include_deleted)
+
+    store = Counting()
+    source = store.add_source()
+    archived = store.add_memory(deleted=True)
+    rows = [
+        _commit(str(uuid4()), [{"source_id": source, "origin": archived, "quote": _WORDS}], text=_WORDS) for _ in range(5)
+    ]
+    reader = _reader(store)
+    shown = reader.memories(rows)
+    assert store.memory_batches == [2], store.memory_batches
+    assert store.asked_for_deleted == [True]
+    assert all("ZQXSENTINEL" not in json.dumps(item) for item in shown)
+
+
+# -- 7. what an entry that names a refused memory keeps ----------------------------------------------------------------
+
+
+def test_an_entry_that_names_a_refused_memory_keeps_its_ids_and_loses_every_other_string() -> None:
+    """The quote is not the only place an agent puts the words it took from a memory. Every string of an entry that names a
+    refused memory goes (a ``text``, an ``excerpt``, a ``snippet``, a ``note``, a title, a sentence that has the id in it),
+    at any depth and inside JSON text, and what stays is each id (a string that is an id or an id behind a marker, and
+    anything under a reference key), the numbers and the booleans. An entry that names a readable memory is not touched.
+
+    Mutations: drop ``_withhold_entry_text`` for ``_withhold_quote_text`` in ``_without_refused_refs`` (the ``text`` row keeps
+    its words); treat a string that is not an id as an id (``_is_reference_text`` returns ``True``: the sentence row keeps
+    them); null the strings under a reference key (``id_key`` ignored: ``memory_id`` reads ``null``).
+    """
+
+    store = _Store()
+    refused = store.add_memory(sensitivity="confidential")
+    readable = store.add_memory()
+    words = f"{_WORDS} and more"
+    refs: list[object] = [
+        {"memory_id": refused, "text": words, "excerpt": words, "snippet": words, "note": words, "page": 3, "primary": True},
+        {"memory_id": refused, "details": {"title": words, "lines": [words, 4], "origin": refused}},
+        {"origin": refused, "label": "Atlas notes", "quote": words},
+        f"memory:{refused}",
+        f"Atlas said: {words} (memory {refused})",
+        json.dumps({"memory_id": refused, "text": words, "page": 2}),
+        {"memory_ids": [refused, f"memory:{refused}"], "text": words},
+        {"memory_id": readable, "text": "words of a readable memory"},
+        "https://example.test/doc",
+    ]
+    row = _commit(str(uuid4()), refs, text=words)
+    before = copy.deepcopy(row)
+    shown = _reader(store).memory(row)
+    assert row == before
+    kept = shown["metadata_json"]["agentic_memory"]["source_refs"]  # type: ignore[index]
+    assert kept[0] == {"memory_id": refused, "text": None, "excerpt": None, "snippet": None, "note": None, "page": 3, "primary": True}
+    assert kept[1] == {"memory_id": refused, "details": {"title": None, "lines": [None, 4], "origin": refused}}
+    assert kept[2] == {"origin": refused, "label": None, "quote": None}
+    assert kept[3] == f"memory:{refused}"
+    assert kept[4] is None
+    assert json.loads(kept[5]) == {"memory_id": refused, "text": None, "page": 2}
+    assert kept[6] == {"memory_ids": [refused, f"memory:{refused}"], "text": None}
+    assert kept[7] == refs[7] and kept[8] == refs[8]
+    assert shown["value"]["source_refs"] == kept  # type: ignore[index]
+    assert "ZQXSENTINEL" not in json.dumps(shown)
+
+
+def test_a_row_whose_refs_hold_text_and_no_quote_still_has_its_memories_looked_up() -> None:
+    """A row is checked for memories to refuse only when it holds words to withhold. Words are a quote or an excerpt and also
+    any string of a ref that is not an id, so a ref of the shape ``{"memory_id": ..., "text": ...}`` with no quote is judged,
+    and a list of bare references (the roll-up card) costs no read.
+
+    Mutations: gate the lookup on a quote alone (``_holds_words`` made to look at the quote keys only: the first assertion
+    fails); gate it on nothing (the roll-up row reads 300 memories).
+    """
+
+    store = _Store()
+    refused = store.add_memory(sensitivity="confidential")
+    row = _commit(str(uuid4()), [{"memory_id": refused, "text": _WORDS}], copy_kind="none")
+    shown = _reader(store).memory(row)
+    assert "ZQXSENTINEL" not in json.dumps(shown) and store.memory_batches == [1]
+    rollup = _row(str(uuid4()), refs=[f"memory:{uuid4()}" for _ in range(300)], copy_kind="none")
+    store.memory_batches.clear()
+    assert _reader(store).memory(rollup) is rollup and store.memory_batches == []
+    bare = _row(str(uuid4()), refs=[{"memory_id": refused, "page": 2}, f"memory:{refused}", {"chunk_id": str(uuid4())}], copy_kind="none")
+    assert _reader(store).memory(bare) is bare and store.memory_batches == []
+
+
+# -- 8. cases the guard must also hold ---------------------------------------------------------------------------------
+
+
+def test_a_source_refs_value_that_is_not_a_list_and_names_a_refused_memory_loses_its_quote() -> None:
+    """``source_refs`` is a list when a commit route writes it, and a client can store an object or a string there through a
+    memory proposal. A value that is not a list is held to the same rule: the object keeps its id and loses its quote, a JSON
+    string the same, and an object that names a readable memory is not touched.
+
+    Mutation: delete the branch of ``_without_refused_refs`` that reads a value that is not a list (the words stay).
+    """
+
+    store = _Store()
+    refused = store.add_memory(sensitivity="confidential")
+    readable = store.add_memory()
+    row = _commit(str(uuid4()), [], copy_kind="none")
+    row["metadata_json"]["agentic_memory"]["source_refs"] = {"memory_id": refused, "quote": _WORDS}  # type: ignore[index]
+    row["value"]["source_refs"] = json.dumps({"origin": refused, "quote": _WORDS})  # type: ignore[index]
+    shown = _reader(store).memory(row)
+    assert shown["metadata_json"]["agentic_memory"]["source_refs"] == {"memory_id": refused, "quote": None}  # type: ignore[index]
+    assert json.loads(shown["value"]["source_refs"]) == {"origin": refused, "quote": None}  # type: ignore[index]
+    fine = _commit(str(uuid4()), [], copy_kind="none")
+    fine["metadata_json"]["agentic_memory"]["source_refs"] = {"memory_id": readable, "quote": _WORDS}  # type: ignore[index]
+    assert _reader(store).memory(fine) is fine
+
+
+def test_a_quote_key_is_matched_in_any_case_in_the_entry_that_names_a_memory_and_beside_it() -> None:
+    """``Quote`` and ``Conversation_Excerpt`` hold a quote as ``quote`` does. The key is matched in any case for the entry that
+    names a refused memory and for the entry beside it that names nothing, and in a ref of a refused source.
+
+    Mutations, each alone: compare the key without ``lower()`` in ``_withhold_quote_text`` (the sibling row keeps its words);
+    in ``_withhold_entry_text`` (the entry row keeps them, and a string is nulled only if it is not an id); in
+    ``_holds_words`` (a row whose only words are in a ``Quote`` key is not looked up).
+    """
+
+    store = _Store()
+    refused_memory = store.add_memory(sensitivity="confidential")
+    refused_source = store.add_source(sensitivity="confidential")
+    row = _commit(
+        str(uuid4()),
+        [
+            {"memory_id": refused_memory, "Quote": _WORDS, "Conversation_Excerpt": _WORDS},
+            f"memory:{refused_memory}",
+            {"QUOTE": _WORDS},
+            f"source:{refused_source}",
+            {"Quote": _WORDS},
+        ],
+        copy_kind="none",
+    )
+    shown = _reader(store).memory(row)
+    assert shown["metadata_json"]["agentic_memory"]["source_refs"] == [  # type: ignore[index]
+        {"memory_id": refused_memory, "Quote": None, "Conversation_Excerpt": None},
+        f"memory:{refused_memory}",
+        {"QUOTE": None},
+        {"Quote": None},
+    ]
+    only = _commit(str(uuid4()), [{"memory_id": refused_memory, "Quote": _WORDS}], copy_kind="none")
+    assert "ZQXSENTINEL" not in json.dumps(_reader(store).memory(only))
+
+
+def test_a_memory_whose_project_is_in_its_column_is_judged_by_the_scope_a_memory_is_read_by() -> None:
+    """A memory row keeps its project in the ``project_id`` column and in ``metadata_json``, and the two can disagree. The
+    reader judges a memory by the scope ``alice_explain`` reads it by (the column wins), not by the scope a source row is read
+    by (the metadata wins). For a key bound to one project, a memory whose column names another project is refused when its
+    metadata still names the key's project, and the quote is withheld.
+
+    Mutation: call ``self._fence.admits`` instead of ``admits_memory`` in ``_judge_memories``: the quote stays.
+    """
+
+    store = _Store()
+    column = store.add_memory(project=None)
+    store.memories[column]["project_id"] = "beta"
+    store.memories[column]["metadata_json"] = {"project_id": "alpha"}
+    inside = store.add_memory(project=None)
+    store.memories[inside]["project_id"] = "alpha"
+    store.memories[inside]["metadata_json"] = {"project_id": "alpha"}
+    row = _commit(str(uuid4()), [{"memory_id": column, "quote": _WORDS}], copy_kind="none")
+    assert "ZQXSENTINEL" not in json.dumps(_reader(store).memory(row))
+    readable = _commit(str(uuid4()), [{"memory_id": inside, "quote": _WORDS}], copy_kind="none")
+    assert _reader(store).memory(readable) is readable
+
+
+# -- 9. the events of a feed -------------------------------------------------------------------------------------------
+
+
+def _event(target: str, refs: list[object], *, excerpt: str | None = _WORDS) -> dict[str, object]:
+    agentic: dict[str, object] = {"kind": "agentic_memory_commit", "source_refs": refs}
+    if excerpt is not None:
+        agentic["conversation_excerpt"] = excerpt
+    return {
+        "id": str(uuid4()),
+        "event_type": "memory.updated",
+        "target_type": "memory",
+        "target_id": target,
+        "payload_json": {"operation": "update", "changes": {"status": "active", "metadata_json": {"agentic_memory": agentic}}},
+    }
+
+
+def test_the_events_of_a_feed_lose_the_quote_of_a_memory_or_source_the_caller_may_not_read() -> None:
+    """A commit that is confirmed inline appends a ``memory.updated`` event whose payload holds the refs and the excerpt the
+    commit was sent with. The feed admits the event by the commit it is about, so the reader holds the payload to the rule the
+    audit holds the events of one memory to: the ref keeps its id and loses its quote, the excerpt goes, and the ref of a
+    refused source goes whole. An event with nothing to withhold is returned as the same object, the owner and an unbound
+    admin key are given the rows, and the ids of all the events are looked up together.
+
+    Mutations: delete ``events`` from the reader (the words stay); read only the first event for ids (the second keeps
+    them); return the events of an unbound admin key rebuilt (the identity assertion).
+    """
+
+    store = _Store()
+    refused_memory = store.add_memory(sensitivity="confidential")
+    refused_source = store.add_source(sensitivity="confidential")
+    readable_memory = store.add_memory()
+    first = _event(str(uuid4()), [{"memory_id": refused_memory, "quote": _WORDS}])
+    second = _event(str(uuid4()), [f"source:{refused_source}", {"quote": _WORDS}, f"Memory {refused_memory}"], excerpt=None)
+    fine = _event(str(uuid4()), [{"memory_id": readable_memory, "quote": _WORDS}])
+    other = {"id": str(uuid4()), "event_type": "memory.created", "target_type": "memory", "payload_json": {"operation": "create"}}
+    feed = [first, second, fine, other]
+    before = copy.deepcopy(feed)
+    store.memory_batches.clear()
+    shown = _reader(store).events(feed)
+    assert feed == before, "the stored events are not changed by the read"
+    assert "ZQXSENTINEL" not in json.dumps([shown[0], shown[1]])
+    refs = shown[0]["payload_json"]["changes"]["metadata_json"]["agentic_memory"]  # type: ignore[index]
+    assert refs["source_refs"] == [{"memory_id": refused_memory, "quote": None}] and "conversation_excerpt" not in refs
+    assert shown[1]["payload_json"]["changes"]["metadata_json"]["agentic_memory"]["source_refs"] == [  # type: ignore[index]
+        {"quote": None},
+        None,
+    ], "the refused source goes whole, the quote beside it is withheld, and a sentence that names a refused memory is withheld"
+    assert shown[2] is fine and shown[3] is other
+    assert store.memory_batches == [3], "the two memories and the source id, looked up once for the four events"
+    owner = SavedProvenanceReader(store, fence=SourceReadFence.unfenced()).events(feed)
+    assert all(a is b for a, b in zip(owner, feed, strict=True))
+    store.memory_batches.clear()
+    admin = _reader(store, _unbound("admin_agent")).events(feed)
+    assert "ZQXSENTINEL" in json.dumps(admin) and store.memory_batches == []
+
+
+# -- 10. cost --------------------------------------------------------------------------------------------------------
+
+
+def _memory_cost_cases(ids_count: int) -> dict[str, tuple[object, set[str], set[str]]]:
+    """``(ref, named, incidental)``: a ref with ``ids_count`` ids, or runs of prefixes and words that scale with it."""
+
+    from tests.unit.test_saved_quote_ref_reading import _new_ids
+
+    ids = _new_ids(ids_count)
+    first = ids[0]
+    return {
+        "ids joined by commas under origin": ({"origin": ",".join(ids)}, set(), set(ids)),
+        "a sentence with a marker before each id": (" ".join("see memory: " + i for i in ids), set(), set(ids)),
+        "memory: words": (",".join("memory:" + i for i in ids), set(ids), set()),
+        "JSON text of ids under memory_ids": (json.dumps({"memory_ids": ids}), set(ids), set()),
+        "a run of memory: prefixes": ("memory:" * (50 * ids_count), set(), set()),
+        "a run of memory: prefixes and then an id": ("memory:" * (37 * ids_count) + first, {first}, set()),
+        "a run of whitespace and then an id": (" " * (250 * ids_count) + first, set(), {first}),
+        "ids as keys": ({i: "x" for i in ids}, set(), set(ids)),
+    }
+
+
+@pytest.mark.parametrize("label", list(_memory_cost_cases(1)))
+def test_a_ref_is_read_for_memory_ids_in_time_that_grows_with_its_length(label: str) -> None:
+    """Each shape of a long ref (8,000 ids, or megabytes of prefixes and whitespace) is read for the ids it may name as memories
+    in time that grows with its length, and gives exactly the ids it holds, as the reader of source ids is held to.
+
+    Mutation: add a rescan of the text before each id to ``_memory_ids_in_text`` (``text[:start]`` read again for every match):
+    the shapes with thousands of ids fail on growth.
+    """
+
+    from tests.unit.test_saved_quote_ref_reading import _LARGE_IDS, _SMALL_IDS, assert_cost_grows_linearly
+
+    ref, _named, _incidental = _memory_cost_cases(_SMALL_IDS)[label]
+    large, named, incidental = _memory_cost_cases(_LARGE_IDS)[label]
+    cited = cited_memory_refs(large)
+    assert (set(cited.named), set(cited.incidental)) == (named, incidental)
+    assert_cost_grows_linearly(
+        lambda: cited_memory_refs(ref),
+        lambda: cited_memory_refs(large),
+        size_ratio=_LARGE_IDS // _SMALL_IDS,
+        what=f"{label} ({len(str(large)):,} characters)",
+    )
+
+
+def test_an_entry_with_a_huge_text_is_withheld_in_time_that_grows_with_its_size() -> None:
+    """The entry that names a refused memory is rebuilt with every string that is not an id set to ``None``. A sentence of
+    thousands of words, a run of prefixes and a list of thousands of ids are read once each, so the rebuild grows linearly.
+
+    Mutation: test each word of a string against the words before it in ``_is_reference_text`` (quadratic): the sentence fails
+    on growth.
+    """
+
+    from tests.unit.test_saved_quote_ref_reading import _LARGE_IDS, _SMALL_IDS, assert_cost_grows_linearly
+
+    store = _Store()
+    refused = store.add_memory(sensitivity="confidential")
+
+    def build(count: int) -> tuple[list[object], list[object]]:
+        sentence = " ".join(f"word{i}" for i in range(count * 5))
+        prefixes = "memory:" * (30 * count) + str(uuid4())
+        ids = " ".join(str(uuid4()) for _ in range(count))
+        refs: list[object] = [{"memory_id": refused, "text": sentence, "run": prefixes, "ids": ids, "note": sentence}]
+        return refs, [_commit(str(uuid4()), refs, copy_kind="none")]
+
+    small_refs, small_rows = build(_SMALL_IDS)
+    large_refs, large_rows = build(_LARGE_IDS)
+    shown = _reader(store).memory(large_rows[0])
+    entry = shown["metadata_json"]["agentic_memory"]["source_refs"][0]  # type: ignore[index]
+    assert entry["memory_id"] == refused and entry["text"] is None and entry["note"] is None
+    assert entry["run"] == large_refs[0]["run"] and entry["ids"] == large_refs[0]["ids"]  # type: ignore[index]
+    assert_cost_grows_linearly(
+        lambda: _reader(store).memory(small_rows[0]),
+        lambda: _reader(store).memory(large_rows[0]),
+        size_ratio=_LARGE_IDS // _SMALL_IDS,
+        what="an entry that names a refused memory and holds thousands of words",
+    )

@@ -155,6 +155,10 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
         )
     else:
         recent_events = guard.newest_admitted_events(lambda size: store.list_events(limit=size), want=20)
+    # An event that confirms or edits a commit carries the refs and the quote the commit was sent with; the feed admits it by the
+    # commit it is about, so the quote of a source or memory the caller may not read is withheld from the payload here.
+    if saved_quotes is not None:
+        recent_events = saved_quotes.events(recent_events)
     event_count = store.count_events() if unfenced else guard.readable_event_count()
     agent_identities = store.list_agent_identities(limit=20)
     agent_count = store.count_agent_identities()

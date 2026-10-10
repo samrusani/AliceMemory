@@ -115,6 +115,36 @@ def test_the_project_dashboard_holds_its_memories_to_the_reader_for_a_caller_wit
     assert "entity_read_fenced" in _condition_of_the_reader_call(tree, "memories")
 
 
+def test_the_workspace_holds_its_recent_events_to_the_reader_for_a_caller_with_limits() -> None:
+    """The workspace lists the 20 newest events a caller may read. An event that confirms or edits a commit holds the refs and
+    the quote the commit was sent with, and the feed admits it by the commit it is about, so the events pass through the reader
+    once, after the guard has admitted them, and only when the reader exists (a caller with limits).
+
+    Mutation: delete the ``events`` call of ``_vnext_workspace_payload`` (the quote of a redacted memory stays in the feed).
+    """
+
+    source = inspect.getsource(workspaces._vnext_workspace_payload)
+    tree = ast.parse(textwrap.dedent(source))
+    assert len(_calls(tree, "events")) == 1
+    admitted = source.index("recent_events = guard.newest_admitted_events(")
+    held = source.index("recent_events = saved_quotes.events(recent_events)")
+    assert admitted < held, "the reader sees the events the guard admitted"
+    assert "if saved_quotes is not None:\n        recent_events = saved_quotes.events(recent_events)" in source
+    assert source.index("events=recent_events") > held, "the feed is passed on only after the reader has held it"
+
+
+def test_the_source_trace_holds_its_events_to_the_reader_for_a_caller_with_limits() -> None:
+    """The events of a source trace are the events about the memories that cite the source, with the payload the commit was
+    confirmed or edited with. They pass through the reader when the caller has limits.
+
+    Mutation: delete the ``events`` call, or replace ``entity_read_fenced`` in its condition with ``False``.
+    """
+
+    tree = _tree(_vnext_shared._vnext_load_source_trace)
+    assert len(_calls(tree, "events")) == 1
+    assert "entity_read_fenced" in _condition_of_the_reader_call(tree, "events")
+
+
 def test_the_source_trace_holds_its_memories_to_the_reader_for_a_caller_with_limits() -> None:
     """``GET /v0/vnext/traces/sources/{id}``, the trace in a source review and the traces of the workspace list the memories
     that cite a source, with their metadata. The loader passes them through the reader when the caller has limits.
