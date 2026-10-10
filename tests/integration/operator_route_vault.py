@@ -427,8 +427,9 @@ class Vault:
         """A public memory, the rows that copy or quote it, and then the redaction.
 
         The words are the sentinel of ``memory_redacted-text``. The derived commit and the derived loop record the memory as an
-        input and carry the sentinel of their own, as the copies a producer makes do. The two commits that quote it go through
+        input and carry the sentinel of their own, as the copies a producer makes do. Three commits that quote it go through
         the commit route as an agent sends them; their quote is the memory's text, and their own title and text are shown text.
+        A fourth, confirmed inline, is made last (``_confirmed_quote``).
         """
 
         with self.harness.store() as store:
