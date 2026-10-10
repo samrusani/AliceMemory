@@ -11,10 +11,14 @@ The loader reads the artifacts of a source through a Postgres method, so a small
 store. The trace route is tested through the application on PostgreSQL in
 ``tests/integration/test_source_trace_events_postgres.py``.
 
+The read of a caller with limits stops after ``EVENT_FEED_SCAN_LIMIT`` events, as the event feeds do, so its cost does not
+grow with the number of events it may not read, and the trace says it is incomplete when events lie beyond that reach.
+
 Mutations (``scripts/derived_label_mutations.json``): hand the events to the caller without ``admit_events`` (the
 replacement above the ceiling is named in the trace); drop the target filter of a caller with limits (an event about a row
 the trace does not list is shown); build the guard for every caller (the owner and an unbound admin key lose events);
-let a refused profile through (it is shown a trace).
+let a refused profile through (it is shown a trace); drop the scan limit (the read goes on past the reach); stop the read
+one event short of the reach (a trace that fits is called incomplete); report an exhausted read as complete.
 """
 from __future__ import annotations
 
@@ -28,7 +32,7 @@ from alicebot_api.routers._vnext_shared import _VNEXT_SOURCE_TRACE_COLLECTION_LI
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_event_log import build_event_log_record
-from alicebot_api.vnext_label_guard import label_read_scope
+from alicebot_api.vnext_label_guard import EVENT_FEED_SCAN_LIMIT, label_read_scope
 from alicebot_api.vnext_label_writes import without_insert_floor
 
 USER = "11111111-1111-4111-8111-111111111111"
@@ -38,7 +42,15 @@ TRUSTED = AgentIdentity(agent_id="trusted", permission_profile="trusted_local_ag
 
 
 class TraceStore(SQLiteVNextStore):
-    """The SQLite store with the two readers of the trace that only PostgreSQL has."""
+    """The SQLite store with the two readers of the trace that only PostgreSQL has. It records how deep the events are read."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.event_fetch_limits: list[int] = []
+
+    def list_events_for_source_trace(self, **kwargs):
+        self.event_fetch_limits.append(kwargs["limit"])
+        return super().list_events_for_source_trace(**kwargs)
 
     def list_artifacts_referencing_source(self, *, source_id, limit=500):
         return []
@@ -153,6 +165,44 @@ def test_events_above_the_collection_limit_that_name_a_hidden_row_do_not_crowd_o
     owner = vault.trace(OWNER)
     assert len(owner["events"]) == _VNEXT_SOURCE_TRACE_COLLECTION_LIMIT
     assert owner["sampling"]["collection_complete"]["events"] is False
+
+
+def test_a_caller_with_limits_reads_no_further_than_the_event_feeds_do_and_the_trace_says_when_it_stopped(store):
+    """Events it may not read, newest first, cost it a bounded read. What lies beyond the reach is not shown, and the
+    trace is incomplete, so a client does not take the list for all the readable events."""
+    vault = Vault(store)
+    readable = [_append(store, event_type="memory.updated", target_type="memory", target_id=vault.visible_id, payload={"n": index}) for index in range(3)]
+    for index in range(EVENT_FEED_SCAN_LIMIT + 50):
+        _append(store, event_type="memory.reviewed", target_type="memory", target_id=vault.visible_id, payload={"replacement_memory_id": vault.hidden_id, "n": index})
+    store.event_fetch_limits.clear()
+    trusted = vault.trace(TRUSTED)
+    assert max(store.event_fetch_limits) == EVENT_FEED_SCAN_LIMIT + 1
+    assert not set(readable) & _ids(trusted)
+    assert not [event for event in trusted["events"] if event["event_type"] == "memory.reviewed"]
+    assert trusted["sampling"]["collection_complete"]["events"] is False
+    assert "events" in trusted["sampling"]["truncated_collections"] and trusted["sampling"]["trace_complete"] is False
+    assert vault.hidden_id not in json.dumps(trusted, default=str)
+    assert trusted["summary"]["event_count"] == len(trusted["events"])
+    # The owner and an unbound admin key are read as before: one page and one more event, with no judgment to wait for.
+    for identity in (OWNER, ADMIN):
+        store.event_fetch_limits.clear()
+        assert len(vault.trace(identity)["events"]) == _VNEXT_SOURCE_TRACE_COLLECTION_LIMIT
+        assert store.event_fetch_limits == [_VNEXT_SOURCE_TRACE_COLLECTION_LIMIT + 1]
+
+
+def test_a_trace_whose_events_all_lie_within_the_reach_is_complete_for_a_caller_with_limits(store):
+    vault = Vault(store)
+    held = len(store.list_events_for_source_trace(source_id=vault.source_id, memory_ids=[vault.visible_id], limit=10 * EVENT_FEED_SCAN_LIMIT))
+    readable = [_append(store, event_type="memory.updated", target_type="memory", target_id=vault.visible_id, payload={"n": index}) for index in range(3)]
+    for index in range(EVENT_FEED_SCAN_LIMIT - held - len(readable)):
+        _append(store, event_type="memory.reviewed", target_type="memory", target_id=vault.visible_id, payload={"replacement_memory_id": vault.hidden_id, "n": index})
+    assert len(store.list_events_for_source_trace(source_id=vault.source_id, memory_ids=[vault.visible_id], limit=10 * EVENT_FEED_SCAN_LIMIT)) == EVENT_FEED_SCAN_LIMIT
+    store.event_fetch_limits.clear()
+    trusted = vault.trace(TRUSTED)
+    assert set(readable) <= _ids(trusted)
+    assert not [event for event in trusted["events"] if event["event_type"] == "memory.reviewed"]
+    assert trusted["sampling"]["collection_complete"]["events"] is True
+    assert max(store.event_fetch_limits) == EVENT_FEED_SCAN_LIMIT + 1
 
 
 @pytest.mark.parametrize("profile", ["read_only_agent", "project_scoped_agent", "memory_proposal_agent"])

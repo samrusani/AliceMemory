@@ -203,10 +203,10 @@ def test_context_events_use_current_effective_target_of_every_kind(kind):
             store.rows[kind][0]["metadata_json"]["source_id"] = source_id
     event = {"target_type": kind, "target_id": row_id, "event_type": f"{kind}.labels_raised", "payload_json": {"cause": "repair_v3"}}
     trusted = ["public", "internal", "private", "unknown"]
-    assert _tree_event_visible(store, event, None, trusted, ()) is False
-    assert _tree_event_visible(store, event, None, list(ALL_SENSITIVITY), ()) is True
+    assert _tree_event_visible(store, event, None, trusted, (), caller_limited=True) is False
+    assert _tree_event_visible(store, event, None, list(ALL_SENSITIVITY), (), caller_limited=True) is True
     store.rows[kind] = [_row(row_id)]
-    assert _tree_event_visible(store, event, None, trusted, ()) is True
+    assert _tree_event_visible(store, event, None, trusted, (), caller_limited=True) is True
 
 
 def test_context_event_missing_and_unknown_label_targets_fail_closed():
@@ -214,8 +214,8 @@ def test_context_event_missing_and_unknown_label_targets_fail_closed():
     sensitivities = ["public", "internal", "private", "unknown"]
     for kind in ("source", "memory", "open_loop", "artifact", "project", "not-a-label-kind"):
         event = {"target_type": kind, "target_id": "missing", "event_type": f"{kind}.labels_raised"}
-        assert _tree_event_visible(store, event, None, sensitivities, ()) is False
-    assert _tree_event_visible(store, {"target_type": "connector", "event_type": "connector.heartbeat"}, None, sensitivities, ()) is True
+        assert _tree_event_visible(store, event, None, sensitivities, (), caller_limited=True) is False
+    assert _tree_event_visible(store, {"target_type": "connector", "event_type": "connector.heartbeat"}, None, sensitivities, (), caller_limited=True) is True
 
 
 @pytest.mark.parametrize("kind", ("memory", "open_loop"))

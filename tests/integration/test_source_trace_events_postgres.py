@@ -13,9 +13,10 @@ from uuid import uuid4
 
 import pytest
 
-from alicebot_api.routers._vnext_shared import _VNEXT_SOURCE_TRACE_COLLECTION_LIMIT, _vnext_load_source_trace
+from alicebot_api.routers._vnext_shared import _VNEXT_SOURCE_TRACE_COLLECTION_LIMIT, _vnext_event_references, _vnext_load_source_trace
+from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_event_log import build_event_log_record
-from alicebot_api.vnext_label_guard import label_read_scope
+from alicebot_api.vnext_label_guard import EVENT_FEED_SCAN_LIMIT, label_read_scope
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 
 
@@ -87,9 +88,30 @@ def test_a_correction_that_names_a_replacement_made_confidential_is_not_in_the_t
     with h.store() as store:
         with label_read_scope(store):
             owner = _vnext_load_source_trace(store=store, source=store.get_source(source_id), identity=None)
+        with label_read_scope(store):
+            limited = _vnext_load_source_trace(store=store, source=store.get_source(source_id), identity=AgentIdentity(agent_id=str(uuid4()), permission_profile="trusted_local_agent", auth="agent_api_key"))
         assert _reviews_naming(owner["events"], replacement)
-        expected = {str(row["id"]) for row in store.list_events_for_source_trace(source_id=source_id)}
-        assert {str(row["id"]) for row in owner["events"]} == expected
+        # The owner's trace holds every stored event that targets the source or a row of the trace, or names the source in its
+        # payload. The expected set is asked of the log with the ids of the rows the trace lists, as the loader asks it.
+        limit = _VNEXT_SOURCE_TRACE_COLLECTION_LIMIT
+        memory_ids = [str(row["id"]) for row in store.list_memories_referencing_source(source_id=source_id, limit=limit)]
+        artifact_ids = [str(row["id"]) for row in store.list_artifacts_referencing_source(source_id=source_id, limit=limit)]
+        open_loop_ids = [str(row["id"]) for row in store.list_open_loops_referencing_source(source_id=source_id, limit=limit)]
+        kept = {name: {str(row["id"]) for row in owner[key]} for name, key in (("memory_ids", "candidate_memories"), ("artifact_ids", "artifacts"), ("open_loop_ids", "open_loops"))}
+        stored = store.list_events_for_source_trace(source_id=source_id, memory_ids=memory_ids, artifact_ids=artifact_ids, open_loop_ids=open_loop_ids, limit=limit)
+        expected = {str(event["id"]) for event in stored if _vnext_event_references(event, source_id=source_id, **kept)}
+        assert expected
+        assert {str(event["id"]) for event in owner["events"]} == expected
+    # A caller with limits is shown an event about the source or a row it can see, and the judgment takes out of those only the
+    # events that name the replacement. The rest of what it does not get are events about rows the trace does not list (a chunk
+    # of the source), which the target filter leaves out as it did.
+    owner_events = {str(event["id"]): event for event in owner["events"]}
+    limited_ids = {str(event["id"]) for event in limited["events"]}
+    assert limited_ids < set(owner_events)
+    listed = {source_id} | {str(row["id"]) for key in ("candidate_memories", "artifacts", "open_loops") for row in limited[key]}
+    removed = [event for event_id, event in owner_events.items() if event_id not in limited_ids]
+    named = [event for event in removed if str(event["target_id"]) in listed]
+    assert named and all(replacement in json.dumps(event, default=str) for event in named)
 
 
 def test_every_payload_field_that_names_a_hidden_row_is_judged_in_the_trace(label_harness):
@@ -152,6 +174,27 @@ def test_hidden_events_in_front_do_not_crowd_out_the_readable_ones(label_harness
     status, trace, _ = h.request("GET", f"/v0/vnext/traces/sources/{source_id}", key=admin)
     assert status == 200 and len(trace["events"]) == _VNEXT_SOURCE_TRACE_COLLECTION_LIMIT
     assert trace["sampling"]["collection_complete"]["events"] is False
+
+
+def test_a_trusted_key_reads_no_further_than_the_event_feeds_do_and_the_trace_says_it_stopped(label_harness):
+    h = label_harness
+    source = h.source(sensitivity="public")
+    source_id = str(source["id"])
+    memory_id = str(h.memory(source=source)["id"])
+    with h.store() as store:
+        hidden_id = str(store.create_memory({"memory_key": str(uuid4()), "canonical_text": "Hidden fact", "status": "active", "domain": "project", "sensitivity": "confidential"})["id"])
+        readable = [str(store.append_event(build_event_log_record(event_type="memory.updated", actor_type="system", target_type="memory", target_id=memory_id, payload={"n": index}))["id"]) for index in range(3)]
+        for index in range(EVENT_FEED_SCAN_LIMIT + 50):
+            store.append_event(build_event_log_record(event_type="memory.reviewed", actor_type="system", target_type="memory", target_id=memory_id, payload={"replacement_memory_id": hidden_id, "n": index}))
+    trusted = h.key("trusted_local_agent")
+    status, trace, _ = h.request("GET", f"/v0/vnext/traces/sources/{source_id}", key=trusted)
+    assert status == 200, trace
+    # The readable events are older than the reach, so the trace does not hold them, and it says it is incomplete.
+    assert not set(readable) & {str(event["id"]) for event in trace["events"]}
+    assert not [event for event in trace["events"] if event["event_type"] == "memory.reviewed"]
+    assert trace["sampling"]["collection_complete"]["events"] is False
+    assert "events" in trace["sampling"]["truncated_collections"]
+    assert hidden_id not in json.dumps(trace, default=str)
 
 
 @pytest.mark.parametrize("profile", ["read_only_agent", "memory_proposal_agent"])

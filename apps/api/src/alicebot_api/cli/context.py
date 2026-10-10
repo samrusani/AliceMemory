@@ -57,6 +57,7 @@ def _run_vnext_context_tree(ctx: CLIContext, args: argparse.Namespace) -> str:
                 limit=args.limit,
                 include_events=not args.no_events,
                 generated_by="cli",
+                caller_limited=False,
             )
         )
     return _json_dumps(payload)
