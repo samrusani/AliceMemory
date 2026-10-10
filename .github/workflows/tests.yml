@@ -30,22 +30,25 @@ jobs:
         # (tests/unit/test_ci_unit_job_split.py) fails if a file matches none.
         #
         # The shards are balanced by the time their files took in CI with coverage
-        # on (about 14 or 15 minutes each, against the 20 minute limit). The
-        # saved-quote files are the heaviest family: shard 3 runs the memory
-        # reference files (the vault tests among them, in
-        # tests/unit/test_saved_quote_memory_refs_vault.py) and shard 1 the rest.
-        # A new file that no pattern selects fails the split test.
+        # on, about 15 minutes each as jobs against the 20 minute limit. The
+        # saved-quote files are the heaviest family and are split by name over all
+        # three: the vault tests (test_saved_quote_memory_refs_vault.py) run in
+        # shard 3 with the other memory reference files, the source and ref
+        # reading files in shard 1. A new file that no pattern selects fails the
+        # split test.
         include:
           - shard: 1
             selection: >-
-              tests/unit/test_[0-9a-d]*.py tests/unit/test_saved_[!q]*.py
-              tests/unit/test_saved_quote_[!m]*.py tests/unit/test_saved_quotes_*.py
+              tests/unit/test_[0-9a-d]*.py tests/unit/test_[f-o]*.py
+              tests/unit/test_saved_quote_[n-z]*.py
           - shard: 2
-            selection: "tests/unit/test_[e-i]*.py tests/unit/test_[pq]*.py tests/unit/test_r*.py"
+            selection: >-
+              tests/unit/test_e*.py tests/unit/test_r*.py tests/unit/test_saved_[!q]*.py
+              tests/unit/test_saved_quotes_*.py
           - shard: 3
             selection: >-
-              tests/unit/test_[j-o]*.py tests/unit/test_s[!a]*.py
-              tests/unit/test_saved_quote_m*.py tests/unit/test_[t-z]*.py
+              tests/unit/test_[pq]*.py tests/unit/test_s[!a]*.py
+              tests/unit/test_saved_quote_[a-m]*.py tests/unit/test_[t-z]*.py
     env:
       COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
