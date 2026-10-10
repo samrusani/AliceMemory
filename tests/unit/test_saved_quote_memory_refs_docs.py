@@ -66,8 +66,8 @@ NOT_JUDGED = (
     "not judged: the text of an entry beside a refused ref that names a stored source or memory the caller may read (the reader "
     "cannot tell whose words they are); words a writer typed in a field that is not a ref, such as the rationale and the "
     "contradiction refs of a commit or the comments of a rating; what the writer chose to encode in the shape of what stays (the "
-    "length of a list, the order of its entries, a number or a boolean under a field the product writes); and `alice_explain` for "
-    "a call that declares a profile with no agent key, which was never held to it"
+    "length of a list, the order of its entries, a number or a boolean under a field the product writes); and `alice_explain` and "
+    "the legacy `alice_vnext_memory_audit` tool for a call that declares a profile with no agent key, which were never held to it"
 )
 COMPANION = (
     "it takes the text of an entry beside such a ref that names no source and no memory the caller may read, as in `\"memory:<id>\"` "

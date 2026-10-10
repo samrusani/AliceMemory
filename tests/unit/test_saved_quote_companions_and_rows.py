@@ -327,13 +327,13 @@ def _encodes(value: object) -> bool:
     return True
 
 
-def test_a_ref_that_is_json_text_with_an_escaped_surrogate_is_written_in_ascii() -> None:
+def test_a_ref_that_is_json_text_with_an_escaped_surrogate_gives_an_answer_that_can_be_encoded() -> None:
     """A ref string such as ``{"quote": "q", "note": "\\ud800"}`` is six ASCII characters in a string field, and decodes to a
-    lone surrogate. The reader decoded it, withheld the quote, and wrote the text again with ``ensure_ascii=False``, which put the
-    raw surrogate in the answer; the response could not be encoded and the recent commits and audit routes failed with an
-    exception for an unbound ``trusted_local_agent`` key. The text is written again in ASCII, so the escape is an escape.
-
-    Mutation: write the decoded value again with ``ensure_ascii=False`` (``_json_text``): every row here fails to encode.
+    lone surrogate. The reader decoded it, withheld the quote, and wrote the text again with the surrogate in it, which a response
+    cannot encode: the recent commits and audit routes failed with an exception for an unbound ``trusted_local_agent`` key,
+    whether or not the cited id named a memory. An entry that is rebuilt keeps only the names the product writes and the
+    references, so the surrogate is in a field that is dropped, in a key that is dropped or in a quote that is nulled, in every
+    shape here, and the answer encodes; the owner and an unbound admin key read the text as it was stored.
     """
 
     store = _Store()
@@ -355,6 +355,27 @@ def test_a_ref_that_is_json_text_with_an_escaped_surrogate_is_written_in_ascii()
             assert _encodes(shown), label
             assert _encodes(reader.audit({"memory": row, "revisions": [], "events": [], "provenance_links": []})), label
         assert "\\ud800" in json.dumps(row), "the stored text is the escape and not a surrogate"
+    owner = SavedProvenanceReader(store, fence=SourceReadFence.unfenced())
+    assert owner.memory(row) is row
+
+
+def test_a_ref_that_is_json_text_is_written_again_in_ascii() -> None:
+    """The text of an entry that is rebuilt is written with ``ensure_ascii=True``, so a character in a kept reference list that a
+    response could not carry (a lone surrogate, were one ever to stay) is written as an escape, and so is a separator such as
+    U+2003 that a list of references keeps as written. The JSON the text holds is the same.
+
+    Mutation: write the decoded value again with ``ensure_ascii=False`` in ``_json_text`` (``vnext_source_fence.py``).
+    """
+
+    store = _Store()
+    refused, other = store.add_memory(sensitivity="confidential"), str(uuid4())
+    ref = json.dumps({"memory_id": f"{refused}\u2003{other}", "quote": _WORDS}, ensure_ascii=False)
+    assert "\u2003" in ref and not ref.isascii()
+    row = _commit(str(uuid4()), [ref], copy_kind="none")
+    shown = _reader(store).memory(row)
+    text = _shown_refs(shown)[0]
+    assert isinstance(text, str) and text.isascii()
+    assert json.loads(text) == {"memory_id": f"{refused}\u2003{other}", "quote": None}
 
 
 # -- 4. the rows that keep refs a writer chose -------------------------------------------------------------------------
@@ -477,12 +498,20 @@ def test_the_sources_of_many_rows_are_looked_up_together() -> None:
     store = _Store()
     shared = store.add_memory(sensitivity="confidential")
     own = [store.add_memory() for _ in range(5)]
-    rows = [_source_row(str(uuid4()), [{"memory_id": shared, "quote": "a"}, {"memory_id": i, "quote": "b"}]) for i in own]
+    in_the_payload = [store.add_memory() for _ in range(5)]
+    rows = [
+        _source_row(
+            str(uuid4()),
+            [{"memory_id": shared, "quote": "a"}, {"memory_id": i, "quote": "b"}],
+            raw=[{"memory_id": shared, "quote": "a"}, {"memory_id": j, "quote": "c"}],
+        )
+        for i, j in zip(own, in_the_payload, strict=True)
+    ]
     reader = _reader(store, _unbound("trusted_local_agent"))
     shown = reader.sources(rows)
     assert all(_SENTINEL not in json.dumps(item) for item in shown)
     assert all(item["metadata_json"]["source_refs"][0] == {"memory_id": shared, "quote": None} for item in shown)  # type: ignore[index]
-    assert store.memory_batches == [6], store.memory_batches
+    assert store.memory_batches == [11], store.memory_batches
 
 
 def test_the_metadata_of_a_rating_and_what_a_task_may_use_are_held_to_the_same_rule() -> None:

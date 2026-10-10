@@ -697,8 +697,8 @@ def test_a_ref_that_is_json_text_with_an_escaped_surrogate_does_not_fail_a_route
     cited id named a memory. The answers of the routes and of the tools are encoded here; the owner and an unbound admin key
     read the text as it was stored.
 
-    Mutation: write the decoded value again with ``ensure_ascii=False`` in ``_json_text`` (``vnext_source_fence.py``): the routes
-    raise for the unbound trusted key.
+    An entry that is rebuilt keeps only the names the product writes and the references, so the surrogate is in a field that is
+    dropped (``test_a_ref_that_is_json_text_is_written_again_in_ascii`` pins the encoding of what stays).
     """
 
     ghost = str(uuid4())
@@ -905,9 +905,9 @@ def test_the_project_dashboard_and_the_source_trace_withhold_the_quote_from_a_ke
 
 def test_alice_explain_does_not_hold_a_call_that_declares_a_profile_with_no_key(keyless: Vault) -> None:
     """The pages say it plainly: on an install with no agent keys a call that declares a restricted profile is held to it by
-    ``alice_memory_review`` by id and by the legacy recent commits tool, and ``alice_explain`` has never held it (the declared
-    profile is a claim and not a credential). The saved quote of a memory is withheld from a key at ``alice_explain`` and not from
-    that call, so the limit the pages name is true.
+    ``alice_memory_review`` by id and by the legacy recent commits tool, and ``alice_explain`` and the legacy audit tool have
+    never held it (the declared profile is a claim and not a credential). The saved quote of a memory is withheld from a key at
+    both and not from that call, so the limit the pages name is true.
 
     Mutation: drop ``_is_key_bound_explain(identity)`` from the condition of the reader call in
     ``_handle_alice_vnext_memory_audit``: the declared profile is held and this test fails.
@@ -915,8 +915,9 @@ def test_alice_explain_does_not_hold_a_call_that_declares_a_profile_with_no_key(
 
     keyless.make_unreadable("redacted")
     for who in ("read_only", "memory_proposal", "trusted"):
-        answer = keyless.declared(who, "alice_explain", {"memory_id": keyless.commits["memory_id"]})
-        assert answer is not None and keyless.sentinel in _text(answer), who
+        for tool in ("alice_explain", "alice_vnext_memory_audit"):
+            answer = keyless.declared(who, tool, {"memory_id": keyless.commits["memory_id"]})
+            assert answer is not None and keyless.sentinel in _text(answer), (who, tool)
 
 
 def test_an_unmarked_id_of_a_memory_that_is_not_in_the_table_names_nothing_and_keeps_the_quote(tmp_path, monkeypatch) -> None:

@@ -13,8 +13,11 @@ redaction contains with the reports), and four commits that quote the memory, on
 ...}``, one with the two entries ``"memory:<id>"`` and ``{"quote": ...}``, one held for review, two that write the words of the
 memory as the name of a field (in the entry that names it and in the entry beside it), and two that asked for an inline
 confirmation and were confirmed, one by the owner and one by the admin key (the lifecycle whose event holds the refs the commit was
-sent with; the admin key's event is an agent event, which the workspace lists in its agent activity). The memory is not above any
-ceiling, so it is hidden from a key with limits only because it is redacted. The commits that quote it are public and readable,
+sent with; the admin key's event is an agent event, which the workspace lists in its agent activity). Three more rows keep a structure
+their writer chose that quotes the memory: a source made by the agent-output ingest (its ``source_refs``, in the metadata and in the raw
+payload), a queued task that was processed (its allowed sources and scope, and the artifact the worker made), and a quality rating of
+a shown artifact (its metadata). The memory is not above any ceiling, so it is hidden from a key with limits only because it is
+redacted. The commits that quote it are public and readable,
 and carry shown text of their own: a restricted key may read the commit and must not read the quote. It is off by default so the
 tests that count the rows of the vault keep their numbers; ``tests/integration/test_saved_quote_memory_refs_postgres.py`` sweeps
 every route with it on.
