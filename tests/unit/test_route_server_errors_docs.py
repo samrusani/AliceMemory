@@ -5,7 +5,9 @@ The behaviour is tested in ``tests/integration/test_route_server_errors_postgres
 
 Mutations, each one alone: delete the 409 body from the changelog entry; say again, in the changelog, the security
 note or the tool reference, that ``POST /v0/vnext/queue/process-next`` answers HTTP 500 or that its claim statement is
-ambiguous; delete the sentence that the 409 still tells a key with a ceiling that a project it may not read has the slug.
+ambiguous; delete the sentence that the 409 still tells a key with a ceiling that a project it may not read has the slug; delete the
+sentence that a completed task names its artifact in two events that a key with a ceiling is not shown, from the changelog,
+the security note or the tool reference; delete the claim and failure events from the sentence on the id of a queued task.
 """
 from __future__ import annotations
 
@@ -53,6 +55,9 @@ def test_the_changelog_says_what_process_next_does_now_and_for_a_key_with_a_ceil
     assert "A task above the ceiling is not claimed, locked or changed" in entry
     assert "the key is answered `idle`, as it is for an empty queue" in entry
     assert "a key locked to a project that reaches the handler claims nothing" in entry
+    assert "A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made" in entry
+    assert "the workspace feed of a key with a ceiling holds neither event, and not the id of the artifact, when the task was above its ceiling, and its event count leaves both out" in entry
+    assert "The claim and the failure of a task name no artifact and hold the id of the task" in entry
     assert entry.endswith("No migration is required.")
 
 
@@ -68,6 +73,10 @@ def test_the_security_note_says_what_the_409_still_tells_a_key_with_a_ceiling() 
     assert "claims only a task whose domain and sensitivity it may read" in paragraph
     assert "The claim skips a task above the ceiling without locking or changing it" in paragraph
     assert "Without that limit the fix would have let the trusted key run a confidential task" in paragraph
+    assert "A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made" in paragraph
+    assert "so a key with a ceiling is shown neither event when the task was above its ceiling" in paragraph
+    assert "the id of the artifact is not in its feed, and its event count leaves both out" in paragraph
+    assert "The claim and the failure of a task name no artifact and hold the id of the task" in paragraph
 
 
 def test_the_tool_reference_names_both_answers() -> None:
@@ -79,6 +88,8 @@ def test_the_tool_reference_names_both_answers() -> None:
     assert '`{"status": "idle"}` when it has none' in process
     assert "claims only a task whose domain and sensitivity it may read" in process
     assert "Every other key is refused HTTP 403" in process
+    assert "A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made" in process
+    assert "the workspace feed of a key with a ceiling holds neither event, and not the id of the artifact" in process
 
 
 def test_no_page_still_says_process_next_fails() -> None:
@@ -88,3 +99,14 @@ def test_no_page_still_says_process_next_fails() -> None:
         assert "claim statement is ambiguous" not in text, page
         assert "so it was probed and could not be read" not in text, page
         assert "so the sweep could not read what it returns" not in text, page
+
+
+def test_the_pages_that_list_the_id_of_a_queued_task_in_the_feed_list_the_claim_and_failure_events() -> None:
+    claim = "`task.claimed`"
+    failure = "`task.updated` and `queue.task_failed`"
+    note = _text("docs/release/derived-labels-security-note-draft.md")
+    assert f"`brain_charter.upserted`, and, for a task that a worker has claimed, {claim}, and {failure} when it failed)" in note
+    changelog = _text("CHANGELOG.md")
+    assert f"`brain_charter.upserted`, and, for a task that a worker has claimed, {claim}, and {failure} when it failed)" in changelog
+    tools = _text("docs/alpha/mcp-tools.md")
+    assert f"for a task that a worker has claimed, of its claim event ({claim}) and of its failure events ({failure})" in tools

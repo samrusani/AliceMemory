@@ -202,7 +202,7 @@ from alicebot_api.vnext_stores.postgres.query_predicates import (
     _project_identifier_identity_sql as _project_identifier_identity_sql,
     _tsquery_any_expression as _tsquery_any_expression,
 )
-from alicebot_api.vnext_stores.postgres.task_claim import LabelPairs, task_label_filter
+from alicebot_api.vnext_stores.postgres.task_claim import LabelPairs, task_label_filter, task_status_payload
 from alicebot_api.vnext_stores.retrieval_common import (
     FTS_QUERY_STOPWORDS as FTS_QUERY_STOPWORDS,
     _search_patterns as _search_patterns,
@@ -2918,7 +2918,7 @@ class PostgresVNextStore:
             actor_type=actor_type,
             target_type="task",
             target_id=row["id"],
-            payload={"operation": "update_status", "status": status, "details": details},
+            payload=task_status_payload(status, details),
         )
         return row
 

@@ -17,6 +17,7 @@ from collections import Counter
 import psycopg
 import pytest
 
+from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
 from alicebot_api.vnext_stores.postgres.project_slug import PROJECT_SLUG_CONSTRAINT, ProjectSlugConflictError
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 from tests.integration.operator_route_probes import Call
@@ -307,6 +308,71 @@ def test_process_next_follows_the_labels_the_workspace_lists_to_the_same_key(lab
     rows = _task_rows(harness)
     still_pending = {row["title"] for row in rows.values() if row["status"] == "pending"}
     assert still_pending == set(titles.values()) - set(readable)
+
+
+def _events_by_kind_and_target(events) -> dict[tuple[str, str], dict]:
+    return {(str(event["event_type"]), str(event["target_id"])): event for event in events}
+
+
+def test_the_completion_of_a_task_above_the_ceiling_does_not_show_its_artifact_to_a_key_with_a_ceiling(label_harness):
+    harness = label_harness
+    admin, trusted = harness.key("admin_agent"), harness.key("trusted_local_agent")
+    hidden = _enqueue(harness, admin, "older hidden task", "confidential")
+    shown = _enqueue(harness, admin, "newer shown task", "public")
+    # The admin key claims and completes both, so each leaves its events and the artifact it made.
+    status, first = _process(harness, admin)
+    assert status == 200 and first["status"] == "completed" and first["task_id"] == hidden
+    status, second = _process(harness, admin)
+    assert status == 200 and second["status"] == "completed" and second["task_id"] == shown
+    hidden_artifact, shown_artifact = first["artifact_id"], second["artifact_id"]
+    assert _artifact(harness, hidden_artifact)["sensitivity"] == "confidential"
+
+    # task.updated holds the id of the artifact at the top of its payload, where the event guard reads it.
+    with harness.store() as store:
+        updates = _events_by_kind_and_target(store.list_events(target_type="task"))
+    assert updates[("task.updated", hidden)]["payload_json"]["artifact_id"] == hidden_artifact
+    assert updates[("task.updated", shown)]["payload_json"]["artifact_id"] == shown_artifact
+
+    # The key with a ceiling is shown neither the id of the confidential artifact nor an event that names it.
+    status, feed, _headers = harness.request("GET", "/v0/vnext/workspace", key=trusted)
+    assert status == 200
+    assert hidden_artifact not in json.dumps(feed)
+    seen = _events_by_kind_and_target(feed["recent_events"])
+    assert ("task.updated", hidden) not in seen and ("queue.task_completed", hidden) not in seen
+    # What it may read is still there: the completion of the public task, with the artifact that task made.
+    assert seen[("task.updated", shown)]["payload_json"]["artifact_id"] == shown_artifact
+    assert seen[("queue.task_completed", shown)]["payload_json"]["artifact_id"] == shown_artifact
+    assert shown_artifact in {artifact["id"] for artifact in feed["artifacts"]}
+
+    # The admin key is shown all of it.
+    status, admin_feed, _headers = harness.request("GET", "/v0/vnext/workspace", key=admin)
+    assert status == 200
+    seen = _events_by_kind_and_target(admin_feed["recent_events"])
+    assert seen[("task.updated", hidden)]["payload_json"]["artifact_id"] == hidden_artifact
+    assert seen[("queue.task_completed", hidden)]["payload_json"]["artifact_id"] == hidden_artifact
+    assert hidden_artifact in {artifact["id"] for artifact in admin_feed["artifacts"]}
+
+
+def test_the_event_count_of_a_key_with_a_ceiling_leaves_out_the_events_that_name_a_hidden_artifact(label_harness):
+    harness = label_harness
+    admin = harness.key("admin_agent")
+    _enqueue(harness, admin, "hidden task", "confidential")
+    status, done = _process(harness, admin)
+    assert status == 200 and done["status"] == "completed"
+    artifact = done["artifact_id"]
+
+    ceiling = ("public", "internal", "private", "unknown")
+    with harness.store() as store:
+        events = store.list_events()
+        naming = {str(event["id"]): str(event["event_type"]) for event in events if artifact in json.dumps(event, default=str)}
+        with label_read_scope(store):
+            guard = LabelGuard(store, active=True, sensitivity_allowed=ceiling)
+            shown = {str(event["id"]) for event in guard.admit_events(events)}
+            # The count query reads the cut-down payloads of the same events and reaches the same number.
+            assert guard.readable_event_count() == len(shown)
+    # The artifact is the target of one event and named by the payload of two more, and none of the three is shown.
+    assert sorted(naming.values()) == ["artifact.created", "queue.task_completed", "task.updated"]
+    assert not set(naming) & shown
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ becomes which answer, and which labels a caller's claim is held to.
 """
 from __future__ import annotations
 
+import json
 from uuid import uuid4
 
 import pytest
@@ -109,3 +110,43 @@ def test_process_next_refuses_a_key_the_operator_gate_refuses(monkeypatch) -> No
 
     assert status == 403
     assert [task["status"] for task in store.tasks] == ["pending"]
+
+
+@pytest.mark.parametrize("profile", ["trusted_local_agent", "admin_agent"])
+def test_process_next_for_a_key_locked_to_a_project_that_reaches_the_handler_claims_nothing(monkeypatch, profile) -> None:
+    from alicebot_api.routers import vnext_review
+
+    store = FakeVNextStore(None)
+    _install_fake_vnext_store(monkeypatch, store)
+    user_id = uuid4()
+    task = _task(store, "public task", "public")
+    _record, raw_key = create_agent_key(
+        store, user_id=user_id, agent_id="locked", permission_profile=profile, project_scope="alpha"
+    )
+
+    # The central gate refuses this key before the handler. This calls the handler alone, as a request that got past
+    # the gate would: a queued task names no project, so a key locked to one claims nothing and is told the queue is idle.
+    answer = vnext_review.process_next_vnext_queue_task(
+        vnext_review.VNextQueueProcessNextRequest(user_id=user_id), authorization=f"Bearer {raw_key}"
+    )
+
+    assert answer.status_code == 200 and json.loads(answer.body) == IDLE
+    assert [(row["id"], row["status"]) for row in store.tasks] == [(task, "pending")]
+
+
+@pytest.mark.parametrize("profile", ["trusted_local_agent", "admin_agent"])
+def test_process_next_refuses_a_key_locked_to_a_project_at_the_gate(monkeypatch, profile) -> None:
+    store = FakeVNextStore(None)
+    _install_fake_vnext_store(monkeypatch, store)
+    user_id = uuid4()
+    _task(store, "public task", "public")
+    _record, raw_key = create_agent_key(
+        store, user_id=user_id, agent_id="locked", permission_profile=profile, project_scope="alpha"
+    )
+
+    status, _body = _invoke_vnext_request(
+        "POST", "/v0/vnext/queue/process-next", payload={"user_id": str(user_id)}, authorization=f"Bearer {raw_key}"
+    )
+
+    assert status == 403
+    assert [row["status"] for row in store.tasks] == ["pending"]
