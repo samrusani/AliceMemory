@@ -291,7 +291,8 @@ def test_the_context_tree_tool_tells_the_tree_whether_the_caller_has_limits(worl
     monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
     monkeypatch.setattr(mcp_context, "_vnext_store_context", world.tree_store)
     context, arguments = world.call_as(who)
-    tree = mcp_context._handle_alice_vnext_context_tree(context, {"limit": 50, **arguments})
+    # The tool takes the identity of a caller that holds no key as flat fields.
+    tree = mcp_context._handle_alice_vnext_context_tree(context, {"limit": 50, **arguments.get("agent_identity", {})})
     shown = _tree_events(tree)
     if limited:
         assert not refs & shown, who

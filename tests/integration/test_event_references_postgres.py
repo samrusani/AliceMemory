@@ -284,7 +284,7 @@ def test_the_context_tree_shows_the_policy_event_of_an_explain_of_a_continuity_o
     assert explained not in _tree_event_refs(tree)
 
     def tool(identity):
-        arguments = {"limit": 50, **({"agent_identity": identity} if identity else {})}
+        arguments = {"limit": 50, **(identity or {})}
         return _tree_event_refs(call_mcp_tool(context, name="alice_vnext_context_tree", arguments=arguments))
 
     assert written <= route(admin)
