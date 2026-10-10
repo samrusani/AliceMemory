@@ -39,6 +39,8 @@ def test_the_security_note_states_the_rule_of_the_source_trace() -> None:
         "a profile handed to the loader inside the process that the gate would refuse is answered as a missing source",
         "the `superseded_by` that a `memory.updated` event copies in its `changes`",
         "A caller with limits is read the newest 2,000 events that the trace asks for, the reach of the event feeds, and no further",
+        "Only the events the caller can be shown count against that reach: the store reads the events aimed at the source or at a row the trace lists",
+        "a source with more than 2,000 chunks still lists its own events",
         "`sampling.collection_complete.events` and `sampling.trace_complete` are `false`, and the events older than the reach are not listed",
         "The owner and an unbound admin key are read as before, 501 events at a time",
     ):
@@ -76,6 +78,8 @@ def test_the_changelog_has_one_entry_for_each() -> None:
             "The owner and an unbound admin key are unchanged and keep every event of the source",
             "one handed to it inside the process is answered as a missing source",
             "A key with limits is read the newest 2,000 events that the trace asks for, as the event feeds are",
+            "only the events aimed at the source or at a row the trace lists count against that reach",
+            "so a source with thousands of chunks still lists its own events",
         )),
         (LOG_CONTINUITY.removeprefix("- "), (
             "so no caller left an event that names an object it may not read",

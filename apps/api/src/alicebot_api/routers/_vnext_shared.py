@@ -351,6 +351,11 @@ def _vnext_load_source_trace(
     open_loops = withhold_unreadable_references(store, open_loops, fence=read_fence)
     kept_ids = {str(row.get("id")) for row in (*memories, *artifacts, *open_loops)}
     kept_ids.add(source_id)
+    # A caller with limits sees the events that target the source or a row kept above, and only those that name no row it
+    # may not read (a correction names the memory that replaced the target in its payload). The store reads only the events
+    # aimed at those rows, so an event that merely names the source (a chunk, an entity mention) costs nothing against the
+    # reach. The loader filters again, so it does not depend on the store for this. The owner and an unbound admin key keep
+    # every event of the source.
     events, direct_events_complete = _vnext_readable_trace_rows(
         store, "event", lambda limit: store.list_events_for_source_trace(
             source_id=source_id,
@@ -358,10 +363,8 @@ def _vnext_load_source_trace(
             artifact_ids=[str(artifact["id"]) for artifact in artifacts],
             open_loop_ids=[str(open_loop["id"]) for open_loop in open_loops],
             limit=limit,
+            target_ids=sorted(kept_ids) if event_guard is not None else None,
         ), caller,
-        # A caller with limits sees the events that target the source or a row kept above, and only those that name no row
-        # it may not read (a correction names the memory that replaced the target in its payload). The owner and an
-        # unbound admin key keep every event of the source.
         admit=(lambda rows: event_guard.admit_events([event for event in rows if str(event.get("target_id") or "") in kept_ids]))
         if event_guard is not None else None,
         scan_limit=EVENT_FEED_SCAN_LIMIT if event_guard is not None else None,

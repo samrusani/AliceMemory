@@ -7,6 +7,9 @@ admin key are not limited and keep every event.
 
 The unit test runs the same cases on SQLite (``tests/unit/test_source_trace_events.py``). Here the rows are read through the
 PostgreSQL store, the keys are real, and the events are made by the correction tool.
+
+Only the events aimed at the source or at a row of the trace count against the reach of a key with limits, so the chunk
+events of a big source (they name the source in their payload and are aimed at the chunk) do not use it up.
 """
 import json
 from uuid import uuid4
@@ -195,6 +198,52 @@ def test_a_trusted_key_reads_no_further_than_the_event_feeds_do_and_the_trace_sa
     assert trace["sampling"]["collection_complete"]["events"] is False
     assert "events" in trace["sampling"]["truncated_collections"]
     assert hidden_id not in json.dumps(trace, default=str)
+
+
+def test_the_chunk_events_of_a_big_source_do_not_use_up_the_reach_of_a_trusted_key(label_harness):
+    """A source with more chunks than the reach has as many chunk events, newer than the events of the source itself. They
+    name the source in their payload and are aimed at the chunk, so a key with limits is never shown one. They must not use
+    up its reach: the events of the source stay listed and the trace stays complete."""
+    h = label_harness
+    source = h.source(sensitivity="public")
+    source_id = str(source["id"])
+    memory_id = str(h.memory(source=source)["id"])
+    with h.store() as store:
+        def record(event_type, target_type, target_id, payload):
+            return str(store.append_event(build_event_log_record(event_type=event_type, actor_type="system", target_type=target_type, target_id=target_id, payload=payload))["id"])
+
+        created = record("source.created", "source", source_id, {})
+        captured = record("source.captured", "source", source_id, {"source_id": source_id})
+        on_memory = record("memory.updated", "memory", memory_id, {"source_id": source_id})
+        for index in range(EVENT_FEED_SCAN_LIMIT + 100):
+            record("source_chunk.created", "source_chunk", str(uuid4()), {"source_id": source_id, "chunk_index": index})
+        chunked = record("source.chunked", "source", source_id, {"source_id": source_id})
+        # The store narrows before the limit: the newest events aimed at the ids, and not the newest five chunk events.
+        newest = store.list_events_for_source_trace(source_id=source_id, memory_ids=[memory_id], limit=5)
+        assert {event["event_type"] for event in newest} == {"source_chunk.created", "source.chunked"}
+        narrowed = store.list_events_for_source_trace(source_id=source_id, memory_ids=[memory_id], limit=4, target_ids=[source_id, memory_id])
+        assert {str(event["target_id"]) for event in narrowed} <= {source_id, memory_id}
+        assert chunked in {str(event["id"]) for event in narrowed}
+        only_source = store.list_events_for_source_trace(source_id=source_id, memory_ids=[memory_id], limit=500, target_ids=[source_id])
+        assert {str(event["target_id"]) for event in only_source} == {source_id}
+        assert {created, captured, chunked} <= {str(event["id"]) for event in only_source} and on_memory not in {str(event["id"]) for event in only_source}
+        assert store.list_events_for_source_trace(source_id=source_id, memory_ids=[memory_id], limit=500, target_ids=[]) == []
+    trusted, admin = h.key("trusted_local_agent"), h.key("admin_agent")
+    status, trace, _ = h.request("GET", f"/v0/vnext/traces/sources/{source_id}", key=trusted)
+    assert status == 200, trace
+    assert {created, captured, on_memory, chunked} <= {str(event["id"]) for event in trace["events"]}
+    assert not [event for event in trace["events"] if event["event_type"] == "source_chunk.created"]
+    assert trace["sampling"]["collection_complete"]["events"] is True
+    assert trace["summary"]["event_count"] == len(trace["events"])
+    status, body, _ = h.request("POST", f"/v0/vnext/sources/{source_id}/review", key=trusted, payload={"action": "review", "review_note": "checked"})
+    assert status == 200, body
+    assert {created, captured, chunked} <= {str(event["id"]) for event in body["trace"]["events"]}
+    assert body["trace"]["sampling"]["collection_complete"]["events"] is True
+    # The unbound admin key is not limited: the newest page of every event of the source, chunks included, as before.
+    status, trace, _ = h.request("GET", f"/v0/vnext/traces/sources/{source_id}", key=admin)
+    assert status == 200 and len(trace["events"]) == _VNEXT_SOURCE_TRACE_COLLECTION_LIMIT
+    assert {"source_chunk.created", "source.chunked"} <= {event["event_type"] for event in trace["events"]}
+    assert trace["sampling"]["collection_complete"]["events"] is False
 
 
 @pytest.mark.parametrize("profile", ["read_only_agent", "memory_proposal_agent"])

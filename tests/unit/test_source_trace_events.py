@@ -13,12 +13,16 @@ store. The trace route is tested through the application on PostgreSQL in
 
 The read of a caller with limits stops after ``EVENT_FEED_SCAN_LIMIT`` events, as the event feeds do, so its cost does not
 grow with the number of events it may not read, and the trace says it is incomplete when events lie beyond that reach.
+Only the events the caller can be shown count against the reach: the store reads the events aimed at the source or a row
+of the trace, so the chunk events of a big source (they name the source in their payload and are aimed at the chunk) and
+the other events that only name it cost nothing.
 
 Mutations (``scripts/derived_label_mutations.json``): hand the events to the caller without ``admit_events`` (the
 replacement above the ceiling is named in the trace); drop the target filter of a caller with limits (an event about a row
 the trace does not list is shown); build the guard for every caller (the owner and an unbound admin key lose events);
 let a refused profile through (it is shown a trace); drop the scan limit (the read goes on past the reach); stop the read
-one event short of the reach (a trace that fits is called incomplete); report an exhausted read as complete.
+one event short of the reach (a trace that fits is called incomplete); report an exhausted read as complete; read the
+events of every target (the chunk events of a big source use up the reach); leave out the narrowing in either store.
 """
 from __future__ import annotations
 
@@ -60,12 +64,29 @@ class TraceStore(SQLiteVNextStore):
         return rows[:limit] if limit is not None else rows
 
 
-@pytest.fixture
-def store(tmp_path):
+class LaxTraceStore(TraceStore):
+    """A store that does not narrow the events to the ids it is handed, so only the loader's own filter keeps them out."""
+
+    def list_events_for_source_trace(self, **kwargs):
+        kwargs["target_ids"] = None
+        return super().list_events_for_source_trace(**kwargs)
+
+
+def _open_store(tmp_path, store_class):
     path = tmp_path / "trace.db"
     bootstrap_database(path, user_id=USER, user_email="synthetic@example.invalid")
     with sqlite_user_connection(path, USER) as conn:
-        yield TraceStore(conn, USER)
+        yield store_class(conn, USER)
+
+
+@pytest.fixture
+def store(tmp_path):
+    yield from _open_store(tmp_path, TraceStore)
+
+
+@pytest.fixture
+def lax_store(tmp_path):
+    yield from _open_store(tmp_path, LaxTraceStore)
 
 
 def _append(store, **record):
@@ -139,6 +160,15 @@ def test_every_payload_field_that_names_a_row_is_judged_in_the_trace(store):
 
 def test_a_caller_with_limits_is_still_shown_only_the_events_that_target_a_row_of_the_trace(store):
     """The target filter stays: an event about a row the trace does not list is not shown, though it names the source."""
+    _check_the_target_filter(store)
+
+
+def test_the_loader_filters_the_targets_itself_when_the_store_does_not_narrow(lax_store):
+    """The store narrows the read, and the loader does not depend on it: it keeps its own filter on the events it is handed."""
+    _check_the_target_filter(lax_store)
+
+
+def _check_the_target_filter(store):
     vault = Vault(store)
     about_the_hidden_note = _append(store, event_type="memory.updated", target_type="memory", target_id=vault.hidden_citing_id, payload={"source_id": vault.source_id})
     about_a_stranger = _append(store, event_type="entity.mention_recorded", target_type="entity", target_id=str(uuid4()), payload={"source_id": vault.source_id})
@@ -203,6 +233,78 @@ def test_a_trace_whose_events_all_lie_within_the_reach_is_complete_for_a_caller_
     assert not [event for event in trusted["events"] if event["event_type"] == "memory.reviewed"]
     assert trusted["sampling"]["collection_complete"]["events"] is True
     assert max(store.event_fetch_limits) == EVENT_FEED_SCAN_LIMIT + 1
+
+
+def _chunk_events(store, source_id, count):
+    for index in range(count):
+        _append(store, event_type="source_chunk.created", target_type="source_chunk", target_id=str(uuid4()), payload={"source_id": source_id, "chunk_index": index})
+
+
+@pytest.mark.parametrize("extra", [0, 1, 99, 600])
+def test_the_chunk_events_of_a_big_source_cost_a_caller_with_limits_nothing_against_the_reach(store, extra):
+    """A source with more chunks than the reach has as many chunk events, newer than the events of the source itself. They
+    name the source and are aimed at a chunk, so the caller is never shown one, and they must not use up the reach."""
+    vault = Vault(store)
+    created = _append(store, event_type="source.created", target_type="source", target_id=vault.source_id, payload={})
+    captured = _append(store, event_type="source.captured", target_type="source", target_id=vault.source_id, payload={"source_id": vault.source_id})
+    on_memory = _append(store, event_type="memory.updated", target_type="memory", target_id=vault.visible_id, payload={"source_id": vault.source_id})
+    _chunk_events(store, vault.source_id, EVENT_FEED_SCAN_LIMIT + extra)
+    chunked = _append(store, event_type="source.chunked", target_type="source", target_id=vault.source_id, payload={"source_id": vault.source_id})
+    store.event_fetch_limits.clear()
+    trusted = vault.trace(TRUSTED)
+    assert {created, captured, on_memory, chunked} <= _ids(trusted)
+    assert not [event for event in trusted["events"] if event["event_type"] == "source_chunk.created"]
+    assert trusted["sampling"]["collection_complete"]["events"] is True
+    assert trusted["summary"]["event_count"] == len(trusted["events"])
+    # The read is still bounded by the reach, and the chunk events were not read at all.
+    assert max(store.event_fetch_limits) <= EVENT_FEED_SCAN_LIMIT + 1
+    # The owner and an unbound admin key are read as before: the newest page of every event of the source, chunks included.
+    for identity in (OWNER, ADMIN):
+        everyone = vault.trace(identity)
+        assert len(everyone["events"]) == _VNEXT_SOURCE_TRACE_COLLECTION_LIMIT
+        assert {event["event_type"] for event in everyone["events"]} == {"source_chunk.created", "source.chunked"}
+        assert everyone["sampling"]["collection_complete"]["events"] is False
+
+
+def test_events_aimed_at_the_source_still_use_up_the_reach_of_a_caller_with_limits(store):
+    """What counts against the reach is the events the caller can be shown: a source with more of those than the reach is
+    read as far as the reach, and the trace says it stopped."""
+    vault = Vault(store)
+    older = _append(store, event_type="source.created", target_type="source", target_id=vault.source_id, payload={})
+    for index in range(EVENT_FEED_SCAN_LIMIT + 20):
+        _append(store, event_type="source.reviewed", target_type="source", target_id=vault.source_id, payload={"source_id": vault.hidden_source_id, "n": index})
+    _chunk_events(store, vault.source_id, 30)
+    trusted = vault.trace(TRUSTED)
+    assert older not in _ids(trusted) and not trusted["events"]
+    assert trusted["sampling"]["collection_complete"]["events"] is False
+    assert vault.hidden_source_id not in json.dumps(trusted, default=str)
+
+
+def test_the_store_reads_only_the_events_aimed_at_the_ids_it_is_given_before_the_limit(store):
+    vault = Vault(store)
+    kept = [_append(store, event_type="source.created", target_type="source", target_id=vault.source_id, payload={})]
+    kept.append(_append(store, event_type="memory.updated", target_type="memory", target_id=vault.visible_id, payload={"source_id": vault.source_id}))
+    stranger = _append(store, event_type="entity.mention_recorded", target_type="entity", target_id=str(uuid4()), payload={"source_id": vault.source_id})
+    _chunk_events(store, vault.source_id, 30)
+    wanted = {"source_id": vault.source_id, "memory_ids": [vault.visible_id], "limit": 5}
+    # Without ids the newest events come first: five chunk events, and none of the events of the trace.
+    unnarrowed = store.list_events_for_source_trace(**wanted)
+    assert len(unnarrowed) == 5 and not set(kept) & {str(event["id"]) for event in unnarrowed}
+    narrowed = store.list_events_for_source_trace(**{**wanted, "limit": 500}, target_ids=[vault.source_id, vault.visible_id])
+    assert set(kept) <= {str(event["id"]) for event in narrowed}
+    assert {str(event["target_id"]) for event in narrowed} <= {vault.source_id, vault.visible_id}
+    assert stranger not in {str(event["id"]) for event in narrowed}
+    # The limit applies to the events that remain: the newest of them, and not the newest five chunk events.
+    limited = store.list_events_for_source_trace(**wanted, target_ids=[vault.source_id, vault.visible_id])
+    assert [str(event["id"]) for event in limited] == [str(event["id"]) for event in narrowed][:5]
+    assert {str(event["target_id"]) for event in limited} <= {vault.source_id, vault.visible_id}
+    only_source = store.list_events_for_source_trace(**{**wanted, "limit": 500}, target_ids=[vault.source_id])
+    assert kept[0] in {str(event["id"]) for event in only_source} and kept[1] not in {str(event["id"]) for event in only_source}
+    assert {str(event["target_id"]) for event in only_source} == {vault.source_id}
+    # No id at all is no event, and a blank id or a repeated one changes nothing.
+    assert store.list_events_for_source_trace(**wanted, target_ids=[]) == []
+    blank = store.list_events_for_source_trace(**{**wanted, "limit": 500}, target_ids=["", vault.source_id, vault.source_id])
+    assert [str(event["id"]) for event in blank] == [str(event["id"]) for event in only_source]
 
 
 @pytest.mark.parametrize("profile", ["read_only_agent", "project_scoped_agent", "memory_proposal_agent"])
