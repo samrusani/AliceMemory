@@ -179,10 +179,10 @@ def _tree_event_visible(
     from alicebot_api.vnext_label_guard import LabelGuard
     from alicebot_api.vnext_label_sql import EVENT_UNJUDGED_TARGETS
 
-    # The domains and sensitivities of the tree are a selection, and the selection of the owner is narrower than what the
-    # owner may read. So the guard here judges the labels it can read against the selection, and keeps an event about a row
-    # whose label it cannot read (``selection_only``). Whether such an event is shown depends on the caller: a caller with
-    # limits is not shown it, whatever it selected, and a caller without limits is.
+    # The domains and sensitivities of the tree are a selection, and the default selection of the owner is narrower than what
+    # the owner may read. So the guard here is a selection (``selection_only``): it judges the labels it can read against
+    # the selection and leaves an event about a row whose label it cannot read to this function, which decides it by the
+    # caller. A caller with limits is not shown that event, whatever it selected, and a caller without limits is.
     if caller_limited and str(event.get("target_type")) in EVENT_UNJUDGED_TARGETS:
         return False
     # A node of the tree names the event by its type, so the cursors in its payload are not judged.

@@ -295,9 +295,10 @@ class LabelGuard:
     sensitivity_allowed: tuple[str, ...] = ()
     projects: tuple[str, ...] = ()
     all_of: tuple[str, ...] | None = None
-    # True when the filters are only a selection that a caller without limits chose (the context tree of the owner). Such a
-    # guard narrows what is shown by the labels it can read and does not withhold an event about a row whose label it
-    # cannot read (``EVENT_UNJUDGED_TARGETS``); a guard that stands for the limits of a caller does.
+    # True when the filters are only a selection and not the limits of a caller (the context tree, whose default selection
+    # for the owner leaves out the confidential levels). Such a guard narrows what is shown by the labels it can read, and
+    # leaves an event about a row whose label it cannot read (``EVENT_UNJUDGED_TARGETS``) to its caller, which knows whether
+    # the caller has limits. A guard that stands for the limits of a caller withholds that event.
     selection_only: bool = False
     _nodes: dict[tuple[str, str], list[dict[str, object]]] | None = None
     _request: _RequestLabels | None = None
@@ -338,9 +339,9 @@ class LabelGuard:
     ) -> LabelGuard:
         """List doors. Inactive when the filters admit every label.
 
-        ``selection_only`` says the filters are a selection that a caller without limits made, as the owner's context tree
-        does with its default sensitivities, and not the limits of a caller. It changes one thing: an event about a row
-        whose label the guard cannot read is kept (see ``admit_events``). Leave it off for any caller that has limits.
+        ``selection_only`` says the filters are a selection, as the sensitivities of the context tree are, and not the limits
+        of a caller. It changes one thing: an event about a row whose label the guard cannot read is kept by the guard (see
+        ``admit_events``), and the caller of the guard decides it. Leave it off for a guard that stands for a caller's limits.
         """
 
         del exclude_global_domains
@@ -946,9 +947,9 @@ class LabelGuard:
         It names its target, when the target is a labelled row or an edge, and every id in the payload fields that hold
         the id of a labelled row (see ``event_references``). A chunk of a source has no label, so its event takes the
         label of the source it names. An event about a row whose label the guard cannot read (a continuity object,
-        see ``EVENT_UNJUDGED_TARGETS``) is not admitted, unless the guard is only the selection of a caller without limits
-        (``selection_only``). An event whose target has no label and whose payload names no row is admitted, except a
-        ``labels_raised`` event, which says what a label was.
+        see ``EVENT_UNJUDGED_TARGETS``) is not admitted, unless the guard is only a selection (``selection_only``) and its
+        caller decides such an event. An event whose target has no label and whose payload names no row is admitted, except
+        a ``labels_raised`` event, which says what a label was.
 
         A connector event also records a cursor (see ``CONNECTOR_EVENT_CURSOR_FIELDS``), and for a file or a page that is
         its path or its address. An admitted event shows each cursor only when the caller may read the source it came
