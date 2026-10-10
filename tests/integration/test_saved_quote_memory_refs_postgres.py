@@ -332,3 +332,93 @@ def test_the_dashboard_and_the_source_trace_withhold_the_quote(label_harness):
         assert commit_id in text, (door, "the commit is still listed")
     for door, (status, text) in doors(admin).items():
         assert status == 200 and words in text, ("admin", door)
+
+
+def _spellings(cited: str, quote_of) -> dict[str, tuple[list[object], bool]]:
+    """Every spelling of a memory ref, as the HTTP commit route is sent them, each with a quote of its own. The second value says
+    whether the commit also saves the quote as its ``conversation_excerpt`` (the last one does, and its ref holds no quote)."""
+
+    def q(name: str) -> str:
+        return quote_of(name)
+
+    return {
+        "memory_id": ([{"memory_id": cited, "quote": q("memory_id")}], False),
+        "memory prefix + quote entry": ([f"memory:{cited}", {"quote": q("memory prefix + quote entry")}], False),
+        "MEMORY prefix": ([f"MEMORY:{cited}", {"quote": q("MEMORY prefix")}], False),
+        "ref key": ([{"ref": f"memory:{cited}", "quote": q("ref key")}], False),
+        "id key": ([{"id": f"memory:{cited}", "quote": q("id key")}], False),
+        "memory_ids list": ([{"memory_ids": [cited], "quote": q("memory_ids list")}], False),
+        "memory_refs": ([{"memory_refs": [f"memory:{cited}"], "quote": q("memory_refs")}], False),
+        "no hyphens": ([{"memory_id": cited.replace("-", ""), "quote": q("no hyphens")}], False),
+        "upper case": ([{"memory_id": cited.upper(), "quote": q("upper case")}], False),
+        "braces": ([{"memory_id": "{" + cited + "}", "quote": q("braces")}], False),
+        "urn": ([{"memory_id": "urn:uuid:" + cited, "quote": q("urn")}], False),
+        "json text": ([json.dumps({"memory_id": cited, "quote": q("json text")})], False),
+        "alice url": ([f"alice://memories/{cited}", {"quote": q("alice url")}], False),
+        "nested": ([{"evidence": [{"memory_id": cited, "quote": q("nested")}]}], False),
+        "conversation_excerpt": ([f"memory:{cited}"], True),
+    }
+
+
+@pytest.mark.parametrize("change", ["redacted", "confidential"])
+def test_every_spelling_of_a_memory_ref_is_withheld_at_the_audit_the_recent_commits_and_explain(label_harness, monkeypatch, change):
+    """One commit per spelling of a memory ref, through the commit route, over a public memory that is then redacted or relabelled
+    confidential. An unbound trusted key and a read-only key are shown none of the quote at the audit route, the recent commits
+    route (with a short limit as well) and ``alice_explain``; the unbound admin key is shown all of them at the audit route.
+    A control reads the commits before the change, so an absent quote was withheld.
+
+    Mutations: delete a spelling from ``_memory_ids_in_text`` (the ``alice://memories/`` test) or a key from
+    ``MEMORY_REFERENCE_KEYS``: its commit keeps the quote.
+    """
+
+    harness = label_harness
+    vault = Vault(harness, "sp").build()
+    admin, trusted = vault.keys["admin"], vault.keys["trusted"]
+    read_only = harness.key("read_only_agent")
+    sentinel = f"ZQXSPELL{uuid4().hex[:10]}"
+    with harness.store() as store:
+        cited = store.create_memory(
+            {"memory_key": f"sp-{uuid4().hex[:8]}", "canonical_text": f"Atlas played {sentinel} for 115 hours", "title": "Atlas games",
+             "status": "active", "domain": "project", "sensitivity": "public", "metadata_json": {}}
+        )
+    cited_id = str(cited["id"])
+    commits: dict[str, str] = {}
+    def quote_of(name: str) -> str:
+        return f"Atlas played {sentinel} for 115 hours ({name})"
+
+    for name, (refs, saves_excerpt) in _spellings(cited_id, quote_of).items():
+        payload = {
+            "title": f"Follow up {name}", "canonical_text": f"Follow up on the games note {name}", "memory_type": "fact",
+            "domain": "project", "sensitivity": "public", "confidence": 0.99, "source_type": "agent", "source_refs": refs,
+        }
+        if saves_excerpt:
+            payload["conversation_excerpt"] = quote_of(name)
+        status, body = vault.admin_request("POST", "/v0/vnext/memories/commit", payload)
+        assert status in {200, 201}, (name, status, str(body)[:300])
+        commits[name] = str(body["memory"]["id"])
+
+    def read(key, name, memory_id):
+        status, text = _get(vault, "/v0/vnext/memories/{memory_id}/audit", key, memory_id=memory_id)
+        explained = _tool(monkeypatch, harness, key, "alice_explain", {"memory_id": memory_id})
+        return status, text, _all_text(explained)
+
+    for name, memory_id in commits.items():
+        status, text, explained = read(admin, name, memory_id)
+        assert status == 200 and sentinel in text, ("control", name)
+    if change == "redacted":
+        status, body = vault.admin_request("POST", "/v0/vnext/memories/redact", {"memory_id": cited_id, "reason": "sweep"})
+        assert status == 200, (status, str(body)[:300])
+    else:
+        status, body, _headers = harness.relabel("memory", cited_id, sensitivity="confidential")
+        assert status == 200, (status, str(body)[:300])
+    for name, memory_id in commits.items():
+        for label, key in (("trusted", trusted), ("read_only", read_only)):
+            status, text, explained = read(key, name, memory_id)
+            assert sentinel not in text and sentinel not in explained, (change, label, name)
+        status, text, _explained = read(admin, name, memory_id)
+        assert status == 200 and sentinel in text, (change, "admin", name)
+    for limit in (100, 1):
+        status, text = _get(vault, "/v0/vnext/memories/recent-commits", trusted, limit=limit)
+        assert status == 200 and sentinel not in text, (change, limit)
+    status, text = _get(vault, "/v0/vnext/memories/recent-commits", admin, limit=100)
+    assert status == 200 and sentinel in text

@@ -7772,9 +7772,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_saved_quote_memory_refs_doors.py::test_alice_explain_holds_the_audit_to_the_reader_for_a_key_with_limits"
+        "tests/unit/test_saved_quote_memory_refs_doors.py::test_alice_explain_holds_the_audit_to_the_reader_for_a_key_with_limits",
+        "tests/unit/test_saved_quote_memory_refs_vault.py::test_alice_explain_does_not_hold_a_call_that_declares_a_profile_with_no_key"
       ],
-      "expected_failure": "test_alice_explain_holds_the_audit_to_the_reader_for_a_key_with_limits"
+      "expected_failure": "test_alice_explain_does_not_hold_a_call_that_declares_a_profile_with_no_key"
     },
     {
       "name": "workspace-review-memories-skip-the-saved-quote-reader",
@@ -8049,6 +8050,22 @@
         "tests/integration/test_saved_quote_memory_refs_postgres.py::test_the_dashboard_and_the_source_trace_withhold_the_quote"
       ],
       "expected_failure": "test_the_dashboard_and_the_source_trace_withhold_the_quote"
+    },
+    {
+      "name": "memory-quote-reference-key-memory-ids-dropped-postgres",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_source_fence.py",
+          "line": 758,
+          "before": "        \"memory_ids\",\n",
+          "after": "",
+          "sha256": "193239cda9087227df90623610a8bbd3e39eed41b8bdb5b4f81b3276c136c706"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_saved_quote_memory_refs_postgres.py::test_every_spelling_of_a_memory_ref_is_withheld_at_the_audit_the_recent_commits_and_explain"
+      ],
+      "expected_failure": "test_every_spelling_of_a_memory_ref_is_withheld_at_the_audit_the_recent_commits_and_explain"
     },
     {
       "name": "memory-quote-refused-memory-keeps-the-copies-postgres",

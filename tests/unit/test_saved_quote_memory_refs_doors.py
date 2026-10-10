@@ -36,8 +36,25 @@ def _calls(tree: ast.AST, name: str) -> list[ast.Call]:
     return found
 
 
-def _condition_text(tree: ast.AST) -> str:
-    return " ".join(ast.unparse(node.test) for node in ast.walk(tree) if isinstance(node, ast.If))
+def _condition_of_the_reader_call(tree: ast.AST, method: str) -> str:
+    """The condition of the ``if`` whose body asks the reader of saved quotes for ``method`` (``audit`` or ``memories``)."""
+
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        for call in (item for statement in node.body for item in ast.walk(statement) if isinstance(item, ast.Call)):
+            target = call.func
+            if (
+                isinstance(target, ast.Attribute)
+                and target.attr == method
+                and isinstance(target.value, ast.Call)
+                and isinstance(target.value.func, ast.Name)
+                and target.value.func.id == "SavedProvenanceReader"
+            ):
+                found.append(ast.unparse(node.test))
+    assert len(found) == 1, found
+    return found[0]
 
 
 def test_the_memory_audit_route_holds_the_audit_to_the_reader_for_a_caller_with_limits() -> None:
@@ -50,7 +67,7 @@ def test_the_memory_audit_route_holds_the_audit_to_the_reader_for_a_caller_with_
 
     tree = _tree(vnext_memories.get_vnext_memory_audit)
     assert len(_calls(tree, "audit")) == 2, "the service call and the reader call"
-    assert "entity_read_fenced" in _condition_text(tree)
+    assert "entity_read_fenced" in _condition_of_the_reader_call(tree, "audit")
 
 
 def test_alice_explain_holds_the_audit_to_the_reader_for_a_key_with_limits() -> None:
@@ -63,7 +80,7 @@ def test_alice_explain_holds_the_audit_to_the_reader_for_a_key_with_limits() -> 
 
     tree = _tree(evidence_artifacts._handle_alice_vnext_memory_audit)
     assert len(_calls(tree, "audit")) == 2
-    condition = _condition_text(tree)
+    condition = _condition_of_the_reader_call(tree, "audit")
     assert "_is_key_bound_explain" in condition and "entity_read_fenced" in condition
 
 
@@ -95,7 +112,7 @@ def test_the_project_dashboard_holds_its_memories_to_the_reader_for_a_caller_wit
 
     tree = _tree(VNextProjectService.project_dashboard)
     assert len(_calls(tree, "memories")) == 1
-    assert "entity_read_fenced" in _condition_text(tree)
+    assert "entity_read_fenced" in _condition_of_the_reader_call(tree, "memories")
 
 
 def test_the_source_trace_holds_its_memories_to_the_reader_for_a_caller_with_limits() -> None:
@@ -107,4 +124,4 @@ def test_the_source_trace_holds_its_memories_to_the_reader_for_a_caller_with_lim
 
     tree = _tree(_vnext_shared._vnext_load_source_trace)
     assert len(_calls(tree, "memories")) == 1
-    assert "entity_read_fenced" in _condition_text(tree)
+    assert "entity_read_fenced" in _condition_of_the_reader_call(tree, "memories")
