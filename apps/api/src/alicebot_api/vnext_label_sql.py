@@ -80,6 +80,11 @@ def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "
 EVENT_TARGET_KINDS = frozenset({"source", "memory", "open_loop", "artifact", "project", "belief"})
 # * A graph edge has no label of its own. It is readable when each labelled end is (an entity end has no label).
 EVENT_EDGE_TARGET = "graph_edge"
+# * A target of one of these types is a row whose label the guard cannot read: a continuity object keeps its domain,
+#   sensitivity and projects in its provenance and body, in the legacy store. An event about such a row cannot be shown to
+#   be readable, so it is not shown to a caller with limits (the policy event of an explain of a continuity object is the
+#   one the code writes).
+EVENT_UNJUDGED_TARGETS = frozenset({"continuity_object"})
 # * A chunk of a source has no label of its own either: the event that records it takes the label of the source its
 #   payload names, and an event that names no source cannot be shown to be readable.
 EVENT_CHILD_TARGETS = {"source_chunk": ("source", "source_id")}

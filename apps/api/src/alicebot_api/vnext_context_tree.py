@@ -52,6 +52,11 @@ class ContextTreeRequest:
     agent_identity: JsonObject | None = None
     policy_decision: JsonObject | None = None
     trace_id: str | None = None
+    # Whether the caller has limits (an agent key or a declared profile that is not an unbound admin). The domains and
+    # sensitivities above are a selection and never say so. An event about a row whose label the guard cannot read (the
+    # policy event of an explain of a continuity object) is left out of the tree of a caller with limits, and kept for the
+    # owner and an unbound admin key whatever they select. A caller that sets nothing is treated as limited.
+    caller_limited: bool = True
 
 
 def _validate_request(request: ContextTreeRequest) -> None:
@@ -162,11 +167,27 @@ def _label(row: JsonObject, *keys: str, fallback: str) -> str:
     return fallback
 
 
-def _tree_event_visible(store: object, event: JsonObject, domains: list[str] | None, sensitivity: list[str], projects: tuple[str, ...]) -> bool:
+def _tree_event_visible(
+    store: object,
+    event: JsonObject,
+    domains: list[str] | None,
+    sensitivity: list[str],
+    projects: tuple[str, ...],
+    *,
+    caller_limited: bool,
+) -> bool:
     from alicebot_api.vnext_label_guard import LabelGuard
+    from alicebot_api.vnext_label_sql import EVENT_UNJUDGED_TARGETS
 
+    # The domains and sensitivities of the tree are a selection, and the default selection of the owner is narrower than what
+    # the owner may read. So the guard here is a selection (``selection_only``): it judges the labels it can read against
+    # the selection and leaves an event about a row whose label it cannot read to this function, which decides it by the
+    # caller. A caller with limits is not shown that event, whatever it selected, and a caller without limits is.
+    if caller_limited and str(event.get("target_type")) in EVENT_UNJUDGED_TARGETS:
+        return False
     # A node of the tree names the event by its type, so the cursors in its payload are not judged.
-    return bool(LabelGuard.for_filters(store, domains, sensitivity, projects).admit_events([event], cursors=False))
+    guard = LabelGuard.for_filters(store, domains, sensitivity, projects, selection_only=True)
+    return bool(guard.admit_events([event], cursors=False))
 
 
 def _row_node(prefix: str, row: JsonObject, *, label_keys: tuple[str, ...], fallback: str) -> JsonObject:
@@ -340,7 +361,9 @@ class VNextContextTreeService:
             events = [
                 event
                 for event in self.store.list_events(limit=request.limit)
-                if _tree_event_visible(self.store, event, domains, sensitivity, project_scope)
+                if _tree_event_visible(
+                    self.store, event, domains, sensitivity, project_scope, caller_limited=request.caller_limited
+                )
             ]
 
         roots = [

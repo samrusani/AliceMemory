@@ -28,7 +28,7 @@ def test_events_that_name_a_row_are_judged_alike_by_the_native_count_the_list_an
                 return store.iter_label_events()
 
         shown, withheld = assert_events_are_judged_by_the_rows_they_name(store, oracle=PerTarget(), beliefs=True)
-    assert len(shown) == 18 and len(withheld) == 32
+    assert len(shown) == 18 and len(withheld) == 33
 
 
 def test_a_source_event_that_names_another_row_leaves_the_native_source_count(label_harness):
@@ -190,3 +190,105 @@ def test_a_correction_that_replaces_a_memory_names_the_replacement_and_the_repla
         assert not [event for event in kept if event["event_type"] == "memory.reviewed" and replacement in json.dumps(event, default=str)]
     # The count the workspace gives a trusted key is the number of events it may be shown, the corrected memory's included.
     assert workspace["summary"]["event_count"] == count
+
+
+def test_the_policy_event_of_an_explain_of_a_continuity_object_is_shown_to_the_owner_and_an_unbound_admin_only(label_harness, monkeypatch):
+    """A key-bound explain of a continuity object leaves a policy event that names the object, and only for an object the key's
+    policy allows. The labels of the object sit in its provenance, in the legacy store, so the guard cannot show that a
+    reader with narrower limits may read it: the event is not shown to a caller with limits, in the feed or in the count.
+    """
+    from alicebot_api.mcp.registry import call_mcp_tool
+    from alicebot_api.mcp.types import MCPRuntimeContext
+    from alicebot_api.store import ContinuityStore
+
+    h = label_harness
+    ids = {}
+    with h.store() as store:
+        legacy = ContinuityStore(store.conn)
+        for name, provenance in (("default", {}), ("confidential", {"sensitivity": "confidential", "domain": "project"})):
+            capture = legacy.create_continuity_capture_event(raw_content=f"Decision: {name}", explicit_signal="decision", admission_posture="DERIVED", admission_reason="explicit_signal_decision")
+            ids[name] = str(legacy.create_continuity_object(capture_event_id=capture["id"], object_type="Decision", status="active", title=f"Decision: {name}", body={"decision_text": name}, provenance=provenance, confidence=0.9)["id"])
+    admin, trusted = h.key("admin_agent"), h.key("trusted_local_agent")
+    context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+    for key in (admin, trusted):
+        monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
+        for object_id in ids.values():
+            try:
+                call_mcp_tool(context, name="alice_explain", arguments={"continuity_object_id": object_id})
+            except Exception:  # noqa: BLE001 - only the policy event that the authorization wrote is read
+                pass
+    monkeypatch.delenv("ALICE_AGENT_API_KEY")
+    with h.store() as store:
+        written = [event for event in store.list_events() if event["target_type"] == "continuity_object"]
+        # The admin key is allowed both objects and the trusted key the one that carries no label, and no key left an event
+        # for an object it may not read.
+        assert sorted(event["target_id"] for event in written) == sorted([ids["default"], ids["confidential"], ids["default"]])
+        assert all(event["event_type"] == "policy.decision" for event in written)
+        kept, count = _readable_events(store)
+        assert count == len(kept)
+        assert not [event for event in kept if event["target_type"] == "continuity_object"]
+    status, workspace, _ = h.request("GET", "/v0/vnext/workspace", key=trusted)
+    assert status == 200, workspace
+    for feed in (workspace["recent_events"], workspace["agent_activity"]["recent_events"]):
+        assert not [event for event in feed if event["target_type"] == "continuity_object"]
+        assert not [event for event in feed if any(object_id in json.dumps(event, default=str) for object_id in ids.values())]
+    status, workspace, _ = h.request("GET", "/v0/vnext/workspace", key=admin)
+    assert status == 200, workspace
+    assert [event for event in workspace["agent_activity"]["recent_events"] if event["target_type"] == "continuity_object"]
+
+
+def _tree_event_refs(tree):
+    return {child["ref"] for root in tree["roots"] if root["id"] == "root:events" for child in root["children"]}
+
+
+def test_the_context_tree_shows_the_policy_event_of_an_explain_of_a_continuity_object_to_the_owner_and_an_unbound_admin_only(label_harness, monkeypatch):
+    """The tree filters by a selection of sensitivities, and the owner's default one leaves out the confidential levels.
+    That selection is not a limit: the owner and an unbound admin key keep the event under it, and a key with limits does
+    not see it. The owner can read the route only while no key exists, so its read comes first, with an event written by hand;
+    the keys then read it with the event that a real explain leaves. The tool is read with a declared profile and with none."""
+    from alicebot_api.mcp.registry import call_mcp_tool
+    from alicebot_api.mcp.types import MCPRuntimeContext
+    from alicebot_api.routers import vnext_retrieval
+    from alicebot_api.store import ContinuityStore
+
+    h = label_harness
+    with h.store() as store:
+        legacy = ContinuityStore(store.conn)
+        capture = legacy.create_continuity_capture_event(raw_content="Decision: tree", explicit_signal="decision", admission_posture="DERIVED", admission_reason="explicit_signal_decision")
+        object_id = str(legacy.create_continuity_object(capture_event_id=capture["id"], object_type="Decision", status="active", title="Decision: tree", body={"decision_text": "tree"}, provenance={}, confidence=0.9)["id"])
+        by_hand = f"event:{store.append_event(build_event_log_record(event_type='policy.decision', actor_type='agent', actor_id='by-hand', target_type='continuity_object', target_id=object_id, payload={'policy_decision': {'decision': 'allowed'}}))['id']}"
+
+    def route(key):
+        response = vnext_retrieval.get_vnext_context_tree(user_id=h.user_id, query="", domains=None, sensitivity_allowed=None, limit=50, include_events=True, authorization=f"Bearer {key}" if key else None)
+        assert response.status_code == 200, response.body
+        return _tree_event_refs(json.loads(response.body))
+
+    # No key exists yet, so the owner may read the route, and the default selection does not hide the event from it.
+    assert by_hand in route(None)
+    admin, trusted = h.key("admin_agent"), h.key("trusted_local_agent")
+    context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", admin)
+    call_mcp_tool(context, name="alice_explain", arguments={"continuity_object_id": object_id})
+    monkeypatch.delenv("ALICE_AGENT_API_KEY")
+    with h.store() as store:
+        written = {f"event:{event['id']}" for event in store.list_events() if event["target_type"] == "continuity_object"}
+    assert len(written) == 2 and by_hand in written
+    (explained,) = written - {by_hand}
+
+    # Through the mounted application, right after the explain so that its event is among the newest the default page holds.
+    status, tree, _ = h.request("GET", "/v0/vnext/context-tree", key=admin)
+    assert status == 200, tree
+    assert explained in _tree_event_refs(tree)
+    status, tree, _ = h.request("GET", "/v0/vnext/context-tree", key=trusted)
+    assert status == 200, tree
+    assert explained not in _tree_event_refs(tree)
+
+    def tool(identity):
+        arguments = {"limit": 50, **(identity or {})}
+        return _tree_event_refs(call_mcp_tool(context, name="alice_vnext_context_tree", arguments=arguments))
+
+    assert written <= route(admin)
+    assert not written & route(trusted)
+    assert written <= tool(None)
+    assert written <= tool({"agent_id": "declared-admin", "permission_profile": "admin_agent"})
+    assert not written & tool({"agent_id": "declared-trusted", "permission_profile": "trusted_local_agent"})

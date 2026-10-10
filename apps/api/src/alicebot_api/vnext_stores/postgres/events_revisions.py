@@ -187,8 +187,13 @@ def list_events_for_source_trace(
     artifact_ids: Sequence[str] = (),
     open_loop_ids: Sequence[str] = (),
     limit: int = 500,
+    target_ids: Sequence[str] | None = None,
 ) -> list[VNextRow]:
-    """Bound source-trace events with relationship predicates before LIMIT."""
+    """Bound source-trace events with relationship predicates before LIMIT.
+
+    ``target_ids`` keeps only the events aimed at one of those ids, before LIMIT, so an event the caller cannot be shown
+    (a chunk of the source, an entity mention) costs nothing against the limit.
+    """
 
     if limit < 1:
         raise ValueError("limit must be positive")
@@ -196,6 +201,8 @@ def list_events_for_source_trace(
     artifacts = list(dict.fromkeys(str(value) for value in artifact_ids if value)) or None
     open_loops = list(dict.fromkeys(str(value) for value in open_loop_ids if value)) or None
     source_ref = f"source:{source_id}"
+    targets = None if target_ids is None else list(dict.fromkeys(str(value) for value in target_ids if value))
+    target_sql = "" if targets is None else " AND target_id = ANY(%s::text[])"
     return self._fetch_all(
         f"""
                 SELECT {EVENT_LOG_COLUMNS}
@@ -213,7 +220,7 @@ def list_events_for_source_trace(
                   OR payload_json -> 'source_references' ? %s
                   OR payload_json -> 'source_references' ? %s
                   OR payload_json -> 'selected_source_ids' ? %s
-                )
+                ){target_sql}
                 ORDER BY occurred_at DESC, id DESC
                 LIMIT %s
                 """,
@@ -234,6 +241,7 @@ def list_events_for_source_trace(
             source_id,
             source_ref,
             source_id,
+            *(() if targets is None else (targets,)),
             limit,
         ),
     )

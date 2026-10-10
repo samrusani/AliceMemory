@@ -45,6 +45,7 @@ from alicebot_api.vnext_label_sql import (
     EVENT_REFERENCE_KEYS,
     EVENT_TARGET_KINDS,
     EVENT_TYPE_REFERENCES,
+    EVENT_UNJUDGED_TARGETS,
     event_references_sql,
 )
 from alicebot_api.vnext_label_writes import without_insert_floor
@@ -285,6 +286,8 @@ def assert_events_are_judged_by_the_rows_they_name(store, *, oracle=None, belief
     case("readable memory with a note about a hidden source", False, event_type="memory.candidate_created", target_type="memory", target_id=mid, payload={"source_id": hid})
     case("labels raised on an unlabelled target", False, event_type="entity.labels_raised", target_type="entity", target_id=str(uuid4()), payload={})
     case("unrelated agent event", True, event_type="agent.identity_upserted", target_type="agent_identity", target_id="a", payload={"agent_id": "a"})
+    # A continuity object keeps its labels in the legacy store, which the guard does not read, so an event about one is not shown.
+    case("policy event about a continuity object", False, event_type="policy.decision", target_type="continuity_object", target_id=str(uuid4()), payload={"policy_decision": {"decision": "allowed"}})
     case("event with no target", True, event_type="scheduler.due_scan", payload={"due_count": 0})
     case("edge between readable rows", True, event_type="graph_edge.created", target_type="graph_edge", target_id=str(edges["public"]["id"]), payload={"operation": "create"})
     case("edge to a hidden memory", False, event_type="graph_edge.created", target_type="graph_edge", target_id=str(edges["hidden_end"]["id"]), payload={"operation": "create"})
@@ -338,7 +341,7 @@ def assert_events_are_judged_by_the_rows_they_name(store, *, oracle=None, belief
 
 def test_events_that_name_a_row_the_caller_cannot_read_are_not_shown_and_not_counted(world):
     shown, withheld = assert_events_are_judged_by_the_rows_they_name(world)
-    assert len(shown) == 17 and len(withheld) == 31
+    assert len(shown) == 17 and len(withheld) == 32
 
 
 def test_on_sqlite_an_event_that_names_an_artifact_a_belief_or_a_project_is_not_shown_to_a_caller_with_limits(world):
@@ -420,6 +423,23 @@ TARGETS_WITHOUT_A_LABEL = {
     "task": "a queued task; the artifact it made is a payload reference",
     "task_queue": "the queue itself",
     "http_route": "a route that a policy refused",
+    "setting": "a vault setting, named by its key (project_scoping), never a stored row",
+}
+# Target types that name a row with a label the guard cannot read, so an event about one is not shown to a caller with limits
+# (``EVENT_UNJUDGED_TARGETS``), with where the writer is. The sweep requires the code to write each one.
+UNJUDGED_TARGET_WRITERS = {
+    "continuity_object": "mcp/evidence_artifacts.py: the policy event of an explain of a continuity object, written only for a key-bound caller that the policy allows",
+}
+# Target types that are written through an expression the sweep cannot resolve to a string, with what each can be. The kind
+# is the one of the labelled row the event is about, and the event is judged as that kind.
+UNFOLLOWED_TARGET_TYPES = {
+    ("cli/labels.py", "target"): "memory, open_loop, artifact or project: the row a repair raised",
+    ("vnext_derived_domain_backfill.py", "target_type"): "memory or artifact: the row whose domain was relabelled",
+    ("vnext_label_repair.py", "target"): "memory or open_loop: the row a repair raised",
+    ("vnext_label_writes.py", "_KIND_EVENT.get(kind, kind)"): "the kind of the row whose label an insert raised",
+    ("vnext_label_writes.py", "label.kind"): "the kind of the row whose label a propagation raised",
+    ("vnext_stores/postgres/memory_lifecycle.py", "str(row['target_type'])"): "memory, open_loop or artifact: the target of a provenance link",
+    ("vnext_stores/sqlite/memory_lifecycle.py", "str(row['target_type'])"): "memory, open_loop or artifact: the target of a provenance link",
 }
 # Id fields of the payload that are not the id of a labelled row, with what each is.
 PAYLOAD_IDS_WITHOUT_A_LABEL = {
@@ -598,6 +618,94 @@ def _event_writes(trees):
                     yield path, node.lineno, keywords, chain[::-1]
 
 
+class TargetTypeReader:
+    """The target types the event writers name, followed through the functions that hand a ``target_type`` on.
+
+    An event write names its target type as a string (read as it is, or through a constant of its module), as a parameter of
+    the function that writes it, or as an expression the scan cannot resolve. A function that hands one of its parameters to
+    an event write passes the question to its callers: every call of a function by that name, in any module, is read for the
+    value it gives that parameter (by keyword, or by position), and a value that is itself a parameter goes one caller
+    further. ``found`` maps each target type to where it is written, and ``unfollowed`` keeps what could not be resolved, as
+    (module, expression).
+    """
+
+    def __init__(self, trees):
+        self.trees = trees
+        self.found = {}
+        self.unfollowed = []
+        self.forwarded = set()
+        self._constants = {path: self._module_strings(tree) for path, tree in trees.items()}
+
+    @staticmethod
+    def _module_strings(tree):
+        strings = {}
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                    strings[node.targets[0].id] = node.value.value
+        return strings
+
+    @staticmethod
+    def _parameters(function):
+        arguments = function.args
+        return [arg.arg for arg in (*arguments.posonlyargs, *arguments.args)], [arg.arg for arg in arguments.kwonlyargs]
+
+    def _calls(self):
+        for path, tree in self.trees.items():
+            parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    callee = node.func.id if isinstance(node.func, ast.Name) else node.func.attr if isinstance(node.func, ast.Attribute) else None
+                    if callee is not None:
+                        chain, up = [], node
+                        while up in parents:
+                            up = parents[up]
+                            if isinstance(up, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                                chain.append(up)
+                        yield path, node, callee, chain[::-1]
+
+    def _resolve(self, path, line, expression, chain, pending):
+        if isinstance(expression, ast.Constant):
+            if isinstance(expression.value, str):
+                self.found.setdefault(expression.value, []).append(f"{path}:{line}")
+            return  # no target at all
+        if isinstance(expression, ast.Name) and expression.id in self._constants[path]:
+            self.found.setdefault(self._constants[path][expression.id], []).append(f"{path}:{line}")
+            return
+        if isinstance(expression, ast.Name):
+            for function in reversed(chain):
+                if expression.id in {name for names in self._parameters(function) for name in names}:
+                    if (function, expression.id) not in self.forwarded:
+                        self.forwarded.add((function, expression.id))
+                        pending.append((function, expression.id))
+                    return
+        self.unfollowed.append((path, ast.unparse(expression)))
+
+    def read(self):
+        pending = []
+        for path, line, keywords, chain in _event_writes(self.trees):
+            if "target_type" in keywords:
+                self._resolve(path, line, keywords["target_type"], chain, pending)
+        calls = list(self._calls())
+        while pending:
+            function, parameter = pending.pop()
+            positional, _keyword_only = self._parameters(function)
+            for path, call, callee, chain in calls:
+                if callee != function.name:
+                    continue
+                value = next((keyword.value for keyword in call.keywords if keyword.arg == parameter), None)
+                if value is None and parameter in positional:
+                    # A method called on an object does not get ``self`` in its arguments.
+                    index = positional.index(parameter) - (1 if positional[0] in {"self", "cls"} and isinstance(call.func, ast.Attribute) else 0)
+                    value = call.args[index] if 0 <= index < len(call.args) and not isinstance(call.args[index], ast.Starred) else None
+                if value is None:
+                    if any(keyword.arg is None for keyword in call.keywords):
+                        self.unfollowed.append((path, f"**{callee}()"))
+                    continue
+                self._resolve(path, call.lineno, value, chain, pending)
+        return self.found, sorted(set(self.unfollowed))
+
+
 def _written_payloads(trees):
     """For every event write with a payload: (path, line, the keys the payload holds, the parts of it that could not be read)."""
     functions = _function_index(trees)
@@ -608,21 +716,29 @@ def _written_payloads(trees):
 
 
 def test_every_target_type_an_event_writer_names_is_classified():
-    known = set(EVENT_TARGET_KINDS) | {EVENT_EDGE_TARGET} | set(EVENT_CHILD_TARGETS) | set(TARGETS_WITHOUT_A_LABEL)
-    unclassified = {}
-    seen = set()
-    for path, line, keywords, _chain in _event_writes(_package_trees()):
-        target = keywords.get("target_type")
-        if isinstance(target, ast.Constant) and isinstance(target.value, str):
-            seen.add(target.value)
-            if target.value not in known:
-                unclassified[f"{path}:{line}"] = target.value
+    """A target type is read where an event is written, and through the functions that hand it on (the policy event of a
+    decision is written by ``append_policy_events``, which its callers give the type)."""
+    known = set(EVENT_TARGET_KINDS) | {EVENT_EDGE_TARGET} | set(EVENT_CHILD_TARGETS) | set(EVENT_UNJUDGED_TARGETS) | set(TARGETS_WITHOUT_A_LABEL)
+    found, _unfollowed = TargetTypeReader(_package_trees()).read()
+    unclassified = {target: where[0] for target, where in sorted(found.items()) if target not in known}
     assert not unclassified, (
         "an event writer names a target type that no guard judges and that is not listed as unlabelled: "
         f"{unclassified}"
     )
     # The classification is not stale either: every judged type is written somewhere.
+    seen = set(found)
     assert (set(EVENT_TARGET_KINDS) | {EVENT_EDGE_TARGET} | set(EVENT_CHILD_TARGETS)) <= seen | {"belief"}, seen
+    assert set(EVENT_UNJUDGED_TARGETS) <= seen, sorted(set(EVENT_UNJUDGED_TARGETS) - seen)
+    assert set(EVENT_UNJUDGED_TARGETS) == set(UNJUDGED_TARGET_WRITERS)
+    assert not set(EVENT_UNJUDGED_TARGETS) & (set(EVENT_TARGET_KINDS) | set(TARGETS_WITHOUT_A_LABEL))
+
+
+def test_every_target_type_the_sweep_cannot_follow_is_listed():
+    """A target type written through an expression the scan cannot resolve is named here, with the rows it can be."""
+    _found, unfollowed = TargetTypeReader(_package_trees()).read()
+    assert set(unfollowed) == set(UNFOLLOWED_TARGET_TYPES), (
+        sorted(set(unfollowed) - set(UNFOLLOWED_TARGET_TYPES)), sorted(set(UNFOLLOWED_TARGET_TYPES) - set(unfollowed))
+    )
 
 
 def test_every_id_field_an_event_writer_puts_in_a_payload_is_classified():
@@ -730,3 +846,70 @@ def test_the_sweep_follows_payloads_through_variables_and_helpers():
     assert read["chosen_at_run_time"] == (set(), ["payload[name]"])
     assert read["not_followable"] == (set(), ["record.to_record()"])
     assert "no_payload" not in read
+
+
+TARGET_SNIPPET = """
+SETTING_TARGET = "setting"
+
+def constant(store):
+    append_event(store, event_type="a.b", target_type="memory", target_id="x")
+
+def by_module_constant(store):
+    append_event(store, event_type="a.b", target_type=SETTING_TARGET, payload={})
+
+def no_target(store):
+    append_event(store, event_type="a.b", target_type=None, payload={})
+
+def handed_on(store, kind):
+    append_event(store, event_type="a.b", target_type=kind, payload={})
+
+def caller_by_keyword(store):
+    handed_on(store, kind="by_keyword")
+
+def caller_by_position(store):
+    handed_on(store, "by_position")
+
+def handed_on_twice(store, target_type):
+    handed_on(store, target_type)
+
+def caller_of_two_hops(store):
+    handed_on_twice(store, target_type="two_hops")
+
+class Writer:
+    def method(self, store, target_type=None):
+        append_event(store, event_type="a.b", target_type=target_type, payload={})
+
+def caller_of_a_method(store, writer):
+    writer.method(store, "of_a_method")
+    writer.method(store, target_type=None)
+
+def computed(store, row):
+    append_event(store, event_type="a.b", target_type=str(row["kind"]), payload={})
+
+def spread_into_a_forwarder(store, extra):
+    handed_on(store, **extra)
+
+def never_called(store, unused_target_type):
+    append_event(store, event_type="a.b", target_type=unused_target_type, payload={})
+"""
+
+
+def test_the_target_type_sweep_follows_a_type_through_the_functions_that_hand_it_on():
+    """The policy event of a decision names its target through three functions, so a constant at the outer call is the type.
+
+    The snippet has every shape the real code uses. Mutations in ``TargetTypeReader``: stop reading module constants, stop
+    following a parameter to the callers of its function, read only keywords or only positions at a caller, count ``self``
+    as an argument of a method call, or drop the report of a call that spreads its arguments.
+    """
+    found, unfollowed = TargetTypeReader({"snippet.py": ast.parse(TARGET_SNIPPET)}).read()
+    assert set(found) == {"memory", "setting", "by_keyword", "by_position", "two_hops", "of_a_method"}, sorted(found)
+    assert [where.split(":")[0] for where in found["two_hops"]] == ["snippet.py"]
+    assert unfollowed == [("snippet.py", "**handed_on()"), ("snippet.py", "str(row['kind'])")]
+
+
+def test_the_real_policy_event_of_an_explain_is_read_through_its_callers():
+    """The sweep sees the type that the explain door gives, three functions away from the event it becomes."""
+    found, _unfollowed = TargetTypeReader(_package_trees()).read()
+    assert any(where.startswith("mcp/evidence_artifacts.py:") for where in found["continuity_object"]), found["continuity_object"]
+    assert {"memory", "source", "artifact"} <= set(found)
+    assert any(where.startswith("project_scoping.py:") for where in found["setting"])

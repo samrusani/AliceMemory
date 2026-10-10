@@ -789,6 +789,7 @@ class FakeVNextStore:
         artifact_ids: list[str] | tuple[str, ...] = (),
         open_loop_ids: list[str] | tuple[str, ...] = (),
         limit: int = 500,
+        target_ids: list[str] | tuple[str, ...] | None = None,
     ) -> list[dict[str, object]]:
         return [
             event
@@ -800,6 +801,7 @@ class FakeVNextStore:
                 artifact_ids=set(artifact_ids),
                 open_loop_ids=set(open_loop_ids),
             )
+            and (target_ids is None or str(event.get("target_id")) in set(target_ids))
         ][:limit]
 
     def list_agent_events(self, *, agent_id: str | None = None, limit: int = 50) -> list[dict[str, object]]:
