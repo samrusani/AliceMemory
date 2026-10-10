@@ -171,6 +171,7 @@ from alicebot_api.vnext_stores.postgres.primitives import (
     _json_safe as _json_safe,
     _sorted_field_names as _sorted_field_names,
 )
+from alicebot_api.vnext_stores.postgres.project_slug import project_slug_conflicts
 from alicebot_api.vnext_stores.postgres.query_predicates import (
     _ARTIFACT_SCOPE_PROJECT_SQL as _ARTIFACT_SCOPE_PROJECT_SQL,
     _PROJECT_FLOOR_SQL as _PROJECT_FLOOR_SQL,
@@ -201,6 +202,7 @@ from alicebot_api.vnext_stores.postgres.query_predicates import (
     _project_identifier_identity_sql as _project_identifier_identity_sql,
     _tsquery_any_expression as _tsquery_any_expression,
 )
+from alicebot_api.vnext_stores.postgres.task_claim import LabelPairs, task_label_filter, task_status_payload
 from alicebot_api.vnext_stores.retrieval_common import (
     FTS_QUERY_STOPWORDS as FTS_QUERY_STOPWORDS,
     _search_patterns as _search_patterns,
@@ -1932,47 +1934,48 @@ class PostgresVNextStore:
         from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
 
         project, floor_event = apply_insert_floor(self, "project", project)
-        row = self._fetch_one(
-            "create_project",
-            f"""
-                INSERT INTO projects (
-                  id,
-                  user_id,
-                  name,
-                  slug,
-                  status,
-                  description,
-                  current_state,
-                  domain,
-                  sensitivity,
-                  metadata_json
-                )
-                VALUES (
-                  COALESCE(%s::uuid, gen_random_uuid()),
-                  app.current_user_id(),
-                  %s,
-                  %s,
-                  %s,
-                  %s,
-                  %s,
-                  %s,
-                  %s,
-                  %s
-                )
-                RETURNING {PROJECT_COLUMNS}
-                """,
-            (
-                project.get("id"),
-                project["name"],
-                project["slug"],
-                project.get("status", "active"),
-                project.get("description"),
-                project.get("current_state"),
-                project.get("domain", "professional"),
-                project.get("sensitivity", "private"),
-                _json_object(project.get("metadata_json")),
-            ),
-        )
+        with project_slug_conflicts():
+            row = self._fetch_one(
+                "create_project",
+                f"""
+                    INSERT INTO projects (
+                      id,
+                      user_id,
+                      name,
+                      slug,
+                      status,
+                      description,
+                      current_state,
+                      domain,
+                      sensitivity,
+                      metadata_json
+                    )
+                    VALUES (
+                      COALESCE(%s::uuid, gen_random_uuid()),
+                      app.current_user_id(),
+                      %s,
+                      %s,
+                      %s,
+                      %s,
+                      %s,
+                      %s,
+                      %s,
+                      %s
+                    )
+                    RETURNING {PROJECT_COLUMNS}
+                    """,
+                (
+                    project.get("id"),
+                    project["name"],
+                    project["slug"],
+                    project.get("status", "active"),
+                    project.get("description"),
+                    project.get("current_state"),
+                    project.get("domain", "professional"),
+                    project.get("sensitivity", "private"),
+                    _json_object(project.get("metadata_json")),
+                ),
+            )
         self._append_mutation_event(
             event_type="project.created",
             actor_type=actor_type,
@@ -2837,14 +2840,16 @@ class PostgresVNextStore:
         )
         return row
 
-    def claim_next_task(self, *, actor_type: str = "system") -> VNextRow | None:
+    def claim_next_task(self, *, actor_type: str = "system", readable_labels: LabelPairs | None = None) -> VNextRow | None:
+        label_filter, params = task_label_filter(readable_labels)
         row = self._fetch_optional_one(
             f"""
-                WITH next_task AS (
-                  SELECT id
+                WITH next_task AS MATERIALIZED (
+                  SELECT id AS next_id
                   FROM task_queue
                   WHERE status = 'pending'
                     AND (scheduled_for IS NULL OR scheduled_for <= clock_timestamp())
+                    {label_filter}
                   ORDER BY scheduled_for ASC NULLS FIRST, created_at ASC, id ASC
                   FOR UPDATE SKIP LOCKED
                   LIMIT 1
@@ -2854,9 +2859,10 @@ class PostgresVNextStore:
                     started_at = clock_timestamp(),
                     updated_at = clock_timestamp()
                 FROM next_task
-                WHERE task_queue.id = next_task.id
+                WHERE task_queue.id = next_task.next_id
                 RETURNING {TASK_COLUMNS}
-                """
+                """,
+            params,
         )
         if row is not None:
             self._append_mutation_event(
@@ -2912,7 +2918,7 @@ class PostgresVNextStore:
             actor_type=actor_type,
             target_type="task",
             target_id=row["id"],
-            payload={"operation": "update_status", "status": status, "details": details},
+            payload=task_status_payload(status, details),
         )
         return row
 

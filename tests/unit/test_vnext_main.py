@@ -541,11 +541,14 @@ class FakeVNextStore:
         self.tasks.append(row)
         return row
 
-    def claim_next_task(self) -> dict[str, object] | None:
+    def claim_next_task(self, *, readable_labels=None) -> dict[str, object] | None:
         for task in self.tasks:
-            if task.get("status") == "pending":
-                task["status"] = "running"
-                return task
+            if task.get("status") != "pending":
+                continue
+            if readable_labels is not None and (task.get("domain"), task.get("sensitivity")) not in readable_labels:
+                continue
+            task["status"] = "running"
+            return task
         return None
 
     def update_task_status(

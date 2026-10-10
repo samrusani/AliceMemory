@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass, field
 import hashlib
 import logging
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from alicebot_api.credential_floor import refuse_credential_material
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding, attach_memory_embedding
@@ -13,6 +14,9 @@ from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_project_update_guard import is_project_update_artifact
 from alicebot_api.vnext_repositories import JsonObject
+
+if TYPE_CHECKING:
+    from alicebot_api.vnext_agent_control import AgentIdentity
 
 DEFAULT_VNEXT_ARTIFACT_EXPORT_ROOT = Path("/tmp/alicebot-vnext-artifact-exports")
 QUEUE_TASK_PROCESSING_ERROR_CODE = "queue_task_processing_failed"
@@ -50,7 +54,7 @@ class VNextQueueStore(Protocol):
 
     def create_task(self, task: JsonObject, *, actor_type: str = "system") -> JsonObject: ...
 
-    def claim_next_task(self) -> JsonObject | None: ...
+    def claim_next_task(self, *, readable_labels: Collection[tuple[str, str]] | None = None) -> JsonObject | None: ...
 
     def update_task_status(self, *, task_id: str, status: str, details: JsonObject | None = None) -> JsonObject: ...
 
@@ -109,6 +113,29 @@ class QueueProcessResult:
             "error_code": self.error_code,
             "error_message": self.error_message,
         }
+
+
+def claimable_task_labels(identity: AgentIdentity | None) -> frozenset[tuple[str, str]] | None:
+    """The (domain, sensitivity) pairs of the queued tasks a caller may claim, or ``None`` when it has no limits.
+
+    A queued task is made from no input, so its stored labels are the labels it has. The caller may claim it when its
+    read fence admits those labels: the fence that lists the tasks of the workspace screen. The owner and an unbound
+    admin key have no limits. A key locked to a project is admitted for no pair, because a task names no project the
+    binding could hold it to, so such a key claims nothing.
+    """
+
+    from alicebot_api.vnext_agent_control import ALL_SENSITIVITY, VNEXT_DOMAINS
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    fence = SourceReadFence.for_identity(identity)
+    if not fence.entity_read_fenced:
+        return None
+    return frozenset(
+        (domain, sensitivity)
+        for domain in VNEXT_DOMAINS
+        for sensitivity in ALL_SENSITIVITY
+        if fence.admits_memory({"domain": domain, "sensitivity": sensitivity})
+    )
 
 
 def _normalize_required_text(value: str, *, field_name: str) -> str:
@@ -253,8 +280,18 @@ class VNextQueueService:
             )
         return task
 
-    def process_next_task(self) -> QueueProcessResult:
-        task = self.store.claim_next_task()
+    def process_next_task(self, *, readable_labels: Collection[tuple[str, str]] | None = None) -> QueueProcessResult:
+        """Claim the oldest pending task and turn it into an artifact.
+
+        ``readable_labels`` is what ``claimable_task_labels`` returns for the caller: a caller with limits claims only a
+        task whose labels it may read, and a queue that holds nothing else answers ``idle``. ``None`` is a caller with
+        no limits, and the store is then asked for the next task in the way it always was.
+        """
+
+        if readable_labels is None:
+            task = self.store.claim_next_task()
+        else:
+            task = self.store.claim_next_task(readable_labels=readable_labels)
         if task is None:
             append_event(
                 self.store,
