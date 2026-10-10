@@ -329,9 +329,10 @@ def test_the_owner_and_an_unbound_admin_key_keep_the_quote_and_read_the_containe
     check(("the pack and recall list no contained row by default", sorted(default_listed)), not default_listed)
     check(("the pack lists a contained row when every sensitivity is named", sorted(named_listed)), any(item.startswith("pack:") for item in named_listed))
     check(("recall lists a contained row when every sensitivity is named", sorted(named_listed)), any(item.startswith("recall:") for item in named_listed))
-    status, text = _get(vault, "/v0/vnext/context-tree", admin)
+    # The tree takes a limit of 1 to 50 per root, and both calls ask for 50 so that the default one is silent for a reason.
+    status, text = _get(vault, "/v0/vnext/context-tree", admin, limit=50)
     check(("the default tree lists no contained row", status), status == 200 and vault.text("artifact_of_redacted-title") not in text and vault.text("project_of_redacted-name") not in text)
-    status, text = _get(vault, "/v0/vnext/context-tree", admin, sensitivity_allowed=list(ALL_SENSITIVITY), limit=100)
+    status, text = _get(vault, "/v0/vnext/context-tree", admin, sensitivity_allowed=list(ALL_SENSITIVITY), limit=50)
     check(("the tree lists a contained row when every sensitivity is named", status), status == 200 and (vault.text("artifact_of_redacted-title") in text or vault.text("project_of_redacted-name") in text))
     assert problems == [], problems
 
