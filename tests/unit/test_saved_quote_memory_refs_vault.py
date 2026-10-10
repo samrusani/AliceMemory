@@ -642,8 +642,8 @@ def test_a_key_that_may_read_the_cited_memory_is_shown_the_names_of_the_fields_i
     nested under another field or inside JSON text, a name in the entry beside the id, a name beside an id no marker covers) is
     read by each key that may read, at the doors that return the whole commit.
 
-    Mutation: withhold the names from every reader (``_judge_memories`` admits no memory with limits: the readers of the variant
-    lose the words).
+    Mutation: refuse every memory to a caller with limits (``self._memory_admitted[memory_id] = False`` in ``_judge_memories``): the
+    keys that read the memory after the change lose the words.
     """
 
     vault.make_unreadable(variant)
