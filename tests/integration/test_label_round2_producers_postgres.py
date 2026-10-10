@@ -6,6 +6,7 @@ import pytest
 
 from alicebot_api.routers import vnext_memories
 from alicebot_api.vnext_brain import BrainArtifactRequest, VNextBrainService
+from alicebot_api.vnext_label_guard import LabelGuard
 from alicebot_api.vnext_label_repair import label_gap_counts
 from alicebot_api.vnext_projects import ProjectAutomationRequest, VNextProjectService
 from tests.integration.derived_labels_postgres_support import label_harness, today
@@ -32,7 +33,7 @@ def test_digest_replays_after_project_moves(label_harness, monkeypatch, stale):
     source = h.source(scope=(alpha,), text="TODO: Round trip task")
     request = ProjectAutomationRequest(agent_identity=None, project_id=alpha)
     with h.store() as store:
-        VNextProjectService(store).extract_open_loops(request)
+        VNextProjectService(store).extract_open_loops(request, guard=LabelGuard.unlimited(store))
         initial = store.list_open_loops(status=None, limit=20)
     assert len(initial) == 1
     move(h, source, beta)
@@ -43,8 +44,8 @@ def test_digest_replays_after_project_moves(label_harness, monkeypatch, stale):
         assert existing["project_id"] is None
         if stale:
             monkeypatch.setattr(store, "search_sources", lambda **_kwargs: [deepcopy(source)])
-        VNextProjectService(store).extract_open_loops(request)
-        VNextProjectService(store).extract_open_loops(request)
+        VNextProjectService(store).extract_open_loops(request, guard=LabelGuard.unlimited(store))
+        VNextProjectService(store).extract_open_loops(request, guard=LabelGuard.unlimited(store))
         rows = store.list_open_loops(status=None, limit=20)
         assert [str(row["id"]) for row in rows] == [str(initial[0]["id"])]
         assert set(rows[0]["metadata_json"]["project_floor"]) == {alpha, beta}

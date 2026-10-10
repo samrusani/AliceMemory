@@ -6,6 +6,7 @@ import pytest
 
 from alicebot_api.vnext_brain import BrainArtifactRequest, VNextBrainService
 from alicebot_api.vnext_derived_labels import is_derived
+from alicebot_api.vnext_label_guard import LabelGuard
 from alicebot_api.vnext_label_repair import label_gap_counts
 from alicebot_api.vnext_projects import ProjectAutomationRequest, VNextProjectService
 from alicebot_api.vnext_source_regeneration import regenerate_source_inputs
@@ -54,7 +55,9 @@ def test_real_producer_payloads_and_stale_uuid_source_floor(label_harness, monke
                 agent_identity=None, generated_for=today(), discover_open_loops=True))
         elif producer == "project":
             monkeypatch.setattr(store, "search_sources", lambda **_kwargs: [deepcopy(stale)])
-            VNextProjectService(store).extract_open_loops(ProjectAutomationRequest(agent_identity=None, project_id=alpha))
+            VNextProjectService(store).extract_open_loops(
+                ProjectAutomationRequest(agent_identity=None, project_id=alpha), guard=LabelGuard.unlimited(store)
+            )
         else:
             regenerated = regenerate_source_inputs(store, stale)
             assert regenerated["memory_ids"]

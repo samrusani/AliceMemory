@@ -10,7 +10,9 @@ security note; delete the row for the workspace event feed from the tool referen
 the changelog or the security note; delete the sentence that the event feed still lists the id of a queued task, a person
 and the charter from any of the three pages; say again that the clipper capture route answers cursors to a capability
 holder; delete ``so a trusted key cannot learn how many confidential commits exist`` from the security note; say
-again that the refused charter save writes nothing; delete the sentence that the refusal tells the key a charter exists.
+again that the refused charter save writes nothing; delete the sentence that the refusal tells the key a charter exists;
+delete ``found again by its digest`` from the tool reference, the changelog or the security note; delete ``out of the
+``created_count`` of the ``open_loop.extraction_completed`` event`` from the changelog or the security note.
 """
 
 from __future__ import annotations
@@ -145,3 +147,40 @@ def test_the_security_note_covers_disclosure_the_charter_write_and_the_limits_it
     assert "take no agent key and list rows whatever their label while `APP_ENV` is `development` or `test`" in paragraph
     assert "answer HTTP 404 in any other environment" in paragraph
     assert "`POST /v0/vnext/queue/process-next` answers HTTP 500 to every caller on PostgreSQL" in paragraph
+
+
+_EXTRACT_ROUTE = "`POST /v0/vnext/open-loops/extract`"
+
+
+def test_the_pages_say_that_extraction_judges_a_loop_found_again_by_its_digest() -> None:
+    tools = _text("docs/alpha/mcp-tools.md")
+    row = next(line for line in tools.splitlines() if line.startswith(f"| {_EXTRACT_ROUTE} |"))
+    assert "A loop that was made earlier and is found again by its digest is judged on its effective labels like a new loop" in row
+    assert "left out of `open_loops` and of `created_count`" in row
+    assert "the answer is the same as for a loop that does not exist" in row
+
+    entries = [line.removeprefix("- ") for line in _text("CHANGELOG.md").splitlines() if line.startswith("- ")]
+    opening = f"{MARK} {_EXTRACT_ROUTE} now judges every loop it returns on the caller's limits, a loop found again by its digest included."
+    matches = [entry for entry in entries if entry.startswith(opening)]
+    assert len(matches) == 1
+    entry = matches[0]
+    assert "In v0.19.2, in v0.20.0 and on main until now" in entry
+    assert "while `POST /v0/vnext/open-loops/{id}/review` answered HTTP 404 for the same loop" in entry
+    assert "The row that the insert returns when it meets the unique digest was returned the same way" in entry
+    assert "left out of `open_loops`, out of `created_count` and out of the `created_count` of the `open_loop.extraction_completed` event" in entry
+    assert "takes `guard` with no default" in entry
+    assert "The owner and an unbound `admin_agent` key are shown the loops they were" in entry
+    assert entry.endswith("No migration is required.")
+
+    note = _text("docs/release/derived-labels-security-note-draft.md")
+    paragraphs = [line for line in note.splitlines() if line.startswith(f"{MARK} {_EXTRACT_ROUTE} judges the loops it returns")]
+    assert len(paragraphs) == 1
+    paragraph = paragraphs[0]
+    assert "a loop found again by its digest included" in paragraph
+    assert "while `POST /v0/vnext/open-loops/{id}/review` answers HTTP 404 for it" in paragraph
+    assert "returned the same way" in paragraph
+    assert "left out of `open_loops`, out of `created_count` and out of the `created_count` of the `open_loop.extraction_completed` event" in paragraph
+    assert "so the key cannot learn from either count that the loop exists" in paragraph
+    assert "The service takes the guard as a required argument" in paragraph
+    assert "the daily brief, the weekly synthesis, the connection report, the contradiction report, the project update candidate" in paragraph
+    assert "never with the admin key's" in paragraph
