@@ -27,7 +27,9 @@ from alicebot_api.routers._vnext_shared import (
     _vnext_permission_response,
     _vnext_policy_checked,
     _vnext_public_error_response,
+    _vnext_ratings_for_caller,
     _vnext_ref_values,
+    _vnext_sources_for_caller,
     _vnext_string_list,
 )
 from alicebot_api.vnext_agent_control import (
@@ -204,10 +206,14 @@ def get_vnext_artifact_trace(
                 )
                 if source_decision.decision != "blocked":
                     authorized_sources.append(source)
+            # The refs a source kept and the metadata of a rating are structures their writers chose, and can quote a source or a
+            # memory the caller may not read, so both are held to the caller's fence for display.
             payload = _vnext_artifact_trace(
                 artifact=artifact,
-                sources=authorized_sources,
-                quality_evals=store.list_artifact_quality_ratings(artifact_id=str(artifact_id), limit=100),
+                sources=_vnext_sources_for_caller(store, identity, authorized_sources),
+                quality_evals=_vnext_ratings_for_caller(
+                    store, identity, store.list_artifact_quality_ratings(artifact_id=str(artifact_id), limit=100)
+                ),
                 events=store.list_events(
                     target_type="artifact",
                     target_id=str(artifact_id),

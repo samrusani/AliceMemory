@@ -103,8 +103,14 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     if unfenced:
         guard = LabelGuard(store=store, active=False)
     review_statuses = ["candidate", "needs_review", "private_only", "accepted", "rejected"]
+    # The reader judges the quote a memory saved of a source or of another memory against the caller's limits now. The
+    # owner and an unbound admin key have no limits, so the rows are theirs as stored.
+    saved_quotes = None if unfenced else SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity))
     fetched_sources = store.list_sources(sensitivity_allowed=sensitivity_allowed, limit=20)
     sources = guard.admit_rows("source", fetched_sources)
+    # A source made by an agent keeps the refs it was sent, a quote of a memory or a source included.
+    if saved_quotes is not None:
+        sources = saved_quotes.sources(sources)
     source_count = store.count_sources() if unfenced else sum(guard.readable_status_counts("source").values())
     list_memories_by_statuses = getattr(store, "list_memories_by_statuses", None)
     if callable(list_memories_by_statuses):
@@ -117,9 +123,6 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
         fetched_memories = [
             memory for memory in store.list_memories(status=None) if str(memory.get("status")) in set(review_statuses)
         ][:30]
-    # The reader judges the quote a memory saved of a source or of another memory against the caller's limits now. The
-    # owner and an unbound admin key have no limits, so the rows are theirs as stored.
-    saved_quotes = None if unfenced else SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity))
 
     def withhold_saved_quotes(rows: list) -> list:
         return rows if saved_quotes is None else saved_quotes.memories(rows)
@@ -132,6 +135,9 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     artifact_status_counts = store.count_artifacts_by_status() if unfenced else guard.readable_status_counts("artifact")
     artifact_count = sum(artifact_status_counts.values())
     quality_evals = guard.admit_related_rows(store.list_artifact_quality_ratings(limit=50), kind="artifact", field="artifact_id")
+    # The metadata of a rating is a structure its writer chose, and can quote a source or a memory.
+    if saved_quotes is not None:
+        quality_evals = saved_quotes.fields(quality_evals, ("metadata_json",))
     quality_eval_count = store.count_artifact_quality_ratings() if unfenced else sum(
         len(guard.admit_related_rows(batch, kind="artifact", field="artifact_id"))
         for batch in store.iter_label_ratings()
@@ -149,6 +155,9 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     beliefs = guard.admit_beliefs(fetched_beliefs)
     # A queued task has labels of its own and no inputs, so the caller's fence judges its stored labels.
     tasks = readable_own_label_rows(identity, store.list_tasks(status=None, limit=12))
+    # What a task may use and its scope are structures its writer chose, and can quote a source or a memory.
+    if saved_quotes is not None:
+        tasks = saved_quotes.fields(tasks, ("allowed_sources_json", "scope_json"))
     if getattr(type(store), "label_count_input_prefilter", False):
         recent_events = guard.newest_admitted_events(
             lambda size: store.list_events(limit=size, reject_sensitivity_allowed=guard.sensitivity_allowed), want=20

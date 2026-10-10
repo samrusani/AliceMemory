@@ -307,14 +307,14 @@ def test_the_shards_are_disjoint_and_together_cover_every_unit_test_file_once() 
 
 
 def test_no_shard_is_empty_and_the_shards_are_numbered_in_order() -> None:
-    """Three shards numbered 1 to 3 and each runs at least one file.
+    """Four shards numbered 1 to 4 and each runs at least one file.
 
     Mutation: leave a shard with a selection that matches nothing, skip a number, or repeat one.
     """
 
     shards = _shards()
     assert [entry["shard"] for entry in shards] == list(range(1, len(shards) + 1))
-    assert len(shards) == 3
+    assert len(shards) == 4
     for entry in shards:
         assert any(_expand(entry["selection"]).values()), entry["shard"]
 

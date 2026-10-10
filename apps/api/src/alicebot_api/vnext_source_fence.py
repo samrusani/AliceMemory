@@ -121,15 +121,50 @@ product removes one. All the ids of all the rows of a read are looked up in slic
 A memory is readable when its policy allows it now (``admits_memory`` on the row's effective labels; a memory that is
 archived, redacted or outside the fence is refused alike). A refused memory withholds the words the row saved: the three
 copies are removed, and every string of an entry that names it is set to ``null`` except the ids (``_withhold_entry_text``: the
-``quote`` and ``conversation_excerpt``, any other text such as a ``text``, ``excerpt``, ``snippet`` or ``note`` field, a
-sentence that has the id in it, and a string in a ``memory_id``, ``source_id``, ``id`` or ``ref`` field that holds more than an
-id; a string made of references and nothing else (``<id>``, ``memory:<id>``, a list of them), a number and a boolean stay, and a
-``#`` fragment after a reference is dropped, because an id alone is covered by the hidden-ids disclosure and a fragment is a
-place to type words). The quote of an entry beside it that names nothing goes too
-(the shape ``"memory:<id>"`` followed by ``{"quote": ...}``), and the same applies beside a refused source, whose entry is
-dropped whole. The owner and an unbound ``admin_agent`` key have no limits and keep every quote. The memories of a row are
-looked up only when the row holds words to withhold (a quote, an excerpt, a ``#`` fragment, or any string that is not made of
-references: ``_holds_words``), so a roll-up card that lists its members as bare ``memory:<id>`` references costs no read.
+``quote`` and ``conversation_excerpt``, a sentence that has the id in it, and a string in a ``memory_id``, ``source_id``, ``id`` or
+``ref`` field that holds more than an id; a string made of references and nothing else (``<id>``, ``memory:<id>``, a list of them),
+a number and a boolean stay under a field the product writes, and a ``#`` fragment after a reference is dropped, because an id
+alone is covered by the hidden-ids disclosure and a fragment is a place to type words). An entry beside it that names no source and
+no memory the caller may read is part of the refused group and is rebuilt the same way (the shape ``"memory:<id>"`` followed by
+``{"quote": ...}``, and a bare string, a ``text`` field, a nested list or JSON text as well), and the same applies beside a refused
+source, whose entry is dropped whole. An entry *names* a row when a reference position says so (``source_id``, ``memory_id``, a
+``source:`` or ``memory:`` ref) and the row is stored and readable by the caller; an id under another field (``chunk_id``), in a
+sentence, in a quote, or one that names no stored row, names nothing, so a writer cannot keep a quote by adding an id to its entry.
+The reader cannot tell whether the quote of an entry that does name a readable row is that row's, and keeps it, with the other strings under the names the product writes; the names the product does not write go from that entry too, with their values. The owner and an
+unbound ``admin_agent`` key have no limits and keep every quote. The memories of a row are
+looked up only when the row holds words to withhold (a quote, an excerpt, a ``#`` fragment, any string that is not made of
+references, or the name of a field the product does not write: ``_holds_words``), so a roll-up card that lists its members as bare
+``memory:<id>`` references costs no read.
+
+The names of the fields are words as well. A writer can type words as a key (``{"memory_id": "<id>", "<words>": null}``), and a
+key holds its words whatever its value is (a string, ``null``, a number, a boolean, an object), so an entry that names a refused
+memory keeps a field only when its name is one the product writes (``PRODUCT_REF_KEYS``: the reference keys above, ``id``, ``ref``,
+``quote`` and ``conversation_excerpt``, matched in any case) and drops every other field with its value, at any depth, inside JSON
+text, and whatever the name is when it is not a string. A ``text``, ``excerpt``, ``snippet``, ``note`` or ``page`` field goes whole,
+and so does an id that sits under a name such as ``origin`` or ``evidence``: a restricted reader is shown less, never more. The words
+of a dropped name, and of the strings under it, join the words withheld from the memory's links as the words of a quote do. The entry
+beside a refused ref is held to the same rule on names, whether or not it names a readable row. A name outside the list counts as words when the reader
+decides whether a row is worth a lookup, so an entry whose only words are its names is looked up and judged. The write side is not
+changed: a client may still send any name, and the rows stored by earlier releases hold the names they were sent with, so the reader
+is the only fence. A ref that is JSON text is decoded, held to the rule and written again in ASCII (``_json_text``), because a text
+with an escaped lone surrogate decodes to a string that no response can encode.
+
+A quote or an excerpt is text, but a writer can put an object or a list in its place, and can type the id of the memory the words
+came from inside the text. A quote that is an object or a list is a structure and is read for ids like any other value
+(``cited_source_ids`` and ``cited_memory_refs``), and an id typed in the text of a quote or of the excerpt a commit saved is a
+possible memory (``cited_memory_refs``: incidental, so it takes the quote only when it names a stored memory the caller may not
+read). The text of a quote names no source.
+
+The refs are not kept only on memories. A source made by the agent-output ingest keeps the ``source_refs`` it was sent in its
+``metadata_json`` and again in ``metadata_json.raw_payload``, the metadata of a quality rating is whatever its writer chose, and a
+queued task keeps the sources it may use and its scope as sent. Each can quote a memory or a source, and every route that returns
+the row returns the structure, so the reader holds them to the same rule (``SavedProvenanceReader.sources`` and ``.fields``) at the
+doors that return a source (the source, its review and delete answers, its trace, the trace of an artifact made from it, the context
+pack, the workspace and the connector status), a rating (the artifact trace, the rating list, the workspace) and a task (the
+workspace). They change what is shown and never what is stored: a route that writes a source reads the stored row. The artifact a
+queue worker makes prints the scope and the allowed sources of its task, and the report of a consolidation run copies the refs of
+its members, so each is derived from the memories and sources those structures name (``_rows_named_by_task``,
+``memories_named_by_refs``) and is contained with them when one is redacted or raised.
 
 The events of a feed (the workspace's recent events and its agent activity, the events of a source trace) hold the changes a
 commit was confirmed or edited with, and those changes hold the refs and the quote it was sent with. The feed admits an event by the row it is about, so
@@ -148,6 +183,7 @@ import inspect
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -697,6 +733,11 @@ def _ids_in_text(text: str, *, as_ref: bool) -> tuple[set[str], set[str]]:
     return named, incidental - named
 
 
+class _RepeatedValues(list):  # type: ignore[type-arg]
+    """The values of a key that a JSON text writes more than once, in the order they were written. A reader of a ``quote`` key tells
+    them from a list the writer wrote: each value is the text or the structure of one quote."""
+
+
 def _keep_every_value(pairs: list[tuple[str, object]]) -> dict[str, object]:
     """An object of a JSON text with every value of a repeated key kept, as a list under that key.
 
@@ -708,7 +749,7 @@ def _keep_every_value(pairs: list[tuple[str, object]]) -> dict[str, object]:
     values: dict[str, list[object]] = {}
     for key, value in pairs:
         values.setdefault(key, []).append(value)
-    return {key: found[0] if len(found) == 1 else found for key, found in values.items()}
+    return {key: found[0] if len(found) == 1 else _RepeatedValues(found) for key, found in values.items()}
 
 
 def _json_container(text: str) -> object | None:
@@ -735,10 +776,11 @@ def cited_source_ids(value: object) -> CitedSourceIds:
 
     ``value`` is read as a reference. A string is read for ids in every spelling above, a list entry by entry, and an
     object key by key: a reference key makes everything under it a reference, any other key is read for ids that name
-    stored sources only, and a key whose value is a quote is skipped. A string that is a reference and is itself JSON (an
-    object or a list) is read as the value it decodes to, by these same rules, and its text is not scanned: a quote inside
-    it names nothing, as it names nothing in an object. A string that does not decode is scanned as text. The walk keeps its
-    own stack, so a ref nested to any depth is read to the end.
+    stored sources only, and a key whose value is the text of a quote is skipped (a quote that is an object or a list is
+    not text, and is read). A string that is a reference and is itself JSON (an object or a list) is read as the value it
+    decodes to, by these same rules, and its text is not scanned: a quote inside it names nothing, as it names nothing in
+    an object. A string that does not decode is scanned as text. The walk keeps its own stack, so a ref nested to any depth
+    is read to the end.
     """
 
     named: set[str] = set()
@@ -763,6 +805,14 @@ def cited_source_ids(value: object) -> CitedSourceIds:
             for key, child in node.items():
                 key_text = key.lower() if isinstance(key, str) else None
                 if key_text in _TEXT_KEYS:
+                    # The text of a quote names nothing. A quote that is an object or a list is not text, it is a structure
+                    # that holds whatever its writer put in it, and it is read like any other. A key that a JSON text repeats
+                    # holds one quote for each value.
+                    pending.extend(
+                        (value, _OTHER)
+                        for value in (child if isinstance(child, _RepeatedValues) else [child])
+                        if isinstance(value, (Mapping, list, tuple))
+                    )
                     continue
                 if isinstance(key, str):
                     key_named, key_incidental = _ids_in_text(key, as_ref=state == _REF)
@@ -911,9 +961,11 @@ def cited_memory_refs(value: object) -> CitedMemoryIds:
 
     An id is *named* when it follows a ``memory:`` prefix or an ``alice://memories/`` URL, or stands under one of
     ``MEMORY_REFERENCE_KEYS`` at any depth (and everything nested below such a key is read as a memory reference). Every other
-    id in the value is *incidental*. A string that is JSON text (an object or a list) is read as the value it decodes to, and the
-    text of a ``quote`` or ``conversation_excerpt`` names nothing, as it names nothing in ``cited_source_ids``: the words of a
-    memory that a ref quotes are not read for ids. The walk keeps its own stack, so a ref nested to any depth is read to the end.
+    id in the value is *incidental*. A string that is JSON text (an object or a list) is read as the value it decodes to. The text
+    of a ``quote`` or ``conversation_excerpt`` names no memory, as it names no source in ``cited_source_ids``, but an id typed in it
+    is incidental here (``memory:<id> words``): the words of a memory that a ref quotes may come with the id of the memory. A
+    quote or an excerpt that is an object or a list is not text and is read like the rest of the ref. The walk keeps its own
+    stack, so a ref nested to any depth is read to the end.
     """
 
     named: set[str] = set()
@@ -933,6 +985,16 @@ def cited_memory_refs(value: object) -> CitedMemoryIds:
             for key, child in node.items():
                 key_text = key.lower() if isinstance(key, str) else None
                 if key_text in _TEXT_KEYS:
+                    # The text of a quote or an excerpt names no memory by itself, but a writer can type an id in it
+                    # (``memory:<id> words``), and it then holds the words of that memory. Such an id is incidental: it
+                    # is refused only when it names a stored memory the caller may not read. A quote that is an object or a
+                    # list is a structure and is read like any other, and a key that a JSON text repeats holds one quote for
+                    # each value.
+                    for value in child if isinstance(child, _RepeatedValues) else [child]:
+                        if isinstance(value, (Mapping, list, tuple)):
+                            pending.append((value, at_key))
+                        elif isinstance(value, str):
+                            every |= _every_id_in_text(value)
                     continue
                 if isinstance(key, str):
                     every |= _every_id_in_text(key)
@@ -959,43 +1021,77 @@ _DROPPED = object()
 # cannot run the rebuild out of stack.
 _SCRUB_DEPTH = 100
 
+# The field names a ref entry keeps when the reader withholds it for a memory the caller may not read. A writer can type words as
+# the name of a field (``{"memory_id": "<id>", "<words>": null}``), and a name holds its words whatever its value is, so any other
+# name is dropped from the entry with its value, at any depth and inside JSON text. Where each name comes from:
+#
+# * ``SOURCE_REFERENCE_KEYS`` and ``sources`` (``_REFERENCE_KEYS``): the names the link writer reads in a ref entry
+#   (``_source_ref_values``), the open-loop reverse lookup reads, and ``cited_source_ids`` takes for a source reference.
+# * ``MEMORY_REFERENCE_KEYS``: the names ``cited_memory_refs`` takes for a memory reference.
+# * ``_OWN_ID_KEYS`` (``id`` and ``ref``): the names the link writer reads for the id of the entry itself.
+# * ``_TEXT_KEYS`` (``quote`` and ``conversation_excerpt``): the names of the text a ref saves of its source, kept with the value
+#   ``null``, the marker of a withheld quote.
+#
+# No name is added for a producer. The writers of ``source_refs`` were run to find out (the commit service through its HTTP, MCP and
+# CLI doors, memory proposals, capture, the review edit and supersede, consolidation, the roll-ups, the daily brief, the weekly
+# synthesis, the connection and contradiction reports, the project update scan): every one of them stores strings (``source:<id>``,
+# ``memory:<id>``, a bare id or a label) and none an object, so only a client writes a name there, through the HTTP commit door, the
+# memory proposal or the agent-output ingest, which take any object.
+# ``tests/unit/test_saved_quote_producer_ref_keys.py`` and ``tests/integration/test_saved_quote_producer_ref_keys_postgres.py`` run
+# the producers again and fail on a name outside this set, so a producer that starts writing an object must add its names here.
+PRODUCT_REF_KEYS = frozenset(SOURCE_REFERENCE_KEYS | _REFERENCE_KEYS | MEMORY_REFERENCE_KEYS | _OWN_ID_KEYS | _TEXT_KEYS)
 
-def _withhold_quote_text(value: object, texts: set[str] | None, depth: int = 0) -> object:
-    """``value`` with every ``quote`` and ``conversation_excerpt`` at any depth set to ``None``, the marker a link's withheld
-    quote carries. The same object when it holds none. A string that is JSON text is decoded, scrubbed and encoded again.
 
-    ``texts`` collects the words of each quote that is withheld, so a copy of the same words on a link is withheld too.
+def _product_key(key: object) -> str | None:
+    """``key`` in lower case when it is one of the product's own field names (``PRODUCT_REF_KEYS``), else None.
+
+    A key that is not a string is not one of them. The match is on the lower-cased key, as the reader matches every other
+    vocabulary of this module.
     """
 
-    if depth > _SCRUB_DEPTH:
-        return None
-    if isinstance(value, Mapping):
-        changed = False
-        rebuilt: dict[object, object] = {}
-        for key, child in value.items():
-            if isinstance(key, str) and key.lower() in _TEXT_KEYS:
-                if child is not None:
-                    changed = True
-                    if texts is not None and (text := _quote_text(child)) is not None:
-                        texts.add(text)
-                rebuilt[key] = None
-                continue
-            scrubbed = _withhold_quote_text(child, texts, depth + 1)
-            changed = changed or scrubbed is not child
-            rebuilt[key] = scrubbed
-        return rebuilt if changed else value
-    if isinstance(value, (list, tuple)):
-        items = [_withhold_quote_text(child, texts, depth + 1) for child in value]
-        if all(new is old for new, old in zip(items, value, strict=True)):
-            return value
-        return items if isinstance(value, list) else tuple(items)
-    if isinstance(value, str):
-        nested = _json_container(value)
-        if nested is None:
-            return value
-        scrubbed = _withhold_quote_text(nested, texts, depth + 1)
-        return value if scrubbed is nested else json.dumps(scrubbed, ensure_ascii=False)
-    return value
+    if isinstance(key, str):
+        lowered = key.lower()
+        if lowered in PRODUCT_REF_KEYS:
+            return lowered
+    return None
+
+
+def _note_dropped(key: object, child: object, texts: set[str] | None) -> None:
+    """Add to ``texts`` the words of a field that a withheld entry drops: the key, and every string under it (a key at any depth,
+    and the text of a JSON string, included), unless the string is made of references and nothing else. So a copy of the same
+    words on a link of the memory is withheld as well. The walk keeps its own stack and has no bound on depth: a field nested as
+    deep as the write door accepts is read to the end, and its words are noted whatever the depth of the rebuild that dropped it."""
+
+    if texts is None:
+        return
+    pending: list[object] = [key, child]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, Mapping):
+            for inner_key, inner in node.items():
+                pending.append(inner_key)
+                pending.append(inner)
+        elif isinstance(node, (list, tuple)):
+            pending.extend(node)
+        elif isinstance(node, str):
+            nested = _json_container(node)
+            if nested is not None:
+                pending.append(nested)
+            elif _canonical_references(node) is None and (text := _quote_text(node)) is not None:
+                texts.add(text)
+
+
+def _note_withheld(quote: object, texts: set[str] | None) -> None:
+    """Add to ``texts`` the words of a ``quote`` or ``conversation_excerpt`` that is withheld. A string is added as written, and
+    a quote that is an object or a list (not text, but a writer can put one there) adds the strings under it."""
+
+    if texts is None:
+        return
+    if isinstance(quote, str):
+        if (text := _quote_text(quote)) is not None:
+            texts.add(text)
+    else:
+        _note_dropped(None, quote, texts)
 
 
 _SEPARATED = re.compile(r"([\s,;|]+)")
@@ -1034,46 +1130,67 @@ def _canonical_references(text: str) -> str | None:
     return "".join(pieces)
 
 
-def _withhold_entry_text(value: object, texts: set[str] | None, depth: int = 0) -> object:
+def _json_text(value: object) -> str:
+    """``value`` as JSON text, in ASCII. A text that holds an escaped lone surrogate (``"\\ud800"``) decodes to a string that no
+    encoder writes, and a reader that put it back as it stands (``ensure_ascii=False``) made the answer fail to encode: the
+    escape is written again as an escape."""
+
+    return json.dumps(value, ensure_ascii=True)
+
+
+def _withhold_entry_text(value: object, texts: set[str] | None, depth: int = 0, *, names_only: bool = False) -> object:
     """``value``, an entry of a ref list that names a refused memory, with every string in it set to ``None`` except the ids.
 
-    A ``quote`` or ``conversation_excerpt`` at any depth goes, as ``_withhold_quote_text`` does it. So does every other string
-    that is not an id: a ``text``, an ``excerpt``, a ``snippet``, a ``note``, a sentence that has the id in it, and a string
-    under ``memory_id``, ``source_id``, ``id`` or ``ref`` that holds more than an id, because the entry says whose words they are
-    and nothing says they are not the memory's. What stays is a string made of references and nothing else (an id,
-    ``memory:<id>``, a list of them), without the ``#`` fragment of a reference (``_canonical_references``), and every number and
-    boolean. A string that is JSON text is decoded, held to the same rule and encoded again. The same object when nothing
-    changes. ``texts`` collects the words that are withheld, so a copy of them on a link is withheld too.
+    A ``quote`` or ``conversation_excerpt`` at any depth goes (one that is an object or a list goes with all it holds). So does every other string
+    that is not an id: a sentence that has the id in it, and a string under ``memory_id``, ``source_id``, ``id`` or ``ref`` that
+    holds more than an id, because the entry says whose words they are and nothing says they are not the memory's. A field whose
+    name the product does not write (``PRODUCT_REF_KEYS``: a ``text``, an ``excerpt``, a ``snippet``, a ``note``, a ``page``, a name
+    made of words, a name that is not a string) is dropped with its value, at any depth, because a name holds words as a value does.
+    What stays is a string made of references and nothing else (an id, ``memory:<id>``, a list of them), without the ``#`` fragment
+    of a reference (``_canonical_references``), and every number and boolean under a name the product writes. A string that is
+    JSON text is decoded, held to the same rule and encoded again. The same object when nothing changes. ``texts`` collects the
+    words that are withheld, a dropped name and the strings under it included, so a copy of them on a link is withheld too. A
+    subtree below the depth bound is withheld whole, and its words are collected as well.
+
+    With ``names_only`` the entry names a source or a memory the caller may read, so the reader cannot tell whose its text is and
+    keeps it: every string stays, the ``quote`` and ``conversation_excerpt`` with them, and the rule on names is the only one that
+    applies. A name the product does not write goes with its value, at any depth and inside JSON text, here as well.
     """
 
     if depth > _SCRUB_DEPTH:
+        _note_dropped(None, value, texts)
         return None
     if isinstance(value, Mapping):
         changed = False
         rebuilt: dict[object, object] = {}
         for key, child in value.items():
-            lowered = key.lower() if isinstance(key, str) else ""
-            if lowered in _TEXT_KEYS:
+            lowered = _product_key(key)
+            if lowered is None:
+                changed = True
+                _note_dropped(key, child, texts)
+                continue
+            if lowered in _TEXT_KEYS and not names_only:
                 if child is not None:
                     changed = True
-                    if texts is not None and (text := _quote_text(child)) is not None:
-                        texts.add(text)
+                    _note_withheld(child, texts)
                 rebuilt[key] = None
                 continue
-            scrubbed = _withhold_entry_text(child, texts, depth + 1)
+            scrubbed = _withhold_entry_text(child, texts, depth + 1, names_only=names_only)
             changed = changed or scrubbed is not child
             rebuilt[key] = scrubbed
         return rebuilt if changed else value
     if isinstance(value, (list, tuple)):
-        items = [_withhold_entry_text(child, texts, depth + 1) for child in value]
+        items = [_withhold_entry_text(child, texts, depth + 1, names_only=names_only) for child in value]
         if all(new is old for new, old in zip(items, value, strict=True)):
             return value
         return items if isinstance(value, list) else tuple(items)
     if isinstance(value, str):
         nested = _json_container(value)
         if nested is not None:
-            scrubbed = _withhold_entry_text(nested, texts, depth + 1)
-            return value if scrubbed is nested else json.dumps(scrubbed, ensure_ascii=False)
+            scrubbed = _withhold_entry_text(nested, texts, depth + 1, names_only=names_only)
+            return value if scrubbed is nested else _json_text(scrubbed)
+        if names_only:
+            return value
         references = _canonical_references(value)
         if references is not None:
             return references
@@ -1085,16 +1202,19 @@ def _withhold_entry_text(value: object, texts: set[str] | None, depth: int = 0) 
 
 def _holds_words(value: object) -> bool:
     """True when ``value`` holds words to withhold from a reader who may not read the memory it cites: a ``quote`` or
-    ``conversation_excerpt`` with words in it, or any string that is not made of references and nothing else (a ``#`` fragment
-    is words), at any depth (JSON text included), under a reference key as well. A list of references alone (``memory:<id>``
-    and the like) holds none."""
+    ``conversation_excerpt`` with words in it, any string that is not made of references and nothing else (a ``#`` fragment
+    is words), or the name of a field that the product does not write (``PRODUCT_REF_KEYS``), at any depth (JSON text included),
+    under a reference key as well. A list of references alone (``memory:<id>`` and the like), or an entry made of the names the
+    product writes with references for values, holds none."""
 
     pending: list[object] = [value]
     while pending:
         node = pending.pop()
         if isinstance(node, Mapping):
             for key, child in node.items():
-                lowered = key.lower() if isinstance(key, str) else ""
+                lowered = _product_key(key)
+                if lowered is None:
+                    return True
                 if lowered in _TEXT_KEYS:
                     if _quote_text(child) is not None:
                         return True
@@ -1116,17 +1236,26 @@ def _without_refused_refs(
     refused: frozenset[str],
     refused_memories: frozenset[str] = frozenset(),
     texts: set[str] | None = None,
+    readable: AbstractSet[str] = frozenset(),
 ) -> object:
     """``refs`` without the entries that name a refused source, and with the words withheld that belong to a refused memory.
 
     The same list when nothing changes. An entry that names a refused source is dropped, the id with its quote. An entry
     that names a refused memory stays with its ids and loses its strings: the quote and excerpt, every other string that is not
-    an id (``_withhold_entry_text``). An entry that names no source and no memory, in a list that holds an entry of either kind,
-    loses its quote as well: the commit that cites ``"memory:<id>"`` and then ``{"quote": ...}`` keeps the words in the second
-    entry, and nothing in it says whose they are.
+    an id, and every field whose name the product does not write (``_withhold_entry_text``). An entry beside them that names no
+    source and no memory the caller may read loses the same, in a list that holds an entry of either kind: the commit that cites
+    ``"memory:<id>"`` and then ``{"quote": ...}`` keeps the words in the second entry, and nothing in it says whose they are.
 
     An entry names a memory by any id in it (``cited_memory_refs(...).every``), so a ref that spells the id some way the reader
     has no marker for is held to the same rule once the id names a memory the caller may not read.
+
+    An entry beside a refused one keeps its text only when it *names* a source or a memory (a reference position: ``source_id``,
+    ``memory_id``, a ``source:`` or ``memory:`` ref) that is stored and in ``readable``. An id that sits under another field
+    (``chunk_id``), in a sentence or in a quote names nothing, and neither does an id that names no stored row, so a writer cannot
+    keep a quote by adding an id to its entry. The reader cannot tell whether the quote of an entry that does name a readable
+    source is that source's, and keeps it. The names are another matter: a name the product does not write holds words whatever
+    the entry names, so it goes with its value from that entry as well (``names_only``), and the only words such an entry keeps are
+    the strings under the names the product writes (its ``quote``, and a string beside a ``source_id``).
 
     A value that is not a list and names a refused source is returned as ``_DROPPED``, and the caller removes its key.
     """
@@ -1134,24 +1263,22 @@ def _without_refused_refs(
     if not refused and not refused_memories:
         return refs
     if isinstance(refs, list):
-        named = [
-            (
-                cited_source_ids(ref).every if refused or refused_memories else frozenset(),
-                cited_memory_refs(ref).every if refused_memories else frozenset(),
-            )
-            for ref in refs
-        ]
+        named = [(cited_source_ids(ref), cited_memory_refs(ref)) for ref in refs]
         refused_here = any(
-            not refused.isdisjoint(sources) or not refused_memories.isdisjoint(memories) for sources, memories in named
+            not refused.isdisjoint(sources.every) or not refused_memories.isdisjoint(memories.every)
+            for sources, memories in named
         )
         kept: list[object] = []
         for ref, (sources, memories) in zip(refs, named, strict=True):
-            if not refused.isdisjoint(sources):
+            if not refused.isdisjoint(sources.every):
                 continue
-            if not refused_memories.isdisjoint(memories):
+            if not refused_memories.isdisjoint(memories.every):
                 kept.append(_withhold_entry_text(ref, texts))
-            elif refused_here and not sources and not memories:
-                kept.append(_withhold_quote_text(ref, texts))
+            elif refused_here:
+                # The entry beside a refused one. When it names a stored row the caller may read, its text stays (the reader
+                # cannot tell whose it is) and its names are held to the rule on names all the same.
+                names_a_readable_row = not readable.isdisjoint(sources.named | memories.named)
+                kept.append(_withhold_entry_text(ref, texts, names_only=names_a_readable_row))
             else:
                 kept.append(ref)
         unchanged = len(kept) == len(refs) and all(new is old for new, old in zip(kept, refs, strict=True))
@@ -1168,13 +1295,14 @@ def _scrub_refs_key(
     refused: frozenset[str],
     refused_memories: frozenset[str] = frozenset(),
     texts: set[str] | None = None,
+    readable: AbstractSet[str] = frozenset(),
 ) -> None:
     """Drop the entries of ``container["source_refs"]`` that name a refused source and withhold the quotes of the ones that
     name a refused memory, in place, on a copy the caller made."""
 
     if _SOURCE_REFS_KEY not in container:
         return
-    scrubbed = _without_refused_refs(container[_SOURCE_REFS_KEY], refused, refused_memories, texts)
+    scrubbed = _without_refused_refs(container[_SOURCE_REFS_KEY], refused, refused_memories, texts, readable)
     if scrubbed is _DROPPED:
         del container[_SOURCE_REFS_KEY]
     else:
@@ -1249,6 +1377,8 @@ def _memory_ids_named_by_memory_copies(row: Mapping[str, object]) -> CitedMemory
             cited |= cited_memory_refs(metadata.get(key))
     for container in _ref_containers(row):
         cited |= cited_memory_refs(container.get(_SOURCE_REFS_KEY))
+        # The excerpt a commit saved is words, and a writer can type the id of the memory they came from in it.
+        cited |= cited_memory_refs({_EXCERPT_KEY: container.get(_EXCERPT_KEY)})
     return cited
 
 
@@ -1363,6 +1493,7 @@ def _memory_without_refused_provenance(
     withhold_quotes: bool,
     refused_memories: frozenset[str] = frozenset(),
     texts: set[str] | None = None,
+    readable: AbstractSet[str] = frozenset(),
 ) -> dict[str, object]:
     out = dict(row)
     metadata = row.get("metadata_json")
@@ -1370,17 +1501,17 @@ def _memory_without_refused_provenance(
         copy = dict(metadata)
         if withhold_quotes:
             _without_quote_copies(copy)
-        _scrub_refs_key(copy, refused, refused_memories, texts)
+        _scrub_refs_key(copy, refused, refused_memories, texts, readable)
         agentic = copy.get(_AGENTIC_MEMORY_KEY)
         if isinstance(agentic, Mapping):
             inner = dict(agentic)
-            _scrub_refs_key(inner, refused, refused_memories, texts)
+            _scrub_refs_key(inner, refused, refused_memories, texts, readable)
             copy[_AGENTIC_MEMORY_KEY] = inner
         out["metadata_json"] = copy
     value = row.get("value")
     if isinstance(value, Mapping) and _SOURCE_REFS_KEY in value:
         scrubbed_value = dict(value)
-        _scrub_refs_key(scrubbed_value, refused, refused_memories, texts)
+        _scrub_refs_key(scrubbed_value, refused, refused_memories, texts, readable)
         out["value"] = scrubbed_value
     return out
 
@@ -1392,6 +1523,7 @@ def _revision_without_refused_refs(
     withhold_quotes: bool,
     refused_memories: frozenset[str] = frozenset(),
     texts: set[str] | None = None,
+    readable: AbstractSet[str] = frozenset(),
 ) -> dict[str, object]:
     out = dict(row)
     if isinstance(row.get("metadata_json"), Mapping):
@@ -1401,6 +1533,7 @@ def _revision_without_refused_refs(
             withhold_quotes=withhold_quotes,
             refused_memories=refused_memories,
             texts=texts,
+            readable=readable,
         )["metadata_json"]
     for key in _REVISION_VALUE_KEYS:
         value = row.get(key)
@@ -1409,14 +1542,31 @@ def _revision_without_refused_refs(
         scrubbed = dict(value)
         if withhold_quotes:
             _without_quote_copies(scrubbed)
-        _scrub_refs_key(scrubbed, refused, refused_memories, texts)
+        _scrub_refs_key(scrubbed, refused, refused_memories, texts, readable)
         agentic = scrubbed.get(_AGENTIC_MEMORY_KEY)
         if isinstance(agentic, Mapping):
             inner = dict(agentic)
-            _scrub_refs_key(inner, refused, refused_memories, texts)
+            _scrub_refs_key(inner, refused, refused_memories, texts, readable)
             scrubbed[_AGENTIC_MEMORY_KEY] = inner
         out[key] = scrubbed
     return out
+
+
+_RAW_PAYLOAD_KEY = "raw_payload"
+
+
+def _source_ref_holders(row: Mapping[str, object]) -> list[Mapping[str, object]]:
+    """The mappings of a source row that hold a ``source_refs`` list: its ``metadata_json``, and the ``raw_payload`` inside it. The
+    agent-output ingest keeps the refs it was sent in both, as sent."""
+
+    holders: list[Mapping[str, object]] = []
+    metadata = row.get("metadata_json")
+    if isinstance(metadata, Mapping):
+        holders.append(metadata)
+        raw = metadata.get(_RAW_PAYLOAD_KEY)
+        if isinstance(raw, Mapping):
+            holders.append(raw)
+    return holders
 
 
 def _is_memory_row(value: Mapping[str, object]) -> bool:
@@ -1467,13 +1617,21 @@ class SavedProvenanceReader:
     * a memory that a ref of the row may name (``cited_memory_refs``: the ids a marker or a memory key says are memories, and
       every other id of the ref outside the text of a quote) and the caller may not read now (missing where a marker says it is a
       memory, archived, redacted, outside the fence, or unverified because an input of it was redacted) withholds the quotes the
-      same way, with differences: the entry that names it stays, with its ids, its numbers and its booleans, and every other
-      string in it becomes ``None`` (the ``quote`` and ``conversation_excerpt`` and any other text, a string in an id field that
-      holds more than an id included), and a ``#`` fragment after a reference is dropped, because an id alone is covered by the
-      hidden-ids disclosure and a fragment is a place to type words. The quote of an entry beside such a ref that names nothing goes too, in a list that holds a
-      refused memory or a refused source. An id that no marker says is a memory is refused only when it names a memory the store
-      holds a row for. The memories of a row are looked up only when the row holds words to withhold, and not at all for the owner
-      and for an unbound admin key, who have no limits. ``events`` holds the events of a feed to the same rule.
+      same way, with differences: the entry that names it stays, with its ids, its numbers and its booleans under the fields the
+      product writes (``PRODUCT_REF_KEYS``), and every other string in it becomes ``None`` (the ``quote`` and
+      ``conversation_excerpt`` and any other text, a string in an id field that holds more than an id included); a field whose name
+      the product does not write goes with its value, because a name holds words as a value does; and a ``#`` fragment after a
+      reference is dropped, because an id alone is covered by the hidden-ids disclosure and a fragment is a place to type words.
+      An entry beside such a ref that names no source and no memory the caller may read goes the same way (every string of it, and
+      every field whose name the product does not write), in a list that holds a refused memory or a refused source. An id that
+      no marker says is a memory is refused
+      only when it names a memory the store holds a row for. The memories of a row are looked up only when the row holds words to
+      withhold, and not at all for the owner and for an unbound admin key, who have no limits. ``events`` holds the events of a
+      feed to the same rule.
+
+    ``sources`` and ``fields`` hold the other rows that keep a structure their writer chose to the same rule: the source an
+    agent-output ingest made (its ``source_refs`` and the ``raw_payload`` copy), the metadata of a quality rating, and the
+    allowed sources and scope of a queued task. They are for display: the stored row is never changed.
 
     A memory with no link at all (a commit held for review or confirmed inline, then approved) keeps the sources it
     cited only in the ref lists of its own copies, so the reader judges a row by those copies as well. It must be asked
@@ -1506,6 +1664,8 @@ class SavedProvenanceReader:
         self._memory_exists: dict[str, bool] = {}
         self._cited_memories: dict[int, tuple[Mapping[str, object], CitedMemoryIds]] = {}
         self._memory_limits: bool | None = None
+        # The ids judged so far that name a stored row the caller may read (sources and memories alike).
+        self._readable: set[str] = set()
 
     @property
     def fenced(self) -> bool:
@@ -1665,7 +1825,123 @@ class SavedProvenanceReader:
         self._judge_memories(memories)
         return [self._event(event, memory_withholds=False) if isinstance(event, Mapping) else event for event in rows]  # type: ignore[misc]
 
+    # -- rows that keep refs a writer chose ---------------------------------------------------------------------
+
+    def source(self, row: Mapping[str, object]) -> dict[str, object]:
+        """``row`` (a source) with the refs it keeps held to the caller's fence: see ``sources``."""
+
+        return self.sources([row])[0]
+
+    def sources(self, rows: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+        """Source rows as the caller is shown them.
+
+        A source made by the agent-output ingest keeps the ``source_refs`` it was sent, as sent, in ``metadata_json`` and again in
+        ``metadata_json.raw_payload``, and a ref there can quote a memory or a source (``{"memory_id": "<id>", "quote": "..."}``)
+        as a commit's can. The quote holds the words of what it cites, and the source it was kept on is a row of its own that
+        every route which returns a source returns whole, so the refs are held to the rule of a commit's refs: an entry that
+        names a source the caller may not read is dropped, one that names a memory the caller may not read keeps its ids and
+        loses its words (``_without_refused_refs``). The owner and an unbound admin key are given the rows as stored, and a row
+        that cites nothing it may not read is returned as the same object. Nothing but the refs is changed, and the stored row is
+        not touched, so a caller must not write back what it was shown.
+        """
+
+        if not self.fenced or not self._limited():
+            return list(rows)  # type: ignore[arg-type]
+        self._prefetch_refs(
+            holder.get(_SOURCE_REFS_KEY) for row in rows for holder in _source_ref_holders(row) if _SOURCE_REFS_KEY in holder
+        )
+        return [self._source(row) for row in rows]
+
+    def fields(self, rows: Sequence[Mapping[str, object]], keys: Sequence[str]) -> list[dict[str, object]]:
+        """Rows with the fields ``keys`` held to the same rule as a ref list, for a row whose field is a structure its writer chose
+        and that can quote a source or a memory: the metadata of a quality rating, the sources and the scope a queued task was
+        given. A field that names a source the caller may not read is set to ``None``; one that names a memory it may not read
+        keeps its ids and loses its words. The owner and an unbound admin key are given the rows themselves."""
+
+        if not self.fenced or not self._limited():
+            return list(rows)  # type: ignore[arg-type]
+        self._prefetch_refs(row[key] for row in rows for key in keys if key in row)
+        out: list[dict[str, object]] = []
+        for row in rows:
+            rebuilt: dict[str, object] | None = None
+            for key in keys:
+                if key not in row:
+                    continue
+                shown = self._shown_refs(row[key])
+                if shown is not row[key]:
+                    rebuilt = dict(row) if rebuilt is None else rebuilt
+                    rebuilt[key] = None if shown is _DROPPED else shown
+            out.append(rebuilt if rebuilt is not None else row)  # type: ignore[arg-type]
+        return out
+
     # -- internals -----------------------------------------------------------------------------------------------
+
+    def _limited(self) -> bool:
+        """Whether policy limits what this caller may read of the vault's entities (``entity_read_fenced``). An unbound admin
+        key does not, and is shown the rows of a source or a task as they were stored."""
+
+        if self._memory_limits is None:
+            self._memory_limits = self._fence.entity_read_fenced
+        return self._memory_limits
+
+    def _prefetch_refs(self, values: Iterable[object]) -> None:
+        """Look up, once, the sources and the memories that the structures in ``values`` name."""
+
+        sources: list[str] = []
+        memories: list[str] = []
+        for refs in values:
+            if refs is None:
+                continue
+            sources.extend(cited_source_ids(refs).every)
+            if _holds_words(refs):
+                memories.extend(cited_memory_refs(refs).every)
+        self._judge(sources)
+        self._judge_memories(memories)
+
+    def _shown_refs(self, refs: object) -> object:
+        """``refs`` (a ref list, an entry, or any structure a writer chose) as the caller is shown it: the same object when it
+        names nothing the caller may not read, ``_DROPPED`` when it is not a list and names a source the caller may not read."""
+
+        if refs is None:
+            return refs
+        cited = cited_source_ids(refs)
+        cited_memories = cited_memory_refs(refs) if _holds_words(refs) else _NO_CITED_MEMORIES
+        self._judge(cited.every)
+        self._judge_memories(cited_memories.every)
+        refused = self._refused(cited)
+        refused_memories = self._refused_memories(cited_memories)
+        if not refused and not refused_memories:
+            return refs
+        return _without_refused_refs(refs, refused, refused_memories, None, self._readable)
+
+    def _source(self, row: Mapping[str, object]) -> dict[str, object]:
+        out: dict[str, object] | None = None
+        metadata = row.get("metadata_json")
+        if not isinstance(metadata, Mapping):
+            return row  # type: ignore[return-value]
+        shown_metadata: dict[str, object] | None = None
+        if _SOURCE_REFS_KEY in metadata:
+            shown = self._shown_refs(metadata[_SOURCE_REFS_KEY])
+            if shown is not metadata[_SOURCE_REFS_KEY]:
+                shown_metadata = dict(metadata)
+                if shown is _DROPPED:
+                    del shown_metadata[_SOURCE_REFS_KEY]
+                else:
+                    shown_metadata[_SOURCE_REFS_KEY] = shown
+        raw = metadata.get(_RAW_PAYLOAD_KEY)
+        if isinstance(raw, Mapping) and _SOURCE_REFS_KEY in raw:
+            shown = self._shown_refs(raw[_SOURCE_REFS_KEY])
+            if shown is not raw[_SOURCE_REFS_KEY]:
+                shown_raw = dict(raw)
+                if shown is _DROPPED:
+                    del shown_raw[_SOURCE_REFS_KEY]
+                else:
+                    shown_raw[_SOURCE_REFS_KEY] = shown
+                shown_metadata = dict(metadata) if shown_metadata is None else shown_metadata
+                shown_metadata[_RAW_PAYLOAD_KEY] = shown_raw
+        if shown_metadata is not None:
+            out = {**row, "metadata_json": shown_metadata}
+        return out if out is not None else row  # type: ignore[return-value]
 
     def _shown(self, link: Mapping[str, object], *, siblings: Sequence[Mapping[str, object]]) -> dict[str, object] | None:
         self._judge(
@@ -1716,6 +1992,7 @@ class SavedProvenanceReader:
             refused=refused,
             withhold_quotes=bool(refused) or bool(refused_memories) or memory_withholds,
             refused_memories=refused_memories,
+            readable=self._readable,
         )
 
     def _verdict(
@@ -1749,7 +2026,7 @@ class SavedProvenanceReader:
                 texts |= _memory_copy_quote_texts(row)
                 for container in _ref_containers(row):
                     if _SOURCE_REFS_KEY in container:
-                        _without_refused_refs(container[_SOURCE_REFS_KEY], refused, refused_memories, texts)
+                        _without_refused_refs(container[_SOURCE_REFS_KEY], refused, refused_memories, texts, self._readable)
         return _Verdict(
             refused=refused, withhold_quotes=withhold_quotes, texts=frozenset(texts), refused_memories=refused_memories
         )
@@ -1760,7 +2037,11 @@ class SavedProvenanceReader:
         if not verdict.withhold_quotes:
             return row  # type: ignore[return-value]
         return _memory_without_refused_provenance(
-            row, refused=verdict.refused, withhold_quotes=True, refused_memories=verdict.refused_memories
+            row,
+            refused=verdict.refused,
+            withhold_quotes=True,
+            refused_memories=verdict.refused_memories,
+            readable=self._readable,
         )
 
     def _revision(self, row: Mapping[str, object]) -> dict[str, object]:
@@ -1784,7 +2065,12 @@ class SavedProvenanceReader:
         if not refused and not refused_memories and not texts:
             return row  # type: ignore[return-value]
         shown = _revision_without_refused_refs(
-            row, refused=refused, withhold_quotes=withhold_quotes, refused_memories=refused_memories, texts=texts
+            row,
+            refused=refused,
+            withhold_quotes=withhold_quotes,
+            refused_memories=refused_memories,
+            texts=texts,
+            readable=self._readable,
         )
         if texts:
             self._revision_texts.setdefault(memory_id, set()).update(texts)
@@ -1904,6 +2190,8 @@ class SavedProvenanceReader:
             row = rows.get(source_id)
             self._exists[source_id] = row is not None
             self._admitted[source_id] = row is not None and self._fence.admits(row)
+            if self._admitted[source_id]:
+                self._readable.add(source_id)
 
     def _judge_memories(self, memory_ids: Iterable[str]) -> None:
         """Decide, once per id, whether the caller may read each memory now, and whether the id names a stored memory at all.
@@ -1919,10 +2207,9 @@ class SavedProvenanceReader:
         unknown = [memory_id for memory_id in dict.fromkeys(memory_ids) if memory_id not in self._memory_admitted]
         if not unknown:
             return
-        if self._memory_limits is None:
-            self._memory_limits = self._fence.entity_read_fenced
-        if not self._memory_limits:
+        if not self._limited():
             self._memory_admitted.update(dict.fromkeys(unknown, True))
+            self._readable.update(unknown)
             return
         from alicebot_api.vnext_label_guard import LabelGuard
 
@@ -1938,6 +2225,8 @@ class SavedProvenanceReader:
                 continue
             effective = guard.effective_row("memory", row)
             self._memory_admitted[memory_id] = self._fence.admits_memory(effective if isinstance(effective, Mapping) else row)
+            if self._memory_admitted[memory_id]:
+                self._readable.add(memory_id)
 
     def _rebuild(self, value: object) -> object:
         if isinstance(value, Mapping):
@@ -1985,6 +2274,7 @@ __all__ = [
     "MEMORY_REFERENCE_KEYS",
     "MEMORY_REF_NOT_FOUND_MESSAGE",
     "MemoryRefNotFoundError",
+    "PRODUCT_REF_KEYS",
     "SOURCE_REFERENCE_KEYS",
     "SOURCE_REF_NOT_FOUND_MESSAGE",
     "SavedProvenanceReader",

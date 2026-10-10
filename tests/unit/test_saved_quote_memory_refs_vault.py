@@ -72,10 +72,30 @@ READS_AFTER = {
 }
 VARIANTS = tuple(READS_AFTER)
 SENTINEL_PREFIX = "ZQXMEMQUOTE"
+# The keys that read every commit at every door that answers for one commit (``alice_explain``, review detail, the audit route)
+# when they may not read the memory the commits cite. The other keys read, at those doors, the commits that carry the shapes of the
+# finding (words written as the name of a field, in every place the reader looks, and the entry beside a ref that names a source
+# the caller may read), the two commits a confirmation appended an event to, and one commit of each other kind of spelling
+# (``SAMPLE``); a key that may read the memory is shown the same sample. Every commit is read by every key through the doors that
+# return them all: the review list, the feeds of events and, for the keys that reach it, the recent commits route, and the owner
+# and the unbound admin key are read at the audit route of every commit. The rules that decide what a spelling loses are one
+# function for every key, and ``tests/unit/test_saved_quote_memory_refs.py`` runs every spelling through it for every way a memory
+# stops being readable; what differs between keys is which memory and which source they may read, which the commits read by every
+# key cover for each.
+FULL_KEYS = ("trusted", "read_only")
+SAMPLE = (
+    "memory_id", "memory prefix + quote entry", "json text", "alice url", "conversation_excerpt", "source and memory",
+    "companion text field", "companion nested list", "quote is an object that holds the id", "Memory <id>", "key origin",
+    "text beside the id", "memory prefix and a fragment", "memory_id and words",
+)
 
 
 def _quote(sentinel: str, tag: str) -> str:
     return f"Atlas played {sentinel} for 115 hours ({tag})"
+
+
+def _key_words(sentinel: str, tag: str) -> str:
+    return f"Atlas played {sentinel} for 115 hours ({tag} key words)"
 
 
 class Vault:
@@ -94,6 +114,10 @@ class Vault:
         monkeypatch.delenv("ALICE_EMBEDDINGS_BASE_URL", raising=False)
         self.monkeypatch = monkeypatch
         self.commits: dict[str, str] = {}
+        self.key_shapes: set[str] = set()
+        # The commits whose refs name the captured source. A key that may not read the source is shown the commit without the entry
+        # that names it, and without the names the product does not write in the entries beside that entry.
+        self.source_cited: set[str] = set()
         with sqlite_user_connection(self.path, self.user) as conn:
             store = SQLiteVNextStore(conn, self.user)
             self.cited = self._memory(store, f"Atlas played {self.sentinel} for 115 hours.", "alpha.cited")
@@ -119,6 +143,12 @@ class Vault:
 
     # -- building --------------------------------------------------------------------------------------------
 
+    def key_words(self, tag: str) -> str:
+        """Words that carry the sentinel, written as the name of a field. The commit named ``tag`` is one of ``key_shapes``."""
+
+        self.key_shapes.add(tag)
+        return _key_words(self.sentinel, tag)
+
     def _memory(self, store, text: str, key: str):
         return store.create_memory(
             {
@@ -141,6 +171,8 @@ class Vault:
         )
         assert result["status"] == "committed", result
         self.commits[name] = str(result["memory"]["id"])
+        if self.source_id in json.dumps(refs, default=str):
+            self.source_cited.add(name)
         return self.commits[name]
 
     def _confirmed_commit(self, store) -> None:
@@ -153,13 +185,17 @@ class Vault:
         request = MemoryCommitRequest(
             user_id=str(self.user), title=f"Follow up {name}", canonical_text=f"Follow up on the games note {name}",
             memory_type="semantic", domain="project", sensitivity="public", confidence=0.6,
-            source_refs=({"source_id": self.source_id}, {"memory_id": self.cited_id, "quote": _quote(self.sentinel, name)}),
+            source_refs=(
+                {"source_id": self.source_id},
+                {"memory_id": self.cited_id, "quote": _quote(self.sentinel, name), self.key_words(name): None},
+            ),
             conversation_excerpt=_quote(self.sentinel, f"{name} excerpt"), project_scope=(ALPHA,),
         )
         asked = service.commit(identity=None, request=request)
         assert asked["status"] == "confirmation_required", asked
         service.confirm(identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm")
         self.commits[name] = str(asked["memory"]["id"])
+        self.source_cited.add(name)
 
     def _confirmed_by_an_agent(self, store) -> None:
         """The same lifecycle with an agent key doing it: the confirmation appends the ``memory.updated`` event with an agent for its
@@ -171,7 +207,7 @@ class Vault:
         request = MemoryCommitRequest(
             user_id=str(self.user), title=f"Follow up {name}", canonical_text=f"Follow up on the games note {name}",
             memory_type="semantic", domain="project", sensitivity="public", confidence=0.6,
-            source_refs=({"memory_id": self.cited_id, "quote": _quote(self.sentinel, name)},),
+            source_refs=({"memory_id": self.cited_id, "quote": _quote(self.sentinel, name), self.key_words(name): 2},),
             conversation_excerpt=_quote(self.sentinel, f"{name} excerpt"), project_scope=(ALPHA,),
         )
         asked = service.commit(identity=identity, request=request)
@@ -205,6 +241,54 @@ class Vault:
             "nested": [{"evidence": [{"memory_id": m, "quote": q("nested")}]}],
             # Cites a source the caller may read as well, so the commit is listed by the source trace and the dashboard.
             "source and memory": [{"source_id": self.source_id}, {"memory_id": m, "quote": q("source and memory")}],
+            # Words written as the name of a field. A name holds its words whatever its value is (a string, ``null``, a number, a
+            # boolean, an object), so a restricted reader is shown only the names the product writes.
+            "key with a string value": [{"memory_id": m, self.key_words("key with a string value"): "x"}],
+            "key with a null value": [{"memory_id": m, self.key_words("key with a null value"): None}],
+            "key with a number value": [{"memory_id": m, self.key_words("key with a number value"): 1}],
+            "key with a boolean value": [{"memory_id": m, "quote": None, self.key_words("key with a boolean value"): True}],
+            "key nested": [{"memory_id": m, "evidence": {self.key_words("key nested"): None}}],
+            "key under a reference key": [{"memory_id": m, "memories": [{"memory_id": m, self.key_words("key under a reference key"): None}]}],
+            "key in json text": [json.dumps({"memory_id": m, self.key_words("key in json text"): None})],
+            "key beside a quote": [{"memory_id": m, "quote": q("key beside a quote"), self.key_words("key beside a quote"): "x"}],
+            "key in the entry beside": [f"memory:{m}", {self.key_words("key in the entry beside"): None}],
+            "key and a source": [{"source_id": self.source_id}, {"memory_id": m, self.key_words("key and a source"): None}],
+            # The entry beside the ref names a source the caller may read, so it keeps its text, and the names the product does not
+            # write go from it all the same: the words are a name next to the source id, in JSON text, nested under a name the
+            # product writes, or the id itself written as the name of a field with the words for its value.
+            "key beside a readable source": [
+                f"memory:{m}", {"source_id": self.source_id, self.key_words("key beside a readable source"): None}
+            ],
+            "key in json text beside a readable source": [
+                f"memory:{m}", json.dumps({"source_id": self.source_id, self.key_words("key in json text beside a readable source"): 1})
+            ],
+            "key nested beside a readable source": [
+                f"memory:{m}", {"sources": [{"source_id": self.source_id, self.key_words("key nested beside a readable source"): 1}]}
+            ],
+            "source id as a name": [f"memory:{m}", {self.source_id: q("source id as a name")}],
+            "source marker as a name": [f"memory:{m}", {f"source:{self.source_id}": q("source marker as a name")}],
+            # The entry beside the ref: every string and every field of it goes, not only a field called ``quote``.
+            "companion bare string": [f"memory:{m}", q("companion bare string")],
+            "companion text field": [f"memory:{m}", {"text": q("companion text field")}],
+            "companion excerpt field": [f"memory:{m}", {"excerpt": q("companion excerpt field")}],
+            "companion nested list": [f"memory:{m}", [[q("companion nested list")]]],
+            "companion json text": [f"memory:{m}", json.dumps({"note": q("companion json text")})],
+            "companion quote key with a space": [f"memory:{m}", {"quote ": q("companion quote key with a space")}],
+            # An id the entry beside carries, in no reference field, names nothing: it keeps no quote, whether the id names a
+            # source the caller may read or no row at all.
+            "companion quote and a chunk id": [f"memory:{m}", {"quote": q("companion quote and a chunk id"), "chunk_id": str(uuid4())}],
+            "companion quote and a source in a chunk id": [
+                f"memory:{m}", {"quote": q("companion quote and a source in a chunk id"), "chunk_id": self.source_id}
+            ],
+            "companion quote, nested, and an id elsewhere": [
+                f"memory:{m}", {"meta": {"first": str(uuid4())}, "memories": {"quote": q("companion quote, nested, and an id elsewhere")}}
+            ],
+            # A quote that is an object or a list is a structure that holds whatever its writer put in it, an id included.
+            "quote is an object that holds the id": [{"quote": {"memory_id": m, "text": q("quote is an object that holds the id")}}],
+            "excerpt is an object that holds the id": [
+                {"conversation_excerpt": {"memory_id": m, "text": q("excerpt is an object that holds the id")}}
+            ],
+            "quote is a list that holds the id": [{"quote": [{"memory_id": m, "text": q("quote is a list that holds the id")}]}],
         }
         for name, refs in spellings.items():
             self._commit(store, name, refs, excerpt=q(name) if name == "conversation_excerpt" else None)
@@ -235,6 +319,14 @@ class Vault:
         }.items():
             self._commit(store, name, [{**ref, "quote": q(name)} if "beside" not in name else ref])
         if self.unmarked:
+            # An id typed in the text of a quote or of the excerpt is incidental: the quote is withheld when it names a memory the
+            # caller may not read, so these are left out of the vault whose memory is removed from the table.
+            self._commit(store, "quote with the marker in its text", [{"quote": f"memory:{m} {q('quote with the marker in its text')}"}])
+            self._commit(store, "quote with the id in its text", [{"quote": f"{q('quote with the id in its text')} (memory {m})"}])
+            self._commit(store, "excerpt that names the memory", [], excerpt=f"[memory:{m}] {q('excerpt that names the memory')}")
+            # An id under a field the reader has no marker for, and words in the name of a field beside it.
+            self._commit(store, "key beside an unmarked id", [{"origin": m, self.key_words("key beside an unmarked id"): None}])
+            self._commit(store, "key beside an unmarked sentence", [f"Memory {m}", {self.key_words("key beside an unmarked sentence"): 1}])
             self._commit(store, "memory id and a quote entry", [f"alice://memory/{m}", {"quote": q("memory id and a quote entry")}])
             self._commit(store, "sentence with the words", [f"{q('sentence with the words')} (see memory {m})"])
         # Words typed behind the id: in a fragment of a reference, and after the id in a field that holds an id.
@@ -259,6 +351,15 @@ class Vault:
             row = store.get_memory(self.commits[name])
             metadata = {**row["metadata_json"], "source_refs": [self.source_id]}
             store.update_memory(memory_id=str(row["id"]), patch={"metadata_json": metadata}, actor_type="system")
+
+    def per_commit_names(self, who: str | None, *, may_read: bool) -> list[str]:
+        """The commits ``who`` reads at the doors that answer for one commit: all of them for a key in ``FULL_KEYS`` that may not
+        read the memory, the sampled ones for the others."""
+
+        if who in FULL_KEYS and not may_read:
+            return list(self.commits)
+        sampled = self.key_shapes | set(SAMPLE) | {"confirmed", "confirmed by an agent"}
+        return [name for name in self.commits if name in sampled]
 
     # -- changing the cited memory -----------------------------------------------------------------------------
 
@@ -514,8 +615,9 @@ def _text(answer: dict[str, object] | None) -> str:
     return json.dumps(answer["body"], default=str) if answer is not None else ""
 
 
-def _keyed_doors(vault: Vault, who: str) -> dict[str, dict[str, object] | None]:
-    """What every door that returns a commit gives one key, for every commit. ``None`` is a refusal or an error. The two HTTP
+def _keyed_doors(vault: Vault, who: str, *, may_read: bool = False) -> dict[str, dict[str, object] | None]:
+    """What every door that returns a commit gives one key. ``None`` is a refusal or an error. The doors that answer for one commit
+    are asked of the commits ``Vault.per_commit_names`` names; the doors that return them all are asked once. The two HTTP
     operator routes are asked of the unbound trusted and admin keys, the only ones the central gate lets in."""
 
     answers: dict[str, dict[str, object] | None] = {}
@@ -523,7 +625,8 @@ def _keyed_doors(vault: Vault, who: str) -> dict[str, dict[str, object] | None]:
     if operator:
         answers["recent_commits route"] = vault.route(who, "recent", limit=100)
         answers["recent_commits route limit 1"] = vault.route(who, "recent", limit=1)
-    for name, memory_id in vault.commits.items():
+    for name in vault.per_commit_names(who, may_read=may_read):
+        memory_id = vault.commits[name]
         if operator:
             answers[f"audit route {name}"] = vault.route(who, "audit", memory_id=memory_id)
         answers[f"explain {name}"] = vault.try_call(who, "alice_explain", {"memory_id": memory_id})
@@ -538,15 +641,15 @@ def _keyed_doors(vault: Vault, who: str) -> dict[str, dict[str, object] | None]:
     return answers
 
 
-def _declared_doors(vault: Vault, who: str) -> dict[str, dict[str, object] | None]:
+def _declared_doors(vault: Vault, who: str, *, may_read: bool = False) -> dict[str, dict[str, object] | None]:
     """The doors a call that declares a profile reaches: the legacy recent commits tool, and review detail by id."""
 
     answers = {
         "legacy recent commits": vault.declared(who, "alice_vnext_recent_memory_commits", {"limit": 100}),
         "legacy recent commits limit 1": vault.declared(who, "alice_vnext_recent_memory_commits", {"limit": 1}),
     }
-    for name, memory_id in vault.commits.items():
-        answers[f"review detail {name}"] = vault.declared(who, "alice_memory_review", {"review_item_id": memory_id})
+    for name in vault.per_commit_names(who, may_read=may_read):
+        answers[f"review detail {name}"] = vault.declared(who, "alice_memory_review", {"review_item_id": vault.commits[name]})
     return answers
 
 
@@ -560,7 +663,7 @@ def test_the_control_finds_the_quote_at_every_door_before_the_memory_changes(vau
     """
 
     for who in ("admin", "trusted", "trusted_bound"):
-        carried = _carried(_keyed_doors(vault, who), vault.sentinel)
+        carried = _carried(_keyed_doors(vault, who, may_read=True), vault.sentinel)
         assert any(door.startswith("explain") for door in carried), who
         assert any(door.startswith("review detail") for door in carried), who
         assert "event feed" in carried, (who, "the confirmed commit's event carries the quote")
@@ -569,7 +672,7 @@ def test_the_control_finds_the_quote_at_every_door_before_the_memory_changes(vau
             assert "recent_commits route" in carried and "recent_commits route limit 1" in carried, who
             assert any(door.startswith("audit route") for door in carried), who
     for who in DECLARED:
-        carried = _carried(_declared_doors(keyless, who), keyless.sentinel)
+        carried = _carried(_declared_doors(keyless, who, may_read=True), keyless.sentinel)
         assert {"legacy recent commits", "legacy recent commits limit 1"} <= carried, who
     for name, memory_id in keyless.commits.items():
         assert keyless.sentinel in _text(keyless.route(None, "audit", memory_id=memory_id)), name
@@ -581,7 +684,9 @@ def test_a_key_that_may_not_read_the_cited_memory_is_shown_none_of_its_words(vau
     """For each way a memory stops being readable (redacted, archived, raised above the ceiling, moved to the health domain,
     moved to another project, copied from a memory that is redacted, removed from the table), every door that returns a
     commit shows a key that may not read the memory none of the quotes in any spelling, and shows a key that may read it
-    all of them. The commit itself is still returned.
+    the words. The commit itself is still returned. The doors that answer for one commit are read for every commit by the
+    trusted and the read-only key, and for the shapes of the finding and a sample of the others by the rest (``FULL_KEYS``,
+    ``SAMPLE``); the doors that return them all are read by every key.
 
     Mutations: in ``SavedProvenanceReader._judge_memories``, admit every memory (``self._memory_admitted[memory_id] = True``):
     every variant fails; drop the ``deleted_at`` test: the redacted and archived variants fail; settle no effective row
@@ -591,18 +696,100 @@ def test_a_key_that_may_not_read_the_cited_memory_is_shown_none_of_its_words(vau
 
     vault.make_unreadable(variant)
     readers = READS_AFTER[variant]
+    carried_by: dict[str, set[str]] = {}
     for who in PROFILES:
-        answers = _keyed_doors(vault, who)
+        answers = _keyed_doors(vault, who, may_read=who in readers)
         assert any(answer is not None for answer in answers.values()), (variant, who, "the key reads something")
-        carried = _carried(answers, vault.sentinel)
+        carried_by[who] = _carried(answers, vault.sentinel)
         if who in readers:
             continue
-        assert not carried, (variant, who, sorted(carried)[:3])
+        assert not carried_by[who], (variant, who, sorted(carried_by[who])[:3])
+        if who in FULL_KEYS:
+            assert {f"review detail {name}" for name in vault.commits} <= set(answers), (variant, who, "every commit is read")
     # The control the other way: a key that may read the memory still gets its words wherever the door carries them.
+    for who in readers:
+        assert any(door.startswith("review detail") for door in carried_by[who]), (variant, who)
     for who in readers & {"admin", "trusted"}:
-        carried = _carried(_keyed_doors(vault, who), vault.sentinel)
+        carried = carried_by[who]
         assert "recent_commits route" in carried and any(door.startswith("audit route") for door in carried), (variant, who)
-        assert any(door.startswith("review detail") for door in carried), (variant, who)
+
+
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_a_key_that_may_read_the_cited_memory_is_shown_the_names_of_the_fields_it_was_written_with(vault: Vault, variant: str) -> None:
+    """Words written as the name of a field are withheld from a key that may not read the memory the entry cites, and from nobody
+    else: the keys that read the memory after the change, and the owner and the unbound admin key, are shown the entry as it was
+    stored, field names included. Every shape of the key words (a string, ``null``, a number or a boolean for the value, a name
+    nested under another field or inside JSON text, a name in the entry beside the id, a name beside an id no marker covers) is
+    read by each key that may read, at the doors that return the whole commit.
+
+    A commit that also cites the captured source is the one exception, for a key bound to a project that may not read the source:
+    that key is shown the commit without the entry that names the source and without the names the product does not write in the
+    entries beside it, because the entry beside a refused ref is held to the rule on names whether or not it names a readable row
+    (a writer who cites a source the key may not read could otherwise put that source's words in a name next to a memory the key
+    may read).
+
+    Mutations: refuse every memory to a caller with limits (``self._memory_admitted[memory_id] = False`` in ``_judge_memories``): the
+    keys that read the memory after the change lose the words; keep an entry beside a refused ref that names a readable row as it
+    was stored (``kept.append(ref)`` in place of the ``names_only`` call in ``_without_refused_refs``): the bound keys are shown the
+    names of the entries beside the source.
+    """
+
+    vault.make_unreadable(variant)
+    names = [name for name in vault.commits if name in vault.key_shapes]
+    assert len(names) >= 12, "the key shapes are committed"
+    assert {"key and a source", "key beside a readable source"} <= vault.source_cited
+    readers = READS_AFTER[variant] & {"admin", "trusted", "trusted_bound", "admin_bound"}
+    assert "admin" in readers
+    for who in sorted(readers):
+        for name in names:
+            memory_id = vault.commits[name]
+            doors = [
+                vault.try_call(who, "alice_explain", {"memory_id": memory_id}),
+                vault.try_call(who, "alice_memory_review", {"review_item_id": memory_id}),
+            ]
+            if who in {"admin", "trusted"}:
+                doors.append(vault.route(who, "audit", memory_id=memory_id))
+            seen = any(vault.key_words(name) in _text(answer) for answer in doors)
+            if name in vault.source_cited and who in {"trusted_bound", "admin_bound"}:
+                assert not seen, (variant, who, name, "the key may not read the source the commit cites")
+            else:
+                assert seen, (variant, who, name)
+
+
+def test_a_ref_that_is_json_text_with_an_escaped_surrogate_does_not_fail_a_route(vault: Vault) -> None:
+    """A ref string such as ``{"quote": "q", "note": "\\ud800"}`` is stored as six ASCII characters and decodes to a lone surrogate.
+    The reader wrote the decoded text again with ``ensure_ascii=False``, so the recent commits route and the memory audit route
+    raised ``UnicodeEncodeError`` when the response was encoded, for an unbound ``trusted_local_agent`` key, whether or not the
+    cited id named a memory. The answers of the routes and of the tools are encoded here; the owner and an unbound admin key
+    read the text as it was stored.
+
+    An entry that is rebuilt keeps only the names the product writes and the references, so the surrogate is in a field that is
+    dropped (``test_a_ref_that_is_json_text_is_written_again_in_ascii`` pins the encoding of what stays).
+    """
+
+    ghost = str(uuid4())
+    poison = '{"quote": "q", "note": "\\ud800"}'
+    shapes = {
+        "poison beside a missing memory": [f"memory:{ghost}", poison],
+        "poison in an entry that names the memory": [json.dumps({"memory_id": vault.cited_id, "k": 1}).replace('"k"', '"\\ud800k"')],
+        "poison in a quote": [json.dumps({"memory_id": vault.cited_id, "quote": "x"}).replace('"x"', '"\\ud800"')],
+    }
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        store = SQLiteVNextStore(conn, vault.user)
+        poisoned = {name: vault._commit(store, name, refs) for name, refs in shapes.items()}
+    for variant in ("redacted",):
+        vault.make_unreadable(variant)
+    for who in ("trusted", "admin"):
+        recent = vault.route(who, "recent", limit=100)
+        assert recent is not None, who
+        for name, memory_id in poisoned.items():
+            audit = vault.route(who, "audit", memory_id=memory_id)
+            assert audit is not None, (who, name)
+    for who in ("trusted", "read_only", "trusted_bound"):
+        for name, memory_id in poisoned.items():
+            for tool, arguments in (("alice_explain", {"memory_id": memory_id}), ("alice_memory_review", {"review_item_id": memory_id})):
+                answer = vault.try_call(who, tool, arguments)
+                assert answer is None or json.dumps(answer, ensure_ascii=False).encode("utf-8"), (who, name, tool)
 
 
 @pytest.mark.parametrize("variant", VARIANTS)
@@ -617,7 +804,7 @@ def test_a_call_that_declares_a_profile_is_held_to_it_at_the_legacy_tool_and_rev
 
     keyless.make_unreadable(variant)
     for who in DECLARED:
-        carried = _carried(_declared_doors(keyless, who), keyless.sentinel)
+        carried = _carried(_declared_doors(keyless, who, may_read=who in READS_AFTER[variant]), keyless.sentinel)
         if who in READS_AFTER[variant]:
             assert {"legacy recent commits", "legacy recent commits limit 1"} <= carried, (variant, who)
         else:
@@ -626,7 +813,8 @@ def test_a_call_that_declares_a_profile_is_held_to_it_at_the_legacy_tool_and_rev
 
 @pytest.mark.parametrize("variant", VARIANTS)
 def test_the_owner_and_an_unbound_admin_key_keep_every_quote(vault: Vault, keyless: Vault, variant: str) -> None:
-    """The owner (a call with no key, on an install with none) is shown what was stored, and so is an unbound admin key.
+    """The owner (a call with no key, on an install with none) is shown what was stored, and so is an unbound admin key, at the
+    audit route of every commit.
 
     Mutations: make ``SourceReadFence.fenced`` return ``True`` for the owner, or let ``_judge_memories`` skip the
     ``entity_read_fenced`` test: the owner and the admin key lose the words of a redacted memory.
@@ -648,9 +836,14 @@ def test_the_owner_and_an_unbound_admin_key_keep_every_quote(vault: Vault, keyle
 
 def test_the_id_of_the_cited_memory_stays_and_the_rest_of_the_commit_is_untouched(vault: Vault) -> None:
     """The ref keeps its id and loses its quote (the marker a withheld quote has on a link, ``null``); the commit keeps its
-    title and text, and every other field of the ref.
+    title and text, and every field of the ref that the product writes. A field the product does not write goes with its
+    value, whatever the value is, so the entry ``{"evidence": [{"memory_id": "<id>", "quote": null}]}`` loses ``evidence`` and
+    the id with it (a restricted reader is shown less, never more), and the entry that names the memory with a name made of words
+    keeps ``memory_id`` and loses the words.
 
-    Mutation: replace ``_withhold_quote_text`` with a function that returns ``None`` (the entry goes, and the id with it).
+    Mutations: replace ``_withhold_entry_text`` with a function that returns ``None`` (the entry goes, and the id with it); keep
+    the fields of an entry that the product does not write (``_product_key`` returns the lower-cased key whatever it is: the
+    key rows keep their words).
     """
 
     vault.make_unreadable("redacted")
@@ -665,7 +858,7 @@ def test_the_id_of_the_cited_memory_stays_and_the_rest_of_the_commit_is_untouche
 
     assert refs("memory_id") == [{"memory_id": vault.cited_id, "quote": None}]
     assert refs("memory prefix + quote entry") == [f"memory:{vault.cited_id}", {"quote": None}]
-    assert refs("nested") == [{"evidence": [{"memory_id": vault.cited_id, "quote": None}]}]
+    assert refs("nested") == [{}]
     assert refs("upper case") == [{"memory_id": vault.cited_id.upper(), "quote": None}]
     assert json.loads(refs("json text")[0]) == {"memory_id": vault.cited_id, "quote": None}
     assert refs("alice url") == [f"alice://memories/{vault.cited_id}", {"quote": None}]
@@ -676,6 +869,44 @@ def test_the_id_of_the_cited_memory_stays_and_the_rest_of_the_commit_is_untouche
     assert refs("ref key and a fragment") == [{"ref": f"memory:{vault.cited_id}"}]
     assert refs("memory_id and a fragment") == [{"memory_id": vault.cited_id}]
     assert refs("memory_id and words") == [{"memory_id": None}]
+    # Words written as the name of a field go with the value of the field, whatever the value is, at any depth and inside JSON
+    # text; the names the product writes stay (``memory_id``, ``source_id``, ``memories`` and the quote marker).
+    cited = vault.cited_id
+    assert refs("key with a string value") == [{"memory_id": cited}]
+    assert refs("key with a null value") == [{"memory_id": cited}]
+    assert refs("key with a number value") == [{"memory_id": cited}]
+    assert refs("key with a boolean value") == [{"memory_id": cited, "quote": None}]
+    assert refs("key nested") == [{"memory_id": cited}]
+    assert refs("key under a reference key") == [{"memory_id": cited, "memories": [{"memory_id": cited}]}]
+    assert json.loads(refs("key in json text")[0]) == {"memory_id": cited}
+    assert refs("key beside a quote") == [{"memory_id": cited, "quote": None}]
+    assert refs("key in the entry beside") == [f"memory:{cited}", {}]
+    assert refs("key and a source") == [{"source_id": vault.source_id}, {"memory_id": cited}]
+    # An entry beside the ref that names a readable source keeps what it holds under the names the product writes.
+    assert refs("key beside a readable source") == [f"memory:{cited}", {"source_id": vault.source_id}]
+    assert json.loads(refs("key in json text beside a readable source")[1]) == {"source_id": vault.source_id}
+    assert refs("key nested beside a readable source") == [f"memory:{cited}", {"sources": [{"source_id": vault.source_id}]}]
+    assert refs("source id as a name") == [f"memory:{cited}", {}]
+    assert refs("source marker as a name") == [f"memory:{cited}", {}]
+    assert refs("key beside an unmarked id") == [{}]
+    assert refs("key beside an unmarked sentence") == [None, {}]
+    # The entry beside the ref loses every string and every name the product does not write, as the entry that names the memory
+    # does; an id it carries in a field that is not a reference names nothing and keeps no quote.
+    assert refs("companion bare string") == [f"memory:{cited}", None]
+    assert refs("companion text field") == [f"memory:{cited}", {}]
+    assert refs("companion excerpt field") == [f"memory:{cited}", {}]
+    assert refs("companion nested list") == [f"memory:{cited}", [[None]]]
+    assert refs("companion quote key with a space") == [f"memory:{cited}", {}]
+    assert json.loads(refs("companion json text")[1]) == {}
+    assert refs("companion quote and a chunk id") == [f"memory:{cited}", {"quote": None}]
+    assert refs("companion quote and a source in a chunk id") == [f"memory:{cited}", {"quote": None}]
+    assert refs("companion quote, nested, and an id elsewhere") == [f"memory:{cited}", {"memories": {"quote": None}}]
+    # A quote that is a structure holds the id the entry names the memory by, and goes whole with it.
+    assert refs("quote is an object that holds the id") == [{"quote": None}]
+    assert refs("excerpt is an object that holds the id") == [{"conversation_excerpt": None}]
+    assert refs("quote is a list that holds the id") == [{"quote": None}]
+    assert refs("quote with the marker in its text") == [{"quote": None}]
+    assert refs("quote with the id in its text") == [{"quote": None}]
 
 
 def test_the_conversation_excerpt_of_a_commit_that_cites_an_unreadable_memory_is_withheld(vault: Vault) -> None:
@@ -747,9 +978,9 @@ def test_the_project_dashboard_and_the_source_trace_withhold_the_quote_from_a_ke
 
 def test_alice_explain_does_not_hold_a_call_that_declares_a_profile_with_no_key(keyless: Vault) -> None:
     """The pages say it plainly: on an install with no agent keys a call that declares a restricted profile is held to it by
-    ``alice_memory_review`` by id and by the legacy recent commits tool, and ``alice_explain`` has never held it (the declared
-    profile is a claim and not a credential). The saved quote of a memory is withheld from a key at ``alice_explain`` and not from
-    that call, so the limit the pages name is true.
+    ``alice_memory_review`` by id and by the legacy recent commits tool, and ``alice_explain`` and the legacy audit tool have
+    never held it (the declared profile is a claim and not a credential). The saved quote of a memory is withheld from a key at
+    both and not from that call, so the limit the pages name is true.
 
     Mutation: drop ``_is_key_bound_explain(identity)`` from the condition of the reader call in
     ``_handle_alice_vnext_memory_audit``: the declared profile is held and this test fails.
@@ -757,8 +988,9 @@ def test_alice_explain_does_not_hold_a_call_that_declares_a_profile_with_no_key(
 
     keyless.make_unreadable("redacted")
     for who in ("read_only", "memory_proposal", "trusted"):
-        answer = keyless.declared(who, "alice_explain", {"memory_id": keyless.commits["memory_id"]})
-        assert answer is not None and keyless.sentinel in _text(answer), who
+        for tool in ("alice_explain", "alice_vnext_memory_audit"):
+            answer = keyless.declared(who, tool, {"memory_id": keyless.commits["memory_id"]})
+            assert answer is not None and keyless.sentinel in _text(answer), (who, tool)
 
 
 def test_an_unmarked_id_of_a_memory_that_is_not_in_the_table_names_nothing_and_keeps_the_quote(tmp_path, monkeypatch) -> None:

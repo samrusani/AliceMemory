@@ -4633,6 +4633,9 @@ class VNextRetrievalService:
             query=request.query,
             memory_visible=pack_memory_visible,
         )
+        # A source made by an agent keeps the refs it was sent, a quote of a memory or a source included, and the pack returns the
+        # source row. They are held to the caller's read fence before the budget prices the rows, as the quotes of the memories are.
+        ranked_sources = cast(list[JsonObject], saved_provenance.sources(ranked_sources))
         ranked_open_loops = [_compact_item(candidate.item) for candidate in open_loop_candidates if candidate.selected]
 
         # Greedy token-budget packing, section by section. Default

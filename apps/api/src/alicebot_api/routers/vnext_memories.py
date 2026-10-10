@@ -51,6 +51,8 @@ from alicebot_api.routers._vnext_shared import (
     _vnext_permission_response,
     _vnext_policy_checked,
     _vnext_public_error_response,
+    _vnext_source_for_caller,
+    _vnext_sources_for_caller,
 )
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.vnext_agent_control import (
@@ -511,6 +513,7 @@ def get_vnext_connector_status(
             guard = guard_for_caller(store, identity)
             readable_sources = guard.admit_rows("source", store.list_sources(limit=50))
             sources = [source for source in readable_sources if source.get("connector_name") == connector_name]
+            sources = _vnext_sources_for_caller(store, identity, sources[:10])
             failures = service.shown_event_cursors(
                 [
                     event
@@ -522,7 +525,7 @@ def get_vnext_connector_status(
             payload = {
                 "config": service.get_config(connector_name),
                 "health": service.connector_health(connector_name, guard=guard),
-                "recent_captures": sources[:10],
+                "recent_captures": sources,
                 "recent_failures": failures[:10],
             }
     except AgentKeyAuthenticationError as exc:
@@ -954,6 +957,8 @@ def get_vnext_source(
                 return _vnext_permission_response(operator)
             source_uuid = _vnext_path_uuid("source_id", source_id)
             payload = _vnext_readable_source(store, identity, source_uuid)
+            if payload is not None:
+                payload = _vnext_source_for_caller(store, identity, payload)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
 
@@ -1050,7 +1055,9 @@ def review_vnext_source(
                 trace = _vnext_trace_for_caller(store, archived, identity)
                 return JSONResponse(
                     status_code=200,
-                    content=jsonable_encoder({"source": archived, "archived": True, "trace": trace}),
+                    content=jsonable_encoder(
+                        {"source": _vnext_source_for_caller(store, identity, archived), "archived": True, "trace": trace}
+                    ),
                 )
 
             if action == "assign_project" and request.project_id is None:
@@ -1123,6 +1130,7 @@ def review_vnext_source(
                 payload={"action": action, "project_id": request.project_id, "review_note": request.review_note},
             )
             trace = _vnext_trace_for_caller(store, updated, identity)
+            updated = _vnext_source_for_caller(store, identity, updated)
     except AgentIdentityValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext agent identity claims are invalid")
     except AgentKeyAuthenticationError as exc:
@@ -1162,7 +1170,7 @@ def delete_vnext_source(
             existing = _vnext_readable_source(store, identity, source_id)
             if existing is None:
                 return _vnext_source_not_found(source_id)
-            payload = store.delete_source(source_id=str(source_id))
+            payload = _vnext_source_for_caller(store, identity, store.delete_source(source_id=str(source_id)))
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
 

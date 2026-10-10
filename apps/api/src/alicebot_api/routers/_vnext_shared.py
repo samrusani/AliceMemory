@@ -311,6 +311,40 @@ def _vnext_readable_trace_rows(store, kind, fetch, identity, *, admit=None, scan
         prefix = prefix * 2 if last_prefix is None else min(prefix * 2, last_prefix)
 
 
+def _vnext_reader_for(store: PostgresVNextStore, identity: object | None) -> SavedProvenanceReader | None:
+    """The reader of what rows saved of the sources and memories they cite, for this caller, or None for a caller with no limits
+    (the owner and an unbound admin key), who is shown the rows as stored."""
+
+    caller = identity if isinstance(identity, AgentIdentity) else None
+    fence = SourceReadFence.for_identity(caller)
+    return SavedProvenanceReader(store, fence=fence) if fence.entity_read_fenced else None
+
+
+def _vnext_sources_for_caller(
+    store: PostgresVNextStore, identity: object | None, rows: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    """Source rows as the caller is shown them. A source made by the agent-output ingest keeps the refs it was sent, quotes
+    of a memory or a source included, and a route that returns the source returns them, so they are held to the caller's
+    fence now (``SavedProvenanceReader.sources``). The row in the store is not changed."""
+
+    reader = _vnext_reader_for(store, identity)
+    return rows if reader is None else reader.sources(rows)
+
+
+def _vnext_source_for_caller(store: PostgresVNextStore, identity: object | None, row: dict[str, object]) -> dict[str, object]:
+    return _vnext_sources_for_caller(store, identity, [row])[0]
+
+
+def _vnext_ratings_for_caller(
+    store: PostgresVNextStore, identity: object | None, rows: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    """Quality ratings as the caller is shown them. The metadata of a rating is a structure its writer chose and can quote a
+    source or a memory, so it is held to the caller's fence now (``SavedProvenanceReader.fields``)."""
+
+    reader = _vnext_reader_for(store, identity)
+    return rows if reader is None else reader.fields(rows, ("metadata_json",))
+
+
 def _vnext_load_source_trace(
     *,
     store: PostgresVNextStore,
@@ -330,6 +364,8 @@ def _vnext_load_source_trace(
     caller = identity if isinstance(identity, AgentIdentity) else None
     if not apply_sensitivity_ceiling(store, kind="source", rows=[source], identity=caller):
         return None
+    # The trace is built for display only, so the refs the source kept are held to the caller's fence here.
+    source = _vnext_source_for_caller(store, caller, source)
     read_fence = SourceReadFence.for_identity(caller)
     event_guard = None
     if read_fence.entity_read_fenced:

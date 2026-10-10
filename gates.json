@@ -106,9 +106,9 @@
     }
   },
   "ci_time": {
-    "job": "python-unit-shards (Unit tests, shard N of 3, SQLite)",
+    "job": "python-unit-shards (Unit tests, shard N of 4, SQLite)",
     "required_check": "Unit tests + live eval battery (SQLite)",
-    "shard_count": 3,
+    "shard_count": 4,
     "measured_on": "2026-10-03",
     "measured_runs": 2,
     "measured_scope": "every successful attempt of tests.yml on the pull request that split the job up to its first complete head (the run and one re-run of it), the longest of the three shard jobs in each attempt, job start to job finish",
@@ -123,6 +123,12 @@
       "measured_scope": "every run of tests.yml, push and pull request, created from 2026-10-02 02:47 UTC to 2026-10-03 04:37 UTC in which the job succeeded, job start to job finish",
       "measured_seconds": {"min": 482, "median": 836, "max": 1070},
       "note": "The single job crossed the split line of 17 minutes (1020 seconds) in its longest run of 1070 seconds, which is why the unit tests were split into shards."
+    },
+    "second_split": {
+      "measured_on": "2026-10-10",
+      "measured_scope": "the three heads of the pull request that split the unit tests again, the longest of the three shard jobs of each, job start to job finish, with a 20 minute limit",
+      "three_shards_longest_job_seconds": [1051, 1121, 1216],
+      "note": "The unit tests grew from the 8 minutes of the first split to about 43 minutes of tests, so the longest of three shards took 17.5 and 18.7 minutes and was cancelled at the limit on the third head. Four shards of about 11 minutes of tests each leave room for a slower runner. The measured_seconds above are those of the first split."
     },
     "p0a_tests": {
       "seconds_measured_locally": 24,

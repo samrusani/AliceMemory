@@ -297,6 +297,20 @@ def _run_vnext_memory_recent(ctx: CLIContext, args: argparse.Namespace) -> str:
 
 
 def _run_vnext_memory_audit(ctx: CLIContext, args: argparse.Namespace) -> str:
+    # Imported here, not at module level: tests/unit/test_cli_package_split.py pins the CLI package's public names.
+    from collections.abc import Mapping
+    from dataclasses import replace
+
+    from alicebot_api.vnext_agent_control import append_policy_events, evaluate_agent_policy
+    from alicebot_api.vnext_label_guard import (
+        apply_unverified_rule,
+        effective_row_for_fence,
+        outside_caller_limits,
+        policy_labels,
+    )
+    from alicebot_api.vnext_memory_commit import MemoryNotFoundError
+    from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
+
     with _vnext_store_context(ctx) as store:
         identity, _actor_type, _actor_id, decision = _vnext_policy_checked_for_args(
             store,
@@ -304,7 +318,42 @@ def _run_vnext_memory_audit(ctx: CLIContext, args: argparse.Namespace) -> str:
             action="memory.audit",
         )
         ensure_policy_allowed(decision)
-        payload = VNextMemoryCommitService(store).audit(memory_id=args.memory_id)
+
+        def authorize_memory(memory: Mapping[str, object]) -> None:
+            # The root and every memory of its replacement chain, as the audit route authorizes them: one the caller may not read
+            # is answered as a memory that does not exist, before a policy decision is built from its labels and before anything
+            # is recorded.
+            if outside_caller_limits(store, identity, "memory", memory):
+                raise MemoryNotFoundError("memory was not found")
+            effective = effective_row_for_fence(store, identity, "memory", memory)
+            domains, sensitivity_allowed, project_scope, project_floor = policy_labels(effective)
+            chain = evaluate_agent_policy(
+                identity=identity,
+                action="memory.audit",
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                project_scope=project_scope,
+                project_floor=project_floor,
+                require_explicit_project_scope=bool(identity is not None and identity.project_scope_locked),
+            )
+            if chain.decision == "allowed_with_filtering":
+                chain = replace(
+                    chain,
+                    decision="blocked",
+                    reasons=tuple(dict.fromkeys((*chain.reasons, "exact_target_filtering_not_permitted"))),
+                )
+            chain = apply_unverified_rule(chain, effective, identity)
+            append_policy_events(store, identity=identity, decision=chain, target_type="memory", target_id=str(memory["id"]))
+            ensure_policy_allowed(chain)
+
+        payload = VNextMemoryCommitService(store).audit(
+            memory_id=args.memory_id, authorize_memory=authorize_memory if identity is not None else None
+        )
+        # The memory, its revisions, its links and its events keep the quote of every source and memory they cite. A caller with
+        # limits is shown the ones it may read now; the owner and an unbound admin key are shown all.
+        fence = SourceReadFence.for_identity(identity)
+        if fence.entity_read_fenced:
+            payload = SavedProvenanceReader(store, fence=fence).audit(payload)
     return _json_dumps(payload)
 
 

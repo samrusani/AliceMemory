@@ -10,10 +10,14 @@ by the admin key (no limits, the control) and by the trusted key (the ceiling: p
 ``redacted_family=True`` adds a public memory that is redacted through the route before the vault is returned, and the rows
 that hold or point at its words: a derived commit, a derived loop, a derived report and a derived project state (copies that
 redaction contains with the reports), and four commits that quote the memory, one with the ref ``{"memory_id": ..., "quote":
-...}``, one with the two entries ``"memory:<id>"`` and ``{"quote": ...}``, one held for review, and two that asked for an inline
+...}``, one with the two entries ``"memory:<id>"`` and ``{"quote": ...}``, one held for review, two that write the words of the
+memory as the name of a field (in the entry that names it and in the entry beside it), and two that asked for an inline
 confirmation and were confirmed, one by the owner and one by the admin key (the lifecycle whose event holds the refs the commit was
-sent with; the admin key's event is an agent event, which the workspace lists in its agent activity). The memory is not above any
-ceiling, so it is hidden from a key with limits only because it is redacted. The commits that quote it are public and readable,
+sent with; the admin key's event is an agent event, which the workspace lists in its agent activity). Three more rows keep a structure
+their writer chose that quotes the memory: a source made by the agent-output ingest (its ``source_refs``, in the metadata and in the raw
+payload), a queued task that was processed (its allowed sources and scope, and the artifact the worker made), and a quality rating of
+a shown artifact (its metadata). The memory is not above any ceiling, so it is hidden from a key with limits only because it is
+redacted. The commits that quote it are public and readable,
 and carry shown text of their own: a restricted key may read the commit and must not read the quote. It is off by default so the
 tests that count the rows of the vault keep their numbers; ``tests/integration/test_saved_quote_memory_refs_postgres.py`` sweeps
 every route with it on.
@@ -489,6 +493,9 @@ class Vault:
             ("commit_quotes_redacted", [{"memory_id": cited, "quote": words}], 0.99),
             ("commit_quotes_redacted_typed", [f"memory:{cited}", {"quote": words}], 0.99),
             ("commit_pending_quotes_redacted", [{"memory_id": cited, "quote": words}], 0.3),
+            # The words of the memory written as the name of a field, which a restricted reader must not be shown either.
+            ("commit_keys_redacted", [{"memory_id": cited, words: None}], 0.99),
+            ("commit_keys_redacted_typed", [f"memory:{cited}", {words: 1}], 0.99),
         ):
             status, body = self.admin_request(
                 "POST",
@@ -506,10 +513,79 @@ class Vault:
             )
             assert status in {200, 201}, (status, str(body)[:300])
             self.ids[name] = str(body["memory"]["id"])
+        self._ingested_quote(cited, words)
+        self._queued_quote(cited, words)
+        self._rated_quote(cited, words)
         status, body = self.admin_request(
             "POST", "/v0/vnext/memories/redact", {"memory_id": cited, "reason": "sweep"}
         )
         assert status == 200, (status, str(body)[:300])
+
+    def _ingested_quote(self, cited: str, words: str) -> None:
+        """A source made by the agent-output ingest, whose ``source_refs`` quote the memory (and write its words as a field name).
+
+        The ingest keeps the refs it was sent on the source it makes, twice: in ``metadata_json.source_refs`` and in
+        ``metadata_json.raw_payload.source_refs``. Every route that returns a source returns them, so a restricted key must be shown
+        the ids and the quote marker and none of the words once the memory is redacted.
+        """
+
+        status, body = self.admin_request(
+            "POST",
+            "/v0/vnext/agents/ingest-output",
+            {
+                "agent_id": self.agent_ids.get("admin_agent", "sweep-ingest"),
+                "title": self._text("ingest_quotes_redacted-title", hidden=False),
+                "content": self._text("ingest_quotes_redacted-text", hidden=False),
+                "domain": "project",
+                "sensitivity": "public",
+                "source_refs": [{"memory_id": cited, "quote": words, words: True}, f"memory:{cited}", {"quote": words}],
+            },
+        )
+        assert status in {200, 201}, (status, str(body)[:300])
+        self.ids["ingest_quotes_redacted"] = str(body["source_id"])
+        self.ids["ingest_quotes_redacted_artifact"] = str(body["artifact_id"])
+
+    def _queued_quote(self, cited: str, words: str) -> None:
+        """A queued task whose allowed sources quote the memory and whose scope writes its words as a field name, then processed.
+
+        The worker prints both structures into the artifact it makes, and the workspace lists the task as stored. The artifact is
+        derived from the memory the task names, so redacting the memory takes it out of every route of a key with limits; the task
+        row is held to the reader. It is the only task queued when it is processed, so the worker claims it.
+        """
+
+        status, body = self.admin_request(
+            "POST",
+            "/v0/vnext/queue/tasks",
+            {
+                "title": self._text("task_quotes_redacted-title", hidden=False),
+                "task_type": "summarize",
+                "instructions": self._text("task_quotes_redacted-instructions", hidden=False),
+                "domain": "project",
+                "sensitivity": "public",
+                "scope_json": {words: cited},
+                "allowed_sources_json": [{"memory_id": cited, "quote": words, words: True}],
+            },
+        )
+        assert status in {200, 201}, (status, str(body)[:300])
+        task = body.get("task") or body
+        self.ids["task_quotes_redacted"] = str(task["id"])
+        status, body = self.admin_request("POST", "/v0/vnext/queue/process-next", {})
+        assert status == 200 and body["status"] == "completed", (status, str(body)[:300])
+        assert body["task_id"] == self.ids["task_quotes_redacted"], "the worker claimed the task of this vault"
+        self.ids["task_quotes_redacted_artifact"] = str(body["artifact_id"])
+        self.remember_hidden("generated_artifacts", body["artifact_id"])
+
+    def _rated_quote(self, cited: str, words: str) -> None:
+        """A quality rating of a shown artifact whose metadata quotes the memory and writes its words as a field name. The artifact
+        is not derived from the memory, so redacting the memory does not contain it, and the rating is held to the reader."""
+
+        status, body = self.admin_request(
+            "POST",
+            f"/v0/vnext/artifacts/{self.ids['artifact_shown']}/quality-ratings",
+            {"verbosity": "right_sized", "metadata_json": {"memory_id": cited, "quote": words, words: 1}},
+        )
+        assert status in {200, 201}, (status, str(body)[:300])
+        self.ids["rating_quotes_redacted"] = str(body["id"])
 
     def _redacted_project_row(self, store, memory) -> None:
         project = store.create_project(
@@ -557,7 +633,7 @@ class Vault:
                     domain="project",
                     sensitivity="public",
                     confidence=0.6,
-                    source_refs=({"memory_id": self.ids["memory_redacted"], "quote": words},),
+                    source_refs=({"memory_id": self.ids["memory_redacted"], "quote": words, words: None},),
                     conversation_excerpt=words,
                 ),
             )
@@ -590,7 +666,7 @@ class Vault:
                 "sensitivity": "public",
                 "confidence": 0.6,
                 "source_type": "agent",
-                "source_refs": [{"memory_id": self.ids["memory_redacted"], "quote": words}],
+                "source_refs": [{"memory_id": self.ids["memory_redacted"], "quote": words, words: True}],
                 "conversation_excerpt": words,
             },
         )

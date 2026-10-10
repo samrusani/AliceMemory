@@ -64,10 +64,12 @@ LAST = {
     ("PUT", "/v0/vnext/settings/brain-charter"),
 }
 QUOTING = ("commit_quotes_redacted", "commit_quotes_redacted_typed", "commit_pending_quotes_redacted", "commit_confirmed_quotes_redacted")
+# The commits that write the words of the memory as the name of a field, in the entry that names it and in the entry beside it.
+KEYED = ("commit_keys_redacted", "commit_keys_redacted_typed")
 # The commit the admin key asked to confirm inline and confirmed itself: its confirmation is an agent event, which the workspace
 # lists in its agent activity as well as among the recent events.
 BY_AN_AGENT = "commit_agent_confirmed_quotes_redacted"
-REDACTED_MEMORIES = ("memory_redacted", "commit_of_redacted", *QUOTING, BY_AN_AGENT)
+REDACTED_MEMORIES = ("memory_redacted", "commit_of_redacted", *QUOTING, *KEYED, BY_AN_AGENT)
 # The profiles that read the commits that quote the redacted memory but are shut out of the operator routes (a 403 on each).
 SHUT_OUT_OF_ROUTES = ("read_only", "memory_proposal")
 WORKSPACE = ("GET", "/v0/vnext/workspace")
@@ -91,9 +93,22 @@ def _aimed_at_the_redacted_rows(vault: Vault, route: tuple[str, str], base: list
     targets = {
         "memory_id": memories,
         "loop_id": [vault.ids["loop_of_redacted"]],
-        "artifact_id": [vault.ids["artifact_of_redacted"]],
+        "artifact_id": [
+            vault.ids["artifact_of_redacted"],
+            vault.ids["ingest_quotes_redacted_artifact"],
+            vault.ids["task_quotes_redacted_artifact"],
+            vault.ids["artifact_shown"],
+        ],
+        "source_id": [vault.ids["ingest_quotes_redacted"]],
         "project_id": [vault.ids["project_of_redacted"]],
-        "target_id": [*memories, vault.ids["loop_of_redacted"], vault.ids["artifact_of_redacted"]],
+        "target_id": [
+            *memories,
+            vault.ids["loop_of_redacted"],
+            vault.ids["artifact_of_redacted"],
+            vault.ids["ingest_quotes_redacted"],
+            vault.ids["ingest_quotes_redacted_artifact"],
+            vault.ids["task_quotes_redacted_artifact"],
+        ],
     }
     out = list(base)
     for call in base:
@@ -214,12 +229,17 @@ def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch
     cited = vault.ids["memory_redacted"]
     plain, typed, pending, confirmed = (vault.ids[name] for name in QUOTING)
     by_an_agent = vault.ids[BY_AN_AGENT]
+    keyed, keyed_typed = (vault.ids[name] for name in KEYED)
+    # The commits that wrote the words as the name of a field (and the two confirmed commits, which wrote the words as a name beside
+    # the quote) are shown the id and the quote marker, and no name of the field.
     expected = {
         plain: [{"memory_id": cited, "quote": None}],
         typed: [f"memory:{cited}", {"quote": None}],
         pending: [{"memory_id": cited, "quote": None}],
         confirmed: [{"memory_id": cited, "quote": None}],
         by_an_agent: [{"memory_id": cited, "quote": None}],
+        keyed: [{"memory_id": cited}],
+        keyed_typed: [f"memory:{cited}", {}],
     }
     problems: list[object] = []
 
@@ -258,7 +278,7 @@ def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch
         check(("recent commits", limit, status), status == 200 and words not in text)
     status, text = _get(vault, "/v0/vnext/memories/recent-commits", key, limit=100)
     listed = {row["id"]: row for row in json.loads(text)["recent_commits"]} if status == 200 else {}
-    for memory_id in (plain, typed, confirmed, by_an_agent):
+    for memory_id in (plain, typed, confirmed, by_an_agent, keyed, keyed_typed):
         check(("recent commits lists the ref", memory_id), memory_id in listed and refs_of(listed[memory_id]) == expected[memory_id])
     for memory_id, refs in expected.items():
         status, text = _get(vault, "/v0/vnext/memories/{memory_id}/audit", key, memory_id=memory_id)
@@ -271,7 +291,7 @@ def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch
                 all(words not in json.dumps(part, default=str) for part in (body["revisions"], body["events"], body["provenance_links"])),
             )
     for profile, profile_key in keys.items():
-        for memory_id in (plain, typed, confirmed, by_an_agent):
+        for memory_id in (plain, typed, confirmed, by_an_agent, keyed, keyed_typed):
             explained = _tool(monkeypatch, label_harness, profile_key, "alice_explain", {"memory_id": memory_id})
             check(("explain", profile, memory_id), words not in _all_text(explained))
             detail = _tool(monkeypatch, label_harness, profile_key, "alice_memory_review", {"review_item_id": memory_id})
@@ -495,10 +515,10 @@ def test_the_dashboard_and_the_source_trace_withhold_the_quote(label_harness):
     assert problems == [], problems
 
 
-def _spellings(cited: str, quote_of) -> dict[str, tuple[list[object], bool]]:
+def _spellings(cited: str, quote_of, source: str) -> dict[str, tuple[list[object], bool]]:
     """Every spelling of a memory ref, as the HTTP commit route is sent them, each with a quote of its own. The second value says
     whether the commit also saves the quote as its ``conversation_excerpt`` (the ones that name the memory in a string or a URL
-    hold no quote in the ref)."""
+    hold no quote in the ref). ``source`` is a source every profile may read."""
 
     def q(name: str) -> str:
         return quote_of(name)
@@ -532,6 +552,40 @@ def _spellings(cited: str, quote_of) -> dict[str, tuple[list[object], bool]]:
         "key parent_memory_id": ([{"parent_memory_id": cited, "quote": q("key parent_memory_id")}], False),
         "key supersedes": ([{"supersedes": cited, "quote": q("key supersedes")}], False),
         "text beside the id": ([{"memory_id": cited, "text": q("text beside the id")}], False),
+        # Words written as the name of a field, whatever its value is: the name goes with the value.
+        "key with a string value": ([{"memory_id": cited, q("key with a string value"): "x"}], False),
+        "key with a null value": ([{"memory_id": cited, q("key with a null value"): None}], False),
+        "key with a number value": ([{"memory_id": cited, q("key with a number value"): 1}], False),
+        "key nested": ([{"memory_id": cited, "evidence": {q("key nested"): None}}], False),
+        "key in json text": ([json.dumps({"memory_id": cited, q("key in json text"): None})], False),
+        "key in the entry beside": ([f"memory:{cited}", {q("key in the entry beside"): None}], False),
+        "key and a quote null": ([{"memory_id": cited, "quote": None, q("key and a quote null"): True}], False),
+        "key beside an unmarked id": ([{"origin": cited, q("key beside an unmarked id"): None}], False),
+        # The entry beside the ref names a source the caller may read: it keeps its text and loses the names the product does not
+        # write, so words typed as a name reach no caller, whatever else the entry names.
+        "key beside a readable source": ([f"memory:{cited}", {"source_id": source, q("key beside a readable source"): None}], False),
+        "key in json text beside a readable source": (
+            [f"memory:{cited}", json.dumps({"source_id": source, q("key in json text beside a readable source"): 1})], False
+        ),
+        "key nested beside a readable source": (
+            [f"memory:{cited}", {"sources": [{"source_id": source, q("key nested beside a readable source"): 1}]}], False
+        ),
+        "source id as a name": ([f"memory:{cited}", {source: q("source id as a name")}], False),
+        "source marker as a name": ([f"memory:{cited}", {f"source:{source}": q("source marker as a name")}], False),
+        # The entry beside the ref: every string and every name of it goes, not only a field called ``quote``, and an id it
+        # carries in a field that is not a reference names nothing.
+        "companion bare string": ([f"memory:{cited}", q("companion bare string")], False),
+        "companion text field": ([f"memory:{cited}", {"text": q("companion text field")}], False),
+        "companion nested list": ([f"memory:{cited}", [[q("companion nested list")]]], False),
+        "companion json text": ([f"memory:{cited}", json.dumps({"note": q("companion json text")})], False),
+        "companion quote and a chunk id": (
+            [f"memory:{cited}", {"quote": q("companion quote and a chunk id"), "chunk_id": str(uuid4())}], False
+        ),
+        # A quote that is an object or a list holds the id, and a quote with the id typed in its text names the memory.
+        "quote is an object that holds the id": ([{"quote": {"memory_id": cited, "text": q("quote is an object that holds the id")}}], False),
+        "quote is a list that holds the id": ([{"quote": [{"memory_id": cited, "text": q("quote is a list that holds the id")}]}], False),
+        "quote with the marker in its text": ([{"quote": f"memory:{cited} {q('quote with the marker in its text')}"}], False),
+        "excerpt that names the memory": ([], True),
         # Words typed behind the id: in a fragment of a reference, and after the id in a field that holds an id.
         "marker and a fragment": ([f"memory:{cited}#{q('marker and a fragment').replace(' ', '-')}"], False),
         "alice url and a fragment": ([f"alice://memories/{cited}#{q('alice url and a fragment').replace(' ', '-')}"], False),
@@ -570,13 +624,15 @@ def test_every_spelling_of_a_memory_ref_is_withheld_at_the_audit_the_recent_comm
     def quote_of(name: str) -> str:
         return f"Atlas played {sentinel} for 115 hours ({name})"
 
-    for name, (refs, saves_excerpt) in _spellings(cited_id, quote_of).items():
+    for name, (refs, saves_excerpt) in _spellings(cited_id, quote_of, vault.ids["source_shown"]).items():
         payload = {
             "title": f"Follow up {name}", "canonical_text": f"Follow up on the games note {name}", "memory_type": "fact",
             "domain": "project", "sensitivity": "public", "confidence": 0.99, "source_type": "agent", "source_refs": refs,
         }
         if saves_excerpt:
-            payload["conversation_excerpt"] = quote_of(name)
+            payload["conversation_excerpt"] = (
+                f"[memory:{cited_id}] {quote_of(name)}" if name == "excerpt that names the memory" else quote_of(name)
+            )
         status, body = vault.admin_request("POST", "/v0/vnext/memories/commit", payload)
         assert status in {200, 201}, (name, status, str(body)[:300])
         commits[name] = str(body["memory"]["id"])

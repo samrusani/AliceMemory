@@ -365,7 +365,7 @@ def test_a_ref_in_any_shape_that_names_a_refused_source_is_dropped_with_the_quot
             if kind == "missing" and b not in named:
                 continue  # an incidental id that names no stored source is not a reference (see CitedSourceIds)
             memory_id = str(uuid4())
-            keep = "https://example.test/doc"
+            keep = f"source:{a}"  # an entry that names only the source the caller may read stays
             row = _row(memory_id, refs=[ref, keep])
             store.memories[memory_id] = row
             link = store.add_link(memory_id, a)
