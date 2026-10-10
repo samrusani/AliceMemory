@@ -121,7 +121,7 @@ def _counts_since(vault, seen: list[dict]) -> list[int]:
 
 
 def _lowered_confidential_loop(vault) -> dict:
-    """The finding: a loop made from a confidential source, then written into by the owner, then its source lowered."""
+    """The case: a loop made from a confidential source, then written into by the owner, then its source lowered."""
 
     todo = f"follow up with the auditors {uuid4()}"
     with vault.store() as conn:
@@ -151,7 +151,7 @@ def test_a_loop_found_again_above_the_ceiling_is_left_out_of_the_answer_and_the_
         assert _extract(vault, identity, _everything()) == []
     assert _counts_since(vault, seen) == [0, 0]
     with vault.store() as conn:
-        # Finding it again wrote no loop.
+        # Extracting again wrote no loop.
         assert len(SQLiteVNextStore(conn, USER).list_open_loops(status=None, limit=20)) == 1
     assert str(world["loop"]["id"]) not in json.dumps(_events(vault), default=str)
 

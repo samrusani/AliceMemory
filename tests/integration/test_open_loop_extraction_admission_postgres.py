@@ -76,7 +76,7 @@ def _extraction_events(harness) -> list[dict]:
 
 
 def _lowered_confidential_loop(harness, *, keyed: bool = True) -> dict:
-    """The finding: an admin key makes a loop from a confidential source, the owner writes into the loop and lowers only
+    """The case: an admin key makes a loop from a confidential source, the owner writes into the loop and lowers only
     the source to public. Returns the keys, the ids and the loop. ``keyed=False`` is a vault with no key at all, where
     the owner makes the loop: a request with no key is the owner's only while the vault has no key."""
 
@@ -97,7 +97,7 @@ def _lowered_confidential_loop(harness, *, keyed: bool = True) -> dict:
     return {"admin": admin, "trusted": trusted, "loop": loop, "source": source, "todo": todo}
 
 
-# -- the finding ---------------------------------------------------------------------------------------------------
+# -- the case --------------------------------------------------------------------------------------------------------
 
 
 def test_a_loop_found_again_above_the_ceiling_is_left_out_of_the_answer_and_the_count(label_harness):
@@ -118,7 +118,7 @@ def test_a_loop_found_again_above_the_ceiling_is_left_out_of_the_answer_and_the_
         assert payload == {"open_loops": [], "created_count": 0}, payload
         assert SENTINEL not in text and loop_id not in text
 
-    # Finding it again wrote no loop, and the stored loop is as the owner left it.
+    # Extracting again wrote no loop, and the stored loop is as the owner left it.
     assert _loop_rows(label_harness) == rows_before
 
 
