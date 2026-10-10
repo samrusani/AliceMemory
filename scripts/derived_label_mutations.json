@@ -8622,6 +8622,342 @@
         "tests/unit/test_trace_and_policy_event_docs.py"
       ],
       "expected_failure": "test_the_changelog_has_one_entry_for_each"
+    },
+    {
+      "name": "extract-admission-removed-replay",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 854,
+          "before": "readable = guard.admit_rows(\"open_loop\", created)",
+          "after": "readable = list(created)",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_extraction_admission_postgres.py::test_a_loop_found_again_above_the_ceiling_is_left_out_of_the_answer_and_the_count"
+      ],
+      "expected_failure": "test_a_loop_found_again_above_the_ceiling_is_left_out_of_the_answer_and_the_count"
+    },
+    {
+      "name": "extract-admission-removed-replay-sqlite",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 854,
+          "before": "readable = guard.admit_rows(\"open_loop\", created)",
+          "after": "readable = list(created)",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_open_loop_extraction_admission_sqlite.py::test_a_loop_found_again_above_the_ceiling_is_left_out_of_the_answer_and_the_event_count"
+      ],
+      "expected_failure": "test_a_loop_found_again_above_the_ceiling_is_left_out_of_the_answer_and_the_event_count"
+    },
+    {
+      "name": "extract-admission-removed-conflict",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 854,
+          "before": "readable = guard.admit_rows(\"open_loop\", created)",
+          "after": "readable = list(created)",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_extraction_admission_postgres.py::test_a_loop_the_upsert_returns_after_a_digest_conflict_is_admitted_like_any_other"
+      ],
+      "expected_failure": "test_a_loop_the_upsert_returns_after_a_digest_conflict_is_admitted_like_any_other"
+    },
+    {
+      "name": "extract-admission-removed-conflict-sqlite",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 854,
+          "before": "readable = guard.admit_rows(\"open_loop\", created)",
+          "after": "readable = list(created)",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_open_loop_extraction_admission_sqlite.py::test_a_loop_the_upsert_returns_after_a_digest_conflict_is_admitted_like_any_other"
+      ],
+      "expected_failure": "test_a_loop_the_upsert_returns_after_a_digest_conflict_is_admitted_like_any_other"
+    },
+    {
+      "name": "extract-admission-removed-domain",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 854,
+          "before": "readable = guard.admit_rows(\"open_loop\", created)",
+          "after": "readable = list(created)",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_extraction_admission_postgres.py::test_a_loop_whose_domain_the_caller_may_not_read_is_left_out_of_a_key_that_reads_the_source"
+      ],
+      "expected_failure": "test_a_loop_whose_domain_the_caller_may_not_read_is_left_out_of_a_key_that_reads_the_source"
+    },
+    {
+      "name": "extract-admission-removed-domain-sqlite",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 854,
+          "before": "readable = guard.admit_rows(\"open_loop\", created)",
+          "after": "readable = list(created)",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_open_loop_extraction_admission_sqlite.py::test_a_loop_whose_domain_the_caller_may_not_read_is_left_out_of_a_key_that_reads_the_source"
+      ],
+      "expected_failure": "test_a_loop_whose_domain_the_caller_may_not_read_is_left_out_of_a_key_that_reads_the_source"
+    },
+    {
+      "name": "extract-admission-removed-project",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 854,
+          "before": "readable = guard.admit_rows(\"open_loop\", created)",
+          "after": "readable = list(created)",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_extraction_admission_postgres.py::test_a_loop_in_another_project_is_left_out_of_a_key_bound_to_the_first"
+      ],
+      "expected_failure": "test_a_loop_in_another_project_is_left_out_of_a_key_bound_to_the_first"
+    },
+    {
+      "name": "extract-admission-removed-project-sqlite",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 854,
+          "before": "readable = guard.admit_rows(\"open_loop\", created)",
+          "after": "readable = list(created)",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_open_loop_extraction_admission_sqlite.py::test_a_loop_in_another_project_is_left_out_of_a_key_bound_to_the_first"
+      ],
+      "expected_failure": "test_a_loop_in_another_project_is_left_out_of_a_key_bound_to_the_first"
+    },
+    {
+      "name": "extract-admission-hides-every-loop",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 854,
+          "before": "readable = guard.admit_rows(\"open_loop\", created)",
+          "after": "readable = [] if guard.active else list(created)",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_extraction_admission_postgres.py::test_a_key_with_a_ceiling_still_extracts_a_new_loop_it_may_read_and_is_shown_it_again"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_still_extracts_a_new_loop_it_may_read_and_is_shown_it_again"
+    },
+    {
+      "name": "extract-admission-hides-every-loop-beside",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 854,
+          "before": "readable = guard.admit_rows(\"open_loop\", created)",
+          "after": "readable = [] if guard.active else list(created)",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_extraction_admission_postgres.py::test_a_hidden_loop_does_not_hide_the_loops_beside_it"
+      ],
+      "expected_failure": "test_a_hidden_loop_does_not_hide_the_loops_beside_it"
+    },
+    {
+      "name": "extract-admission-hides-every-loop-sqlite",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 854,
+          "before": "readable = guard.admit_rows(\"open_loop\", created)",
+          "after": "readable = [] if guard.active else list(created)",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_open_loop_extraction_admission_sqlite.py::test_a_key_with_a_ceiling_still_extracts_a_new_loop_it_may_read_and_is_shown_it_again"
+      ],
+      "expected_failure": "test_a_key_with_a_ceiling_still_extracts_a_new_loop_it_may_read_and_is_shown_it_again"
+    },
+    {
+      "name": "extract-event-counts-loops-before-admission",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 863,
+          "before": "\"created_count\": len(readable), \"source_ids\": _source_ids(sources)",
+          "after": "\"created_count\": len(created), \"source_ids\": _source_ids(sources)",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_extraction_admission_postgres.py::test_the_extraction_event_does_not_count_a_loop_the_caller_may_not_read"
+      ],
+      "expected_failure": "test_the_extraction_event_does_not_count_a_loop_the_caller_may_not_read"
+    },
+    {
+      "name": "extract-event-counts-loops-before-admission-sqlite",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 863,
+          "before": "\"created_count\": len(readable), \"source_ids\": _source_ids(sources)",
+          "after": "\"created_count\": len(created), \"source_ids\": _source_ids(sources)",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_open_loop_extraction_admission_sqlite.py::test_a_loop_found_again_above_the_ceiling_is_left_out_of_the_answer_and_the_event_count"
+      ],
+      "expected_failure": "test_a_loop_found_again_above_the_ceiling_is_left_out_of_the_answer_and_the_event_count"
+    },
+    {
+      "name": "extract-route-hands-the-service-the-owners-guard",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
+          "line": 740,
+          "before": "guard=guard_for_caller(store, identity),",
+          "after": "guard=guard_for_caller(store, None),",
+          "sha256": "0215546e83ed3169fa9e819b25ec942c5c31cd77f789b82187e4345d6404f42c"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_extraction_admission_postgres.py::test_a_loop_found_again_above_the_ceiling_is_left_out_of_the_answer_and_the_count"
+      ],
+      "expected_failure": "test_a_loop_found_again_above_the_ceiling_is_left_out_of_the_answer_and_the_count"
+    },
+    {
+      "name": "extract-service-guard-has-a-default",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 779,
+          "before": "self, request: ProjectAutomationRequest | None = None, *, guard: LabelGuard\n",
+          "after": "self, request: ProjectAutomationRequest | None = None, *, guard: LabelGuard | None = None\n",
+          "sha256": "8929a3f884ac90ebebf389cb46ee2ebc10370f97359c04ec2510ea23f0952a10"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_open_loop_extraction_admission_sqlite.py::test_the_service_requires_the_guard_of_its_caller"
+      ],
+      "expected_failure": "test_the_service_requires_the_guard_of_its_caller"
+    },
+    {
+      "name": "extract-tool-reference-drops-the-found-again-rule",
+      "edits": [
+        {
+          "file": "docs/alpha/mcp-tools.md",
+          "line": 989,
+          "before": "A loop that was made earlier and is found again by its digest is judged on its effective labels like a new loop: ",
+          "after": "",
+          "sha256": "ba058440387e27d7ebed5002ba936b60280cf3116c0b25a7721ff5db50ed94f6"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_operator_route_limits_docs.py::test_the_pages_say_that_extraction_judges_a_loop_found_again_by_its_digest"
+      ],
+      "expected_failure": "test_the_pages_say_that_extraction_judges_a_loop_found_again_by_its_digest"
+    },
+    {
+      "name": "extract-changelog-drops-the-event-count",
+      "edits": [
+        {
+          "file": "CHANGELOG.md",
+          "line": 20,
+          "before": "out of the `created_count` of the `open_loop.extraction_completed` event, as a missing row is, and nothing about it is returned",
+          "after": "as a missing row is, and nothing about it is returned",
+          "sha256": "2e9eac9ae567c32c9bcc6e4baa9c0a624f137a6142999c03cb8c6ae517e54689"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_operator_route_limits_docs.py::test_the_pages_say_that_extraction_judges_a_loop_found_again_by_its_digest"
+      ],
+      "expected_failure": "test_the_pages_say_that_extraction_judges_a_loop_found_again_by_its_digest"
+    },
+    {
+      "name": "extract-security-note-drops-the-count-oracle",
+      "edits": [
+        {
+          "file": "docs/release/derived-labels-security-note-draft.md",
+          "line": 19,
+          "before": "so the key cannot learn from either count that the loop exists, ",
+          "after": "",
+          "sha256": "4d6163aa13a3a4db5bdbaa8391f8b1391bda7dbd30959210b87bcc64371313e2"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_operator_route_limits_docs.py::test_the_pages_say_that_extraction_judges_a_loop_found_again_by_its_digest"
+      ],
+      "expected_failure": "test_the_pages_say_that_extraction_judges_a_loop_found_again_by_its_digest"
+    },
+    {
+      "name": "manifest-check-skips-the-digest",
+      "edits": [
+        {
+          "file": "scripts/verify_derived_label_mutations.py",
+          "line": 34,
+          "before": "    if hashlib.sha256(raw).hexdigest() != edit[\"sha256\"]:",
+          "after": "    if False:",
+          "sha256": "038b0405e08dd66d36dd6b5522e067ce11c16480e8484144ed96c4e85c2b0297"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_derived_label_mutation_manifest_matches_tree.py::test_a_stale_digest_or_line_is_reported"
+      ],
+      "expected_failure": "test_a_stale_digest_or_line_is_reported"
+    },
+    {
+      "name": "manifest-check-skips-the-span",
+      "edits": [
+        {
+          "file": "scripts/verify_derived_label_mutations.py",
+          "line": 36,
+          "before": "    if text.count(edit[\"before\"]) != 1 or text[:text.index(edit[\"before\"])].count(\"\\n\") + 1 != edit[\"line\"]:",
+          "after": "    if False:",
+          "sha256": "038b0405e08dd66d36dd6b5522e067ce11c16480e8484144ed96c4e85c2b0297"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_derived_label_mutation_manifest_matches_tree.py::test_a_multiline_case_whose_later_lines_changed_is_reported_though_its_first_line_still_holds"
+      ],
+      "expected_failure": "test_a_multiline_case_whose_later_lines_changed_is_reported_though_its_first_line_still_holds"
+    },
+    {
+      "name": "manifest-check-reads-only-the-first-line",
+      "edits": [
+        {
+          "file": "scripts/verify_derived_label_mutations.py",
+          "line": 36,
+          "before": "    if text.count(edit[\"before\"]) != 1 or text[:text.index(edit[\"before\"])].count(\"\\n\") + 1 != edit[\"line\"]:",
+          "after": "    if edit[\"before\"].split(\"\\n\")[0] not in text.split(\"\\n\")[edit[\"line\"] - 1]:",
+          "sha256": "038b0405e08dd66d36dd6b5522e067ce11c16480e8484144ed96c4e85c2b0297"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_derived_label_mutation_manifest_matches_tree.py::test_a_multiline_case_whose_later_lines_changed_is_reported_though_its_first_line_still_holds"
+      ],
+      "expected_failure": "test_a_multiline_case_whose_later_lines_changed_is_reported_though_its_first_line_still_holds"
     }
   ]
 }

@@ -8,6 +8,7 @@ import pytest
 
 from alicebot_api.vnext_artifact_review import dispatch_vnext_artifact_review
 from alicebot_api.vnext_event_log import build_event_log_record
+from alicebot_api.vnext_label_guard import LabelGuard
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_projects import (
     PROJECT_UPDATE_TERMINAL_CONSISTENCY_MESSAGE,
@@ -528,7 +529,7 @@ def test_project_automation_resolves_source_envelope_before_filter_digest_and_lo
     assert isinstance(source_metadata, dict)
     source_metadata["project_id"] = "different-stale-alias"
     replay = service.generate_project_update_candidate(request)
-    loops = service.extract_open_loops(request)
+    loops = service.extract_open_loops(request, guard=LabelGuard.unlimited(store))
 
     assert artifact["metadata_json"]["source_ids"] == ["source-real"]
     assert replay["id"] == artifact["id"]
@@ -542,7 +543,7 @@ def test_direct_project_workflows_are_idempotent_for_unchanged_evidence() -> Non
     request = ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
 
     first_artifact = service.generate_project_update_candidate(request)
-    first_loops = service.extract_open_loops(request)
+    first_loops = service.extract_open_loops(request, guard=LabelGuard.unlimited(store))
     for index in range(150):
         store.artifacts[f"decoy-artifact-{index}"] = {
             "id": f"decoy-artifact-{index}",
@@ -559,7 +560,7 @@ def test_direct_project_workflows_are_idempotent_for_unchanged_evidence() -> Non
             "metadata_json": {"automation_digest": f"decoy-{index}"},
         }
     second_artifact = service.generate_project_update_candidate(request)
-    second_loops = service.extract_open_loops(request)
+    second_loops = service.extract_open_loops(request, guard=LabelGuard.unlimited(store))
 
     assert second_artifact["id"] == first_artifact["id"]
     assert len([row for row in store.artifacts.values() if row.get("id") == first_artifact["id"]]) == 1
@@ -594,7 +595,7 @@ def test_a_candidate_loop_description_never_holds_the_id_of_its_source() -> None
     service = VNextProjectService(store)
     request = ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",))
 
-    first = service.extract_open_loops(request)
+    first = service.extract_open_loops(request, guard=LabelGuard.unlimited(store))
     descriptions: dict[str, list[object]] = {}
     for loop in first:
         descriptions.setdefault(str(loop["source_id"]), []).append(loop["description"])
@@ -606,7 +607,7 @@ def test_a_candidate_loop_description_never_holds_the_id_of_its_source() -> None
     assert set(descriptions) == {"source-1", untitled}
     for loop in first:
         assert untitled not in json.dumps({key: loop.get(key) for key in ("title", "description", "resolution_note")})
-    second = service.extract_open_loops(request)
+    second = service.extract_open_loops(request, guard=LabelGuard.unlimited(store))
     assert [row["id"] for row in second] == [row["id"] for row in first]
     assert len(store.open_loops) == len(first)
 
@@ -1566,7 +1567,10 @@ def test_open_loop_extraction_and_review_support_source_owner_and_filters() -> N
     store = _seed_store()
     service = VNextProjectService(store)
 
-    loops = service.extract_open_loops(ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",)))
+    loops = service.extract_open_loops(
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",)),
+        guard=LabelGuard.unlimited(store),
+    )
     snoozed = service.review_open_loop(loop_id="loop-1", action="snooze", due_at="2026-05-12T09:00:00Z")
     closed = service.review_open_loop(loop_id="loop-2", action="close", resolution_note="Decision captured.")
     dashboard = service.project_dashboard(project_id="project-1")
@@ -1586,7 +1590,10 @@ def test_open_loop_extraction_and_review_support_source_owner_and_filters() -> N
 def test_dashboard_withholds_loops_after_their_source_becomes_unreadable(parent_change) -> None:
     store = _seed_store()
     service = VNextProjectService(store)
-    loops = service.extract_open_loops(ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",)))
+    loops = service.extract_open_loops(
+        ProjectAutomationRequest(agent_identity=None, project_id="project-1", domains=("project",)),
+        guard=LabelGuard.unlimited(store),
+    )
     assert service.project_dashboard(project_id="project-1")["counts"]["open_loops"] == 2
     if parent_change == "missing":
         store.sources.clear()
@@ -1600,10 +1607,13 @@ def test_dashboard_withholds_loops_after_their_source_becomes_unreadable(parent_
 
 
 def test_project_service_validation_errors() -> None:
-    service = VNextProjectService(InMemoryVNextProjectStore())
+    empty = InMemoryVNextProjectStore()
+    service = VNextProjectService(empty)
 
     with pytest.raises(VNextProjectValidationError, match="max_items"):
-        service.extract_open_loops(ProjectAutomationRequest(agent_identity=None, max_items=0))
+        service.extract_open_loops(
+            ProjectAutomationRequest(agent_identity=None, max_items=0), guard=LabelGuard.unlimited(empty)
+        )
 
     with pytest.raises(VNextProjectValidationError, match="no active project"):
         service.generate_project_update_candidate(ProjectAutomationRequest(agent_identity=None, ))

@@ -17,6 +17,27 @@ import tarfile
 import tempfile
 
 
+def check_edit(root: Path, edit: dict) -> tuple[Path, bytes]:
+    """The file ``edit`` applies to under ``root`` and its bytes, or a ``ValueError`` naming why it cannot be replayed.
+
+    A case is refused when its file lies outside ``root``, when the digest of the whole file is not the recorded one,
+    and when the exact text of ``before`` (every line of it, not only the first) is not found exactly once, starting on
+    the recorded one-based line. ``tests/unit/test_derived_label_mutation_manifest_matches_tree.py`` calls this function
+    for every case, so a case the replay would refuse fails there first.
+    """
+
+    path = (root / edit["file"]).resolve()
+    if not path.is_relative_to(root.resolve()):
+        raise ValueError("mutation path outside disposable checkout")
+    raw = path.read_bytes()
+    text = raw.decode()
+    if hashlib.sha256(raw).hexdigest() != edit["sha256"]:
+        raise ValueError("manifest digest mismatch: " + edit["file"])
+    if text.count(edit["before"]) != 1 or text[:text.index(edit["before"])].count("\n") + 1 != edit["line"]:
+        raise ValueError("manifest source span mismatch: " + edit["file"])
+    return path, raw
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -43,15 +64,7 @@ def main() -> int:
         for case in selected:
             originals = {}
             for edit in case["edits"]:
-                path = (checkout / edit["file"]).resolve()
-                if not path.is_relative_to(checkout):
-                    raise ValueError("mutation path outside disposable checkout")
-                raw = path.read_bytes()
-                text = raw.decode()
-                if hashlib.sha256(raw).hexdigest() != edit["sha256"]:
-                    raise ValueError("manifest digest mismatch: " + edit["file"])
-                if text.count(edit["before"]) != 1 or text[:text.index(edit["before"])].count("\n") + 1 != edit["line"]:
-                    raise ValueError("manifest source span mismatch: " + edit["file"])
+                path, raw = check_edit(checkout, edit)
                 originals[path] = raw
             command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *case["pytest"]]
             baseline = subprocess.run(command, cwd=checkout, env=env, capture_output=True, text=True, timeout=180)
