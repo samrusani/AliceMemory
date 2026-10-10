@@ -130,7 +130,7 @@ no memory the caller may read is part of the refused group and is rebuilt the sa
 source, whose entry is dropped whole. An entry *names* a row when a reference position says so (``source_id``, ``memory_id``, a
 ``source:`` or ``memory:`` ref) and the row is stored and readable by the caller; an id under another field (``chunk_id``), in a
 sentence, in a quote, or one that names no stored row, names nothing, so a writer cannot keep a quote by adding an id to its entry.
-The reader cannot tell whether the quote of an entry that does name a readable row is that row's, and keeps it. The owner and an
+The reader cannot tell whether the quote of an entry that does name a readable row is that row's, and keeps it, with the other strings under the names the product writes; the names the product does not write go from that entry too, with their values. The owner and an
 unbound ``admin_agent`` key have no limits and keep every quote. The memories of a row are
 looked up only when the row holds words to withhold (a quote, an excerpt, a ``#`` fragment, any string that is not made of
 references, or the name of a field the product does not write: ``_holds_words``), so a roll-up card that lists its members as bare
@@ -143,7 +143,7 @@ memory keeps a field only when its name is one the product writes (``PRODUCT_REF
 text, and whatever the name is when it is not a string. A ``text``, ``excerpt``, ``snippet``, ``note`` or ``page`` field goes whole,
 and so does an id that sits under a name such as ``origin`` or ``evidence``: a restricted reader is shown less, never more. The words
 of a dropped name, and of the strings under it, join the words withheld from the memory's links as the words of a quote do. The entry
-beside a refused ref that names nothing readable is held to the same rule. A name outside the list counts as words when the reader
+beside a refused ref is held to the same rule on names, whether or not it names a readable row. A name outside the list counts as words when the reader
 decides whether a row is worth a lookup, so an entry whose only words are its names is looked up and judged. The write side is not
 changed: a client may still send any name, and the rows stored by earlier releases hold the names they were sent with, so the reader
 is the only fence. A ref that is JSON text is decoded, held to the rule and written again in ASCII (``_json_text``), because a text
@@ -1059,25 +1059,24 @@ def _product_key(key: object) -> str | None:
 def _note_dropped(key: object, child: object, texts: set[str] | None) -> None:
     """Add to ``texts`` the words of a field that a withheld entry drops: the key, and every string under it (a key at any depth,
     and the text of a JSON string, included), unless the string is made of references and nothing else. So a copy of the same
-    words on a link of the memory is withheld as well. Walks the field once, with its own stack, to the depth the rebuild goes."""
+    words on a link of the memory is withheld as well. The walk keeps its own stack and has no bound on depth: a field nested as
+    deep as the write door accepts is read to the end, and its words are noted whatever the depth of the rebuild that dropped it."""
 
     if texts is None:
         return
-    pending: list[tuple[object, int]] = [(key, 0), (child, 0)]
+    pending: list[object] = [key, child]
     while pending:
-        node, depth = pending.pop()
-        if depth > _SCRUB_DEPTH:
-            continue
+        node = pending.pop()
         if isinstance(node, Mapping):
             for inner_key, inner in node.items():
-                pending.append((inner_key, depth + 1))
-                pending.append((inner, depth + 1))
+                pending.append(inner_key)
+                pending.append(inner)
         elif isinstance(node, (list, tuple)):
-            pending.extend((inner, depth + 1) for inner in node)
+            pending.extend(node)
         elif isinstance(node, str):
             nested = _json_container(node)
             if nested is not None:
-                pending.append((nested, depth + 1))
+                pending.append(nested)
             elif _canonical_references(node) is None and (text := _quote_text(node)) is not None:
                 texts.add(text)
 
@@ -1139,7 +1138,7 @@ def _json_text(value: object) -> str:
     return json.dumps(value, ensure_ascii=True)
 
 
-def _withhold_entry_text(value: object, texts: set[str] | None, depth: int = 0) -> object:
+def _withhold_entry_text(value: object, texts: set[str] | None, depth: int = 0, *, names_only: bool = False) -> object:
     """``value``, an entry of a ref list that names a refused memory, with every string in it set to ``None`` except the ids.
 
     A ``quote`` or ``conversation_excerpt`` at any depth goes (one that is an object or a list goes with all it holds). So does every other string
@@ -1150,10 +1149,16 @@ def _withhold_entry_text(value: object, texts: set[str] | None, depth: int = 0) 
     What stays is a string made of references and nothing else (an id, ``memory:<id>``, a list of them), without the ``#`` fragment
     of a reference (``_canonical_references``), and every number and boolean under a name the product writes. A string that is
     JSON text is decoded, held to the same rule and encoded again. The same object when nothing changes. ``texts`` collects the
-    words that are withheld, a dropped name and the strings under it included, so a copy of them on a link is withheld too.
+    words that are withheld, a dropped name and the strings under it included, so a copy of them on a link is withheld too. A
+    subtree below the depth bound is withheld whole, and its words are collected as well.
+
+    With ``names_only`` the entry names a source or a memory the caller may read, so the reader cannot tell whose its text is and
+    keeps it: every string stays, the ``quote`` and ``conversation_excerpt`` with them, and the rule on names is the only one that
+    applies. A name the product does not write goes with its value, at any depth and inside JSON text, here as well.
     """
 
     if depth > _SCRUB_DEPTH:
+        _note_dropped(None, value, texts)
         return None
     if isinstance(value, Mapping):
         changed = False
@@ -1164,26 +1169,28 @@ def _withhold_entry_text(value: object, texts: set[str] | None, depth: int = 0) 
                 changed = True
                 _note_dropped(key, child, texts)
                 continue
-            if lowered in _TEXT_KEYS:
+            if lowered in _TEXT_KEYS and not names_only:
                 if child is not None:
                     changed = True
                     _note_withheld(child, texts)
                 rebuilt[key] = None
                 continue
-            scrubbed = _withhold_entry_text(child, texts, depth + 1)
+            scrubbed = _withhold_entry_text(child, texts, depth + 1, names_only=names_only)
             changed = changed or scrubbed is not child
             rebuilt[key] = scrubbed
         return rebuilt if changed else value
     if isinstance(value, (list, tuple)):
-        items = [_withhold_entry_text(child, texts, depth + 1) for child in value]
+        items = [_withhold_entry_text(child, texts, depth + 1, names_only=names_only) for child in value]
         if all(new is old for new, old in zip(items, value, strict=True)):
             return value
         return items if isinstance(value, list) else tuple(items)
     if isinstance(value, str):
         nested = _json_container(value)
         if nested is not None:
-            scrubbed = _withhold_entry_text(nested, texts, depth + 1)
+            scrubbed = _withhold_entry_text(nested, texts, depth + 1, names_only=names_only)
             return value if scrubbed is nested else _json_text(scrubbed)
+        if names_only:
+            return value
         references = _canonical_references(value)
         if references is not None:
             return references
@@ -1242,11 +1249,13 @@ def _without_refused_refs(
     An entry names a memory by any id in it (``cited_memory_refs(...).every``), so a ref that spells the id some way the reader
     has no marker for is held to the same rule once the id names a memory the caller may not read.
 
-    An entry beside a refused one is kept as it is only when it *names* a source or a memory (a reference position: ``source_id``,
+    An entry beside a refused one keeps its text only when it *names* a source or a memory (a reference position: ``source_id``,
     ``memory_id``, a ``source:`` or ``memory:`` ref) that is stored and in ``readable``. An id that sits under another field
     (``chunk_id``), in a sentence or in a quote names nothing, and neither does an id that names no stored row, so a writer cannot
     keep a quote by adding an id to its entry. The reader cannot tell whether the quote of an entry that does name a readable
-    source is that source's, and keeps it.
+    source is that source's, and keeps it. The names are another matter: a name the product does not write holds words whatever
+    the entry names, so it goes with its value from that entry as well (``names_only``), and the only words such an entry keeps are
+    the strings under the names the product writes (its ``quote``, and a string beside a ``source_id``).
 
     A value that is not a list and names a refused source is returned as ``_DROPPED``, and the caller removes its key.
     """
@@ -1265,8 +1274,11 @@ def _without_refused_refs(
                 continue
             if not refused_memories.isdisjoint(memories.every):
                 kept.append(_withhold_entry_text(ref, texts))
-            elif refused_here and readable.isdisjoint(sources.named | memories.named):
-                kept.append(_withhold_entry_text(ref, texts))
+            elif refused_here:
+                # The entry beside a refused one. When it names a stored row the caller may read, its text stays (the reader
+                # cannot tell whose it is) and its names are held to the rule on names all the same.
+                names_a_readable_row = not readable.isdisjoint(sources.named | memories.named)
+                kept.append(_withhold_entry_text(ref, texts, names_only=names_a_readable_row))
             else:
                 kept.append(ref)
         unchanged = len(kept) == len(refs) and all(new is old for new, old in zip(kept, refs, strict=True))

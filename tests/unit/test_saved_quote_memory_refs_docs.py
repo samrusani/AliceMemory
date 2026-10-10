@@ -34,6 +34,7 @@ PAGES = {
     "known limitations": "docs/alpha/known-limitations.md",
     "tool reference": "docs/alpha/mcp-tools.md",
     "changelog": "CHANGELOG.md",
+    "importers": "docs/integrations/importers.md",
 }
 MARK = "Unreleased (on main, not in v0.20.0):"
 
@@ -63,8 +64,9 @@ KEEPS = {
     "changelog": "the owner and an unbound admin key keep the quote",
 }
 NOT_JUDGED = (
-    "not judged: the text of an entry beside a refused ref that names a stored source or memory the caller may read (the reader "
-    "cannot tell whose words they are); words a writer typed in a field that is not a ref, such as the rationale and the "
+    "not judged: the text of an entry beside a refused ref that names a stored source or memory the caller may read, which keeps "
+    "the strings under the fields the product writes, a `quote` or a string beside a `source_id` (the reader cannot tell whose "
+    "words they are; every other field name goes from it with its value); words a writer typed in a field that is not a ref, such as the rationale and the "
     "contradiction refs of a commit or the comments of a rating; what the writer chose to encode in the shape of what stays (the "
     "length of a list, the order of its entries, a number or a boolean under a field the product writes); and `alice_explain` and "
     "the legacy `alice_vnext_memory_audit` tool for a call that declares a profile with no agent key, which were never held to it"
@@ -75,6 +77,12 @@ COMPANION = (
     "source. an entry names a row when a reference position says so (`source_id`, `memory_id`, a `source:` or `memory:` ref) and the "
     "row is stored and readable by the caller, and only then does it keep its text; an id under `chunk_id`, in a sentence or in a "
     "quote, and an id that names no stored row, name nothing, so adding one to an entry keeps no quote"
+)
+COMPANION_NAMES = (
+    "the words of a dropped name join the words withheld from the memory's links, and the entry beside a refused ref is held to "
+    "the same rule on names whether or not it names a readable row: one that names nothing readable loses its text as well, and "
+    "one that names a stored source or memory the caller may read keeps its text and loses every name the product does not "
+    "write, with its value"
 )
 QUOTE_STRUCTURE = (
     "a quote or an excerpt that is an object or a list is read like the rest of the ref, and an id typed in the text of a quote or "
@@ -107,7 +115,8 @@ ROWS_CLI = (
 )
 CHANGELOG_ROWS = (
     "an entry beside such a ref that names nothing the caller may read is held to the same rule (a bare string and a `text` field go "
-    "with the `quote`), and so are the refs a source made by the agent-output ingest keeps (the source routes, the source trace, the "
+    "with the `quote`), one that names a stored source or memory the caller may read keeps its text and loses the names the "
+    "product does not write with their values, and so are the refs a source made by the agent-output ingest keeps (the source routes, the source trace, the "
     "artifact trace, the context pack, the workspace and the connector status), the metadata of a quality rating and the allowed "
     "sources and scope of a queued task; the report of a consolidation run and the artifact a queue worker makes are derived from "
     "the memories their refs and tasks name, and `alicebot vnext memories audit` with an agent key applies the reader"
@@ -260,13 +269,14 @@ def test_the_tool_reference_lists_the_reference_keys_the_reader_takes_and_what_i
         FIELD_NAMES_WRITE_SIDE,
         COST,
         COMPANION,
+        COMPANION_NAMES,
         QUOTE_STRUCTURE,
     ):
         assert sentence in text, sentence
     note = _flat("security note")
     for sentence in (
         NOT_JUDGED, STRINGS, FIELD_NAMES, FIELD_NAMES_GOES, FIELD_NAMES_WRITE_SIDE, UNMARKED_NOTE, EVENTS_NOTE, COST,
-        WORKSPACE_DOORS_NOTE, COMPANION, QUOTE_STRUCTURE,
+        WORKSPACE_DOORS_NOTE, COMPANION, COMPANION_NAMES, QUOTE_STRUCTURE,
     ):
         assert sentence in note, sentence
 
@@ -311,6 +321,25 @@ def test_the_pages_list_the_field_names_a_withheld_entry_keeps_as_the_reader_doe
         printed = set(re.findall(r"`([a-z_]+)`", listed.group(1)))
         assert printed | set(MEMORY_REFERENCE_KEYS) == set(PRODUCT_REF_KEYS), (name, printed ^ set(PRODUCT_REF_KEYS))
     assert FIELD_NAMES_CHANGELOG in _flat("changelog")
+
+
+IMPORTERS_QUOTE = (
+    "an id inside the text of a `quote` or `conversation_excerpt` field names nothing (a quote that is an object or a list is a "
+    "structure, and the ids it holds under a reference field count), and a `memory:` reference names a memory"
+)
+
+
+def test_the_importers_page_says_a_quote_that_is_a_structure_names_the_source_it_holds() -> None:
+    """A replacement, ``sources delete`` and ``sources prune`` count a memory as citing a source by the rule the saved-quote reader
+    names it by, and that rule reads the ids in a quote that is an object or a list. The importers page says so next to the rule
+    for quote text, and no longer says that any id inside a ``quote`` field names nothing.
+
+    Mutation: restore the sentence that said an id inside a ``quote`` or ``conversation_excerpt`` field names nothing.
+    """
+
+    text = _flat("importers")
+    assert IMPORTERS_QUOTE in text
+    assert "an id inside a `quote` or `conversation_excerpt` field names nothing" not in text
 
 
 def test_no_current_page_still_says_the_memory_audit_route_returns_what_was_stored() -> None:

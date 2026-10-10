@@ -781,7 +781,8 @@ def test_an_entry_that_names_a_refused_memory_keeps_its_ids_and_loses_every_othe
     so does every field whose name the product does not write (a ``text``, an ``excerpt``, a ``snippet``, a ``note``, a
     ``page``, a ``label``, a ``details`` object), with its value, at any depth and inside JSON text. What stays is each id
     (a string that is an id or an id behind a marker) under a name the product writes, and the numbers and the booleans under
-    such a name. An entry that names a readable memory is not touched.
+    such a name. An entry beside them that names a readable memory keeps what is under the names the product writes, and a field
+    such as ``text`` goes from it too.
 
     Mutations: leave a string alone in ``_withhold_entry_text`` (the sentence row keeps its words); treat a string that is not an id as an id (``_is_reference_text`` returns ``True``: the sentence row keeps
     them); null the strings under a reference key (``id_key`` ignored: ``memory_id`` reads ``null``); keep the fields the
@@ -816,7 +817,7 @@ def test_an_entry_that_names_a_refused_memory_keeps_its_ids_and_loses_every_othe
     assert kept[4] is None
     assert json.loads(kept[5]) == {"memory_id": refused}
     assert kept[6] == {"memory_ids": [refused, f"memory:{refused}"]}
-    assert kept[7] == refs[7], "an entry that names a readable memory is not touched"
+    assert kept[7] == {"memory_id": readable}, "an entry that names a readable memory loses the names the product does not write"
     assert kept[8] is None, "a plain URL beside a refused ref names nothing the caller may read, so it is withheld with the rest"
     assert kept[9] == {"memory_ids": [refused, 4, True, None], "quote": None}, "numbers and booleans stay under a name the product writes"
     assert shown["value"]["source_refs"] == kept  # type: ignore[index]
@@ -1205,6 +1206,108 @@ def test_the_words_of_a_dropped_name_are_withheld_from_a_link_that_says_the_same
     assert other["quote"] == "a different quote"
 
 
+def test_the_words_of_a_dropped_field_inside_json_text_are_withheld_from_a_link_that_says_the_same() -> None:
+    """A field that is dropped can hold JSON text, as a value or as the name itself. The words inside the text are what a link
+    can say again, so the text is decoded and the strings in it are collected, not the text as a whole: a link whose quote is a
+    string inside the JSON text is shown without it, and a link that says something else keeps its quote.
+
+    Mutation: drop the JSON branch of ``_note_dropped`` (``nested = _json_container(node)`` and the append that follows): the text
+    is collected as one string, and the two links keep their quotes.
+    """
+
+    store = _Store()
+    source = store.add_source()
+    refused = store.add_memory(sensitivity="confidential")
+    memory_id = str(uuid4())
+    as_value, as_name = f"{_WORDS} in a value", f"{_WORDS} in a name"
+    row = _commit(
+        memory_id,
+        [{"memory_id": refused, "evidence": json.dumps({"line": [as_value]}), json.dumps([as_name]): None}],
+        copy_kind="none",
+    )
+    value_link = store.add_link(memory_id, source, quote=as_value)
+    name_link = store.add_link(memory_id, source, quote=as_name)
+    other = store.add_link(memory_id, source, quote="a different quote")
+    reader = _reader(store)
+    shown = reader.memory(row)
+    assert shown["metadata_json"]["agentic_memory"]["source_refs"] == [{"memory_id": refused}]  # type: ignore[index]
+    assert [link["quote"] for link in reader.links(memory_id)] == [None, None, "a different quote"]
+    assert value_link["quote"] == as_value and name_link["quote"] == as_name and other["quote"] == "a different quote"
+
+
+def test_the_words_of_a_string_that_is_withheld_are_withheld_from_a_link_that_says_the_same() -> None:
+    """A string that is withheld from an entry (a bare string beside a refused ref, or a string under a reference key that holds more
+    than an id) joins the words withheld from the links of the memory, as a dropped name does: a link whose quote says the same is
+    shown without it, and a link that says something else keeps its quote.
+
+    Mutation: drop the ``texts.add(text)`` of the string branch of ``_withhold_entry_text`` (the two links keep their quotes).
+    """
+
+    store = _Store()
+    source = store.add_source()
+    refused = store.add_memory(sensitivity="confidential")
+    memory_id = str(uuid4())
+    beside, behind = f"{_WORDS} as a bare string", f"see {_WORDS} behind an id"
+    row = _commit(memory_id, [f"memory:{refused}", beside, {"memory_id": refused, "source_id": behind}], copy_kind="none")
+    beside_link = store.add_link(memory_id, source, quote=beside)
+    behind_link = store.add_link(memory_id, source, quote=behind)
+    other = store.add_link(memory_id, source, quote="a different quote")
+    reader = _reader(store)
+    shown = reader.memory(row)
+    assert shown["metadata_json"]["agentic_memory"]["source_refs"] == [f"memory:{refused}", None, {"memory_id": refused, "source_id": None}]  # type: ignore[index]
+    assert [link["quote"] for link in reader.links(memory_id)] == [None, None, "a different quote"]
+    assert beside_link["quote"] == beside and behind_link["quote"] == behind and other["quote"] == "a different quote"
+
+
+def test_the_copy_of_the_refs_in_the_value_of_a_row_is_judged_on_its_own() -> None:
+    """A memory keeps its refs in its metadata and again in its value. A row whose only copy of the refs is in the value (the
+    metadata holds none) is judged all the same: the memory is looked up and the words go.
+
+    Mutation: leave the value out of ``_ref_containers`` (the words stay and nothing is looked up).
+    """
+
+    store = _Store()
+    refused = store.add_memory(sensitivity="confidential")
+    row = _commit(str(uuid4()), [], copy_kind="none")
+    row["value"]["source_refs"] = [{"memory_id": refused, "quote": _WORDS, _NAME: None}]  # type: ignore[index]
+    shown = _reader(store).memory(row)
+    assert shown["value"]["source_refs"] == [{"memory_id": refused, "quote": None}]  # type: ignore[index]
+    assert _SENTINEL not in json.dumps(shown)
+
+
+def test_the_words_nested_deeper_than_the_rebuild_goes_are_withheld_from_a_link_that_says_the_same() -> None:
+    """The rebuild of an entry stops at a bound on depth and withholds the subtree it stops at. The words in that subtree are
+    collected all the same, whether the subtree sits under a field that is kept (a reference key) or under a field that is
+    dropped, so a link whose quote is the deepest string is shown without it. The walk of a dropped field has no bound of its
+    own: it keeps a stack, and a field nested as deep as the write door accepts is read to the end.
+
+    Mutation: drop the ``_note_dropped(None, value, texts)`` call that precedes ``return None`` at the bound in
+    ``_withhold_entry_text`` (the link under the reference key keeps its quote).
+    """
+
+    store = _Store()
+    source = store.add_source()
+    refused = store.add_memory(sensitivity="confidential")
+    memory_id = str(uuid4())
+    kept_words, dropped_words = f"{_WORDS} under a reference key", f"{_WORDS} under a name that is dropped"
+    refs: list[object] = []
+    for key, words in (("memories", kept_words), ("evidence", dropped_words)):
+        deep: object = [words]
+        for _ in range(400):
+            deep = [deep]
+        refs.append({"memory_id": refused, key: deep})
+    row = _commit(memory_id, refs, copy_kind="none")
+    kept_link = store.add_link(memory_id, source, quote=kept_words)
+    dropped_link = store.add_link(memory_id, source, quote=dropped_words)
+    other = store.add_link(memory_id, source, quote="a different quote")
+    reader = _reader(store)
+    shown = reader.memory(row)
+    assert _SENTINEL not in json.dumps(shown)
+    assert shown["metadata_json"]["agentic_memory"]["source_refs"][1] == {"memory_id": refused}  # type: ignore[index]
+    assert [link["quote"] for link in reader.links(memory_id)] == [None, None, "a different quote"]
+    assert kept_link["quote"] == kept_words and dropped_link["quote"] == dropped_words and other["quote"] == "a different quote"
+
+
 def test_the_entry_beside_a_refused_ref_loses_the_names_the_product_does_not_write() -> None:
     """The entry beside a ref that names a refused memory (or a refused source) and names nothing itself loses its quote, as it
     did, and now every name the product does not write as well, with its value. A list that holds nothing refused is not touched.
@@ -1232,7 +1335,8 @@ def test_a_row_whose_only_words_are_the_name_of_a_field_has_its_memories_looked_
     words, so an entry such as ``{"memory_id": "<id>", "<words>": null}`` (no quote, no string) is judged and its memory refused,
     and an entry made of the names the product writes is not (the roll-up card costs no read).
 
-    Mutation: let ``_holds_words`` pass over the names of a mapping (the first assertion fails: the words reach the reader).
+    Mutations: let ``_holds_words`` pass over the names of a mapping (the first assertion fails: the words reach the reader); stop
+    decoding JSON text in ``_holds_words`` (a ref that is JSON text of references alone is looked up, and the last assertion fails).
     """
 
     store = _Store()
@@ -1245,6 +1349,9 @@ def test_a_row_whose_only_words_are_the_name_of_a_field_has_its_memories_looked_
     store.memory_batches.clear()
     bare = _commit(str(uuid4()), [{"memory_id": refused}, {"memory_ids": [refused], "id": 4, "ref": f"memory:{refused}"}], copy_kind="none")
     assert _reader(store).memory(bare) is bare and store.memory_batches == []
+    # A ref that is JSON text is decoded before the test, so one made of the names the product writes and references costs no read.
+    as_text = _commit(str(uuid4()), [json.dumps({"memory_id": refused, "memories": [f"memory:{refused}"]})], copy_kind="none")
+    assert _reader(store).memory(as_text) is as_text and store.memory_batches == []
 
 
 def test_a_name_that_is_not_a_string_is_dropped_with_its_value() -> None:

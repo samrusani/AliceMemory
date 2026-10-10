@@ -1,8 +1,8 @@
 """The rows that keep refs a writer chose hold them to the caller's fence at every door of the mounted application.
 
 Unreleased (on main, not in v0.20.0). The saved-quote reader withholds the words of a memory or a source the caller may not read
-from the ref that cites it. A sweep of the same class found four rows that keep a structure its writer chose and that no
-reader held, each reached by a caller with limits after the memory it cites is redacted:
+from the ref that cites it. Four kinds of row keep a structure their writer chose, and each is reached by a caller with limits
+after the memory it cites is redacted, so each is held to the same rule:
 
 * a source made by the agent-output ingest keeps the ``source_refs`` it was sent, in ``metadata_json`` and again in
   ``metadata_json.raw_payload``; the routes that return a source return them (the source, its review and delete answers, its
@@ -13,8 +13,8 @@ reader held, each reached by a caller with limits after the memory it cites is r
 * the report a consolidation run makes (``tests/integration/test_consolidation_report_sensitivity_postgres.py``).
 
 The vault of the operator route sweep with ``redacted_family=True`` builds all of them before the memory is redacted, and
-``tests/integration/test_saved_quote_memory_refs_postgres.py`` sweeps every route with it. These tests read the same vault door
-by door and require what the sweep cannot: that the row is shown to a key that may read it, with its ids and the marker of a
+``tests/integration/test_saved_quote_memory_refs_postgres.py`` reads every route with it. These tests read the same vault door
+by door and require what that sweep cannot: that the row is shown to a key that may read it, with its ids and the marker of a
 withheld quote, and that the owner and an unbound admin key are shown it as it was stored. A key that cannot see the row at all
 would pass the sweep, so each test names the door that must show it.
 

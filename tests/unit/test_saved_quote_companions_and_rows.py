@@ -1,15 +1,15 @@
 """The entry beside a refused ref, a quote that carries an id, an escaped surrogate, and the rows that keep refs a writer chose.
 
 Unreleased (on main, not in v0.20.0). The reader of saved quotes (``SavedProvenanceReader``) withholds the words of a
-memory or a source the caller may not read from the ref that cites it. These tests hold it to five rules that a sweep of
-the same class found, with a stub store whose reads are counted:
+memory or a source the caller may not read from the ref that cites it. These tests hold it to five rules, with a stub store
+whose reads are counted:
 
 * an entry beside a refused ref that names no source and no memory the caller may read is part of the refused group: every
   string in it and every field whose name the product does not write is withheld, not only a ``quote`` (a bare string, a
   ``text`` field, a name made of words, a nested list, JSON text). An id that sits under another field (``chunk_id``), in a
   sentence or in a quote, or that names no stored row, names nothing, so adding one to an entry keeps no quote. An entry that
   names a stored source or memory the caller may read through a reference field keeps its text, because the reader cannot tell
-  whose words they are;
+  whose words they are, and loses every name the product does not write, because a name holds words whatever the entry names;
 * a quote or an excerpt that is an object or a list is a structure and is read for ids like any other, and an id typed in the
   text of a quote or an excerpt (``memory:<id> words``) is incidental: the quote is withheld when it names a stored memory the
   caller may not read;
@@ -189,6 +189,110 @@ def test_an_entry_that_names_a_missing_or_refused_row_is_judged_as_that_row() ->
     )
     refs = _shown_refs(_reader(store).memory(row))
     assert refs == [{"memory_id": refused, "quote": None}, {"memory_id": ghost_memory, "quote": None}]
+
+
+def _readable_row_companions(source: str, memory: str) -> dict[str, tuple[object, object]]:
+    """Entries that name a stored row the caller may read (``source`` and ``memory``) and put words in the name of a field, each
+    with the entry the caller is shown: the names the product writes stay with their values, every other name goes with its value."""
+
+    return {
+        "the id as the name": ({source: _WORDS}, {}),
+        "the id behind a marker as the name": ({f"source:{source}": _WORDS}, {}),
+        "words as a name beside a source id": ({"source_id": source, _WORDS: None}, {"source_id": source}),
+        "words as a name beside a memory id": ({"memory_id": memory, _WORDS: None}, {"memory_id": memory}),
+        "words as a name with a number": ({"source_id": source, _WORDS: 1}, {"source_id": source}),
+        "words as a name with a string": ({"source_id": source, _WORDS: "x"}, {"source_id": source}),
+        "a name made of words nested under a name the product writes": (
+            {"sources": [{"source_id": source, _WORDS: 1}]},
+            {"sources": [{"source_id": source}]},
+        ),
+        "a name nested under a name the product does not write": (
+            {"source_id": source, "details": {_WORDS: None}},
+            {"source_id": source},
+        ),
+        "a page and a note": ({"source_id": source, "page": 3, "note": "x"}, {"source_id": source}),
+        "the product's names in any case": ({"Source_ID": source, _WORDS: None}, {"Source_ID": source}),
+        "a name that is not a string": ({"source_id": source, 7: "x", None: _WORDS}, {"source_id": source}),
+        "JSON text": (json.dumps({"source_id": source, _WORDS: 1}), json.dumps({"source_id": source})),
+        "JSON text in JSON text": (
+            json.dumps([json.dumps({"source_id": source, _WORDS: 1})]),
+            json.dumps([json.dumps({"source_id": source})]),
+        ),
+    }
+
+
+@pytest.mark.parametrize("kind", [*_REFUSED_KINDS, "refused source"])
+def test_an_entry_that_names_a_readable_row_loses_the_names_the_product_does_not_write(kind: str) -> None:
+    """An entry beside a refused ref that names a stored row the caller may read keeps its text, but a name holds words whatever
+    the entry names, so every name the product does not write goes with its value, at any depth and inside JSON text, as it does
+    from the entry that names the refused memory. The names the product writes stay.
+
+    Mutations, each alone, in ``vnext_source_fence.py``: pass ``names_only=False`` for the entry that names a readable row (the
+    words in a quote go, and the shapes below fail on the other side: the quote of the kept row below is lost); drop the rule on
+    names in ``names_only`` mode (``lowered is None`` kept: every row keeps its words).
+    """
+
+    store = _Store()
+    readable_source, readable_memory = store.add_source(), store.add_memory()
+    if kind == "refused source":
+        cited_ref: object = f"source:{store.add_source(sensitivity='confidential')}"
+    else:
+        cited_ref = {"memory_id": _refused_memory(store, kind), "quote": _WORDS}
+    reader = _reader_for(store, kind) if kind != "refused source" else _reader(store)
+    for label, (companion, expected) in _readable_row_companions(readable_source, readable_memory).items():
+        row = _commit(str(uuid4()), [cited_ref, companion], copy_kind="none")
+        before = copy.deepcopy(row)
+        shown = reader.memory(row)
+        assert row == before, (label, "the stored row is not changed by the read")
+        refs = _shown_refs(shown)
+        assert _no_words(shown), (kind, label)
+        assert refs[-1] == expected, (kind, label)
+    kept = {"source_id": readable_source, "quote": "words of the readable source"}
+    same = _commit(str(uuid4()), [cited_ref, kept], copy_kind="none")
+    assert _shown_refs(reader.memory(same))[-1] == kept, "an entry made of the names the product writes is shown as it was stored"
+
+
+def test_the_words_under_a_name_the_product_writes_stay_in_an_entry_that_names_a_readable_row() -> None:
+    """The limit the pages state. An entry that names a stored row the caller may read keeps the strings under the names the
+    product writes: the reader cannot tell whether the ``quote`` of such an entry is the row's, and a string beside a ``source_id``
+    is the writer's. A writer who attaches a readable source id to an entry keeps the text of that entry; the names it made up
+    are gone. This pins the choice, so a change to it is a decision.
+
+    Mutation: none; the test fails when the strings under a name the product writes are withheld from that entry.
+    """
+
+    store = _Store()
+    refused = store.add_memory(sensitivity="confidential")
+    readable_source = store.add_source()
+    entries = [
+        {"source_id": readable_source, "quote": _WORDS},
+        {"source_id": [readable_source, _WORDS]},
+        {"sources": [{"source_id": readable_source, "quote": _WORDS}]},
+    ]
+    row = _commit(str(uuid4()), [{"memory_id": refused, "quote": _WORDS}, *entries], copy_kind="none")
+    refs = _shown_refs(_reader(store).memory(row))
+    assert refs[0] == {"memory_id": refused, "quote": None}
+    assert refs[1:] == entries
+
+
+def test_the_words_of_a_name_dropped_beside_a_readable_row_are_withheld_from_a_link_that_says_the_same() -> None:
+    """The names an entry loses beside a refused ref join the words withheld from the links of the memory when the entry names a
+    readable row as well: a link whose quote is the dropped name is shown without it.
+
+    Mutation: make ``_note_dropped`` return without adding (the link keeps its quote).
+    """
+
+    store = _Store()
+    source = store.add_source()
+    refused = store.add_memory(sensitivity="confidential")
+    memory_id = str(uuid4())
+    row = _commit(memory_id, [{"memory_id": refused}, {"source_id": source, _WORDS: None}], copy_kind="none")
+    named = store.add_link(memory_id, source, quote=_WORDS)
+    other = store.add_link(memory_id, source, quote="a different quote")
+    reader = _reader(store)
+    reader.memory(row)
+    assert [link["quote"] for link in reader.links(memory_id)] == [None, "a different quote"]
+    assert named["quote"] == _WORDS and other["quote"] == "a different quote", "the stored links are not changed"
 
 
 def test_a_companion_nested_past_the_bound_is_withheld_with_its_subtree() -> None:

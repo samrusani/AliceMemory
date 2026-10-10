@@ -402,6 +402,35 @@ def test_text_that_only_looks_like_a_citation_is_not_one():
     assert found(store, sid) == {cited}
 
 
+def test_a_quote_that_is_a_structure_names_the_source_it_holds():
+    """The text of a quote or an excerpt names nothing (the test above), but a writer can put an object or a list there, and
+    a structure names whatever it holds under a reference key. Such a memory cites the source: a replacement lists it, a
+    delete previews it and a key-bound explain refuses its audit, as for any other structure. An id in the text of the quote
+    still names nothing.
+
+    Mutation: skip every value under a quote key in ``cited_source_ids`` (the ``pending.extend`` of the structures under a text
+    key): the structure rows are not found.
+    """
+
+    store = memory_store()
+    sid = str(uuid4())
+    cited = {
+        "quote object": {"metadata": {"source_refs": [{"quote": {"source_id": sid}}]}},
+        "quote list": {"metadata": {"source_refs": [{"quote": [{"source_id": sid}]}]}},
+        "excerpt object": {"metadata": {"agentic_memory": {"source_refs": [{"conversation_excerpt": {"source_id": sid}}]}}},
+        "JSON text": {"metadata": {"source_refs": [json.dumps({"quote": {"source_id": sid}})]}},
+        "value quote object": {"value": {"text": "A record.", "source_refs": [{"quote": {"source_ids": [sid]}}]}},
+    }
+    not_cited = {
+        "quote text": {"metadata": {"source_refs": [{"quote": f"source:{sid} words"}]}},
+        "quote object of another source": {"metadata": {"source_refs": [{"quote": {"source_id": str(uuid4())}}]}},
+    }
+    ids = {label: insert_memory(store, **row) for label, row in cited.items()}
+    others = {label: insert_memory(store, **row) for label, row in not_cited.items()}
+    assert found(store, sid) == set(ids.values())
+    assert not set(others.values()) & found(store, sid)
+
+
 # -- the lookup agrees with the reader --------------------------------------------------------------------------------
 
 # The spellings below that hold the digits of an id, or the id in a form the reader does not take, without naming it. Every

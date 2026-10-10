@@ -321,8 +321,9 @@ hyphens, in braces, as `urn:uuid:<id>`, as `source:<id>` with or without a
 inside a reference that is JSON text, written with the decimal digits of
 another script (Arabic-Indic, Devanagari or fullwidth digits, for example) in
 place of 0 to 9, and in free text elsewhere in the memory's metadata or value.
-An id inside a `quote` or `conversation_excerpt` field names nothing, and a
-`memory:` reference names a memory. Replacement, `sources delete` and
+An id inside the text of a `quote` or `conversation_excerpt` field names
+nothing (a quote that is an object or a list is a structure, and the ids it holds
+under a reference field count), and a `memory:` reference names a memory. Replacement, `sources delete` and
 `sources prune` all use this rule, so a pending proposal that cites the source
 in any of those spellings is rejected or scrubbed and is counted in the receipt
 and the preview. An id in the digits of another script is read as a whole value,

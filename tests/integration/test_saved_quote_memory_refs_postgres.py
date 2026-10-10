@@ -515,10 +515,10 @@ def test_the_dashboard_and_the_source_trace_withhold_the_quote(label_harness):
     assert problems == [], problems
 
 
-def _spellings(cited: str, quote_of) -> dict[str, tuple[list[object], bool]]:
+def _spellings(cited: str, quote_of, source: str) -> dict[str, tuple[list[object], bool]]:
     """Every spelling of a memory ref, as the HTTP commit route is sent them, each with a quote of its own. The second value says
     whether the commit also saves the quote as its ``conversation_excerpt`` (the ones that name the memory in a string or a URL
-    hold no quote in the ref)."""
+    hold no quote in the ref). ``source`` is a source every profile may read."""
 
     def q(name: str) -> str:
         return quote_of(name)
@@ -561,6 +561,17 @@ def _spellings(cited: str, quote_of) -> dict[str, tuple[list[object], bool]]:
         "key in the entry beside": ([f"memory:{cited}", {q("key in the entry beside"): None}], False),
         "key and a quote null": ([{"memory_id": cited, "quote": None, q("key and a quote null"): True}], False),
         "key beside an unmarked id": ([{"origin": cited, q("key beside an unmarked id"): None}], False),
+        # The entry beside the ref names a source the caller may read: it keeps its text and loses the names the product does not
+        # write, so words typed as a name reach no caller, whatever else the entry names.
+        "key beside a readable source": ([f"memory:{cited}", {"source_id": source, q("key beside a readable source"): None}], False),
+        "key in json text beside a readable source": (
+            [f"memory:{cited}", json.dumps({"source_id": source, q("key in json text beside a readable source"): 1})], False
+        ),
+        "key nested beside a readable source": (
+            [f"memory:{cited}", {"sources": [{"source_id": source, q("key nested beside a readable source"): 1}]}], False
+        ),
+        "source id as a name": ([f"memory:{cited}", {source: q("source id as a name")}], False),
+        "source marker as a name": ([f"memory:{cited}", {f"source:{source}": q("source marker as a name")}], False),
         # The entry beside the ref: every string and every name of it goes, not only a field called ``quote``, and an id it
         # carries in a field that is not a reference names nothing.
         "companion bare string": ([f"memory:{cited}", q("companion bare string")], False),
@@ -613,7 +624,7 @@ def test_every_spelling_of_a_memory_ref_is_withheld_at_the_audit_the_recent_comm
     def quote_of(name: str) -> str:
         return f"Atlas played {sentinel} for 115 hours ({name})"
 
-    for name, (refs, saves_excerpt) in _spellings(cited_id, quote_of).items():
+    for name, (refs, saves_excerpt) in _spellings(cited_id, quote_of, vault.ids["source_shown"]).items():
         payload = {
             "title": f"Follow up {name}", "canonical_text": f"Follow up on the games note {name}", "memory_type": "fact",
             "domain": "project", "sensitivity": "public", "confidence": 0.99, "source_type": "agent", "source_refs": refs,
