@@ -34,7 +34,7 @@ from alicebot_api.vnext_label_guard import (
     policy_labels,
 )
 from alicebot_api.vnext_project_scope import source_project_scope
-from alicebot_api.vnext_source_fence import SourceReadFence
+from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 from alicebot_api.vnext_queue import VNextQueueNotFoundError
 from alicebot_api.vnext_store import PostgresVNextStore, is_redacted_project_update_artifact
 
@@ -287,19 +287,28 @@ def _vnext_source_trace(
     }
 
 
-def _vnext_readable_trace_rows(store, kind, fetch, identity, *, admit=None):
-    """Deepen the prefix until readable truncation can be answered."""
+def _vnext_readable_trace_rows(store, kind, fetch, identity, *, admit=None, scan_limit=None):
+    """Deepen the prefix until readable truncation can be answered.
+
+    With a ``scan_limit`` the read stops after that many rows, as an event feed stops at ``EVENT_FEED_SCAN_LIMIT``, so the
+    cost of the read does not grow with the number of rows the caller may not read. When rows lie beyond that reach and
+    fewer than a full collection were admitted, the rows admitted are returned as an incomplete collection.
+    """
 
     from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling
 
     limit = _VNEXT_SOURCE_TRACE_COLLECTION_LIMIT
     prefix = limit + 1
+    # One row past the reach tells whether any row lies beyond it.
+    last_prefix = None if scan_limit is None else max(scan_limit + 1, prefix)
     while True:
         fetched = list(fetch(prefix))
         admitted = list(admit(fetched)) if admit is not None else apply_sensitivity_ceiling(store, kind=kind, rows=fetched, identity=identity)
         if len(admitted) > limit or len(fetched) < prefix:
             return _vnext_bounded_trace_rows(admitted)
-        prefix *= 2
+        if last_prefix is not None and prefix >= last_prefix:
+            return admitted[:limit], False
+        prefix = prefix * 2 if last_prefix is None else min(prefix * 2, last_prefix)
 
 
 def _vnext_load_source_trace(
@@ -314,13 +323,21 @@ def _vnext_load_source_trace(
     the response carries neither its title nor its id.
     """
 
-    from alicebot_api.vnext_agent_control import AgentIdentity
-    from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling
+    from alicebot_api.vnext_agent_control import AgentIdentity, AgentPolicyBlockedError
+    from alicebot_api.vnext_label_guard import EVENT_FEED_SCAN_LIMIT, apply_sensitivity_ceiling, guard_for_caller
     from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
 
     caller = identity if isinstance(identity, AgentIdentity) else None
     if not apply_sensitivity_ceiling(store, kind="source", rows=[source], identity=caller):
         return None
+    read_fence = SourceReadFence.for_identity(caller)
+    event_guard = None
+    if read_fence.entity_read_fenced:
+        try:
+            event_guard = guard_for_caller(store, caller)
+        except AgentPolicyBlockedError:
+            # A profile the operator gate refuses never reaches here. If one did, the trace is answered as a missing one.
+            return None
     source_id = str(source["id"])
     memories, memories_complete = _vnext_readable_trace_rows(
         store, "memory", lambda limit: store.list_memories_referencing_source(source_id=source_id, limit=limit), caller
@@ -331,9 +348,19 @@ def _vnext_load_source_trace(
     open_loops, open_loops_complete = _vnext_readable_trace_rows(
         store, "open_loop", lambda limit: store.list_open_loops_referencing_source(source_id=source_id, limit=limit), caller
     )
-    open_loops = withhold_unreadable_references(store, open_loops, fence=SourceReadFence.for_identity(caller))
+    open_loops = withhold_unreadable_references(store, open_loops, fence=read_fence)
+    # The memories of a trace are commits and candidates that keep the quote of what they cite. The caller is shown the
+    # quotes it may read now.
+    quote_fence = read_fence
+    if quote_fence.entity_read_fenced:
+        memories = SavedProvenanceReader(store, fence=quote_fence).memories(memories)
     kept_ids = {str(row.get("id")) for row in (*memories, *artifacts, *open_loops)}
     kept_ids.add(source_id)
+    # A caller with limits sees the events that target the source or a row kept above, and only those that name no row it
+    # may not read (a correction names the memory that replaced the target in its payload). The store reads only the events
+    # aimed at those rows, so an event that merely names the source (a chunk, an entity mention) costs nothing against the
+    # reach. The loader filters again, so it does not depend on the store for this. The owner and an unbound admin key keep
+    # every event of the source.
     events, direct_events_complete = _vnext_readable_trace_rows(
         store, "event", lambda limit: store.list_events_for_source_trace(
             source_id=source_id,
@@ -341,10 +368,15 @@ def _vnext_load_source_trace(
             artifact_ids=[str(artifact["id"]) for artifact in artifacts],
             open_loop_ids=[str(open_loop["id"]) for open_loop in open_loops],
             limit=limit,
+            target_ids=sorted(kept_ids) if event_guard is not None else None,
         ), caller,
-        admit=(lambda rows: [event for event in rows if str(event.get("target_id") or "") in kept_ids])
-        if SourceReadFence.for_identity(caller).entity_read_fenced else None,
+        admit=(lambda rows: event_guard.admit_events([event for event in rows if str(event.get("target_id") or "") in kept_ids]))
+        if event_guard is not None else None,
+        scan_limit=EVENT_FEED_SCAN_LIMIT if event_guard is not None else None,
     )
+    if quote_fence.entity_read_fenced:
+        # The events of the trace carry the changes a commit was confirmed or edited with, quotes included.
+        events = SavedProvenanceReader(store, fence=quote_fence).events(events)
     events_complete = direct_events_complete and memories_complete and artifacts_complete and open_loops_complete
     return _vnext_source_trace(
         store=store,

@@ -9,6 +9,7 @@ from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.onramp import bootstrap_database, sqlite_url_for_path
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+from alicebot_api.vnext_label_guard import LabelGuard
 from alicebot_api.vnext_label_repair import label_gap_counts
 from alicebot_api.vnext_projects import ProjectAutomationRequest, VNextProjectService
 
@@ -26,7 +27,7 @@ def test_sqlite_digest_replays_after_project_moves(tmp_path, monkeypatch, stale)
                                       "domain": "project", "sensitivity": "public",
                                       "metadata_json": {"project_scope": [alpha], "raw_text": "TODO: Round trip task"}})
         request = ProjectAutomationRequest(agent_identity=None, project_id=alpha)
-        initial = VNextProjectService(store).extract_open_loops(request)
+        initial = VNextProjectService(store).extract_open_loops(request, guard=LabelGuard.unlimited(store))
         assert len(initial) == 1
         store.update_source(source_id=str(source["id"]), patch={"metadata_json": {**source["metadata_json"], "project_scope": [beta]}})
         if not stale:
@@ -35,7 +36,7 @@ def test_sqlite_digest_replays_after_project_moves(tmp_path, monkeypatch, stale)
         if stale:
             monkeypatch.setattr(store, "search_sources", lambda **_kwargs: [deepcopy(source)])
         for _ in range(2):
-            replay = VNextProjectService(store).extract_open_loops(request)
+            replay = VNextProjectService(store).extract_open_loops(request, guard=LabelGuard.unlimited(store))
             assert [row["id"] for row in replay] == [initial[0]["id"]]
         rows = store.list_open_loops(status=None, limit=20)
         assert len(rows) == 1

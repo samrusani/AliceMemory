@@ -90,7 +90,7 @@ def _workspace_rows(store: PostgresVNextStore, kind: str, rows: Sequence[Mapping
 def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdentity | None = None) -> dict[str, object]:
     from alicebot_api.vnext_label_guard import LabelGuard, readable_own_label_rows, sensitivity_ceiling
     from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
-    from alicebot_api.vnext_source_fence import SourceReadFence
+    from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 
     sensitivity_allowed = ["public", "internal", "private", "unknown"]
     ceiling = sensitivity_ceiling(identity)
@@ -117,7 +117,14 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
         fetched_memories = [
             memory for memory in store.list_memories(status=None) if str(memory.get("status")) in set(review_statuses)
         ][:30]
-    review_memories = guard.admit_rows("memory", fetched_memories)
+    # The reader judges the quote a memory saved of a source or of another memory against the caller's limits now. The
+    # owner and an unbound admin key have no limits, so the rows are theirs as stored.
+    saved_quotes = None if unfenced else SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity))
+
+    def withhold_saved_quotes(rows: list) -> list:
+        return rows if saved_quotes is None else saved_quotes.memories(rows)
+
+    review_memories = withhold_saved_quotes(guard.admit_rows("memory", fetched_memories))
     memory_status_counts = store.count_memories_by_status(sensitivity_allowed=sensitivity_allowed) if unfenced else guard.readable_status_counts("memory")
     review_memory_total = sum(memory_status_counts.get(status, 0) for status in review_statuses)
     fetched_artifacts = store.list_artifacts(sensitivity_allowed=sensitivity_allowed, limit=30)
@@ -148,10 +155,18 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
         )
     else:
         recent_events = guard.newest_admitted_events(lambda size: store.list_events(limit=size), want=20)
+    # An event that confirms or edits a commit carries the refs and the quote the commit was sent with; the feed admits it by the
+    # commit it is about, so the quote of a source or memory the caller may not read is withheld from the payload here.
+    if saved_quotes is not None:
+        recent_events = saved_quotes.events(recent_events)
     event_count = store.count_events() if unfenced else guard.readable_event_count()
     agent_identities = store.list_agent_identities(limit=20)
     agent_count = store.count_agent_identities()
     agent_events = guard.newest_admitted_events(lambda size: store.list_agent_events(limit=size), want=50)
+    # The agent feed is the events an agent key caused, and an agent that confirms or edits a commit appends the same event with
+    # the same payload as the recent events carry. The activity list and the policy blocks drawn from it are held to the rule too.
+    if saved_quotes is not None:
+        agent_events = saved_quotes.events(agent_events)
     list_recent_agentic_commits = getattr(store, "list_recent_agentic_commits", None)
     list_pending_inline_confirmations = getattr(store, "list_pending_inline_confirmations", None)
     memory_commit_service = VNextMemoryCommitService(store)
@@ -166,8 +181,10 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
         if callable(list_pending_inline_confirmations)
         else memory_commit_service.inline_confirmations(limit=20)
     )
-    recent_memory_commits = guard.admit_rows("memory", recent_memory_commits if isinstance(recent_memory_commits, list) else [])
-    inline_confirmations = guard.admit_rows("memory", inline_confirmations)
+    recent_memory_commits = withhold_saved_quotes(
+        guard.admit_rows("memory", recent_memory_commits if isinstance(recent_memory_commits, list) else [])
+    )
+    inline_confirmations = withhold_saved_quotes(guard.admit_rows("memory", inline_confirmations))
     scheduler_status = VNextSchedulerService(store).status()
     scheduler_status = {**scheduler_status, "daemon": daemon_status()}
     connector_health = VNextConnectorService(store).connector_health_all(guard=guard)

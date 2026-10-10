@@ -2156,6 +2156,11 @@ def get_vnext_memory_audit(
                 payload = VNextMemoryCommitService(store).audit(memory_id=str(memory_id), authorize_memory=authorize_memory)
             except AgentPolicyBlockedError as exc:
                 return _vnext_permission_response(exc.decision)
+            # The memory, its revisions, its links and its events keep the quote of every source and memory they cite.
+            # A caller with limits is shown the ones it may read now; the owner and an unbound admin key are shown all.
+            quote_fence = SourceReadFence.for_identity(identity)
+            if quote_fence.entity_read_fenced:
+                payload = SavedProvenanceReader(store, fence=quote_fence).audit(payload)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
     except VNextMemoryCommitValidationError as exc:

@@ -75,7 +75,10 @@ from alicebot_api.vnext_source_fence import (
     resolve_attachable_source_id,
 )
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_stores.postgres.project_slug import ProjectSlugConflictError
 
+
+PROJECT_SLUG_CONFLICT_DETAIL = "vNext project slug is already in use"
 
 project_core_router = APIRouter()
 project_operations_router = APIRouter()
@@ -153,20 +156,26 @@ def create_vnext_project(request: VNextProjectCreateRequest) -> JSONResponse:
     settings = get_settings()
     slug = request.slug or _vnext_slug(request.name)
 
-    with user_connection(settings.database_url, request.user_id) as conn:
-        payload = PostgresVNextStore(conn).create_project(
-            {
-                "name": request.name.strip(),
-                "slug": slug,
-                "status": request.status,
-                "description": request.description,
-                "current_state": request.current_state,
-                "domain": request.domain,
-                "sensitivity": request.sensitivity,
-                "metadata_json": {"created_from": "vnext_workspace"},
-            },
-            actor_type="user",
-        )
+    try:
+        with user_connection(settings.database_url, request.user_id) as conn:
+            payload = PostgresVNextStore(conn).create_project(
+                {
+                    "name": request.name.strip(),
+                    "slug": slug,
+                    "status": request.status,
+                    "description": request.description,
+                    "current_state": request.current_state,
+                    "domain": request.domain,
+                    "sensitivity": request.sensitivity,
+                    "metadata_json": {"created_from": "vnext_workspace"},
+                },
+                actor_type="user",
+            )
+    except ProjectSlugConflictError:
+        # Outside the connection block, so the refused call rolls back and writes nothing. One answer for every caller
+        # and every holder of the slug: it names no project, so the owner, an admin and a key with a ceiling are told
+        # the same whether the project that has the slug is readable, hidden, archived or does not show in any list.
+        return _vnext_public_error_response(status_code=409, detail=PROJECT_SLUG_CONFLICT_DETAIL)
 
     return JSONResponse(status_code=201, content=jsonable_encoder({"project": payload}))
 
@@ -716,7 +725,7 @@ def extract_vnext_open_loops(
     request: VNextProjectAutomationRequest,
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
-    from alicebot_api.vnext_label_guard import clamp_request_filters
+    from alicebot_api.vnext_label_guard import clamp_request_filters, guard_for_caller
 
     settings = get_settings()
 
@@ -733,8 +742,11 @@ def extract_vnext_open_loops(
             domains, sensitivity_allowed = clamp_request_filters(
                 identity, domains=automation.domains, sensitivity_allowed=automation.sensitivity_allowed
             )
+            # A loop found again by its digest is a stored row with the labels it has now, which can be above the
+            # caller's. The service admits every loop it returns, new or found, through this guard.
             loops = VNextProjectService(store).extract_open_loops(
-                replace(automation, domains=domains, sensitivity_allowed=sensitivity_allowed)
+                replace(automation, domains=domains, sensitivity_allowed=sensitivity_allowed),
+                guard=guard_for_caller(store, identity),
             )
             # A loop names its source and memory in its own columns; a name the caller's fence does not admit is null.
             loops = withhold_unreadable_references(store, loops, fence=SourceReadFence.for_identity(identity))

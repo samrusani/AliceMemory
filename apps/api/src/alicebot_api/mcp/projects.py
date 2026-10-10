@@ -10,6 +10,7 @@ from alicebot_api.vnext_agent_control import (
     agent_metadata,
 )
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
+from alicebot_api.vnext_label_guard import LabelGuard
 from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
 from alicebot_api.vnext_projects import (
     ProjectAutomationRequest,
@@ -184,7 +185,11 @@ def _handle_alice_project_dashboard(context: MCPRuntimeContext, arguments: Mappi
 
 def _handle_alice_open_loop_extract(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     with _vnext_store_context(context) as store:
-        loops = VNextProjectService(store).extract_open_loops(_project_request_from_arguments(arguments))
+        # A legacy tool: the server refuses it whenever an agent key is configured, and it advertises no identity, so
+        # the caller is the owner and no loop is above the owner's limits.
+        loops = VNextProjectService(store).extract_open_loops(
+            _project_request_from_arguments(arguments), guard=LabelGuard.unlimited(store)
+        )
     return _json_object({"open_loops": loops, "created_count": len(loops)})
 
 

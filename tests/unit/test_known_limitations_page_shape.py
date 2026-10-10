@@ -22,8 +22,8 @@ PAGE = ROOT / "docs/alpha/known-limitations.md"
 # eight sentences each. The caps sit just above the page as it is, so a limit can be reworded and a new one added, and
 # nothing grows back into a record without this test failing. A bullet is one or two sentences, and a closing
 # "See ..." pointer to the page that explains it does not count as one.
-# Recomputed 2026-10-09: current page length 18,213 plus 20 characters.
-MAX_PAGE_CHARS = 18_233
+# Recomputed 2026-10-10: current page length 19,048 plus 20 characters (two bullets for the redacted memory and the loop).
+MAX_PAGE_CHARS = 19_068
 MAX_BULLET_CHARS = 800
 MAX_BULLET_SENTENCES = 2
 

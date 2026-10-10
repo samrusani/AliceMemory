@@ -133,7 +133,12 @@ def _run_vnext_project_dashboard(ctx: CLIContext, args: argparse.Namespace) -> s
 
 def _run_vnext_open_loops_extract(ctx: CLIContext, args: argparse.Namespace) -> str:
     with _vnext_store_context(ctx) as store:
-        loops = VNextProjectService(store).extract_open_loops(_project_automation_request_from_args(args))
+        from alicebot_api.vnext_label_guard import LabelGuard
+
+        # The command takes no agent identity: it runs for the owner of the vault, who has no limits.
+        loops = VNextProjectService(store).extract_open_loops(
+            _project_automation_request_from_args(args), guard=LabelGuard.unlimited(store)
+        )
     return _json_dumps({"open_loops": loops, "created_count": len(loops)})
 
 

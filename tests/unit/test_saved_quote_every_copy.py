@@ -492,9 +492,12 @@ def test_a_caller_who_may_read_every_source_is_shown_exactly_what_the_owner_is_s
     """
 
     allowed, restricted = _two_sources(vault)
+    # The memory the ref names is one every key may read, so it refuses nothing (a ref to a memory that is missing is
+    # refused, as a source that is missing is: see tests/unit/test_saved_quote_memory_refs.py).
+    cited_memory, _query = vault.http_commit(allowed, tag="cited")
     refs: list[object] = [
         {"source_id": allowed, "chunk_id": str(uuid4()), "page": 3, "url": "https://example.test/doc"},
-        f"memory:{uuid4()}",
+        f"memory:{cited_memory}",
         f"session:{uuid4()}",
         "meeting notes",
     ]

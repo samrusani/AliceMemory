@@ -49,7 +49,7 @@ EXPECTED_METHOD_AST_SHA256 = {
         "_append_mutation_event": "294b2174082ac9f670e15cb6664c9968c2961d2c061a200c96c2bdecc55b87c9",
         "append_event": "e1624ec8cb156e52dfd8f821032689378ab49863ad0d4a2e68cf6176cfd8c89c",
         "list_events": "6783e985fee09da2771113b215043ce5cd9725706a90a551a6250db831615a90",
-        "list_events_for_source_trace": "20f22e3b75c3612c02c4242bc973295b2535b01f95e5451a0a0bff1196f187c3",
+        "list_events_for_source_trace": "b06078db8cd3ac2762a26b96c53d61b1cd20ab5942e3e97b5960d4e6e319fe4c",
         "list_project_update_events": "2bd457ee19535f203da5c31e557387f7717fefc27cbef2c546a62bbad74962d3",
         "count_events": "e740e4b09ecfda973ef6b84acd0ea808b26d118faf6984e4057d7e104e595fb5",
         "append_revision": "6070b96a01a50072e4e898bfb64ddbbf253be0478fe63205f760d0fe016a109a",
@@ -59,7 +59,7 @@ EXPECTED_METHOD_AST_SHA256 = {
         "_append_mutation_event": "75922431a64c17ca369cd9b57e360a63b492e45d706af33d572b958ea287e27a",
         "append_event": "61927c2a8ed03ceff60c2b993ef1155cee01a5706e21ebee3e002a988820e052",
         "list_events": "9da8d9c98e2245ad4e6425dc37bc23c732e1c757c68ff50d8d42f8e8cc472418",
-        "list_events_for_source_trace": "64a122d098df8c8f62ef74654235f6bfd4d4322d908089c23e53564ef80f3eae",
+        "list_events_for_source_trace": "026c31ec8569e014fdfd7e724b8ed4669a73c901d0c072268e04c1294a4e80a5",
         "list_project_update_events": "7e80021e9b6023c65c28f356ccda3242f202f446724628ec90aef87155c309ca",
         "count_events": "0387b6810557e231ab2dccacbf2f82da55984060ff986d43e1409b094f0ceb54",
         "append_revision": "1bce7dcc1a86bda28da10caf44d0e195e4cdbdabc518f12f0df9efb241ca598e",
@@ -67,8 +67,8 @@ EXPECTED_METHOD_AST_SHA256 = {
     },
 }
 EXPECTED_SOURCE_LINE_COUNTS = {
-    "postgres": (24, 48, 54, 58, 26, 18, 90, 10),
-    "sqlite": (24, 36, 42, 45, 26, 21, 72, 11),
+    "postgres": (24, 48, 54, 66, 26, 18, 90, 10),
+    "sqlite": (24, 36, 42, 55, 26, 21, 72, 11),
 }
 EXPECTED_SIGNATURES = {
     "_append_mutation_event": (
@@ -84,7 +84,8 @@ EXPECTED_SIGNATURES = {
     ),
     "list_events_for_source_trace": (
         "(self, *, source_id: 'str', memory_ids: 'Sequence[str]' = (), artifact_ids: 'Sequence[str]' = (), "
-        "open_loop_ids: 'Sequence[str]' = (), limit: 'int' = 500) -> 'list[VNextRow]'"
+        "open_loop_ids: 'Sequence[str]' = (), limit: 'int' = 500, target_ids: 'Sequence[str] | None' = None) "
+        "-> 'list[VNextRow]'"
     ),
     "list_project_update_events": (
         "(self, *, artifact_id: 'str', candidate_memory_id: 'str') -> 'list[VNextRow]'"
@@ -98,7 +99,12 @@ EXPECTED_METHOD_DOCS = {
         "_append_mutation_event": None,
         "append_event": None,
         "list_events": None,
-        "list_events_for_source_trace": "Bound source-trace events with relationship predicates before LIMIT.",
+        "list_events_for_source_trace": (
+            "Bound source-trace events with relationship predicates before LIMIT.\n\n"
+            "    ``target_ids`` keeps only the events aimed at one of those ids, before LIMIT, so an event the caller cannot be shown\n"
+            "    (a chunk of the source, an entity mention) costs nothing against the limit.\n"
+            "    "
+        ),
         "list_project_update_events": (
             "Return every creation/decision event coupled to one project update.\n\n"
             "        Direct targets and every supported payload-only linkage are selected\n"
@@ -114,7 +120,12 @@ EXPECTED_METHOD_DOCS = {
         "_append_mutation_event": None,
         "append_event": None,
         "list_events": None,
-        "list_events_for_source_trace": "Bound source-trace events with predicates before LIMIT.",
+        "list_events_for_source_trace": (
+            "Bound source-trace events with predicates before LIMIT.\n\n"
+            "    ``target_ids`` keeps only the events aimed at one of those ids, before LIMIT, so an event the caller cannot be shown\n"
+            "    (a chunk of the source, an entity mention) costs nothing against the limit.\n"
+            "    "
+        ),
         "list_project_update_events": "Return every creation/decision event coupled to one project update.",
         "count_events": "Count matching event rows without materializing the event log.",
         "append_revision": None,
@@ -218,6 +229,7 @@ EXPECTED_QUERY_SHA256 = {
     "postgres_list_limited": "030b249b851ee2b2d7ac2f188107990ebadbebbdbca355317bc8cde6847a0a47",
     "postgres_list_filtered": "da124cc9bcd37849a8775c014d0953a01d096a68b159cec4d20050efb0b82de7",
     "postgres_source_trace": "49e8d593d8c4614b2b666f5a35b037e38b3427f15c8a8e4c397a2fb51f7a545e",
+    "postgres_source_trace_narrowed": "08333ccfbfa72406fc8c7e1cc991cfc9409cd01328e47527ef37a2629331200a",
     "postgres_project_update": "3114005cb22d417810ec56f02467a4ed56cac621cfbb437285c7c180f59aa687",
     "postgres_count_unfiltered": "f909bce6a56802a53c7b1ed5b3f6a6be53336d10b3e7a357b679154a807ae1de",
     "postgres_count_filtered": "f909bce6a56802a53c7b1ed5b3f6a6be53336d10b3e7a357b679154a807ae1de",
@@ -229,6 +241,7 @@ EXPECTED_QUERY_SHA256 = {
     "sqlite_list_filtered": "797ca3e1e4bbce7012c5f516a0a11556a71566035303a0beed6f72caf00046fb",
     "sqlite_source_trace_empty": "1de7a56afc085fceff89712097fc1bf8c210ad0ed0cc73969890e7d0c620e762",
     "sqlite_source_trace_populated": "73ab63cbd21bda17da310aa9b0104ceadd911adca5028f11ff546ba1940d7439",
+    "sqlite_source_trace_narrowed": "b5907f4fc02e8866b7fea3e73f8836c7abb99c91c52a6ac82503d21015625691",
     "sqlite_project_update": "c16eea6d82f5e428d9be1b0513624fcf22ef4f5cc9c349ed87edeed8831dbd3b",
     "sqlite_count_unfiltered": "b87d9672dcec41fe8530331194fd967ab6bbfd1674ef1b9f025ff5c753f99a8c",
     "sqlite_count_filtered": "5ee5201e58ab55c976534f014d1d31d6487b4d57f85eb3590c577caea513bdeb",
@@ -590,6 +603,14 @@ def test_event_queries_and_parameters_remain_byte_identical() -> None:
             open_loop_ids=("o",),
             limit=7,
         ),
+        "postgres_source_trace_narrowed": _capture_call(
+            postgres_store.PostgresVNextStore,
+            "list_events_for_source_trace",
+            source_id="source",
+            memory_ids=("m",),
+            limit=7,
+            target_ids=("source", "m", "source", ""),
+        ),
         "postgres_project_update": _capture_call(
             postgres_store.PostgresVNextStore,
             "list_project_update_events",
@@ -635,6 +656,14 @@ def test_event_queries_and_parameters_remain_byte_identical() -> None:
             artifact_ids=("a",),
             open_loop_ids=("o",),
             limit=7,
+        ),
+        "sqlite_source_trace_narrowed": _capture_call(
+            sqlite_store.SQLiteVNextStore,
+            "list_events_for_source_trace",
+            source_id="source",
+            memory_ids=("m",),
+            limit=7,
+            target_ids=("source", "m", "source", ""),
         ),
         "sqlite_project_update": _capture_call(
             sqlite_store.SQLiteVNextStore,
@@ -688,6 +717,26 @@ def test_event_queries_and_parameters_remain_byte_identical() -> None:
             "source",
             "source:source",
             "source",
+            7,
+        ),
+        "postgres_source_trace_narrowed": (
+            "source",
+            ["m"],
+            ["m"],
+            None,
+            None,
+            None,
+            None,
+            "source",
+            "source",
+            "source:source",
+            "source",
+            "source",
+            "source:source",
+            "source",
+            "source:source",
+            "source",
+            ["source", "m"],
             7,
         ),
         "postgres_project_update": ("a", "m", "a", "m", "m"),
@@ -747,6 +796,15 @@ def test_event_queries_and_parameters_remain_byte_identical() -> None:
             "o",
             "source",
             "source:source",
+            7,
+        ),
+        "sqlite_source_trace_narrowed": (
+            "user",
+            "source",
+            "m",
+            "source",
+            "source:source",
+            '["source","m"]',
             7,
         ),
         "sqlite_project_update": (

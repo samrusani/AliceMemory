@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_derived_labels import input_admitted, locked_projects, with_derived_from
@@ -32,6 +32,10 @@ from alicebot_api.vnext_store import (
     PostgresVNextStore,
     is_redacted_project_update_artifact,
 )
+
+
+if TYPE_CHECKING:
+    from alicebot_api.vnext_label_guard import LabelGuard
 
 
 DEFAULT_PROJECT_LIMIT = 8
@@ -771,7 +775,20 @@ class VNextProjectService:
             {**metadata, **model_artifact.metadata},
         )
 
-    def extract_open_loops(self, request: ProjectAutomationRequest | None = None) -> list[JsonObject]:
+    def extract_open_loops(
+        self, request: ProjectAutomationRequest | None = None, *, guard: LabelGuard
+    ) -> list[JsonObject]:
+        """Make the open loops the selected sources name, and return the ones ``guard`` admits.
+
+        A loop already stored under the digest of a candidate is not made again, it is returned, and so is the row
+        that an upsert finds already there after a digest conflict. That row carries the labels it has now, which can
+        be above the labels of the source it was made from (the owner raised it, or lowered the source after the loop
+        was made), and above what the caller may read. Every loop that comes back, new or found, is judged on its
+        effective labels by the guard of the caller; one the caller may not read is left out of the list and out of
+        the count the event records, as a row that does not exist is. ``guard`` has no default, so a door must say
+        who is asking: the owner and an unbound admin key pass a guard that admits everything.
+        """
+
         request = request or ProjectAutomationRequest(agent_identity=None, )
         _validate_request(request)
         domains = list(request.domains) if request.domains else None
@@ -834,6 +851,7 @@ class VNextProjectService:
                     created_loop = self.store.create_open_loop(candidate, actor_type=request.generated_by)
                 created.append(created_loop)
                 existing_by_digest[automation_digest] = created_loop
+        readable = guard.admit_rows("open_loop", created)
         append_event(
             self.store,
             event_type="open_loop.extraction_completed",
@@ -842,9 +860,9 @@ class VNextProjectService:
             target_type="open_loop",
             trace_id=request.trace_id,
             run_id=request.run_id,
-            payload={"created_count": len(created), "source_ids": _source_ids(sources)},
+            payload={"created_count": len(readable), "source_ids": _source_ids(sources)},
         )
-        return created
+        return readable
 
     def review_project_update(
         self,
@@ -1378,7 +1396,7 @@ class VNextProjectService:
         from alicebot_api.vnext_agent_control import AgentIdentity
         from alicebot_api.vnext_label_guard import admit_loaded, apply_sensitivity_ceiling
         from alicebot_api.vnext_open_loop_references import withhold_unreadable_references
-        from alicebot_api.vnext_source_fence import SourceReadFence
+        from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 
         project = self.store.get_project(project_id)
         if project is None:
@@ -1420,6 +1438,10 @@ class VNextProjectService:
             sensitivity_allowed=sensitivity_allowed,
             projects=(project_id,),
         )
+        # A commit keeps the quote of the source or memory it cites. The caller is shown the quotes it may read now.
+        quote_fence = SourceReadFence.for_identity(caller)
+        if quote_fence.entity_read_fenced:
+            memories = SavedProvenanceReader(self.store, fence=quote_fence).memories(memories)
         open_loops = admit_loaded(
             self.store,
             kind="open_loop",

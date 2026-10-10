@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
+import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
@@ -13,6 +15,7 @@ from alicebot_api.vnext_capture import capture_dedupe_key_for_text
 from alicebot_api.vnext_embeddings import memory_embedding_content_sha256
 from alicebot_api.vnext_event_log import build_event_log_record
 from alicebot_api.vnext_stores.postgres import memory_lifecycle as postgres_memory_lifecycle
+from alicebot_api.vnext_stores.postgres.project_slug import PROJECT_SLUG_CONSTRAINT, ProjectSlugConflictError
 from alicebot_api.vnext_store import (
     PostgresVNextStore,
     _jsonb_project_scope_values_sql,
@@ -3629,3 +3632,92 @@ def test_redaction_mode_resets_even_when_the_update_fails() -> None:
     # a failed redaction.
     assert "app.redaction_in_progress" in cursor.statements[-1][0]
     assert not any("INSERT INTO event_log" in query for query, _params in cursor.statements)
+
+
+# -- the claim statement and the project slug conflict --------------------------------------------------------------
+
+
+def test_the_claim_statement_names_the_picked_id_once_so_returning_is_unambiguous() -> None:
+    task = {"id": str(uuid4()), "task_type": "synthesize", "domain": "project", "sensitivity": "public"}
+    cursor = RecordingCursor(fetchone_results=[task, _event_row(task["id"])])
+    store = PostgresVNextStore(RecordingConnection(cursor))
+
+    assert store.claim_next_task() == task
+
+    query, params = cursor.statements[0]
+    assert params is None
+    # The CTE hands one column to the UPDATE and calls it next_id. Named id, it would sit beside the id of task_queue
+    # in RETURNING, and PostgreSQL refuses that as ambiguous.
+    assert "SELECT id AS next_id" in query
+    assert "WHERE task_queue.id = next_task.next_id" in query
+    assert "next_task.id" not in query
+    assert "FOR UPDATE SKIP LOCKED" in query and "unnest(" not in query
+
+
+def test_the_claim_statement_for_a_caller_with_limits_takes_the_readable_label_pairs() -> None:
+    task = {"id": str(uuid4()), "task_type": "synthesize", "domain": "project", "sensitivity": "public"}
+    cursor = RecordingCursor(fetchone_results=[task, _event_row(task["id"])])
+    store = PostgresVNextStore(RecordingConnection(cursor))
+
+    store.claim_next_task(readable_labels={("project", "public"), ("health", "internal")})
+
+    query, params = cursor.statements[0]
+    # The filter is in the CTE, before the lock and the limit, so a task outside it is skipped and not locked.
+    assert query.index("unnest(") < query.index("FOR UPDATE SKIP LOCKED") < query.index("LIMIT 1")
+    assert params == (["health", "project"], ["internal", "public"])
+
+
+def test_the_claim_statement_for_a_caller_with_no_readable_label_claims_nothing() -> None:
+    cursor = RecordingCursor(fetchone_results=[])
+    store = PostgresVNextStore(RecordingConnection(cursor))
+
+    assert store.claim_next_task(readable_labels=frozenset()) is None
+
+    assert cursor.statements[0][1] == ([], [])
+    assert not any("INSERT INTO event_log" in query for query, _params in cursor.statements)
+
+
+class _UniqueViolationOn(psycopg.errors.UniqueViolation):
+    """A unique violation that names its constraint, as the server reports it."""
+
+    def __init__(self, constraint_name: str) -> None:
+        super().__init__("duplicate key value violates unique constraint")
+        self._constraint_name = constraint_name
+
+    @property
+    def diag(self) -> Any:  # type: ignore[override]
+        return SimpleNamespace(constraint_name=self._constraint_name)
+
+
+class _InsertingProjectFails(RecordingCursor):
+    def __init__(self, constraint_name: str) -> None:
+        super().__init__(fetchone_results=[])
+        self.constraint_name = constraint_name
+
+    def execute(self, query: str, params: tuple[object, ...] | None = None) -> None:
+        super().execute(query, params)
+        if "INSERT INTO projects" in query:
+            raise _UniqueViolationOn(self.constraint_name)
+
+
+def test_a_unique_violation_on_the_project_slug_is_a_slug_conflict() -> None:
+    cursor = _InsertingProjectFails(PROJECT_SLUG_CONSTRAINT)
+    store = PostgresVNextStore(RecordingConnection(cursor))
+
+    with pytest.raises(ProjectSlugConflictError) as caught:
+        store.create_project({"name": "Alice", "slug": "alice"})
+
+    assert isinstance(caught.value, ContinuityStoreInvariantError)
+    # The error holds no detail of the project that has the slug, and no event is written for the refused create.
+    assert str(caught.value) == "a project with this slug already exists"
+    assert not any("INSERT INTO event_log" in query for query, _params in cursor.statements)
+
+
+def test_a_unique_violation_on_another_constraint_is_not_a_slug_conflict() -> None:
+    cursor = _InsertingProjectFails("projects_pkey")
+    store = PostgresVNextStore(RecordingConnection(cursor))
+
+    with pytest.raises(psycopg.errors.UniqueViolation) as caught:
+        store.create_project({"name": "Alice", "slug": "alice"})
+
+    assert not isinstance(caught.value, ProjectSlugConflictError)
