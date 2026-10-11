@@ -323,10 +323,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 82,
+          "line": 83,
           "before": "omit content diagnostics for a caller with limits",
           "after": "show content diagnostics to a caller",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -999,7 +999,7 @@
           "line": 21,
           "before": "stays refused to every key but an unbound `admin_agent`",
           "after": "stays refused",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -1179,7 +1179,7 @@
           "line": 21,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -1551,7 +1551,7 @@
           "line": 22,
           "before": "where it raised a server error",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -2046,7 +2046,7 @@
           "line": 24,
           "before": "and the call writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry.",
           "after": "and the call is recorded.",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -2235,10 +2235,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 65,
+          "line": 66,
           "before": "A refused redact of an archived or redacted row now writes nothing, as a redact of an id the vault never held writes nothing: no policy event and no agent record.",
           "after": "A refused redact of an archived or redacted row is still recorded.",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -4016,7 +4016,7 @@
           "line": 23,
           "before": "The memory audit route (`GET /v0/vnext/memories/{id}/audit`) returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, so the ids of archived members stand there too (a derived memory that recorded a redacted memory as a member is read by the owner and an unbound admin key only), ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -4032,7 +4032,7 @@
           "line": 15,
           "before": "The context tree and the dogfooding view read the same rule. ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -4694,7 +4694,7 @@
           "line": 7,
           "before": "An artifact event that holds anything more still stops the redaction, so no text is left behind. ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -4806,7 +4806,7 @@
           "line": 23,
           "before": " The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says.",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -5205,7 +5205,7 @@
           "line": 9,
           "before": "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -5253,7 +5253,7 @@
           "line": 9,
           "before": "This is temporary access containment, not removal",
           "after": "This is removal",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -5317,7 +5317,7 @@
           "line": 9,
           "before": "say to regenerate or delete the reports built from a redacted memory",
           "after": "say nothing",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -5661,7 +5661,7 @@
           "line": 9,
           "before": "is refused to a key that may not read the belief, with the answer of a missing belief, and a refused review changes nothing.",
           "after": "is open to every key.",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -6015,7 +6015,7 @@
           "line": 9,
           "before": "A project end that names the project by a name or by an id that finds no project row hides nothing",
           "after": "A project end hides every edge",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -6143,7 +6143,7 @@
           "line": 23,
           "before": "but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says",
           "after": "but a report that recorded a redacted memory is read like any other report, as the entry on redacted memories says",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -6172,10 +6172,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 38,
+          "line": 39,
           "before": "The graph neighborhood and the edge review route apply the same ceiling to the rows an edge joins, as the entry on redacted memories and the draft security note say.",
           "after": "Graph edge explanations remain outside that ceiling, as disclosed in the draft security note.",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -6255,7 +6255,7 @@
           "line": 9,
           "before": "The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -6287,7 +6287,7 @@
           "line": 23,
           "before": "Two answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; and a memory commit",
           "after": "Three answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; the graph neighborhood route, which returns the edges of any id with their explanations; and a memory commit",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -7636,7 +7636,7 @@
           "line": 6,
           "before": "The CTE now names the picked id `next_id`. ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -7876,7 +7876,7 @@
           "line": 6,
           "before": " A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made. The event guard judges that artifact like the artifact of any other event, so the workspace feed of a key with a ceiling holds neither event, and not the id of the artifact, when the task was above its ceiling, and its event count leaves both out. The claim and the failure of a task name no artifact and hold the id of the task, which the entry on the operator routes lists for the creation events of a queued task.",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -7924,7 +7924,7 @@
           "line": 11,
           "before": ", and, for a task that a worker has claimed, `task.claimed`, and `task.updated` and `queue.task_failed` when it failed",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -8231,7 +8231,7 @@
           "line": 12,
           "before": "The filter on the target stays: an event about a row the trace does not list is still left out. ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -8247,7 +8247,7 @@
           "line": 13,
           "before": "so no caller left an event that names an object it may not read",
           "after": "so a caller may have left an event",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -8487,7 +8487,7 @@
           "line": 12,
           "before": "A key with limits is read the newest 2,000 events that the trace asks for, as the event feeds are",
           "after": "A key with limits is read every event that the trace asks for",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -8519,7 +8519,7 @@
           "line": 13,
           "before": "which by default leaves out the confidential levels, is not a limit: the owner",
           "after": "which by default leaves out the confidential levels, is a limit: the owner",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -8615,7 +8615,7 @@
           "line": 12,
           "before": "only the events aimed at the source or at a row the trace lists count against that reach",
           "after": "every event of the source counts against that reach",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -8887,7 +8887,7 @@
           "line": 26,
           "before": "out of the `created_count` of the `open_loop.extraction_completed` event, as a missing row is, and nothing about it is returned",
           "after": "as a missing row is, and nothing about it is returned",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -9452,7 +9452,7 @@
           "line": 8,
           "before": "Unreleased (on main, not in v0.20.0): the quote a commit saved of a memory is withheld from a caller who may not read that memory",
           "after": "Unreleased (on main, not in v0.20.0): the quote a commit saved of a memory is shown to every caller",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -10173,7 +10173,7 @@
           "line": 8,
           "before": "and the recent events and the agent activity of the workspace and the events of a source trace hold the payload of a confirmed commit to the same rule.",
           "after": "and nothing else holds a confirmed commit to it.",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -10463,7 +10463,7 @@
           "line": 8,
           "before": "the recent events and the agent activity of the workspace and the events of a source trace hold the payload",
           "after": "the recent events of the workspace and the events of a source trace hold the payload",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -10511,7 +10511,7 @@
           "line": 8,
           "before": "(a `#` fragment after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`, and a field that holds an id and more than an id reads `null`)",
           "after": "(a `#` fragment after a reference is kept)",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -10991,7 +10991,7 @@
           "line": 8,
           "before": "and the names of the fields are withheld with their values: the entry keeps a field only when its name is one the product writes",
           "after": "and the entry keeps every field",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -12096,7 +12096,7 @@
           "line": 8,
           "before": "An entry beside such a ref that names nothing the caller may read is held to the same rule (a bare string and a `text` field go with the `quote`), one that names a stored source or memory the caller may read keeps its text and loses the names the product does not write with their values, and so are the refs a source made by the agent-output ingest keeps (the source routes, the source trace, the artifact trace, the context pack, the workspace and the connector status), the metadata of a quality rating and the allowed sources and scope of a queued task; the report of a consolidation run and the artifact a queue worker makes are derived from the memories their refs and tasks name, and `alicebot vnext memories audit` with an agent key applies the reader. ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "890cea9c6c6e22a808b2ac700580f567dcaba5c727b4bdea6f7b9fa2c795009c"
         }
       ],
       "pytest": [
@@ -12516,11 +12516,10 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist[http-bound project key, confidential project]",
-        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist[mcp-bound project key, confidential project]",
-        "tests/unit/test_project_update_candidate_admission.py::test_a_project_the_caller_may_not_read_is_answered_as_a_project_that_does_not_exist"
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now[http]",
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now[mcp]"
       ],
-      "expected_failure": "test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist"
+      "expected_failure": "test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now"
     },
     {
       "name": "project-update-project-is-not-judged-unit",
@@ -12697,10 +12696,10 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist[http-bound project key, confidential project]",
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now[http]",
         "tests/unit/test_project_update_candidate_admission.py::test_a_project_the_caller_may_not_read_is_answered_as_a_project_that_does_not_exist"
       ],
-      "expected_failure": "test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist"
+      "expected_failure": "test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now"
     },
     {
       "name": "project-update-project-is-read-at-its-stored-label",
@@ -12730,10 +12729,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_key_bound_to_another_project_is_answered_as_a_missing_project[mcp]",
         "tests/unit/test_project_update_candidate_admission.py::test_a_caller_bound_to_another_project_is_answered_as_a_missing_project"
       ],
-      "expected_failure": "test_a_key_bound_to_another_project_is_answered_as_a_missing_project"
+      "expected_failure": "test_a_caller_bound_to_another_project_is_answered_as_a_missing_project"
     },
     {
       "name": "project-update-project-ignores-the-caller",
@@ -12747,10 +12745,10 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist[http-bound project key, confidential project]",
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now[http]",
         "tests/unit/test_project_update_candidate_admission.py::test_a_project_the_caller_may_not_read_is_answered_as_a_project_that_does_not_exist"
       ],
-      "expected_failure": "test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist"
+      "expected_failure": "test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now"
     },
     {
       "name": "project-update-tool-ignores-the-key-binding",

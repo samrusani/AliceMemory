@@ -307,10 +307,9 @@ def test_a_sqlite_vault_has_no_project_path(tmp_path, monkeypatch):
         assert not any(hasattr(store, name) for name in ("get_project", "list_projects", "create_project"))
         tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
     assert "projects" not in tables
-    with pytest.raises(Exception) as failed:
+    with pytest.raises(AttributeError, match="list_projects"):
         call_mcp_tool(
             MCPRuntimeContext(database_url=sqlite_url_for_path(path), user_id=USER),
             name="alice_project_update_candidate",
             arguments={},
         )
-    assert "list_projects" in str(failed.value) or "tool" in str(failed.value).lower()
