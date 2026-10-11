@@ -225,6 +225,7 @@ def test_fenced_workspace_keeps_diagnostics_omitted(label_harness):
 
 def test_native_memory_refill_crosses_the_legacy_ceiling(label_harness, monkeypatch):
     from alicebot_api.vnext_retrieval import VNextRetrievalService
+    from alicebot_api.vnext_source_fence import SourceReadFence
     from alicebot_api.vnext_derived_labels import with_derived_from
     from alicebot_api.vnext_label_writes import without_insert_floor
     monkeypatch.setattr("alicebot_api.vnext_retrieval.LEGACY_SCOPED_SCAN_MAX_ROWS", 16)
@@ -236,5 +237,5 @@ def test_native_memory_refill_crosses_the_legacy_ceiling(label_harness, monkeypa
         metadata["derived_from"]["sources"] = [str(public["id"]), str(hidden["id"])]
         for _ in range(100):
             store.create_memory({"memory_key": str(uuid4()), "title": "refill observation", "canonical_text": "refill observation", "domain": "project", "sensitivity": "public", "status": "active", "metadata_json": metadata})
-        rows, _ = VNextRetrievalService(store)._memory_fts_rows(query="refill observation", domains=[], sensitivity_allowed=["public", "internal"], limit=8)
+        rows, _ = VNextRetrievalService(store)._memory_fts_rows(query="refill observation", domains=[], sensitivity_allowed=["public", "internal"], limit=8, read_fence=SourceReadFence.unfenced())
         assert {str(row["id"]) for row in rows} == {str(row["id"]) for row in visible}

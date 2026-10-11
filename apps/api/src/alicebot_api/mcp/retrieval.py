@@ -238,6 +238,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             limit=candidate_limit,
+            read_fence=source_fence,
             **retrieval_filters,
         )
         if context_depth == CONTEXT_DEPTH_MINIMAL:
