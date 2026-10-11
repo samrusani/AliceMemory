@@ -358,3 +358,15 @@ def test_a_write_is_not_run_twice_and_writes_back_what_it_read(app, action: str)
     # A row the decoder cannot read is read cut, so the write puts the placeholder back, into the row and the event.
     outcome, _, stored, events, in_event = run(12000)
     assert outcome == 200 and stored == (255, DEEP_PLACEHOLDER) and in_event and "memory.updated" in events
+
+
+@pytest.mark.parametrize("depth", (400, 1500, 12000))
+def test_a_context_pack_request_is_read_again_with_its_body_when_a_row_is_too_deep(app, depth: int) -> None:
+    """``POST /v0/vnext/context-packs`` is the one POST route the layer may run again, with the same body, when the pack
+    builder overflows on a row. This vault's row does not make the builder overflow at these depths (the unit tests of the
+    layer hold the replay of a body), so the test holds what a caller sees: the pack is made and names the memory."""
+
+    memory_id = _store_a_deep_row(app, depth)
+    status, answer = _post("/v0/vnext/context-packs", {"user_id": app.user, "query": "cobalt door", "options": {"include_sources": True}})
+    assert status == 201, answer
+    assert memory_id in json.dumps(answer)
