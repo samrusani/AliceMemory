@@ -306,7 +306,8 @@ def test_another_users_edge_is_left_alone(tmp_path, capsys):
     before = _rows(db, "SELECT * FROM graph_edges WHERE id = ?", (neighbour,))
     preview, receipt = _retire(db, folder, sid, "delete", capsys)
     assert _rows(db, "SELECT * FROM graph_edges WHERE id = ?", (neighbour,)) == before
-    assert preview["graph_edges"] == receipt["graph_edges"]
+    # The other user's edge names the source too, and is neither counted nor touched.
+    assert preview["graph_edges"] == receipt["graph_edges"] == 1 + len(seed.mentions)
     assert _rows(db, "SELECT valid_to IS NULL FROM graph_edges WHERE id = ?", (named,)) == [(0,)]
 
 
