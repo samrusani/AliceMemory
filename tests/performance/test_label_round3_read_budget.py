@@ -1,5 +1,6 @@
 """Exact random-parent grid requested by the third external handoff."""
 import json
+import math
 import os
 from pathlib import Path
 import random
@@ -23,9 +24,25 @@ SOURCE_COUNTS = (300, 1000, 3000)
 # whatever its ceiling, so a read that returns fewer than the default limit has lost rows.
 VISIBLE_ORIGINALS = 12
 READ_LIMIT = 8
+# The wall limit, in seconds, that ALICE_READ_ABSOLUTE_GATE applies to the workspace and dogfooding screens. One second holds on
+# the reference machine; ALICE_READ_ABSOLUTE_LIMIT_SECONDS sets another for a slower one.
+DEFAULT_ABSOLUTE_LIMIT_SECONDS = 1.0
 NOTE_WORDS = ("alpha", "bravo", "cobalt", "delta", "ember", "fjord", "gamma", "harbor", "ivory", "juniper",
               "kepler", "lumen", "mosaic", "nectar", "onyx", "prism", "quartz", "riddle", "saffron", "tundra",
               "umber", "vellum", "willow", "xenon")
+
+
+def absolute_limit_seconds():
+    """The wall limit for the workspace and dogfooding screens when ALICE_READ_ABSOLUTE_GATE is set: the number in
+    ALICE_READ_ABSOLUTE_LIMIT_SECONDS, or one second when it is unset or empty. A value that is not a positive finite number raises,
+    so a typo cannot switch the gate off."""
+    raw = os.environ.get("ALICE_READ_ABSOLUTE_LIMIT_SECONDS", "").strip()
+    if not raw:
+        return DEFAULT_ABSOLUTE_LIMIT_SECONDS
+    limit = float(raw)
+    if not (math.isfinite(limit) and limit > 0):
+        raise ValueError("ALICE_READ_ABSOLUTE_LIMIT_SECONDS must be a positive finite number of seconds, not " + repr(raw))
+    return limit
 
 
 def unique_metadata(rng, index):
@@ -280,14 +297,16 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
                         failures.append((profile, action, clock, row))
                 if not returned_memories_ok(profile, action, case, measurements):
                     failures.append((profile, action, "returned_memories", row))
-            # The one-second wall gate for the operator screens is an absolute
-            # number, so it holds only on a known machine: the reference run and
-            # the separate maximum-workload smoke job set ALICE_READ_ABSOLUTE_GATE.
-            # Shared CI runners differ in speed, so the required jobs keep the
-            # gates measured against main on the same runner and the returned counts.
+            # The wall gate for the operator screens is an absolute number (one
+            # second unless ALICE_READ_ABSOLUTE_LIMIT_SECONDS says otherwise), so it
+            # holds only on a known machine: the reference run and the separate
+            # maximum-workload smoke job set ALICE_READ_ABSOLUTE_GATE. Shared CI
+            # runners differ in speed, so the required jobs keep the gates measured
+            # against main on the same runner and the returned counts.
             if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
+                limit = absolute_limit_seconds()
                 for action in ("workspace", "dogfooding"):
-                    if measurements["head"][action]["minimum_wall"] > 1:
+                    if measurements["head"][action]["minimum_wall"] > limit:
                         failures.append((profile, action, "minimum_wall", row))
         finally:
             for process in processes:
