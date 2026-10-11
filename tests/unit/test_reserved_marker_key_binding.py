@@ -165,7 +165,7 @@ def test_the_cli_refuses_to_create_a_key_bound_to_the_reserved_name(monkeypatch:
 def test_the_cli_logs_why_a_key_command_was_refused_at_warning_level(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Mutation: drop the decorator from a key command, or log the reason below warning level.
+    """Mutation: drop the decorator from the create command, or log the reason below warning level.
 
     The command answers every refusal with the same public ``invalid_request`` error, so the reason is written to the
     log at warning level, which a person running the command reads on stderr.
@@ -192,16 +192,19 @@ def test_the_cli_logs_why_a_key_command_was_refused_at_warning_level(
     )
     revoke = parser.parse_args(["agent", "keys", "revoke", "alice_sk_nokey"])
     with caplog.at_level(logging.DEBUG, logger="alicebot_api.cli"):
-        for args in (create, revoke):
-            with pytest.raises(AgentKeyValidationError):
-                args.handler(ctx, args)
+        with pytest.raises(AgentKeyValidationError):
+            create.handler(ctx, create)
+        with pytest.raises(AgentKeyValidationError):
+            revoke.handler(ctx, revoke)
     records = [item for item in caplog.records if item.name == "alicebot_api.cli"]
-    assert [item.levelno for item in records] == [logging.WARNING, logging.WARNING]
+    # The reason of a refused create is logged. The reason of a refused revoke repeats the selector, which a person can
+    # fill with a whole key, so it is not.
+    assert [item.levelno for item in records] == [logging.WARNING]
     assert records[0].getMessage() == (
         "the project name ~global is reserved by Alice and cannot be a key's project scope; "
         "use the name or id of a project instead"
     )
-    assert records[1].getMessage() == "no agent API key matches 'alice_sk_nokey'"
+    assert "alice_sk_nokey" not in caplog.text
     assert create.handler.__name__ == "_run_agent_keys_create" and revoke.handler.__name__ == "_run_agent_keys_revoke"
 
 
@@ -288,7 +291,7 @@ def test_a_stored_key_with_an_ordinary_binding_still_resolves() -> None:
 
 
 def test_the_reason_of_a_refused_stored_key_goes_to_the_server_log(caplog: pytest.LogCaptureFixture) -> None:
-    """Mutation: log the refusal below warning level, or leave the id or the revoke command out of the line.
+    """Mutation: log the refusal below warning level, or leave the reason or the revoke command out of the line.
 
     Every surface answers this refusal with its standard text, which names no reason, so the server log is the one
     place that says why and which key to revoke.
@@ -304,12 +307,13 @@ def test_the_reason_of_a_refused_stored_key_goes_to_the_server_log(caplog: pytes
     [record] = [item for item in caplog.records if item.name == "alicebot_api.vnext_agent_keys"]
     assert record.levelno == logging.WARNING
     message = record.getMessage()
-    key_id = store.agent_api_keys[0]["id"]
-    assert f"agent API key {key_id} (agent old-agent) is refused" in message
-    assert "bound to the project name ~global" in message
-    assert f"alicebot agent keys revoke {key_id}" in message
-    # The id is logged and not the prefix of the secret, nor the secret.
+    assert "an agent API key bound to the project name ~global is refused, because Alice reserves that name" in message
+    assert "find the key with 'alicebot agent keys list' (its project_scope reads ~global)" in message
+    assert "revoke it with 'alicebot agent keys revoke <id>'" in message
+    # Nothing read from the key's record is logged: not the secret, its prefix, its id or its agent.
+    row = store.agent_api_keys[0]
     assert raw[:12] not in message and raw not in message
+    assert str(row["id"]) not in message and str(row["agent_id"]) not in message
 
 
 # -- a declared scope ---------------------------------------------------------------------------------------------

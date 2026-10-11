@@ -282,11 +282,12 @@ def test_a_refused_key_persists_no_rejection_event_over_http_or_mcp(label_harnes
 
 
 def test_the_cli_prints_why_a_key_command_was_refused_on_stderr(label_harness, tmp_path):
-    """Mutation: log the reason of a key command below warning level, or drop the decorator.
+    """Mutation: log the reason of the create command below warning level, or drop the decorator.
 
     Every refusal of these commands has the same public ``invalid_request`` error. Run as a person runs it, in its own
-    process, the command also prints the reason on stderr, which the log does at warning level when nothing configures
-    logging. A key bound to an ordinary name is created, and no key is made for the reserved one.
+    process, the create command also prints the reason on stderr, which the log does at warning level when nothing
+    configures logging. A key bound to an ordinary name is created, and no key is made for the reserved one. A refused
+    revoke prints the public error only, because its reason would repeat the selector.
     """
 
     environment = {**os.environ, "DATABASE_URL": label_harness.urls["app"], "ALICEBOT_AUTH_USER_ID": str(label_harness.user_id)}
@@ -307,4 +308,4 @@ def test_the_cli_prints_why_a_key_command_was_refused_on_stderr(label_harness, t
     listed = json.loads(run("agent", "keys", "list").stdout)
     assert [item["agent_id"] for item in listed["items"]] == ["orchard-agent"]
     unknown = run("agent", "keys", "revoke", "alice_sk_nokey")
-    assert unknown.returncode != 0 and "no agent API key matches 'alice_sk_nokey'" in unknown.stderr
+    assert unknown.returncode != 0 and "alice_sk_nokey" not in unknown.stderr

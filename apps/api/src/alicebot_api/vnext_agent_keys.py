@@ -232,15 +232,15 @@ def resolve_agent_identity(
     stored_binding = record.get("project_scope")
     stored_reserved = reserved_project_marker(stored_binding) if isinstance(stored_binding, str) else None
     if stored_reserved is not None:
-        # Every surface answers with its standard refusal, which names no reason, so the reason and the id of
-        # the key to revoke go to the server log. The id is logged and not the prefix of the secret.
+        # Every surface answers with its standard refusal, which names no reason, so the reason and the way to
+        # find and revoke the key go to the server log. Nothing read from the key's record is logged: the line
+        # names the reserved word, and ``alicebot agent keys list`` shows the key whose project_scope reads it.
         logger.warning(
-            "agent API key %s (agent %s) is refused: it is bound to the project name %s, which Alice reserves; revoke "
-            "it with 'alicebot agent keys revoke %s' and create a new key bound to the name or id of a project",
-            record.get("id"),
-            record.get("agent_id"),
+            "an agent API key bound to the project name %s is refused, because Alice reserves that name; find the "
+            "key with 'alicebot agent keys list' (its project_scope reads %s), revoke it with 'alicebot agent keys "
+            "revoke <id>' and create a new key bound to the name or id of a project",
             stored_reserved,
-            record.get("id"),
+            stored_reserved,
         )
         _append_key_rejection_event(
             store,

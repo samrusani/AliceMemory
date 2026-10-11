@@ -13,11 +13,13 @@ from .shared import _json_dumps, _vnext_store_context
 def _reason_to_the_owner(
     handler: _Callable[[CLIContext, argparse.Namespace], str],
 ) -> _Callable[[CLIContext, argparse.Namespace], str]:
-    """Log why a key command was refused at warning level, so the person who ran it reads it on stderr.
+    """Log why a key was refused at warning level, so the person who ran the command reads it on stderr.
 
     The command answers every refusal with the same public ``invalid_request`` error, which names no reason, and the
-    runner logs the exception only at debug level. The reasons of these two commands are fixed words and the names the
-    person typed, so they are safe to print: a reserved project name, a blank project scope, an unknown key.
+    runner logs the exception only at debug level. The reasons of ``agent keys create`` are fixed words around the
+    values the person typed for the agent, the profile and the project scope, so they are safe to print: a reserved
+    project name, a blank project scope, an unknown profile. ``agent keys revoke`` is left out because its reasons
+    repeat the selector, which a person can fill with a whole key.
     """
 
     @_functools.wraps(handler)
@@ -77,7 +79,6 @@ def _run_agent_keys_list(ctx: CLIContext, args: argparse.Namespace) -> str:
     return _json_dumps({"items": items, "count": len(items), "order": ["created_at_desc", "id_desc"]})
 
 
-@_reason_to_the_owner
 def _run_agent_keys_revoke(ctx: CLIContext, args: argparse.Namespace) -> str:
     selector = args.key.strip()
     if not selector:
