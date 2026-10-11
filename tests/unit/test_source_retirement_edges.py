@@ -663,3 +663,25 @@ def test_everything_that_links_to_or_copies_a_source_is_covered_or_listed_as_kep
     # No table for reports, connector cursors or vectors; ``embedding_stamp`` holds one token and no vector.
     assert [r[0] for r in _rows(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND (name LIKE '%artifact%' "
                                     "OR name LIKE '%cursor%' OR name LIKE '%embedding%')")] == ["embedding_stamp"]
+
+
+def test_an_alias_a_shared_entity_learned_from_the_source_stays_while_another_edge_reaches_it(tmp_path, capsys) -> None:
+    """Kept, and listed as kept in the importers page and the changelog. An entity is shared by every source and memory
+    that names it, and nothing records which source taught it an honorific alias. The alias goes with the entity when no
+    live edge reaches the entity any more (``test_an_entity_held_only_by_a_non_mention_edge_goes_too`` and the census
+    above). This test pins the limit, so a change to it is a decision and not an accident."""
+
+    db = _vault(tmp_path)
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "a.md").write_text("Alice Marlow holds the amber lantern.\n")
+    (second / "b.md").write_text("Dr Alice Marlow keeps the copper key.\n")
+    run_import(db, first)
+    sid = run_import(db, second).source_ids[0]
+    assert _rows(db, "SELECT name, aliases FROM vnext_entities") == [("Alice Marlow", '["dr alice marlow"]')]
+    assert command(db, "delete", sid, "--yes") == 0
+    capsys.readouterr()
+    assert _rows(db, "SELECT name, aliases, mention_count, deleted_at IS NULL FROM vnext_entities") == [
+        ("Alice Marlow", '["dr alice marlow"]', 1, 1)]

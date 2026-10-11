@@ -237,8 +237,13 @@ EXPECTED_ROUTE_MANIFEST = (
 )
 
 EXPECTED_ROUTE_AST_SHA256 = "9666f75cff198b78e45c1aed6c1a3259c20b7e2e53771be633399fd77228b9a4"
-EXPECTED_OWNED_SUPPORT_AST_SHA256 = "8bbbcb0cf52c4bd1da5fce4e50878d8a62599be59ee25e09dcd905c94950d406"
-EXPECTED_FULL_SUPPORT_AST_SHA256 = "07acb5deafb700e040c459969610e8877e86e62b04d4e9d86493fe314cb02868"
+# Re-pinned 2026-10-11 (write limits on caller JSON). The free JSON field of five request models (`metadata`, `attributes`
+# and `checkpoint`) is typed `BoundedJsonObject` (alicebot_api.http_json_types) instead of `dict[str, object]`, so a value
+# nested past 64 levels, or one that holds NaN or Infinity, is HTTP 422 before the handler runs. Previous owned receipt
+# 8bbbcb0c..., previous full receipt 07acb5de.... The route definitions, the set of definitions and the published schema
+# are the same.
+EXPECTED_OWNED_SUPPORT_AST_SHA256 = "e681cc2306bafcf40f8154f999e52ddf28366aa0bc48cdab80f73656bbe7e850"
+EXPECTED_FULL_SUPPORT_AST_SHA256 = "cff4c6c223571116fd95fb144afdeac200869e4432c337f89f26124f26b41c1e"
 EXPECTED_GATED_OPERATION_SHA256 = "55490460fd78990a6872ebf22c6cfd927f7d0a5548b6df90adde8261ede8da65"
 
 # Source regeneration adds one default route before source review.

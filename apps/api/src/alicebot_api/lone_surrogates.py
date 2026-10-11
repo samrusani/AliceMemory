@@ -55,6 +55,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.routing import Match
 
+from alicebot_api.http_json_types import NOT_FINITE_ERROR_TYPE, TOO_DEEP_ERROR_TYPE
 from alicebot_api.request_limits import json_nesting_exceeds, json_too_deep_response
 
 # Same text pydantic uses for a str field that holds one. The guard answers
@@ -159,10 +160,10 @@ async def payload_lone_surrogate_location(request: Request, payload: object) -> 
     return find_lone_surrogate(payload)
 
 
-# What pydantic calls a number field that holds NaN or an infinity, and its message. A body that holds one is refused
-# the same way whatever the field, because the value is not JSON: PostgreSQL's jsonb refuses it, and pydantic turns it
-# into null in a model dump, so a ref that carried one was stored as null or ended as a server error.
-NOT_FINITE_ERROR_TYPE = "finite_number"
+# What pydantic calls a number field that holds NaN or an infinity (``finite_number``, from ``http_json_types``), and its
+# message. A body that holds one is refused the same way whatever the field, because the value is not JSON: PostgreSQL's
+# jsonb refuses it, and pydantic turns it into null in a model dump, so a ref that carried one was stored as null or
+# ended as a server error.
 NOT_FINITE_MESSAGE = "Input should be a finite number"
 
 # Every way a body can hold a number that is not finite, and no way to hold one that this does not match: the words
@@ -316,7 +317,7 @@ def validation_error_response(errors: Sequence[Any]) -> JSONResponse:
 
 # Validation errors whose input is the value that was too deep or not finite. The answer to one names the field and the
 # limit and does not send the value back.
-_WITHHOLD_INPUT_TYPES = frozenset({"json_too_deep", NOT_FINITE_ERROR_TYPE})
+_WITHHOLD_INPUT_TYPES = frozenset({TOO_DEEP_ERROR_TYPE, NOT_FINITE_ERROR_TYPE})
 
 
 async def render_validation_error(request: Request, exc: RequestValidationError) -> Response:

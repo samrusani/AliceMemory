@@ -426,10 +426,14 @@ connection and contradiction edges of a PostgreSQL vault. Unreleased (on main,
 not in v0.20.0): earlier builds of this command, which is new on main, closed the
 mention edges that start at the source and left every other edge readable
 through `alice_graph_neighborhood`, the legacy tool of the keyless owner. A key
-cannot read an edge on SQLite: the two tools that return edges are legacy tools,
-which a configured `ALICE_AGENT_API_KEY` removes, and none of the other tools
-returns an edge row. `entity_relationship_events` is append-only and no part of
-the product writes its `source_id`, so it is not scrubbed.
+cannot read an edge on SQLite: `alice_graph_neighborhood` and
+`alice_graph_edge_review` are legacy tools, which a configured
+`ALICE_AGENT_API_KEY` removes, and no other tool returns an edge row.
+`entity_relationship_events` is append-only and no part of the product writes its
+`source_id`, so it is not scrubbed. A name form that an entity learned from the
+source, such as the alias `dr alice marlow` for `Alice Marlow`, stays on the
+entity while another live edge reaches it: the entity is shared and nothing
+records which source taught the alias.
 
 Each scrub enables SQLite secure deletion to zero freed space, and each delete
 or prune transaction merges both full-text indexes to remove obsolete postings.
