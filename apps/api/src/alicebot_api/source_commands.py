@@ -9,8 +9,8 @@ from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vault_sleep import SleepError
 from alicebot_api.vnext_stores.memory_lifecycle_common import is_redacted_memory
 from alicebot_api.vnext_stores.sqlite.source_retirement import (
-    CandidateScrubRefused, citing_memories_by_source, edges_naming_sources, open_loops_naming_sources,
-    optimize_scrub_indexes)
+    CandidateScrubRefused, citing_memories_by_source, open_loops_naming_sources, optimize_scrub_indexes,
+    pending_candidate_ids, retirement_edges)
 
 RETAINED_DATA = (
     "Source and import events keep prior titles, hashes and import folder paths. "
@@ -40,12 +40,22 @@ def _targets(store, args):
     return rows
 
 
+def _edges_to_retire(store, source_ids, citing, loops):
+    """The edges the command closes or blanks for each source: those that name it, those at a candidate memory the scrub
+    redacts, and those at an open loop it blanks. One pass over the edges answers for every source."""
+
+    return retirement_edges(
+        store, source_ids,
+        candidates={sid: pending_candidate_ids(citing[sid], scrub_candidates=True) for sid in source_ids},
+        loop_ids={sid: [str(loop['id']) for loop in loops[sid]] for sid in source_ids})
+
+
 def _preview(store, rows):
     # One pass over the memories, one over the loops and one over the edges answer for every source of the preview.
     source_ids=[str(row['id']) for row in rows]
     citing=citing_memories_by_source(store,source_ids)
     loops=open_loops_naming_sources(store,source_ids)
-    edges=edges_naming_sources(store,source_ids)
+    edges=_edges_to_retire(store,source_ids,citing,loops)
     result = []
     for row in rows:
         sid=str(row['id'])
@@ -98,7 +108,7 @@ def run_sources(args):
                 source_ids=[str(row['id']) for row in rows]
                 citing=citing_memories_by_source(store,source_ids)
                 loops=open_loops_naming_sources(store,source_ids)
-                edges=edges_naming_sources(store,source_ids)
+                edges=_edges_to_retire(store,source_ids,citing,loops)
                 receipts=[{'id':str(row['id']),**store.scrub_source(str(row['id']), optimize=False,
                           citing_ids=[str(memory['id']) for memory in citing[str(row['id'])]],
                           loop_ids=[str(loop['id']) for loop in loops[str(row['id'])]],

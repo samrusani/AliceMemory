@@ -117,10 +117,21 @@ class _AsciiDigits(dict):
 _ASCII_DIGIT = _AsciiDigits()
 
 
+# A digit string shorter than this is looked for with ``in``; a longer one is found by its windows (``_Probes.find``).
+_WINDOW_MIN = 16
+# A run of hexadecimal digits longer than this is searched with ``in`` for each long probe: a window per start would cost
+# more than the search does, and such a run (a hex dump in a note) is not an id.
+_LONG_RUN = 1024
+
+
 class _Probes:
     """What one pass looks for. ``sources`` lists ``(source id, digits or None)`` in the order the caller numbers them:
     the digits are what a text must hold to cite the source (``_citation_probe``), and ``None`` is for a string that
-    is no id, which no text can cite."""
+    is no id, which no text can cite.
+
+    ``find`` answers for every probe at once with a cost that grows with the length of the text and not with the number of
+    probes: the digits of an id are hexadecimal digits, so one occurrence lies inside a run of them, and a run holds a
+    handful of substrings as long as an id. Each substring is one lookup in a table of the ids."""
 
     def __init__(self, sources):
         self.ids = tuple(source_id for source_id, _ in sources)
@@ -128,6 +139,35 @@ class _Probes:
         self.every = frozenset(range(len(sources)))
         self.every_text = frozenset(index for index, _ in self.digits)
         self.everything = ",".join(str(index) for index in range(len(sources)))
+        self.short = tuple((index, digits) for index, digits in self.digits if len(digits) < _WINDOW_MIN)
+        self.wide = tuple((index, digits) for index, digits in self.digits if len(digits) >= _WINDOW_MIN)
+        tables: dict[int, dict[str, list[int]]] = {}
+        for index, digits in self.wide:
+            tables.setdefault(len(digits), {}).setdefault(digits, []).append(index)
+        self.windows = tuple((length, {digits: tuple(indexes) for digits, indexes in table.items()})
+                             for length, table in sorted(tables.items()))
+        self._run = re.compile("[0-9a-f]{%d,}" % min(tables)) if tables else None
+
+    def find(self, stripped, hits):
+        """Add to ``hits`` the number of each probe whose digits occur in ``stripped``, a lower case text."""
+
+        for index, digits in self.short:
+            if digits in stripped:
+                hits.add(index)
+        if self._run is None:
+            return
+        for run in self._run.findall(stripped):
+            size = len(run)
+            if size > _LONG_RUN:
+                for index, digits in self.wide:
+                    if digits in run:
+                        hits.add(index)
+                continue
+            for length, table in self.windows:
+                for start in range(size - length + 1):
+                    found = table.get(run[start:start + length])
+                    if found is not None:
+                        hits.update(found)
 
 
 def _digit_escape(match):
@@ -166,17 +206,11 @@ def _add_text_hits(text, probes, hits):
     if escaped and _ESCAPED_ASCII.search(text):
         hits |= probes.every_text
         return
-    stripped = _without_ignored(text)
-    for index, digits in probes.digits:
-        if digits in stripped:
-            hits.add(index)
+    probes.find(_without_ignored(text), hits)
     if len(hits) < len(probes.every) and (escaped or not text.isascii()):
         read = _in_ascii_digits(text)
         if read is not None:
-            stripped = _without_ignored(read)
-            for index, digits in probes.digits:
-                if digits in stripped:
-                    hits.add(index)
+            probes.find(_without_ignored(read), hits)
 
 
 def _text_of(column):
@@ -318,28 +352,38 @@ def citing_memories(self, source_id):
 #
 # An edge names a source in two ways. An END of the edge (``from_id`` or ``to_id``, whatever ``from_type`` and
 # ``to_type`` say) is the source or one of its chunks, in any spelling ``cited_source_ids`` names: capitals, no hyphens,
-# braces, ``urn:uuid:``, a ``source:`` prefix. Or its ``explanation`` or ``metadata_json`` names the source, as a
-# connection edge does in ``metadata_json.connection.source_item``, while neither end does. The product's own SQLite
-# writers make only mention edges, but ``alice-memory import`` restores an edge of any type and shape (the edges of a
-# PostgreSQL vault included), so retirement cannot look at mention edges from a ``source`` end alone.
+# braces, ``urn:uuid:``, a ``source:`` prefix. Or its ``explanation`` or ``metadata_json`` names the source or one of its
+# chunks, as a connection edge does in ``metadata_json.connection.source_item``, while neither end does. The product's own
+# SQLite writers make only mention edges, but ``alice-memory import`` restores an edge of any type and shape (the edges of
+# a PostgreSQL vault included), so retirement cannot look at mention edges from a ``source`` end alone.
 #
-# One pass over the user's edges answers for every source of the command. It reads only the five columns it needs, keeps
-# the edges whose text could hold an id (the same digit rule the memory pass uses, which may keep an edge the reader
-# rejects and never drops one the reader accepts), and the reader decides on those.
+# A command that retires a source also takes away the text of what it owns, and an edge that has one of those at an end is
+# closed with it: a candidate memory it redacts and an open loop it dismisses and blanks.
+#
+# One pass over the user's edges answers for every source of the command, and for the candidates and loops of them. It
+# reads only the five columns it needs, keeps the edges whose text could hold one of the ids (the same digit rule the
+# memory pass uses, which may keep an edge the reader rejects and never drops one the reader accepts, and which costs the
+# length of the text and not the number of ids), and the reader decides on those.
 _SCAN_FOR_EDGES = "SELECT id, from_id, to_id, explanation, metadata_json FROM graph_edges WHERE user_id = ?"
 _EDGES_BY_ID = "SELECT * FROM graph_edges WHERE user_id = ? AND id IN (SELECT value FROM json_each(?)) ORDER BY id"
 _CHUNKS_OF_SOURCES = (
     "SELECT id, source_id FROM source_chunks WHERE user_id = ? AND source_id IN (SELECT value FROM json_each(?))"
 )
+_PENDING_STATUSES = frozenset({'candidate', 'needs_review'})
+_SCRUBBED_STATUSES = frozenset({'candidate', 'needs_review', 'rejected'})
 
 
 @dataclass(frozen=True, slots=True)
 class EdgeHits:
-    """The ids of the edges that name one source: ``ends`` have the source (or a chunk of it) at an end and are
-    closed and blanked, ``notes`` name it only in their text and keep their link, with the text blanked."""
+    """The ids of the edges a command retires for one source: ``ends`` are closed and blanked (the source or a chunk of it
+    is at an end, or a candidate memory or an open loop of the command is), ``notes`` name it only in their text and keep
+    their link, with the text blanked. ``candidates`` and ``loops`` are the ids of the memories and loops whose edges are
+    among ``ends``, so a caller can tell what the finder looked at."""
 
     ends: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
+    candidates: tuple[str, ...] = ()
+    loops: tuple[str, ...] = ()
 
     @property
     def total(self) -> int:
@@ -353,45 +397,56 @@ def _canonical_or_none(value):
         return None
 
 
-# An id in the one spelling the store writes. A string in that spelling that is not the id of a known chunk names none.
+# An id in the one spelling the store writes.
 _STORED_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
-def _may_name_a_chunk(end, chunk_owner):
-    if not isinstance(end, str) or len(end) < 32:
-        return False
-    if end in chunk_owner:
-        return True
-    return _STORED_ID.fullmatch(end) is None and any(
-        canonical in chunk_owner for canonical in cited_source_ids(end).every)
+def _chunk_probe(chunk_id):
+    """``_citation_probe`` for the id of a chunk, which the store wrote in its one spelling (no parse for that)."""
+
+    if _STORED_ID.fullmatch(chunk_id):
+        return chunk_id, chunk_id.replace("-", "").lstrip("0")
+    return _citation_probe(chunk_id)
 
 
-def _edge_name_sets(row, wanted, chunk_owner, *, with_notes):
-    """``(ends, notes)``: the canonical ids among the keys of ``wanted`` that one decoded edge names at an end, and the ones
-    it names only in its text. ``wanted`` maps a canonical id to the ids as the caller gave them; ``chunk_owner`` maps the
-    canonical id of a chunk to the canonical id of its source."""
+def pending_candidate_ids(memories, *, scrub_candidates):
+    """The ids of the memories (rows) a retirement redacts (``scrub_candidates``) or rejects: candidates and memories that
+    need review, and rejected ones when it scrubs. A memory that is redacted already is left alone."""
 
-    ends = set()
+    statuses = _SCRUBBED_STATUSES if scrub_candidates else _PENDING_STATUSES
+    return [str(row['id']) for row in memories if not is_redacted_memory(row) and row['status'] in statuses]
+
+
+def _edge_names(row, wanted, wanted_ends, chunk_owner):
+    """``(ends, notes, at_end)`` for one decoded edge. ``ends`` are the canonical ids among the keys of ``wanted`` (the
+    sources) that it has at an end, a chunk of a source counting for the source, and ``notes`` the ones it names only in
+    its text (a chunk named there counts for its source). ``at_end`` are the ids among the keys of ``wanted_ends`` that it
+    has at an end. ``chunk_owner`` maps the canonical id of a chunk to the canonical id of its source."""
+
+    at_end = set()
     for field in ("from_id", "to_id"):
         value = row.get(field)
-        if value is None:
-            continue
-        for canonical in cited_source_ids(str(value)).every:
-            ends.add(canonical)
-            owner = chunk_owner.get(canonical)
-            if owner is not None:
-                ends.add(owner)
-    notes = set()
-    if with_notes:
-        notes |= cited_source_ids(row.get("metadata_json")).every
-        explanation = row.get("explanation")
-        if isinstance(explanation, str) and explanation:
-            notes |= cited_source_ids(explanation).every
-    return ends & wanted.keys(), (notes - ends) & wanted.keys()
+        if value is not None:
+            at_end |= cited_source_ids(str(value)).every
+    ends = set(at_end)
+    for canonical in at_end:
+        owner = chunk_owner.get(canonical)
+        if owner is not None:
+            ends.add(owner)
+    named = set(cited_source_ids(row.get("metadata_json")).every)
+    explanation = row.get("explanation")
+    if isinstance(explanation, str) and explanation:
+        named |= cited_source_ids(explanation).every
+    notes = set(named)
+    for canonical in named:
+        owner = chunk_owner.get(canonical)
+        if owner is not None:
+            notes.add(owner)
+    return ends & wanted.keys(), (notes - ends) & wanted.keys(), at_end & wanted_ends.keys()
 
 
-def _edge_candidates(self, probes, chunk_owner, *, with_text):
-    """The ids of the user's edges that could name one of the probed ids (see ``_Probes``) or a chunk of a source."""
+def _edge_candidates(self, probes):
+    """The ids of the user's edges that could name one of the probed ids (see ``_Probes``)."""
 
     kept = []
     cursor = self._execute(_SCAN_FOR_EDGES, (self.user_id,))
@@ -399,15 +454,10 @@ def _edge_candidates(self, probes, chunk_owner, *, with_text):
         # Plain tuples: the pass reads every edge of the user.
         cursor.row_factory = None
         for edge_id, from_id, to_id, explanation, metadata_json in cursor:
-            parts = (_text_of(from_id), _text_of(to_id))
-            if with_text:
-                parts += (_text_of(explanation), _text_of(metadata_json))
+            parts = (_text_of(from_id), _text_of(to_id), _text_of(explanation), _text_of(metadata_json))
             hits = set()
             _add_text_hits("\n".join(parts).lower(), probes, hits)
             if hits:
-                kept.append(str(edge_id))
-                continue
-            if chunk_owner and (_may_name_a_chunk(from_id, chunk_owner) or _may_name_a_chunk(to_id, chunk_owner)):
                 kept.append(str(edge_id))
     finally:
         cursor.close()
@@ -421,50 +471,85 @@ def _edges_by_id(self, edge_ids):
     return self._fetch_all(_EDGES_BY_ID, (self.user_id, json.dumps(edge_ids))) if edge_ids else []
 
 
-def _edges_naming(self, ids, *, with_chunks, with_text):
-    """``{id as given: EdgeHits}`` for the ids asked about, from one pass over the user's edges."""
+def _edges_named(self, source_ids, end_ids):
+    """``({source id as given: (edge ids with it at an end, edge ids that name it only in their text)}, {end id as given:
+    [edge rows with it at an end]})``, from one pass over the user's edges. A source is named by its chunks too, at an end or
+    in the text of an edge. ``end_ids`` are the ids of memories and loops, named at an end only."""
 
-    ids = list(dict.fromkeys(str(item) for item in ids))
-    if not ids:
-        return {}
-    found = {item: ([], []) for item in ids}
+    source_ids = list(dict.fromkeys(str(item) for item in source_ids))
+    end_ids = list(dict.fromkeys(str(item) for item in end_ids))
+    found = {item: ([], []) for item in source_ids}
+    at_end = {item: [] for item in end_ids}
+    if not source_ids and not end_ids:
+        return found, at_end
     wanted = {}
+    wanted_ends = {}
     sources = []
-    for item in ids:
+    for item in source_ids:
         canonical, digits = _citation_probe(item)
         sources.append((item, digits))
         if canonical is not None:
             wanted.setdefault(canonical, []).append(item)
     chunk_owner = {}
-    if with_chunks:
-        for chunk in self._fetch_all(_CHUNKS_OF_SOURCES, (self.user_id, json.dumps(ids))):
+    if source_ids:
+        for chunk in self._fetch_all(_CHUNKS_OF_SOURCES, (self.user_id, json.dumps(source_ids))):
             owner = _canonical_or_none(chunk["source_id"])
             if owner is not None:
-                chunk_owner[str(chunk["id"])] = owner
+                chunk_id = str(chunk["id"])
+                chunk_owner[chunk_id] = owner
+                sources.append((chunk_id, _chunk_probe(chunk_id)[1]))
+    for item in end_ids:
+        canonical, digits = _citation_probe(item)
+        sources.append((item, digits))
+        if canonical is not None:
+            wanted_ends.setdefault(canonical, []).append(item)
     probes = _Probes(sources)
-    for edge in _edges_by_id(self, _edge_candidates(self, probes, chunk_owner, with_text=with_text)):
-        ends, notes = _edge_name_sets(edge, wanted, chunk_owner, with_notes=with_text)
+    for edge in _edges_by_id(self, _edge_candidates(self, probes)):
+        ends, notes, here = _edge_names(edge, wanted, wanted_ends, chunk_owner)
         for canonical in ends:
             for item in wanted[canonical]:
                 found[item][0].append(str(edge["id"]))
         for canonical in notes:
             for item in wanted[canonical]:
                 found[item][1].append(str(edge["id"]))
-    return {item: EdgeHits(tuple(ends), tuple(notes)) for item, (ends, notes) in found.items()}
+        for canonical in here:
+            for item in wanted_ends[canonical]:
+                at_end[item].append(edge)
+    return found, at_end
+
+
+def retirement_edges(self, source_ids, *, candidates=None, loop_ids=None):
+    """``{source id: EdgeHits}``: the edges a command retires for each source, from one pass over the user's edges.
+
+    Every edge that names the source, of any edge type, at either end or in its text, in any spelling
+    ``cited_source_ids`` names (a chunk of the source counts for the source). ``candidates`` maps a source to the ids of
+    the memories the command redacts (``pending_candidate_ids``): every edge that has one at an end goes with its text.
+    ``loop_ids`` maps a source to the loops the command dismisses and blanks: the edges that have one at an end go too.
+    """
+
+    ids = list(dict.fromkeys(str(item) for item in source_ids))
+    if not ids:
+        return {}
+    candidates = {str(key): [str(item) for item in value] for key, value in (candidates or {}).items()}
+    loop_ids = {str(key): [str(item) for item in value] for key, value in (loop_ids or {}).items()}
+    end_ids = sorted({item for source_id in ids for item in (*candidates.get(source_id, ()), *loop_ids.get(source_id, ()))})
+    named, at_end = _edges_named(self, ids, end_ids)
+    result = {}
+    for source_id in ids:
+        ends = set(named[source_id][0])
+        for end_id in (*candidates.get(source_id, ()), *loop_ids.get(source_id, ())):
+            ends.update(str(edge['id']) for edge in at_end[end_id])
+        result[source_id] = EdgeHits(
+            tuple(sorted(ends)), tuple(sorted(set(named[source_id][1]) - ends)),
+            tuple(candidates.get(source_id, ())), tuple(loop_ids.get(source_id, ())))
+    return result
 
 
 def edges_naming_sources(self, source_ids):
     """``{source id: EdgeHits}``: every edge of the user that names each source, of any edge type, at either end or in its
     text, in any spelling ``cited_source_ids`` names. One pass answers for every source asked about."""
 
-    return _edges_naming(self, source_ids, with_chunks=True, with_text=True)
-
-
-def edges_at_memories(self, memory_ids):
-    """``{memory id: EdgeHits}`` for the edges that have a memory at an end, of any edge type, in any spelling. A memory is
-    named by its ends only: a ``memory:`` ref in text names a memory and the source reader skips it."""
-
-    return _edges_naming(self, memory_ids, with_chunks=False, with_text=False)
+    return retirement_edges(self, source_ids)
 
 
 def _blank_edge_text(self, edges):
@@ -507,24 +592,30 @@ def _close_edges(self, edges, now):
     return len(edges)
 
 
-def retire_edges(self, hits, now):
+def retire_edges(self, hits, now, closed=()):
     """Retire the edges of one ``EdgeHits``: close and blank the edges with the source at an end, blank the text of the
     ones that name it only in their text. Rows are read as they are stored now, so an edge that an earlier retirement of
-    the same command closed is blanked again and counted once. Returns ``(graph edges, mention edges)``."""
+    the same command closed is blanked again and counted once. ``closed`` are the rows an earlier step of this retirement
+    closed (the mention edges of a candidate it rejected); they are counted with the rest. Returns ``(graph edges, mention
+    edges)``."""
 
     ended = _edges_by_id(self, hits.ends)
     _close_edges(self, ended, now)
     _blank_edge_text(self, _edges_by_id(self, hits.notes))
-    mentions = sum(1 for edge in ended if edge['edge_type'] == ENTITY_MENTION_EDGE_TYPE and edge['to_type'] == 'entity')
-    return hits.total, mentions
+    rows = {str(edge['id']): edge for edge in (*closed, *ended)}
+    mentions = sum(1 for edge in rows.values() if edge['edge_type'] == ENTITY_MENTION_EDGE_TYPE and edge['to_type'] == 'entity')
+    return len(rows) + len(set(hits.notes) - rows.keys()), mentions
 
 
-def close_mention_edges(self, from_type, from_id, now):
-    edges = self._fetch_all(
+def _mention_edges_from(self, from_type, from_id):
+    return self._fetch_all(
         "SELECT * FROM graph_edges WHERE user_id = ? AND from_type = ? AND from_id = ? "
         "AND to_type = 'entity' AND edge_type = ?",
         (self.user_id, from_type, from_id, ENTITY_MENTION_EDGE_TYPE))
-    return _close_edges(self, edges, now)
+
+
+def close_mention_edges(self, from_type, from_id, now):
+    return _close_edges(self, _mention_edges_from(self, from_type, from_id), now)
 
 
 # One read of the user's loops. The column list is a module constant, and the user id is bound.
@@ -602,14 +693,17 @@ def retire_dependents(self, source_id, *, now, scrub_candidates=False, citing_id
     for the source (``citing_memories_by_source``): a caller that retires many sources looks once for all of them, and the
     memories are read again here as they are stored now, so one that an earlier retirement redacted is left alone, as it
     is when each source is looked up on its own. Without them the memories are looked up here. ``edge_hits`` is the
-    ``EdgeHits`` that ``edges_naming_sources`` found for the source, used the same way."""
+    ``EdgeHits`` that ``retirement_edges`` found for the source, used the same way; it names the candidates and the loops
+    it looked at, and any this retirement has beyond them are looked up here."""
 
+    source_id = str(source_id)
     memories = [row for row in (citing_memories(self, source_id) if citing_ids is None
                                 else _memories_by_id(self, citing_ids)) if not is_redacted_memory(row)]
-    pending = [row for row in memories if row['status'] in ({'candidate', 'needs_review', 'rejected'}
-               if scrub_candidates else {'candidate', 'needs_review'})]
-    pending_ids = {str(row['id']) for row in pending}
-    retained = [str(row['id']) for row in memories if not scrub_candidates or str(row['id']) not in pending_ids]
+    pending_ids = pending_candidate_ids(memories, scrub_candidates=scrub_candidates)
+    pending_set = set(pending_ids)
+    pending = [row for row in memories if str(row['id']) in pending_set]
+    retained = [str(row['id']) for row in memories if not scrub_candidates or str(row['id']) not in pending_set]
+    closed = []
     for memory in pending:
         mid = str(memory['id'])
         if scrub_candidates:
@@ -619,17 +713,29 @@ def retire_dependents(self, source_id, *, now, scrub_candidates=False, citing_id
                     raise ValueError('Candidate bundle is incomplete')
             except Exception as exc:
                 raise CandidateScrubRefused([str(row['id']) for row in pending]) from exc
-            close_mention_edges(self, 'memory', mid, now)
         else:
             self.update_memory(memory_id=mid, patch={'status': 'rejected'}, actor_type='user')
-            close_mention_edges(self, 'memory', mid, now)
-    if scrub_candidates and pending_ids:
-        # The candidates' text is gone, so an edge of any type that has one of them at an end goes too.
-        for hits in edges_at_memories(self, sorted(pending_ids)).values():
-            _close_edges(self, _edges_by_id(self, hits.ends), now)
+            # A rejected memory keeps its text: only the mentions it made go.
+            mentions = _mention_edges_from(self, 'memory', mid)
+            _close_edges(self, mentions, now)
+            closed.extend(mentions)
+    if loop_ids is None:
+        loop_ids = [str(row['id']) for row in open_loops_naming_sources(self, [source_id])[source_id]]
+    loop_ids = [str(loop_id) for loop_id in loop_ids]
+    # The candidates' text is gone, so an edge of any type that has one of them at an end goes too, and so does an edge
+    # at a loop that is blanked.
+    wanted = pending_ids if scrub_candidates else []
     if edge_hits is None:
-        edge_hits = edges_naming_sources(self, [source_id])[str(source_id)]
-    graph_edges, mention_edges = retire_edges(self, edge_hits, now)
+        edge_hits = retirement_edges(self, [source_id], candidates={source_id: wanted}, loop_ids={source_id: loop_ids})[source_id]
+    else:
+        looked_at = {*edge_hits.candidates, *edge_hits.loops}
+        more = [item for item in (*wanted, *loop_ids) if item not in looked_at]
+        if more:
+            _, at_end = _edges_named(self, [], more)
+            ends = {*edge_hits.ends, *(str(edge['id']) for rows in at_end.values() for edge in rows)}
+            edge_hits = EdgeHits(tuple(sorted(ends)), tuple(sorted(set(edge_hits.notes) - ends)),
+                                 edge_hits.candidates, edge_hits.loops)
+    graph_edges, mention_edges = retire_edges(self, edge_hits, now, closed=closed)
     loops = blank_open_loops(self, source_id, now=now, loop_ids=loop_ids)
     return {'candidate_memories': len(pending), 'mention_edges': mention_edges, 'graph_edges': graph_edges,
             'open_loops': loops, 'memories_citing_replaced': retained}

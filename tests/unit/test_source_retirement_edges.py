@@ -92,7 +92,15 @@ SHAPES = {
     "chunk end": ("ends", lambda sid, chunk, mid, ent: ("source_chunk", chunk, "memory", mid, "supports")),
     "chunk end in capitals": ("ends", lambda sid, chunk, mid, ent: ("source_chunk", chunk.upper(), "memory", mid, "supports")),
     "text only": ("notes", lambda sid, chunk, mid, ent: ("memory", mid, "entity", ent, "supports")),
+    "explanation only": ("notes explanation", lambda sid, chunk, mid, ent: ("memory", mid, "entity", ent, "supports")),
+    "chunk in the metadata only": ("notes chunk", lambda sid, chunk, mid, ent: ("memory", mid, "entity", ent, "supports")),
+    "chunk in the explanation only": (
+        "notes chunk explanation", lambda sid, chunk, mid, ent: ("memory", mid, "entity", ent, "supports")),
 }
+
+# Where the text of a "notes" shape names the source, and whether it names a chunk of it.
+NAMING = {"notes": ("source", "metadata"), "notes explanation": ("source", "explanation"),
+          "notes chunk": ("chunk", "metadata"), "notes chunk explanation": ("chunk", "explanation")}
 
 
 def _rows(db, sql, parameters=()):
@@ -128,14 +136,17 @@ def _neighbours(db, target):
     return [edge for edge in answer["from_edges"] + answer["to_edges"]]
 
 
-def _edge(store, fields, label, *, names_source=None):
-    """One edge with the sentinel in its explanation and metadata. ``names_source`` puts the source id into the metadata."""
+def _edge(store, fields, label, *, names_source=None, names_in="metadata"):
+    """One edge with the sentinel in its explanation and metadata. ``names_source`` puts that id (of a source or of one of
+    its chunks) into the metadata, or into the explanation when ``names_in`` says so."""
 
     from_type, from_id, to_type, to_id, edge_type = fields
     metadata = {"why": f"{SENTINEL} metadata of {label}"}
     explanation = f"{SENTINEL} explanation of {label}"
-    if names_source is not None:
+    if names_source is not None and names_in == "metadata":
         metadata["connection"] = {"source_item": f"source:{names_source}"}
+    elif names_source is not None:
+        explanation += f" taken from source:{names_source}"
     return str(
         store.create_graph_edge(
             {
@@ -194,7 +205,9 @@ def _seed(tmp_path, shape):
         mid = str(memory["id"])
         entity = _linker_entity(store, "Zorvex Holdings")
         fields = make(sid, chunk, mid, entity)
-        named = _edge(store, fields, shape, names_source=sid if kind == "notes" else None)
+        what, where = NAMING.get(kind, (None, None))
+        named = _edge(store, fields, shape, names_source={"source": sid, "chunk": chunk, None: None}[what],
+                      names_in=where or "metadata")
         controls = {
             "between live rows": _edge(store, ("memory", mid, "entity", entity, "supports"), "control one",
                                        names_source=None),
@@ -238,7 +251,7 @@ def test_every_shape_is_retired(tmp_path, capsys, shape, operation):
     assert SENTINEL in _whole_database(db)
     preview, receipt = _retire(db, folder, sid, operation, capsys)
     # A prune follows the replacement that already blanked an edge naming the source only in its text.
-    expected = len(seed.mentions) + (0 if operation == "prune" and kind == "notes" else 1)
+    expected = len(seed.mentions) + (0 if operation == "prune" and kind.startswith("notes") else 1)
     assert receipt["graph_edges"] == expected, receipt
     assert receipt["mention_edges"] == len(seed.mentions)
     if preview is not None:
@@ -270,10 +283,11 @@ def test_the_finder_names_exactly_the_edges_that_name_the_source(tmp_path):
         text_only = _edge(store, ("memory", mid, "entity", entity, "supports"), "text only", names_source=sid)
         chunk = str(store.list_source_chunks(sid)[0]["id"])
         by_chunk = _edge(store, ("source_chunk", chunk, "memory", mid, "supports"), "chunk")
+        chunk_text = _edge(store, ("memory", mid, "entity", entity, "supports"), "chunk in text", names_source=chunk)
         found = edges_naming_sources(store, [sid])[sid]
         control_ids = set(controls.values())
     assert set(found.ends) == {named, by_chunk, *seed.mentions}
-    assert set(found.notes) == {text_only}
+    assert set(found.notes) == {text_only, chunk_text}
     assert not control_ids & (set(found.ends) | set(found.notes))
 
 
@@ -359,13 +373,66 @@ def test_edges_at_a_scrubbed_candidate_go_with_it(tmp_path, capsys):
         at_candidate = _edge(store, ("memory", cid, "entity", entity, "supports"), "at candidate")
         at_candidate_upper = _edge(store, ("entity", entity, "memory", cid.upper(), "supports"), "at candidate upper")
         at_live = _edge(store, ("memory", live_id, "entity", entity, "supports"), "at live")
+    mentions = _rows(db, "SELECT count(*) FROM graph_edges WHERE from_id = ? AND edge_type = 'mentions'", (sid,))[0][0]
+    assert command(db, "delete", sid) == 2
+    preview = json.loads(capsys.readouterr().out)["would_delete"][0]
     assert command(db, "delete", sid, "--yes") == 0
-    capsys.readouterr()
+    receipt = json.loads(capsys.readouterr().out)["deleted"][0]
+    # The two edges at the redacted candidate are counted with the edges of the source: the preview says what the receipt
+    # does, and both say what changed in the file.
+    assert preview["graph_edges"] == receipt["graph_edges"] == mentions + 2, (preview, receipt)
+    assert receipt["mention_edges"] == mentions and receipt["candidate_memories"] == 1
     for edge_id in (at_candidate, at_candidate_upper):
         assert _rows(db, "SELECT explanation, metadata_json, valid_to IS NULL FROM graph_edges WHERE id = ?", (edge_id,)) == [
             ("", "{}", 0)]
     live_row = _rows(db, "SELECT explanation, valid_to IS NULL FROM graph_edges WHERE id = ?", (at_live,))[0]
     assert SENTINEL in live_row[0] and live_row[1] == 1
+
+
+@pytest.mark.parametrize("operation", ("delete", "prune", "replace"))
+def test_edges_at_a_blanked_open_loop_go_with_it(tmp_path, capsys, operation):
+    """An open loop that names the source is dismissed and its text is blanked. An edge that has it at an end carries text
+    about it, so it is closed and blanked as well, in any spelling of the loop id; the same edge at a loop that names
+    another source is left alone."""
+
+    db = _vault(tmp_path)
+    folder = _folder(tmp_path, note=NOTE)
+    sid = run_import(db, folder).source_ids[0]
+    other_folder = tmp_path / "other"
+    other_folder.mkdir()
+    (other_folder / "other.md").write_text("The second lantern is in the cellar.")
+    other_source = run_import(db, other_folder / "other.md").source_ids[0]
+    with sqlite_user_connection(db, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        loop = str(store.create_open_loop({"title": "find the lantern", "description": "kestrelplum", "resolution_note": None,
+                                           "source_id": sid, "status": "open", "metadata_json": {}})["id"])
+        other = str(store.create_open_loop({"title": "other loop", "description": KEPT, "resolution_note": None,
+                                            "source_id": other_source, "status": "open", "metadata_json": {}})["id"])
+        memory = store.create_memory(
+            {"memory_key": "live", "value": {"text": "live"}, "memory_type": "project_fact", "status": "active",
+             "title": "live", "canonical_text": "live", "source_event_ids": []})
+        mid = str(memory["id"])
+        at_loop = _edge(store, ("open_loop", loop, "memory", mid, "supports"), "at loop")
+        at_loop_upper = _edge(store, ("memory", mid, "open_loop", loop.upper(), "supports"), "at loop upper")
+        at_other = _edge(store, ("open_loop", other, "memory", mid, "supports"), "at other loop")
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute("UPDATE graph_edges SET explanation = replace(explanation, ?, ?), metadata_json = replace(metadata_json, ?, ?) "
+                     "WHERE id = ?", (SENTINEL, KEPT, SENTINEL, KEPT, at_other))
+        conn.commit()
+    mentions = _rows(db, "SELECT count(*) FROM graph_edges WHERE from_id = ? AND edge_type = 'mentions'", (sid,))[0][0]
+    preview, receipt = _retire(db, folder, sid, operation, capsys)
+    assert receipt["open_loops"] == 1
+    if operation != "prune":
+        assert receipt["graph_edges"] == mentions + 2, receipt
+        assert receipt["mention_edges"] == mentions
+    if preview is not None:
+        assert preview["graph_edges"] == receipt["graph_edges"]
+    for edge_id in (at_loop, at_loop_upper):
+        assert _rows(db, "SELECT explanation, metadata_json, valid_to IS NULL FROM graph_edges WHERE id = ?", (edge_id,)) == [
+            ("", "{}", 0)], operation
+    control = _rows(db, "SELECT explanation, valid_to IS NULL FROM graph_edges WHERE id = ?", (at_other,))[0]
+    assert KEPT in control[0] and control[1] == 1
+    assert SENTINEL not in _whole_database(db)
 
 
 def test_a_prune_after_a_replacement_does_not_count_an_entity_mention_twice(tmp_path, capsys):
@@ -397,6 +464,18 @@ def test_a_prune_after_a_replacement_does_not_count_an_entity_mention_twice(tmp_
         ("", "{}", 0)]
 
 
+def _count_edge_scans(monkeypatch):
+    scans = []
+    original = source_retirement._edge_candidates
+
+    def counting(self, probes):
+        scans.append(len(probes.ids))
+        return original(self, probes)
+
+    monkeypatch.setattr(source_retirement, "_edge_candidates", counting)
+    return scans
+
+
 def test_a_folder_import_reads_the_edges_once(tmp_path, monkeypatch):
     db = _vault(tmp_path)
     folder = tmp_path / "many"
@@ -404,18 +483,29 @@ def test_a_folder_import_reads_the_edges_once(tmp_path, monkeypatch):
     for name in ("a", "b", "c"):
         (folder / f"{name}.md").write_text(f"The {name} lantern before.")
     run_import(db, folder)
-    scans = []
-    original = source_retirement._edge_candidates
-
-    def counting(self, probes, chunk_owner, *, with_text):
-        scans.append(len(probes.ids))
-        return original(self, probes, chunk_owner, with_text=with_text)
-
-    monkeypatch.setattr(source_retirement, "_edge_candidates", counting)
+    scans = _count_edge_scans(monkeypatch)
     for name in ("a", "b", "c"):
         (folder / f"{name}.md").write_text(f"The {name} lantern after.")
     assert run_import(db, folder, supersede=True).to_record()["superseded_count"] == 3
-    assert scans == [3], scans
+    # One pass for the three replaced files; its probes are the three sources and their chunks.
+    assert len(scans) == 1 and scans[0] >= 3, scans
+
+
+def test_a_folder_that_changed_nothing_reads_no_edge(tmp_path, monkeypatch):
+    """Re-importing a folder is the usual run and replaces nothing: it must not read the user's edges to find out."""
+
+    db = _vault(tmp_path)
+    folder = tmp_path / "many"
+    folder.mkdir()
+    for name in ("a", "b", "c"):
+        (folder / f"{name}.md").write_text(f"The {name} lantern stays.")
+    run_import(db, folder)
+    scans = _count_edge_scans(monkeypatch)
+    assert run_import(db, folder, supersede=True).to_record().get("superseded_count", 0) == 0
+    assert scans == []
+    (folder / "b.md").write_text("The b lantern moved.")
+    assert run_import(db, folder, supersede=True).to_record()["superseded_count"] == 1
+    assert len(scans) == 1, scans
 
 
 def _spliced_restore(tmp_path, source_db, edge_rows):
