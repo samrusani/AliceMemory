@@ -4,6 +4,7 @@ from __future__ import annotations
 import itertools
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from contextlib import nullcontext
 from uuid import UUID
@@ -14,7 +15,7 @@ from alicebot_api.vnext_stores.memory_lifecycle_common import is_redacted_memory
 from alicebot_api.source_supersede import classification_refusal, eligible_source
 from alicebot_api.vnext_entities import ENTITY_MENTION_EDGE_TYPE
 from alicebot_api.vnext_project_scope import source_project_scope
-from alicebot_api.vnext_source_fence import memory_cited_source_ids
+from alicebot_api.vnext_source_fence import cited_source_ids, memory_cited_source_ids
 from alicebot_api.vnext_stores.sqlite.columns import OPEN_LOOP_COLUMNS
 from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import named_source_ids
 from alicebot_api.vnext_stores.sqlite.primitives import _utc_now_iso
@@ -313,31 +314,217 @@ def citing_memories(self, source_id):
     return citing_memories_by_source(self, [source_id])[str(source_id)]
 
 
-def close_mention_edges(self, from_type, from_id, now):
-    edges = self._fetch_all(
-        "SELECT * FROM graph_edges WHERE user_id = ? AND from_type = ? AND from_id = ? "
-        "AND to_type = 'entity' AND edge_type = ?",
-        (self.user_id, from_type, from_id, ENTITY_MENTION_EDGE_TYPE))
+# -- finding the graph edges that name a source -------------------------------------------------------------------------
+#
+# An edge names a source in two ways. An END of the edge (``from_id`` or ``to_id``, whatever ``from_type`` and
+# ``to_type`` say) is the source or one of its chunks, in any spelling ``cited_source_ids`` names: capitals, no hyphens,
+# braces, ``urn:uuid:``, a ``source:`` prefix. Or its ``explanation`` or ``metadata_json`` names the source, as a
+# connection edge does in ``metadata_json.connection.source_item``, while neither end does. The product's own SQLite
+# writers make only mention edges, but ``alice-memory import`` restores an edge of any type and shape (the edges of a
+# PostgreSQL vault included), so retirement cannot look at mention edges from a ``source`` end alone.
+#
+# One pass over the user's edges answers for every source of the command. It reads only the five columns it needs, keeps
+# the edges whose text could hold an id (the same digit rule the memory pass uses, which may keep an edge the reader
+# rejects and never drops one the reader accepts), and the reader decides on those.
+_SCAN_FOR_EDGES = "SELECT id, from_id, to_id, explanation, metadata_json FROM graph_edges WHERE user_id = ?"
+_EDGES_BY_ID = "SELECT * FROM graph_edges WHERE user_id = ? AND id IN (SELECT value FROM json_each(?)) ORDER BY id"
+_CHUNKS_OF_SOURCES = (
+    "SELECT id, source_id FROM source_chunks WHERE user_id = ? AND source_id IN (SELECT value FROM json_each(?))"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class EdgeHits:
+    """The ids of the edges that name one source: ``ends`` have the source (or a chunk of it) at an end and are
+    closed and blanked, ``notes`` name it only in their text and keep their link, with the text blanked."""
+
+    ends: tuple[str, ...] = ()
+    notes: tuple[str, ...] = ()
+
+    @property
+    def total(self) -> int:
+        return len(self.ends) + len(self.notes)
+
+
+def _canonical_or_none(value):
+    try:
+        return str(UUID(str(value)))
+    except ValueError:
+        return None
+
+
+# An id in the one spelling the store writes. A string in that spelling that is not the id of a known chunk names none.
+_STORED_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def _may_name_a_chunk(end, chunk_owner):
+    if not isinstance(end, str) or len(end) < 32:
+        return False
+    if end in chunk_owner:
+        return True
+    return _STORED_ID.fullmatch(end) is None and any(
+        canonical in chunk_owner for canonical in cited_source_ids(end).every)
+
+
+def _edge_name_sets(row, wanted, chunk_owner, *, with_notes):
+    """``(ends, notes)``: the canonical ids among the keys of ``wanted`` that one decoded edge names at an end, and the ones
+    it names only in its text. ``wanted`` maps a canonical id to the ids as the caller gave them; ``chunk_owner`` maps the
+    canonical id of a chunk to the canonical id of its source."""
+
+    ends = set()
+    for field in ("from_id", "to_id"):
+        value = row.get(field)
+        if value is None:
+            continue
+        for canonical in cited_source_ids(str(value)).every:
+            ends.add(canonical)
+            owner = chunk_owner.get(canonical)
+            if owner is not None:
+                ends.add(owner)
+    notes = set()
+    if with_notes:
+        notes |= cited_source_ids(row.get("metadata_json")).every
+        explanation = row.get("explanation")
+        if isinstance(explanation, str) and explanation:
+            notes |= cited_source_ids(explanation).every
+    return ends & wanted.keys(), (notes - ends) & wanted.keys()
+
+
+def _edge_candidates(self, probes, chunk_owner, *, with_text):
+    """The ids of the user's edges that could name one of the probed ids (see ``_Probes``) or a chunk of a source."""
+
+    kept = []
+    cursor = self._execute(_SCAN_FOR_EDGES, (self.user_id,))
+    try:
+        # Plain tuples: the pass reads every edge of the user.
+        cursor.row_factory = None
+        for edge_id, from_id, to_id, explanation, metadata_json in cursor:
+            parts = (_text_of(from_id), _text_of(to_id))
+            if with_text:
+                parts += (_text_of(explanation), _text_of(metadata_json))
+            hits = set()
+            _add_text_hits("\n".join(parts).lower(), probes, hits)
+            if hits:
+                kept.append(str(edge_id))
+                continue
+            if chunk_owner and (_may_name_a_chunk(from_id, chunk_owner) or _may_name_a_chunk(to_id, chunk_owner)):
+                kept.append(str(edge_id))
+    finally:
+        cursor.close()
+    return kept
+
+
+def _edges_by_id(self, edge_ids):
+    """The user's edges among ``edge_ids``, in id order, as they are stored now."""
+
+    edge_ids = list(dict.fromkeys(str(edge_id) for edge_id in edge_ids))
+    return self._fetch_all(_EDGES_BY_ID, (self.user_id, json.dumps(edge_ids))) if edge_ids else []
+
+
+def _edges_naming(self, ids, *, with_chunks, with_text):
+    """``{id as given: EdgeHits}`` for the ids asked about, from one pass over the user's edges."""
+
+    ids = list(dict.fromkeys(str(item) for item in ids))
+    if not ids:
+        return {}
+    found = {item: ([], []) for item in ids}
+    wanted = {}
+    sources = []
+    for item in ids:
+        canonical, digits = _citation_probe(item)
+        sources.append((item, digits))
+        if canonical is not None:
+            wanted.setdefault(canonical, []).append(item)
+    chunk_owner = {}
+    if with_chunks:
+        for chunk in self._fetch_all(_CHUNKS_OF_SOURCES, (self.user_id, json.dumps(ids))):
+            owner = _canonical_or_none(chunk["source_id"])
+            if owner is not None:
+                chunk_owner[str(chunk["id"])] = owner
+    probes = _Probes(sources)
+    for edge in _edges_by_id(self, _edge_candidates(self, probes, chunk_owner, with_text=with_text)):
+        ends, notes = _edge_name_sets(edge, wanted, chunk_owner, with_notes=with_text)
+        for canonical in ends:
+            for item in wanted[canonical]:
+                found[item][0].append(str(edge["id"]))
+        for canonical in notes:
+            for item in wanted[canonical]:
+                found[item][1].append(str(edge["id"]))
+    return {item: EdgeHits(tuple(ends), tuple(notes)) for item, (ends, notes) in found.items()}
+
+
+def edges_naming_sources(self, source_ids):
+    """``{source id: EdgeHits}``: every edge of the user that names each source, of any edge type, at either end or in its
+    text, in any spelling ``cited_source_ids`` names. One pass answers for every source asked about."""
+
+    return _edges_naming(self, source_ids, with_chunks=True, with_text=True)
+
+
+def edges_at_memories(self, memory_ids):
+    """``{memory id: EdgeHits}`` for the edges that have a memory at an end, of any edge type, in any spelling. A memory is
+    named by its ends only: a ``memory:`` ref in text names a memory and the source reader skips it."""
+
+    return _edges_naming(self, memory_ids, with_chunks=False, with_text=False)
+
+
+def _blank_edge_text(self, edges):
+    for edge in edges:
+        self._execute("UPDATE graph_edges SET explanation = '', metadata_json = '{}' WHERE id = ? AND user_id = ?",
+                      (edge["id"], self.user_id))
+
+
+def _retire_entity_if_unused(self, entity_id, now):
+    """Replace the name of a linker-made entity that no live edge reaches any more."""
+
+    self._execute(
+        """UPDATE vnext_entities SET name = ?, normalized_name = 'removed:' || id,
+        aliases = '[]', metadata_json = '{}', deleted_at = ?, updated_at = ?
+        WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+        AND json_extract(metadata_json, '$.created_by') = 'vnext_entity_linker'
+        AND NOT EXISTS (SELECT 1 FROM graph_edges e WHERE e.user_id = vnext_entities.user_id
+            AND e.valid_to IS NULL AND ((e.to_type = 'entity' AND e.to_id = vnext_entities.id)
+            OR (e.from_type = 'entity' AND e.from_id = vnext_entities.id)))""",
+        (REMOVAL_MARKER, now, now, entity_id, self.user_id))
+
+
+def _close_edges(self, edges, now):
+    """Close and blank each edge, count the entity mention it ends and retire an entity it was the last live edge of."""
+
     for edge in edges:
         # Clear both surface and normalized aliases, even on an already closed edge.
         self._execute(
             "UPDATE graph_edges SET valid_to = COALESCE(valid_to, MAX(?, COALESCE(valid_from, ?))), "
             "explanation = '', metadata_json = '{}' WHERE id = ? AND user_id = ?",
             (now, now, edge['id'], self.user_id))
-        if edge.get('valid_to') is None:
+        if (edge.get('valid_to') is None and edge['edge_type'] == ENTITY_MENTION_EDGE_TYPE
+                and edge['to_type'] == 'entity'):
             self._execute(
                 "UPDATE vnext_entities SET mention_count = MAX(0, mention_count - 1), updated_at = ? "
                 "WHERE id = ? AND user_id = ?", (now, edge['to_id'], self.user_id))
-        self._execute(
-            """UPDATE vnext_entities SET name = ?, normalized_name = 'removed:' || id,
-            aliases = '[]', metadata_json = '{}', deleted_at = ?, updated_at = ?
-            WHERE id = ? AND user_id = ? AND deleted_at IS NULL
-            AND json_extract(metadata_json, '$.created_by') = 'vnext_entity_linker'
-            AND NOT EXISTS (SELECT 1 FROM graph_edges e WHERE e.user_id = vnext_entities.user_id
-                AND e.valid_to IS NULL AND ((e.to_type = 'entity' AND e.to_id = vnext_entities.id)
-                OR (e.from_type = 'entity' AND e.from_id = vnext_entities.id)))""",
-            (REMOVAL_MARKER, now, now, edge['to_id'], self.user_id))
+        for kind, entity_id in ((edge['from_type'], edge['from_id']), (edge['to_type'], edge['to_id'])):
+            if kind == 'entity':
+                _retire_entity_if_unused(self, entity_id, now)
     return len(edges)
+
+
+def retire_edges(self, hits, now):
+    """Retire the edges of one ``EdgeHits``: close and blank the edges with the source at an end, blank the text of the
+    ones that name it only in their text. Rows are read as they are stored now, so an edge that an earlier retirement of
+    the same command closed is blanked again and counted once. Returns ``(graph edges, mention edges)``."""
+
+    ended = _edges_by_id(self, hits.ends)
+    _close_edges(self, ended, now)
+    _blank_edge_text(self, _edges_by_id(self, hits.notes))
+    mentions = sum(1 for edge in ended if edge['edge_type'] == ENTITY_MENTION_EDGE_TYPE and edge['to_type'] == 'entity')
+    return hits.total, mentions
+
+
+def close_mention_edges(self, from_type, from_id, now):
+    edges = self._fetch_all(
+        "SELECT * FROM graph_edges WHERE user_id = ? AND from_type = ? AND from_id = ? "
+        "AND to_type = 'entity' AND edge_type = ?",
+        (self.user_id, from_type, from_id, ENTITY_MENTION_EDGE_TYPE))
+    return _close_edges(self, edges, now)
 
 
 # One read of the user's loops. The column list is a module constant, and the user id is bound.
@@ -410,11 +597,12 @@ def blank_open_loops(self, source_id, *, now, loop_ids=None):
     ).rowcount
 
 
-def retire_dependents(self, source_id, *, now, scrub_candidates=False, citing_ids=None, loop_ids=None):
+def retire_dependents(self, source_id, *, now, scrub_candidates=False, citing_ids=None, loop_ids=None, edge_hits=None):
     """Retire what a source owns. ``citing_ids`` are the ids of the memories an earlier lookup of this transaction found
     for the source (``citing_memories_by_source``): a caller that retires many sources looks once for all of them, and the
     memories are read again here as they are stored now, so one that an earlier retirement redacted is left alone, as it
-    is when each source is looked up on its own. Without them the memories are looked up here."""
+    is when each source is looked up on its own. Without them the memories are looked up here. ``edge_hits`` is the
+    ``EdgeHits`` that ``edges_naming_sources`` found for the source, used the same way."""
 
     memories = [row for row in (citing_memories(self, source_id) if citing_ids is None
                                 else _memories_by_id(self, citing_ids)) if not is_redacted_memory(row)]
@@ -435,14 +623,21 @@ def retire_dependents(self, source_id, *, now, scrub_candidates=False, citing_id
         else:
             self.update_memory(memory_id=mid, patch={'status': 'rejected'}, actor_type='user')
             close_mention_edges(self, 'memory', mid, now)
-    edges = close_mention_edges(self, 'source', source_id, now)
+    if scrub_candidates and pending_ids:
+        # The candidates' text is gone, so an edge of any type that has one of them at an end goes too.
+        for hits in edges_at_memories(self, sorted(pending_ids)).values():
+            _close_edges(self, _edges_by_id(self, hits.ends), now)
+    if edge_hits is None:
+        edge_hits = edges_naming_sources(self, [source_id])[str(source_id)]
+    graph_edges, mention_edges = retire_edges(self, edge_hits, now)
     loops = blank_open_loops(self, source_id, now=now, loop_ids=loop_ids)
-    return {'candidate_memories': len(pending), 'mention_edges': edges, 'open_loops': loops,
-            'memories_citing_replaced': retained}
+    return {'candidate_memories': len(pending), 'mention_edges': mention_edges, 'graph_edges': graph_edges,
+            'open_loops': loops, 'memories_citing_replaced': retained}
 
 
 @takes_label_lock
-def supersede_source(self, source_id, *, superseded_by, allow_looser_classification=False, dry_run=False, loop_ids=None):
+def supersede_source(self, source_id, *, superseded_by, allow_looser_classification=False, dry_run=False, loop_ids=None,
+                     edge_hits=None):
     with self.savepoint():
         old = self.get_source(source_id)
         new = self.get_source(superseded_by)
@@ -464,7 +659,7 @@ def supersede_source(self, source_id, *, superseded_by, allow_looser_classificat
             from alicebot_api.vnext_label_writes import raise_source_to_replacement
 
             raise_source_to_replacement(self, old, new)
-        counts = retire_dependents(self, source_id, now=now, loop_ids=loop_ids)
+        counts = retire_dependents(self, source_id, now=now, loop_ids=loop_ids, edge_hits=edge_hits)
         metadata = {**old['metadata_json'], 'superseded_by': superseded_by,
                     'superseded_at': now, 'supersede_reason': 'markdown_reimport'}
         self._execute("UPDATE sources SET deleted_at = ?, metadata_json = ? WHERE id = ? AND user_id = ?",
@@ -528,7 +723,7 @@ def optimize_scrub_indexes(self):
 
 
 @takes_label_lock
-def scrub_source(self, source_id, *, optimize=True, citing_ids=None, loop_ids=None):
+def scrub_source(self, source_id, *, optimize=True, citing_ids=None, loop_ids=None, edge_hits=None):
     with self.savepoint():
         self._execute("PRAGMA secure_delete=ON")
         rows = self.get_sources_by_ids([source_id], include_deleted=True)
@@ -549,7 +744,8 @@ def scrub_source(self, source_id, *, optimize=True, citing_ids=None, loop_ids=No
             OR EXISTS (SELECT 1 FROM source_chunks c WHERE c.user_id = provenance_links.user_id
                        AND c.id = provenance_links.source_chunk_id AND c.source_id = ?))""",
             (REMOVAL_MARKER, self.user_id, source_id, source_id)).rowcount
-        counts = retire_dependents(self, source_id, now=now, scrub_candidates=True, citing_ids=citing_ids, loop_ids=loop_ids)
+        counts = retire_dependents(self, source_id, now=now, scrub_candidates=True, citing_ids=citing_ids,
+                                   loop_ids=loop_ids, edge_hits=edge_hits)
         counts.update({'chunks':chunks, 'provenance_quotes':quotes, 'sleep_proposals':sleep_count})
         self._append_mutation_event(event_type='source.deleted', target_type='source', target_id=source_id,
             actor_type='user', payload={'operation':'scrub', **counts})

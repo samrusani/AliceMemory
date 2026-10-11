@@ -9,7 +9,8 @@ from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vault_sleep import SleepError
 from alicebot_api.vnext_stores.memory_lifecycle_common import is_redacted_memory
 from alicebot_api.vnext_stores.sqlite.source_retirement import (
-    CandidateScrubRefused, citing_memories_by_source, open_loops_naming_sources, optimize_scrub_indexes)
+    CandidateScrubRefused, citing_memories_by_source, edges_naming_sources, open_loops_naming_sources,
+    optimize_scrub_indexes)
 
 RETAINED_DATA = (
     "Source and import events keep prior titles, hashes and import folder paths. "
@@ -40,10 +41,11 @@ def _targets(store, args):
 
 
 def _preview(store, rows):
-    # One pass over the memories, and one pass over the loops, answer for every source of the preview.
+    # One pass over the memories, one over the loops and one over the edges answer for every source of the preview.
     source_ids=[str(row['id']) for row in rows]
     citing=citing_memories_by_source(store,source_ids)
     loops=open_loops_naming_sources(store,source_ids)
+    edges=edges_naming_sources(store,source_ids)
     result = []
     for row in rows:
         sid=str(row['id'])
@@ -54,6 +56,7 @@ def _preview(store, rows):
             "AND c.source_id=?))) AS provenance_quotes",
             (store.user_id,sid,store.user_id,sid,sid))
         counts['open_loops']=len(loops[sid])
+        counts['graph_edges']=edges[sid].total
         memories=[memory for memory in citing[sid] if not is_redacted_memory(memory)]
         counts['candidate_memories']=sum(memory['status'] in {'candidate','needs_review','rejected'} for memory in memories)
         counts['memories_citing_replaced']=[str(memory['id']) for memory in memories
@@ -95,9 +98,11 @@ def run_sources(args):
                 source_ids=[str(row['id']) for row in rows]
                 citing=citing_memories_by_source(store,source_ids)
                 loops=open_loops_naming_sources(store,source_ids)
+                edges=edges_naming_sources(store,source_ids)
                 receipts=[{'id':str(row['id']),**store.scrub_source(str(row['id']), optimize=False,
                           citing_ids=[str(memory['id']) for memory in citing[str(row['id'])]],
-                          loop_ids=[str(loop['id']) for loop in loops[str(row['id'])]])} for row in rows]
+                          loop_ids=[str(loop['id']) for loop in loops[str(row['id'])]],
+                          edge_hits=edges[str(row['id'])])} for row in rows]
                 if receipts:
                     optimize_scrub_indexes(store)
         print(json.dumps({'deleted_count':len(receipts),'deleted':receipts,'retained_data':RETAINED_DATA},sort_keys=True))
