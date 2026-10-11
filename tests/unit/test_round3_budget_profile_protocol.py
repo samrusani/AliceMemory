@@ -26,6 +26,7 @@ def fake_children(monkeypatch, tmp_path, *, gate=None, capture_status="complete"
     monkeypatch.setenv("ALICE_READ_MAIN_CHECKOUT", "paired-main")
     monkeypatch.setenv("ALICE_READ_BUDGET_EVIDENCE", str(evidence))
     monkeypatch.setenv("ALICE_READ_ABSOLUTE_GATE", "1")
+    monkeypatch.delenv("ALICE_READ_ABSOLUTE_LIMIT_SECONDS", raising=False)
     monkeypatch.setattr(budgets.subprocess, "check_output", lambda args, **kwargs: REVISIONS["main" if args[2] == "paired-main" else "head"])
 
     class Child:
@@ -258,12 +259,32 @@ def test_ci_profiles_only_the_maximum_smoke_and_retains_attempts():
     assert "round3-sqlite-read-budgets.jsonl" in upload["with"]["path"]
 
 
+def test_ci_applies_the_absolute_gate_only_in_the_maximum_smoke_and_with_the_shared_runner_limit():
+    """The absolute wall gate needs a known machine. The one job that sets it runs on shared runners, which are about twice as
+    slow as the reference machine, so it sets the limit too; no other step, job or the workflow itself sets either variable.
+
+    Mutations: delete ``ALICE_READ_ABSOLUTE_LIMIT_SECONDS`` from the step (the job gates at one second again); set
+    ``ALICE_READ_ABSOLUTE_GATE`` on another step.
+    """
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/tests.yml").read_text())
+    names = ("ALICE_READ_ABSOLUTE_GATE", "ALICE_READ_ABSOLUTE_LIMIT_SECONDS")
+    assert not any(name in workflow.get("env", {}) for name in names)
+    for job in workflow["jobs"].values():
+        assert not any(name in job.get("env", {}) for name in names)
+    carriers = [step for job in workflow["jobs"].values() for step in job.get("steps", []) if any(name in step.get("env", {}) for name in names)]
+    assert [step["name"] for step in carriers] == ["Maximum-workload read-budget controls"]
+    assert carriers[0]["env"]["ALICE_READ_ABSOLUTE_GATE"] == "1"
+    assert carriers[0]["env"]["ALICE_READ_ABSOLUTE_LIMIT_SECONDS"] == "1.5"
+
+
 # ---- the gates themselves: each clock, each action and each returned count is pinned ----------------
 
 
-def measured_failures(monkeypatch, tmp_path, *, case="half-hidden", **options):
+def measured_failures(monkeypatch, tmp_path, *, case="half-hidden", limit=None, **options):
     fake_children(monkeypatch, tmp_path, **options)
     monkeypatch.delenv("ALICE_READ_PROFILE", raising=False)
+    if limit is not None:
+        monkeypatch.setenv("ALICE_READ_ABSOLUTE_LIMIT_SECONDS", limit)
     failures = budgets.paired_budgets("postgres", "synthetic-database", budgets.USER, KEYS,
                                       case=case, source_count=3000, repaired=False, assert_budget=False)
     return {(profile, action, clock) for profile, action, clock, _row in failures}
@@ -295,6 +316,45 @@ def test_workspace_and_dogfooding_each_have_the_one_second_gate(monkeypatch, tmp
     assert measured_failures(monkeypatch, tmp_path, timings=slow_head(action, wall=1.000001, cpu=.1)) == {
         (profile, action, "minimum_wall") for profile in KEYS}
     assert measured_failures(monkeypatch, tmp_path, timings=slow_head(action, wall=1.0, cpu=5.0)) == set()
+
+
+def test_the_absolute_limit_is_one_second_unless_the_environment_sets_it(monkeypatch):
+    """Mutations: change the default (``DEFAULT_ABSOLUTE_LIMIT_SECONDS``) to another number; ignore the variable (``limit = float(raw)``
+    replaced by the default)."""
+    monkeypatch.delenv("ALICE_READ_ABSOLUTE_LIMIT_SECONDS", raising=False)
+    assert budgets.absolute_limit_seconds() == 1.0
+    monkeypatch.setenv("ALICE_READ_ABSOLUTE_LIMIT_SECONDS", "")
+    assert budgets.absolute_limit_seconds() == 1.0
+    monkeypatch.setenv("ALICE_READ_ABSOLUTE_LIMIT_SECONDS", "1.5")
+    assert budgets.absolute_limit_seconds() == 1.5
+    monkeypatch.setenv("ALICE_READ_ABSOLUTE_LIMIT_SECONDS", " 2 ")
+    assert budgets.absolute_limit_seconds() == 2.0
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "-inf", "one second", "1.5s"])
+def test_an_absolute_limit_that_is_not_a_positive_finite_number_is_refused(monkeypatch, value):
+    """A limit that is zero, negative, not a number or infinite would pass every screen or fail every screen without saying so.
+
+    Mutation: drop the range check (``if not (math.isfinite(limit) and limit > 0)`` made false): the numbers are accepted.
+    """
+    monkeypatch.setenv("ALICE_READ_ABSOLUTE_LIMIT_SECONDS", value)
+    with pytest.raises(ValueError):
+        budgets.absolute_limit_seconds()
+
+
+@pytest.mark.parametrize("action", ["workspace", "dogfooding"])
+def test_the_absolute_gate_holds_the_screens_to_the_limit_the_environment_sets(monkeypatch, tmp_path, action):
+    """With a limit of 1.5 seconds a screen at 1.4 passes and a screen just over 1.5 fails; without it the same 1.4 fails.
+
+    Mutations: compare the wall clock to one second whatever the variable says (the first assertion fails); read the variable and
+    leave the comparison at the default (the second assertion fails).
+    """
+    slow = slow_head(action, wall=1.4, cpu=.1)
+    assert measured_failures(monkeypatch, tmp_path, timings=slow, limit="1.5") == set()
+    assert measured_failures(monkeypatch, tmp_path, timings=slow) == {(profile, action, "minimum_wall") for profile in KEYS}
+    just_over = slow_head(action, wall=1.500001, cpu=.1)
+    assert measured_failures(monkeypatch, tmp_path, timings=just_over, limit="1.5") == {
+        (profile, action, "minimum_wall") for profile in KEYS}
 
 
 @pytest.mark.parametrize("action", ["workspace", "dogfooding"])
