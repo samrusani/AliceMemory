@@ -25,7 +25,7 @@ def test_the_changelog_has_one_entry_for_the_reserved_project_name_in_a_key_bind
     assert "`alicebot agent keys create --project-scope '~global'` stored such a key" in entry
     assert "In v0.20.0 the name was an ordinary one" in entry and "no release had it" in entry
     assert "no HTTP route and no MCP tool creates one" in entry
-    assert "HTTP 403 on every `/v0/vnext` route, `not_permitted` on every tool" in entry
+    assert "HTTP 403 on every `/v0/vnext` route, a not_permitted error on every tool" in entry
     assert "`reserved_project_scope_binding`" in entry and "`reserved_project_name_in_identity_scope`" in entry
     assert "HTTP 400 when the payload names an agent and declares it" in entry
     assert "with per-project scoping on or off" in entry
