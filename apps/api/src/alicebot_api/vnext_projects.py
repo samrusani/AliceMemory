@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 from uuid import UUID
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Protocol, cast
 
 from alicebot_api.vnext_derived_domain import derived_domain
@@ -573,6 +573,41 @@ def project_readable(store: object, project: Mapping[str, object], caller: Agent
         named = set(project_scope_identity([str(project.get("id") or ""), project.get("slug"), project.get("name")]))
         scope = tuple(item for item in caller.project_scope if set(project_scope_identity([item])) & named)
     return fence.admits_memory({**effective, "project_scope": list(scope), "project_floor": []})
+
+
+def project_readable_to_record(store: object, project: Mapping[str, object], record: object) -> bool:
+    """``project_readable`` for the caller an automation request records, or the owner when it records none."""
+
+    return project_readable(store, project, _identity_of_record(record))
+
+
+def project_a_loop_is_filed_under(
+    store: object, project_id: object, readable: Callable[[Mapping[str, object]], bool]
+) -> str | None:
+    """The id a loop is filed under for the project ``project_id`` names, or ``None`` when no loop may be filed there.
+
+    A loop is filed under a project that is stored and that ``readable`` admits. A project that is not stored, an id that
+    is not well formed, a free-form name and a project the caller may not read all answer ``None``, so the caller cannot
+    tell a hidden project from a missing one, and nothing is filed under a name the foreign key would refuse. A store
+    that keeps no projects (the local SQLite vault, where a project is a free-form name in a scope) has no project to
+    judge and the name stands. Every door that files a loop under the project a request or a source names uses this.
+    """
+
+    lookup = getattr(store, "get_project", None)
+    if not callable(lookup):
+        return str(project_id)
+    named = str(project_id).strip()
+    # PostgreSQL casts the id it is given to a uuid. The scheduler stages its writes over the store it runs on and keeps
+    # that store as ``_delegate``; the lookup reads through to it, so the id is judged the way the store judges it.
+    if isinstance(getattr(store, "_delegate", store), PostgresVNextStore):
+        try:
+            named = str(UUID(named))
+        except ValueError:
+            return None
+    project = lookup(named)
+    if project is None or not readable(project):
+        return None
+    return str(project.get("id") or named)
 
 
 class VNextProjectService:
@@ -1574,28 +1609,9 @@ class VNextProjectService:
         }
 
     def _project_loops_are_filed_under(self, project_id: str, guard: LabelGuard) -> str | None:
-        """The id a loop is filed under for the project ``project_id`` names, or ``None`` when no loop may be filed there.
+        """The id a loop is filed under for the project ``project_id`` names, or ``None`` when none may be filed there."""
 
-        A loop is filed under a project that is stored and that ``guard`` may read. A project that is not stored, an id
-        that is not well formed, a free-form name and a project the caller may not read all answer ``None``, so the
-        caller cannot tell a hidden project from a missing one, and nothing is filed under a name the foreign key would
-        refuse. A store that keeps no projects (the local SQLite vault, where a project is a free-form name in a scope)
-        has no project to judge and the name stands.
-        """
-
-        lookup = getattr(self.store, "get_project", None)
-        if not callable(lookup):
-            return str(project_id)
-        named = str(project_id).strip()
-        if isinstance(self.store, PostgresVNextStore):
-            try:
-                named = str(UUID(named))
-            except ValueError:
-                return None
-        project = lookup(named)
-        if project is None or not project_in_view(self.store, project, guard):
-            return None
-        return str(project.get("id") or named)
+        return project_a_loop_is_filed_under(self.store, project_id, lambda project: project_in_view(self.store, project, guard))
 
     def _stored_candidate(self, artifact: JsonObject, *, caller: AgentIdentity | None, project_id: str) -> JsonObject:
         """``artifact``, a row that came back from storage, when ``caller`` may read it now, otherwise the error of a
@@ -1663,6 +1679,8 @@ __all__ = [
     "VNextProjectStore",
     "VNextProjectTerminalConsistencyError",
     "VNextProjectValidationError",
+    "project_a_loop_is_filed_under",
     "project_in_view",
     "project_readable",
+    "project_readable_to_record",
 ]
