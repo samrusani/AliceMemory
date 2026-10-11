@@ -288,7 +288,7 @@ def test_a_stored_key_with_an_ordinary_binding_still_resolves() -> None:
 
 
 def test_the_reason_of_a_refused_stored_key_goes_to_the_server_log(caplog: pytest.LogCaptureFixture) -> None:
-    """Mutation: log the refusal below warning level, or leave the prefix or the revoke command out of the line.
+    """Mutation: log the refusal below warning level, or leave the id or the revoke command out of the line.
 
     Every surface answers this refusal with its standard text, which names no reason, so the server log is the one
     place that says why and which key to revoke.
@@ -304,10 +304,12 @@ def test_the_reason_of_a_refused_stored_key_goes_to_the_server_log(caplog: pytes
     [record] = [item for item in caplog.records if item.name == "alicebot_api.vnext_agent_keys"]
     assert record.levelno == logging.WARNING
     message = record.getMessage()
-    assert f"agent API key {raw[:12]} is refused" in message
+    key_id = store.agent_api_keys[0]["id"]
+    assert f"agent API key {key_id} (agent old-agent) is refused" in message
     assert "bound to the project name ~global" in message
-    assert f"alicebot agent keys revoke {raw[:12]}" in message
-    assert raw not in message
+    assert f"alicebot agent keys revoke {key_id}" in message
+    # The id is logged and not the prefix of the secret, nor the secret.
+    assert raw[:12] not in message and raw not in message
 
 
 # -- a declared scope ---------------------------------------------------------------------------------------------

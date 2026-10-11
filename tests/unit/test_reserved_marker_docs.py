@@ -35,7 +35,7 @@ def test_the_changelog_has_one_entry_for_the_reserved_project_name_in_a_key_bind
     assert "tells the owner" not in entry and "with a message that says so" not in entry
     assert "HTTP 400 when the payload names an agent and declares it" in entry
     assert "with per-project scoping on or off" in entry
-    assert "`alicebot agent keys revoke <prefix>`" in entry
+    assert "`alicebot agent keys revoke <id>`" in entry
     assert "No migration is required" in entry
     assert "\u2014" not in entry and "\u2013" not in entry
 
@@ -50,7 +50,7 @@ def test_the_pages_say_the_reserved_name_cannot_be_a_binding() -> None:
     guide = _text("docs/alpha/agent-integration.md")
     assert "the name `~global` is reserved by Alice and\ncannot be a key's project scope" in guide
     assert "the reason is printed on stderr as a warning line\nbefore it" in guide
-    assert "which does not name the reason. The reason, the prefix of the" in guide
-    assert "key and the revoke command are written to the server log at warning level" in guide
+    assert "which does not name the reason. The reason, the id of the key" in guide
+    assert "and the revoke command are written to the server log at warning level" in guide
     assert "key_escalation_rejected" not in guide.split("cannot be a key's project scope")[1].split("\n\n")[0]
     assert "with a message that says so" not in guide

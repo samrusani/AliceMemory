@@ -326,8 +326,8 @@ binding is refused at every route and tool, whatever its profile, until it is
 revoked with `alicebot agent keys revoke` and replaced by a key bound to the
 name or id of a project. The refusal is the standard one of each surface (HTTP
 403 with the standard forbidden message, the tool code `not_permitted` with its
-standard text), which does not name the reason. The reason, the prefix of the
-key and the revoke command are written to the server log at warning level.
+standard text), which does not name the reason. The reason, the id of the key
+and the revoke command are written to the server log at warning level.
 
 Unreleased (on main, not in v0.20.0): a derived row (a report, summary or copy)
 carries every project of every row it was made from, so a bound key reads it
