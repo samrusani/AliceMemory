@@ -261,6 +261,7 @@ def test_a_project_that_is_not_stored_gives_no_loop_and_no_database_error(label_
 
     ghost = str(uuid4())
     _source(label_harness, ghost)
+    _source(label_harness, "not-a-uuid")
     key = label_harness.key("admin_agent") if admin else None
     assert _extract(label_harness, key, ghost) == NO_LOOPS
     assert _extract(label_harness, key, "not-a-uuid") == NO_LOOPS

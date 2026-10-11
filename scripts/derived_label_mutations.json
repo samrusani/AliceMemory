@@ -1903,6 +1903,13 @@
           "before": "        if not named & bound:\n            return None",
           "after": "        if False:\n            return None",
           "sha256": "6e77cd4ca7996ffba36b5c854c45f4b9f304ba287b64eeaf33789a8b2c055b65"
+        },
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 555,
+          "before": "    return bool(set(named) & set(project_scope_identity(guard.projects)))\n",
+          "after": "    return True\n",
+          "sha256": "f2e31e86db2b9696820d14b8e9bbcbe7f94a82825dec0368cde1639240348f9f"
         }
       ],
       "pytest": [
