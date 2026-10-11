@@ -2021,19 +2021,19 @@ def _relabel_derived_labels(conn: sqlite3.Connection) -> None:
 
     from alicebot_api.vnext_label_repair import relabel_labels_sqlite
 
-    conn.execute("SAVEPOINT alice_derived_labels_v3")
+    conn.execute("SAVEPOINT alice_derived_labels_v4")
     try:
         relabel_labels_sqlite(conn)
     except Exception as exc:
-        conn.execute("ROLLBACK TO SAVEPOINT alice_derived_labels_v3")
-        conn.execute("RELEASE SAVEPOINT alice_derived_labels_v3")
+        conn.execute("ROLLBACK TO SAVEPOINT alice_derived_labels_v4")
+        conn.execute("RELEASE SAVEPOINT alice_derived_labels_v4")
         left = getattr(exc, "left", "an unknown number of")
         logging.getLogger(__name__).warning(
             "alice-memory: label repair did not run, %s rows left to the read check; run alice-memory labels check",
             left,
         )
         return
-    conn.execute("RELEASE SAVEPOINT alice_derived_labels_v3")
+    conn.execute("RELEASE SAVEPOINT alice_derived_labels_v4")
 
 
 def bootstrap_sqlite_schema(conn: sqlite3.Connection, *, repair_labels: bool = True) -> None:

@@ -44,7 +44,7 @@ def run_labels(args) -> int:
             return 1
         print(format_label_check(below, unverified))
         if stamped is None:
-            print("derived_labels_v3 is not stamped on this snapshot")
+            print(f"{REPAIR_STATE_KEY} is not stamped on this snapshot")
         live_events: set[str] = set()
         try:
             live = sqlite3.connect(f"file:{db}?mode=ro", uri=True)

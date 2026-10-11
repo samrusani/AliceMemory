@@ -32,6 +32,7 @@ from alicebot_api.vnext_project_scope import (
     resolve_project_scope,
     source_project_scope,
 )
+from alicebot_api.vnext_citations import cited_inputs, has_unreadable_citation
 from alicebot_api.vnext_source_fence import cited_source_ids
 
 # Public 1, internal 2, unknown 2, private 3, confidential 4,
@@ -148,7 +149,9 @@ _DERIVED_FROM_KIND = {
     "artifacts": "artifact",
     "beliefs": "belief",
 }
-_REF_KINDS = {"source": "source", "memory": "memory", "open_loop": "open_loop", "artifact": "artifact"}
+# Sources and memories are cited in more shapes than ``kind:id``, and the saved-quote reader's parser reads all of them
+# (``vnext_citations``). A report also prints ``open_loop:<id>`` and ``artifact:<id>``, which that parser does not read.
+_REF_KINDS = {"open_loop": "open_loop", "artifact": "artifact"}
 _SKIP_RECURSE = frozenset(
     {
         "quote",
@@ -665,10 +668,11 @@ def _collect_metadata_ids(value: object, found: set[tuple[str, str]]) -> str:
                     problem = problem or "malformed"
                 continue
             if key == "source_refs":
-                child_problem, source_ids = _source_ids_from(child)
+                # The sources and memories a ref names are the shared parser's (``record_citations``), in every shape the
+                # saved-quote reader reads. This walk keeps the shape check of the list and the refs that parser does not read.
+                child_problem, _named = _source_ids_from(child)
                 problem = problem or child_problem
-                _add_ids(found, "source", source_ids)
-                found.update(ref for ref in _typed_refs(child) if ref[0] != "source" or ref[1])
+                found.update(_typed_refs(child))
                 continue
             if key == "member_snapshots" and isinstance(child, list):
                 for item in child:
@@ -875,6 +879,10 @@ def _derived_dependency_record(name: str, row: Mapping[str, object]) -> tuple[fr
         problem = problem or derived_problem
         found |= derived_deps
     found |= _value_dependencies(row)
+    citations, unreadable = record_citations(row)
+    found |= citations
+    if unreadable:
+        problem = problem or "unreadable_citation"
     if name == "open_loop" and _nonempty_str(row.get("source_id")):
         found.add(("source", identifier(row.get("source_id"))))
     floor_shape, _floor = _floor_of(row)
@@ -889,6 +897,50 @@ def _derived_dependency_record(name: str, row: Mapping[str, object]) -> tuple[fr
     if problem:
         return frozenset(found), problem
     return frozenset(found), ""
+
+
+def _without_prose(value: object) -> object:
+    """A copy of a record without the strings of the text keys (``text``, ``title``, ``summary``, ``content_markdown`` and the
+    rest of ``_SKIP_RECURSE``). Prose is never read for a citation: a promoted copy of a report holds the whole report as its
+    ``text``, with a ``[memory:<id>]`` after each line, and those words are the report's, which the copy is derived from. A key
+    of that name that holds a list or an object is a structure and is read like any other."""
+
+    if isinstance(value, Mapping):
+        return {
+            key: _without_prose(child)
+            for key, child in value.items()
+            if not (isinstance(key, str) and key.lower() in _SKIP_RECURSE and isinstance(child, str))
+        }
+    if isinstance(value, list):
+        return [_without_prose(child) for child in value]
+    return value
+
+
+def record_citations(row: Mapping[str, object]) -> tuple[frozenset[tuple[str, str]], bool]:
+    """``(inputs, unreadable)`` for the record of ``row``, read by the parser the saved-quote reader uses.
+
+    The whole ``metadata_json`` and ``value`` are read, whatever the key, except the prose of a text key (see
+    ``_without_prose``). A writer put a citation where it liked: the consolidation report copies the ``source_refs`` of its
+    members as the members' writers sent them, as JSON text, in capitals, with a ``memory:`` prefix in any case, as an
+    ``alice://`` URL. The reader of a saved quote names the same ids in the same positions (``vnext_citations``).
+    ``unreadable`` is true when a reference was meant to name a row and the reader cannot name it (JSON that does not
+    decode and holds an id, or a ``memory:`` or ``source:`` word whose id is not in a spelling the reader takes), which the
+    row answers by being unverified. A decoded row and a raw one give the same answer, and the answer is kept for the
+    request like the rest of the parsing.
+    """
+
+    cache = _READ_METADATA.get()
+    raw = row.get("metadata_json")
+    raw_value = row.get("value")
+    key = ("citations", id(raw), id(raw_value))
+    cached = cache.get(key) if cache is not None else None
+    if cached is not None and cached[0] is raw and cached[1] is raw_value:
+        return cached[2]
+    records = (_without_prose(_metadata(row)), _without_prose(_object(_uuid_strings(_object(raw_value)))))
+    result = (cited_inputs(*records), has_unreadable_citation(*records))
+    if cache is not None:
+        cache[key] = (raw, raw_value, result)
+    return result
 
 
 def _value_dependencies(row: Mapping[str, object]) -> set[tuple[str, str]]:
@@ -1069,7 +1121,10 @@ def dependency_syntax_key(kind: str, row: Mapping[str, object]) -> tuple:
                          and (nested := metadata_key(child)))
         return ()
 
+    # The shared citation parser reads every string of a derived record, so the key carries what it found and not the text.
+    # An original row has no inputs, and its metadata (a source holds its whole text) is not read.
     return (canon_kind(kind), isinstance(row.get("metadata_json"), Mapping), metadata_key(_metadata(row)),
+            record_citations(row) if is_derived(kind, row) else None,
             *((field, ("uuid", row[field]) if type(row[field]) is UUID else repr(row[field]))
               for field in _DEPENDENCY_SYNTAX_FIELDS if field in row))
 

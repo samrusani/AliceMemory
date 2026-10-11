@@ -26,9 +26,22 @@ class LabelParts(TypedDict):
 
 LabelRepair = tuple[str, str, str, LabelParts, LabelParts, dict[str, object]]
 
-REPAIR_STATE_KEY = "derived_labels_v3"
+# v4 reads every citation shape the saved-quote reader reads (see ``vnext_citations``). A vault that an earlier build
+# stamped ``derived_labels_v3`` repairs once more on its next open, and PostgreSQL migration ``20261011_0097`` does the
+# same for a database already at ``20261005_0096``.
+REPAIR_STATE_KEY = "derived_labels_v4"
+# The ``cause`` of the ``labels_raised`` event of this pass (the open pass, ``labels repair`` and migration 0097).
+# Migration 0096 wrote ``repair_v3``.
+REPAIR_CAUSE = "repair_v4"
 # The reason a derived row is unverified when it recorded a redacted row as an input.
 REDACTED_INPUT_REASON = "input_redacted"
+UNREADABLE_CITATION_REASON = "unreadable_citation"
+UNREADABLE_CITATION_ADVICE = (
+    "unreadable_citation rows hold a saved reference that was meant to name a memory or a source and cannot be read (JSON "
+    "text that does not decode, or a memory: or source: word whose id is in a spelling that is not taken), so the rows "
+    "they cite cannot be named. Regenerate or delete those reports and every report built from them; labels repair cannot "
+    "fix them. Until then only the owner and an unbound admin key read them."
+)
 REDACTED_INPUT_ADVICE = (
     "input_redacted rows were built from a redacted memory and still hold the words they copied from it. "
     "Regenerate or delete those reports and every report built from them; labels repair cannot fix them. "
@@ -206,7 +219,7 @@ def relabel_labels_sqlite(conn, *, restoring: bool = False, explicit: bool = Fal
                 actor_type="system",
                 target_type=target,
                 target_id=stored,
-                payload=labels_raised_payload(cause="repair_v3", previous=previous, new=new),
+                payload=labels_raised_payload(cause=REPAIR_CAUSE, previous=previous, new=new),
             )
             conn.execute(
                 """INSERT INTO event_log (id, user_id, event_type, actor_type, target_type, target_id,
@@ -308,6 +321,8 @@ def format_label_check(
             lines.append(f"  {row_id}")
         if reason == REDACTED_INPUT_REASON and ids:
             lines.append(REDACTED_INPUT_ADVICE)
+        if reason == UNREADABLE_CITATION_REASON and ids:
+            lines.append(UNREADABLE_CITATION_ADVICE)
     return "\n".join(lines)
 
 
@@ -429,7 +444,10 @@ __all__ = [
     "INPUT_SELECTS_V3",
     "LabelCheckUnavailable",
     "load_postgres_label_tables",
+    "REPAIR_CAUSE",
     "REPAIR_STATE_KEY",
+    "UNREADABLE_CITATION_ADVICE",
+    "UNREADABLE_CITATION_REASON",
     "DerivedDomainRepairError",
     "REDACTED_INPUT_ADVICE",
     "REDACTED_INPUT_REASON",
