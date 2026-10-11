@@ -460,7 +460,7 @@ def test_released_0084_database_upgrades_through_current_head(database_urls):
         _set_fixture_identity(conn, user_id=user_id)
         with conn.cursor() as cur:
             cur.execute("SELECT version_num FROM alembic_version")
-            assert cur.fetchone()["version_num"] == "20261005_0096"
+            assert cur.fetchone()["version_num"] == "20261011_0097"
 
     # Repeat the additive post-release migrations through their downgrade
     # boundary. The already repaired data remains correct and the second
