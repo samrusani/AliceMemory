@@ -11,6 +11,14 @@ from uuid import UUID
 import psycopg
 from psycopg_pool import ConnectionPool
 from psycopg.rows import Row, dict_row
+from psycopg.types.json import set_json_loads
+
+from alicebot_api.json_bounds import loads_bounded
+
+# Every json and jsonb value a connection reads goes through the bounded decoder: a stored value nested deeper than the
+# readers walk comes back with the part below 256 levels cut, instead of raising RecursionError in the route that read it.
+# This is psycopg's global setting, so it covers a connection opened anywhere in the process.
+set_json_loads(loads_bounded)
 
 PING_DATABASE_SQL = "SELECT 1"
 SET_CURRENT_USER_SQL = "SELECT set_config('app.current_user_id', %s, true)"

@@ -9,6 +9,7 @@ import logging
 from typing import Any, Callable, Mapping, TypeVar, cast
 from uuid import UUID, uuid4
 
+from alicebot_api.json_bounds import JsonShapeError, refuse_unstorable_json
 from alicebot_api.vnext_agent_control import (
     VNEXT_DOMAINS,
     AgentIdentity,
@@ -553,6 +554,12 @@ def _object_tuple(value: object) -> tuple[object, ...]:
             f"source_refs must hold at most {MAX_COMMIT_SOURCE_REFS} entries"
         )
     for ref in value:
+        # Depth and finite numbers first, by a walk that keeps its own stack: the size below serializes the ref, and a
+        # ref nested a thousand levels deep overflows the serializer. A ref nested 64 levels or less is stored and read.
+        try:
+            refuse_unstorable_json(ref, name="each source_ref")
+        except JsonShapeError as exc:
+            raise VNextMemoryCommitValidationError(str(exc)) from exc
         # A string ref is measured as sent (owner ruling R4): measuring its
         # JSON form counted every quote and newline twice, so a 2,100
         # character ref of quotes was refused. Any other ref is measured by

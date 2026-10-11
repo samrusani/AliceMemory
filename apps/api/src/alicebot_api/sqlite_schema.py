@@ -51,6 +51,7 @@ import json
 import sqlite3
 from uuid import uuid4
 
+from alicebot_api.json_bounds import loads_bounded
 from alicebot_api.vnext_project_scope import (
     normalize_project_scope,
     project_scope_identity,
@@ -1555,7 +1556,7 @@ def _backfill_legacy_memory_project_scopes(conn: sqlite3.Connection) -> None:
             project_id = raw_row[column_indexes["project_id"]]
             metadata_text = raw_row[column_indexes["metadata_json"]]
         try:
-            metadata = json.loads(str(metadata_text))
+            metadata = loads_bounded(str(metadata_text))
         except (TypeError, ValueError):
             continue
         if not isinstance(metadata, dict):
@@ -1630,7 +1631,7 @@ def _backfill_source_dedupe_keys(conn: sqlite3.Connection) -> None:
         metadata_raw = record["metadata_json"]
         if isinstance(metadata_raw, str):
             try:
-                metadata = json.loads(metadata_raw)
+                metadata = loads_bounded(metadata_raw)
             except json.JSONDecodeError:
                 metadata = {}
         elif isinstance(metadata_raw, dict):

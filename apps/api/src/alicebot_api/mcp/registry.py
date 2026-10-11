@@ -15,6 +15,7 @@ from datetime import (
 )
 from uuid import UUID
 from psycopg.errors import CheckViolation, ForeignKeyViolation
+from alicebot_api.json_bounds import JsonShapeError, refuse_unstorable_json
 from alicebot_api.commit_result import (
     COMMIT_RESULT_TOOL,
     commit_result_mode,
@@ -541,7 +542,14 @@ def call_mcp_tool(
         )
 
     parsed_arguments = _normalize_arguments(arguments)
+    # The schema walk first: it names the field of a typed number that is NaN or out of range. Then the write limits, for
+    # whatever the schema leaves free (a tool that takes an object or a list of objects): before any handler runs, and
+    # before anything of the arguments is stored.
     _validate_mcp_arguments_against_advertised_schema(name, parsed_arguments)
+    try:
+        refuse_unstorable_json(parsed_arguments, name=f"tool '{name}' arguments")
+    except JsonShapeError as exc:
+        raise MCPArgumentError(str(exc)) from exc
     # The reserved global marker of per-project memory is never caller input.
     _refuse_reserved_project_marker(parsed_arguments)
     try:

@@ -20,6 +20,7 @@ from dataclasses import dataclass, replace
 from uuid import UUID
 from typing import Any, TypeVar, overload
 
+from alicebot_api.json_bounds import loads_bounded
 from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS
 from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_derived_domain_backfill import DerivedDomainRepairError, _input_groups
@@ -219,7 +220,7 @@ def identifier(value: object) -> str:
 def _object(value: object) -> Mapping[str, object]:
     if isinstance(value, str):
         try:
-            value = json.loads(value)
+            value = loads_bounded(value)
         except (ValueError, TypeError):
             return {}
     return value if isinstance(value, Mapping) else {}

@@ -10,6 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import Field
 
+from alicebot_api.http_json_types import BoundedJsonList, BoundedJsonObject
 from alicebot_api.config import get_settings
 from alicebot_api.db import user_connection
 from alicebot_api.public_errors import public_exception_response
@@ -118,28 +119,28 @@ class VNextOpenLoopCreateRequest(VNextAgentRequest):
 class VNextBrainCharterUpsertRequest(VNextAgentRequest):
     user_id: UUID
     content_markdown: str = Field(min_length=1, max_length=200_000)
-    owner_json: dict[str, object] = Field(default_factory=dict)
-    memory_philosophy_json: dict[str, object] = Field(default_factory=dict)
-    life_domains_json: dict[str, object] = Field(default_factory=dict)
-    active_projects_json: list[object] = Field(default_factory=list)
-    communication_style_json: dict[str, object] = Field(default_factory=dict)
-    priorities_json: dict[str, object] = Field(default_factory=dict)
-    autonomous_rules_json: list[object] = Field(default_factory=list)
-    quality_standard_json: list[object] = Field(default_factory=list)
+    owner_json: BoundedJsonObject = Field(default_factory=dict)
+    memory_philosophy_json: BoundedJsonObject = Field(default_factory=dict)
+    life_domains_json: BoundedJsonObject = Field(default_factory=dict)
+    active_projects_json: BoundedJsonList = Field(default_factory=list)
+    communication_style_json: BoundedJsonObject = Field(default_factory=dict)
+    priorities_json: BoundedJsonObject = Field(default_factory=dict)
+    autonomous_rules_json: BoundedJsonList = Field(default_factory=list)
+    quality_standard_json: BoundedJsonList = Field(default_factory=list)
     sensitivity: VNextSensitivity = "private"
 
 class VNextSchedulerWorkflowPatchRequest(VNextAgentRequest):
     user_id: UUID
     enabled: bool | None = None
     paused: bool | None = None
-    schedule_json: dict[str, object] | None = None
+    schedule_json: BoundedJsonObject | None = None
     timezone: str | None = Field(default=None, min_length=1, max_length=120)
-    model_options: dict[str, object] = Field(default_factory=dict)
+    model_options: BoundedJsonObject = Field(default_factory=dict)
 
 class VNextSchedulerRunNowRequest(VNextAgentRequest):
     user_id: UUID
-    scope: dict[str, object] = Field(default_factory=dict)
-    options: dict[str, object] = Field(default_factory=dict)
+    scope: BoundedJsonObject = Field(default_factory=dict)
+    options: BoundedJsonObject = Field(default_factory=dict)
 
 class VNextSchedulerRunDueRequest(VNextAgentRequest):
     user_id: UUID

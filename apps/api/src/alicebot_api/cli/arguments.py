@@ -49,9 +49,14 @@ def _parse_datetime(value: str) -> datetime:
 def _parse_optional_json_object(raw_value: str | None, *, option_name: str) -> ContinuityJsonObject | None:
     if raw_value is None:
         return None
+    # Imported here so the module keeps the names the CLI facade re-exports.
+    from alicebot_api.json_bounds import JsonShapeError, loads_caller_json
+
     try:
-        payload = json.loads(raw_value)
-    except json.JSONDecodeError as exc:
+        payload = loads_caller_json(raw_value, name=option_name)
+    except JsonShapeError as exc:
+        raise ValueError(str(exc)) from exc
+    except ValueError as exc:
         raise ValueError(f"{option_name} must be valid JSON") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"{option_name} must be a JSON object")

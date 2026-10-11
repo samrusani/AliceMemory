@@ -77,6 +77,8 @@ def _parse_json(path: Path, raw_text: str) -> object:
         raise ChatGPTImportValidationError(
             f"invalid JSON at {path}: {exc.msg}"
         ) from exc
+    except RecursionError as exc:
+        raise ChatGPTImportValidationError(f"JSON at {path} is nested too deeply to read") from exc
 
 
 def _read_chatgpt_source_files(source: str | Path) -> tuple[Path, list[Path]]:

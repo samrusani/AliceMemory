@@ -1058,6 +1058,22 @@ most 4,000 characters as sent. Any other ref is at most 4,000 characters
 once serialized. The service enforces the bound, and the MCP schema
 advertises it.
 
+Unreleased (on main, not in v0.20.0): JSON that a caller hands a tool, the
+HTTP API or the command line to be stored nests at most 64 levels of arrays and
+objects and holds no `NaN`, `Infinity`, `-Infinity` or number too large for a
+float (`1e999`). That covers `source_refs` of a commit and of a proposal, the
+`body` and `provenance` of a correction, a capture candidate, a connector item
+and an agent output, and the free JSON fields of the HTTP request models. A tool
+answers `invalid_request` before it runs; the commit and the agent output
+routes answer HTTP 400, and a request that holds a number that is not finite
+answers HTTP 422 on every route. A message the MCP server cannot decode because
+it nests past 256 levels is an invalid request, and the server goes on. In
+v0.20.0 and on main until now a ref nested about 950 levels deep was stored,
+and a stored value nested near the recursion limit made the memory audit route,
+the recent commits route and `alice_memory_review` fail for every caller. A
+stored column is now read whole to 256 levels, and the part below is one
+placeholder string.
+
 A correction refuses a body, provenance, replacement body, or replacement
 provenance over 20,000 characters serialized. That covers
 `alice_memory_correct`, `alice_review_apply`, and

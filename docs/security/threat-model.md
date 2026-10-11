@@ -75,7 +75,11 @@ refuses a keyless request from another peer, or with a foreign Host or Origin,
 before it reads the body, as the `/v1` gate already did, and the identity layer
 skips its body rewrite for such a request. A JSON body nested more than 256 levels
 deep is refused with HTTP 422 before any layer decodes it, with a validation
-error of type `json_too_deep` and nothing from the body in it. In v0.19.2 the
+error of type `json_too_deep` and nothing from the body in it. Unreleased (on
+main, not in v0.20.0): a body that holds `NaN`, `Infinity`, `-Infinity` or a
+number too large for a float is refused the same way, with an error of type
+`finite_number`, and JSON stored from a caller is held to 64 levels where the
+product stores it (see the size bounds in `docs/alpha/mcp-tools.md`). In v0.19.2 the
 identity layer, the two gates and the framework each read a body of any size and
 parsed it before authentication: a 100 MiB chunked body to `/v0/vnext` raised the server's memory by several
 hundred MiB or more, depending on the body (about 400 MiB at peak for bytes that

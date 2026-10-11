@@ -25,6 +25,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from alicebot_api.credential_floor import refuse_credential_material, stored_text_fields
+from alicebot_api.json_bounds import JsonShapeError, refuse_unstorable_json
 from alicebot_api.vnext_agent_control import (
     AgentIdentity,
     PolicyDecision,
@@ -50,6 +51,14 @@ class MemoryProposalRefused(ValueError):
     """The proposal carries credential material; nothing was written."""
 
 
+class MemoryProposalInvalid(ValueError):
+    """The proposal's ``source_refs`` hold JSON that cannot be stored (nested too deeply, or a number that is not finite).
+
+    Raised when the proposal is built, before any policy audit or row is written. The message names the field and the
+    limit and never repeats the value.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class MemoryProposal:
     """What a door read from its caller, before policy decides the status."""
@@ -69,6 +78,14 @@ class MemoryProposal:
     conversation_excerpt: str | None = None
     proposal_id: str | None = None
     trace_id: str | None = None
+
+    def __post_init__(self) -> None:
+        # Every door builds the proposal, so every door is held to the write limits here, before anything is written.
+        for ref in self.source_refs:
+            try:
+                refuse_unstorable_json(ref, name="source_refs")
+            except JsonShapeError as exc:
+                raise MemoryProposalInvalid(str(exc)) from exc
 
     @property
     def summary(self) -> str:
@@ -229,6 +246,7 @@ def propose_memory(store: ProposalStore, *, proposal: MemoryProposal, authorize:
 __all__ = [
     "Authorize",
     "MemoryProposal",
+    "MemoryProposalInvalid",
     "MemoryProposalRefused",
     "ProposalOutcome",
     "ProposalStore",

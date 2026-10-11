@@ -19,6 +19,7 @@ import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 
+from alicebot_api.json_bounds import loads_bounded
 from alicebot_api.session_briefing import SESSION_BRIEF_FRAME, quote_session_brief_text
 from alicebot_api.store import JsonObject, JsonValue
 from alicebot_api.vnext_agent_keys import AGENT_KEY_AUTH
@@ -143,7 +144,7 @@ def _as_mapping(value: object) -> Mapping[str, object] | None:
         return value
     if isinstance(value, str) and value.strip().startswith("{"):
         try:
-            decoded = json.loads(value)
+            decoded = loads_bounded(value)
         except json.JSONDecodeError:
             return None
         return decoded if isinstance(decoded, Mapping) else None

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import Field
 
+from alicebot_api.http_json_types import BoundedJsonObject
 from alicebot_api.routers._vnext_shared import (
     VNextAgentRequest,
     _vnext_agent_actor,
@@ -21,8 +22,8 @@ from alicebot_api.vnext_projects import ProjectAutomationRequest
 
 class VNextProjectAutomationRequest(VNextAgentRequest):
     user_id: UUID
-    scope: dict[str, object] = Field(default_factory=dict)
-    options: dict[str, object] = Field(default_factory=dict)
+    scope: BoundedJsonObject = Field(default_factory=dict)
+    options: BoundedJsonObject = Field(default_factory=dict)
 
 def _vnext_bool(mapping: dict[str, object], key: str, default: bool) -> bool:
     value = mapping.get(key)

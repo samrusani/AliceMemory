@@ -18,6 +18,7 @@ from alicebot_api.credential_floor import (
     TEXT_WITHHELD_PLACEHOLDER,
     VERDICT_EXPANSION,
 )
+from alicebot_api.json_bounds import JsonShapeError, refuse_unstorable_json
 from alicebot_api.legacy_credential_check import commit_door_secret_verdict
 from alicebot_api.contracts import (
     CONTINUITY_CAPTURE_ASSIST_AUTOSAVE_TYPES,
@@ -763,6 +764,10 @@ def commit_continuity_captures(
             f"candidates must hold at most {MAX_CAPTURE_COMMIT_CANDIDATES} entries"
         )
     for raw_candidate in request.candidates:
+        try:
+            refuse_unstorable_json(raw_candidate, name="each candidate")
+        except JsonShapeError as exc:
+            raise ContinuityCaptureValidationError(str(exc)) from exc
         if serialized_chars(raw_candidate) > MAX_CAPTURE_CANDIDATE_CHARS:
             raise ContinuityCaptureValidationError(
                 f"each candidate must serialize to {MAX_CAPTURE_CANDIDATE_CHARS} characters or fewer"

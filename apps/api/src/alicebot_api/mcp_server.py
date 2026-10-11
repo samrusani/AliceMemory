@@ -9,6 +9,7 @@ from typing import Any, BinaryIO, Literal
 from uuid import UUID
 
 from alicebot_api import __version__
+from alicebot_api.json_bounds import MAX_READ_JSON_DEPTH, text_nests_deeper_than
 from alicebot_api.config import Settings, get_runtime_settings, get_settings
 from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES, MCPCodedToolError, MCPInvalidRequestError
 from alicebot_api.mcp_tools import (
@@ -90,6 +91,10 @@ def _build_runtime_context(args: argparse.Namespace) -> MCPRuntimeContext:
 
 
 def _parse_json_rpc_payload(raw_payload: str) -> dict[str, Any]:
+    # A message nested past what the decoder takes raised RecursionError out of the read loop and stopped the server.
+    # It is an invalid request like any other malformed message, answered before it is decoded.
+    if text_nests_deeper_than(raw_payload, MAX_READ_JSON_DEPTH):
+        raise ValueError("JSON-RPC payload is nested too deeply")
     payload = json.loads(raw_payload)
     if not isinstance(payload, dict):
         raise ValueError("JSON-RPC payload must be an object")

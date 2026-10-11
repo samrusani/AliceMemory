@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import cast
 
+from alicebot_api.json_bounds import loads_bounded
 from alicebot_api.vnext_project_scope import (
     GLOBAL_PROJECT_MARKER,
     is_alice_project_id,
@@ -36,7 +37,7 @@ def _project_scope_identity_json_sqlite(
         metadata = dict(metadata_json)
     elif isinstance(metadata_json, str):
         try:
-            decoded = json.loads(metadata_json)
+            decoded = loads_bounded(metadata_json)
         except (TypeError, ValueError):
             decoded = {}
         metadata = decoded if isinstance(decoded, dict) else {}
@@ -58,7 +59,7 @@ def _source_project_scope_identity_json_sqlite(metadata_json: object) -> str:
         metadata = dict(metadata_json)
     elif isinstance(metadata_json, str):
         try:
-            decoded = json.loads(metadata_json)
+            decoded = loads_bounded(metadata_json)
         except (TypeError, ValueError):
             decoded = {}
         metadata = decoded if isinstance(decoded, dict) else {}
@@ -75,7 +76,7 @@ def _project_floor_identity_json_sqlite(metadata_json: object) -> str:
         metadata = dict(metadata_json)
     elif isinstance(metadata_json, str):
         try:
-            decoded = json.loads(metadata_json)
+            decoded = loads_bounded(metadata_json)
         except (TypeError, ValueError):
             decoded = {}
         metadata = decoded if isinstance(decoded, dict) else {}

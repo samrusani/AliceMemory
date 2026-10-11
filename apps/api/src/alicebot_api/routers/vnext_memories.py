@@ -16,7 +16,7 @@ from alicebot_api.browser_clip_capabilities import (
     issue_browser_clip_capability,
 )
 from alicebot_api.config import get_settings
-from alicebot_api.vnext_memory_propose import MemoryProposal, MemoryProposalRefused, propose_memory
+from alicebot_api.vnext_memory_propose import MemoryProposal, MemoryProposalInvalid, MemoryProposalRefused, propose_memory
 from alicebot_api.write_bounds import MAX_COMMIT_SOURCE_REFS
 from alicebot_api.credential_floor import (
     SEARCHABLE_STATUSES,
@@ -1676,20 +1676,26 @@ def create_vnext_memory_proposal(
     except AgentIdentityValidationError as exc:
         return public_exception_response(exc, status_code=400)
 
-    proposal = MemoryProposal(
-        proposal_type=request.proposal_type,
-        title=request.title,
-        canonical_text=request.canonical_text,
-        memory_type=_vnext_memory_type_for_proposal(request.proposal_type),
-        domain=request.domain,
-        sensitivity=request.sensitivity,
-        confidence=request.confidence,
-        rationale=request.rationale,
-        source_refs=tuple(request.source_refs),
-        project_scope=tuple(request.project_scope),
-        source_type=getattr(request, "source_type", None) or "trusted_agent",
-        trace_id=request.trace_id,
-    )
+    try:
+        proposal = MemoryProposal(
+            proposal_type=request.proposal_type,
+            title=request.title,
+            canonical_text=request.canonical_text,
+            memory_type=_vnext_memory_type_for_proposal(request.proposal_type),
+            domain=request.domain,
+            sensitivity=request.sensitivity,
+            confidence=request.confidence,
+            rationale=request.rationale,
+            source_refs=tuple(request.source_refs),
+            project_scope=tuple(request.project_scope),
+            source_type=getattr(request, "source_type", None) or "trusted_agent",
+            trace_id=request.trace_id,
+        )
+    except MemoryProposalInvalid:
+        return _vnext_public_error_response(
+            status_code=400,
+            detail="vNext memory proposal source_refs must nest at most 64 levels and hold no number that is not finite",
+        )
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)

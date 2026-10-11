@@ -43,6 +43,7 @@ answered HTTP 500.
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from typing import Any
@@ -158,6 +159,79 @@ async def payload_lone_surrogate_location(request: Request, payload: object) -> 
     return find_lone_surrogate(payload)
 
 
+# What pydantic calls a number field that holds NaN or an infinity, and its message. A body that holds one is refused
+# the same way whatever the field, because the value is not JSON: PostgreSQL's jsonb refuses it, and pydantic turns it
+# into null in a model dump, so a ref that carried one was stored as null or ended as a server error.
+NOT_FINITE_ERROR_TYPE = "finite_number"
+NOT_FINITE_MESSAGE = "Input should be a finite number"
+
+# Every way a body can hold a number that is not finite, and no way to hold one that this does not match: the words
+# ``NaN`` and ``Infinity`` (``-Infinity`` holds the second), a float with an exponent of three digits or more, a run of
+# 300 digits or more (a float of that size overflows), and any NUL byte, because a UTF-16 or UTF-32 body spells every
+# ASCII character with one. A body that matches none of them cannot hold one and is not parsed again.
+_MAY_HOLD_NON_FINITE = re.compile(rb"NaN|Infinity|[0-9][eE][+-]?[0-9]{3,}|[0-9]{300,}|\x00")
+
+
+def find_non_finite(value: object) -> Location | None:
+    """Return where a decoded JSON value holds a float that is NaN or an infinity, or None.
+
+    The location lists the object keys and list indexes down to the number. The walk keeps its own stack, so a deeply
+    nested value cannot overflow the interpreter's.
+    """
+
+    if isinstance(value, float):
+        return () if not math.isfinite(value) else None
+    if not isinstance(value, (dict, list, tuple)):
+        return None
+    path: list[str | int] = []
+    stack = [_children(value)]
+    while stack:
+        entry = next(stack[-1], None)
+        if entry is None:
+            stack.pop()
+            if path:
+                path.pop()
+            continue
+        key, child = entry
+        if isinstance(child, float):
+            if not math.isfinite(child):
+                return (*path, key)
+        elif isinstance(child, (dict, list, tuple)):
+            path.append(key)
+            stack.append(_children(child))
+    return None
+
+
+def body_non_finite_location(raw_body: bytes) -> Location | None:
+    """Return where a JSON request body holds NaN, an infinity or a float that overflows (``1e999``), or None.
+
+    The body is decoded the way ``Request.json()`` decodes it, so the answer is about the value the route would
+    receive; ``json.loads`` reads the words ``NaN`` and ``Infinity`` and turns ``1e999`` into an infinity. A body that is
+    not JSON, or is too deep for the decoder, is left to the framework and answers None.
+    """
+
+    if not raw_body or _MAY_HOLD_NON_FINITE.search(raw_body) is None:
+        return None
+    try:
+        decoded = json.loads(raw_body)
+    except (ValueError, RecursionError):
+        return None
+    return find_non_finite(decoded)
+
+
+def non_finite_response(location: Location) -> JSONResponse:
+    """Build the 422 for a number that is not finite at a body location. Nothing from the body is echoed."""
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": [
+                {"type": NOT_FINITE_ERROR_TYPE, "loc": ["body", *location], "msg": NOT_FINITE_MESSAGE}
+            ]
+        },
+    )
+
+
 def lone_surrogate_error(location: Location) -> dict[str, object]:
     """Build the validation error for a surrogate at a body location."""
 
@@ -240,6 +314,11 @@ def validation_error_response(errors: Sequence[Any]) -> JSONResponse:
     return JSONResponse(status_code=422, content={"detail": withhold_lone_surrogate_errors(encoded)})
 
 
+# Validation errors whose input is the value that was too deep or not finite. The answer to one names the field and the
+# limit and does not send the value back.
+_WITHHOLD_INPUT_TYPES = frozenset({"json_too_deep", NOT_FINITE_ERROR_TYPE})
+
+
 async def render_validation_error(request: Request, exc: RequestValidationError) -> Response:
     """Answer a validation error with the framework's own handler.
 
@@ -248,13 +327,21 @@ async def render_validation_error(request: Request, exc: RequestValidationError)
     for bytes that are not UTF-8. Only then does the 422 come from
     ``validation_error_response``, which withholds what it cannot encode, so an
     error with neither in it is answered by the framework as it is answered in
-    v0.19.2.
+    v0.19.2. An error of type ``json_too_deep`` or ``finite_number`` (a request-model
+    field that holds JSON nested past 64 levels, or a number that is not finite) is
+    cut to ``type``, ``loc`` and ``msg`` like the others here: it names the field and
+    the limit, and the value it refused is not sent back.
     """
 
+    errors = exc.errors()
+    if any(isinstance(error, dict) and error.get("type") in _WITHHOLD_INPUT_TYPES for error in errors):
+        return validation_error_response(
+            [_cut_error(error) if isinstance(error, dict) and error.get("type") in _WITHHOLD_INPUT_TYPES else error for error in errors]
+        )
     try:
         return await request_validation_exception_handler(request, exc)
     except UnicodeError:
-        return validation_error_response(exc.errors())
+        return validation_error_response(errors)
 
 
 def lone_surrogate_response(location: Location) -> JSONResponse:
@@ -321,4 +408,7 @@ async def reject_lone_surrogate_json_body(
         location = body_lone_surrogate_location(raw_body)
         if location is not None:
             return lone_surrogate_response(location)
+        non_finite = body_non_finite_location(raw_body)
+        if non_finite is not None:
+            return non_finite_response(non_finite)
     return await call_next(request)

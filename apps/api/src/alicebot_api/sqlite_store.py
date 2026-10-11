@@ -24,6 +24,7 @@ import itertools
 import json
 import sqlite3
 
+from alicebot_api.json_bounds import loads_bounded
 from alicebot_api.vnext_label_writes import takes_label_lock
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -399,9 +400,9 @@ def _direct_source_hint_uncached(raw: object) -> str | None:
     the complete read-time guard.
     """
     try:
-        metadata = json.loads(raw) if isinstance(raw, str) else raw
+        metadata = loads_bounded(raw) if isinstance(raw, str) else raw
         if isinstance(metadata, str):
-            metadata = json.loads(metadata)
+            metadata = loads_bounded(metadata)
     except (ValueError, TypeError):
         return None
     if not isinstance(metadata, Mapping) or metadata.get("redacted") is True:
@@ -423,9 +424,9 @@ def _cached_direct_parent_hints(raw: str, cache: dict) -> tuple[str | None, str 
     key = ("sqlite-parent-hints", raw)
     if key not in cache:
         try:
-            metadata = json.loads(raw)
+            metadata = loads_bounded(raw)
             if isinstance(metadata, str):
-                metadata = json.loads(metadata)
+                metadata = loads_bounded(metadata)
         except (ValueError, TypeError):
             metadata = None
         cache[key] = (_direct_source_hint_uncached(metadata), _direct_memory_hint_uncached(metadata)) if isinstance(metadata, Mapping) else (None, None)
@@ -459,9 +460,9 @@ def _ensure_direct_source_hint(conn: sqlite3.Connection) -> None:
 
 def _direct_memory_hint_uncached(raw: object) -> str | None:
     try:
-        metadata = json.loads(raw) if isinstance(raw, str) else raw
+        metadata = loads_bounded(raw) if isinstance(raw, str) else raw
         if isinstance(metadata, str):
-            metadata = json.loads(metadata)
+            metadata = loads_bounded(metadata)
     except (ValueError, TypeError):
         return None
     if not isinstance(metadata, Mapping) or metadata.get("redacted") is True:
@@ -656,7 +657,7 @@ class SQLiteVNextStore:
         decoded: VNextRow = {}
         for key, value in row.items():
             if key in _JSON_COLUMNS and isinstance(value, str):
-                decoded[key] = json.loads(value)
+                decoded[key] = loads_bounded(value)
             else:
                 decoded[key] = value
         return expose_memory_project_scope(decoded)

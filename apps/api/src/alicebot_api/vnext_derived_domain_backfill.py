@@ -11,6 +11,7 @@ from collections import Counter, deque
 from collections.abc import Mapping, Sequence
 from uuid import UUID
 
+from alicebot_api.json_bounds import loads_bounded
 from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS
 from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_event_log import build_event_log_record
@@ -79,7 +80,7 @@ def require_changed(changed: int, table: str, row_id: str) -> None:
 def _object(value: object) -> Mapping[str, object]:
     if isinstance(value, str):
         try:
-            value = json.loads(value)
+            value = loads_bounded(value)
         except (ValueError, TypeError):
             return {}
     return value if isinstance(value, Mapping) else {}

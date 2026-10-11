@@ -20,6 +20,7 @@ import time
 from typing import TYPE_CHECKING, Any, Protocol, cast
 from uuid import UUID, uuid4
 
+from alicebot_api.json_bounds import JsonShapeError, loads_caller_json, refuse_unstorable_json
 from alicebot_api.connector_payloads import ConnectorPayloadValidationError, normalize_telegram_source_item
 from alicebot_api.importer_paths import ContainedReadRefused, read_text_beneath
 from alicebot_api.vnext_capture import (
@@ -918,6 +919,12 @@ def _normalize_voice_item(payload: JsonObject) -> NormalizedConnectorItem:
 
 def normalize_connector_item(connector_name: str, payload: Mapping[str, object]) -> NormalizedConnectorItem:
     definition = get_connector_definition(connector_name)
+    # Every connector path (a sync, an agent output, a Telegram update, a file) stores the whole item under
+    # ``metadata_json.raw_payload``, so this is the one place to hold it to the write limits.
+    try:
+        refuse_unstorable_json(payload, name=f"{definition.name} item")
+    except JsonShapeError as exc:
+        raise VNextConnectorValidationError(str(exc)) from exc
     item = _as_json_object(cast(JsonObject, redact_secret_fields(dict(payload))), label=f"{definition.name} item")
     if definition.name == "telegram":
         return _normalize_telegram_item(item)
@@ -953,7 +960,10 @@ def load_connector_items_from_file(path: str | Path) -> list[JsonObject]:
             }
         ]
 
-    loaded = json.loads(payload_path.read_text(encoding="utf-8"))
+    try:
+        loaded = loads_caller_json(payload_path.read_text(encoding="utf-8"), name="the connector payload file")
+    except JsonShapeError as exc:
+        raise VNextConnectorValidationError(str(exc)) from exc
     if isinstance(loaded, list):
         values = loaded
     elif isinstance(loaded, dict) and isinstance(loaded.get("items"), list):
@@ -1243,6 +1253,11 @@ class VNextConnectorService:
         config_json: JsonObject | None = None,
     ) -> JsonObject:
         definition = get_connector_definition(connector_name)
+        # Before the store is read: the configuration is stored as it is merged into the existing one.
+        try:
+            refuse_unstorable_json(config_json, name="config_json")
+        except JsonShapeError as exc:
+            raise VNextConnectorValidationError(str(exc)) from exc
         if definition.name == "telegram" and (
             secret_ref is not None
             or poll_interval_seconds is not None

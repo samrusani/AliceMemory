@@ -24,6 +24,7 @@ from pydantic import (
 
 from fastapi.responses import JSONResponse
 
+from alicebot_api.http_json_types import BoundedJsonObject
 from alicebot_api.config import get_settings
 
 from alicebot_api.public_errors import public_exception_response
@@ -246,7 +247,7 @@ class CreateToolRequest(BaseModel):
     scope_hints: list[str] = Field(default_factory=list, min_length=1)
     domain_hints: list[str] = Field(default_factory=list)
     risk_hints: list[str] = Field(default_factory=list)
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: BoundedJsonObject = Field(default_factory=dict)
 
 
 class EvaluateToolAllowlistRequest(BaseModel):
@@ -256,7 +257,7 @@ class EvaluateToolAllowlistRequest(BaseModel):
     scope: str = Field(min_length=1, max_length=200)
     domain_hint: str | None = Field(default=None, min_length=1, max_length=200)
     risk_hint: str | None = Field(default=None, min_length=1, max_length=100)
-    attributes: dict[str, object] = Field(default_factory=dict)
+    attributes: BoundedJsonObject = Field(default_factory=dict)
 
 
 class RouteToolRequest(BaseModel):
@@ -267,7 +268,7 @@ class RouteToolRequest(BaseModel):
     scope: str = Field(min_length=1, max_length=200)
     domain_hint: str | None = Field(default=None, min_length=1, max_length=200)
     risk_hint: str | None = Field(default=None, min_length=1, max_length=100)
-    attributes: dict[str, object] = Field(default_factory=dict)
+    attributes: BoundedJsonObject = Field(default_factory=dict)
 
 
 class CreateApprovalRequest(BaseModel):
@@ -279,7 +280,7 @@ class CreateApprovalRequest(BaseModel):
     scope: str = Field(min_length=1, max_length=200)
     domain_hint: str | None = Field(default=None, min_length=1, max_length=200)
     risk_hint: str | None = Field(default=None, min_length=1, max_length=100)
-    attributes: dict[str, object] = Field(default_factory=dict)
+    attributes: BoundedJsonObject = Field(default_factory=dict)
 
 
 class ResolveApprovalRequest(BaseModel):
@@ -426,7 +427,7 @@ class CreateTaskRunRequest(BaseModel):
     user_id: UUID
     max_ticks: int = Field(default=1, ge=1, le=1_000_000)
     retry_cap: int | None = Field(default=None, ge=1, le=1_000_000)
-    checkpoint: dict[str, object] = Field(default_factory=dict)
+    checkpoint: BoundedJsonObject = Field(default_factory=dict)
 
 
 class MutateTaskRunRequest(BaseModel):

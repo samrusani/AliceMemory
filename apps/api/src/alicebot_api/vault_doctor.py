@@ -19,6 +19,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from uuid import UUID
 
+from alicebot_api.json_bounds import loads_bounded
 from alicebot_api.legacy_credential_check import commit_door_fields_verdict
 from alicebot_api.project_view import ProjectView
 from alicebot_api.session_briefing import (
@@ -205,7 +206,7 @@ def source_row_is_flagged(row: object) -> bool:
     metadata = _cell(row, "metadata_json")
     if isinstance(metadata, str):
         try:
-            metadata = json.loads(metadata)
+            metadata = loads_bounded(metadata)
         except json.JSONDecodeError:
             metadata = {}
     if not isinstance(metadata, dict):
