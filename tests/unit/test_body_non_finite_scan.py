@@ -50,6 +50,8 @@ def _infinite(raw: bytes) -> bool:
 
 
 def _number(rng: random.Random) -> str:
+    if rng.random() < 0.06:
+        return rng.choice(("NaN", "Infinity", "-Infinity"))
     sign = rng.choice(("", "", "-"))
     integer = str(rng.randint(1, 9)) + "".join(rng.choice("0123456789") for _ in range(rng.choice((0, 0, 1, 5, 50, 150, 198, 199, 200, 250, 298, 299, 300, 320))))
     fraction = rng.choice(("", "", ".5", ".000123"))

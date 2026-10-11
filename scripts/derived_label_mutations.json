@@ -13428,9 +13428,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_body_non_finite_scan.py::test_a_body_that_decodes_to_an_infinity_is_never_cleared"
+        "tests/unit/test_body_non_finite_scan.py::test_the_numbers_that_are_not_finite_are_found_and_placed[NaN]"
       ],
-      "expected_failure": "test_a_body_that_decodes_to_an_infinity_is_never_cleared"
+      "expected_failure": "test_the_numbers_that_are_not_finite_are_found_and_placed"
     },
     {
       "name": "body-scan-float-hook-accepts-an-infinity",
