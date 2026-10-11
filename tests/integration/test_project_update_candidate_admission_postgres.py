@@ -139,6 +139,22 @@ def _relabel_artifact(harness, artifact_id, *, sensitivity=None, domain=None, em
                 assert cur.rowcount == 1
 
 
+def _raise_project_by_its_inputs(harness, project) -> None:
+    """The project row stays public and records a confidential source as an input, so only its settled label is raised."""
+
+    secret = harness.source(scope=(str(project["id"]),), text="Raised notes.", sensitivity="confidential")
+    with harness.store() as store:
+        acquire_exclusive_label_lock(store)
+        # Written past the store's own propagation, so the stored label stays public.
+        with store.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE projects SET metadata_json = %s::jsonb WHERE id = %s",
+                (json.dumps(with_derived_from({}, {"sources": [secret]})), str(project["id"])),
+            )
+            assert cur.rowcount == 1
+        assert store.get_project(str(project["id"]))["sensitivity"] == "public"
+
+
 def _created_events(harness) -> list[dict]:
     with harness.store() as store, store.conn.cursor() as cur:
         cur.execute(
@@ -456,17 +472,7 @@ def test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now(label_ha
     project = _project(label_harness, name="Raised Kiln")
     key = _key(label_harness, "project_scoped_agent", project=project)
     admin = label_harness.key("admin_agent")
-    secret = label_harness.source(scope=(str(project["id"]),), text="Raised notes.", sensitivity="confidential")
-    with label_harness.store() as store:
-        acquire_exclusive_label_lock(store)
-        # Written past the store's own propagation, so the stored label stays public and only the settled label is raised.
-        with store.conn.cursor() as cur:
-            cur.execute(
-                "UPDATE projects SET metadata_json = %s::jsonb WHERE id = %s",
-                (json.dumps(with_derived_from({}, {"sources": [secret]})), str(project["id"])),
-            )
-            assert cur.rowcount == 1
-        assert store.get_project(str(project["id"]))["sensitivity"] == "public"
+    _raise_project_by_its_inputs(label_harness, project)
     missing = _missing_project_answer(label_harness, ask, "project_scoped_agent", bound=True)
     before = label_harness.snapshot()
     assert ask(label_harness, key) == missing
@@ -474,6 +480,90 @@ def test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now(label_ha
     # An unbound admin key reads the same project.
     answer = ask(label_harness, admin, project["id"])
     assert answer.ok and "Raised Kiln" in answer.detail["content_markdown"]
+
+
+# -- a key bound to one project with every sensitivity, and the agreement with the artifact get -----------------------
+
+# The project kinds a key may or may not read. "raised" is stored public and settled confidential.
+PROJECT_KINDS = {
+    "public": {},
+    "private": {"sensitivity": "private"},
+    "confidential": {"sensitivity": "confidential"},
+    "highly sensitive": {"sensitivity": "highly_sensitive"},
+    "regulated": {"sensitivity": "regulated"},
+    "health domain": {"domain": "health"},
+    "legal domain": {"domain": "legal"},
+    "raised by an input": {"raised": True},
+}
+
+
+def _project_of_kind(harness, kind: str) -> dict:
+    labels = dict(PROJECT_KINDS[kind])
+    raised = labels.pop("raised", False)
+    project = _project(harness, **labels)
+    if raised:
+        _raise_project_by_its_inputs(harness, project)
+    return project
+
+
+@pytest.mark.parametrize("kind", [kind for kind in PROJECT_KINDS if kind not in {"public", "private"}])
+def test_a_bound_admin_key_is_given_a_candidate_for_its_own_project(label_harness, ask, kind):
+    """An admin key bound to one project is allowed every sensitivity and every domain inside that project. A project
+    above the default selection (confidential, highly sensitive, regulated, a restricted domain, or raised by an input)
+    is its own project all the same, and the artifact get shows it the artifact made for it."""
+
+    project = _project_of_kind(label_harness, kind)
+    made = ask(label_harness, label_harness.key("admin_agent"), project["id"])
+    assert made.ok, made
+    key = _key(label_harness, "admin_agent", project=project)
+    assert _get(label_harness, key, made.detail["id"]) == 200, "control: the bound admin key reads the artifact"
+
+    answer = ask(label_harness, key)
+
+    assert answer.ok, answer
+    assert answer.detail["metadata_json"]["project_id"] == str(project["id"]) and NAME in answer.detail["content_markdown"]
+    assert _get(label_harness, key, answer.detail["id"]) == 200
+    again = ask(label_harness, key)
+    assert again.ok and again.detail["id"] == answer.detail["id"]
+
+
+def test_a_bound_admin_key_is_still_refused_another_project(label_harness, ask):
+    mine = _project(label_harness, name="Mine Kiln", sensitivity="confidential")
+    theirs = _project(label_harness, name="Theirs Kiln", sensitivity="confidential")
+    key = _key(label_harness, "admin_agent", project=mine)
+    missing = ask(label_harness, key, uuid4())
+    answer = ask(label_harness, key, theirs["id"])
+    assert answer.ok is False and answer.detail == missing.detail, answer
+
+
+AGREEMENT_PROFILES = [
+    pytest.param("project_scoped_agent", True, id="bound project key"),
+    pytest.param("trusted_local_agent", True, id="bound trusted key"),
+    pytest.param("trusted_local_agent", False, id="unbound trusted key"),
+    pytest.param("admin_agent", True, id="bound admin key"),
+    pytest.param("admin_agent", False, id="unbound admin key"),
+]
+
+
+@pytest.mark.parametrize(("profile", "bound"), AGREEMENT_PROFILES)
+@pytest.mark.parametrize("kind", list(PROJECT_KINDS))
+def test_the_update_door_and_the_artifact_get_agree_for_every_profile(label_harness, ask, profile, bound, kind):
+    """An unbound admin key makes the artifact of the project. A key is given a candidate for the project exactly when
+    the artifact get shows it that artifact. The read-only and proposal profiles may not generate at all, so the door
+    refuses them before it reads the project; they are not part of this comparison."""
+
+    project = _project_of_kind(label_harness, kind)
+    made = ask(label_harness, label_harness.key("admin_agent"), project["id"])
+    assert made.ok, made
+    key = _key(label_harness, profile, project=project if bound else None)
+    readable = _get(label_harness, key, made.detail["id"]) == 200
+    answer = ask(label_harness, key, _asked_project(project, bound))
+    if kind == "raised by an input":
+        # The artifact made for a project raised by an input carries the project's stored label, so the get shows it
+        # to a key that the project itself is closed to. The door judges the project, the stricter of the two.
+        assert answer.ok is profile.startswith("admin"), (profile, bound, answer)
+    else:
+        assert answer.ok is readable, (kind, profile, bound, answer)
 
 
 # -- the owner's routes ----------------------------------------------------------------------------------------------
@@ -550,3 +640,91 @@ def test_the_legacy_tool_runs_for_the_owner_and_is_refused_whenever_a_key_is_con
     with pytest.raises(Exception) as refused:
         call_mcp_tool(context, name="alice_project_update_candidate", arguments={"project_id": str(project["id"])})
     assert "legacy MCP surface" in str(refused.value)
+
+
+# -- the scheduler's scan ----------------------------------------------------------------------------------------------
+
+RUN_NOW = "/v0/vnext/scheduler/workflows/project_update_scan/run-now"
+FALLBACK_TITLE = "Project Update Scan"
+
+
+def _run_now(harness, key) -> tuple[int, dict]:
+    status, body, _headers = harness.request("POST", RUN_NOW, payload={"scope": {}, "options": {}}, key=key)
+    return status, body
+
+
+def _stored_titles(harness) -> list[str]:
+    with harness.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT title FROM generated_artifacts ORDER BY created_at, id")
+        return [row["title"] for row in cur.fetchall()]
+
+
+def _candidate_memories(harness) -> int:
+    with harness.store() as store, store.conn.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM memories WHERE memory_type = 'project_state'")
+        return cur.fetchone()["n"]
+
+
+@pytest.mark.parametrize(
+    ("profile", "bound"),
+    [
+        pytest.param("trusted_local_agent", False, id="unbound trusted key"),
+        pytest.param("trusted_local_agent", True, id="bound trusted key"),
+        pytest.param("project_scoped_agent", True, id="bound project key"),
+        pytest.param("admin_agent", True, id="bound admin key"),
+        pytest.param("admin_agent", False, id="unbound admin key"),
+        pytest.param(None, False, id="owner"),
+    ],
+)
+def test_the_scan_of_a_key_with_limits_returns_the_candidate_of_a_project_it_may_read(label_harness, profile, bound):
+    """The scheduler stages its writes and publishes them with the run. The candidate made for a readable project is
+    published, the run answers it, and a second run finds it again by its digest."""
+
+    project = _project(label_harness, sensitivity="private")
+    key = None if profile is None else _key(label_harness, profile, project=project if bound else None)
+
+    status, first = _run_now(label_harness, key)
+
+    assert status == 201, first
+    assert first["artifact"]["title"].startswith("Project Update Candidate"), first["artifact"]["content_markdown"][:90]
+    assert NAME in first["artifact"]["content_markdown"]
+    assert _stored_titles(label_harness) == [first["artifact"]["title"]]
+    assert _candidate_memories(label_harness) == 1
+    if key is not None:
+        assert _get(label_harness, key, first["artifact"]["id"]) == 200
+
+    status, again = _run_now(label_harness, key)
+    assert status == 201 and again["artifact"]["id"] == first["artifact"]["id"], again["artifact"]["title"]
+    assert _stored_titles(label_harness) == [first["artifact"]["title"]]
+    assert _candidate_memories(label_harness) == 1
+
+
+@pytest.mark.parametrize("kind", ["confidential", "raised by an input"])
+@pytest.mark.parametrize(
+    ("profile", "bound"),
+    [
+        pytest.param("trusted_local_agent", False, id="unbound trusted key"),
+        pytest.param("project_scoped_agent", True, id="bound project key"),
+    ],
+)
+def test_the_scan_of_a_key_with_limits_leaves_no_candidate_behind_for_a_project_it_may_not_read(
+    label_harness, profile, bound, kind
+):
+    """A project the key may not read is not scanned: the run answers that no project matched, and nothing it staged for
+    the project is published. The project raised by an input passes the scheduler's own test on its stored label and is
+    refused by the service, which has written nothing at that point."""
+
+    project = _project_of_kind(label_harness, kind)
+    key = _key(label_harness, profile, project=project if bound else None)
+
+    status, body = _run_now(label_harness, key)
+
+    assert status == 201, body
+    assert body["artifact"]["title"].startswith(FALLBACK_TITLE)
+    assert "No active project matched" in body["artifact"]["content_markdown"]
+    assert NAME not in json.dumps(body, default=str)
+    if not bound:
+        # A bound key is told its own binding in the policy decision of the run, which names the project.
+        assert str(project["id"]) not in json.dumps(body, default=str)
+    assert [title.startswith(FALLBACK_TITLE) for title in _stored_titles(label_harness)] == [True]
+    assert _candidate_memories(label_harness) == 0

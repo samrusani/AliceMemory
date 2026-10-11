@@ -97,7 +97,7 @@ DOORS = {
     "vnext_projects.py:VNextProjectService.project_dashboard": None,
     "vnext_projects.py:VNextProjectService._resolve_project": None,
     "vnext_projects.py:VNextProjectService.generate_project_update_candidate": None,
-    "vnext_projects.py:VNextProjectService._named_project_in_view": None,
+    "vnext_projects.py:VNextProjectService._project_loops_are_filed_under": None,
     "routers/vnext_projects.py:_vnext_project_id_within_binding": None,
     "mcp/retrieval.py:_resume_event_honours_policy_fence": None,
     "mcp/retrieval.py:_vnext_recent_decisions": None,

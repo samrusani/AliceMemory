@@ -55,6 +55,21 @@ def _project(harness, *, sensitivity: str = "public", domain: str = "project", n
         )
 
 
+def _raise_project_by_its_inputs(harness, project) -> None:
+    """The project row stays public and records a confidential source as an input, so only its settled label is raised."""
+
+    secret = harness.source(scope=(str(project["id"]),), text="Raised notes.", sensitivity="confidential")
+    with harness.store() as store:
+        acquire_exclusive_label_lock(store)
+        with store.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE projects SET metadata_json = %s::jsonb WHERE id = %s",
+                (json.dumps(with_derived_from({}, {"sources": [secret]})), str(project["id"])),
+            )
+            assert cur.rowcount == 1
+        assert store.get_project(str(project["id"]))["sensitivity"] == "public"
+
+
 def _changed(before: dict, after: dict) -> set[str]:
     return {table for table in after if after[table] != before[table]}
 
@@ -181,16 +196,7 @@ def test_a_project_raised_by_its_inputs_is_judged_at_the_label_it_has_now(label_
     confidential, and a key whose ceiling is below that may not file a loop under it."""
 
     project = _project(label_harness)
-    secret = label_harness.source(scope=(str(project["id"]),), text="Raised notes.", sensitivity="confidential")
-    with label_harness.store() as store:
-        acquire_exclusive_label_lock(store)
-        with store.conn.cursor() as cur:
-            cur.execute(
-                "UPDATE projects SET metadata_json = %s::jsonb WHERE id = %s",
-                (json.dumps(with_derived_from({}, {"sources": [secret]})), str(project["id"])),
-            )
-            assert cur.rowcount == 1
-        assert store.get_project(str(project["id"]))["sensitivity"] == "public"
+    _raise_project_by_its_inputs(label_harness, project)
     assert _create(label_harness, label_harness.key("trusted_local_agent"), str(project["id"])) == NOT_FOUND
     status, body = _create(label_harness, label_harness.key("admin_agent"), str(project["id"]))
     assert status == 201 and body["open_loop"]["project_id"] == str(project["id"])
@@ -203,6 +209,46 @@ def test_a_hidden_project_does_not_hide_the_project_beside_it(label_harness):
     assert _create(label_harness, key, str(hidden["id"])) == NOT_FOUND
     status, body = _create(label_harness, key, str(shown["id"]))
     assert status == 201 and body["open_loop"]["project_id"] == str(shown["id"])
+
+
+BOUND_ADMIN_KINDS = [
+    pytest.param({"sensitivity": "confidential"}, id="confidential"),
+    pytest.param({"sensitivity": "highly_sensitive"}, id="highly sensitive"),
+    pytest.param({"sensitivity": "regulated"}, id="regulated"),
+    pytest.param({"domain": "health"}, id="health domain"),
+    pytest.param({"domain": "legal"}, id="legal domain"),
+    pytest.param({"raised": True}, id="raised by an input"),
+]
+
+
+@pytest.mark.parametrize("labels", BOUND_ADMIN_KINDS)
+def test_a_bound_admin_key_files_a_loop_under_its_own_project(label_harness, labels):
+    """An admin key bound to one project is allowed every sensitivity and every domain inside it, so the project it is
+    bound to is readable to it whatever its label, and the artifact get shows it the reports of that project."""
+
+    labels = dict(labels)
+    raised = labels.pop("raised", False)
+    project = _project(label_harness, **labels)
+    if raised:
+        _raise_project_by_its_inputs(label_harness, project)
+    key = _key(label_harness, "admin_agent", project, True)
+    status, body = _create(label_harness, key, str(project["id"]))
+    assert status == 201, body
+    assert body["open_loop"]["project_id"] == str(project["id"])
+    # Another project is outside its binding and answers as a project that is not stored.
+    other = _project(label_harness, name="Other Kiln")
+    assert _create(label_harness, key, str(other["id"])) == NOT_FOUND
+
+
+def test_a_bound_admin_key_reaches_the_extraction_no_more_than_it_did(label_harness):
+    """The extraction is an operator route: a key bound to a project is refused before any project is read."""
+
+    project = _project(label_harness, sensitivity="confidential")
+    _source(label_harness, str(project["id"]))
+    key = _key(label_harness, "admin_agent", project, True)
+    status, body = _extract(label_harness, key, str(project["id"]))
+    assert status == 403, body
+    assert _loop_rows(label_harness) == []
 
 
 # -- the extraction ----------------------------------------------------------------------------------------------------
@@ -266,6 +312,144 @@ def test_a_project_that_is_not_stored_gives_no_loop_and_no_database_error(label_
     assert _extract(label_harness, key, ghost) == NO_LOOPS
     assert _extract(label_harness, key, "not-a-uuid") == NO_LOOPS
     assert _loop_rows(label_harness) == []
+
+
+# -- the project a source names in its own scope ----------------------------------------------------------------------
+
+
+def _capture(harness, key, project_scope: str) -> str:
+    """Capture a source through the route, as a caller does, with one project in its scope."""
+
+    status, body, _headers = harness.request(
+        "POST",
+        "/v0/vnext/sources",
+        payload={
+            "raw_text": "Planning notes.\nTODO: renew the kiln permit",
+            "title": "Planning notes",
+            "domain": "project",
+            "sensitivity": "public",
+            "project_scope": [project_scope],
+        },
+        key=key,
+    )
+    assert status == 201, body
+    return str(body["source_id"])
+
+
+def _extract_everything(harness, key) -> tuple[int, dict]:
+    options = {"sensitivity_allowed": ["public", "internal", "private", "unknown"], "max_items": 50}
+    status, body, _headers = harness.request("POST", EXTRACT, payload={"scope": {}, "options": options}, key=key)
+    return status, body
+
+
+# What a source can name in its scope that no loop may be filed under for the caller: a hidden project, a project that is
+# not stored, a free-form name and an id that is not well formed.
+UNFILED = [
+    pytest.param("hidden", id="a project the key may not read"),
+    pytest.param("missing", id="a project that is not stored"),
+    pytest.param("free-form", id="a free-form name"),
+    pytest.param("malformed", id="an id that is not well formed"),
+]
+
+
+def _scope_for(harness, which: str) -> str:
+    return {
+        "hidden": lambda: str(_project(harness, sensitivity="confidential")["id"]),
+        "missing": lambda: str(uuid4()),
+        "free-form": lambda: "Kiln Plans",
+        "malformed": lambda: "not-a-uuid",
+    }[which]()
+
+
+@pytest.mark.parametrize("which", UNFILED)
+def test_extraction_files_no_loop_under_a_project_only_a_source_scope_names(label_harness, which):
+    """A source the key captured names one project in its scope. With no project in the request, a loop made from it is
+    filed under that project, so the project is judged like a named one: a hidden project, a project that is not stored,
+    a free-form name and a malformed id all file nothing, answer alike and raise nothing."""
+
+    key = label_harness.key("trusted_local_agent")
+    _capture(label_harness, key, _scope_for(label_harness, which))
+    before = label_harness.snapshot()
+
+    answer = _extract_everything(label_harness, key)
+
+    assert answer == NO_LOOPS, answer
+    assert _loop_rows(label_harness) == []
+    assert "open_loops" not in _changed(before, label_harness.snapshot())
+    assert [event["created_count"] for event in _extraction_events(label_harness)] == [0]
+
+
+def test_extraction_answers_a_hidden_and_a_missing_project_named_in_a_source_scope_alike(label_harness):
+    key = label_harness.key("trusted_local_agent")
+    answers, written = [], []
+    for which in ("hidden", "missing"):
+        _capture(label_harness, key, _scope_for(label_harness, which))
+        before = label_harness.snapshot()
+        answers.append(_extract_everything(label_harness, key))
+        written.append(_changed(before, label_harness.snapshot()))
+    assert answers[0] == answers[1] == NO_LOOPS
+    assert written[0] == written[1]
+
+
+@pytest.mark.parametrize("which", ["missing", "free-form", "malformed"])
+@pytest.mark.parametrize("admin", [True, False], ids=["unbound admin key", "owner"])
+def test_extraction_files_no_loop_and_raises_nothing_for_a_scope_that_names_no_stored_project(label_harness, which, admin):
+    key = label_harness.key("admin_agent") if admin else None
+    _capture(label_harness, key, _scope_for(label_harness, which))
+    assert _extract_everything(label_harness, key) == NO_LOOPS
+    assert _loop_rows(label_harness) == []
+
+
+@pytest.mark.parametrize("admin", [True, False], ids=["unbound admin key", "owner"])
+def test_extraction_files_a_loop_under_the_confidential_project_a_source_names_for_the_owner_and_an_unbound_admin_key(
+    label_harness, admin
+):
+    project = _project(label_harness, sensitivity="confidential")
+    key = label_harness.key("admin_agent") if admin else None
+    _capture(label_harness, key, str(project["id"]))
+    status, body = _extract_everything(label_harness, key)
+    assert status == 201 and body["created_count"] == 1, body
+    assert [row["project_id"] for row in _loop_rows(label_harness)] == [str(project["id"])]
+
+
+def test_extraction_files_a_loop_under_the_readable_project_a_source_names(label_harness):
+    project = _project(label_harness, sensitivity="private")
+    key = label_harness.key("trusted_local_agent")
+    _capture(label_harness, key, str(project["id"]))
+    status, body = _extract_everything(label_harness, key)
+    assert status == 201 and body["created_count"] == 1, body
+    assert [row["project_id"] for row in _loop_rows(label_harness)] == [str(project["id"])]
+
+
+def test_a_hidden_project_in_one_source_does_not_hide_the_loop_of_another(label_harness):
+    shown = _project(label_harness, sensitivity="private", name="Shown Kiln")
+    hidden = _project(label_harness, sensitivity="confidential", name="Hidden Kiln")
+    key = label_harness.key("trusted_local_agent")
+    _capture(label_harness, key, str(hidden["id"]))
+    _capture(label_harness, key, str(shown["id"]))
+    status, body = _extract_everything(label_harness, key)
+    assert status == 201 and body["created_count"] == 1, body
+    assert [row["project_id"] for row in _loop_rows(label_harness)] == [str(shown["id"])]
+
+
+def test_a_source_that_names_two_projects_is_still_filed_under_none(label_harness):
+    """A loop is filed under a project only when the source names exactly one. With two it has no project, as before."""
+
+    hidden = _project(label_harness, sensitivity="confidential")
+    shown = _project(label_harness, sensitivity="private")
+    key = label_harness.key("trusted_local_agent")
+    status, body, _headers = label_harness.request(
+        "POST",
+        "/v0/vnext/sources",
+        payload={"raw_text": "Planning notes.\nTODO: renew the kiln permit", "title": "Planning notes", "domain": "project",
+                 "sensitivity": "public", "project_scope": [str(hidden["id"]), str(shown["id"])]},
+        key=key,
+    )
+    assert status == 201, body
+    status, body = _extract_everything(label_harness, key)
+    assert status == 201, body
+    assert body["created_count"] == 1, body
+    assert [row["project_id"] for row in _loop_rows(label_harness)] == [None]
 
 
 # -- doors that keep a free-form name in a scope and look no project up ----------------------------------------------

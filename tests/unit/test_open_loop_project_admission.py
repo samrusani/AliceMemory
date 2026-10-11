@@ -81,6 +81,48 @@ def test_a_project_that_is_not_stored_gives_no_loop_for_every_caller():
         assert _completion(store) == {"created_count": 0, "source_ids": []}
 
 
+def _extract_from_sources(store, identity: AgentIdentity | None) -> list[dict]:
+    """No project in the request: a loop is filed under the one project its source names in its scope."""
+
+    guard = LabelGuard.unlimited(store) if identity is None else guard_for_caller(store, identity)
+    request = ProjectAutomationRequest(agent_identity=None, sensitivity_allowed=ALL, max_items=20)
+    return [dict(loop) for loop in VNextProjectService(store).extract_open_loops(request, guard=guard)]
+
+
+def test_a_source_that_names_a_project_the_caller_may_not_read_or_that_is_not_stored_files_no_loop():
+    """The store holds a source scoped to the project and one scoped to a project nobody stored. The caller did not name
+    a project, so each loop is filed under the project its source names, judged like a named one."""
+
+    store = _store(sensitivity="confidential")
+    assert _extract_from_sources(store, TRUSTED) == []
+    assert _completion(store)["created_count"] == 0 and store.open_loops == {}
+    loops = _extract_from_sources(store, ADMIN)
+    assert loops and {loop["project_id"] for loop in loops} == {PROJECT}
+
+
+def test_a_source_that_names_a_readable_project_is_filed_under_it():
+    store = _store(sensitivity="private")
+    loops = _extract_from_sources(store, TRUSTED)
+    assert loops and {loop["project_id"] for loop in loops} == {PROJECT}
+
+
+def test_a_source_scope_that_names_a_project_nobody_stored_files_nothing_for_every_caller():
+    for identity in (None, ADMIN, TRUSTED):
+        store = _store(sensitivity="private")
+        store.sources[:] = [row for row in store.sources if row["id"] == "source-ghost"]
+        assert _extract_from_sources(store, identity) == []
+
+
+def test_a_store_that_keeps_no_projects_files_under_the_name_a_source_scope_gives():
+    class WithoutProjects(InMemoryVNextProjectStore):
+        get_project = None  # type: ignore[assignment]
+
+    store = WithoutProjects()
+    store.sources.extend(_store().sources)
+    loops = _extract_from_sources(store, TRUSTED)
+    assert {loop["project_id"] for loop in loops} == {PROJECT, GHOST}
+
+
 def test_a_store_that_keeps_no_projects_admits_the_name():
     """The local SQLite vault has no project rows. A scope names a project there, and extraction files under the name."""
 
@@ -118,6 +160,12 @@ def _bound(project_id: str, profile: str = "project_scoped_agent") -> AgentIdent
         pytest.param(_bound(PROJECT), "public", "legal", False, id="bound project key, legal domain"),
         pytest.param(_bound("project-2"), "public", "project", False, id="bound to another project"),
         pytest.param(_bound("project-2", "trusted_local_agent"), "public", "project", False, id="bound trusted key, another project"),
+        pytest.param(_bound(PROJECT, "admin_agent"), "confidential", "project", True, id="bound admin key, confidential"),
+        pytest.param(_bound(PROJECT, "admin_agent"), "highly_sensitive", "project", True, id="bound admin key, highly sensitive"),
+        pytest.param(_bound(PROJECT, "admin_agent"), "regulated", "project", True, id="bound admin key, regulated"),
+        pytest.param(_bound(PROJECT, "admin_agent"), "public", "health", True, id="bound admin key, health domain"),
+        pytest.param(_bound(PROJECT, "admin_agent"), "public", "legal", True, id="bound admin key, legal domain"),
+        pytest.param(_bound("project-2", "admin_agent"), "public", "project", False, id="bound admin key, another project"),
     ],
 )
 def test_project_readable(caller, sensitivity, domain, readable):

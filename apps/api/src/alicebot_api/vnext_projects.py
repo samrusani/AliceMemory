@@ -533,13 +533,12 @@ def _identity_of_record(record: object) -> AgentIdentity | None:
 
 
 def project_in_view(store: object, project: Mapping[str, object], guard: LabelGuard) -> bool:
-    """True when the caller ``guard`` stands for may read this project row now. An inactive guard admits every project.
+    """True when the operator caller ``guard`` stands for may read this project row now. An inactive guard admits all.
 
-    A project is judged on its effective label: the domain and the sensitivity it has, raised to those of its inputs
-    once an accepted update made it a derived row, against the domains and the sensitivities the guard allows. A guard
-    with a project binding also requires this project to be inside it: the binding names an id, a slug or a name, and the
-    project's own identity is tested against it. The label of a derived project holds no scope (the settled scope of a
-    project row is empty), so the binding is not read from the settled label.
+    The guard of an operator route is the guard of an owner, an unbound admin key or an unbound trusted key, so it holds
+    domains and sensitivities and no project binding. The project is judged on its effective label: the domain and the
+    sensitivity it has, raised to those of its inputs once an accepted update made it a derived row. A door that serves
+    a key with a project binding judges a project with ``project_readable``.
     """
 
     from alicebot_api.vnext_label_guard import LabelGuard
@@ -547,25 +546,33 @@ def project_in_view(store: object, project: Mapping[str, object], guard: LabelGu
     if not guard.active:
         return True
     view = LabelGuard.for_filters(store, guard.domains, guard.sensitivity_allowed)
-    if not view.admit_rows("project", [project]):
-        return False
-    if not guard.projects:
-        return True
-    named = project_scope_identity([str(project.get("id") or ""), project.get("slug"), project.get("name")])
-    return bool(set(named) & set(project_scope_identity(guard.projects)))
+    return bool(view.admit_rows("project", [project]))
 
 
 def project_readable(store: object, project: Mapping[str, object], caller: AgentIdentity | None) -> bool:
     """True when ``caller`` may read this project row now. The owner and an unbound admin key read every project.
 
-    A door that looks a project up by an id the caller names answers a project this returns False for exactly as it
-    answers a project that does not exist. The limits are the ones every read of that caller has, so the action named
-    here only selects the read policy; ``project_in_view`` holds the rule.
+    This is the test the artifact get applies to an artifact, applied to the project: the policy engine's read of the
+    row's domain and sensitivity (the caller's profile ceiling and permitted domains, not a default selection), on the
+    effective labels of the row (raised to its inputs once an accepted update made it a derived row). A project row has
+    no scope of its own, so a key bound to a project is shown the project it is bound to and no other: the binding names
+    an id, a slug or a name, and the project's own identity is tested against it, and a bound key whose binding does not
+    name this project is given no scope, which the policy engine refuses. A bound key that is allowed every sensitivity
+    (an admin key) therefore reads its own confidential project.
     """
 
-    from alicebot_api.vnext_label_guard import guard_for_caller
+    from alicebot_api.vnext_label_guard import effective_row_for_fence
+    from alicebot_api.vnext_source_fence import SourceReadFence
 
-    return project_in_view(store, project, guard_for_caller(store, caller, action="artifact.lookup"))
+    fence = SourceReadFence.for_identity(caller)
+    if not fence.entity_read_fenced:
+        return True
+    effective = effective_row_for_fence(store, caller, "project", project)
+    scope: tuple[str, ...] = ()
+    if caller is not None and caller.project_scope_locked:
+        named = set(project_scope_identity([str(project.get("id") or ""), project.get("slug"), project.get("name")]))
+        scope = tuple(item for item in caller.project_scope if set(project_scope_identity([item])) & named)
+    return fence.admits_memory({**effective, "project_scope": list(scope), "project_floor": []})
 
 
 class VNextProjectService:
@@ -680,7 +687,17 @@ class VNextProjectService:
                 scope_projects=(project_id,),
             )
             if existing is not None:
-                return self._readable_candidate(existing, caller=caller, project_id=project_id)
+                return self._stored_candidate(existing, caller=caller, project_id=project_id)
+            # The upsert below returns the row stored under this digest whatever its scope, so a row the scoped lookup
+            # missed comes back from it. That row is judged now, before the candidate memory is written, so a refusal
+            # leaves nothing staged or written behind.
+            conflicting = find_existing(
+                artifact_type="project_update",
+                workflow="project_auto_update",
+                digest=automation_digest,
+            )
+            if conflicting is not None:
+                self._stored_candidate(conflicting, caller=caller, project_id=project_id)
         change = _detect_project_change(project, sources, memories)
         suggested_current_state = change
         upsert_memory = getattr(self.store, "upsert_memory_by_key", None)
@@ -770,7 +787,7 @@ class VNextProjectService:
             )
         else:
             artifact = self.store.create_artifact(artifact_record, actor_type=request.generated_by)
-        artifact = self._readable_candidate(artifact, caller=caller, project_id=project_id)
+        artifact = self._new_candidate(artifact, caller=caller, project_id=project_id)
         append_event(
             self.store,
             event_type="project.update_candidate_created",
@@ -864,7 +881,7 @@ class VNextProjectService:
         request = request or ProjectAutomationRequest(agent_identity=None, )
         _validate_request(request)
         domains = list(request.domains) if request.domains else None
-        if request.project_id is not None and not self._named_project_in_view(request.project_id, guard):
+        if request.project_id is not None and self._project_loops_are_filed_under(request.project_id, guard) is None:
             # A loop is filed under the project the request names, so the project is judged first. One the caller may not
             # read is answered as one that is not stored, and no source is read for it.
             sources: list[JsonObject] = []
@@ -881,12 +898,23 @@ class VNextProjectService:
         existing_by_digest: dict[str, JsonObject] = {}
         find_existing_loop = getattr(self.store, "find_open_loop_by_automation_digest", None)
         created: list[JsonObject] = []
+        filed_under: dict[str, str | None] = {}
         for source in sources:
             for candidate in _open_loop_candidates(source):
                 source_scope = source_project_scope(source)
                 canonical_scope = (request.project_id,) if request.project_id is not None else source_scope
                 if len(canonical_scope) == 1:
-                    candidate["project_id"] = canonical_scope[0]
+                    if request.project_id is None:
+                        # The project is the one the source names in its scope, and the caller did not name it, so it is
+                        # judged like a named one. A loop is not made for a source whose single project is not stored or
+                        # not readable, whichever of the two it is.
+                        if canonical_scope[0] not in filed_under:
+                            filed_under[canonical_scope[0]] = self._project_loops_are_filed_under(canonical_scope[0], guard)
+                        if filed_under[canonical_scope[0]] is None:
+                            continue
+                        candidate["project_id"] = filed_under[canonical_scope[0]]
+                    else:
+                        candidate["project_id"] = canonical_scope[0]
                 if request.person_id is not None:
                     candidate["person_id"] = request.person_id
                 metadata_value = candidate.get("metadata_json")
@@ -1545,35 +1573,58 @@ class VNextProjectService:
             "counts": {"memories": len(memories), "open_loops": len(open_loops), "artifacts": len(artifacts)},
         }
 
-    def _named_project_in_view(self, project_id: str, guard: LabelGuard) -> bool:
-        """Whether the project a request names is stored and readable under ``guard``.
+    def _project_loops_are_filed_under(self, project_id: str, guard: LabelGuard) -> str | None:
+        """The id a loop is filed under for the project ``project_id`` names, or ``None`` when no loop may be filed there.
 
-        A store that keeps no projects (the local SQLite vault, where a project is a free-form name in a scope) has no
-        project to judge and admits the name. On PostgreSQL an id that is not a well-formed UUID names no project.
+        A loop is filed under a project that is stored and that ``guard`` may read. A project that is not stored, an id
+        that is not well formed, a free-form name and a project the caller may not read all answer ``None``, so the
+        caller cannot tell a hidden project from a missing one, and nothing is filed under a name the foreign key would
+        refuse. A store that keeps no projects (the local SQLite vault, where a project is a free-form name in a scope)
+        has no project to judge and the name stands.
         """
 
         lookup = getattr(self.store, "get_project", None)
         if not callable(lookup):
-            return True
+            return str(project_id)
         named = str(project_id).strip()
         if isinstance(self.store, PostgresVNextStore):
             try:
                 named = str(UUID(named))
             except ValueError:
-                return False
+                return None
         project = lookup(named)
-        return project is not None and project_in_view(self.store, project, guard)
+        if project is None or not project_in_view(self.store, project, guard):
+            return None
+        return str(project.get("id") or named)
 
-    def _readable_candidate(self, artifact: JsonObject, *, caller: AgentIdentity | None, project_id: str) -> JsonObject:
-        """``artifact`` when ``caller`` may read it now, otherwise the error of a project that does not exist.
+    def _stored_candidate(self, artifact: JsonObject, *, caller: AgentIdentity | None, project_id: str) -> JsonObject:
+        """``artifact``, a row that came back from storage, when ``caller`` may read it now, otherwise the error of a
+        project that does not exist.
 
-        This is the check the artifact get applies (``outside_caller_limits``), on the labels the stored row has now. It
-        takes no part in what the caller asked for: a request filter is a selection, never a grant.
+        This is the check the artifact get applies (``outside_caller_limits``): the labels the stored row has now, raised
+        to the rows it was made from, which are read from the database. It takes no part in what the caller asked for:
+        a request filter is a selection, never a grant.
         """
 
         from alicebot_api.vnext_label_guard import outside_caller_limits
 
         if outside_caller_limits(self.store, caller, "artifact", artifact):
+            raise VNextProjectValidationError(f"project {project_id} was not found")
+        return artifact
+
+    def _new_candidate(self, artifact: JsonObject, *, caller: AgentIdentity | None, project_id: str) -> JsonObject:
+        """``artifact``, the row that was just made, when its own labels are ones ``caller`` may read.
+
+        The row was made from inputs that were read on the caller's limits, and a store that stages its writes (the
+        scheduler's) has not written it or its candidate memory yet, so the database holds nothing to read its inputs
+        from. It is judged on the labels it carries, which the policy engine reads as it reads a stored one. A row that
+        already existed under the digest is judged from storage before it is written to (``_stored_candidate``).
+        """
+
+        from alicebot_api.vnext_source_fence import SourceReadFence
+
+        fence = SourceReadFence.for_identity(caller)
+        if fence.entity_read_fenced and not fence.admits_memory(artifact):
             raise VNextProjectValidationError(f"project {project_id} was not found")
         return artifact
 

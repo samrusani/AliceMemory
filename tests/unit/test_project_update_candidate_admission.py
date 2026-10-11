@@ -183,30 +183,79 @@ def test_the_owner_and_an_unbound_admin_key_are_shown_the_artifact_found_again()
     assert _generate(store, ADMIN, PROJECT)["id"] == first_admin["id"]
 
 
-def test_the_artifact_an_upsert_returns_after_a_digest_conflict_is_judged_like_any_other():
-    """The scoped lookup misses, the insert meets the unique digest, and the upsert returns the stored row."""
+def test_a_row_the_scoped_lookup_misses_and_the_upsert_would_return_is_judged_before_anything_is_written():
+    """The scoped lookup misses, the insert would meet the unique digest, and the upsert would return the stored row. That
+    row is judged first, so a refusal leaves no candidate memory and no artifact written (or staged) behind."""
 
     store = _store(sensitivity="private")
     first = _generate(store, TRUSTED, PROJECT)
     stored = store.artifacts[str(first["id"])]
     stored["sensitivity"] = "confidential"
+    real_find = store.find_artifact_by_workflow_digest
+    store.find_artifact_by_workflow_digest = lambda **kwargs: None if kwargs.get("scope_projects") else real_find(**kwargs)  # type: ignore[method-assign]
     upserted: list[str] = []
-    store.find_artifact_by_workflow_digest = lambda **_kwargs: None  # type: ignore[method-assign]
 
     def upsert(artifact, **_kwargs):
         upserted.append(str(stored["id"]))
         return stored
 
     store.upsert_artifact_by_workflow_digest = upsert  # type: ignore[attr-defined]
+    before = _written(store)
+
+    refused = _refusal(store, TRUSTED, PROJECT)
+
+    assert upserted == [], "the row is refused before the write that would return it"
+    assert NAME not in refused and str(stored["id"]) not in refused
+    assert _written(store) == before
+    # The unbound admin key is shown that row, which comes back through the upsert.
+    assert _generate(store, ADMIN, PROJECT)["id"] == str(stored["id"])
+    assert upserted == [str(stored["id"])]
+
+
+def test_a_row_the_upsert_returns_that_no_lookup_found_is_judged_on_its_own_labels():
+    store = _store(sensitivity="private")
+    first = _generate(store, TRUSTED, PROJECT)
+    stored = store.artifacts[str(first["id"])]
+    stored["sensitivity"] = "confidential"
+    store.find_artifact_by_workflow_digest = lambda **_kwargs: None  # type: ignore[method-assign]
+    store.upsert_artifact_by_workflow_digest = lambda artifact, **_kwargs: stored  # type: ignore[attr-defined]
     created = [event for event in store.events if event["event_type"] == "project.update_candidate_created"]
 
     refused = _refusal(store, TRUSTED, PROJECT)
 
-    assert upserted == [str(stored["id"])], "the row must come back through the upsert"
     assert NAME not in refused and str(stored["id"]) not in refused
     assert [event for event in store.events if event["event_type"] == "project.update_candidate_created"] == created
-    # The owner is shown that row.
     assert _generate(store, ADMIN, PROJECT)["id"] == str(stored["id"])
+
+
+def test_a_new_artifact_is_judged_on_its_own_labels_when_the_store_has_not_written_it_yet():
+    """The scheduler stages its writes and publishes them with the run, so the artifact it was just handed back, and the
+    candidate memory it was made from, are not in the database to be read. A readable candidate is returned all the same."""
+
+    store = _store(sensitivity="private")
+    store.create_artifact = lambda artifact, **_kwargs: {**artifact, "id": "staged-artifact"}  # type: ignore[method-assign]
+    store.create_memory = lambda memory, **_kwargs: {**memory, "id": "staged-memory"}  # type: ignore[method-assign]
+    for identity in (TRUSTED, _bound(PROJECT), _bound(PROJECT, "trusted_local_agent")):
+        artifact = _generate(store, identity, None if identity.project_scope_locked else PROJECT)
+        assert artifact["id"] == "staged-artifact" and NAME in artifact["content_markdown"]
+    assert store.artifacts == {} and store.memories.keys() == {"memory-existing"}
+
+
+@pytest.mark.parametrize(
+    ("sensitivity", "domain"),
+    [("confidential", "project"), ("highly_sensitive", "project"), ("regulated", "project"), ("public", "health"), ("public", "legal")],
+)
+def test_a_bound_admin_key_is_given_a_candidate_for_its_own_project(sensitivity, domain):
+    store = _store(sensitivity=sensitivity, domain=domain)
+    admin = _bound(PROJECT, "admin_agent")
+    artifact = _generate(store, admin, None)
+    assert NAME in artifact["content_markdown"] and artifact["metadata_json"]["project_id"] == PROJECT
+    assert _generate(store, admin, None)["id"] == artifact["id"]
+    # Another project is outside the binding.
+    store.projects["project-2"] = {**store.projects[PROJECT], "id": "project-2", "name": "Other", "slug": "other"}
+    request = ProjectAutomationRequest(agent_identity=admin.to_record(), project_id="project-2", sensitivity_allowed=("public",))
+    with pytest.raises(VNextProjectValidationError):
+        VNextProjectService(store).generate_project_update_candidate(request, identity=admin)
 
 
 def test_a_new_artifact_above_the_ceiling_is_not_returned_and_no_event_records_it():
