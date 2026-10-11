@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Protocol, cast
 from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_derived_labels import input_admitted, locked_projects, with_derived_from
 from alicebot_api.credential_floor import refuse_credential_activation
-from alicebot_api.vnext_agent_control import resource_project_scope
+from alicebot_api.vnext_agent_control import AgentIdentity, resource_project_scope
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
@@ -515,6 +515,46 @@ def _project_update_markdown(
     )
 
 
+def _identity_of_record(record: object) -> AgentIdentity | None:
+    """The caller an automation request records, or ``None`` (the owner) when it records none."""
+
+    if not isinstance(record, Mapping):
+        return None
+    scope = record.get("project_scope")
+    return AgentIdentity(
+        agent_id=str(record.get("agent_id") or ""),
+        agent_type=str(record.get("agent_type") or "unknown"),
+        project_scope=tuple(str(item) for item in scope) if isinstance(scope, (list, tuple)) else (),
+        permission_profile=str(record.get("permission_profile") or "read_only_agent"),
+        auth=str(record.get("auth") or "unauthenticated_local"),
+        project_scope_locked=bool(record.get("project_scope_locked")),
+    )
+
+
+def _project_readable(store: VNextProjectStore, project: JsonObject, caller: AgentIdentity | None) -> bool:
+    """True when ``caller`` may read this project row now. The owner and an unbound admin key read every project.
+
+    A project is judged on its effective label: the domain and the sensitivity it has, raised to those of its inputs
+    once an accepted update made it a derived row, against the domains and the sensitivities the caller may read. A key
+    with a project binding must also be bound to this project: the binding names an id, a slug or a name, and the
+    project's own identity is tested against it. The label of a derived project holds no scope (the settled scope of a
+    project row is empty), so the binding is not read from the settled label.
+    """
+
+    from alicebot_api.vnext_label_guard import LabelGuard, guard_for_caller
+
+    guard = guard_for_caller(store, caller, action="artifact.lookup")
+    if not guard.active:
+        return True
+    view = LabelGuard.for_filters(store, guard.domains, guard.sensitivity_allowed)
+    if not view.admit_rows("project", [project]):
+        return False
+    if not guard.projects:
+        return True
+    named = project_scope_identity([str(project.get("id") or ""), project.get("slug"), project.get("name")])
+    return bool(set(named) & set(project_scope_identity(guard.projects)))
+
+
 class VNextProjectService:
     def __init__(self, store: VNextProjectStore, *, defer_embeddings: bool = False) -> None:
         self.store = store
@@ -533,10 +573,28 @@ class VNextProjectService:
 
         return is_project_update_artifact(artifact)
 
-    def generate_project_update_candidate(self, request: ProjectAutomationRequest | None = None) -> JsonObject:
+    def generate_project_update_candidate(
+        self, request: ProjectAutomationRequest | None = None, *, identity: AgentIdentity | None = None
+    ) -> JsonObject:
+        """Make the update candidate of one project, or return the one already stored under the digest of its inputs.
+
+        The caller is judged twice with the functions the reads of that caller use. The project is read first, before a
+        source or a memory is read and before anything is written, and a project the caller may not read is answered
+        exactly as a project that does not exist. Every artifact that comes back is read through the check the artifact
+        get applies: a new one, one found again by its digest, and the row an upsert returns after it meets the unique
+        digest. That row carries the labels it has now, which can be above the caller's, and one the caller may not read
+        is not returned, no event records it, and the call raises the error of a missing project so the route rolls
+        back the candidate memory that was written for it.
+
+        ``identity`` is the caller a door resolved, or ``None``. With ``None`` the caller is the one the request records
+        in ``agent_identity``, and the owner when it records none, so a door that passes no identity (the scheduler)
+        is judged as the identity its request carries.
+        """
+
         request = request or ProjectAutomationRequest(agent_identity=None, )
         _validate_request(request)
-        project = self._resolve_project(request)
+        caller = identity if identity is not None else _identity_of_record(request.agent_identity)
+        project = self._resolve_project(request, caller)
         domains = list(request.domains) if request.domains else None
         sensitivity_allowed = list(request.sensitivity_allowed)
         sources = self.store.search_sources(
@@ -609,7 +667,7 @@ class VNextProjectService:
                 scope_projects=(project_id,),
             )
             if existing is not None:
-                return existing
+                return self._readable_candidate(existing, caller=caller, project_id=project_id)
         change = _detect_project_change(project, sources, memories)
         suggested_current_state = change
         upsert_memory = getattr(self.store, "upsert_memory_by_key", None)
@@ -699,6 +757,7 @@ class VNextProjectService:
             )
         else:
             artifact = self.store.create_artifact(artifact_record, actor_type=request.generated_by)
+        artifact = self._readable_candidate(artifact, caller=caller, project_id=project_id)
         append_event(
             self.store,
             event_type="project.update_candidate_created",
@@ -1468,10 +1527,23 @@ class VNextProjectService:
             "counts": {"memories": len(memories), "open_loops": len(open_loops), "artifacts": len(artifacts)},
         }
 
-    def _resolve_project(self, request: ProjectAutomationRequest) -> JsonObject:
+    def _readable_candidate(self, artifact: JsonObject, *, caller: AgentIdentity | None, project_id: str) -> JsonObject:
+        """``artifact`` when ``caller`` may read it now, otherwise the error of a project that does not exist.
+
+        This is the check the artifact get applies (``outside_caller_limits``), on the labels the stored row has now. It
+        takes no part in what the caller asked for: a request filter is a selection, never a grant.
+        """
+
+        from alicebot_api.vnext_label_guard import outside_caller_limits
+
+        if outside_caller_limits(self.store, caller, "artifact", artifact):
+            raise VNextProjectValidationError(f"project {project_id} was not found")
+        return artifact
+
+    def _resolve_project(self, request: ProjectAutomationRequest, caller: AgentIdentity | None) -> JsonObject:
         if request.project_id is not None:
             project = self.store.get_project(request.project_id)
-            if project is None:
+            if project is None or not _project_readable(self.store, project, caller):
                 raise VNextProjectValidationError(f"project {request.project_id} was not found")
             return project
         projects = self.store.list_projects(
@@ -1490,6 +1562,7 @@ class VNextProjectService:
             sensitivity_allowed=request.sensitivity_allowed,
             projects=(),
         )
+        projects = [project for project in projects if _project_readable(self.store, project, caller)]
         if not projects:
             raise VNextProjectValidationError("no active project was found for update candidate generation")
         return projects[0]

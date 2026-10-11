@@ -1,0 +1,316 @@
+"""The project update service judges its caller on any store, and the local SQLite store has no project path at all.
+
+The service is shared by the HTTP route and the legacy MCP tool (PostgreSQL), the command line and the scheduler. A door
+hands it the identity it resolved. The service reads the project first and answers a project the caller may not read
+exactly as a project that does not exist, and it judges every artifact that comes back (a new one, one found again by its
+digest and the row an upsert returns) through the check the artifact get applies, before the creation event is recorded.
+A call that passes no identity is judged as the identity its request records, and as the owner when it records none.
+
+These tests run the service over the in-memory project store of ``test_vnext_projects.py``. The PostgreSQL counterpart,
+through the mounted application and the tool handler, is
+``tests/integration/test_project_update_candidate_admission_postgres.py``.
+
+SQLite: ``SQLiteVNextStore`` has no ``get_project``, ``list_projects`` or ``create_project`` and the SQLite schema has no
+projects table, so no project update candidate can be made on a SQLite vault. The legacy tool answers an error there
+(``test_a_sqlite_vault_has_no_project_path``) and nothing is returned. When SQLite gains projects, that test fails first
+and the service tests here already cover the admission the SQLite store would use.
+
+Mutations, each one alone (replayed by ``scripts/verify_derived_label_mutations.py``): admit every project; admit the
+artifact that is made, found or upserted without judging it; give the service a caller of its own that is always the owner.
+"""
+from __future__ import annotations
+
+import inspect
+import json
+from argparse import Namespace
+from contextlib import contextmanager
+from uuid import UUID, uuid4
+
+import pytest
+
+from alicebot_api.cli import automation as cli_automation
+from alicebot_api.cli.models import CLIContext
+from alicebot_api.routers._vnext_automation import VNextProjectAutomationRequest, _vnext_project_automation_request
+from alicebot_api.vnext_agent_control import AgentIdentity, evaluate_agent_policy
+from alicebot_api.vnext_label_guard import outside_caller_limits
+from alicebot_api.vnext_projects import ProjectAutomationRequest, VNextProjectService, VNextProjectValidationError
+from tests.unit.test_vnext_projects import InMemoryVNextProjectStore, _seed_store
+
+USER = UUID("44444444-4444-4444-8444-444444444444")
+NAME = "Alice vNext"
+PROJECT = "project-1"
+TRUSTED = AgentIdentity(agent_id="trusted", permission_profile="trusted_local_agent", auth="agent_api_key")
+ADMIN = AgentIdentity(agent_id="admin", permission_profile="admin_agent", auth="agent_api_key")
+
+
+def _bound(project_id: str, profile: str = "project_scoped_agent") -> AgentIdentity:
+    return AgentIdentity(
+        agent_id="alpha-writer", permission_profile=profile, auth="agent_api_key",
+        project_scope=(project_id,), project_scope_locked=True,
+    )
+
+
+def _store(*, sensitivity: str = "private", domain: str = "project") -> InMemoryVNextProjectStore:
+    store = _seed_store()
+    store.projects[PROJECT].update({"sensitivity": sensitivity, "domain": domain})
+    return store
+
+
+def _request(identity: AgentIdentity | None, project_id: str | None) -> ProjectAutomationRequest:
+    """What the route builds: the request cut down to the policy decision of the caller, with the caller's record."""
+
+    decision = evaluate_agent_policy(identity=identity, action="artifact.generate") if identity is not None else None
+    assert decision is None or decision.decision != "blocked", decision
+    options = {} if project_id is None else {"project_id": project_id}
+    return _vnext_project_automation_request(
+        VNextProjectAutomationRequest(user_id=USER, scope={}, options=options), identity=identity, decision=decision
+    )
+
+
+def _generate(store, identity, project_id=None, *, pass_identity: bool = True) -> dict:
+    service = VNextProjectService(store)
+    request = _request(identity, project_id)
+    return dict(
+        service.generate_project_update_candidate(request, identity=identity)
+        if pass_identity
+        else service.generate_project_update_candidate(request)
+    )
+
+
+def _refusal(store, identity, project_id=None, **kwargs) -> str:
+    with pytest.raises(VNextProjectValidationError) as refused:
+        _generate(store, identity, project_id, **kwargs)
+    return str(refused.value)
+
+
+def _written(store: InMemoryVNextProjectStore) -> tuple[int, int, int]:
+    return len(store.artifacts), len(store.memories), len(store.events)
+
+
+def test_the_service_takes_the_identity_of_its_caller_and_defaults_to_the_record_of_the_request():
+    parameter = inspect.signature(VNextProjectService.generate_project_update_candidate).parameters["identity"]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY and parameter.default is None
+
+
+HIDDEN = [
+    pytest.param("bound", "confidential", "project", id="bound project key, confidential"),
+    pytest.param("bound", "highly_sensitive", "project", id="bound project key, highly sensitive"),
+    pytest.param("bound", "public", "health", id="bound project key, health domain"),
+    pytest.param("trusted", "confidential", "project", id="unbound trusted key, confidential"),
+    pytest.param("trusted", "regulated", "project", id="unbound trusted key, regulated"),
+]
+
+
+@pytest.mark.parametrize(("kind", "sensitivity", "domain"), HIDDEN)
+@pytest.mark.parametrize("pass_identity", [True, False], ids=["identity passed", "identity from the request record"])
+def test_a_project_the_caller_may_not_read_is_answered_as_a_project_that_does_not_exist(
+    kind, sensitivity, domain, pass_identity
+):
+    store = _store(sensitivity=sensitivity, domain=domain)
+    identity = _bound(PROJECT) if kind == "bound" else TRUSTED
+    asked = None if kind == "bound" else PROJECT
+    ghost_identity = _bound("project-ghost") if kind == "bound" else TRUSTED
+    missing = _refusal(store, ghost_identity, None if kind == "bound" else "project-ghost")
+    before = _written(store)
+
+    refused = _refusal(store, identity, asked, pass_identity=pass_identity)
+
+    assert refused.replace(PROJECT, "<id>") == missing.replace("project-ghost", "<id>"), refused
+    assert NAME not in refused
+    assert _written(store) == before
+
+
+def test_a_caller_bound_to_another_project_is_answered_as_a_missing_project():
+    store = _store(sensitivity="public")
+    store.projects["project-2"] = {**store.projects[PROJECT], "id": "project-2", "name": "Other", "slug": "other"}
+    before = _written(store)
+    for profile in ("project_scoped_agent", "trusted_local_agent"):
+        identity = _bound("project-2", profile)
+        # The request builder of the route refuses a project outside the binding (a ValueError, HTTP 400). A door that
+        # builds the request itself, as the tool does, gets the same refusal from the service.
+        request = ProjectAutomationRequest(
+            agent_identity=identity.to_record(), project_id=PROJECT, sensitivity_allowed=("public", "private")
+        )
+        with pytest.raises(VNextProjectValidationError) as refused:
+            VNextProjectService(store).generate_project_update_candidate(request, identity=identity)
+        assert NAME not in str(refused.value)
+    assert _written(store) == before
+
+
+@pytest.mark.parametrize("identity", [None, ADMIN], ids=["owner", "unbound admin key"])
+def test_the_owner_and_an_unbound_admin_key_are_shown_the_confidential_project(identity):
+    store = _store(sensitivity="confidential")
+    artifact = _generate(store, identity, PROJECT)
+    assert NAME in artifact["content_markdown"] and artifact["sensitivity"] == "confidential"
+
+
+@pytest.mark.parametrize("kind", ["bound", "trusted"])
+def test_a_caller_still_gets_a_candidate_for_a_project_it_may_read_and_is_shown_it_again(kind):
+    store = _store(sensitivity="private")
+    identity = _bound(PROJECT) if kind == "bound" else TRUSTED
+    asked = None if kind == "bound" else PROJECT
+    first = _generate(store, identity, asked)
+    assert first["artifact_type"] == "project_update" and NAME in first["content_markdown"]
+    assert not outside_caller_limits(store, identity, "artifact", store.artifacts[str(first["id"])])
+    created = [event for event in store.events if event["event_type"] == "project.update_candidate_created"]
+    assert [event["target_id"] for event in created] == [first["id"]]
+    again = _generate(store, identity, asked)
+    assert again["id"] == first["id"] and len(store.artifacts) == 1
+
+
+@pytest.mark.parametrize("kind", ["bound", "trusted"])
+def test_an_artifact_found_again_above_the_ceiling_is_not_returned_and_no_event_records_it(kind):
+    store = _store(sensitivity="private")
+    identity = _bound(PROJECT) if kind == "bound" else TRUSTED
+    asked = None if kind == "bound" else PROJECT
+    first = _generate(store, identity, asked)
+    store.artifacts[str(first["id"])]["sensitivity"] = "confidential"
+    before = _written(store)
+
+    refused = _refusal(store, identity, asked)
+
+    assert NAME not in refused and str(first["id"]) not in refused and "Project Update Candidate" not in refused
+    assert _written(store) == before
+
+
+def test_the_owner_and_an_unbound_admin_key_are_shown_the_artifact_found_again():
+    store = _store(sensitivity="private")
+    first = _generate(store, None, PROJECT)
+    store.artifacts[str(first["id"])]["sensitivity"] = "highly_sensitive"
+    assert _generate(store, None, PROJECT)["id"] == first["id"]
+    first_admin = _generate(store, ADMIN, PROJECT)
+    store.artifacts[str(first_admin["id"])]["sensitivity"] = "highly_sensitive"
+    assert _generate(store, ADMIN, PROJECT)["id"] == first_admin["id"]
+
+
+def test_the_artifact_an_upsert_returns_after_a_digest_conflict_is_judged_like_any_other():
+    """The scoped lookup misses, the insert meets the unique digest, and the upsert returns the stored row."""
+
+    store = _store(sensitivity="private")
+    first = _generate(store, TRUSTED, PROJECT)
+    stored = store.artifacts[str(first["id"])]
+    stored["sensitivity"] = "confidential"
+    upserted: list[str] = []
+    store.find_artifact_by_workflow_digest = lambda **_kwargs: None  # type: ignore[method-assign]
+
+    def upsert(artifact, **_kwargs):
+        upserted.append(str(stored["id"]))
+        return stored
+
+    store.upsert_artifact_by_workflow_digest = upsert  # type: ignore[attr-defined]
+    created = [event for event in store.events if event["event_type"] == "project.update_candidate_created"]
+
+    refused = _refusal(store, TRUSTED, PROJECT)
+
+    assert upserted == [str(stored["id"])], "the row must come back through the upsert"
+    assert NAME not in refused and str(stored["id"]) not in refused
+    assert [event for event in store.events if event["event_type"] == "project.update_candidate_created"] == created
+    # The owner is shown that row.
+    assert _generate(store, ADMIN, PROJECT)["id"] == str(stored["id"])
+
+
+def test_a_new_artifact_above_the_ceiling_is_not_returned_and_no_event_records_it():
+    store = _store(sensitivity="private")
+    original = store.create_artifact
+
+    def raised(artifact, **kwargs):
+        return {**original(artifact, **kwargs), "sensitivity": "confidential"}
+
+    store.create_artifact = raised  # type: ignore[method-assign]
+    events = len(store.events)
+    refused = _refusal(store, TRUSTED, PROJECT)
+    assert NAME not in refused and "Project Update Candidate" not in refused
+    assert len(store.events) == events
+    assert _generate(store, ADMIN, PROJECT)["sensitivity"] == "confidential"
+
+
+def test_a_call_with_no_identity_is_judged_as_the_identity_its_request_records():
+    """The scheduler hands the service a request that records the identity of its caller and passes no identity."""
+
+    store = _store(sensitivity="confidential")
+    request = ProjectAutomationRequest(
+        agent_identity=TRUSTED.to_record(), project_id=PROJECT, sensitivity_allowed=("public", "private")
+    )
+    with pytest.raises(VNextProjectValidationError):
+        VNextProjectService(store).generate_project_update_candidate(request)
+    owner = ProjectAutomationRequest(agent_identity=None, project_id=PROJECT)
+    assert NAME in VNextProjectService(store).generate_project_update_candidate(owner)["content_markdown"]
+
+
+def test_a_project_the_listing_picks_is_judged_too():
+    """With no project named the service lists the projects; one the caller may not read is not the one it picks.
+
+    The request here asks for every sensitivity. A request filter is a selection and never a grant, so the listing
+    returns the confidential project and the service refuses it on the limits of the caller."""
+
+    wide = ("public", "internal", "private", "confidential", "highly_sensitive", "unknown")
+    store = _store(sensitivity="confidential")
+    request = ProjectAutomationRequest(agent_identity=TRUSTED.to_record(), sensitivity_allowed=wide)
+    with pytest.raises(VNextProjectValidationError) as refused:
+        VNextProjectService(store).generate_project_update_candidate(request, identity=TRUSTED)
+    assert "no active project" in str(refused.value) and NAME not in str(refused.value)
+    assert _written(store) == _written(_store(sensitivity="confidential"))
+    shown = VNextProjectService(store).generate_project_update_candidate(
+        ProjectAutomationRequest(agent_identity=None, sensitivity_allowed=wide)
+    )
+    assert NAME in shown["content_markdown"]
+    # With a readable project beside it the listing still finds a project to make the candidate for.
+    store.projects["project-2"] = {
+        **store.projects[PROJECT], "id": "project-2", "name": "Open Kiln", "slug": "open-kiln", "sensitivity": "public",
+    }
+    store.projects[PROJECT]["status"] = "archived"
+    request = ProjectAutomationRequest(agent_identity=TRUSTED.to_record(), sensitivity_allowed=wide)
+    picked = VNextProjectService(store).generate_project_update_candidate(request, identity=TRUSTED)
+    assert "Open Kiln" in picked["content_markdown"]
+
+
+def test_the_identity_a_door_passes_decides_whatever_the_request_records():
+    """The request here records no caller, so it would run for the owner; the door passed the identity it resolved."""
+
+    store = _store(sensitivity="confidential")
+    request = ProjectAutomationRequest(agent_identity=None, project_id=PROJECT, sensitivity_allowed=("public", "private"))
+    with pytest.raises(VNextProjectValidationError):
+        VNextProjectService(store).generate_project_update_candidate(request, identity=TRUSTED)
+    assert NAME in VNextProjectService(store).generate_project_update_candidate(request, identity=ADMIN)["content_markdown"]
+
+
+def test_the_command_runs_for_the_owner(monkeypatch):
+    store = _store(sensitivity="confidential")
+
+    @contextmanager
+    def store_context(_ctx):
+        yield store
+
+    monkeypatch.setattr(cli_automation, "_vnext_store_context", store_context)
+    monkeypatch.setattr(cli_automation, "_vnext_sensitivity_allowed", lambda _args: ("public", "internal", "private", "unknown"))
+    args = Namespace(
+        domain=[], project_id=PROJECT, person_id=None, max_items=8, generation_mode="deterministic",
+        model_route_mode=None, model_provider=None, model=None, model_temperature=0.2, allow_cloud_private=False,
+    )
+    printed = json.loads(cli_automation._run_vnext_project_update_candidate(CLIContext(settings=None, database_url="x", user_id=USER), args))
+    assert printed["artifact_type"] == "project_update" and NAME in printed["content_markdown"]
+
+
+def test_a_sqlite_vault_has_no_project_path(tmp_path, monkeypatch):
+    from alicebot_api.mcp.registry import call_mcp_tool
+    from alicebot_api.mcp.types import MCPRuntimeContext
+    from alicebot_api.onramp import bootstrap_database, sqlite_url_for_path
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+
+    path = tmp_path / "project-update.sqlite3"
+    bootstrap_database(path, user_id=str(USER), user_email="synthetic@example.invalid")
+    monkeypatch.setenv("ALICE_MCP_LEGACY_TOOLS", "1")
+    monkeypatch.setenv("ALICE_LEGACY_SURFACES", "1")
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    with sqlite_user_connection(path, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        assert not any(hasattr(store, name) for name in ("get_project", "list_projects", "create_project"))
+        tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+    assert "projects" not in tables
+    with pytest.raises(Exception) as failed:
+        call_mcp_tool(
+            MCPRuntimeContext(database_url=sqlite_url_for_path(path), user_id=USER),
+            name="alice_project_update_candidate",
+            arguments={},
+        )
+    assert "list_projects" in str(failed.value) or "tool" in str(failed.value).lower()

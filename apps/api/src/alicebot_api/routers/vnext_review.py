@@ -1096,8 +1096,12 @@ def generate_vnext_project_update_candidate(
             )
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
+            # The service reads the project and every artifact it returns on this caller's limits, as the artifact get
+            # does: a project the key may not read answers as a project that does not exist, and an artifact it may not
+            # read (one found again by its digest included) is not returned.
             payload = VNextProjectService(store).generate_project_update_candidate(
-                _vnext_project_automation_request(request, identity=identity, decision=decision)
+                _vnext_project_automation_request(request, identity=identity, decision=decision),
+                identity=identity,
             )
     except (ValueError, VNextProjectValidationError):
         return _vnext_public_error_response(status_code=400, detail="vNext project update request is invalid")
