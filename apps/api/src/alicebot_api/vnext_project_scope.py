@@ -17,6 +17,9 @@ from alicebot_api.vnext_repositories import JsonObject
 #: compared against a stored value, and it is refused as caller input. A stored
 #: string that happens to read ``~global`` is an ordinary free-form name.
 GLOBAL_PROJECT_MARKER = "~global"
+#: Every name Alice reserves for its own use inside a request. A caller, a key binding or an
+#: identity's project scope may not hold one, because each would read it as more than a name.
+RESERVED_PROJECT_MARKERS = (GLOBAL_PROJECT_MARKER,)
 _ALICE_PROJECT_ID_PATTERN = re.compile(r"prj_[0-9a-f]{16}")
 _HYPHENATED_UUID_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
@@ -381,6 +384,22 @@ def holds_global_marker(scope: object) -> bool:
     return GLOBAL_PROJECT_MARKER in project_scope_identity(scope)
 
 
+def reserved_project_marker(scope: object) -> str | None:
+    """The first reserved marker ``scope`` holds, however it is spelled, or ``None``.
+
+    For the places that take a name from a person or from a stored record and keep it as a
+    binding or an identity: a key's project binding, a declared project scope. The marker has
+    its meaning only inside a request tuple that Alice builds, so such a place refuses it
+    instead of passing it on to a reader that would treat it as "the rows of no project".
+    """
+
+    identity = project_scope_identity(scope)
+    for marker in RESERVED_PROJECT_MARKERS:
+        if marker in identity:
+            return marker
+    return None
+
+
 def refuse_global_marker(scope: object, *, where: str) -> None:
     """Raise ``ValueError`` when ``scope`` holds the reserved marker.
 
@@ -471,6 +490,11 @@ def project_scopes_overlap(
     scope holds no Alice project id, and is never compared with a stored value.
     Every other entry is an identifier compared by identity.
 
+    This function cannot tell a tuple Alice built from a project view from a key's stored
+    binding, so a binding is checked where it is known: ``resolve_agent_identity`` refuses a
+    key bound to a reserved name, the policy engine blocks an identity whose scope holds
+    one, and a ``LabelGuard`` made for a locked caller admits no row when its binding does.
+
     ``floor`` is the row's project floor. It is consulted only on the global
     branch: a row whose scope holds no Alice project id is in a view that asks
     for global rows only when every Alice project id in the floor is in the
@@ -510,6 +534,8 @@ __all__ = [
     "project_scope_identity",
     "project_scopes_overlap",
     "refuse_global_marker",
+    "reserved_project_marker",
+    "RESERVED_PROJECT_MARKERS",
     "resolve_project_scope",
     "resolve_source_metadata_project_scope",
     "source_capture_identity_matches",

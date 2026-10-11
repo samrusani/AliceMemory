@@ -18,6 +18,7 @@ from alicebot_api.vnext_project_scope import (
     normalize_project_scope,
     project_floor_within,
     project_scope_identity,
+    reserved_project_marker,
     resolve_project_scope,
 )
 from alicebot_api.vnext_repositories import JsonObject
@@ -277,6 +278,14 @@ def _string_list(value: object) -> list[str]:
             raise AgentIdentityValidationError("project_scope must be a list of strings")
         if normalize_project_identifier(item) == "":
             raise AgentIdentityValidationError("project_scope identifiers must not be blank")
+    reserved = reserved_project_marker(value)
+    if reserved is not None:
+        # A declared scope becomes the identity's scope, and every project test reads a reserved name
+        # as more than a name. The message is fixed words and never echoes the request.
+        raise AgentIdentityValidationError(
+            f"the project name {reserved} is reserved by Alice and cannot be part of an identity's "
+            "project_scope; use the name or id of a project instead"
+        )
     return list(normalize_project_scope(value))
 
 
@@ -465,6 +474,14 @@ def evaluate_agent_policy(
             effective_project_scope = ()
         else:
             effective_project_scope = project_scope or identity.project_scope
+
+    # Fail closed for an identity built anywhere else with a reserved name in its scope, bound or declared
+    # (the key resolver and the payload reader already refuse one). Every project test reads the name as
+    # "the rows of no project", which is more than a scope grants, so nothing is granted at all.
+    if reserved_project_marker(identity.project_scope) is not None:
+        reasons.append("reserved_project_name_in_identity_scope")
+        decision = "blocked"
+        effective_project_scope = ()
 
     if action == "memory.propose":
         if profile not in {"project_scoped_agent", "trusted_local_agent", "memory_proposal_agent", "admin_agent"}:

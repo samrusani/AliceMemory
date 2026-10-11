@@ -15,6 +15,7 @@ from alicebot_api.vnext_project_scope import (
     normalize_project_identifier,
     normalize_project_scope,
     project_scope_identity,
+    reserved_project_marker,
 )
 from alicebot_api.vnext_repositories import JsonObject
 
@@ -40,6 +41,15 @@ _PROFILE_RANKS = {profile: rank for rank, profile in enumerate(PROFILE_PRIVILEGE
 
 class AgentKeyValidationError(ValueError):
     """Raised when an agent API key request is malformed."""
+
+
+def _reserved_name_message(marker: str, *, subject: str) -> str:
+    """Why ``subject`` cannot hold a reserved name. Fixed words around the marker, never the request."""
+
+    return (
+        f"the project name {marker} is reserved by Alice and cannot be {subject}; "
+        "use the name or id of a project instead"
+    )
 
 
 class AgentKeyAuthenticationError(PermissionError):
@@ -131,6 +141,11 @@ def create_agent_key(
     normalized_project_values = normalize_project_scope(project_scope) if project_scope is not None else ()
     if project_scope is not None and not normalized_project_values:
         raise AgentKeyValidationError("project_scope must not be blank")
+    # The whole value is checked, not only the part that is stored. A key bound to a reserved name
+    # would be read by every project test as "the rows that belong to no project".
+    reserved = reserved_project_marker(project_scope) if project_scope is not None else None
+    if reserved is not None:
+        raise AgentKeyValidationError(_reserved_name_message(reserved, subject="a key's project scope"))
     normalized_project_scope = next(iter(normalized_project_values), None)
     raw_key = mint_agent_key()
     record = store.create_agent_api_key(
@@ -206,6 +221,25 @@ def resolve_agent_identity(
     if str(record.get("user_id")) != str(user_id):
         raise AgentKeyAuthenticationError(
             "agent API key does not belong to this user", status_code=401
+        )
+
+    # A key stored with a reserved name as its binding (an older version let one be created) is
+    # refused whole, before any claim is read. Every reader that applies a binding gets its identity
+    # here, so no door can read the name as "the rows of no project" and none needs its own check.
+    stored_binding = record.get("project_scope")
+    stored_reserved = reserved_project_marker(stored_binding) if isinstance(stored_binding, str) else None
+    if stored_reserved is not None:
+        _append_key_rejection_event(
+            store,
+            record=record,
+            reason="reserved_project_scope_binding",
+            claimed={},
+        )
+        raise AgentKeyAuthenticationError(
+            f"agent API key is bound to the project name {stored_reserved}, which Alice reserves for its "
+            "own use, so the key is refused at every door. Revoke it with 'alicebot agent keys revoke' "
+            "and create a new key bound to the name or id of a project.",
+            status_code=403,
         )
 
     key_agent_id = str(record["agent_id"])
@@ -380,6 +414,11 @@ def _claimed_project_scope(source: Mapping[str, object]) -> tuple[str, ...]:
                 status_code=403,
             )
         values.append(normalized)
+    reserved = reserved_project_marker(values)
+    if reserved is not None:
+        raise AgentKeyAuthenticationError(
+            _reserved_name_message(reserved, subject="part of a project_scope claim"), status_code=403
+        )
     return normalize_project_scope(values)
 
 

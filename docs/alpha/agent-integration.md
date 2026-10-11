@@ -315,6 +315,17 @@ loops, and artifacts) plus its separate event group use the caller's effective
 project set. Violations are blocked and audited with
 `project_scope_binding_violation`. Keys issued without `--project-scope` keep
 the prior behavior: the payload's explicit project scope is honored.
+
+Unreleased (on main, not in v0.20.0): the name `~global` is reserved by Alice and
+cannot be a key's project scope. `alicebot agent keys create --project-scope
+'~global'` is refused with a message that says so and stores no key, and a
+project scope that a call declares for its identity may not hold the name
+either. A key that an earlier version stored with the name as its binding is
+refused at every route and tool, whatever its profile, until it is revoked with
+`alicebot agent keys revoke` and replaced by a key bound to the name or id of a
+project. The refusal is recorded as an event with the reason
+`reserved_project_scope_binding`.
+
 Unreleased (on main, not in v0.20.0): a derived row (a report, summary or copy)
 carries every project of every row it was made from, so a bound key reads it
 only when all of them are inside its binding. See
