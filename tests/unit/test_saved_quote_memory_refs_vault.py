@@ -777,6 +777,11 @@ def test_a_key_that_may_read_the_cited_memory_is_shown_the_names_of_the_fields_i
                 assert seen, (variant, who, name)
 
 
+LINK_DOORS = ("review detail", "explain")
+# The keys that may read the captured source, and so are shown its links, whatever they may read of the memory the commits cite.
+LINK_KEYS = ("trusted", "read_only", "memory_proposal")
+
+
 def _link_the_source(vault: Vault, commit_id: str, *quotes: str) -> None:
     """One provenance link from the commit to the captured source for each quote: the links of a memory carry a copy of a quote of
     their own, and the reader holds it to the words it withholds from the refs."""
@@ -802,17 +807,12 @@ def _link_door(vault: Vault, who: str, door: str, commit_id: str) -> tuple[list[
     return [str(link["quote"]) for link in links if link["quote"] is not None], _text(answer)
 
 
-LINK_DOORS = ("review detail", "explain")
-# The keys that may read the captured source, and so are shown its links, whatever they may read of the memory the commits cite.
-LINK_KEYS = ("trusted", "read_only", "memory_proposal")
-
-
 def test_a_link_that_says_the_words_of_a_name_nested_under_a_dropped_field_is_withheld(vault: Vault) -> None:
     """A field the product does not write is dropped from the entry that cites the memory, and a name nested under it holds words
     of that memory as much as a name at the top. A link of the commit that says the same words is shown without its quote, at
     review detail and at ``alice_explain``, to every key that may read the source and not the memory, and a link that says
-    something else keeps its quote. The owner and the unbound admin key are shown both quotes, and the keys are shown both
-    before the memory is redacted, so a quote that is gone was withheld and not missing.
+    something else keeps its quote. The unbound admin key is shown both quotes, and so are the keys before the memory is
+    redacted, so a quote that is gone was withheld and not missing.
 
     Mutation: in ``_note_dropped``, delete ``pending.append(inner_key)``: the words of the nested name stay out of the withheld
     texts, and the link keeps its quote.
