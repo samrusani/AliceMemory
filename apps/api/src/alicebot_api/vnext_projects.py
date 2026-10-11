@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 import re
+from uuid import UUID
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Protocol, cast
 
@@ -531,19 +532,18 @@ def _identity_of_record(record: object) -> AgentIdentity | None:
     )
 
 
-def _project_readable(store: VNextProjectStore, project: JsonObject, caller: AgentIdentity | None) -> bool:
-    """True when ``caller`` may read this project row now. The owner and an unbound admin key read every project.
+def project_in_view(store: object, project: Mapping[str, object], guard: LabelGuard) -> bool:
+    """True when the caller ``guard`` stands for may read this project row now. An inactive guard admits every project.
 
     A project is judged on its effective label: the domain and the sensitivity it has, raised to those of its inputs
-    once an accepted update made it a derived row, against the domains and the sensitivities the caller may read. A key
-    with a project binding must also be bound to this project: the binding names an id, a slug or a name, and the
+    once an accepted update made it a derived row, against the domains and the sensitivities the guard allows. A guard
+    with a project binding also requires this project to be inside it: the binding names an id, a slug or a name, and the
     project's own identity is tested against it. The label of a derived project holds no scope (the settled scope of a
     project row is empty), so the binding is not read from the settled label.
     """
 
-    from alicebot_api.vnext_label_guard import LabelGuard, guard_for_caller
+    from alicebot_api.vnext_label_guard import LabelGuard
 
-    guard = guard_for_caller(store, caller, action="artifact.lookup")
     if not guard.active:
         return True
     view = LabelGuard.for_filters(store, guard.domains, guard.sensitivity_allowed)
@@ -553,6 +553,19 @@ def _project_readable(store: VNextProjectStore, project: JsonObject, caller: Age
         return True
     named = project_scope_identity([str(project.get("id") or ""), project.get("slug"), project.get("name")])
     return bool(set(named) & set(project_scope_identity(guard.projects)))
+
+
+def project_readable(store: object, project: Mapping[str, object], caller: AgentIdentity | None) -> bool:
+    """True when ``caller`` may read this project row now. The owner and an unbound admin key read every project.
+
+    A door that looks a project up by an id the caller names answers a project this returns False for exactly as it
+    answers a project that does not exist. The limits are the ones every read of that caller has, so the action named
+    here only selects the read policy; ``project_in_view`` holds the rule.
+    """
+
+    from alicebot_api.vnext_label_guard import guard_for_caller
+
+    return project_in_view(store, project, guard_for_caller(store, caller, action="artifact.lookup"))
 
 
 class VNextProjectService:
@@ -851,13 +864,18 @@ class VNextProjectService:
         request = request or ProjectAutomationRequest(agent_identity=None, )
         _validate_request(request)
         domains = list(request.domains) if request.domains else None
-        sources = self.store.search_sources(
-            query="",
-            domains=domains,
-            sensitivity_allowed=list(request.sensitivity_allowed),
-            limit=request.max_items,
-            scope_projects=(request.project_id,) if request.project_id is not None else (),
-        )
+        if request.project_id is not None and not self._named_project_in_view(request.project_id, guard):
+            # A loop is filed under the project the request names, so the project is judged first. One the caller may not
+            # read is answered as one that is not stored, and no source is read for it.
+            sources: list[JsonObject] = []
+        else:
+            sources = self.store.search_sources(
+                query="",
+                domains=domains,
+                sensitivity_allowed=list(request.sensitivity_allowed),
+                limit=request.max_items,
+                scope_projects=(request.project_id,) if request.project_id is not None else (),
+            )
         if request.project_id is not None:
             sources = [row for row in sources if _is_source_in_project(row, request.project_id)]
         existing_by_digest: dict[str, JsonObject] = {}
@@ -1527,6 +1545,25 @@ class VNextProjectService:
             "counts": {"memories": len(memories), "open_loops": len(open_loops), "artifacts": len(artifacts)},
         }
 
+    def _named_project_in_view(self, project_id: str, guard: LabelGuard) -> bool:
+        """Whether the project a request names is stored and readable under ``guard``.
+
+        A store that keeps no projects (the local SQLite vault, where a project is a free-form name in a scope) has no
+        project to judge and admits the name. On PostgreSQL an id that is not a well-formed UUID names no project.
+        """
+
+        lookup = getattr(self.store, "get_project", None)
+        if not callable(lookup):
+            return True
+        named = str(project_id).strip()
+        if isinstance(self.store, PostgresVNextStore):
+            try:
+                named = str(UUID(named))
+            except ValueError:
+                return False
+        project = lookup(named)
+        return project is not None and project_in_view(self.store, project, guard)
+
     def _readable_candidate(self, artifact: JsonObject, *, caller: AgentIdentity | None, project_id: str) -> JsonObject:
         """``artifact`` when ``caller`` may read it now, otherwise the error of a project that does not exist.
 
@@ -1543,7 +1580,7 @@ class VNextProjectService:
     def _resolve_project(self, request: ProjectAutomationRequest, caller: AgentIdentity | None) -> JsonObject:
         if request.project_id is not None:
             project = self.store.get_project(request.project_id)
-            if project is None or not _project_readable(self.store, project, caller):
+            if project is None or not project_readable(self.store, project, caller):
                 raise VNextProjectValidationError(f"project {request.project_id} was not found")
             return project
         projects = self.store.list_projects(
@@ -1562,7 +1599,7 @@ class VNextProjectService:
             sensitivity_allowed=request.sensitivity_allowed,
             projects=(),
         )
-        projects = [project for project in projects if _project_readable(self.store, project, caller)]
+        projects = [project for project in projects if project_readable(self.store, project, caller)]
         if not projects:
             raise VNextProjectValidationError("no active project was found for update candidate generation")
         return projects[0]
@@ -1575,4 +1612,6 @@ __all__ = [
     "VNextProjectStore",
     "VNextProjectTerminalConsistencyError",
     "VNextProjectValidationError",
+    "project_in_view",
+    "project_readable",
 ]

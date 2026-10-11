@@ -53,6 +53,7 @@ GUARD_CALLS = {
     "admit_edges",
     "admit_events", "admit_related_rows", "readable_status_counts", "readable_event_count",
     "guard_for_caller", "newest_admitted_rows", "readable_own_label_rows",
+    "project_in_view", "project_readable",
 }
 
 # function -> helper that holds the guard call, or None when the function calls it
@@ -96,6 +97,8 @@ DOORS = {
     "vnext_projects.py:VNextProjectService.project_dashboard": None,
     "vnext_projects.py:VNextProjectService._resolve_project": None,
     "vnext_projects.py:VNextProjectService.generate_project_update_candidate": None,
+    "vnext_projects.py:VNextProjectService._named_project_in_view": None,
+    "routers/vnext_projects.py:_vnext_project_id_within_binding": None,
     "mcp/retrieval.py:_resume_event_honours_policy_fence": None,
     "mcp/retrieval.py:_vnext_recent_decisions": None,
     "mcp/retrieval.py:_vnext_resume": None,
@@ -189,7 +192,6 @@ NOT_A_DOOR = {
     "vnext_dogfooding.py:VNextDogfoodingStore.list_artifact_quality_ratings": "store protocol declaration; no execution or response",
     "vnext_artifact_review.py:dispatch_vnext_artifact_review": "writer entry; calling route or MCP authorizes the artifact before dispatch",
     "vnext_memory_commit.py:VNextMemoryCommitService._guard_supersession_acyclic": "write validation traverses pointers without exposing their content",
-    "routers/vnext_projects.py:_vnext_project_id_within_binding": "a project has no labels; the open-loop create route holds the id to the key's project binding, and a project outside it reads as a missing one",
 }
 
 SCAN_MODULES = tuple(sorted({
