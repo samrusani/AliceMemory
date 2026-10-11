@@ -155,8 +155,9 @@ def test_the_proof_by_domain_is_made_only_for_a_filter_without_a_restricted_doma
     assert "'health'" not in hidden_memory_input_sql(["public"], sqlite=True, domains=["project", "financial"])
     assert hidden_memory_input_sql(None, sqlite=True, domains=["project", "health"]) == "TRUE"
     assert hidden_memory_input_sql(None, sqlite=True, domains=None) == "TRUE"
-    assert "label_input" not in hidden_memory_input_sql(["public"], sqlite=True, domains=["project"], memory_inputs=False)
-    assert "label_input" in hidden_memory_input_sql(["public"], sqlite=True, domains=["project"])
+    for sqlite in (True, False):
+        assert "label_input" not in hidden_memory_input_sql(["public"], sqlite=sqlite, domains=["project"], memory_inputs=False)
+        assert "label_input" in hidden_memory_input_sql(["public"], sqlite=sqlite, domains=["project"])
 
 
 # One input of each kind, in each domain and at each level, and rows that name them.

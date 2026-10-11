@@ -13142,10 +13142,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_derived_mention_above_the_trusted_keys_ceiling_does_not_support_the_name[project-confidential]",
-        "tests/integration/test_readable_scan_bounds_postgres.py::test_the_grounding_check_judges_a_derived_mention_by_the_ceiling_of_the_trusted_key[project-confidential-False]"
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key[chain-trusted]",
+        "tests/integration/test_hidden_rows_resume_and_grounding_postgres.py::test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key[chain-trusted]"
       ],
-      "expected_failure": "test_a_derived_mention_above_the_trusted_keys_ceiling_does_not_support_the_name"
+      "expected_failure": "test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key"
     },
     {
       "name": "resume-open-loops-read-as-the-owner-does",
@@ -13455,9 +13455,10 @@
         }
       ],
       "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_provable_hidden_events_of_the_project_use_no_place_of_the_cap",
         "tests/unit/test_hidden_rows_resume_and_grounding.py::test_hidden_events_of_the_project_do_not_change_the_recent_changes_in_the_project_view"
       ],
-      "expected_failure": "test_hidden_events_of_the_project_do_not_change_the_recent_changes_in_the_project_view"
+      "expected_failure": "test_provable_hidden_events_of_the_project_use_no_place_of_the_cap"
     },
     {
       "name": "readable-batched-event-fence-honours-every-memory",

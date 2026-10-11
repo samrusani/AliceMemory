@@ -328,8 +328,15 @@ def test_an_adapter_without_offset_is_asked_for_a_prefix_up_to_the_cap() -> None
     """
 
     found = _PrefixProbeStore(_rows(70, 1))
-    assert corpus_support(["Zorblax"], found, readable_memory_rows=_readable) == {"Zorblax": True}
+    asked: list[list[str]] = []
+
+    def recording(rows: Sequence[dict[str, object]]) -> list[dict[str, object]]:
+        asked.append([str(row["id"]) for row in rows])
+        return _readable(rows)
+
+    assert corpus_support(["Zorblax"], found, readable_memory_rows=recording) == {"Zorblax": True}
     assert [call[0] for call in found.calls] == [1, CAP]
+    assert asked[0] == ["hidden-0"] and "hidden-0" not in asked[1] and len(asked[1]) == 70, "the first row was judged twice"
     ceiling = _PrefixProbeStore(_rows(CAP * 2, 1))
     assert corpus_support(["Zorblax"], ceiling, readable_memory_rows=_readable) == {"Zorblax": True}
     assert [call[0] for call in ceiling.calls] == [1, CAP]
@@ -622,6 +629,23 @@ def test_hidden_events_of_the_project_do_not_change_the_recent_changes_in_the_pr
     hidden_ids = add_hidden()
     owner = _project_brief(context, monkeypatch, None, max_recent_changes=3, sensitivity_allowed=list(ALL_SENSITIVITY))
     assert any(event["target_id"] in hidden_ids for event in owner["recent_changes"])  # type: ignore[attr-defined, union-attr]
+    assert _project_brief(context, monkeypatch, key, max_recent_changes=3) == before
+
+
+def test_provable_hidden_events_of_the_project_use_no_place_of_the_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation: drop ``**({"readable_by": readable_by} if limited else {})`` after ``sensitivity_filter`` in ``read_events``
+    (``_vnext_resume``), or ``held_back_domains["readable_by"] = readable_by`` in ``list_memory_rows``.
+
+    More than twice the cap in hidden decisions of the project, each below a source in the health domain, are newer than the three
+    readable ones. The store leaves their events and the decisions themselves out before its limit, so the key is shown the
+    recent changes and the decision of the vault without them, however many there are. Without the proof the read stops at the
+    cap among hidden events and the recent changes are empty.
+    """
+
+    context, key, add_hidden = _project_vault(tmp_path, monkeypatch, project_visible=3, project_hidden=CAP * 2 + 10)
+    before = _project_brief(context, monkeypatch, key, max_recent_changes=3)
+    assert len(before["recent_changes"]) == 3 and before["last_decision"]  # type: ignore[arg-type]
+    add_hidden()
     assert _project_brief(context, monkeypatch, key, max_recent_changes=3) == before
 
 
