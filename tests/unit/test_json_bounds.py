@@ -3,7 +3,8 @@
 The write half (``first_json_problem``, ``refuse_unstorable_json``, ``loads_caller_json``) refuses JSON nested more than 64
 levels and any number that is not finite. The read half (``loads_bounded``) decodes stored text and never raises
 ``RecursionError``: text nested no deeper than 256 levels comes back as ``json.loads`` returns it, and the part of a
-deeper text below that depth is replaced by one string.
+deeper text below that depth is replaced by one string. A stored column is read by ``loads_stored`` (plain ``json.loads``)
+and reaches ``loads_bounded`` only on the second attempt of a call that overflowed; ``test_deep_row_retry.py`` holds that.
 
 Mutations, each one alone, each named by the test that fails (replayed by ``scripts/verify_derived_label_mutations.py``):
 

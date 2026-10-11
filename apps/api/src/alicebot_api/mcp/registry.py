@@ -15,7 +15,7 @@ from datetime import (
 )
 from uuid import UUID
 from psycopg.errors import CheckViolation, ForeignKeyViolation
-from alicebot_api.json_bounds import JsonShapeError, refuse_unstorable_json
+from alicebot_api.json_bounds import JsonShapeError, refuse_unstorable_json, retry_cutting_deep_json
 from alicebot_api.commit_result import (
     COMMIT_RESULT_TOOL,
     commit_result_mode,
@@ -85,6 +85,7 @@ from .context import (
 from .definitions import (
     _CORE_TOOL_DEFINITIONS,
     _LEGACY_TOOL_DEFINITIONS,
+    READ_ONLY_TOOL_NAMES,
 )
 from .evidence_artifacts import (
     _handle_alice_artifact_inspect,
@@ -565,7 +566,12 @@ def call_mcp_tool(
                 agent_identity=identity,
                 agent_identity_resolved=True,
             )
-        payload = handler(context, parsed_arguments)
+        # A reader that overflows on a stored row nested near the recursion limit fails the call once; a call that only
+        # reads then runs again with the deep part of every stored column cut. A tool that writes is never run twice.
+        if name in READ_ONLY_TOOL_NAMES:
+            payload = retry_cutting_deep_json(lambda: handler(context, parsed_arguments))
+        else:
+            payload = handler(context, parsed_arguments)
     except MCPToolError:
         # A handler already classified this refusal: a coded error, or the
         # public invalid_request. It is a ValueError, so without this clause

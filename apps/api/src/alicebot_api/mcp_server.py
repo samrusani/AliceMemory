@@ -9,8 +9,9 @@ from typing import Any, BinaryIO, Literal
 from uuid import UUID
 
 from alicebot_api import __version__
-from alicebot_api.json_bounds import MAX_READ_JSON_DEPTH, text_nests_deeper_than
+from alicebot_api.json_bounds import MAX_READ_JSON_DEPTH, retry_cutting_deep_json, text_nests_deeper_than
 from alicebot_api.config import Settings, get_runtime_settings, get_settings
+from alicebot_api.mcp.definitions import READ_ONLY_TOOL_NAMES
 from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES, MCPCodedToolError, MCPInvalidRequestError
 from alicebot_api.mcp_tools import (
     MCPRuntimeContext,
@@ -285,11 +286,19 @@ class MCPServer:
 
             arguments = params.get("arguments")
             try:
-                structured = call_mcp_tool(
-                    self._context,
-                    name=name,
-                    arguments=arguments,
-                )
+                # The call and the serialization of its result are one attempt: a row nested near the recursion limit
+                # can overflow either, and the second attempt cuts the deep part of every stored column. Only a tool
+                # that reads is run a second time.
+                def attempt() -> str:
+                    return serialize_mcp_tool_result(
+                        call_mcp_tool(
+                            self._context,
+                            name=name,
+                            arguments=arguments,
+                        )
+                    )
+
+                text = retry_cutting_deep_json(attempt) if name in READ_ONLY_TOOL_NAMES else attempt()
             except MCPToolNotFoundError:
                 logger.info("MCP tool was not found name=%s", name, exc_info=True)
                 return _response_success(
@@ -355,7 +364,7 @@ class MCPServer:
                     "content": [
                         {
                             "type": "text",
-                            "text": serialize_mcp_tool_result(structured),
+                            "text": text,
                         }
                     ],
                     "isError": False,

@@ -2075,6 +2075,8 @@ _READ_ONLY_HINT_TOOLS = frozenset(
         "alice_memory_review",
     }
 )
+# The tools that cannot have written anything when they fail: a call that overflowed on a deep stored row may run again.
+READ_ONLY_TOOL_NAMES = _READ_ONLY_HINT_TOOLS
 _ADD_ONLY_HINT_TOOLS = frozenset({"alice_memory_commit", "alice_capture"})
 _DESTRUCTIVE_HINT_TOOLS = frozenset(
     {

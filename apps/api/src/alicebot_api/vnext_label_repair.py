@@ -11,7 +11,7 @@ import psycopg
 from collections.abc import Mapping, Sequence
 from typing import NamedTuple, TypedDict
 
-from alicebot_api.json_bounds import loads_bounded
+from alicebot_api.json_bounds import loads_stored
 from alicebot_api.vnext_derived_domain_backfill import DerivedDomainRepairError, require_changed
 from alicebot_api.vnext_derived_labels import _cache_native_json_metadata, _share_metadata_decode, labels_raised_payload, settle_labels
 from alicebot_api.vnext_event_log import build_event_log_record
@@ -67,7 +67,7 @@ _UPDATES = {
 def _json_object(value: object) -> dict[str, object]:
     if isinstance(value, str):
         try:
-            parsed = loads_bounded(value)
+            parsed = loads_stored(value)
         except json.JSONDecodeError:
             return {}
         return dict(parsed) if isinstance(parsed, dict) else {}

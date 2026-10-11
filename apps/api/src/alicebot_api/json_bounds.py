@@ -19,22 +19,30 @@ is three levels down), and a backup refuses a column nested more than ``MAX_READ
 keeps every stored column well inside what a restore reads.
 
 **What a reader takes.** A row stored before the limit, or by a door that has no limit of its own (a PostgreSQL HTTP
-route stops at the body limit of 256 levels), can still nest deeper than the readers can walk. ``loads_bounded`` decodes
-stored JSON text and never raises ``RecursionError``: text nested no deeper than ``MAX_READ_JSON_DEPTH`` is decoded as
-``json.loads`` decodes it, and the part of a deeper text below that depth is replaced by the string ``DEEP_PLACEHOLDER``
-before it is decoded. No route fails for every caller because of one stored row, and the rest of the row is returned as
-it was. The cut is made by a scan that keeps its own counter, never by recursion. A writer that reads such a row and
-writes it back stores the placeholder in the place of the part that was cut.
+route stops at the body limit of 256 levels), can still nest deeper than the readers can walk. The common case pays
+nothing for that: ``loads_stored`` is ``json.loads`` and a read of one context variable. A stored value is returned as
+it was stored, whole, as long as every reader can walk it. When a reader cannot, the request fails with
+``RecursionError`` at the boundary of the route or the tool, and the boundary runs the request once more with the
+context variable set (``retry_cutting_deep_json``, the ASGI middleware in ``deep_row_retry``): from then on every stored
+column is decoded by ``loads_bounded``, which reads a text nested no deeper than ``MAX_READ_JSON_DEPTH`` levels as
+``json.loads`` does and replaces the part of a deeper text below that depth by the string ``DEEP_PLACEHOLDER`` before
+it decodes it. A text that the decoder itself cannot take (nested past what ``json.loads`` allows) is cut the same way
+at once. So no route fails for every caller because of one stored row, and the rest of the row is returned as it was.
+The cut is made by a scan that keeps its own counter, never by recursion. A writer that reads a row in the retry (or one
+nested past what the decoder takes) and writes it back stores the placeholder in the place of the part that was cut.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from itertools import accumulate
-from collections.abc import Mapping
-from typing import Any
+from typing import Any, TypeVar
 
 # The most levels of arrays and objects a caller's JSON may nest where the product stores it.
 MAX_STORED_JSON_DEPTH = 64
@@ -206,6 +214,74 @@ def loads_bounded(data: object, *, limit: int = MAX_READ_JSON_DEPTH) -> Any:
         return json.loads(cut_deep_json(text, max(1, limit // 2)))
 
 
+logger = logging.getLogger(__name__)
+
+# Set while a request or a tool call runs its second attempt, after a reader overflowed on a deep stored row.
+_CUT_DEEP: ContextVar[bool] = ContextVar("alicebot_cut_deep_json", default=False)
+_Result = TypeVar("_Result")
+
+
+@contextmanager
+def cutting_deep_json() -> Iterator[None]:
+    """Decode every stored column with ``loads_bounded`` for the code that runs inside, in this context and the tasks and
+    threads that copy it."""
+
+    token = _CUT_DEEP.set(True)
+    try:
+        yield
+    finally:
+        _CUT_DEEP.reset(token)
+
+
+def loads_stored(data: object) -> Any:
+    """The decoder of every stored JSON column: ``json.loads``, read as it was stored.
+
+    It costs what ``json.loads`` costs and one context variable read. It cuts the part of a text below
+    ``MAX_READ_JSON_DEPTH`` levels in two cases only: the decoder itself cannot take the text (``RecursionError``), and
+    the code that is running is the second attempt of a request or a tool call that overflowed on a deep row
+    (``cutting_deep_json``).
+    """
+
+    if _CUT_DEEP.get():
+        return loads_bounded(data)
+    try:
+        return json.loads(data)  # type: ignore[arg-type]
+    except RecursionError:
+        return loads_bounded(data)
+
+
+def overflowed(error: BaseException) -> bool:
+    """Whether ``error``, or an error it was raised from or while handling, or one in an exception group, is a
+    ``RecursionError``. The walk keeps its own stack and visits each error once."""
+
+    seen: set[int] = set()
+    pending: list[BaseException] = [error]
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, RecursionError):
+            return True
+        pending.extend(item for item in (current.__cause__, current.__context__) if item is not None)
+        pending.extend(getattr(current, "exceptions", ()))
+    return False
+
+
+def retry_cutting_deep_json(call: Callable[[], _Result]) -> _Result:
+    """Run ``call``; when it fails with a ``RecursionError`` (see ``overflowed``), run it once more with the deep part of
+    every stored column cut. A second failure, or a failure of any other kind, is raised as it is."""
+
+    try:
+        return call()
+    except Exception as error:
+        if _CUT_DEEP.get() or not overflowed(error):
+            raise
+    logger.warning("A stored row nests too deeply for a reader; the call runs again with the deep part cut")
+    with cutting_deep_json():
+        return call()
+
+
 def _refuse_constant(_name: str) -> object:
     raise JsonNotFinite("the JSON text")
 
@@ -265,10 +341,14 @@ __all__ = [
     "NOT_FINITE",
     "TOO_DEEP",
     "cut_deep_json",
+    "cutting_deep_json",
     "first_json_problem",
     "loads_bounded",
     "loads_caller_json",
     "loads_finite",
+    "loads_stored",
+    "overflowed",
     "refuse_unstorable_json",
+    "retry_cutting_deep_json",
     "text_nests_deeper_than",
 ]

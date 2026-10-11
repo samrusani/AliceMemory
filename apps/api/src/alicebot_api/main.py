@@ -31,6 +31,7 @@ from alicebot_api.lone_surrogates import (
     render_validation_error,
 )
 from alicebot_api.public_errors import public_exception_response
+from alicebot_api.deep_row_retry import RetryDeepRowMiddleware
 from alicebot_api.request_limits import (
     JsonBody,
     RequestBodyLimitMiddleware,
@@ -1385,6 +1386,10 @@ async def enforce_authenticated_user_identity(
 
     return await call_next(request)
 
+
+# Registered just before the body limit, so it wraps every layer that reads a body and sits inside the limit: a request
+# that overflows a reader on a deep stored row runs once more with the deep part cut (see deep_row_retry).
+app.add_middleware(RetryDeepRowMiddleware)
 
 # Registered last, so it is the outermost layer: every read of a request body, in
 # the identity layer, the /v1 and vNext gates and the framework, comes after it.

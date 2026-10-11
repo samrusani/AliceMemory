@@ -9,10 +9,13 @@ drive the mounted application against PostgreSQL:
   is stored and read back by the audit and recent commits routes;
 * a row already stored with JSON nested far past the readers' recursion (written by SQL, as an older door or a hand edit
   could leave it) no longer makes the memory audit route, the recent commits route, ``alice_memory_review`` or
-  ``alice_explain`` fail with ``RecursionError``, for the owner and for a key with limits. The part of the row below 256 levels
-  reads as one placeholder string; the rest is whole.
+  ``alice_explain`` fail with ``RecursionError``, for the owner and for a key with limits. A row the route can walk is read
+  whole (400 levels). One it cannot (1500, and 5000 which the decoder itself cannot read) runs again with the part of the row
+  below 256 levels read as one placeholder string, the rest whole.
 
-Mutations, each one alone: ``set_json_loads(loads_bounded)`` removed from ``alicebot_api.db`` (the reader tests fail);
+Mutations, each one alone: ``set_json_loads(loads_stored)`` removed from ``alicebot_api.db`` (the 5000 level test fails),
+``RetryDeepRowMiddleware`` removed from the application (the 1500 level route tests fail), ``retry_cutting_deep_json`` removed
+from the MCP boundary (the MCP test fails);
 ``bounded_json`` removed from a field type (``test_a_typed_field_refuses_...``); the service checks of ``_object_tuple``,
 ``MemoryProposal``, ``normalize_connector_item`` or ``apply_continuity_correction`` removed (the matching door test fails).
 """
@@ -277,7 +280,11 @@ def _store_a_deep_row(app, depth: int) -> str:
     return memory_id
 
 
-@pytest.mark.parametrize("depth", (400, 1500, 5000))
+# What the audit route answers for ``note``: a row the routes can walk is whole, one they cannot is cut on the second attempt.
+READ = {400: (400, "x"), 1500: (255, DEEP_PLACEHOLDER), 5000: (255, DEEP_PLACEHOLDER)}
+
+
+@pytest.mark.parametrize("depth", sorted(READ))
 def test_a_row_stored_too_deep_does_not_break_the_audit_and_recent_commits_routes_for_the_owner(app, depth: int) -> None:
     memory_id = _store_a_deep_row(app, depth)
     status, recent = _call("GET", "/v0/vnext/memories/recent-commits", query={"user_id": app.user, "limit": "5"})
@@ -289,7 +296,7 @@ def test_a_row_stored_too_deep_does_not_break_the_audit_and_recent_commits_route
     while isinstance(note, list):
         levels += 1
         note = note[0]
-    assert (levels, note) == (255, DEEP_PLACEHOLDER)
+    assert (levels, note) == READ[depth]
     assert audit["memory"]["metadata_json"]["agentic_memory"]["kind"] == "agentic_memory_commit"
 
 

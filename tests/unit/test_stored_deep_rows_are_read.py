@@ -4,15 +4,19 @@ A row can nest deeper than the write limit allows: it was stored before the limi
 The readers (``jsonable_encoder`` at the memory audit and recent commits routes, ``frame_disclosed_tree`` and the saved
 provenance reader at ``alice_memory_review``, the recall and context pack builders, the SQLite predicates that read a
 column) walk a value with recursion, and a value nested near the interpreter's limit raised ``RecursionError`` in all of
-them, for the owner as for a key with limits, until the row was fixed by hand. A stored column is now decoded by
-``loads_bounded``: it is read whole to 256 levels, and the part below that is one placeholder string.
+them, for the owner as for a key with limits, until the row was fixed by hand.
+
+A stored column is decoded by ``loads_stored``, which is ``json.loads`` and costs what it costs. A row that nests past what a
+reader can walk raises ``RecursionError`` in the reader; the request or the tool call then runs once more with
+``cutting_deep_json()`` set, and the decoder reads every column to 256 levels with one placeholder string below that. A row
+the decoder itself cannot read (about 5000 levels, PostgreSQL only) is cut at once.
 
 The PostgreSQL routes (audit, recent commits) are covered by ``tests/integration/test_json_bounds_postgres.py``.
 
-Mutations, each one alone: ``SQLiteVNextStore._decode_row`` goes back to ``json.loads``
-(``test_a_row_stored_deeper_than_the_decoder_reads_does_not_break_a_door``); the three sqlite_store hint decoders go back
-to ``json.loads`` (``test_the_sqlite_functions_that_read_a_column_survive_a_deep_one``); ``loads_bounded`` stops cutting
-(both).
+Mutations, each one alone: ``retry_cutting_deep_json`` stops retrying
+(``test_a_row_stored_deeper_than_the_decoder_reads_does_not_break_a_door``); ``SQLiteVNextStore._decode_row`` goes back to
+``json.loads`` (``test_the_cut_is_a_placeholder_and_the_rest_is_whole``); the three sqlite_store hint decoders go back to
+``json.loads`` (``test_the_sqlite_functions_that_read_a_column_survive_a_deep_one``); ``loads_bounded`` stops cutting (both).
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from alicebot_api.json_bounds import DEEP_PLACEHOLDER, MAX_READ_JSON_DEPTH
+from alicebot_api.json_bounds import DEEP_PLACEHOLDER, MAX_READ_JSON_DEPTH, cutting_deep_json
 from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.onramp import sqlite_url_for_path
@@ -125,20 +129,39 @@ def test_a_row_stored_deeper_than_the_decoder_reads_does_not_break_a_door(tmp_pa
             assert TEXT in text, (caller, name)
 
 
-@pytest.mark.parametrize("depth", (400, 990))
-def test_the_part_below_the_read_limit_is_a_placeholder_and_the_rest_is_whole(tmp_path, depth: int) -> None:
-    db, memory_id = _vault_with_a_deep_row(tmp_path, depth)
-    with sqlite_user_connection(db, USER_ID) as conn:
-        row = SQLiteVNextStore(conn, USER_ID).get_memory(memory_id)
-    assert row["canonical_text"] == TEXT
-    note = row["metadata_json"]["note"]
+def _levels(note) -> tuple[int, object]:
     levels = 0
     while isinstance(note, list):
         levels += 1
         note = note[0]
-    # ``note`` sits one level down in the object, so the list under it keeps 255 levels.
-    assert levels == MAX_READ_JSON_DEPTH - 1 and note == DEEP_PLACEHOLDER
-    assert row["metadata_json"]["agentic_memory"]["kind"] == "agentic_memory_commit"
+    return levels, note
+
+
+@pytest.mark.parametrize("depth", (400, 990))
+def test_the_cut_is_a_placeholder_and_the_rest_is_whole(tmp_path, depth: int) -> None:
+    db, memory_id = _vault_with_a_deep_row(tmp_path, depth)
+    with sqlite_user_connection(db, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        whole = store.get_memory(memory_id)
+        with cutting_deep_json():
+            cut = store.get_memory(memory_id)
+    # Read plain, the row is the whole value.
+    assert _levels(whole["metadata_json"]["note"]) == (depth, "x")
+    # Read on the second attempt, ``note`` sits one level down in the object, so the list under it keeps 255 levels.
+    assert cut["canonical_text"] == TEXT
+    assert _levels(cut["metadata_json"]["note"]) == (MAX_READ_JSON_DEPTH - 1, DEEP_PLACEHOLDER)
+    assert cut["metadata_json"]["agentic_memory"]["kind"] == "agentic_memory_commit"
+
+
+def test_a_call_that_a_deep_row_overflows_runs_again_with_the_cut(tmp_path, caplog) -> None:
+    """The retry is what lets a door read a row too deep for its own recursion, so it must be seen to happen."""
+
+    db, memory_id = _vault_with_a_deep_row(tmp_path, 990)
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(db), user_id=UUID(USER_ID))
+    with caplog.at_level("WARNING", logger="alicebot_api.json_bounds"):
+        answer = call_mcp_tool(context, name="alice_explain", arguments={"memory_id": memory_id})
+    assert TEXT in json.dumps(answer, default=str)
+    assert any("runs again with the deep part cut" in record.getMessage() for record in caplog.records)
 
 
 def test_a_row_inside_the_read_limit_is_read_whole(tmp_path) -> None:

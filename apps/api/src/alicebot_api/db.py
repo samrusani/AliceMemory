@@ -13,12 +13,13 @@ from psycopg_pool import ConnectionPool
 from psycopg.rows import Row, dict_row
 from psycopg.types.json import set_json_loads
 
-from alicebot_api.json_bounds import loads_bounded
+from alicebot_api.json_bounds import loads_stored
 
-# Every json and jsonb value a connection reads goes through the bounded decoder: a stored value nested deeper than the
-# readers walk comes back with the part below 256 levels cut, instead of raising RecursionError in the route that read it.
-# This is psycopg's global setting, so it covers a connection opened anywhere in the process.
-set_json_loads(loads_bounded)
+# Every json and jsonb value a connection reads goes through ``loads_stored``: ``json.loads`` for the common case, and the
+# decoder that cuts the part below 256 levels when the text is too deep for the decoder or when the request is running again
+# after a reader overflowed on a deep row (see deep_row_retry). This is psycopg's global setting, so it covers a connection
+# opened anywhere in the process.
+set_json_loads(loads_stored)
 
 PING_DATABASE_SQL = "SELECT 1"
 SET_CURRENT_USER_SQL = "SELECT set_config('app.current_user_id', %s, true)"
