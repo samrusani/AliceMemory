@@ -110,7 +110,8 @@ def refuse_unstorable_json(value: object, *, name: str, limit: int = MAX_STORED_
 # possessive, and a string that is never closed (or ends in a lone backslash) is consumed to the end of the text, so a text
 # that is mostly escaped quotes costs one pass and not the square of its length.
 _TOKEN = re.compile(r'"(?:[^"\\]++|\\.|\\\Z)*+(?:"|\Z)|[\[\]{}]', re.DOTALL)
-_OPENERS = "[{"
+_OPENERS = frozenset("[{")
+_CLOSERS = frozenset("]}")
 
 
 def _as_text(data: object) -> str | None:
@@ -162,14 +163,14 @@ def cut_deep_json(text: str, limit: int = MAX_READ_JSON_DEPTH) -> str:
     depth = 0
     cutting = False
     for match in _TOKEN.finditer(text):
-        token = match.group()
-        if token in _OPENERS:
+        piece = match.group()
+        if piece in _OPENERS:
             depth += 1
             if depth == limit + 1:
                 pieces.append(text[kept_from : match.start()])
                 pieces.append(json.dumps(DEEP_PLACEHOLDER))
                 cutting = True
-        elif token in "]}":
+        elif piece in _CLOSERS:
             if cutting and depth == limit + 1:
                 cutting = False
                 kept_from = match.end()
