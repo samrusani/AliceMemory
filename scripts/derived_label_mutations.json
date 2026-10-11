@@ -12695,7 +12695,7 @@
           "line": 88,
           "before": "        elif isinstance(node, Mapping):\n            if depth + 1 > limit:\n",
           "after": "        elif isinstance(node, Mapping):\n            if depth + 1 > limit + 1:\n",
-          "sha256": "17862bfa263c252ac77ea5f02ec1defb927b27ec67e1639068981095bf935d42"
+          "sha256": "6e6cf9e6d50c22b8a99d0e85bf4a97cd36be4e7e65158efb2cae66e15b838d97"
         }
       ],
       "pytest": [
@@ -12711,7 +12711,7 @@
           "line": 85,
           "before": "        if isinstance(node, float):\n            if not math.isfinite(node):\n",
           "after": "        if isinstance(node, float):\n            if False:\n",
-          "sha256": "17862bfa263c252ac77ea5f02ec1defb927b27ec67e1639068981095bf935d42"
+          "sha256": "6e6cf9e6d50c22b8a99d0e85bf4a97cd36be4e7e65158efb2cae66e15b838d97"
         }
       ],
       "pytest": [
@@ -12727,7 +12727,7 @@
           "line": 112,
           "before": "_TOKEN = re.compile(r'\"(?:[^\"\\\\]++|\\\\.|\\\\\\Z)*+(?:\"|\\Z)|[\\[\\]{}]', re.DOTALL)\n",
           "after": "_TOKEN = re.compile(r'[\\[\\]{}]', re.DOTALL)\n",
-          "sha256": "17862bfa263c252ac77ea5f02ec1defb927b27ec67e1639068981095bf935d42"
+          "sha256": "6e6cf9e6d50c22b8a99d0e85bf4a97cd36be4e7e65158efb2cae66e15b838d97"
         }
       ],
       "pytest": [
@@ -12740,10 +12740,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/json_bounds.py",
-          "line": 148,
+          "line": 149,
           "before": "    brackets = _STRING.sub('\"\"', text).encode(\"utf-8\", \"surrogatepass\").translate(None, _NOT_A_BRACKET)\n",
           "after": "    brackets = text.encode(\"utf-8\", \"surrogatepass\").translate(None, _NOT_A_BRACKET)\n",
-          "sha256": "17862bfa263c252ac77ea5f02ec1defb927b27ec67e1639068981095bf935d42"
+          "sha256": "6e6cf9e6d50c22b8a99d0e85bf4a97cd36be4e7e65158efb2cae66e15b838d97"
         }
       ],
       "pytest": [
@@ -12756,10 +12756,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/json_bounds.py",
-          "line": 168,
+          "line": 169,
           "before": "            if depth == limit + 1:\n",
           "after": "            if depth == limit:\n",
-          "sha256": "17862bfa263c252ac77ea5f02ec1defb927b27ec67e1639068981095bf935d42"
+          "sha256": "6e6cf9e6d50c22b8a99d0e85bf4a97cd36be4e7e65158efb2cae66e15b838d97"
         }
       ],
       "pytest": [
@@ -12772,10 +12772,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/json_bounds.py",
-          "line": 198,
+          "line": 199,
           "before": "    if text_nests_deeper_than(text, limit):\n        text = cut_deep_json(text, limit)\n",
           "after": "    if False:\n        text = cut_deep_json(text, limit)\n",
-          "sha256": "17862bfa263c252ac77ea5f02ec1defb927b27ec67e1639068981095bf935d42"
+          "sha256": "6e6cf9e6d50c22b8a99d0e85bf4a97cd36be4e7e65158efb2cae66e15b838d97"
         }
       ],
       "pytest": [
