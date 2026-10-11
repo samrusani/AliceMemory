@@ -122,6 +122,9 @@ _WINDOW_MIN = 16
 # A run of hexadecimal digits longer than this is searched with ``in`` for each long probe: a window per start would cost
 # more than the search does, and such a run (a hex dump in a note) is not an id.
 _LONG_RUN = 1024
+# Up to this many long probes, one ``in`` for each is cheaper than reading the runs of a text and looking up their windows
+# (measured: 0.6 to 2.0 microseconds against 2.3 for a text of 150 characters; the two meet at about 30 ids).
+_LINEAR_PROBES = 24
 
 
 class _Probes:
@@ -147,6 +150,7 @@ class _Probes:
         self.windows = tuple((length, {digits: tuple(indexes) for digits, indexes in table.items()})
                              for length, table in sorted(tables.items()))
         self._run = re.compile("[0-9a-f]{%d,}" % min(tables)) if tables else None
+        self._linear = len(self.wide) <= _LINEAR_PROBES
 
     def find(self, stripped, hits):
         """Add to ``hits`` the number of each probe whose digits occur in ``stripped``, a lower case text."""
@@ -154,6 +158,11 @@ class _Probes:
         for index, digits in self.short:
             if digits in stripped:
                 hits.add(index)
+        if self._linear:
+            for index, digits in self.wide:
+                if digits in stripped:
+                    hits.add(index)
+            return
         if self._run is None:
             return
         for run in self._run.findall(stripped):

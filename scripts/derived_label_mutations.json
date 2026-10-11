@@ -12509,10 +12509,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 603,
+          "line": 612,
           "before": "    _close_edges(self, ended, now)\n",
           "after": "    _blank_edge_text(self, ended)\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -12525,10 +12525,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 604,
+          "line": 613,
           "before": "    _blank_edge_text(self, _edges_by_id(self, hits.notes))\n",
           "after": "    pass\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -12541,10 +12541,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 582,
+          "line": 591,
           "before": "            \"explanation = '', metadata_json = '{}' WHERE id = ? AND user_id = ?\",\n",
           "after": "            \"metadata_json = metadata_json WHERE id = ? AND user_id = ?\",\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -12557,10 +12557,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 590,
+          "line": 599,
           "before": "            if kind == 'entity':\n",
           "after": "            if kind == 'entity' and edge['edge_type'] == ENTITY_MENTION_EDGE_TYPE:\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -12877,10 +12877,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 430,
+          "line": 439,
           "before": "        at_end |= cited_source_ids(str(value)).every\n",
           "after": "        at_end |= {str(value)}\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -12893,10 +12893,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 540,
+          "line": 549,
           "before": "        for end_id in (*candidates.get(source_id, ()), *loop_ids.get(source_id, ())):\n",
           "after": "        for end_id in loop_ids.get(source_id, ()):\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -12909,10 +12909,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 540,
+          "line": 549,
           "before": "        for end_id in (*candidates.get(source_id, ()), *loop_ids.get(source_id, ())):\n",
           "after": "        for end_id in candidates.get(source_id, ()):\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -12925,10 +12925,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 493,
+          "line": 502,
           "before": "    chunk_owner = {}\n    if source_ids:\n",
           "after": "    chunk_owner = {}\n    if False:\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -12941,10 +12941,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 444,
+          "line": 453,
           "before": "            notes.add(owner)\n",
           "after": "            pass\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -12957,10 +12957,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 738,
+          "line": 747,
           "before": "    graph_edges, mention_edges = retire_edges(self, edge_hits, now, closed=closed)\n",
           "after": "    graph_edges, mention_edges = 0, 0\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -12973,10 +12973,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 605,
+          "line": 614,
           "before": "    rows = {str(edge['id']): edge for edge in (*closed, *ended)}\n",
           "after": "    rows = {str(edge['id']): edge for edge in ended}\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -12989,10 +12989,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 732,
+          "line": 741,
           "before": "        more = [item for item in (*wanted, *loop_ids) if item not in looked_at]\n",
           "after": "        more = []\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -13037,10 +13037,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 166,
+          "line": 175,
           "before": "            for length, table in self.windows:\n                for start in range(size - length + 1):\n",
           "after": "            for length, table in self.windows:\n                for start in range(min(1, size - length + 1)):\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -13053,10 +13053,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 161,
+          "line": 170,
           "before": "            if size > _LONG_RUN:\n                for index, digits in self.wide:\n                    if digits in run:\n                        hits.add(index)\n                continue\n",
           "after": "            if size > _LONG_RUN:\n                continue\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -13069,10 +13069,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 154,
-          "before": "        for index, digits in self.short:\n            if digits in stripped:\n                hits.add(index)\n        if self._run is None:\n            return\n",
-          "after": "        if self._run is None:\n            return\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "line": 158,
+          "before": "        for index, digits in self.short:\n            if digits in stripped:\n                hits.add(index)\n        if self._linear:\n",
+          "after": "        if self._linear:\n",
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -13085,10 +13085,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 154,
-          "before": "        for index, digits in self.short:\n",
-          "after": "        for index, digits in self.digits:\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "line": 153,
+          "before": "        self._linear = len(self.wide) <= _LINEAR_PROBES\n",
+          "after": "        self._linear = True\n",
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [
@@ -13645,17 +13645,17 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 367,
+          "line": 376,
           "before": "_SCAN_FOR_EDGES = \"SELECT id, from_id, to_id, explanation, metadata_json FROM graph_edges WHERE user_id = ?\"\n",
           "after": "_SCAN_FOR_EDGES = \"SELECT id, from_id, to_id, explanation, metadata_json FROM graph_edges WHERE (user_id = ? OR 1)\"\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_retirement.py",
-          "line": 368,
+          "line": 377,
           "before": "_EDGES_BY_ID = \"SELECT * FROM graph_edges WHERE user_id = ? AND id IN (SELECT value FROM json_each(?)) ORDER BY id\"\n",
           "after": "_EDGES_BY_ID = \"SELECT * FROM graph_edges WHERE (user_id = ? OR 1) AND id IN (SELECT value FROM json_each(?)) ORDER BY id\"\n",
-          "sha256": "426b89e8479db39806ea022ed15f4556cf712747e25fd1adb66f08d66c8364c0"
+          "sha256": "1086a1037d301db27e290396cee77096075bda64d38776bd944b02ddd19054de"
         }
       ],
       "pytest": [

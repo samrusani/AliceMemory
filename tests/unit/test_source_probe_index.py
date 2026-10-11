@@ -6,14 +6,16 @@ a folder re-import of 800 notes over 106,000 edges read every edge 800 times. ``
 hexadecimal digits of the text once and looks up each window of it in a table of the ids.
 
 These tests hold the new pass to the old one (kept here as ``linear_hits``) over random texts that write ids the way the
-product's data does, and to the cost: reading 5,000 ids takes about what reading 5 does.
+product's data does, and to the cost: reading 5,000 ids takes about what reading 25 does. Up to ``_LINEAR_PROBES`` ids the
+pass asks for each in turn, which is cheaper than the table, so the tests that hold the table use more ids than that.
 
 Mutations, each one alone, each named by the test that fails (replayed by ``scripts/verify_derived_label_mutations.py``):
 
 * ``_Probes.find`` reads the first window of a run only: ``test_the_indexed_pass_finds_what_the_linear_pass_finds``.
 * ``_Probes.find`` treats a run longer than ``_LONG_RUN`` as no run: ``test_a_long_run_of_hex_digits_is_searched_as_a_whole``.
 * ``_Probes.find`` leaves out the ids with short digits: ``test_the_indexed_pass_finds_what_the_linear_pass_finds``.
-* ``_Probes.find`` asks each id in turn (the old loop): ``test_the_cost_does_not_grow_with_the_number_of_ids``.
+* ``_Probes.find`` asks each id in turn whatever their number (the old loop): ``test_the_cost_does_not_grow_with_the_number_of_ids``.
+* the table is never used (``_LINEAR_PROBES`` made huge): the same tests, which hold more ids than the plain search takes.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from uuid import UUID, uuid4
 
 from alicebot_api.vnext_stores.sqlite import source_retirement
 from alicebot_api.vnext_stores.sqlite.source_retirement import (
+    _LINEAR_PROBES,
     _LONG_RUN,
     _Probes,
     _add_text_hits,
@@ -124,7 +127,7 @@ def test_the_indexed_pass_finds_what_the_linear_pass_finds() -> None:
     rng = random.Random(20261011)
     checked = 0
     for _ in range(6000):
-        ids = _ids(rng, rng.randint(0, 30))
+        ids = _ids(rng, rng.randint(0, 70))
         probes = _probes_for(ids)
         text = _text(rng, ids)
         seeded = {rng.randrange(len(probes.ids))} if rng.random() < 0.1 and probes.ids else set()
@@ -138,7 +141,7 @@ def test_the_indexed_pass_finds_what_the_linear_pass_finds() -> None:
 
 def test_a_long_run_of_hex_digits_is_searched_as_a_whole() -> None:
     wanted, other = str(uuid4()), str(uuid4())
-    probes = _probes_for([wanted, other])
+    probes = _probes_for([wanted, other, *(str(uuid4()) for _ in range(_LINEAR_PROBES))])
     filler = "ab" * (_LONG_RUN // 2 + 10)
     for text in (filler + wanted.replace("-", "") + filler, wanted.replace("-", "") + filler, filler + wanted.replace("-", "")):
         hits = set()
@@ -151,7 +154,7 @@ def test_a_long_run_of_hex_digits_is_searched_as_a_whole() -> None:
 
 def test_every_window_of_a_run_is_read() -> None:
     wanted = str(uuid4())
-    probes = _probes_for([wanted])
+    probes = _probes_for([wanted, *(str(uuid4()) for _ in range(_LINEAR_PROBES))])
     digits = wanted.replace("-", "")
     for before in range(0, 40):
         for after in (0, 1, 7, 33):
@@ -176,7 +179,7 @@ def test_ids_with_leading_zeros_and_with_short_digits_are_found() -> None:
 
 def test_the_cost_does_not_grow_with_the_number_of_ids() -> None:
     texts = [(" ".join(str(uuid4()) for _ in range(3)) + " connection explanation words " * 4).lower() for _ in range(300)]
-    few = _probes_for([str(uuid4()) for _ in range(5)])
+    few = _probes_for([str(uuid4()) for _ in range(_LINEAR_PROBES + 1)])
     many = _probes_for([str(uuid4()) for _ in range(5000)])
 
     def run(probes):
