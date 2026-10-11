@@ -73,9 +73,9 @@ READS_AFTER = {
 VARIANTS = tuple(READS_AFTER)
 SENTINEL_PREFIX = "ZQXMEMQUOTE"
 # The keys that read every commit at every door that answers for one commit (``alice_explain``, review detail, the audit route)
-# when they may not read the memory the commits cite. The other keys read, at those doors, the commits that carry the shapes of the
-# finding (words written as the name of a field, in every place the reader looks, and the entry beside a ref that names a source
-# the caller may read), the two commits a confirmation appended an event to, and one commit of each other kind of spelling
+# when they may not read the memory the commits cite. The other keys read, at those doors, the commits that carry words written as
+# the name of a field (in every place the reader looks, and in the entry beside a ref that names a source the caller may read),
+# the two commits a confirmation appended an event to, and one commit of each other kind of spelling
 # (``SAMPLE``); a key that may read the memory is shown the same sample. Every commit is read by every key through the doors that
 # return them all: the review list, the feeds of events and, for the keys that reach it, the recent commits route, and the owner
 # and the unbound admin key are read at the audit route of every commit. The rules that decide what a spelling loses are one
@@ -653,17 +653,34 @@ def _declared_doors(vault: Vault, who: str, *, may_read: bool = False) -> dict[s
     return answers
 
 
+# Doors that are read but never carry the words of a commit, even for the owner before anything changes: they return memories with
+# a commit's title and text and not the refs it saved. They are still read, so a crash shows, and they are left out of the doors
+# that count as withheld, because their silence after a change proves nothing.
+SILENT_DOORS = frozenset({"pack", "recall", "resume", "recent decisions"})
+
+
 def _carried(answers: dict[str, dict[str, object] | None], sentinel: str) -> set[str]:
     return {door for door, answer in answers.items() if sentinel in _text(answer)}
 
 
+def _counting_doors(answers: dict[str, dict[str, object] | None]) -> set[str]:
+    """The doors that answered and can carry the words, which is where a missing sentinel means the reader withheld it."""
+
+    return {door for door, answer in answers.items() if answer is not None and door not in SILENT_DOORS}
+
+
 def test_the_control_finds_the_quote_at_every_door_before_the_memory_changes(vault: Vault, keyless: Vault) -> None:
     """Before the change every key that reaches a door is shown the words in it, so a door that is silent afterwards withheld
-    them. The doors that must carry them are named, so a door that answers nothing cannot pass for a withheld one.
+    them. The doors that must carry them are named, so a door that answers nothing cannot pass for a withheld one. The four
+    doors of ``SILENT_DOORS`` (context pack, recall, resume, recent decisions) carry no commit's words for the owner or for the
+    keys read here even now, so they are asserted silent here and are not counted among the doors that withhold afterwards.
     """
 
     for who in ("admin", "trusted", "trusted_bound"):
-        carried = _carried(_keyed_doors(vault, who, may_read=True), vault.sentinel)
+        answers = _keyed_doors(vault, who, may_read=True)
+        carried = _carried(answers, vault.sentinel)
+        assert all(answers[door] is not None for door in SILENT_DOORS), (who, "the silent doors answer")
+        assert not carried & SILENT_DOORS, (who, "the silent doors carry nothing before the change either")
         assert any(door.startswith("explain") for door in carried), who
         assert any(door.startswith("review detail") for door in carried), who
         assert "event feed" in carried, (who, "the confirmed commit's event carries the quote")
@@ -677,6 +694,9 @@ def test_the_control_finds_the_quote_at_every_door_before_the_memory_changes(vau
     for name, memory_id in keyless.commits.items():
         assert keyless.sentinel in _text(keyless.route(None, "audit", memory_id=memory_id)), name
         assert keyless.sentinel in _text(keyless.try_call(None, "alice_explain", {"memory_id": memory_id})), name
+    owner = _keyed_doors(keyless, None, may_read=True)
+    assert all(owner[door] is not None for door in SILENT_DOORS), "the silent doors answer the owner"
+    assert not _carried(owner, keyless.sentinel) & SILENT_DOORS, "the owner is shown no words at the silent doors either"
 
 
 @pytest.mark.parametrize("variant", VARIANTS)
@@ -685,8 +705,9 @@ def test_a_key_that_may_not_read_the_cited_memory_is_shown_none_of_its_words(vau
     moved to another project, copied from a memory that is redacted, removed from the table), every door that returns a
     commit shows a key that may not read the memory none of the quotes in any spelling, and shows a key that may read it
     the words. The commit itself is still returned. The doors that answer for one commit are read for every commit by the
-    trusted and the read-only key, and for the shapes of the finding and a sample of the others by the rest (``FULL_KEYS``,
-    ``SAMPLE``); the doors that return them all are read by every key.
+    trusted and the read-only key, and for the commits that carry words written as the name of a field (also in the entry beside a
+    ref that names a readable source) and a sample of the others by the rest (``FULL_KEYS``, ``SAMPLE``); the doors that return them
+    all are read by every key.
 
     Mutations: in ``SavedProvenanceReader._judge_memories``, admit every memory (``self._memory_admitted[memory_id] = True``):
     every variant fails; drop the ``deleted_at`` test: the redacted and archived variants fail; settle no effective row
@@ -699,7 +720,7 @@ def test_a_key_that_may_not_read_the_cited_memory_is_shown_none_of_its_words(vau
     carried_by: dict[str, set[str]] = {}
     for who in PROFILES:
         answers = _keyed_doors(vault, who, may_read=who in readers)
-        assert any(answer is not None for answer in answers.values()), (variant, who, "the key reads something")
+        assert _counting_doors(answers), (variant, who, "the key reads something that can carry the words")
         carried_by[who] = _carried(answers, vault.sentinel)
         if who in readers:
             continue
@@ -754,6 +775,101 @@ def test_a_key_that_may_read_the_cited_memory_is_shown_the_names_of_the_fields_i
                 assert not seen, (variant, who, name, "the key may not read the source the commit cites")
             else:
                 assert seen, (variant, who, name)
+
+
+def _link_the_source(vault: Vault, commit_id: str, *quotes: str) -> None:
+    """One provenance link from the commit to the captured source for each quote: the links of a memory carry a copy of a quote of
+    their own, and the reader holds it to the words it withholds from the refs."""
+
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        store = SQLiteVNextStore(conn, vault.user)
+        for quote in quotes:
+            store.create_provenance_link(
+                {"target_type": "memory", "target_id": commit_id, "source_id": vault.source_id, "quote": quote}, actor_type="system"
+            )
+
+
+def _link_door(vault: Vault, who: str, door: str, commit_id: str) -> tuple[list[str], str]:
+    """The quotes of the links ``who`` is shown at review detail or ``alice_explain`` of one commit, and the whole answer as text."""
+
+    if door == "review detail":
+        answer = vault.try_call(who, "alice_memory_review", {"review_item_id": commit_id})
+        links = answer["body"]["review"]["provenance_links"] if answer is not None else None  # type: ignore[index]
+    else:
+        answer = vault.try_call(who, "alice_explain", {"memory_id": commit_id})
+        links = answer["body"]["provenance_links"] if answer is not None else None  # type: ignore[index]
+    assert answer is not None and links is not None, (who, door, "the commit is returned")
+    return [str(link["quote"]) for link in links if link["quote"] is not None], _text(answer)
+
+
+LINK_DOORS = ("review detail", "explain")
+# The keys that may read the captured source, and so are shown its links, whatever they may read of the memory the commits cite.
+LINK_KEYS = ("trusted", "read_only", "memory_proposal")
+
+
+def test_a_link_that_says_the_words_of_a_name_nested_under_a_dropped_field_is_withheld(vault: Vault) -> None:
+    """A field the product does not write is dropped from the entry that cites the memory, and a name nested under it holds words
+    of that memory as much as a name at the top. A link of the commit that says the same words is shown without its quote, at
+    review detail and at ``alice_explain``, to every key that may read the source and not the memory, and a link that says
+    something else keeps its quote. The owner and the unbound admin key are shown both quotes, and the keys are shown both
+    before the memory is redacted, so a quote that is gone was withheld and not missing.
+
+    Mutation: in ``_note_dropped``, delete ``pending.append(inner_key)``: the words of the nested name stay out of the withheld
+    texts, and the link keeps its quote.
+    """
+
+    nested = _key_words(vault.sentinel, "nested under a dropped field")
+    other = "A different line of the same source"
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        carrier = vault._commit(
+            SQLiteVNextStore(conn, vault.user), "link carrier", [{"memory_id": vault.cited_id, "evidence": {nested: 1}}]
+        )
+    _link_the_source(vault, carrier, nested, other)
+    for who in ("admin", *LINK_KEYS):
+        for door in LINK_DOORS:
+            quotes, _answer = _link_door(vault, who, door, carrier)
+            assert any(nested in quote for quote in quotes) and any(other in quote for quote in quotes), (who, door)
+    vault.make_unreadable("redacted")
+    for who in LINK_KEYS:
+        for door in LINK_DOORS:
+            quotes, answer = _link_door(vault, who, door, carrier)
+            assert not any(nested in quote for quote in quotes), (who, door)
+            assert any(other in quote for quote in quotes), (who, door, "the link that says something else keeps its quote")
+            assert vault.sentinel not in answer, (who, door)
+    for door in LINK_DOORS:
+        quotes, _answer = _link_door(vault, "admin", door, carrier)
+        assert any(nested in quote for quote in quotes) and any(other in quote for quote in quotes), door
+
+
+def test_a_link_that_says_a_quote_kept_in_the_entry_beside_a_refused_ref_keeps_its_quote(vault: Vault) -> None:
+    """An entry beside a ref that names a memory the caller may not read keeps its text when it names a source the caller may
+    read, because the reader cannot tell whose words they are. Those words are not withheld from anyone, so a link of the commit
+    that says the same keeps its quote, while a link that says the words of the refused ref is shown without them.
+
+    Mutation: in ``_verdict``, drop the ``self._readable`` argument of the call to ``_without_refused_refs``: the entry beside no
+    longer counts as one that names a readable source, its words join the withheld texts, and the link loses its quote.
+    """
+
+    kept = "The alpha kiln is fired on Mondays."
+    withheld = _quote(vault.sentinel, "withheld beside a kept entry")
+    refs = [{"memory_id": vault.cited_id, "quote": withheld}, {"source_id": vault.source_id, "quote": kept}]
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        carrier = vault._commit(SQLiteVNextStore(conn, vault.user), "kept beside a refused ref", refs)
+    _link_the_source(vault, carrier, kept, withheld)
+    for who in ("admin", *LINK_KEYS):
+        for door in LINK_DOORS:
+            quotes, _answer = _link_door(vault, who, door, carrier)
+            assert any(kept in quote for quote in quotes) and any(withheld in quote for quote in quotes), (who, door)
+    vault.make_unreadable("redacted")
+    for who in LINK_KEYS:
+        for door in LINK_DOORS:
+            quotes, answer = _link_door(vault, who, door, carrier)
+            assert any(kept in quote for quote in quotes), (who, door, "the quote kept in the entry beside is shown on the link")
+            assert not any(withheld in quote for quote in quotes), (who, door)
+            assert kept in answer and vault.sentinel not in answer, (who, door)
+    for door in LINK_DOORS:
+        quotes, _answer = _link_door(vault, "admin", door, carrier)
+        assert any(kept in quote for quote in quotes) and any(withheld in quote for quote in quotes), door
 
 
 def test_a_ref_that_is_json_text_with_an_escaped_surrogate_does_not_fail_a_route(vault: Vault) -> None:
