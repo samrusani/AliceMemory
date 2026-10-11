@@ -28,6 +28,7 @@ import json
 import random
 from collections.abc import Sequence
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -369,14 +370,16 @@ def _hidden_commitment(vault: _Vault) -> dict[str, object]:
 
 
 def _hidden_changes(vault: _Vault) -> list[dict[str, object]]:
+    """Six memories newer than the readable ones that list an input that does not exist: no direct input proves them hidden,
+    so the store returns their events and the check drops the events afterwards."""
+
     with vault.store() as store:
-        parent = _source(store, "parent-changes", domain="health", scope=vault.scope)
-        return [_memory(store, f"hidden-change-{i}", f"alpha hidden change {i}", {"source_id": str(parent["id"]), **_scope(vault.scope)})
+        return [_memory(store, f"hidden-change-{i}", f"alpha hidden change {i}", {"source_id": str(uuid4()), **_scope(vault.scope)})
                 for i in range(6)]
 
 
-# The hidden decision comes in the shapes of the recall tests. The hidden commitment and the hidden changes are rows below a
-# source in the health domain, which these keys may not read.
+# The hidden decision comes in the shapes of the recall tests. The hidden commitment is a row below a source in the health
+# domain, which these keys may not read, and the hidden changes list an input that does not exist.
 RESUME_CELLS = [
     ("last_decision", "chain", "read_only"),
     ("last_decision", "chain", "trusted"),
@@ -528,11 +531,13 @@ def test_the_owner_and_an_unbound_admin_key_keep_the_read_they_had(tmp_path: Pat
 # -- the brief in the project view -----------------------------------------------------------------------------------
 
 
-def _project_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, project_visible: int, project_hidden: int, loops_visible: int = 0, loops_hidden: int = 0):
+def _project_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, project_visible: int, project_hidden: int, loops_visible: int = 0, loops_hidden: int = 0, provable: bool = True):
     """A vault with a global decision, ``project_visible`` readable decisions of the project, and then
     ``project_hidden`` newer ones that a read-only key may not read, and the same for open loops (``loops_visible`` readable ones,
-    ``loops_hidden`` newer ones derived from a source the key may not read and written without the insert floor). Returns the
-    context, the key and the function that adds the hidden rows."""
+    ``loops_hidden`` newer ones derived from a source the key may not read and written without the insert floor). The hidden
+    decisions are below a source in the health domain, which a direct input proves hidden, or with ``provable=False`` list an
+    input that does not exist, which nothing in their direct inputs proves. Returns the context, the key and the function that
+    adds the hidden rows."""
 
     monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
     monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
@@ -568,7 +573,7 @@ def _project_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, project_v
                         "memory_key": f"project.hidden.{index}", "canonical_text": f"alpha project hidden decision {index}",
                         "title": f"hidden-{index}", "memory_type": "decision", "status": "active", "domain": "project",
                         "sensitivity": "public", "project_scope": [project], "project_id": project,
-                        "metadata_json": {"source_id": str(parent["id"]), "project_scope": [project]},
+                        "metadata_json": {"source_id": str(parent["id"]) if provable else str(uuid4()), "project_scope": [project]},
                     })
                 added.append(str(row["id"]))
             for index in range(loops_hidden):
@@ -601,10 +606,11 @@ def test_a_hidden_newer_decision_of_the_project_does_not_change_the_last_decisio
 
     In the project view the project's own decision comes before a global one, whatever their ages. With a readable
     decision of the project, a newer hidden one of the project must not hide it. With none, the key is shown the
-    global decision, as it is in a vault without the hidden one, and not nothing.
+    global decision, as it is in a vault without the hidden one, and not nothing. The hidden decisions list an input that does
+    not exist, so nothing in the store proves them hidden and only the check after the read can drop them.
     """
 
-    context, key, add_hidden = _project_vault(tmp_path, monkeypatch, project_visible=project_visible, project_hidden=2)
+    context, key, add_hidden = _project_vault(tmp_path, monkeypatch, project_visible=project_visible, project_hidden=2, provable=False)
     before = _project_brief(context, monkeypatch, key, query="alpha")
     assert json.loads(before["last_decision"]["canonical_text"]) == expected  # type: ignore[index]
     hidden_ids = add_hidden()
@@ -620,10 +626,11 @@ def test_hidden_events_of_the_project_do_not_change_the_recent_changes_in_the_pr
     """Mutation: replace ``if limited:`` before ``project_first_fill_readable(`` in the events of ``_vnext_resume`` with
     ``if False:``.
 
-    The events of four newer hidden decisions of the project must not take the three places of the recent changes.
+    The events of four newer hidden decisions of the project, which list an input that does not exist and so are not proven
+    hidden in the store, must not take the three places of the recent changes.
     """
 
-    context, key, add_hidden = _project_vault(tmp_path, monkeypatch, project_visible=3, project_hidden=4)
+    context, key, add_hidden = _project_vault(tmp_path, monkeypatch, project_visible=3, project_hidden=4, provable=False)
     before = _project_brief(context, monkeypatch, key, max_recent_changes=3)
     assert len(before["recent_changes"]) == 3  # type: ignore[arg-type]
     hidden_ids = add_hidden()
