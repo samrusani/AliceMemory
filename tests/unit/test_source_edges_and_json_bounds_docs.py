@@ -6,7 +6,10 @@ Both changes are on main and not in v0.20.0, so every sentence that states them 
 Mutations, each one alone: delete the marker from an entry or a paragraph; delete the clause that names the edges the
 command left open (``left every other edge open``); delete the clause that says no key reads an edge on SQLite; delete the
 limit (`64 levels`) or the non-finite numbers from the changelog entry or from ``mcp-tools.md``; delete the sentence of
-``threat-model.md`` that names `finite_number`. Each fails the test named for it.
+``threat-model.md`` that names `finite_number`; put back the claim that v0.20.0 and main stored a ref nested about 950 levels
+(the HTTP route of v0.20.0 refuses it and the MCP commit tool takes strings only); delete the sentence that says a write is
+never run twice or the one that says a write of a row the decoder cannot read writes the placeholder back. Each fails the
+test named for it.
 """
 
 from __future__ import annotations
@@ -34,8 +37,11 @@ def test_the_changelog_entry_for_source_edges_names_the_old_behaviour_and_the_ke
     for clause in (
         "at either end, whatever the edge type and the type written for the end",
         "`urn:uuid:`",
-        "An edge that names the source only in its explanation or metadata is blanked and keeps its link.",
+        "An edge that names the source or one of its chunks only in its explanation or metadata is blanked and keeps its link.",
+        "or an open loop that the command dismisses and blanks, goes with it",
+        "each edge once",
         "`graph_edges`",
+        "A folder import makes the pass when its first file is replaced, so a folder that replaces nothing reads no edge.",
         "These commands are new on main, so v0.20.0 has no deletion to correct",
         "left every other edge open with its explanation and metadata",
         "`alice-memory import` restores an edge of any type and shape",
@@ -54,16 +60,21 @@ def test_the_changelog_entry_for_the_write_limits_names_the_limits_and_what_was_
     assert entry.count(MARK) == 1
     for clause in (
         "holds no `NaN`, `Infinity`, `-Infinity` or number too large for a float (`1e999`)",
-        "In v0.19.2, in v0.20.0 and on main until now a memory commit measured the serialized size",
-        "nested about 950 levels deep was stored",
-        "In v0.20.0 and on main until now a stored value nested near the interpreter's recursion limit",
+        "In v0.19.2, and in a caller of the commit service in any version, a memory commit measured the serialized size",
+        "nested about 950 levels deep was stored; the HTTP route of v0.20.0 and main already answers HTTP 422 to a body nested past 256 levels, and the MCP commit tool takes strings only",
+        "in v0.20.0 and on main until now a stored value nested near the interpreter's recursion limit",
         "`GET /v0/vnext/memories/{id}/audit`",
         "stored it as `null` without a word",
         "type `json_too_deep`",
         "type `finite_number`",
-        "A test walks every request model",
-        "`loads_bounded`",
+        "A test walks every model that can arrive in a request body, the nested ones included",
+        "Each entry of the `source_refs` of an agent output is held to 64 levels",
+        "decoded by `loads_stored` on both stores",
+        "which is `json.loads` and costs what it costs",
+        "an MCP tool that only reads (the six tools marked read-only) is then run once more with every stored column decoded by `loads_bounded`",
         "`[nested too deeply]`",
+        "A request or tool call that may have written is never run twice",
+        "writes the placeholder back into the row and into the audit event it appends",
         "seven levels over the whole SQLite unit suite",
         "raised `RecursionError` and stopped",
         "No migration is required.",
@@ -80,6 +91,8 @@ def test_the_importers_page_states_the_edge_rule_as_main_only() -> None:
     assert "closed, and its explanation and metadata are blanked" in before
     assert "keeps its link" in before
     assert "`graph_edges`" in before and "`mention_edges` counts the mention edges among them" in before
+    assert "or an open loop that the command dismisses and blanks" in before
+    assert "makes that pass when its first file is replaced, so a folder that replaces nothing reads no edge" in before
     assert "earlier builds of this command, which is new on main" in after
     assert "A key cannot read an edge on SQLite" in after
     assert "`entity_relationship_events` is append-only" in after
@@ -96,8 +109,11 @@ def test_the_mcp_tools_page_states_the_write_limits_as_main_only() -> None:
         "A tool answers `invalid_request` before it runs",
         "answers HTTP 422 on every route",
         "it nests past 256 levels is an invalid request, and the server goes on",
-        "nested about 950 levels deep was stored",
+        "about 950 levels deep was stored (the HTTP route of v0.20.0 refuses a body nested past 256 levels and the MCP commit tool takes strings only)",
+        "is run once more with every stored column cut to 256 levels",
         "the part below is one placeholder string",
+        "A call that may have written is never run twice",
+        "writes the placeholder back into the row and into the audit event",
     ):
         assert clause in paragraph, clause
 

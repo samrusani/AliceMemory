@@ -417,10 +417,14 @@ of the edge, whatever the edge type and whatever the type written for the end
 (`from_type` and `to_type`), in any spelling the saved-quote reader names:
 capitals, no hyphens, braces, `urn:uuid:` or a `source:` prefix. Such an edge is
 closed, and its explanation and metadata are blanked. An edge that names the
-source only in its explanation or metadata is blanked and keeps its link. The
-same applies to an edge that has a redacted candidate memory at an end. The
-preview and the receipt count these edges as `graph_edges`; `mention_edges` counts
-the mention edges among them. The product's own SQLite writers make only mention
+source or one of its chunks only in its explanation or metadata is blanked and
+keeps its link. The same applies to an edge that has a redacted candidate memory
+at an end, or an open loop that the command dismisses and blanks. The preview
+and the receipt count every edge the command closes or blanks for the source as
+`graph_edges`, each edge once; `mention_edges` counts the mention edges among
+them. One pass over the edges answers for every source of the command.
+`import-markdown --supersede` makes that pass when its first file is replaced,
+so a folder that replaces nothing reads no edge. The product's own SQLite writers make only mention
 edges, but `alice-memory import` restores an edge of any shape, including the
 connection and contradiction edges of a PostgreSQL vault. Unreleased (on main,
 not in v0.20.0): earlier builds of this command, which is new on main, closed the

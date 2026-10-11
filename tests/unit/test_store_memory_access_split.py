@@ -56,11 +56,12 @@ SOURCE_RECEIPTS = {
     # used by the roll-up lookups. Previous receipt eab46f16...
     # Re-minted so a global view also requires every Alice id in the floor.
     # Previous receipt 8beae59c...
-    # Re-minted 2026-10-11 for the bounded JSON decoder: the three functions that read a stored metadata column as text
-    # call ``loads_bounded`` instead of ``json.loads``, so a column nested past 256 levels is read with the deep part cut
-    # instead of failing the query (reviewed change, not drift). Previous receipt 670fd096...
+    # Re-minted 2026-10-11 for the stored JSON decoder: the three functions that read a stored metadata column as text
+    # call ``loads_stored`` instead of ``json.loads``. It is ``json.loads``, and reads the column with the deep part cut
+    # only when the decoder itself overflows or when the call is running its second attempt after a reader overflowed
+    # (reviewed change, not drift). Previous receipt 670fd096...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/query_predicates.py": (
-        "3edcf764f3b83a0187d41a82dcb61b31bc650dd72935695e00c88fa0fdca9eb1"
+        "4a799586e99f06db3cf85ee26d638d2d12b155460e9394181199ca40117d8934"
     ),
     # Re-minted for the Phase 4 Stage 2 resident vector cache (reviewed
     # carrier change; the receipt guards unreviewed drift): the vector scan
