@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from itertools import accumulate
 from collections.abc import Mapping
 from typing import Any
 
@@ -125,26 +126,27 @@ def _as_text(data: object) -> str | None:
     return None
 
 
+# A JSON string alone, with the same possessive quantifiers as ``_TOKEN``.
+_STRING = re.compile(r'"(?:[^"\\]++|\\.|\\\Z)*+(?:"|\Z)', re.DOTALL)
+# Every byte that is not a bracket, for ``bytes.translate``.
+_NOT_A_BRACKET = bytes(value for value in range(256) if value not in b"[]{}")
+# What each bracket does to the depth.
+_STEP = {0x5B: 1, 0x7B: 1, 0x5D: -1, 0x7D: -1}
+
+
 def text_nests_deeper_than(text: str, limit: int) -> bool:
     """Whether JSON text opens more than ``limit`` levels of arrays and objects at once, without decoding it.
 
     A text with no more than ``limit`` opening brackets in all cannot nest that deep, and ``str.count`` answers that at
-    C speed, so an ordinary column costs two counts. Otherwise the scan walks the brackets with a counter and stops at
-    the first level over the limit.
+    C speed, so an ordinary column costs two counts. Otherwise the strings are blanked (a bracket inside one is text),
+    only the brackets are kept, and the running depth is taken with ``itertools.accumulate``: every step is a C call,
+    so a large document costs a few passes at C speed and no Python loop per bracket, and nothing recurses.
     """
 
     if text.count("[") + text.count("{") <= limit:
         return False
-    depth = 0
-    for match in _TOKEN.finditer(text):
-        token = match.group()
-        if token in _OPENERS:
-            depth += 1
-            if depth > limit:
-                return True
-        elif token in "]}":
-            depth -= 1
-    return False
+    brackets = _STRING.sub('""', text).encode("utf-8", "surrogatepass").translate(None, _NOT_A_BRACKET)
+    return max(accumulate(map(_STEP.__getitem__, brackets)), default=0) > limit
 
 
 def cut_deep_json(text: str, limit: int = MAX_READ_JSON_DEPTH) -> str:

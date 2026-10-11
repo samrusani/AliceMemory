@@ -10,10 +10,12 @@ Mutations, each one alone, each named by the test that fails (replayed by ``scri
 * ``first_json_problem`` compares ``depth`` with ``limit + 1``: ``test_depth_is_counted_as_levels_of_arrays_and_objects``.
 * ``first_json_problem`` stops looking at a float inside a list: ``test_a_number_that_is_not_finite_is_found_wherever_it_stands``.
 * ``first_json_problem`` recurses instead of keeping a stack: ``test_a_value_nested_a_million_levels_is_judged_not_recursed_into``.
-* ``cut_deep_json`` reads a bracket inside a string as a bracket: ``test_a_bracket_inside_a_string_is_text``.
+* ``cut_deep_json`` reads a bracket inside a string as a bracket, or ``text_nests_deeper_than`` stops blanking the strings:
+  ``test_a_bracket_inside_a_string_is_text``.
 * ``loads_bounded`` cuts at ``limit - 1``: ``test_text_at_the_read_limit_is_decoded_whole``.
 * ``loads_bounded`` skips the cut: ``test_text_nested_past_the_read_limit_is_decoded_with_the_deep_part_replaced``.
-* the string pattern of ``_TOKEN`` loses its possessive quantifiers: ``test_a_long_string_of_escapes_costs_one_pass``.
+* the string pattern of ``_STRING`` loses its possessive quantifiers: ``test_a_long_string_of_escapes_costs_one_pass``.
+* ``cut_deep_json`` cuts one level early: ``test_the_cut_text_is_valid_json_with_one_placeholder_per_deep_branch``.
 """
 
 from __future__ import annotations
