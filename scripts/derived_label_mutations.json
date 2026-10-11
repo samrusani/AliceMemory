@@ -244,7 +244,7 @@
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
           "line": 19,
-          "before": "if not blocked:",
+          "before": "if not blocked and not domain_blocked:",
           "after": "if True:",
           "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
         }
@@ -4957,8 +4957,8 @@
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
           "line": 56,
-          "before": "WHERE {input_redacted} OR ({input_not_redacted} AND COALESCE((label_input.user_id, {parent_source}) IN (",
-          "after": "WHERE ({input_not_redacted} AND COALESCE((label_input.user_id, {parent_source}) IN (",
+          "before": "WHERE {redacted_input_proof}{input_in_restricted_domain}({input_not_redacted} AND COALESCE((label_input.user_id, {parent_source}) IN (",
+          "after": "WHERE {input_in_restricted_domain}({input_not_redacted} AND COALESCE((label_input.user_id, {parent_source}) IN (",
           "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
         }
       ],
@@ -4975,8 +4975,8 @@
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
           "line": 68,
-          "before": "AND ({input_redacted} OR ({input_not_redacted} AND EXISTS (",
-          "after": "AND (({input_not_redacted} AND EXISTS (",
+          "before": "AND ({redacted_input_proof}{input_in_restricted_domain}({input_not_redacted} AND EXISTS (",
+          "after": "AND ({input_in_restricted_domain}({input_not_redacted} AND EXISTS (",
           "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
         }
       ],
