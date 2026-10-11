@@ -1227,7 +1227,7 @@
           "line": 1003,
           "before": "belief = _vnext_readable_belief(store, identity, belief_id)",
           "after": "belief = _vnext_readable_belief(store, None, belief_id)",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -1245,7 +1245,7 @@
           "line": 1009,
           "before": "if belief is None or (request.superseded_by is not None and replacement is None):",
           "after": "if belief is None:",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -1261,7 +1261,7 @@
           "line": 931,
           "before": "edge = _vnext_readable_edge(store, identity, edge_id)",
           "after": "edge = _vnext_readable_edge(store, None, edge_id)",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -5469,7 +5469,7 @@
           "line": 972,
           "before": "            payload = VNextConnectionService(store).graph_neighborhood(\n                target_id=target_id,\n                sensitivity_allowed=sensitivity_ceiling(identity),",
           "after": "            payload = VNextConnectionService(store).graph_neighborhood(\n                target_id=target_id,\n                sensitivity_allowed=None,",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -5503,7 +5503,7 @@
           "line": 935,
           "before": "                edge_id=str(edge[\"id\"]),\n                action=request.action,\n                sensitivity_allowed=sensitivity_ceiling(identity),",
           "after": "                edge_id=str(edge[\"id\"]),\n                action=request.action,\n                sensitivity_allowed=None,",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -5537,7 +5537,7 @@
           "line": 1015,
           "before": "                superseded_by=str(replacement[\"id\"]) if replacement is not None else None,\n                sensitivity_allowed=sensitivity_ceiling(identity),",
           "after": "                superseded_by=str(replacement[\"id\"]) if replacement is not None else None,\n                sensitivity_allowed=None,",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -7508,7 +7508,7 @@
           "line": 580,
           "before": "                .process_next_task(readable_labels=claimable_task_labels(identity))\n",
           "after": "                .process_next_task()\n",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -7828,7 +7828,7 @@
           "line": 580,
           "before": "                .process_next_task(readable_labels=claimable_task_labels(identity))\n",
           "after": "                .process_next_task(readable_labels=claimable_task_labels(identity) or None)\n",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -7844,7 +7844,7 @@
           "line": 580,
           "before": "                .process_next_task(readable_labels=claimable_task_labels(identity))\n",
           "after": "                .process_next_task(readable_labels=claimable_task_labels(identity) or None)\n",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -8628,10 +8628,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 913,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -8644,10 +8644,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 913,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -8660,10 +8660,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 913,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -8676,10 +8676,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 913,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -8692,10 +8692,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 913,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -8708,10 +8708,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 913,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -8724,10 +8724,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 913,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -8740,10 +8740,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 913,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -8756,10 +8756,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 913,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = [] if guard.active else list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -8772,10 +8772,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 913,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = [] if guard.active else list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -8788,10 +8788,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 913,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = [] if guard.active else list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -8804,10 +8804,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 863,
+          "line": 922,
           "before": "\"created_count\": len(readable), \"source_ids\": _source_ids(sources)",
           "after": "\"created_count\": len(created), \"source_ids\": _source_ids(sources)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -8820,10 +8820,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 863,
+          "line": 922,
           "before": "\"created_count\": len(readable), \"source_ids\": _source_ids(sources)",
           "after": "\"created_count\": len(created), \"source_ids\": _source_ids(sources)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -8852,10 +8852,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 779,
+          "line": 838,
           "before": "self, request: ProjectAutomationRequest | None = None, *, guard: LabelGuard\n",
           "after": "self, request: ProjectAutomationRequest | None = None, *, guard: LabelGuard | None = None\n",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -9351,10 +9351,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 1443,
+          "line": 1502,
           "before": "        if quote_fence.entity_read_fenced:\n            memories = SavedProvenanceReader(self.store, fence=quote_fence).memories(memories)\n",
           "after": "        if False:\n            memories = SavedProvenanceReader(self.store, fence=quote_fence).memories(memories)\n",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
         }
       ],
       "pytest": [
@@ -11711,7 +11711,7 @@
           "line": 842,
           "before": "            rows = _vnext_ratings_for_caller(store, identity, rows)\n",
           "after": "            pass\n",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -12503,6 +12503,270 @@
         "tests/unit/test_round3_budget_profile_protocol.py::test_ci_applies_the_absolute_gate_only_in_the_maximum_smoke_and_with_the_shared_runner_limit"
       ],
       "expected_failure": "test_ci_applies_the_absolute_gate_only_in_the_maximum_smoke_and_with_the_shared_runner_limit"
+    },
+    {
+      "name": "project-update-project-is-not-judged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 1546,
+          "before": "            if project is None or not _project_readable(self.store, project, caller):\n",
+          "after": "            if project is None:\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist[http-bound project key, confidential project]",
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist[mcp-bound project key, confidential project]",
+        "tests/unit/test_project_update_candidate_admission.py::test_a_project_the_caller_may_not_read_is_answered_as_a_project_that_does_not_exist"
+      ],
+      "expected_failure": "test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist"
+    },
+    {
+      "name": "project-update-project-is-not-judged-unit",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 1546,
+          "before": "            if project is None or not _project_readable(self.store, project, caller):\n",
+          "after": "            if project is None:\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_a_project_the_caller_may_not_read_is_answered_as_a_project_that_does_not_exist"
+      ],
+      "expected_failure": "test_a_project_the_caller_may_not_read_is_answered_as_a_project_that_does_not_exist"
+    },
+    {
+      "name": "project-update-listed-project-is-not-judged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 1565,
+          "before": "        projects = [project for project in projects if _project_readable(self.store, project, caller)]\n",
+          "after": "        projects = list(projects)\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_a_project_the_listing_picks_is_judged_too"
+      ],
+      "expected_failure": "test_a_project_the_listing_picks_is_judged_too"
+    },
+    {
+      "name": "project-update-replay-is-returned-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 670,
+          "before": "                return self._readable_candidate(existing, caller=caller, project_id=project_id)\n",
+          "after": "                return existing\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay[http-bound, replay, confidential]",
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay[mcp-unbound trusted, replay, confidential]"
+      ],
+      "expected_failure": "test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay"
+    },
+    {
+      "name": "project-update-replay-is-returned-unjudged-unit",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 670,
+          "before": "                return self._readable_candidate(existing, caller=caller, project_id=project_id)\n",
+          "after": "                return existing\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_an_artifact_found_again_above_the_ceiling_is_not_returned_and_no_event_records_it"
+      ],
+      "expected_failure": "test_an_artifact_found_again_above_the_ceiling_is_not_returned_and_no_event_records_it"
+    },
+    {
+      "name": "project-update-made-or-upserted-artifact-is-returned-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 760,
+          "before": "        artifact = self._readable_candidate(artifact, caller=caller, project_id=project_id)\n",
+          "after": "        artifact = artifact\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay[http-bound, upsert, confidential]",
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay[mcp-unbound trusted, upsert, confidential]"
+      ],
+      "expected_failure": "test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay"
+    },
+    {
+      "name": "project-update-made-or-upserted-artifact-is-returned-unjudged-unit",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 760,
+          "before": "        artifact = self._readable_candidate(artifact, caller=caller, project_id=project_id)\n",
+          "after": "        artifact = artifact\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_the_artifact_an_upsert_returns_after_a_digest_conflict_is_judged_like_any_other"
+      ],
+      "expected_failure": "test_the_artifact_an_upsert_returns_after_a_digest_conflict_is_judged_like_any_other"
+    },
+    {
+      "name": "project-update-new-artifact-is-returned-unjudged-unit",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 760,
+          "before": "        artifact = self._readable_candidate(artifact, caller=caller, project_id=project_id)\n",
+          "after": "        artifact = artifact\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_a_new_artifact_above_the_ceiling_is_not_returned_and_no_event_records_it"
+      ],
+      "expected_failure": "test_a_new_artifact_above_the_ceiling_is_not_returned_and_no_event_records_it"
+    },
+    {
+      "name": "project-update-artifact-check-admits-everything",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 1539,
+          "before": "        if outside_caller_limits(self.store, caller, \"artifact\", artifact):\n",
+          "after": "        if False:\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay[http-bound, replay, confidential]",
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay[http-bound, upsert, confidential]"
+      ],
+      "expected_failure": "test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay"
+    },
+    {
+      "name": "project-update-caller-ignores-the-request-record",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 596,
+          "before": "        caller = identity if identity is not None else _identity_of_record(request.agent_identity)\n",
+          "after": "        caller = identity\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_a_call_with_no_identity_is_judged_as_the_identity_its_request_records"
+      ],
+      "expected_failure": "test_a_call_with_no_identity_is_judged_as_the_identity_its_request_records"
+    },
+    {
+      "name": "project-update-caller-ignores-the-identity-passed",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 596,
+          "before": "        caller = identity if identity is not None else _identity_of_record(request.agent_identity)\n",
+          "after": "        caller = _identity_of_record(request.agent_identity)\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_the_identity_a_door_passes_decides_whatever_the_request_records"
+      ],
+      "expected_failure": "test_the_identity_a_door_passes_decides_whatever_the_request_records"
+    },
+    {
+      "name": "project-update-project-label-is-not-read",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 550,
+          "before": "    if not view.admit_rows(\"project\", [project]):\n",
+          "after": "    if False:\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist[http-bound project key, confidential project]",
+        "tests/unit/test_project_update_candidate_admission.py::test_a_project_the_caller_may_not_read_is_answered_as_a_project_that_does_not_exist"
+      ],
+      "expected_failure": "test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist"
+    },
+    {
+      "name": "project-update-project-is-read-at-its-stored-label",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 550,
+          "before": "    if not view.admit_rows(\"project\", [project]):\n",
+          "after": "    if not view.admit_rows(\"project\", [{**project, \"metadata_json\": {}}]):\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now[http]"
+      ],
+      "expected_failure": "test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now"
+    },
+    {
+      "name": "project-update-project-binding-is-not-tested",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 555,
+          "before": "    return bool(set(named) & set(project_scope_identity(guard.projects)))\n",
+          "after": "    return True\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_key_bound_to_another_project_is_answered_as_a_missing_project[mcp]",
+        "tests/unit/test_project_update_candidate_admission.py::test_a_caller_bound_to_another_project_is_answered_as_a_missing_project"
+      ],
+      "expected_failure": "test_a_key_bound_to_another_project_is_answered_as_a_missing_project"
+    },
+    {
+      "name": "project-update-project-ignores-the-caller",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 546,
+          "before": "    guard = guard_for_caller(store, caller, action=\"artifact.lookup\")\n",
+          "after": "    guard = guard_for_caller(store, None, action=\"artifact.lookup\")\n",
+          "sha256": "0459484ac2ac695105e51b8eae480a95deaf32e9f89cf08aad39c7567ecb6873"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist[http-bound project key, confidential project]",
+        "tests/unit/test_project_update_candidate_admission.py::test_a_project_the_caller_may_not_read_is_answered_as_a_project_that_does_not_exist"
+      ],
+      "expected_failure": "test_a_project_the_key_may_not_read_answers_as_a_project_that_does_not_exist"
+    },
+    {
+      "name": "project-update-tool-ignores-the-key-binding",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/projects.py",
+          "line": 80,
+          "before": "            if project_id is None and len(decision.effective_project_scope) == 1:\n",
+          "after": "            if False:\n",
+          "sha256": "f8ad8e548567bfc7ccc977ce03346e64bdac4230d4a93cf4f9634796e1cf23c5"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_bound_key_is_given_its_project_when_it_names_none[mcp]"
+      ],
+      "expected_failure": "test_a_bound_key_is_given_its_project_when_it_names_none"
     }
   ]
 }
