@@ -32,6 +32,7 @@ from alicebot_api.vnext_scheduler import (
     SchedulerWorkflowPlan,
     VNextSchedulerService,
     VNextSchedulerValidationError,
+    withhold_unreadable_artifact,
 )
 from alicebot_api.vnext_store import PostgresVNextStore
 
@@ -512,6 +513,8 @@ def run_due_workflows_durable(
         run_metadata_value = run.get("metadata_json")
         run_metadata = dict(run_metadata_value) if isinstance(run_metadata_value, dict) else {}
         finalized: JsonObject | None = None
+        answered_run: JsonObject | None = None
+        answered_artifact: JsonObject | None = None
         artifact_id: str | None = None
         if error is None and not fence_lost.is_set() and plan is not None:
             try:
@@ -563,6 +566,11 @@ def run_due_workflows_durable(
                                 "claim_version": claim_version,
                             },
                         )
+                        # The answer carries the report only when the caller of this scan may read it now. The stored
+                        # run and report stay as they are for the owner.
+                        answered_run, answered_artifact = withhold_unreadable_artifact(
+                            finalize_store, agent_identity, run=finalized, artifact=artifact
+                        )
             except Exception as exc:  # noqa: BLE001 - publication transaction rolled back
                 logger.exception(
                     "scheduler publication failed run_id=%s error_code=%s",
@@ -573,6 +581,8 @@ def run_due_workflows_durable(
                 artifact = None
                 artifact_id = None
                 finalized = None
+                answered_run = None
+                answered_artifact = None
 
         status = "succeeded" if finalized is not None else "failed"
         if fence_lost.is_set():
@@ -621,8 +631,8 @@ def run_due_workflows_durable(
             {
                 "workflow_type": workflow["workflow_type"],
                 "scheduled_for": scheduled_for.isoformat(),
-                "run": finalized,
-                "artifact": artifact if status == "succeeded" else None,
+                "run": answered_run if status == "succeeded" and answered_run is not None else finalized,
+                "artifact": answered_artifact if status == "succeeded" else None,
             }
         )
 

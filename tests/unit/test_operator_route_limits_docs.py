@@ -12,7 +12,9 @@ and the charter from any of the three pages; say again that the clipper capture 
 holder; delete ``so a trusted key cannot learn how many confidential commits exist`` from the security note; say
 again that the refused charter save writes nothing; delete the sentence that the refusal tells the key a charter exists;
 delete ``found again by its digest`` from the tool reference, the changelog or the security note; delete ``out of the
-``created_count`` of the ``open_loop.extraction_completed`` event`` from the changelog or the security note.
+``created_count`` of the ``open_loop.extraction_completed`` event`` from the changelog or the security note; delete ``is judged
+on the caller's limits, as the read of the report is`` from the tool reference or the changelog, or ``no longer returns the
+``artifact_id`` of a result the caller may not read`` from the security note.
 """
 
 from __future__ import annotations
@@ -184,3 +186,51 @@ def test_the_pages_say_that_extraction_judges_a_loop_found_again_by_its_digest()
     assert "The service takes the guard as a required argument" in paragraph
     assert "the daily brief, the weekly synthesis, the connection report, the contradiction report, the project update candidate" in paragraph
     assert "never with the admin key's" in paragraph
+
+
+_RUN_OPENING = "the answer of a run that makes a report is judged on the caller's limits"
+
+
+def test_the_pages_say_that_the_answer_of_a_run_is_judged_like_the_read_of_its_report() -> None:
+    tools = _text("docs/alpha/mcp-tools.md")
+    paragraphs = [line for line in tools.splitlines() if line.startswith(f"{MARK} {_RUN_OPENING}, as the read of the report is.")]
+    assert len(paragraphs) == 1
+    paragraph = paragraphs[0]
+    for door in (
+        "`POST /v0/vnext/scheduler/workflows/{workflow_type}/run-now`",
+        "`POST /v0/vnext/scheduler/run-due`",
+        "`POST /v0/vnext/artifacts/generate/daily-brief`",
+        "`alice_vnext_scheduler_run_now`",
+        "`alice_vnext_generate_artifact`",
+        "`alice_generate_contradictions`",
+        "`alicebot vnext scheduler run-now` and `run-due`",
+    ):
+        assert door in paragraph
+    assert "whether the run made it or found it again under the same digest" in paragraph
+    assert "a run answers `artifact: null` and a run record with no `artifact_id`" in paragraph
+    assert "HTTP 404 with `{\"detail\": \"vNext artifact was not found\"}`" in paragraph
+    assert "Nothing of the report is echoed" in paragraph
+    assert "The owner and an unbound `admin_agent` key are answered with the report, as before." in paragraph
+    queue = next(line for line in tools.splitlines() if line.startswith(f"{MARK} `POST /v0/vnext/queue/process-next`"))
+    assert "the answer leaves `artifact_id` empty when the caller may not read the result" in queue
+
+    entries = [line.removeprefix("- ") for line in _text("CHANGELOG.md").splitlines() if line.startswith("- ")]
+    matches = [entry for entry in entries if entry.startswith(f"{MARK} {_RUN_OPENING}, as the read of the report is.")]
+    assert len(matches) == 1
+    entry = matches[0]
+    assert "while `GET /v0/vnext/artifacts/{id}` answered HTTP 404 for the same report" in entry
+    assert "In v0.20.0 that case was not a difference between two doors" in entry
+    assert "while the read answered HTTP 403 in v0.20.0 and HTTP 404 on main" in entry
+    assert "A report the caller may not read is left out as a missing report is." in entry
+    assert "`POST /v0/vnext/queue/process-next` stops returning the `artifact_id` of a result report the caller may not read" in entry
+    assert "The report stays stored for the owner, and the stored run keeps its `artifact_id`" in entry
+    assert "The owner and an unbound `admin_agent` key are answered as before, and nothing is read for them." in entry
+    assert entry.endswith("No migration is required.")
+
+    note = _text("docs/release/derived-labels-security-note-draft.md")
+    paragraphs = [line for line in note.splitlines() if line.startswith(f"{MARK} {_RUN_OPENING}.")]
+    assert len(paragraphs) == 1
+    paragraph = paragraphs[0]
+    assert "from `run-now`, `run-due`, the four `artifacts/generate` routes and the tools and commands that run them, in v0.20.0 as well as on main" in paragraph
+    assert "`POST /v0/vnext/queue/process-next` no longer returns the `artifact_id` of a result the caller may not read" in paragraph
+    assert "still carry the `artifact_id` of a report a run made after the report was raised" in paragraph

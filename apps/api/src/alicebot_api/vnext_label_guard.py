@@ -1220,6 +1220,29 @@ def outside_caller_limits(
     return not fence.admits_memory(effective)
 
 
+def readable_artifact(store: Any, identity: AgentIdentity | None, artifact: _Row | None) -> _Row | None:
+    """The artifact a generation answer may carry for this caller, or ``None`` when the caller may not read it now.
+
+    A workflow that makes a report (a new one, the one a repeated run finds already stored under the same digest, or the
+    one an upsert returns) hands it back in its own answer, and that answer is a read of the stored row. It is judged as
+    the artifact read is: the row is read again from the store and asked of ``outside_caller_limits``, on its effective
+    labels, so a report derived from a row above the caller's limits, or one the owner raised after it was made, is left
+    out as a missing report is. The owner and an unbound admin key have no limits: the report is returned as it was
+    given, and nothing is read.
+    """
+
+    if not isinstance(artifact, Mapping):
+        return None
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    if not SourceReadFence.for_identity(identity).entity_read_fenced:
+        return artifact
+    current = store.get_artifact(str(artifact.get("id")))
+    if current is None or outside_caller_limits(store, identity, "artifact", current):
+        return None
+    return artifact
+
+
 def readable_rows(store: Any, identity: AgentIdentity | None, rows: Sequence[_Row]) -> list[_Row]:
     """The rows this caller may read now, judged on their effective labels. Each row carries its own ``kind``.
 
