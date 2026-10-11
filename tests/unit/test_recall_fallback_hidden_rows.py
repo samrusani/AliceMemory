@@ -15,8 +15,8 @@ matches ``alpha beta``. The answer and the whole debug trace of the key must be 
 reads the hidden row as the owner with every sensitivity, so a pass means the key was held back, not that the row never
 matched.
 
-Each test names the mutation that must fail it. The mutations were made by hand in a scratch edit and the file was
-restored by copying the saved copy back.
+Each test names the mutation that must fail it, and the cases ``recall-fallback-*`` of
+``scripts/derived_label_mutations.json`` replay them.
 """
 
 from __future__ import annotations

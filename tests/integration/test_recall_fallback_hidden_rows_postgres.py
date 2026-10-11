@@ -8,7 +8,8 @@ restricted key is recorded, a hidden row that matches ``alpha beta`` is added, a
 the key must not change: the visible memory is returned in both and the stage label is ``postgres_fts_or_fallback`` in
 both.
 
-Each test names the mutation that must fail it, as in the unit tests.
+Each test names the mutation that must fail it, and the cases ``recall-fallback-*`` of
+``scripts/derived_label_mutations.json`` replay them.
 """
 
 from __future__ import annotations
