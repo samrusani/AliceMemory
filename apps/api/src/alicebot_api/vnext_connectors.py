@@ -45,12 +45,22 @@ if TYPE_CHECKING:
     from alicebot_api.vnext_label_guard import LabelGuard
 
 # The payload fields of a connector event that hold a cursor. A cursor is the position of the last item imported, and for a
-# file or a page it is the path or the address of that item.
+# file or a page it is the path or the address of that item. A failed item records the cursor it would have set.
 CONNECTOR_EVENT_CURSOR_FIELDS: dict[str, tuple[str, ...]] = {
     "connector.state_updated": ("cursor_value",),
     "connector.sync_started": ("previous_cursor",),
     "connector.sync_completed": ("previous_cursor", "sync_cursor"),
     "connector.sync_failed": ("previous_cursor", "sync_cursor"),
+    "connector.item_failed": ("sync_cursor",),
+}
+# The payload fields of a connector event that name an item by the external id the importer gave it, which for a file is its
+# path. A failed item is named by one id (``external_id``), and a sync that had failures lists them (``failed_external_ids``),
+# in a completed sync with some failures as well as in a failed one. An item that failed never became a source, so the id is
+# shown only where an import of the same id can be tied to a source the caller may read.
+CONNECTOR_EVENT_ITEM_ID_FIELDS: dict[str, tuple[str, ...]] = {
+    "connector.item_failed": ("external_id",),
+    "connector.sync_completed": ("failed_external_ids",),
+    "connector.sync_failed": ("failed_external_ids",),
 }
 CONNECTOR_ITEM_IMPORT_ERROR_CODE = "connector_item_import_failed"
 CONNECTOR_ITEM_IMPORT_ERROR_MESSAGE = "Connector item could not be imported"
@@ -1550,8 +1560,38 @@ class VNextConnectorService:
         is not shown. The owner and an unbound admin key get the cursor as stored.
         """
 
-        if cursor is None or not guard.active:
-            return cursor
+        return self._shown_import_value(connector_name, "sync_cursor", cursor, guard=guard, events=events)
+
+    def shown_item_id(
+        self,
+        connector_name: str,
+        external_id: str | None,
+        *,
+        guard: LabelGuard,
+        events: Sequence[Mapping[str, object]] | None = None,
+    ) -> str | None:
+        """``external_id`` of an item as ``guard``'s caller may be shown it.
+
+        The id an importer gives an item is, for a file, its path. An item that failed to import never became a source, so
+        it has no label of its own to judge, and the id is shown to a caller with limits by the rule of a cursor: only when
+        at least one import carries it and every import that carries it names a source the caller may read. An id that no
+        import carries cannot be tied to a source, so it is not shown. The owner and an unbound admin key get the id as
+        stored.
+        """
+
+        return self._shown_import_value(connector_name, "external_id", external_id, guard=guard, events=events)
+
+    def _shown_import_value(
+        self,
+        connector_name: str,
+        field: str,
+        value: str | None,
+        *,
+        guard: LabelGuard,
+        events: Sequence[Mapping[str, object]] | None,
+    ) -> str | None:
+        if value is None or not guard.active:
+            return value
         known = events if events is not None else self._connector_events(connector_name)
         carriers: list[Mapping[str, object]] = []
         for event in known:
@@ -1559,12 +1599,12 @@ class VNextConnectorService:
             if (
                 event.get("event_type") == "connector.item_imported"
                 and isinstance(payload, dict)
-                and payload.get("sync_cursor") == cursor
+                and payload.get(field) == value
             ):
                 carriers.append(payload)
         if not carriers or not self._caller_reads_sources(guard, [item.get("source_id") for item in carriers]):
             return None
-        return cursor
+        return value
 
     def shown_sync_record(self, result: ConnectorSyncResult, *, guard: LabelGuard) -> JsonObject:
         """The record of a sync as ``guard``'s caller may be shown it: its two cursors pass through ``shown_cursor``.
@@ -1585,42 +1625,59 @@ class VNextConnectorService:
     def shown_event_cursors(
         self, events: Sequence[Mapping[str, Any]], *, guard: LabelGuard
     ) -> list[Mapping[str, Any]]:
-        """Connector events as ``guard``'s caller may be shown them: the cursors an event recorded pass through ``shown_cursor``.
+        """Connector events as ``guard``'s caller may be shown them: the cursors and the item ids an event recorded are judged.
 
         A sync event records where the connector stood (``cursor_value`` of a state update, ``previous_cursor`` and
         ``sync_cursor`` of a sync), and for a file or a page that is its path or its address. Each one is shown when the
-        caller may read the source it came from and is ``null`` otherwise, the same rule as the health block. An event
-        that is not one of those, and a field that is empty, are left as they are (a failed item names only what the call
-        that failed it sent, and it never became a row). The events handed in are not edited: an event with a cursor that
-        is not shown is copied.
+        caller may read the source it came from and is ``null`` otherwise, the same rule as the health block. A failure
+        names the item that failed by the id the importer gave it (``external_id`` of a failed item, ``failed_external_ids``
+        of a sync that had failures), which for a file is also its path, and a failed item records the cursor it would have
+        set. The item never became a source, so each id and cursor is shown only when an import carries it and the caller
+        may read every source an import of it made (``shown_item_id`` and ``shown_cursor``), and is ``null`` otherwise, in
+        its place in a list. An event of another type, and a field that is empty, are left as they are. The events handed
+        in are not edited: an event with a value that is not shown is copied.
         """
 
         if not guard.active:
             return list(events)
         recorded: dict[str, list[Mapping[str, Any]]] = {}
-        decided: dict[tuple[str, str], str | None] = {}
+        decided: dict[tuple[str, str, str], str | None] = {}
+
+        def decide(name: object, kind: str, value: object) -> str | None:
+            # A value that is not text, and one of a connector the event does not name, cannot be tied to an import.
+            if not isinstance(value, str) or not isinstance(name, str):
+                return None
+            if (name, kind, value) not in decided:
+                if name not in recorded:
+                    recorded[name] = self._connector_events(name, copy=False)
+                reader = self.shown_cursor if kind == "cursor" else self.shown_item_id
+                decided[(name, kind, value)] = reader(name, value, guard=guard, events=recorded[name])
+            return decided[(name, kind, value)]
+
         shown: list[Mapping[str, Any]] = []
         for event in events:
-            fields = CONNECTOR_EVENT_CURSOR_FIELDS.get(str(event.get("event_type")))
+            event_type = str(event.get("event_type"))
+            cursor_fields = CONNECTOR_EVENT_CURSOR_FIELDS.get(event_type, ())
+            id_fields = CONNECTOR_EVENT_ITEM_ID_FIELDS.get(event_type, ())
             payload = event.get("payload_json")
-            if fields is None or not isinstance(payload, dict):
+            if not (cursor_fields or id_fields) or not isinstance(payload, dict):
                 shown.append(event)
                 continue
             name = event.get("target_id") if event.get("target_type") == "connector" else payload.get("connector_name")
             cleaned = dict(payload)
-            for field in fields:
+            for field in cursor_fields:
                 cursor = payload.get(field)
                 if cursor is None or cursor == "":
                     continue
-                # A cursor that is not text, and one of a connector the event does not name, cannot be tied to an import.
-                if not isinstance(cursor, str) or not isinstance(name, str):
-                    cleaned[field] = None
+                cleaned[field] = decide(name, "cursor", cursor)
+            for field in id_fields:
+                value = payload.get(field)
+                if value is None or value == "" or value == [] or value == ():
                     continue
-                if (name, cursor) not in decided:
-                    if name not in recorded:
-                        recorded[name] = self._connector_events(name, copy=False)
-                    decided[(name, cursor)] = self.shown_cursor(name, cursor, guard=guard, events=recorded[name])
-                cleaned[field] = decided[(name, cursor)]
+                if isinstance(value, (list, tuple)):
+                    cleaned[field] = [decide(name, "item", item) for item in value]
+                else:
+                    cleaned[field] = decide(name, "item", value)
             shown.append(event if cleaned == payload else {**event, "payload_json": cleaned})
         return shown
 

@@ -80,7 +80,10 @@ def test_the_tool_reference_names_every_route_and_what_a_key_with_a_ceiling_is_s
     assert "the owner and an unbound `admin_agent` key are shown what they were" in paragraph
     assert "A route added without a probe fails the test" in paragraph
     assert "still lists an edge whose far end the key may not read" not in paragraph
-    assert "`recent_failures` of the connector status names the id the importer gave to an item that failed" in paragraph
+    assert "`recent_failures` of the connector status names the id the importer gave to an item that failed" not in paragraph
+    assert "a failed item or a failed sync without the id the importer gave the item (for a file, its path)" in paragraph
+    assert "`connector.item_failed` records the cursor the failed item would have set (`sync_cursor`)" in paragraph
+    assert "`connector.sync_failed` and `connector.sync_completed` (`failed_external_ids`)" in paragraph
 
 
 def test_the_saved_quotes_list_no_longer_says_the_recent_commits_tool_has_no_fence() -> None:
@@ -143,7 +146,8 @@ def test_the_security_note_covers_disclosure_the_charter_write_and_the_limits_it
     assert "the events hold the id and the names of the fields and no text" in paragraph
     assert "the probe table must list exactly the routes of the application" in paragraph
     assert "graph neighborhood still lists an edge whose far end the key may not read" not in paragraph
-    assert "such as a file path" in paragraph
+    assert "such as a file path" not in paragraph
+    assert "The id the importer gave to an item that failed to import (for a file, its path) and the cursor it would have set follow the same rule" in paragraph
     assert "take no agent key and list rows whatever their label while `APP_ENV` is `development` or `test`" in paragraph
     assert "answer HTTP 404 in any other environment" in paragraph
     assert "process-next" not in paragraph

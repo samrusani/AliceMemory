@@ -734,10 +734,10 @@ class Vault:
 
         The import is the connector's last captured item and sets its cursor: the path of the file is a title-like
         string and the source id is an id, both above the key's ceiling, so the health block of the connector screens
-        must not show either to the trusted key. The failed item never became a row, so it has no label to judge. The
-        connector status screen lists the id the importer gave it, and the security note names that as a known limit;
-        the sweep does not look for it. It comes second and in a call of its own because a failed item in the same
-        call would stop the cursor from moving.
+        must not show either to the trusted key. The failed item never became a row, so it has no label to judge, and
+        the id the importer gave it (``failed-item``) is shown only where an import carries it, which none does, so the
+        sweep looks for that id in every answer like any other sentinel. It comes second and in a call of its own
+        because a failed item in the same call would stop the cursor from moving.
         """
 
         status, body = self.admin_request(
@@ -760,7 +760,7 @@ class Vault:
         status, body = self.admin_request(
             "POST",
             "/v0/vnext/connectors/local_folder/sync",
-            {"default_sensitivity": "confidential", "items": [{"path": "", "external_id": f"{self.tag}-failed-item-path"}]},
+            {"default_sensitivity": "confidential", "items": [{"path": "", "external_id": self._text("failed-item", hidden=True)}]},
         )
         assert status in {200, 201, 207, 400}, (status, str(body)[:300])
 
