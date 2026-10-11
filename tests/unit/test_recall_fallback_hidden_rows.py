@@ -59,10 +59,12 @@ KEYS = {
 }
 
 
-def _memory(store: SQLiteVNextStore, key: str, text: str, metadata: dict[str, object]) -> dict[str, object]:
+def _memory(
+    store: SQLiteVNextStore, key: str, text: str, metadata: dict[str, object], *, memory_type: str = "decision"
+) -> dict[str, object]:
     with without_insert_floor():
         row = store.create_memory({
-            "memory_key": key, "canonical_text": text, "title": key, "memory_type": "decision", "status": "active",
+            "memory_key": key, "canonical_text": text, "title": key, "memory_type": memory_type, "status": "active",
             "domain": "project", "sensitivity": "public", "metadata_json": metadata,
         })
     append_event(store, event_type="memory.labels_raised", actor_type="system",
@@ -80,33 +82,35 @@ def _source(store: SQLiteVNextStore, key: str, *, domain: str = "project", sensi
 
 # Each shape writes one memory that matches ``alpha beta`` whose stored labels are public, project and no scope, so the
 # SQL filters of the search cannot reject it, and whose inputs put it above the limits of the keys listed in HIDDEN_FROM.
-def _hidden_by_domain(store: SQLiteVNextStore, scope: tuple[str, ...]) -> dict[str, object]:
+def _hidden_by_domain(store: SQLiteVNextStore, scope: tuple[str, ...], text: str = HIDDEN_TEXT) -> dict[str, object]:
     parent = _source(store, "parent-health", domain="health", scope=scope)
-    return _memory(store, "hidden", HIDDEN_TEXT, {"source_id": str(parent["id"]), **_scope(scope)})
+    return _memory(store, "hidden", text, {"source_id": str(parent["id"]), **_scope(scope)})
 
 
-def _hidden_three_hops_below_a_confidential_source(store: SQLiteVNextStore, scope: tuple[str, ...]) -> dict[str, object]:
+def _hidden_three_hops_below_a_confidential_source(
+    store: SQLiteVNextStore, scope: tuple[str, ...], text: str = HIDDEN_TEXT
+) -> dict[str, object]:
     # The SQL filter looks one memory deep at most, so a chain of three reaches the Python guard.
     parent = _source(store, "parent-confidential", sensitivity="confidential", scope=scope)
     first = _memory(store, "first", "chain first", {"source_id": str(parent["id"]), **_scope(scope)})
     second = _memory(store, "second", "chain second", {"consolidation": {"cluster_member_ids": [str(first["id"])]}, **_scope(scope)})
-    return _memory(store, "hidden", HIDDEN_TEXT, {"consolidation": {"cluster_member_ids": [str(second["id"])]}, **_scope(scope)})
+    return _memory(store, "hidden", text, {"consolidation": {"cluster_member_ids": [str(second["id"])]}, **_scope(scope)})
 
 
-def _hidden_in_another_project(store: SQLiteVNextStore, scope: tuple[str, ...]) -> dict[str, object]:
+def _hidden_in_another_project(store: SQLiteVNextStore, scope: tuple[str, ...], text: str = HIDDEN_TEXT) -> dict[str, object]:
     parent = _source(store, "parent-beta", scope=("beta",))
-    return _memory(store, "hidden", HIDDEN_TEXT, {"source_id": str(parent["id"]), **_scope(scope)})
+    return _memory(store, "hidden", text, {"source_id": str(parent["id"]), **_scope(scope)})
 
 
-def _hidden_with_a_missing_input(store: SQLiteVNextStore, scope: tuple[str, ...]) -> dict[str, object]:
-    return _memory(store, "hidden", HIDDEN_TEXT, {"source_id": str(uuid4()), **_scope(scope)})
+def _hidden_with_a_missing_input(store: SQLiteVNextStore, scope: tuple[str, ...], text: str = HIDDEN_TEXT) -> dict[str, object]:
+    return _memory(store, "hidden", text, {"source_id": str(uuid4()), **_scope(scope)})
 
 
 def _scope(scope: tuple[str, ...]) -> dict[str, object]:
     return {"project_scope": list(scope)} if scope else {}
 
 
-SHAPES: dict[str, Callable[[SQLiteVNextStore, tuple[str, ...]], dict[str, object]]] = {
+SHAPES: dict[str, Callable[..., dict[str, object]]] = {
     "domain": _hidden_by_domain,
     "chain": _hidden_three_hops_below_a_confidential_source,
     "project": _hidden_in_another_project,
@@ -153,9 +157,9 @@ class _Vault:
                                             permission_profile=profile, project_scope=project)
         return raw
 
-    def hide(self, shape: str) -> dict[str, object]:
+    def hide(self, shape: str, text: str | None = None) -> dict[str, object]:
         with self.store() as store:
-            return SHAPES[shape](store, self.scope)
+            return SHAPES[shape](store, self.scope, *([] if text is None else [text]))
 
     def call(self, key: str | None, tool: str, **arguments: object) -> dict[str, object]:
         if key:

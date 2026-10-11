@@ -389,17 +389,17 @@ def test_corpus_support_postgres_chunk_hit_short_circuits_memory_probe() -> None
 
 
 def test_grounding_none_without_salient_entities(conn) -> None:
-    assert compute_query_grounding(_store(conn), "what did I have for dinner?") is None
+    assert compute_query_grounding(_store(conn), "what did I have for dinner?", readable_memory_rows=None) is None
 
 
 def test_grounding_none_when_every_entity_is_supported(conn) -> None:
     store = _store(conn)
     _seed_chunk(store, "the Sapiens paperback arrived on Tuesday")
-    assert compute_query_grounding(store, 'Have I read "Sapiens" yet?') is None
+    assert compute_query_grounding(store, 'Have I read "Sapiens" yet?', readable_memory_rows=None) is None
 
 
 def test_grounding_none_for_uncheckable_store() -> None:
-    assert compute_query_grounding(object(), 'Have I read "Sapiens" yet?') is None
+    assert compute_query_grounding(object(), 'Have I read "Sapiens" yet?', readable_memory_rows=None) is None
 
 
 def test_operational_probe_failures_degrade_to_uncheckable_but_baseexception_escapes() -> None:
@@ -413,6 +413,7 @@ def test_operational_probe_failures_degrade_to_uncheckable_but_baseexception_esc
     assert compute_query_grounding(
         OperationalFailureStore(),
         'Have I read "Sapiens" yet?',
+        readable_memory_rows=None,
     ) is None
 
     class ProbeCancelled(BaseException):
@@ -423,14 +424,14 @@ def test_operational_probe_failures_degrade_to_uncheckable_but_baseexception_esc
             raise ProbeCancelled("cancelled")
 
     with pytest.raises(ProbeCancelled, match="cancelled"):
-        compute_query_grounding(CancelledStore(), 'Have I read "Sapiens" yet?')
+        compute_query_grounding(CancelledStore(), 'Have I read "Sapiens" yet?', readable_memory_rows=None)
 
 
 def test_grounding_payload_lists_only_unsupported_entities(conn) -> None:
     store = _store(conn)
     _seed_chunk(store, "we talked about Sapiens over coffee")
     grounding = compute_query_grounding(
-        store, 'Did Marcus Chen recommend "Sapiens" to me?'
+        store, 'Did Marcus Chen recommend "Sapiens" to me?', readable_memory_rows=None
     )
     assert grounding == {"unsupported_entities": ["Marcus Chen"], "checked": 2}
 
@@ -439,14 +440,16 @@ def test_grounding_fires_for_qualified_lowercase_compound(conn) -> None:
     store = _store(conn)
     _seed_chunk(store, "the receipt total was 30 dollars at the market")
     grounding = compute_query_grounding(
-        store, "How many fish are there in my 30-gallon tank?"
+        store, "How many fish are there in my 30-gallon tank?", readable_memory_rows=None
     )
     assert grounding == {"unsupported_entities": ["30-gallon tank"], "checked": 1}
 
     supported = _store(conn)
     _seed_chunk(supported, "set up the new tank for the goldfish")
     assert (
-        compute_query_grounding(supported, "How many fish are there in my 30-gallon tank?")
+        compute_query_grounding(
+            supported, "How many fish are there in my 30-gallon tank?", readable_memory_rows=None
+        )
         is None
     )
 

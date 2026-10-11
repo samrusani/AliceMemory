@@ -5060,6 +5060,21 @@ class VNextRetrievalService:
                     allow_entity_lookup=not source_fence.entity_read_fenced,
                     admitted_entity_names=tuple(str(entity["name"]) for entity in matched_entities),
                     admitted_entity_ids=tuple(str(entity["id"]) for entity in matched_entities),
+                    # A memory the key's limits hide by the labels of its inputs must not count as a mention.
+                    readable_memory_rows=(
+                        (
+                            lambda rows: admit_loaded(
+                                self.store,
+                                kind="memory",
+                                rows=rows,
+                                domains=domains,
+                                sensitivity_allowed=sensitivity_allowed,
+                                projects=projects,
+                            )
+                        )
+                        if source_fence.entity_read_fenced
+                        else None
+                    ),
                 )
             except Exception:
                 # Final best-effort boundary: operational probe failures must

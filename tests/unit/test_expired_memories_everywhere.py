@@ -763,7 +763,8 @@ def test_every_memory_list_in_the_three_doors_states_include_expired_false() -> 
     """A new ``list_memories`` call in a door cannot forget the expiry test: it must say ``include_expired=False``.
 
     The management default is ``True``, so a call that leaves the keyword out would show an
-    expired memory. This pins the keyword on every call in ``_vnext_resume`` (two),
+    expired memory. This pins the keyword on every call in ``_vnext_resume`` (one, shared by the plain read and the
+    read that goes on until it holds a memory the caller may read),
     ``_vnext_recent_decisions`` (one) and ``compile_session_brief`` (one).
 
     Mutation: add a ``store.list_memories(...)`` call without the keyword to any of the three, or
@@ -771,7 +772,7 @@ def test_every_memory_list_in_the_three_doors_states_include_expired_false() -> 
     """
 
     expected = {
-        (SOURCE_ROOT / "mcp" / "retrieval.py", "_vnext_resume"): 2,
+        (SOURCE_ROOT / "mcp" / "retrieval.py", "_vnext_resume"): 1,
         (SOURCE_ROOT / "mcp" / "retrieval.py", "_vnext_recent_decisions"): 1,
         (SOURCE_ROOT / "session_briefing.py", "compile_session_brief"): 1,
     }

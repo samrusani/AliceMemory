@@ -58,9 +58,9 @@ class _Postgres:
         self.key = harness.key(profile, project=project)
         self.context = MCPRuntimeContext(database_url=harness.urls["app"], user_id=UUID(str(harness.user_id)))
 
-    def hide(self, shape: str) -> dict[str, object]:
+    def hide(self, shape: str, text: str | None = None) -> dict[str, object]:
         with self.h.store() as store:
-            return SHAPES[shape](store, self.scope)
+            return SHAPES[shape](store, self.scope, *([] if text is None else [text]))
 
     def call(self, key: str | None, tool: str, **arguments: object) -> dict[str, object]:
         if key:

@@ -371,6 +371,66 @@ def project_first_fill(
     return [*project_rows[:project_take], *global_rows[:global_take]]
 
 
+def project_first_fill_readable(
+    *,
+    limit: int,
+    view: ProjectView,
+    exclude_global_domains: frozenset[str],
+    fetch: PartitionFetch[_ROW],
+    keep: Callable[[Sequence[_ROW]], Sequence[_ROW]],
+) -> list[_ROW]:
+    """``project_first_fill`` over the rows ``keep`` keeps, however many rows come before them.
+
+    A read that cuts to ``limit`` rows and drops the rows a caller may not read afterwards gives that caller
+    fewer rows than exist, or none, when the dropped rows are the newest. ``keep`` is the check that drops them. Each
+    partition is read again with a window eight times as long until it holds ``limit`` kept rows or the read returns
+    fewer rows than the window asked for, which proves the partition is exhausted. The fill then runs over the kept
+    rows exactly as ``project_first_fill`` runs over the rows it is given, so a vault in which ``keep`` drops nothing
+    reads the same single window and gives the same answer.
+    """
+
+    if view.mode != "project" or view.project is None:
+        raise ValueError("project_first_fill_readable needs the project view")
+    if not isinstance(exclude_global_domains, frozenset):
+        raise TypeError("exclude_global_domains must be a frozenset")
+    window = limit
+    while True:
+        project_rows, global_rows = fetch(view.project.ids, exclude_global_domains, window)
+        project_kept, global_kept = list(keep(project_rows)), list(keep(global_rows))
+        if all(
+            len(kept) >= limit or len(rows) < window
+            for rows, kept in ((project_rows, project_kept), (global_rows, global_kept))
+        ):
+            project_take, global_take = fill_counts(
+                limit=limit,
+                project_available=min(len(project_kept), limit),
+                global_available=min(len(global_kept), limit),
+            )
+            return [*project_kept[:project_take], *global_kept[:global_take]]
+        window *= 8
+
+
+def readable_prefix(
+    *,
+    limit: int,
+    fetch: Callable[[int], Sequence[_ROW]],
+    keep: Callable[[Sequence[_ROW]], Sequence[_ROW]],
+) -> list[_ROW]:
+    """The first ``limit`` rows of a newest-first read that ``keep`` keeps.
+
+    ``fetch(window)`` returns at most ``window`` rows. The window starts at ``limit`` and grows eight times each round
+    until ``limit`` rows are kept or the read returns fewer rows than it was asked for, which proves it is exhausted.
+    """
+
+    window = limit
+    while True:
+        rows = fetch(window)
+        kept = list(keep(rows))
+        if len(kept) >= limit or len(rows) < window:
+            return kept[:limit]
+        window *= 8
+
+
 def fetch_in_two_queries(
     fetch_one: Callable[[tuple[str, ...], frozenset[str], int], Sequence[_ROW]],
 ) -> PartitionFetch[_ROW]:
@@ -410,6 +470,8 @@ __all__ = [
     "fetch_in_two_queries",
     "fill_counts",
     "project_first_fill",
+    "project_first_fill_readable",
+    "readable_prefix",
     "resolve_project_view",
     "resolve_view_at_edge",
     "status_line",
