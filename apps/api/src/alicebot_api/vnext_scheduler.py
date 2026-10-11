@@ -640,7 +640,9 @@ def withhold_unreadable_artifact(
     The artifact of a run is a row the caller is shown, whether the run made it or found it already stored under the same
     digest, so it is judged as the artifact read is (``readable_artifact``), on the labels it has now. When the caller may
     not read it the answer carries no artifact, and the run is returned without the id it recorded, in its own column and
-    in its metadata, so that nothing says a report exists. The stored run keeps both for the owner. The owner and an
+    in its metadata, so the answer names no report, quotes none and counts none. It still shows that one was made: a run
+    that succeeded with no artifact is not a run that failed. The stored run keeps both ids for the owner, and so do the
+    status and runs routes, which admit only the owner, an unbound admin key and an unbound trusted key. The owner and an
     unbound admin key have no limits and get both unchanged, with nothing read.
     """
 
