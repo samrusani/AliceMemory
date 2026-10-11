@@ -12,10 +12,10 @@ and project state built from it, and five commits that quote it (two confirmed i
   calls every ``/v0/vnext`` route the way the probe table does (plus the same call aimed at the redacted and derived rows by id,
   and every sensitivity where the route takes a filter) and requires that no answer carries a sentinel of the vault's hidden set,
   the words of the redacted memory included, and that no hidden row changed. It collects every leak before it fails.
-* ``test_the_doors_withhold_the_quote_and_keep_the_id`` names the doors of the finding (recent commits with and without a short
-  limit, the memory audit, the workspace with its recent events and its agent activity, ``alice_explain``,
-  ``alice_memory_review`` detail and the legacy recent commits tool) and reads the ref a restricted key is shown, so an answer that
-  is silent for another reason cannot pass.
+* ``test_the_doors_withhold_the_quote_and_keep_the_id`` names the doors that returned the quote of a memory the caller may
+  not read (recent commits with and without a short limit, the memory audit, the workspace with its recent events and its
+  agent activity, ``alice_explain``, ``alice_memory_review`` detail and the legacy recent commits tool) and reads the ref a
+  restricted key is shown, so an answer that is silent for another reason cannot pass.
 * ``test_the_owner_and_an_unbound_admin_key_keep_the_quote_and_read_the_contained_rows`` is the control the other way, and says
   what the owner reads after a redaction (by id, in the lists and the dashboard; not through recall, the pack or the tree, which a
   request naming every sensitivity widens).
@@ -139,7 +139,7 @@ def test_no_restricted_profile_is_shown_the_words_of_a_redacted_memory_on_any_ro
     and no answer carries the words of the memory, a title or text of a copy, or any other sentinel of the hidden set. No hidden
     row changes. Every leak is collected before the test fails, so one run names them all.
 
-    The finding was that a commit's saved quote of a memory came back to an unbound ``trusted_local_agent`` key from the recent
+    Before the saved-quote fence, a commit's saved quote of a memory came back to an unbound ``trusted_local_agent`` key from the recent
     commits route, the memory audit and the workspace. This sweep reaches them (the quoting commits are public, so each key may
     read the commit) and every other route a commit's metadata could ride out of, the event feeds included (the workspace lists the
     confirmation of the agent key in its agent activity, which the owner's confirmation never reaches). The unbound trusted
@@ -213,7 +213,7 @@ def _get(vault: Vault, template: str, key, **path_and_query):
 
 
 def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch):
-    """The doors of the finding, one by one, for every restricted profile that reaches them. A key that may read the quoting
+    """The doors that returned the quote, one by one, for every restricted profile that reaches them. A key that may read the quoting
     commit is shown the ref with the id of the memory and a ``null`` quote, in both spellings; none is shown the words. The
     workspace lists the events of the commit that was confirmed, among its recent events and, for the commit an agent key
     confirmed, in its agent activity too, and each event holds the ref with its id and no quote.
