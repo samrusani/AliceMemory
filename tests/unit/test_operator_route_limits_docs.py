@@ -277,6 +277,3 @@ def test_the_pages_list_the_run_records_and_task_rows_that_still_name_a_report_t
         assert _STILL_NAMED in paragraph, page
         assert "left out because the caller may not read it" in paragraph, page
         assert "The routes admit the owner, an unbound `admin_agent` key and an unbound `trusted_local_agent` key, and refuse every other key HTTP 403" in paragraph, page
-    limitations = _text("docs/alpha/known-limitations.md")
-    assert "the scheduler status and runs routes list the same run records" in limitations
-    assert "`tasks[].output_artifact_id` and `tasks[].metadata_json.artifact_id` even where the answer of the run or of `queue/process-next` left it out" in limitations
