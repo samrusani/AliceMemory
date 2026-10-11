@@ -176,16 +176,30 @@ def test_the_proposal_builder_takes_what_is_inside_the_limits(ref: object) -> No
 def test_the_connector_normalizer_refuses_what_cannot_be_stored(connector: str, bad: object) -> None:
     payload = {"content": "An agent output.", "text": "text", "agent_id": "agent-1", "title": "Output", "url": "https://example.test/",
                "transcript": "words", "source_refs": [bad]}
-    with pytest.raises(VNextConnectorValidationError, match=r"item must (nest at most 64 levels|not hold NaN)"):
+    with pytest.raises(VNextConnectorValidationError, match=r"(item|each source_ref) must (nest at most 64 levels|not hold NaN)"):
         normalize_connector_item(connector, payload)
 
 
 def test_the_connector_normalizer_takes_an_item_inside_the_limits() -> None:
     item = normalize_connector_item(
         "agent_output",
-        {"content": "An agent output.", "agent_id": "agent-1", "title": "Output", "source_refs": [_nested(LIMIT - 2)]},
+        {"content": "An agent output.", "agent_id": "agent-1", "title": "Output", "source_refs": [_nested(LIMIT)]},
     )
     assert item.raw_text == "An agent output."
+
+
+def test_a_source_ref_of_an_agent_output_is_measured_as_the_commit_door_measures_it() -> None:
+    """The commit door takes a ref nested 64 levels and refuses 65. The agent output door counts the same: the ref is the
+    caller's value, and the two levels of the item and of its list are not charged to it. Any other field of the item is
+    measured from the item."""
+
+    base = {"content": "An agent output.", "agent_id": "agent-1", "title": "Output"}
+    normalize_connector_item("agent_output", {**base, "source_refs": [_nested(LIMIT), "source:abc"]})
+    with pytest.raises(VNextConnectorValidationError, match=r"each source_ref must nest at most 64 levels"):
+        normalize_connector_item("agent_output", {**base, "source_refs": ["source:abc", _nested(LIMIT + 1)]})
+    normalize_connector_item("agent_output", {**base, "extra": _nested(LIMIT - 1)})
+    with pytest.raises(VNextConnectorValidationError, match=r"agent_output item must nest at most 64 levels"):
+        normalize_connector_item("agent_output", {**base, "extra": _nested(LIMIT), "source_refs": []})
 
 
 def test_a_connector_payload_file_is_held_to_the_limits(tmp_path) -> None:

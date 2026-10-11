@@ -920,9 +920,18 @@ def _normalize_voice_item(payload: JsonObject) -> NormalizedConnectorItem:
 def normalize_connector_item(connector_name: str, payload: Mapping[str, object]) -> NormalizedConnectorItem:
     definition = get_connector_definition(connector_name)
     # Every connector path (a sync, an agent output, a Telegram update, a file) stores the whole item under
-    # ``metadata_json.raw_payload``, so this is the one place to hold it to the write limits.
+    # ``metadata_json.raw_payload``, so this is the one place to hold it to the write limits. The caller's value is held
+    # to 64 levels as the commit door holds it: an item is one value, and so is each entry of its ``source_refs``, which
+    # sits two levels down in the item and is not charged for them.
     try:
-        refuse_unstorable_json(payload, name=f"{definition.name} item")
+        refs = payload.get("source_refs")
+        if isinstance(refs, list):
+            refuse_unstorable_json({key: value for key, value in payload.items() if key != "source_refs"},
+                                   name=f"{definition.name} item")
+            for ref in refs:
+                refuse_unstorable_json(ref, name="each source_ref")
+        else:
+            refuse_unstorable_json(payload, name=f"{definition.name} item")
     except JsonShapeError as exc:
         raise VNextConnectorValidationError(str(exc)) from exc
     item = _as_json_object(cast(JsonObject, redact_secret_fields(dict(payload))), label=f"{definition.name} item")

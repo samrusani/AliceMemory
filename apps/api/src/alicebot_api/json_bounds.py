@@ -295,8 +295,9 @@ def _finite_float(text: str) -> float:
 
 # Every way a JSON text can hold a number that is not finite, and no way to hold one that this does not match: the words
 # ``NaN`` and ``Infinity`` (``-Infinity`` holds the second), a float with an exponent of three digits or more, and a run of
-# 300 digits or more (a float of that size overflows). A text that matches none of them is decoded without the hooks.
-_MAY_HOLD_NON_FINITE = re.compile(r"NaN|Infinity|[0-9][eE][+-]?[0-9]{3,}|[0-9]{300,}")
+# 200 digits or more (a float of 300 digits overflows, and so does one of 200 to 299 digits with an exponent of 11 or more;
+# a shorter run needs an exponent of 111 or more). A text that matches none of them is decoded without the hooks.
+_MAY_HOLD_NON_FINITE = re.compile(r"NaN|Infinity|[0-9][eE][+-]?[0-9]{3,}|[0-9]{200,}")
 
 
 def loads_finite(text: str, *, name: str = "the JSON text") -> Any:

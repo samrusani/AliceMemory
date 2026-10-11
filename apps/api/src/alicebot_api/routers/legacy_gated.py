@@ -363,7 +363,7 @@ class TaskStepRequestSnapshot(BaseModel):
     scope: str = Field(min_length=1, max_length=200)
     domain_hint: str | None = Field(default=None, min_length=1, max_length=200)
     risk_hint: str | None = Field(default=None, min_length=1, max_length=100)
-    attributes: dict[str, object] = Field(default_factory=dict)
+    attributes: BoundedJsonObject = Field(default_factory=dict)
 
 
 class TaskStepOutcomeRequest(BaseModel):

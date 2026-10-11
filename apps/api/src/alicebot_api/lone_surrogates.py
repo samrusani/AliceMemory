@@ -166,11 +166,37 @@ async def payload_lone_surrogate_location(request: Request, payload: object) -> 
 # ended as a server error.
 NOT_FINITE_MESSAGE = "Input should be a finite number"
 
-# Every way a body can hold a number that is not finite, and no way to hold one that this does not match: the words
-# ``NaN`` and ``Infinity`` (``-Infinity`` holds the second), a float with an exponent of three digits or more, a run of
-# 300 digits or more (a float of that size overflows), and any NUL byte, because a UTF-16 or UTF-32 body spells every
-# ASCII character with one. A body that matches none of them cannot hold one and is not parsed again.
-_MAY_HOLD_NON_FINITE = re.compile(rb"NaN|Infinity|[0-9][eE][+-]?[0-9]{3,}|[0-9]{300,}|\x00")
+# Where a body can hold a number that is not finite, and no other place: the words ``NaN`` and ``Infinity`` (``-Infinity``
+# holds the second), a float with a positive exponent of three digits or more, a run of 200 digits or more (a float that
+# long, or with a short exponent, can pass 1.8e308: a run of 199 digits or fewer needs an exponent of 111 or more), and any
+# NUL byte, because a UTF-16 or UTF-32 body spells every ASCII character with one. A negative exponent only shrinks a
+# number. The words and the NUL byte are found with ``in``, which searches at memory speed. The digit rules are found in
+# the body written in a shape (``_SHAPE``) in which a digit is ``0`` and every byte that is not part of a number is a space,
+# so each rule is a fixed string and ``in`` finds it too. A body that matches none of them cannot hold one and is not parsed.
+_SHAPE = bytes(
+    101 if byte in (69, 101) else 48 if 48 <= byte <= 57 else 43 if byte == 43 else 32 for byte in range(256))
+_SHAPES_OF_AN_EXPONENT = (b"0e000", b"0e+000")
+_TWO_HUNDRED_DIGITS = b"0" * 200
+# A number the shape matched, read as it stands in the body. A hexadecimal id in a string ("...5e350...") has the shape of an
+# exponent, but a letter, a digit, a dot or a sign stands before or after it, which a JSON number never has, so it is not
+# read.
+_SUSPECT_NUMBER = re.compile(
+    rb"(?<![0-9A-Za-z_.+\-])-?(?:[0-9]+(?:\.[0-9]+)?[eE]\+?[0-9]{3,}|[0-9]{200,}(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)"
+    rb"(?![0-9A-Za-z_.+\-])")
+
+
+def may_hold_non_finite(raw_body: bytes) -> bool:
+    """Whether a JSON body may hold a number that is not finite. ``False`` is exact; ``True`` means the body has to be
+    decoded to know. The common body (text, ids, ordinary numbers) is answered in a few passes at memory speed."""
+
+    if b"NaN" in raw_body or b"Infinity" in raw_body or b"\x00" in raw_body:
+        return True
+    shape = raw_body.translate(_SHAPE)
+    if not any(each in shape for each in (*_SHAPES_OF_AN_EXPONENT, _TWO_HUNDRED_DIGITS)):
+        return False
+    # Rare: a body with a long number or a number with a long exponent, or a hexadecimal id that looks like one. Only a
+    # number that is infinite as a float sends the body to the decoder.
+    return any(not math.isfinite(float(found.group())) for found in _SUSPECT_NUMBER.finditer(raw_body))
 
 
 def find_non_finite(value: object) -> Location | None:
@@ -211,7 +237,7 @@ def body_non_finite_location(raw_body: bytes) -> Location | None:
     not JSON, or is too deep for the decoder, is left to the framework and answers None.
     """
 
-    if not raw_body or _MAY_HOLD_NON_FINITE.search(raw_body) is None:
+    if not raw_body or not may_hold_non_finite(raw_body):
         return None
     try:
         decoded = json.loads(raw_body)

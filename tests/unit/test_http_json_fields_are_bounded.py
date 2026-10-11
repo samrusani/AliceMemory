@@ -1,13 +1,17 @@
 """Every HTTP request-model field that holds free JSON is held to the write limits, by its type or by its service.
 
 A field typed ``dict[str, object]``, ``list[object]``, ``list[dict[str, object]]`` or ``object`` takes any JSON the body
-limit lets through: up to 256 levels, and any number the decoder reads. The test walks every ``*Request`` model of
-``alicebot_api.routers`` and lists the fields of that kind. Each one must either use one of the bounded types of
+limit lets through: up to 256 levels, and any number the decoder reads. The test walks every model that can arrive in a
+request body, the body model of each route of ``alicebot_api.routers`` and the models nested in its fields at any depth
+(whatever its name: ``TaskStepRequestSnapshot`` is nested in ``CreateNextTaskStepRequest``), and lists the fields of that
+kind. Each one must either use one of the bounded types of
 ``alicebot_api.http_json_types`` (a 422 that names the field and the limit) or be named below with the service that holds
 it to the same limits and answers its own 400, and the test that proves that service. A field added later that does
 neither fails here, so a new door cannot store unbounded JSON by being new.
 
-Mutations, each one alone: change one bounded field back to ``dict[str, object]`` (this test lists it as unbounded);
+Mutations, each one alone: change one bounded field back to ``dict[str, object]`` (this test lists it as unbounded; so does
+the nested ``TaskStepRequestSnapshot.attributes``); make the walk stop at the models routes take (the nested field is no longer
+listed: ``test_the_walk_finds_the_fields_it_should``);
 remove a name from ``HELD_BY_A_SERVICE`` (this test lists the field as unbounded); change a name there to a test that does
 not exist (``test_every_service_held_field_names_a_test_that_exists`` fails).
 """
@@ -21,6 +25,8 @@ import pkgutil
 import types
 from typing import Annotated, Any, Union, get_args, get_origin
 
+from fastapi import APIRouter
+from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
 import alicebot_api.routers as routers_package
@@ -76,13 +82,48 @@ def _uses_a_bounded_type(field) -> bool:
     return any(getattr(item, "func", None) is bounded_json for item in field.metadata) or _annotation_is_bounded(field.annotation)
 
 
-def _request_models() -> dict[str, type[BaseModel]]:
-    found: dict[str, type[BaseModel]] = {}
+def _models_in(annotation: Any) -> list[type[BaseModel]]:
+    """Every pydantic model an annotation names, however deep it sits in lists, dicts, unions and ``Annotated``."""
+
+    if inspect.isclass(annotation):
+        return [annotation] if issubclass(annotation, BaseModel) else []
+    return [model for arg in get_args(annotation) for model in _models_in(arg)]
+
+
+def _routes() -> list[Any]:
+    """Every route of every router of ``alicebot_api.routers``, whether or not the application mounts it in this process
+    (the legacy routers are mounted only when the legacy surfaces are enabled), and the routes of the application."""
+
+    import alicebot_api.main as main_module
+
+    routes = list(main_module.app.routes)
     for info in pkgutil.iter_modules(routers_package.__path__):
         module = importlib.import_module(f"alicebot_api.routers.{info.name}")
-        for name, value in vars(module).items():
-            if inspect.isclass(value) and issubclass(value, BaseModel) and value.__module__ == module.__name__ and name.endswith("Request"):
-                found[f"{info.name}.{name}"] = value
+        for value in vars(module).values():
+            if isinstance(value, APIRouter):
+                routes.extend(value.routes)
+    return routes
+
+
+def _request_models() -> dict[str, type[BaseModel]]:
+    """Every model that can arrive in a request body: the body models of the routes, and every model nested in a field of
+    one of them, at any depth (``CreateNextTaskStepRequest.request`` is a ``TaskStepRequestSnapshot``, which no route takes
+    on its own). Keyed ``module.ClassName``, where the module is the last part of the name of the module that defines it."""
+
+    found: dict[str, type[BaseModel]] = {}
+    pending: list[type[BaseModel]] = []
+    for route in _routes():
+        if isinstance(route, APIRoute):
+            for param in route.dependant.body_params:
+                pending.extend(_models_in(param.field_info.annotation))
+    while pending:
+        model = pending.pop()
+        key = f"{model.__module__.rsplit('.', 1)[-1]}.{model.__name__}"
+        if key in found and found[key] is model:
+            continue
+        found[key] = model
+        for field in model.model_fields.values():
+            pending.extend(_models_in(field.annotation))
     return found
 
 
@@ -99,6 +140,10 @@ def test_the_walk_finds_the_fields_it_should() -> None:
     free = _free_fields()
     assert len(_request_models()) > 100
     assert len(free) >= 50
+    # A model that no route takes on its own, nested in the body of one that does, and a model that the application does not
+    # mount unless the legacy surfaces are on.
+    assert "legacy_gated.TaskStepRequestSnapshot.attributes" in free
+    assert "legacy_gated.CreateNextTaskStepRequest" in _request_models()
     assert "vnext_memories.VNextMemoryCommitRequest.source_refs" in free
     assert "providers.RegisterProviderRequest.metadata" in free
 
@@ -140,3 +185,33 @@ def test_the_bounded_types_do_not_change_the_published_schema() -> None:
     assert schemas["VNextBrainCharterUpsertRequest"]["properties"]["active_projects_json"] == {
         "items": {}, "title": "Active Projects Json", "type": "array"}
     assert schemas["AdmitMemoryRequest"]["properties"]["value"] == {"anyOf": [{}, {"type": "null"}], "title": "Value"}
+
+
+def test_the_task_step_attributes_nested_in_a_request_refuse_depth_and_non_finite_numbers() -> None:
+    """``POST /v0/tasks/{task_id}/steps`` takes its ``attributes`` two models down (``CreateNextTaskStepRequest.request``)."""
+
+    import pytest
+    from pydantic import ValidationError
+
+    from alicebot_api.routers.legacy_gated import CreateNextTaskStepRequest
+
+    def body(attributes: object) -> dict:
+        return {
+            "user_id": "00000000-0000-0000-0000-000000000001", "status": "created",
+            "request": {"thread_id": "00000000-0000-0000-0000-000000000002", "tool_id": "00000000-0000-0000-0000-000000000003",
+                        "action": "read", "scope": "workspace", "attributes": attributes},
+            "outcome": {"routing_decision": "ready"},
+            "lineage": {"parent_step_id": "00000000-0000-0000-0000-000000000004"},
+        }
+
+    ok: object = {"k": 1}
+    CreateNextTaskStepRequest.model_validate(body(ok))
+    deep: object = {"leaf": 1}
+    for _ in range(70):
+        deep = {"k": deep}
+    with pytest.raises(ValidationError) as too_deep:
+        CreateNextTaskStepRequest.model_validate(body(deep))
+    assert too_deep.value.errors()[0]["type"] == "json_too_deep"
+    with pytest.raises(ValidationError) as not_finite:
+        CreateNextTaskStepRequest.model_validate(body({"score": float("nan")}))
+    assert not_finite.value.errors()[0]["type"] == "finite_number"
