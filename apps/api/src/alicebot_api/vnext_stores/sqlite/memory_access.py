@@ -408,6 +408,7 @@ def _memory_list_clauses(
     created_at_end: datetime | None,
     query: str | None,
     include_expired: bool,
+    readable_by: tuple[Sequence[str] | None, Sequence[str] | None] | None = None,
 ) -> tuple[str, list[object], str, list[object]] | None:
     """The filters of ``list_memories`` in two pieces, or ``None`` when they admit nothing.
 
@@ -448,11 +449,17 @@ def _memory_list_clauses(
         sensitivity_placeholders = ", ".join("?" for _sensitivity in sensitivity_allowed)
         sensitivity_sql = f" AND COALESCE(sensitivity, 'unknown') IN ({sensitivity_placeholders})"
         params.extend(sensitivity_allowed)
+    hidden_sql = ""
+    if readable_by is not None:
+        from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+
+        hidden_sql = " AND " + hidden_memory_input_sql(readable_by[1], sqlite=True, alias="memories", domains=readable_by[0], memory_inputs=False)
     head_sql = (
         f"WHERE user_id = ?{status_sql}{statuses_sql}{memory_types_sql}"
         f"\n                  AND deleted_at IS NULL"
         f"\n                  {domains_sql}"
         f"\n                  {sensitivity_sql}"
+        f"{hidden_sql}"
     )
     tail_params: list[object] = []
     created_at_sql = ""
@@ -495,6 +502,7 @@ def list_memories(
     limit: int | None = None,
     include_expired: bool = True,
     exclude_global_domains: Sequence[str] | None = None,
+    readable_by: tuple[Sequence[str] | None, Sequence[str] | None] | None = None,
 ) -> list[VNextRow]:
     """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
 
@@ -507,6 +515,10 @@ def list_memories(
     ``LIMIT``, so a held-back row never uses up a place. It has no effect on a
     request that does not hold the marker. With the marker it must be stated, an
     empty tuple when nothing is left out: ``None`` raises.
+
+    ``readable_by`` is ``(domains, sensitivity_allowed)``, the limits of a caller, and leaves out before ``LIMIT`` a
+    memory that those limits cannot admit because of a direct input (see ``hidden_memory_input_sql``). It is a proof
+    of what is hidden and never a grant: the rows it keeps still go through the caller's effective-label check.
     """
     if limit is not None and limit < 1:
         raise ValueError("limit must be positive")
@@ -521,6 +533,7 @@ def list_memories(
         created_at_end=created_at_end,
         query=query,
         include_expired=include_expired,
+        readable_by=readable_by,
     )
     if clauses is None:
         return []
@@ -1234,6 +1247,7 @@ def search_memories_fts(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    readable_by: tuple[Sequence[str] | None, Sequence[str] | None] | None = None,
 ) -> list[VNextRow]:
     # Strict pass ANDs every non-stopword term (websearch parity);
     # match_any (the retrieval OR-fallback) ORs them instead so a
@@ -1260,7 +1274,10 @@ def search_memories_fts(
     )
     prefixed_columns = ", ".join(f"m.{column}" for column in MEMORY_COLUMNS)
     from alicebot_api.vnext_label_sql import hidden_memory_input_sql
-    label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=True)
+    # ``readable_by`` adds the proof by domain to the proof by sensitivity that every call carries.
+    label_sql = hidden_memory_input_sql(
+        sensitivity_allowed, sqlite=True, domains=None if readable_by is None else readable_by[0]
+    )
     params: list[object] = [match_expression, self.user_id]
     params.extend(domain_params)
     params.extend(sensitivity_params)

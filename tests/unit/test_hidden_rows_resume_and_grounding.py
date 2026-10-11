@@ -44,8 +44,10 @@ from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
 from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_grounding import corpus_support
+from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
 from alicebot_api.vnext_label_writes import without_insert_floor
-from tests.unit.per_project_s2_support import USER_ID, add_memory, context_for, db_path_for, repo_with_remote
+from alicebot_api.vnext_project_scope import GLOBAL_PROJECT_MARKER
+from tests.unit.per_project_s2_support import USER_ID, add_loop, add_memory, context_for, db_path_for, repo_with_remote
 from tests.unit.per_project_view_support import project_view
 from tests.unit.test_recall_fallback_hidden_rows import HIDDEN_FROM, KEYS, VISIBLE_TEXT, _memory, _scope, _source, _Vault
 
@@ -109,11 +111,10 @@ def test_a_readable_row_that_mentions_a_name_still_supports_it(tmp_path: Path, m
 
 
 def test_a_hidden_row_ahead_of_a_readable_one_does_not_hide_the_mention(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation: return after the first page of the memory probe (replace ``if len(rows) < page:`` in
-    ``_first_readable_memory_row`` with ``if True:``).
+    """Mutation: replace ``room = READABLE_SCAN_CAP - len(first)`` in ``_first_readable_memory_row`` with ``room = 0``.
 
-    Two hidden rows rank ahead of the one readable row that mentions the name, and the probe asks for one row first.
-    The probe must go on to the page that holds the readable one.
+    Three hidden rows rank ahead of the one readable row that mentions the name, and the probe asks for one row first.
+    The probe must go on to the rows after it.
     """
 
     vault = _Vault(tmp_path, monkeypatch)
@@ -125,6 +126,71 @@ def test_a_hidden_row_ahead_of_a_readable_one_does_not_hide_the_mention(tmp_path
             parent = _source(store, "parent-" + tag, domain="health")
             _memory(store, "hidden-" + tag, "Zorblax Zorblax Zorblax hidden record " + tag, {"source_id": str(parent["id"])})
     assert _grounding(vault, key) == (ONE_UNSUPPORTED, ONE_UNSUPPORTED)
+
+
+# The ceiling the grounding check judges with is the caller's own: a trusted key reads the private level and every domain,
+# so a derived mention at either is a mention for it. Each test below puts the mention on one side of one limit.
+CEILING_CELLS = [
+    pytest.param("project", "private", id="private-level"),
+    pytest.param("health", "public", id="health-domain"),
+    pytest.param("health", "private", id="private-level-in-health"),
+]
+
+
+@pytest.mark.parametrize(("parent_domain", "parent_sensitivity"), CEILING_CELLS)
+def test_a_derived_mention_the_trusted_key_may_read_supports_the_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, parent_domain: str, parent_sensitivity: str
+) -> None:
+    """Mutation: pass ``sensitivity_allowed=["public"]`` to ``admit_loaded`` in the grounding call of
+    ``compile_context_pack`` (the private cases fail), and, in another run, ``domains=["project"]`` (the health cases fail).
+
+    A trusted key may read the private sensitivity and every domain. The mention is a derived row whose source is at the
+    level and in the domain named, so it reaches the check with stored labels that are public and in project and is judged
+    on the labels of its input. For the trusted key the name is supported; the control reads the same vault as the owner.
+    """
+
+    vault = _Vault(tmp_path, monkeypatch)
+    key = vault.key("trusted")
+    with vault.store() as store:
+        parent = _source(store, "mention-parent", domain=parent_domain, sensitivity=parent_sensitivity)
+        _memory(store, "mention", NAME_TEXT, {"source_id": str(parent["id"])})
+    assert _grounding(vault, None) == (ONE_UNSUPPORTED, ONE_UNSUPPORTED)
+    assert _grounding(vault, key) == (ONE_UNSUPPORTED, ONE_UNSUPPORTED)
+
+
+@pytest.mark.parametrize(("parent_domain", "parent_sensitivity"), [("project", "confidential"), ("project", "highly_sensitive")])
+def test_a_derived_mention_above_the_trusted_keys_ceiling_does_not_support_the_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, parent_domain: str, parent_sensitivity: str
+) -> None:
+    """Mutation: replace ``readable_memory_rows=(`` in the grounding call of ``compile_context_pack`` with a check that keeps
+    every row (``readable_memory_rows=lambda rows: rows,``).
+
+    The same shape, one level above what a trusted key may read: the name is as unsupported as in a vault without the row.
+    """
+
+    vault = _Vault(tmp_path, monkeypatch)
+    key = vault.key("trusted")
+    with vault.store() as store:
+        parent = _source(store, "mention-parent", domain=parent_domain, sensitivity=parent_sensitivity)
+        _memory(store, "mention", NAME_TEXT, {"source_id": str(parent["id"])})
+    everything = vault.call(None, "alice_context_pack", query=NAMES_QUERY, debug=True, sensitivity_allowed=list(ALL_SENSITIVITY))
+    assert everything["grounding"] == ONE_UNSUPPORTED, "the row must be a mention for the owner who asks for every level"
+    assert _grounding(vault, key) == (BOTH_UNSUPPORTED, BOTH_UNSUPPORTED)
+
+
+@pytest.mark.parametrize("name", ["admin_alpha", "trusted_alpha", "read_only_alpha"])
+def test_a_key_bound_to_a_project_gets_no_grounding_block(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    """Mutation: replace ``if depth != CONTEXT_DEPTH_MINIMAL and not scope.active:`` in ``compile_context_pack`` with
+    ``if depth != CONTEXT_DEPTH_MINIMAL:``.
+
+    A pack with a project scope has no grounding block, so for a bound admin key (or any bound key) there is no ceiling to
+    judge a mention with. The test keeps that so: if a bound key gets a block, the ceiling cases above need a bound variant.
+    """
+
+    vault = _Vault(tmp_path, monkeypatch, scoped=True)
+    key = vault.key(name)
+    pack = vault.call(key, "alice_context_pack", query=NAMES_QUERY, debug=True)
+    assert "grounding" not in pack
 
 
 @pytest.mark.parametrize("name", [None, "admin"])
@@ -153,14 +219,16 @@ class _ProbeStore:
     def __init__(self, rows: list[dict[str, object]]) -> None:
         self.rows = rows
         self.calls: list[tuple[int, int, bool]] = []
+        self.readable_by: list[object] = []
 
-    def search_memories_fts(self, *, query, domains=None, sensitivity_allowed=None, limit=50, offset=0, match_any=False):  # type: ignore[no-untyped-def]
+    def search_memories_fts(self, *, query, domains=None, sensitivity_allowed=None, limit=50, offset=0, match_any=False, readable_by=None):  # type: ignore[no-untyped-def]
         self.calls.append((limit, offset, match_any))
+        self.readable_by.append(readable_by)
         return self.rows[offset:offset + limit]
 
 
 class _PrefixProbeStore(_ProbeStore):
-    """The same for an adapter that takes no ``offset``: the probe asks for a longer prefix each time."""
+    """The same for an adapter that takes no ``offset``: the second read is a longer prefix."""
 
     memory_fts_offset_paging = False
 
@@ -185,52 +253,86 @@ def _readable(rows: Sequence[dict[str, object]]) -> list[dict[str, object]]:
     return [dict(row) for row in rows if not row.get("hidden")]
 
 
-def test_the_probe_pages_past_hidden_rows_to_the_first_readable_one() -> None:
-    """Mutation: replace ``page = _READABLE_PROBE_PAGE`` in ``_first_readable_memory_row`` with ``page = 1``.
+CAP = READABLE_SCAN_CAP
 
-    300 hidden rows come before the readable one. The probe asks for one row, as the owner's probe does, and then for
-    pages of 128 past it.
+
+def test_the_probe_reads_past_the_first_row_to_the_first_readable_one() -> None:
+    """Mutation: replace ``room = READABLE_SCAN_CAP - len(first)`` in ``_first_readable_memory_row`` with ``room = 0``.
+
+    100 hidden rows come before the readable one. The probe asks for one row, as the owner's probe does, and then once for
+    the rest of the rows up to the cap, from the offset after the first.
     """
 
-    store = _ProbeStore(_rows(300, 1))
+    store = _ProbeStore(_rows(100, 1))
     assert corpus_support(["Zorblax"], store, readable_memory_rows=_readable) == {"Zorblax": True}
-    assert store.calls == [(1, 0, True), (128, 1, True), (128, 129, True), (128, 257, True)]
+    assert store.calls == [(1, 0, True), (CAP - 1, 1, True)]
 
 
 def test_the_probe_ends_when_the_matches_run_out_and_none_is_readable() -> None:
-    """Mutation: replace ``return []`` after ``if len(rows) < page:`` in ``_first_readable_memory_row`` with ``return None``.
+    """Mutation: replace ``return [] if len(later) < room else [_PROBE_GAVE_UP]`` in ``_first_readable_memory_row`` with
+    ``return [_PROBE_GAVE_UP]``.
 
-    Every match is hidden: the name has no readable mention, which is the answer of a vault without those rows.
+    Every match is hidden and the matches end before the cap: the name has no readable mention, which is the answer of a
+    vault without those rows.
     """
 
     store = _ProbeStore(_rows(3, 0))
     assert corpus_support(["Zorblax"], store, readable_memory_rows=_readable) == {"Zorblax": False}
-    assert store.calls == [(1, 0, True), (128, 1, True)]
+    assert store.calls == [(1, 0, True), (CAP - 1, 1, True)]
+
+
+def test_the_probe_stops_at_the_cap_and_reads_the_name_as_supported() -> None:
+    """Mutation: replace ``return [] if len(later) < room else [_PROBE_GAVE_UP]`` in ``_first_readable_memory_row`` with
+    ``return []``.
+
+    Hidden matches fill the cap and more follow, so the probe has not seen the last match. It reads two times and no more, and
+    the name reads as supported, because the module claims that a name is unmentioned only when it has looked at every
+    match. The readable row after the cap is not looked for.
+    """
+
+    store = _ProbeStore(_rows(CAP * 3, 1))
+    assert corpus_support(["Zorblax"], store, readable_memory_rows=_readable) == {"Zorblax": True}
+    assert store.calls == [(1, 0, True), (CAP - 1, 1, True)]
 
 
 def test_the_owner_probe_is_still_one_row() -> None:
     """Mutation: pass ``readable_rows=readable_memory_rows`` for every caller (``memory_probe = True``).
 
-    The owner and an unbound admin key leave ``readable_memory_rows`` unset: one call for one row, no paging.
+    The owner and an unbound admin key leave ``readable_memory_rows`` unset: one call for one row, no second read.
     """
 
     store = _ProbeStore(_rows(5, 1))
     assert corpus_support(["Zorblax"], store) == {"Zorblax": True}
     assert store.calls == [(1, 0, True)]
+    assert store.readable_by == [None]
 
 
-def test_an_adapter_without_offset_is_asked_for_longer_prefixes_up_to_a_ceiling() -> None:
-    """Mutation: replace ``page = min(page * 8, _READABLE_PROBE_PREFIX_CEILING)`` with ``page = page``.
+def test_the_probe_of_a_caller_with_limits_gives_the_store_its_limits() -> None:
+    """Mutation: drop ``filters["readable_by"] = readable_by`` in ``_first_readable_memory_row``.
 
-    No readable row within the ceiling: the probe could not run, which grounding reads as no claim.
+    A store that names ``readable_by`` leaves out, before its limit, the rows a direct input hides from the caller, so the
+    hidden rows do not use up the cap. A store that does not name it (the strict store above) is not given it.
+    """
+
+    store = _ProbeStore(_rows(0, 1))
+    assert corpus_support(["Zorblax"], store, domains=("project",), sensitivity_allowed=("public",),
+                          readable_memory_rows=_readable) == {"Zorblax": True}
+    assert store.readable_by == [(("project",), ("public",))]
+
+
+def test_an_adapter_without_offset_is_asked_for_a_prefix_up_to_the_cap() -> None:
+    """Mutation: replace ``ask(limit=READABLE_SCAN_CAP)[len(first):]`` in ``_first_readable_memory_row`` with
+    ``ask(limit=READABLE_SCAN_CAP)``.
+
+    The second read is a prefix of the cap's length, and the first row, which was judged, is not judged again.
     """
 
     found = _PrefixProbeStore(_rows(70, 1))
     assert corpus_support(["Zorblax"], found, readable_memory_rows=_readable) == {"Zorblax": True}
-    assert [call[0] for call in found.calls] == [1, 8, 64, 512]
-    ceiling = _PrefixProbeStore(_rows(20000, 0))
-    assert corpus_support(["Zorblax"], ceiling, readable_memory_rows=_readable) is None
-    assert [call[0] for call in ceiling.calls][-1] == 16384
+    assert [call[0] for call in found.calls] == [1, CAP]
+    ceiling = _PrefixProbeStore(_rows(CAP * 2, 1))
+    assert corpus_support(["Zorblax"], ceiling, readable_memory_rows=_readable) == {"Zorblax": True}
+    assert [call[0] for call in ceiling.calls] == [1, CAP]
 
 
 def test_a_store_without_match_any_gets_the_strict_probe() -> None:
@@ -341,6 +443,65 @@ def test_a_newer_hidden_open_loop_does_not_change_the_open_loops_of_a_restricted
     assert _brief(vault, key, max_open_loops=3) == before
 
 
+def _titles(items: object) -> set[str]:
+    return {json.loads(item["title"]) for item in items}  # type: ignore[attr-defined, index, union-attr]
+
+
+def _loops(vault: _Vault, titles: Sequence[str], *, parent: dict[str, object] | None = None) -> list[dict[str, object]]:
+    """Open loops. With ``parent`` they are derived from that source and written without the insert floor, so their stored
+    labels are public and project while their input is not: the store's filters let them through."""
+
+    rows: list[dict[str, object]] = []
+    with vault.store() as store:
+        for title in titles:
+            loop: dict[str, object] = {"title": title, "domain": "project", "sensitivity": "public", "status": "open",
+                                       "metadata_json": _scope(vault.scope)}
+            if parent is not None:
+                loop["source_id"] = str(parent["id"])
+                loop["metadata_json"] = {"discovered_by": "weekly", "source_id": str(parent["id"]), **_scope(vault.scope)}
+                with without_insert_floor():
+                    rows.append(dict(store.create_open_loop(loop)))
+            else:
+                rows.append(dict(store.create_open_loop(loop)))
+    return rows
+
+
+@pytest.mark.parametrize("name", ["read_only", "read_only_alpha"])
+def test_a_newer_unfloored_open_loop_does_not_change_the_open_loops_of_a_restricted_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    """Mutation: replace ``elif limited:`` before ``loop_rows = readable_prefix(`` in ``_vnext_resume`` with ``elif False:``,
+    or ``if source_fence.entity_read_fenced:`` before ``open_loop_rows = readable_prefix(`` in ``compile_context_pack``
+    with ``if False:``.
+
+    Six loops are newer than the five readable ones and derived from a source in the health domain, with stored labels that
+    are public and project. The store filters by stored labels, cuts to the limit and leaves the six to the check, which
+    drops them: five readable loops became none, and ``next_action`` with them. The resume brief and the pack are read
+    for a key and must show the five. The control reads the six as the owner with every sensitivity.
+    """
+
+    assert name in HIDDEN_FROM["domain"]
+    vault = _Vault(tmp_path, monkeypatch, scoped=KEYS[name][1] is not None)
+    key = vault.key(name)
+    _loops(vault, [f"visible loop {i}" for i in range(5)])
+    before_resume = _brief(vault, key)
+    before_pack = vault.call(key, "alice_context_pack", query="loop", debug=True)
+    assert len(before_resume["open_loops"]) == 5 and len(before_pack["open_loops"]) == 5  # type: ignore[arg-type]
+
+    with vault.store() as store:
+        parent = _source(store, "loop-parent", domain="health", scope=vault.scope)
+    hidden = _loops(vault, [f"hidden loop {i}" for i in range(6)], parent=parent)
+    hidden_titles = {str(row["title"]) for row in hidden}
+    everything = _brief(vault, None, sensitivity_allowed=list(ALL_SENSITIVITY))
+    assert hidden_titles & _titles(everything["open_loops"]), "the owner must be able to read the six"
+
+    after_resume = _brief(vault, key)
+    after_pack = vault.call(key, "alice_context_pack", query="loop", debug=True)
+    assert after_resume == before_resume
+    assert _titles(after_pack["open_loops"]) == _titles(before_pack["open_loops"])
+    assert after_pack["trace"]["stages"]["open_loops"] == before_pack["trace"]["stages"]["open_loops"]  # type: ignore[index]
+
+
 @pytest.mark.parametrize("name", [None, "admin"])
 def test_the_owner_and_an_unbound_admin_key_keep_the_read_they_had(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str | None) -> None:
     """Mutation: set ``limited = True`` in ``_vnext_resume``.
@@ -360,9 +521,11 @@ def test_the_owner_and_an_unbound_admin_key_keep_the_read_they_had(tmp_path: Pat
 # -- the brief in the project view -----------------------------------------------------------------------------------
 
 
-def _project_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, project_visible: int, project_hidden: int):
+def _project_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, project_visible: int, project_hidden: int, loops_visible: int = 0, loops_hidden: int = 0):
     """A vault with a global decision, ``project_visible`` readable decisions of the project, and then
-    ``project_hidden`` newer ones that a read-only key may not read. Returns the context and the key."""
+    ``project_hidden`` newer ones that a read-only key may not read, and the same for open loops (``loops_visible`` readable ones,
+    ``loops_hidden`` newer ones derived from a source the key may not read and written without the insert floor). Returns the
+    context, the key and the function that adds the hidden rows."""
 
     monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
     monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
@@ -381,6 +544,8 @@ def _project_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, project_v
         add_memory(store, key="global.decision", text="alpha global decision", scope=None, memory_type="decision")
         for index in range(project_visible):
             add_memory(store, key=f"project.visible.{index}", text=f"alpha project decision {index}", scope=(project,), memory_type="decision")
+        for index in range(loops_visible):
+            add_loop(store, title=f"project loop {index}", scope=(project,))
         _record, raw = create_agent_key(store, user_id=USER_ID, agent_id="reader", permission_profile="read_only_agent", project_scope=None)
     context = MCPRuntimeContext(database_url=base_context.database_url, user_id=USER_ID, project_dir=str(repo))
     added: list[str] = []
@@ -399,6 +564,13 @@ def _project_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, project_v
                         "metadata_json": {"source_id": str(parent["id"]), "project_scope": [project]},
                     })
                 added.append(str(row["id"]))
+            for index in range(loops_hidden):
+                with without_insert_floor():
+                    store.create_open_loop({
+                        "title": f"hidden project loop {index}", "domain": "project", "sensitivity": "public", "status": "open",
+                        "source_id": str(parent["id"]), "project_id": project,
+                        "metadata_json": {"discovered_by": "weekly", "source_id": str(parent["id"]), "project_scope": [project]},
+                    })
         return added
 
     return context, raw, add_hidden
@@ -453,32 +625,63 @@ def test_hidden_events_of_the_project_do_not_change_the_recent_changes_in_the_pr
     assert _project_brief(context, monkeypatch, key, max_recent_changes=3) == before
 
 
-# -- the reads that grow until they hold enough readable rows ---------------------------------------------------------
+def test_hidden_open_loops_of_the_project_do_not_change_the_open_loops_in_the_project_view(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mutation: replace ``elif limited and project_view.mode == "project":`` before ``project_first_fill_readable(`` in the open
+    loops of ``_vnext_resume`` with ``elif False and project_view.mode == "project":``.
+
+    The project has three open loops the key may read and four newer ones derived from a source in the health domain, written
+    without the insert floor, so the store lets them through. The key is shown the three, and the owner who asks for every
+    sensitivity is shown the newer ones first.
+    """
+
+    context, key, add_hidden = _project_vault(tmp_path, monkeypatch, project_visible=1, project_hidden=0, loops_visible=3, loops_hidden=4)
+    before = _project_brief(context, monkeypatch, key)
+    assert len(before["open_loops"]) == 3  # type: ignore[arg-type]
+    add_hidden()
+    owner = _project_brief(context, monkeypatch, None, sensitivity_allowed=list(ALL_SENSITIVITY))
+    assert any("hidden project loop" in item["title"] for item in owner["open_loops"])  # type: ignore[attr-defined, union-attr]
+    assert _project_brief(context, monkeypatch, key) == before
+
+
+# -- the reads that scan until they hold enough readable rows ---------------------------------------------------------
 
 
 @pytest.mark.parametrize("seed", range(40))
-def test_readable_prefix_gives_the_first_readable_rows_of_the_whole_list(seed: int) -> None:
-    """Mutation: replace ``if len(kept) >= limit or len(rows) < window:`` in ``readable_prefix`` with ``if True:``."""
+def test_readable_prefix_gives_the_first_readable_rows_of_the_first_cap_rows(seed: int) -> None:
+    """Mutation: replace ``if len(kept) >= want or len(rows) < window or window >= cap:`` in ``_scan_readable`` with
+    ``if True:``, or replace ``window = cap`` with ``window = window + 1``.
+
+    The scan reads ``want`` rows and then, when too few are kept, ``cap`` rows; no row is judged twice; the answer is the
+    first rows the check keeps among the first ``cap``.
+    """
 
     rng = random.Random(seed)
+    cap = rng.choice([4, 9, 30])
     rows = list(range(rng.randrange(0, 60)))
     dropped = {row for row in rows if rng.random() < rng.choice([0.0, 0.3, 0.8, 1.0])}
     limit = rng.randrange(1, 6)
     asked: list[int] = []
+    judged: list[int] = []
 
     def fetch(window: int) -> list[int]:
         asked.append(window)
         return rows[:window]
 
-    kept = readable_prefix(limit=limit, fetch=fetch, keep=lambda part: [row for row in part if row not in dropped])
-    assert kept == [row for row in rows if row not in dropped][:limit]
-    assert asked[0] == limit
-    assert all(later == earlier * 8 for earlier, later in zip(asked, asked[1:], strict=False))
+    def keep(part: Sequence[int]) -> list[int]:
+        judged.extend(part)
+        return [row for row in part if row not in dropped]
+
+    kept = readable_prefix(limit=limit, fetch=fetch, keep=keep, cap=cap)
+    assert kept == [row for row in rows[:cap] if row not in dropped][:limit]
+    assert asked[0] == min(limit, cap) and len(asked) <= 2 and all(window <= cap for window in asked)
+    assert judged == rows[:len(judged)] and len(set(judged)) == len(judged), "a row was judged twice"
 
 
 def test_readable_prefix_reads_one_window_when_nothing_is_dropped() -> None:
-    """Mutation: start the window at ``limit * 8`` in ``readable_prefix``. A vault in which the check drops nothing is
-    read as it was: one read of ``limit`` rows."""
+    """Mutation: start the window at ``cap`` in ``_scan_readable``. A vault in which the check drops nothing is read as it
+    was: one read of ``limit`` rows."""
 
     asked: list[int] = []
     rows = list(range(20))
@@ -488,9 +691,11 @@ def test_readable_prefix_reads_one_window_when_nothing_is_dropped() -> None:
 
 @pytest.mark.parametrize("seed", range(60))
 def test_the_readable_fill_equals_the_fill_over_the_readable_rows(seed: int) -> None:
-    """Mutation: replace ``if all(`` in ``project_first_fill_readable`` with ``if True or all(``.
+    """Mutation: replace ``if limit // 4 > 0 or len(project_kept) < limit:`` in ``project_first_fill_readable`` with
+    ``if False:``.
 
-    Whatever the check drops, the fill gives what ``project_first_fill`` gives over the rows that are kept.
+    Whatever the check drops, the fill gives what ``project_first_fill`` gives over the rows that are kept (the lists here
+    are shorter than the cap).
     """
 
     rng = random.Random(seed)
@@ -504,29 +709,53 @@ def test_the_readable_fill_equals_the_fill_over_the_readable_rows(seed: int) -> 
     def keep(rows: Sequence[tuple[str, int]]) -> list[tuple[str, int]]:
         return [row for row in rows if row not in dropped]
 
-    def fetch(ids, excluded, count):  # type: ignore[no-untyped-def]
-        return project[:count], other[:count]
+    def fetch_one(ids, excluded, count):  # type: ignore[no-untyped-def]
+        return (other if ids == (GLOBAL_PROJECT_MARKER,) else project)[:count]
 
     expected = project_first_fill(
         limit=limit, view=view, exclude_global_domains=frozenset(),
         fetch=lambda ids, excluded, count: (keep(project)[:count], keep(other)[:count]),
     )
     assert project_first_fill_readable(
-        limit=limit, view=view, exclude_global_domains=frozenset(), fetch=fetch, keep=keep,
+        limit=limit, view=view, exclude_global_domains=frozenset(), fetch_one=fetch_one, keep=keep, cap=100,
     ) == expected
 
 
-def test_the_readable_fill_reads_one_window_when_nothing_is_dropped() -> None:
-    """Mutation: start the window at ``limit * 8`` in ``project_first_fill_readable``."""
+@pytest.mark.parametrize(("limit", "partitions_read"), [(1, 1), (3, 1), (4, 2), (8, 2)])
+def test_the_readable_fill_reads_one_window_and_skips_the_global_partition_it_cannot_use(limit: int, partitions_read: int) -> None:
+    """Mutation: replace ``if limit // 4 > 0 or len(project_kept) < limit:`` in ``project_first_fill_readable`` with
+    ``if True:``.
 
-    calls: list[int] = []
+    Spec 6.2 holds ``limit // 4`` places for global rows, so a limit below four takes a global row only when the project's
+    kept rows do not fill it. A vault in which the check drops nothing reads one window of ``limit`` rows per partition
+    that the fill can use.
+    """
 
-    def fetch(ids, excluded, count):  # type: ignore[no-untyped-def]
-        calls.append(count)
-        return [("p", i) for i in range(count)], [("g", i) for i in range(count)]
+    calls: list[tuple[tuple[str, ...], int]] = []
+
+    def fetch_one(ids, excluded, count):  # type: ignore[no-untyped-def]
+        calls.append((ids, count))
+        return [("g" if ids == (GLOBAL_PROJECT_MARKER,) else "p", i) for i in range(count)]
 
     result = project_first_fill_readable(
-        limit=4, view=project_view(), exclude_global_domains=frozenset(), fetch=fetch, keep=list,
+        limit=limit, view=project_view(), exclude_global_domains=frozenset(), fetch_one=fetch_one, keep=list,
     )
-    assert calls == [4]
-    assert result == [("p", 0), ("p", 1), ("p", 2), ("g", 0)]
+    assert len(calls) == partitions_read and all(count == limit for _ids, count in calls)
+    assert [row for row in result if row[0] == "p"] == [("p", i) for i in range(len([r for r in result if r[0] == "p"]))]
+    assert len(result) == limit
+
+
+def test_the_readable_fill_reads_the_global_partition_when_the_project_does_not_fill_the_limit() -> None:
+    """Mutation: replace ``len(project_kept) < limit`` in ``project_first_fill_readable`` with ``False``.
+
+    The project has nothing the caller may read; a limit of one then takes the first global row the caller may read.
+    """
+
+    def fetch_one(ids, excluded, count):  # type: ignore[no-untyped-def]
+        return [("g" if ids == (GLOBAL_PROJECT_MARKER,) else "p", i) for i in range(count)]
+
+    result = project_first_fill_readable(
+        limit=1, view=project_view(), exclude_global_domains=frozenset(), fetch_one=fetch_one,
+        keep=lambda rows: [row for row in rows if row[0] == "g" and row[1] >= 2],
+    )
+    assert result == [("g", 2)]

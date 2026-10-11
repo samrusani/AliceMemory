@@ -37,6 +37,7 @@ from capitalized spans ("Did Marcus Chen ..." -> "Marcus Chen").
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+import inspect
 import re
 
 from alicebot_api.vnext_entities import (
@@ -45,6 +46,7 @@ from alicebot_api.vnext_entities import (
     store_supports_entity_linking,
 )
 from alicebot_api.vnext_entity_names import normalize_entity_name
+from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
 from alicebot_api.vnext_repositories import JsonObject
 
 
@@ -366,10 +368,10 @@ def _probe_query_variants(name: str) -> str:
     return " ".join(tokens)
 
 
-#: Rows of a memory probe that is asked for the first row a caller may read: the page after the first one-row page.
-_READABLE_PROBE_PAGE = 128
-#: A store without offset paging is asked for a longer prefix each time, up to this many rows, and then gives up.
-_READABLE_PROBE_PREFIX_CEILING = 16384
+#: The row a probe returns when it stopped at ``READABLE_SCAN_CAP`` rows without a row the caller may read and without
+#: having seen the last match. The name then reads as supported: the module claims a name is unmentioned only when it
+#: has looked at every match, and a probe that gave up has not.
+_PROBE_GAVE_UP: JsonObject = {"probe": "stopped at the scan cap"}
 
 
 def _first_readable_memory_row(
@@ -379,20 +381,25 @@ def _first_readable_memory_row(
     kwargs: Mapping[str, object],
     readable_rows: Callable[[Sequence[JsonObject]], Sequence[JsonObject]],
     native_paging: bool,
-) -> list[JsonObject] | None:
+    readable_by: tuple[Sequence[str] | None, Sequence[str] | None] | None = None,
+) -> list[JsonObject]:
     """The first row of the OR probe that ``readable_rows`` keeps, as a list of one, or ``[]`` when none is kept.
 
     The probe of a caller with limits has to find out whether a row *the caller may read* mentions the name. The
     store filters by stored labels only, so a row that is hidden by the labels of its inputs comes back from a one-row
-    probe, is dropped, and the name would then read as supported or not depending on that row. This asks again, past
-    the first page, until a row is kept or the matches run out. A store that pages by offset is read page by page; any
-    other store is asked for a longer prefix each time up to ``_READABLE_PROBE_PREFIX_CEILING`` rows, and ``None`` (the
-    probe could not run) is the answer when that many rows come back and none is kept.
+    probe, is dropped, and the name would then read as supported or not depending on that row. The probe is asked once
+    for one row, as the owner's is. When that row is not one the caller may read, it is asked once more for the rows up to
+    ``READABLE_SCAN_CAP`` (the rest of them, from the offset, on a store that pages by offset; a prefix of that length on
+    any other). A store that takes ``readable_by`` leaves out before its limit the rows its direct inputs hide from the
+    caller. When ``READABLE_SCAN_CAP`` rows have been read without a row the caller may read, and the matches did not end,
+    the probe gives up and the name reads as supported (``_PROBE_GAVE_UP``).
     """
 
     variants = _probe_query_variants(query)
     use_any = True
     filters = {key: value for key, value in kwargs.items() if key != "limit"}
+    if readable_by is not None and _takes_keyword(method, "readable_by"):
+        filters["readable_by"] = readable_by
 
     def ask(**extra: object) -> list[JsonObject]:
         nonlocal use_any
@@ -404,25 +411,33 @@ def _first_readable_memory_row(
                 use_any = False
         return list(method(query=query, **filters, **extra))  # type: ignore[operator]
 
-    offset = 0
-    page = int(kwargs["limit"])  # type: ignore[call-overload]
-    while True:
-        if native_paging:
-            rows = ask(limit=page, **({"offset": offset} if offset else {}))
-        else:
-            rows = ask(limit=page)
-        kept = list(readable_rows(rows))
-        if kept:
-            return kept[:1]
-        if len(rows) < page:
-            return []
-        if native_paging:
-            offset += len(rows)
-            page = _READABLE_PROBE_PAGE
-        else:
-            if page >= _READABLE_PROBE_PREFIX_CEILING:
-                return None
-            page = min(page * 8, _READABLE_PROBE_PREFIX_CEILING)
+    first_size = int(kwargs["limit"])  # type: ignore[call-overload]
+    first = ask(limit=first_size)
+    kept = list(readable_rows(first))
+    if kept:
+        return kept[:1]
+    if len(first) < first_size:
+        return []
+    room = READABLE_SCAN_CAP - len(first)
+    if room < 1:
+        return [_PROBE_GAVE_UP]
+    if native_paging:
+        later = ask(limit=room, offset=len(first))
+    else:
+        later = ask(limit=READABLE_SCAN_CAP)[len(first):]
+    kept = list(readable_rows(later))
+    if kept:
+        return kept[:1]
+    return [] if len(later) < room else [_PROBE_GAVE_UP]
+
+
+def _takes_keyword(method: object, name: str) -> bool:
+    """Whether a store method names the keyword. A store that does not is not given it."""
+
+    try:
+        return name in inspect.signature(method).parameters  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
 
 
 def _probe_rows(
@@ -458,7 +473,8 @@ def _probe_rows(
     if readable_rows is not None:
         try:
             return _first_readable_memory_row(
-                method, query=query, kwargs=kwargs, readable_rows=readable_rows, native_paging=native_paging
+                method, query=query, kwargs=kwargs, readable_rows=readable_rows, native_paging=native_paging,
+                readable_by=(domains, sensitivity_allowed),
             )
         except Exception:
             return None

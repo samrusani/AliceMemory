@@ -1283,7 +1283,7 @@ _LOOP_READERS: dict[tuple[str, str, str], str] = {
     ("list_open_loops", "compiler.py", "compile_resumption_brief"): _OWNER,
     ("list_open_loops", "explicit_commitments.py", "_find_active_open_loop_for_memory"): _OWNER,
     ("list_open_loops", "mcp/projects.py", "_handle_alice_vnext_open_loops"): _FENCED,
-    ("list_open_loops", "mcp/retrieval.py", "_vnext_resume"): _ALLOWLIST,
+    ("list_open_loops", "mcp/retrieval.py", "list_loop_rows"): _ALLOWLIST,
     ("list_open_loops", "memory.py", "list_open_loop_records"): _OWNER,
     ("list_open_loops", "routers/workspaces.py", "_vnext_workspace_payload"): _FENCED,
     ("list_open_loops", "session_briefing.py", "compile_session_brief"): _ALLOWLIST,

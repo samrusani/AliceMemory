@@ -1,24 +1,66 @@
 """Conservative SQL partition: anything uncertain still reaches the kernel."""
+from alicebot_api.vnext_agent_control import RESTRICTED_DOMAINS
 from alicebot_api.vnext_derived_labels import MARKER_KEYS, DERIVED_ARTIFACT_TYPES, SENSITIVITY_RANK
 
+#: The most rows one read of a list scans for the first rows a caller with limits may read, past rows its limits hide.
+#:
+#: A list read cuts to its limit in the store, and the store judges stored labels only, so a row that its inputs put above
+#: the caller's limits takes a place and is dropped afterwards. A caller with limits therefore reads again, with a longer
+#: window each time, until it holds enough rows it may read. Without a bound, a vault with many such rows newer than the
+#: first readable one would make every such read as long as the vault is full of them, and a caller who chooses the query
+#: could make it so on purpose. The read stops at this many rows. If it reaches this many without enough rows to read, the
+#: caller is given the rows it may read among them, which can be none: ``alice_resume`` then shows no decision and no next
+#: action, and no more events than it found. The context pack's open loops and the grounding probe stop the same way. A
+#: read that stops here tells its caller that at least this many newer rows are hidden from it, and nothing more.
+READABLE_SCAN_CAP = 128
 
-def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "m") -> str:
-    """Reject only a row proved hidden from the highest requested rank.
+
+def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "m", domains=None, memory_inputs: bool = True) -> str:
+    """Reject only a row proved hidden from the highest requested rank, or from every restricted domain.
 
     A direct canonical source, or a direct source of one recorded memory
     input, suffices for rejection. So does a recorded memory input that is
     redacted: such a row is unverified, which the kernel reads as regulated.
     Anything else reaches effective admission. This predicate never grants a
-    row and never filters by a derived domain.
+    row.
+
+    ``domains`` is the domain filter of the request, and it adds one proof, only for a filter that holds no restricted
+    domain (``family``, ``health``, ``spiritual``, ``legal``, ``financial``). A derived row takes the most frequent
+    restricted domain among its inputs, so one input in a restricted domain puts the row in a restricted domain, and the
+    filter holds none: a direct source, a direct memory input, or a direct source of that input, in a restricted domain,
+    proves the row hidden. A filter that holds a restricted domain proves nothing, because which restricted domain the row
+    takes depends on all of its inputs. A row outside the filter by a derived domain that no direct input shows still
+    reaches effective admission.
+
+    ``memory_inputs=False`` leaves out the proofs through a recorded memory input and keeps the proofs through a direct
+    source. A list read that scans every row of a large table pays for the first kind in every query (it reads each
+    memory that could be an input), and the second kind is one lookup of the source in the row's own metadata.
     """
 
-    if alias not in {"m", "memories"}:
+    if alias not in {"m", "memories", "memory"}:
         raise ValueError("unsupported memory alias")
     ceiling = max((SENSITIVITY_RANK.get(value, SENSITIVITY_RANK["unknown"]) for value in sensitivity_allowed or ()), default=0)
     blocked = [value for value, rank in SENSITIVITY_RANK.items() if rank > ceiling] if sensitivity_allowed else []
-    if not blocked:
+    domain_blocked = sorted(RESTRICTED_DOMAINS) if domains and not (set(domains) & RESTRICTED_DOMAINS) else []
+    if not blocked and not domain_blocked:
         return "TRUE"
     names = ",".join("'" + value + "'" for value in blocked)  # Closed kernel constants and whitelisted aliases are the only SQL inputs.
+    domain_names = ",".join("'" + value + "'" for value in domain_blocked)  # Closed kernel constants only.
+
+    def hidden_source(table: str) -> str:
+        """The condition on one source row of the input that proves the row hidden. ``table`` may be empty."""
+
+        prefix = table + "." if table else ""
+        terms = []
+        if blocked:
+            terms.append(f"{prefix}sensitivity IN ({names})")
+        if domain_blocked:
+            terms.append(f"{prefix}domain IN ({domain_names})")
+        return terms[0] if len(terms) == 1 else "(" + " OR ".join(terms) + ")"
+
+    own_ok = f"{alias}.sensitivity NOT IN ({names})" if blocked else "TRUE"
+    # An input memory in a restricted domain is a restricted input, whatever its own inputs are.
+    input_in_restricted_domain = f"label_input.domain IN ({domain_names}) OR " if domain_blocked else ""
     if sqlite:
         source = f"alice_direct_source_hint({alias}.metadata_json)"
         memory = f"alice_direct_memory_hint({alias}.metadata_json)"
@@ -39,13 +81,21 @@ def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "
     else:
         input_redacted = "label_input.metadata_json->'redacted' IS NOT DISTINCT FROM 'true'::jsonb"
         input_not_redacted = "label_input.metadata_json->'redacted' IS DISTINCT FROM 'true'::jsonb"
+    # A row over a redacted input is unverified, and the kernel reads it as regulated: that proves it hidden only from a
+    # caller whose ceiling is below regulated. A filter that lists every level takes the proof by domain alone.
+    redacted_input_proof = f"{input_redacted} OR " if blocked else ""
     if not sqlite:
         # Hash canonical and compact UUID spellings without casting untrusted
         # JSON. Exact text membership accepts the same case-insensitive forms
         # as the former guarded UUID cast. Tenant identity stays in every set;
         # the parent partition also uses a hash instead of a per-row join.
-        source_set = f"SELECT user_id, unnest(ARRAY[id::text, replace(id::text, '-', '')]) FROM sources WHERE sensitivity IN ({names})"  # nosec B608 - closed kernel sensitivity constants only
-        return f"""({alias}.sensitivity NOT IN ({names}) AND NOT (
+        source_set = f"SELECT user_id, unnest(ARRAY[id::text, replace(id::text, '-', '')]) FROM sources WHERE {hidden_source('')}"  # nosec B608 - closed kernel constants only
+        if not memory_inputs:
+            return f"""({own_ok} AND NOT (
+            {not_redacted} AND COALESCE(({alias}.user_id, {source}) IN (
+                {source_set}
+            ), FALSE)))"""  # nosec B608
+        return f"""({own_ok} AND NOT (
             {not_redacted} AND (
                 COALESCE(({alias}.user_id, {source}) IN (
                     {source_set}
@@ -53,22 +103,28 @@ def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "
                 OR COALESCE(({alias}.user_id, {memory}) IN (
                     SELECT label_input.user_id, unnest(ARRAY[label_input.id::text, replace(label_input.id::text, '-', '')])
                     FROM memories label_input
-                    WHERE {input_redacted} OR ({input_not_redacted} AND COALESCE((label_input.user_id, {parent_source}) IN (
+                    WHERE {redacted_input_proof}{input_in_restricted_domain}({input_not_redacted} AND COALESCE((label_input.user_id, {parent_source}) IN (
                         {source_set}
                     ), FALSE))
                 ), FALSE)
             )))"""  # nosec B608
-    return f"""({alias}.sensitivity NOT IN ({names}) AND NOT (
+    if not memory_inputs:
+        return f"""({own_ok} AND NOT (
+        {not_redacted} AND EXISTS (
+            SELECT 1 FROM sources label_source WHERE label_source.user_id={alias}.user_id
+            AND label_source.id={source} AND {hidden_source('label_source')}
+        )))"""  # nosec B608
+    return f"""({own_ok} AND NOT (
         {not_redacted} AND (EXISTS (
             SELECT 1 FROM sources label_source WHERE label_source.user_id={alias}.user_id
-            AND label_source.id={source} AND label_source.sensitivity IN ({names})
+            AND label_source.id={source} AND {hidden_source('label_source')}
         ) OR EXISTS (
             SELECT 1 FROM memories label_input
             WHERE label_input.user_id={alias}.user_id AND label_input.id={memory}
-            AND ({input_redacted} OR ({input_not_redacted} AND EXISTS (
+            AND ({redacted_input_proof}{input_in_restricted_domain}({input_not_redacted} AND EXISTS (
                 SELECT 1 FROM sources label_source
                 WHERE label_source.user_id=label_input.user_id AND label_source.id={parent_source}
-                AND label_source.sensitivity IN ({names})
+                AND {hidden_source('label_source')}
             )))
         ))))"""  # nosec B608
 

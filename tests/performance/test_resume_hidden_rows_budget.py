@@ -1,0 +1,183 @@
+"""Resume and the grounding probe stay within a budget of main when many newer rows are hidden from the caller.
+
+Unreleased (on main, not in v0.20.0). ``alice_resume`` and the grounding probe of the context pack read past the rows a caller's
+limits hide by the labels of their inputs. A vault with 10,000 such rows newer than the first row the caller may read must not
+make them slow: the store leaves out the rows a direct input proves hidden before its limit, and a read stops at
+``READABLE_SCAN_CAP`` rows when nothing proves them hidden.
+
+The paired measurement is the one of the read budgets next to this file: a persistent process per revision (this checkout and the
+checkout named by ``ALICE_READ_MAIN_CHECKOUT``) answers the same action in turn on the same data, ten samples each, and the
+minimum wall and CPU time of this revision must be at most twice main's plus a tenth of a second. A fast read that returns the
+wrong answer passes no budget: what the revision returned is checked too.
+
+Two shapes of hidden row, 10,000 of each, newer than twelve readable decisions and each with an event:
+
+* ``derived``: the row's source is in the health domain. A direct input proves it hidden from a key that may not read that domain.
+  This revision answers as it does without the rows (the newest readable decision), and main answers nothing.
+* ``unproven``: the row lists an input that does not exist, which no direct input proves hidden and the check reads as unverified.
+  Both revisions read the first rows of the list, this one up to the cap, and both answer nothing.
+"""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+
+from alicebot_api.onramp import bootstrap_database
+from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+from alicebot_api.vnext_agent_keys import create_agent_key
+from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
+
+USER = "11111111-1111-4111-8111-111111111111"
+READABLE_DECISIONS = 12
+HIDDEN_ROWS = 10_000
+# The hidden rows that mention the name the grounding probe looks for. The full-text search scores every match before it returns
+# the first, which costs about 1.6 ms a match on SQLite on main already, so the probe is measured over a thousand of them and
+# the other rows are hidden decisions that do not match.
+HIDDEN_MENTIONS = 1_000
+SHAPES = ("derived", "unproven")
+# The domains a key that may not read the restricted ones (``read_only_agent``) is given.
+READ_ONLY_DOMAINS = ["professional", "personal", "learning", "relationship", "project", "agent_run", "system", "unknown"]
+ACTIONS = ("resume", "resume_changes", "resume_query", "grounding")
+SAMPLES = 10
+
+
+def seed_hidden_rows(store, *, postgres, hidden=HIDDEN_ROWS, shape="derived"):
+    """Twelve readable decisions, then ``hidden`` newer rows that the key may not read, each with a ``memory.created`` event.
+
+    The rows are written with the SQL of the grid seeds next to this file, so they carry no insert floor: their stored labels are
+    public and project, and only their inputs put them out of the key's reach. The timestamps are explicit so that the order is
+    the order of the loop, whatever the clock of the transaction.
+    """
+
+    parent = store.create_source({"source_type": "note", "title": "Synthetic hidden parent", "content_hash": str(uuid4()),
+                                  "domain": "health", "sensitivity": "public", "metadata_json": {}})
+    user = str(parent["user_id"])
+    rows, events = [], []
+    for index in range(READABLE_DECISIONS + hidden):
+        visible = index < READABLE_DECISIONS
+        row_id = str(uuid4())
+        source = None if visible else (str(parent["id"]) if shape == "derived" else str(uuid4()))
+        metadata = {} if visible else {"source_id": source}
+        mention = READABLE_DECISIONS <= index < READABLE_DECISIONS + HIDDEN_MENTIONS
+        text = f"visible decision {index}" if visible else (f"Zorblax hidden decision {index}" if mention else f"hidden decision {index}")
+        stamp = f"2026-0{1 if visible else 2}-01T{index // 3600 % 24:02d}:{index // 60 % 60:02d}:{index % 60:02d}Z"
+        rows.append((row_id, user, "budget.resume." + row_id, text, json.dumps(metadata), stamp, stamp))
+        events.append((str(uuid4()), user, row_id, stamp))
+    if postgres:
+        with store.conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO memories(id,user_id,memory_key,canonical_text,metadata_json,value,source_event_ids,status,domain,sensitivity,memory_type,created_at,updated_at) "
+                "VALUES(%s::uuid,%s::uuid,%s,%s,%s::jsonb,'{}','{}','active','project','public','decision',%s::timestamptz,%s::timestamptz)", rows)
+            cur.executemany(
+                "INSERT INTO event_log(id,user_id,target_id,event_type,actor_type,target_type,payload_json,occurred_at) "
+                "VALUES(%s::uuid,%s::uuid,%s::uuid,'memory.created','system','memory','{}',%s::timestamptz)", events)
+    else:
+        store.conn.executemany(
+            "INSERT INTO memories(id,user_id,memory_key,canonical_text,metadata_json,value,source_event_ids,status,domain,sensitivity,memory_type,created_at,updated_at) "
+            "VALUES(?,?,?,?,?,'{}','[]','active','project','public','decision',?,?)", rows)
+        store.conn.executemany(
+            "INSERT INTO event_log(id,user_id,target_id,event_type,actor_type,target_type,payload_json,occurred_at) "
+            "VALUES(?,?,?,'memory.created','system','memory','{}',?)", events)
+
+
+def paired_resume_budgets(backend, location, user, key, *, shape, assert_budget=True, samples=SAMPLES):
+    assert samples >= 10
+    repo = Path(__file__).resolve().parents[2]
+    main = os.environ.get("ALICE_READ_MAIN_CHECKOUT")
+    assert main, "the resume budgets require the exact paired main checkout"
+    script = Path(__file__).with_name("resume_budget_probe.py")
+    processes = [subprocess.Popen([sys.executable, str(script), str(checkout), backend, location, str(user), key, json.dumps(READ_ONLY_DOMAINS)],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                 for checkout in (main, repo)]
+    failures, rows = [], []
+    try:
+        for action in ACTIONS:
+            arrays = [{"wall": [], "cpu": [], "returned": []} for _ in processes]
+            for process in processes:  # one unmeasured round: imports and connections
+                process.stdin.write(action + "\n")
+                process.stdin.flush()
+                assert process.stdout.readline(), process.stderr.read()
+            for sample in range(samples):
+                for index in (0, 1) if sample % 2 == 0 else (1, 0):
+                    process = processes[index]
+                    process.stdin.write(action + "\n")
+                    process.stdin.flush()
+                    line = process.stdout.readline()
+                    assert line, process.stderr.read()
+                    result = json.loads(line)
+                    arrays[index]["wall"].append(result.pop("wall"))
+                    arrays[index]["cpu"].append(result.pop("cpu"))
+                    arrays[index]["returned"].append(result)
+            measured = {revision: {"minimum_wall": min(a["wall"]), "minimum_cpu": min(a["cpu"]), "returned": a["returned"][-1]}
+                        for revision, a in zip(("main", "head"), arrays)}
+            row = {"store": backend, "shape": shape, "hidden": HIDDEN_ROWS, "action": action, "samples": samples, **measured}
+            rows.append(row)
+            print(json.dumps(row), flush=True)
+            evidence = os.environ.get("ALICE_READ_BUDGET_EVIDENCE")
+            if evidence:
+                Path(evidence).parent.mkdir(parents=True, exist_ok=True)
+                with Path(evidence).open("a") as output:
+                    output.write(json.dumps(row) + "\n")
+            for clock in ("minimum_wall", "minimum_cpu"):
+                if measured["head"][clock] > 2 * measured["main"][clock] + 0.1:
+                    failures.append((action, clock, row))
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.stdin.write("stop\n")
+                process.stdin.flush()
+            process.communicate(timeout=30)
+    wrong = returned_answers_wrong(shape, rows)
+    if assert_budget:
+        assert not failures, failures
+        assert not wrong, wrong
+    return failures + wrong
+
+
+def returned_answers_wrong(shape, rows):
+    """What each revision returned. A read that is fast and empty passes no budget.
+
+    ``derived``: this revision shows the newest readable decision (the twelfth), main shows none; the grounding block of this
+    revision lists both names, as it does without the rows, and main's lists only the one that no hidden row mentions.
+    ``unproven``: the rows are more than the cap, so both revisions show no decision, and this revision's probe gave up and reads
+    the name as supported, which is main's answer as well.
+    """
+
+    assert HIDDEN_ROWS > READABLE_SCAN_CAP
+    wrong = []
+    for row in rows:
+        head, main, action = row["head"]["returned"], row["main"]["returned"], row["action"]
+        if action == "grounding":
+            if shape == "derived" and sorted(head["unsupported"]) != ["Quuxington", "Zorblax"]:
+                wrong.append((action, "head", head))
+            if shape == "unproven" and head["unsupported"] != ["Quuxington"]:
+                wrong.append((action, "head", head))
+            if main["unsupported"] != ["Quuxington"]:
+                wrong.append((action, "main", main))
+        elif action in {"resume", "resume_changes"}:
+            expected = f"visible decision {READABLE_DECISIONS - 1}" if shape == "derived" else None
+            if head["decision"] != expected:
+                wrong.append((action, "head", head))
+            if main["decision"] is not None:
+                wrong.append((action, "main", main))
+            if shape == "derived" and head["changes"] < 1:
+                wrong.append((action, "head changes", head))
+        elif action == "resume_query" and head["decision"] is not None:
+            wrong.append((action, "head", head))
+    return wrong
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sqlite_resume_stays_within_the_budget_of_main_with_many_hidden_rows(tmp_path, shape):
+    path = tmp_path / "resume-budget.db"
+    bootstrap_database(path, user_id=USER, user_email="budget@example.invalid")
+    with sqlite_user_connection(path, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        seed_hidden_rows(store, postgres=False, shape=shape)
+        _record, key = create_agent_key(store, user_id=USER, agent_id="resume-budget", permission_profile="read_only_agent")
+    paired_resume_budgets("sqlite", "sqlite:///" + str(path), USER, key, shape=shape)

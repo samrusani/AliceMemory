@@ -274,6 +274,7 @@ def list_memories(
     order_by_created_at: bool = False,
     limit: int | None = None,
     include_expired: bool = True,
+    readable_by: tuple[Sequence[str] | None, Sequence[str] | None] | None = None,
 ) -> list[VNextRow]:
     """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
 
@@ -281,6 +282,10 @@ def list_memories(
     seeing an expired memory. A read an agent or a brief shows to a person passes
     ``False``, which applies recall's own test (``POSTGRES_UNEXPIRED_SQL``) before
     ``LIMIT``.
+
+    ``readable_by`` is ``(domains, sensitivity_allowed)``, the limits of a caller, and leaves out before ``LIMIT`` a
+    memory that those limits cannot admit because of a direct input (see ``hidden_memory_input_sql``). It is a proof
+    of what is hidden and never a grant: the rows it keeps still go through the caller's effective-label check.
     """
     if limit is not None and limit < 1:
         raise ValueError("limit must be positive")
@@ -337,6 +342,11 @@ def list_memories(
             escaped_query = _escape_like_literal(normalized_query)
             params.extend((escaped_query, escaped_query, escaped_query))
     expiry_sql = "" if include_expired else f" AND {POSTGRES_UNEXPIRED_SQL}"
+    hidden_sql = ""
+    if readable_by is not None:
+        from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+
+        hidden_sql = " AND " + hidden_memory_input_sql(readable_by[1], sqlite=False, alias="memories", domains=readable_by[0], memory_inputs=False)
     order_sql = (
         "ORDER BY created_at DESC, id DESC"
         if order_by_created_at
@@ -351,7 +361,7 @@ def list_memories(
                 SELECT {MEMORY_COLUMNS}
                 FROM memories
                 WHERE deleted_at IS NULL{status_sql}{statuses_sql}{memory_types_sql}
-                  {domains_sql}{sensitivity_sql}{projects_sql}{created_at_sql}{query_sql}{expiry_sql}
+                  {domains_sql}{sensitivity_sql}{projects_sql}{created_at_sql}{query_sql}{expiry_sql}{hidden_sql}
                 {order_sql}
                 {limit_sql}
                 """,
@@ -872,6 +882,7 @@ def search_memories_fts(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    readable_by: tuple[Sequence[str] | None, Sequence[str] | None] | None = None,
 ) -> list[VNextRow]:
     memory_type_list = list(memory_types) or None
     project_list = list(project_scope_identity(projects)) or None
@@ -891,7 +902,10 @@ def search_memories_fts(
         tsquery_sql = "websearch_to_tsquery('english', %s)"
         tsquery_text = query
     from alicebot_api.vnext_label_sql import hidden_memory_input_sql
-    label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=False, alias="memories")
+    # ``readable_by`` adds the proof by domain to the proof by sensitivity that every call carries.
+    label_sql = hidden_memory_input_sql(
+        sensitivity_allowed, sqlite=False, alias="memories", domains=None if readable_by is None else readable_by[0]
+    )
     return self._fetch_all(
         f"""
                 SELECT {MEMORY_COLUMNS},

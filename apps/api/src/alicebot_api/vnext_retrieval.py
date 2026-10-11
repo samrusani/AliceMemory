@@ -100,6 +100,7 @@ from alicebot_api.vnext_embeddings import (
     get_embedding_provider,
 )
 from alicebot_api.vnext_event_log import append_event
+from alicebot_api.project_view import readable_prefix
 from alicebot_api.vnext_grounding import compute_query_grounding
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded, label_read_request
@@ -4508,21 +4509,35 @@ class VNextRetrievalService:
                 )
             ), "listing"
 
-        open_loop_rows, _open_loop_source = _fetch_scope_filtered(
-            _fetch_open_loops,
-            scope=scope,
-            person_linked_memory_ids=frozenset(),
-            target=DEFAULT_OPEN_LOOP_LIMIT,
-            store_scope_complete=bool(open_loop_scope_filters),
-        )
-        open_loop_rows = admit_loaded(
-            self.store,
-            kind="open_loop",
-            rows=open_loop_rows,
-            domains=domains,
-            sensitivity_allowed=sensitivity_allowed,
-            projects=tuple(scope.projects),
-        )
+        def _admit_open_loops(rows: Sequence[JsonObject]) -> list[JsonObject]:
+            return admit_loaded(
+                self.store,
+                kind="open_loop",
+                rows=rows,
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                projects=tuple(scope.projects),
+            )
+
+        def _open_loops_up_to(n: int) -> list[JsonObject]:
+            rows, _source = _fetch_scope_filtered(
+                _fetch_open_loops,
+                scope=scope,
+                person_linked_memory_ids=frozenset(),
+                target=n,
+                store_scope_complete=bool(open_loop_scope_filters),
+            )
+            return rows
+
+        if source_fence.entity_read_fenced:
+            # A loop whose stored labels are within the caller's limits and whose inputs are not passes the store's
+            # filters, takes a place of the limit and is dropped by the check. A caller with limits reads the loops
+            # again with a longer window, up to READABLE_SCAN_CAP rows, until it holds enough loops it may read.
+            open_loop_rows = readable_prefix(
+                limit=DEFAULT_OPEN_LOOP_LIMIT, fetch=_open_loops_up_to, keep=_admit_open_loops
+            )
+        else:
+            open_loop_rows = _admit_open_loops(_open_loops_up_to(DEFAULT_OPEN_LOOP_LIMIT))
         open_loop_rows = open_loop_rows[:DEFAULT_OPEN_LOOP_LIMIT]
 
         source_candidates = _fused_candidates(
