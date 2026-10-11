@@ -21,8 +21,9 @@ Mutations, each alone, each named by the tests that fail (replayed by ``scripts/
 * ``_close_edges`` keeps the explanation and metadata: every shape fails on the sentinel.
 * ``_close_edges`` retires an entity only after a mention edge: ``test_an_entity_held_only_by_a_non_mention_edge_goes_too``.
 * ``retire_dependents`` skips the edges of the candidates it redacts: ``test_edges_at_a_scrubbed_candidate_go_with_it``.
+* ``retire_dependents`` retires no edge of the source: every shape fails, on all three commands.
 * the chunk map is left empty: the ``chunk end`` shape fails.
-* ``_EDGES_BY_ID`` drops its ``user_id`` filter: ``test_another_users_edge_is_left_alone``.
+* the edge scan and ``_EDGES_BY_ID`` both drop their ``user_id`` filter: ``test_another_users_edge_is_left_alone``.
 * the preview leaves out ``graph_edges``: ``test_preview_and_receipt_count_the_same_edges``.
 * the importer reads the edges once for every replaced file instead of once for the folder:
   ``test_a_folder_import_reads_the_edges_once``.
