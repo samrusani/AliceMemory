@@ -299,7 +299,8 @@ repair changes gets one audit event with its old and new labels. Repeating
 `--mode skip` accepts a memory or open loop whose domain, sensitivity, project
 scope or project floor the repair changed when the file still holds the value
 recorded before that change, and still refuses any other field that differs. A vault that is upgraded without a restore
-gets the same repair once, the next time it opens. That open pass never stops a
+gets the same repair once, the next time it opens. A vault that an earlier build repaired repairs once more on its next open (the state key
+is `derived_labels_v4`), because that repair read only the plain `memory:` and `source:` references. That open pass never stops a
 vault from opening, and a row the owner had lowered on purpose is raised again once.
 A portable backup carries no generated artifacts and the SQLite schema has
 no table for them, so a promoted copy whose only recorded input is a missing
@@ -457,7 +458,10 @@ migration-defined application privileges the restored service needs.
 Unreleased (on main, not in v0.20.0): migration `20261004_0095` repairs the
 labels of derived memories and artifacts, including promoted copies and an
 alternate spelling of a recorded UUID. Migration `20261005_0096` raises domain,
-sensitivity, project scope and project floor. Run it before serving requests. A
+sensitivity, project scope and project floor. Run it before serving requests.
+Migration `20261011_0097` runs the same repair again, for a database that already ran 0096 when it read only the plain
+`memory:` and `source:` references of a report; a database that goes from 0094 to the head is repaired by 0096 and finds
+nothing to change in 0097. A
 database restored at an older revision gets it from the release upgrade. A
 database restored at or past 0096, and rows copied into a database already at
 head, are not repaired by a migration; run `alicebot vnext labels check` after
