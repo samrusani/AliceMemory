@@ -1560,7 +1560,9 @@ class VNextConnectorService:
         is not shown. The owner and an unbound admin key get the cursor as stored.
         """
 
-        return self._shown_import_value(connector_name, "sync_cursor", cursor, guard=guard, events=events)
+        if cursor is None or not guard.active:
+            return cursor
+        return self._shown_import_value("sync_cursor", cursor, guard=guard, index=self._import_index(connector_name, events))
 
     def shown_item_id(
         self,
@@ -1579,47 +1581,75 @@ class VNextConnectorService:
         stored.
         """
 
-        return self._shown_import_value(connector_name, "external_id", external_id, guard=guard, events=events)
+        if external_id is None or not guard.active:
+            return external_id
+        return self._shown_import_value("external_id", external_id, guard=guard, index=self._import_index(connector_name, events))
+
+    def _import_index(
+        self, connector_name: str, events: Sequence[Mapping[str, object]] | None = None
+    ) -> dict[str, dict[str, list[Mapping[str, object]]]]:
+        """The imports of a connector by what they carry: ``sync_cursor`` and ``external_id``, each to the imports that hold it.
+
+        Built once for a call that judges many values, so the judgement costs one pass over the events and not one pass
+        for each value. Only text can equal a value that is judged, so only text is indexed.
+        """
+
+        known = events if events is not None else self._connector_events(connector_name, copy=False)
+        index: dict[str, dict[str, list[Mapping[str, object]]]] = {"sync_cursor": {}, "external_id": {}}
+        for event in known:
+            payload = event.get("payload_json")
+            if event.get("event_type") != "connector.item_imported" or not isinstance(payload, dict):
+                continue
+            for field, table in index.items():
+                carried = payload.get(field)
+                if isinstance(carried, str):
+                    table.setdefault(carried, []).append(payload)
+        return index
 
     def _shown_import_value(
         self,
-        connector_name: str,
         field: str,
         value: str | None,
         *,
         guard: LabelGuard,
-        events: Sequence[Mapping[str, object]] | None,
+        index: dict[str, dict[str, list[Mapping[str, object]]]],
     ) -> str | None:
-        if value is None or not guard.active:
-            return value
-        known = events if events is not None else self._connector_events(connector_name)
-        carriers: list[Mapping[str, object]] = []
-        for event in known:
-            payload = event.get("payload_json")
-            if (
-                event.get("event_type") == "connector.item_imported"
-                and isinstance(payload, dict)
-                and payload.get(field) == value
-            ):
-                carriers.append(payload)
+        if value is None:
+            return None
+        carriers = index[field].get(value, [])
         if not carriers or not self._caller_reads_sources(guard, [item.get("source_id") for item in carriers]):
             return None
         return value
 
     def shown_sync_record(self, result: ConnectorSyncResult, *, guard: LabelGuard) -> JsonObject:
-        """The record of a sync as ``guard``'s caller may be shown it: its two cursors pass through ``shown_cursor``.
+        """The record of a sync as ``guard``'s caller may be shown it: its cursors and the ids of its failed items are judged.
 
         The previous cursor is where an earlier call, perhaps another caller's, left off, so it can name an item the
-        caller may not read. The ids of the sources and of the failed items are the ones the call itself handled.
+        caller may not read. The ids of the failed items are the paths or addresses of items that never became a source
+        (a local-folder sync names files the caller never sent), so they follow the rule of a cursor too, each in its
+        place in the list. The ids of the sources are the ones the call itself made.
         """
 
         record = result.to_record()
         if guard.active:
+            failed = record.get("failed_external_ids")
+            failed_ids = failed if isinstance(failed, list) else []
+            judged = [record.get("previous_cursor"), record.get("sync_cursor"), *failed_ids]
+            index = (
+                self._import_index(result.connector_name)
+                if any(isinstance(value, str) for value in judged)
+                else {"sync_cursor": {}, "external_id": {}}
+            )
             for name in ("previous_cursor", "sync_cursor"):
                 cursor = record.get(name)
-                record[name] = self.shown_cursor(
-                    result.connector_name, cursor if isinstance(cursor, str) else None, guard=guard
+                record[name] = self._shown_import_value(
+                    "sync_cursor", cursor if isinstance(cursor, str) else None, guard=guard, index=index
                 )
+            if isinstance(failed, list):
+                record["failed_external_ids"] = [
+                    self._shown_import_value("external_id", item if isinstance(item, str) else None, guard=guard, index=index)
+                    for item in failed
+                ]
         return record
 
     def shown_event_cursors(
@@ -1633,14 +1663,16 @@ class VNextConnectorService:
         names the item that failed by the id the importer gave it (``external_id`` of a failed item, ``failed_external_ids``
         of a sync that had failures), which for a file is also its path, and a failed item records the cursor it would have
         set. The item never became a source, so each id and cursor is shown only when an import carries it and the caller
-        may read every source an import of it made (``shown_item_id`` and ``shown_cursor``), and is ``null`` otherwise, in
-        its place in a list. An event of another type, and a field that is empty, are left as they are. The events handed
+        may read every source an import of it made (the rule of ``shown_item_id`` and ``shown_cursor``), and is ``null``
+        otherwise, in its place in a list. An event of another type, and a field that is empty, are left as they are. The events handed
         in are not edited: an event with a value that is not shown is copied.
         """
 
         if not guard.active:
             return list(events)
-        recorded: dict[str, list[Mapping[str, Any]]] = {}
+        # The imports of each connector are indexed once for the whole call, so a failure that lists thousands of ids
+        # costs one pass over the events and not one pass for each id.
+        indexes: dict[str, dict[str, dict[str, list[Mapping[str, object]]]]] = {}
         decided: dict[tuple[str, str, str], str | None] = {}
 
         def decide(name: object, kind: str, value: object) -> str | None:
@@ -1648,10 +1680,10 @@ class VNextConnectorService:
             if not isinstance(value, str) or not isinstance(name, str):
                 return None
             if (name, kind, value) not in decided:
-                if name not in recorded:
-                    recorded[name] = self._connector_events(name, copy=False)
-                reader = self.shown_cursor if kind == "cursor" else self.shown_item_id
-                decided[(name, kind, value)] = reader(name, value, guard=guard, events=recorded[name])
+                if name not in indexes:
+                    indexes[name] = self._import_index(name, self._connector_events(name, copy=False))
+                field = "sync_cursor" if kind == "cursor" else "external_id"
+                decided[(name, kind, value)] = self._shown_import_value(field, value, guard=guard, index=indexes[name])
             return decided[(name, kind, value)]
 
         shown: list[Mapping[str, Any]] = []

@@ -28,6 +28,11 @@ def test_the_changelog_has_one_entry_for_the_connector_failure_events() -> None:
     assert "`GET /v0/vnext/connectors/{connector_name}/status` (`recent_failures`)" in entry
     assert "is `null` otherwise, in its place in a list of ids" in entry
     assert "Checked and left as they are" in entry and "`connector.item_rejected`" in entry
+    assert "The answer of a sync (`POST /v0/vnext/connectors/{connector_name}/sync` and the two sync routes that name one connector) follows the same rule" in entry
+    assert "where the failed ids are files the caller never sent" in entry
+    assert "a key that imports a public item at a path it already knows" in entry and "it can confirm that a failed import of a path it can name exists" in entry
+    assert "the answer of a sync (the ids of the items of that call)" not in entry
+    assert "took 0.96 s a call when each id scanned them all" in entry
     assert "\u2014" not in entry and "\u2013" not in entry
 
 

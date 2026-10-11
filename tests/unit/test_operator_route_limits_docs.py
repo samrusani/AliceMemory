@@ -83,6 +83,9 @@ def test_the_tool_reference_names_every_route_and_what_a_key_with_a_ceiling_is_s
     assert "`recent_failures` of the connector status names the id the importer gave to an item that failed" not in paragraph
     assert "a failed item or a failed sync without the id the importer gave the item (for a file, its path)" in paragraph
     assert "`connector.item_failed` records the cursor the failed item would have set (`sync_cursor`)" in paragraph
+    assert "`failed_external_ids` follows it too, each id in its place in the list" in paragraph
+    assert "a key that imports a public item at a path it already knows (it was told the path or guessed it) is then shown a failed import of that same path" in paragraph
+    assert "it learns the path it sent and nothing about the file" in paragraph
     assert "`connector.sync_failed` and `connector.sync_completed` (`failed_external_ids`)" in paragraph
 
 
@@ -147,6 +150,8 @@ def test_the_security_note_covers_disclosure_the_charter_write_and_the_limits_it
     assert "the probe table must list exactly the routes of the application" in paragraph
     assert "graph neighborhood still lists an edge whose far end the key may not read" not in paragraph
     assert "such as a file path" not in paragraph
+    assert "a key that imports a public item at a path it already knows is then shown a failed import of that same path" in paragraph
+    assert "in the failure list of the connector status, in those events and in the answer of a sync" in paragraph
     assert "The id the importer gave to an item that failed to import (for a file, its path) and the cursor it would have set follow the same rule" in paragraph
     assert "take no agent key and list rows whatever their label while `APP_ENV` is `development` or `test`" in paragraph
     assert "answer HTTP 404 in any other environment" in paragraph

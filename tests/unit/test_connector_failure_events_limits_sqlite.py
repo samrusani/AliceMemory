@@ -307,3 +307,111 @@ def test_a_failed_normalization_names_only_the_id_it_was_sent_and_is_held_back_t
     assert seen["payload_json"]["external_id"] is None
     [owner] = _shown(store, None, "connector.item_failed")
     assert owner["payload_json"]["external_id"] == HIDDEN_PATH
+
+
+def test_a_sync_answer_judges_the_ids_of_its_failed_items(store):
+    """Mutation: remove the failed-id judgement from ``shown_sync_record``.
+
+    A sync of a folder names files the caller never sent, so the answer holds paths the caller may not read. The
+    ids follow the rule of a cursor, each in its place in the list. The owner and an unbound admin key are shown the
+    record as it was made.
+    """
+
+    service = VNextConnectorService(store)
+    _import(service, SHOWN_PATH, "public", mtime_ns=3)
+    _failing(service, SHOWN_PATH, HIDDEN_PATH)
+    result = service.sync_items(
+        "local_folder",
+        [
+            {"path": SHOWN_PATH, "title": "a", "text": "a", "mtime_ns": 5},
+            {"path": HIDDEN_PATH, "title": "b", "text": "b", "mtime_ns": 6},
+        ],
+        default_sensitivity="confidential",
+    )
+    assert set(result.failed_external_ids) == {SHOWN_PATH, HIDDEN_PATH}
+    shown = service.shown_sync_record(result, guard=guard_for_caller(store, TRUSTED))
+    assert shown["failed_external_ids"] == [item if item == SHOWN_PATH else None for item in result.failed_external_ids]
+    assert HIDDEN_PATH not in str(shown) and shown["failed_count"] == 2
+    # The cursor the failures held back is the one the readable import set, so it is still shown.
+    assert shown["previous_cursor"] == f"3:{SHOWN_PATH}" and shown["sync_cursor"] == f"3:{SHOWN_PATH}"
+    for identity in (None, ADMIN):
+        assert service.shown_sync_record(result, guard=guard_for_caller(store, identity)) == result.to_record()
+    assert set(result.to_record()["failed_external_ids"]) == {SHOWN_PATH, HIDDEN_PATH}
+
+
+def test_a_sync_answer_with_nothing_to_judge_reads_no_events(store, monkeypatch):
+    """A sync that imported or skipped everything and moved no cursor has no value to judge, so it reads no events."""
+
+    service = VNextConnectorService(store)
+    result = service.sync_items("local_folder", [], default_sensitivity="public")
+    assert result.failed_external_ids == () and result.previous_cursor is None and result.sync_cursor is None
+
+    def reads(*_args, **_kwargs):
+        raise AssertionError("the events of the connector were read")
+
+    monkeypatch.setattr(service, "_connector_events", reads)
+    shown = service.shown_sync_record(result, guard=guard_for_caller(store, TRUSTED))
+    assert shown["failed_external_ids"] == [] and shown["previous_cursor"] is None
+
+
+class _CountingList(list):
+    """A list that counts how many times it is iterated."""
+
+    passes = 0
+
+    def __iter__(self):
+        type(self).passes += 1
+        return super().__iter__()
+
+
+def test_the_imports_are_indexed_once_for_a_call_that_judges_many_ids(store, monkeypatch):
+    """Mutation: build the index of the imports for each id (move it inside the per-value branch).
+
+    A failed sync can list thousands of ids and a connector can hold thousands of import events. The judgement reads the
+    events once for the call and not once for each id (the figure that prompted this: 3,000 ids over about 6,000 import
+    events took 0.96 s a call when each id scanned every event).
+    """
+
+    service = VNextConnectorService(store)
+    imports = _CountingList(
+        {
+            "event_type": "connector.item_imported",
+            "target_type": "connector",
+            "target_id": "local_folder",
+            "payload_json": {"external_id": f"/vault/ok-{index}.md", "sync_cursor": f"{index}:/vault/ok-{index}.md", "source_id": str(uuid4())},
+        }
+        for index in range(300)
+    )
+    monkeypatch.setattr(service, "_connector_events", lambda *_a, **_k: imports)
+    _CountingList.passes = 0
+    ids = [f"/vault/bad-{index}.md" for index in range(200)]
+    events = [
+        {
+            "event_type": "connector.sync_failed",
+            "target_type": "connector",
+            "target_id": "local_folder",
+            "payload_json": {"failed_external_ids": ids, "previous_cursor": None, "sync_cursor": None},
+        },
+        {
+            "event_type": "connector.item_failed",
+            "target_type": "connector",
+            "target_id": "local_folder",
+            "payload_json": {"external_id": ids[0], "sync_cursor": f"1:{ids[0]}"},
+        },
+    ]
+    shown = service.shown_event_cursors(events, guard=guard_for_caller(store, TRUSTED))
+    assert shown[0]["payload_json"]["failed_external_ids"] == [None] * len(ids)
+    assert shown[1]["payload_json"]["external_id"] is None
+    assert _CountingList.passes == 1
+    # The same holds for the answer of a sync that lists many ids.
+    _CountingList.passes = 0
+    result = type("Result", (), {})()
+    record = {
+        "status": "failed", "connector_name": "local_folder", "failed_external_ids": ids, "previous_cursor": None,
+        "sync_cursor": None, "source_ids": [], "failed_count": len(ids),
+    }
+    result.connector_name = "local_folder"
+    result.to_record = lambda: dict(record)
+    shown_record = service.shown_sync_record(result, guard=guard_for_caller(store, TRUSTED))  # type: ignore[arg-type]
+    assert shown_record["failed_external_ids"] == [None] * len(ids)
+    assert _CountingList.passes == 1

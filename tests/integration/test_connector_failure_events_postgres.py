@@ -15,6 +15,8 @@ from uuid import uuid4
 
 import pytest
 
+from alicebot_api.vnext_connectors import LOCAL_FOLDER_ROOTS_ENV
+
 from alicebot_api.vnext_capture import VNextCaptureService
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 
@@ -188,3 +190,85 @@ def test_the_owner_is_shown_the_failed_file_as_it_was_stored(label_harness, fail
     assert {item["payload_json"]["sync_cursor"] for item in items} == {f"5:{SHOWN_PATH}", f"6:{HIDDEN_PATH}"}
     [sync_failed] = events_of(body, "connector.sync_failed")
     assert set(sync_failed["payload_json"]["failed_external_ids"]) == {SHOWN_PATH, HIDDEN_PATH}
+
+
+def test_the_answer_of_a_sync_names_a_failed_file_only_to_a_key_that_may_read_it(label_harness, failing_capture):
+    """Mutation: remove the failed-id judgement from ``shown_sync_record``.
+
+    The key sends the items itself here, and the ids of the ones that failed follow the rule of a cursor all the same: the
+    answer is the same record a later reader of the events is shown.
+    """
+
+    admin = label_harness.key("admin_agent")
+    trusted = label_harness.key("trusted_local_agent")
+    sync(label_harness, admin, [{"path": SHOWN_PATH, "title": "shown", "text": "a public note"}], sensitivity="public")
+    failing_capture.update({SHOWN_PATH, HIDDEN_PATH})
+    items = [
+        {"path": SHOWN_PATH, "title": "shown", "text": "newer", "mtime_ns": 5},
+        {"path": HIDDEN_PATH, "title": "hidden", "text": "a confidential note", "mtime_ns": 6},
+    ]
+    status, body = sync(label_harness, trusted, items, sensitivity="public", expect=(400,))
+    assert body["failed_count"] == 2 and HIDDEN_PATH not in json.dumps(body)
+    assert sorted(body["failed_external_ids"], key=str) == sorted([SHOWN_PATH, None], key=str)
+    status, body = sync(label_harness, admin, items, sensitivity="public", expect=(400,))
+    assert set(body["failed_external_ids"]) == {SHOWN_PATH, HIDDEN_PATH}
+
+
+def test_the_answer_of_a_folder_sync_does_not_name_a_file_the_key_never_sent(label_harness, failing_capture, monkeypatch, tmp_path):
+    """Mutation: remove the failed-id judgement from ``shown_sync_record``.
+
+    A folder sync reads the files itself, so its failed ids are paths the caller did not send. The dedicated handler is
+    shadowed on the mounted application by ``/{connector_name}/sync``, which a request with ``items`` reaches, so the
+    handler is called directly as the route table would call it if it were first.
+    """
+
+    from alicebot_api.routers import vnext_memories as router
+
+    root = tmp_path / "watched"
+    root.mkdir()
+    hidden = root / "HIDDEN-SCAN-FILE.md"
+    hidden.write_text("a confidential note")
+    (root / "other.md").write_text("another note")
+    monkeypatch.setenv(LOCAL_FOLDER_ROOTS_ENV, str(tmp_path))
+    failing_capture.update({str(hidden), str(hidden.resolve())})
+    admin = label_harness.key("admin_agent")
+    trusted = label_harness.key("trusted_local_agent")
+
+    def call(key):
+        request = router.VNextLocalFolderSyncRequest(
+            user_id=label_harness.user_id, paths=[str(root)], default_sensitivity="confidential"
+        )
+        return router.sync_vnext_local_folder_connector(request, authorization=f"Bearer {key}")
+
+    answer = call(trusted)
+    body = json.loads(answer.body)
+    assert body["failed_count"] == 1 and body["failed_external_ids"] == [None]
+    assert "HIDDEN-SCAN-FILE" not in answer.body.decode()
+    owner_view = json.loads(call(admin).body)
+    assert owner_view["failed_external_ids"] == [str(hidden.resolve())]
+
+
+def test_a_key_that_imports_a_public_item_at_a_path_it_knows_is_then_shown_a_failure_of_that_path(label_harness, failing_capture):
+    """Pins a limit the pages state: a guess can be confirmed.
+
+    A failed import is shown by its id once an import of the same id made a source the key may read. A key that names a
+    path (it was told it or it guessed it) and imports a public item there is shown whether a failed import of that
+    path exists. It learns nothing about the file beyond the path it sent. The same key learns nothing for a path no
+    import of its own made readable.
+    """
+
+    admin = label_harness.key("admin_agent")
+    trusted = label_harness.key("trusted_local_agent")
+    failing_capture.add(HIDDEN_PATH)
+    sync(label_harness, admin, [{"path": HIDDEN_PATH, "title": "hidden", "text": "a confidential note", "mtime_ns": 1000001}], sensitivity="confidential")
+
+    def failures():
+        status, body = get(label_harness, STATUS, trusted)
+        return [item["payload_json"]["external_id"] for item in events_of(body, "connector.item_failed")]
+
+    assert failures() == [None]
+    failing_capture.discard(HIDDEN_PATH)
+    sync(label_harness, trusted, [{"path": "/vault/WRONG-GUESS.md", "title": "g", "text": "guess", "mtime_ns": 1000002}], sensitivity="public")
+    assert failures() == [None]
+    sync(label_harness, trusted, [{"path": HIDDEN_PATH, "title": "g", "text": "my own text", "mtime_ns": 1000003}], sensitivity="public")
+    assert failures() == [HIDDEN_PATH]

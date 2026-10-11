@@ -312,6 +312,8 @@ def test_a_cursor_that_cannot_be_tied_to_a_connector_or_to_text_is_not_shown(sto
         }
     )
     _state_updated(store, 12345)
+    # A cursor that is a list (a stored event is whatever a writer sent) is not text either, and is not hashable.
+    _state_updated(store, ["12345"])
     _state_updated(store, "")
     store.append_event(
         {
@@ -326,7 +328,7 @@ def test_a_cursor_that_cannot_be_tied_to_a_connector_or_to_text_is_not_shown(sto
         if event["event_type"] == "connector.state_updated" or event["payload_json"].get("connector_name") is None
     ]
     values = [p["cursor_value"] for p in shown if "cursor_value" in p]
-    # The number is not shown and the empty text stays empty.
-    assert sorted(str(value) for value in values) == ["", "None"]
+    # The number and the list are not shown and the empty text stays empty.
+    assert sorted(str(value) for value in values) == ["", "None", "None"]
     # The cursor of an event that names no connector cannot be tied to an import, though the file it names is readable.
     assert [p["previous_cursor"] for p in shown if "previous_cursor" in p] == [None]
