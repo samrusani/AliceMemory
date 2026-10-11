@@ -318,13 +318,16 @@ the prior behavior: the payload's explicit project scope is honored.
 
 Unreleased (on main, not in v0.20.0): the name `~global` is reserved by Alice and
 cannot be a key's project scope. `alicebot agent keys create --project-scope
-'~global'` is refused with a message that says so and stores no key, and a
-project scope that a call declares for its identity may not hold the name
-either. A key that an earlier version stored with the name as its binding is
-refused at every route and tool, whatever its profile, until it is revoked with
-`alicebot agent keys revoke` and replaced by a key bound to the name or id of a
-project. The refusal is recorded as an event with the reason
-`reserved_project_scope_binding`.
+'~global'` is refused and stores no key: its public answer is the standard
+`invalid_request` error, and the reason is printed on stderr as a warning line
+before it. A project scope that a call declares for its identity may not hold
+the name either. A key that an earlier version stored with the name as its
+binding is refused at every route and tool, whatever its profile, until it is
+revoked with `alicebot agent keys revoke` and replaced by a key bound to the
+name or id of a project. The refusal is the standard one of each surface (HTTP
+403 with the standard forbidden message, the tool code `not_permitted` with its
+standard text), which does not name the reason. The reason, the prefix of the
+key and the revoke command are written to the server log at warning level.
 
 Unreleased (on main, not in v0.20.0): a derived row (a report, summary or copy)
 carries every project of every row it was made from, so a bound key reads it

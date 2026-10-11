@@ -162,6 +162,49 @@ def test_the_cli_refuses_to_create_a_key_bound_to_the_reserved_name(monkeypatch:
     assert json.loads(ordinary.handler(ctx, ordinary))["key"]["project_scope"] == "alicebot"
 
 
+def test_the_cli_logs_why_a_key_command_was_refused_at_warning_level(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Mutation: drop the decorator from a key command, or log the reason below warning level.
+
+    The command answers every refusal with the same public ``invalid_request`` error, so the reason is written to the
+    log at warning level, which a person running the command reads on stderr.
+    """
+
+    import logging
+
+    from alicebot_api import cli as cli_module
+    from alicebot_api.config import Settings
+
+    store = FakeAgentKeyStore()
+
+    @contextmanager
+    def fake_store_context(_ctx):
+        yield store
+
+    monkeypatch.setattr(cli_module, "_vnext_store_context", fake_store_context)
+    ctx = cli_module.CLIContext(
+        settings=Settings(database_url="postgresql://db"), database_url="postgresql://db", user_id=uuid4()
+    )
+    parser = cli_module.build_parser()
+    create = parser.parse_args(
+        ["agent", "keys", "create", "--agent-id", "openclaw", "--profile", "project_scoped_agent", "--project-scope", "~GLOBAL"]
+    )
+    revoke = parser.parse_args(["agent", "keys", "revoke", "alice_sk_nokey"])
+    with caplog.at_level(logging.DEBUG, logger="alicebot_api.cli"):
+        for args in (create, revoke):
+            with pytest.raises(AgentKeyValidationError):
+                args.handler(ctx, args)
+    records = [item for item in caplog.records if item.name == "alicebot_api.cli"]
+    assert [item.levelno for item in records] == [logging.WARNING, logging.WARNING]
+    assert records[0].getMessage() == (
+        "the project name ~global is reserved by Alice and cannot be a key's project scope; "
+        "use the name or id of a project instead"
+    )
+    assert records[1].getMessage() == "no agent API key matches 'alice_sk_nokey'"
+    assert create.handler.__name__ == "_run_agent_keys_create" and revoke.handler.__name__ == "_run_agent_keys_revoke"
+
+
 def test_create_agent_key_is_the_only_writer_of_a_key_row() -> None:
     """Mutation: add a second caller of ``create_agent_api_key`` that stores a binding of its own.
 
@@ -205,8 +248,9 @@ def stored_marker_key(store: FakeAgentKeyStore, *, profile: str = "project_scope
 def test_a_stored_key_bound_to_the_reserved_name_is_refused_whole(binding: str, payload: dict) -> None:
     """Mutation: remove the stored-binding check in ``resolve_agent_identity``.
 
-    The key is refused with HTTP 403 before any claim is read, and the refusal is recorded as an event that names the
-    key by its prefix and the reason, not the project.
+    The key is refused with status 403 before any claim is read. The function appends an event that names the key by
+    its prefix and the reason, which a store that keeps its writes shows here. A request rolls its transaction back on
+    the refusal, so no event is stored in a real flow (see ``test_a_refused_key_persists_no_rejection_event_in_a_real_store``).
     """
 
     store = FakeAgentKeyStore()
@@ -241,6 +285,29 @@ def test_a_stored_key_with_an_ordinary_binding_still_resolves() -> None:
     assert identity is not None
     assert identity.project_scope == ("Orchard",) and identity.project_scope_locked is True
     assert store.events == []
+
+
+def test_the_reason_of_a_refused_stored_key_goes_to_the_server_log(caplog: pytest.LogCaptureFixture) -> None:
+    """Mutation: log the refusal below warning level, or leave the prefix or the revoke command out of the line.
+
+    Every surface answers this refusal with its standard text, which names no reason, so the server log is the one
+    place that says why and which key to revoke.
+    """
+
+    import logging
+
+    store = FakeAgentKeyStore()
+    raw = stored_marker_key(store)
+    with caplog.at_level(logging.DEBUG, logger="alicebot_api.vnext_agent_keys"):
+        with pytest.raises(AgentKeyAuthenticationError):
+            resolve_agent_identity(store, user_id="u", raw_key=raw, payload={})
+    [record] = [item for item in caplog.records if item.name == "alicebot_api.vnext_agent_keys"]
+    assert record.levelno == logging.WARNING
+    message = record.getMessage()
+    assert f"agent API key {raw[:12]} is refused" in message
+    assert "bound to the project name ~global" in message
+    assert f"alicebot agent keys revoke {raw[:12]}" in message
+    assert raw not in message
 
 
 # -- a declared scope ---------------------------------------------------------------------------------------------
@@ -554,6 +621,37 @@ def test_a_declared_scope_with_the_reserved_name_on_a_keyless_vault_is_refused_a
                 "alice_memory_review",
                 {"status": "all", "agent_identity": {"agent_id": "agent", "permission_profile": "project_scoped_agent", "project_scope": [spelling]}},
             )
+
+
+def test_a_refused_key_persists_no_rejection_event_in_a_real_store(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pins today's behaviour: a refusal of a key leaves no ``agent.key_escalation_rejected`` event in the store.
+
+    ``resolve_agent_identity`` appends the event inside the transaction of the request, and the refusal that follows rolls
+    that transaction back, so no event is stored, for the older reasons (a claim wider than the binding) as for the
+    reserved binding. ``FakeAgentKeyStore`` never rolls back, which is why the tests above see an event. Persisting
+    refusals is a separate change that has to decide how a refused request keeps a write; when it lands, this test
+    changes with it. Until then the reason of the reserved binding is in the server log (see the log test above).
+    """
+
+    marker = store_key(world, profile="project_scoped_agent", binding="~global")
+    bound = store_key(world, profile="project_scoped_agent", binding=ORCHARD)
+
+    def rejections() -> list[str]:
+        with world.store() as conn:
+            events = SQLiteVNextStore(conn, world.user_id).list_events()
+        return [event["payload_json"].get("reason") for event in events if event["event_type"] == "agent.key_escalation_rejected"]
+
+    with pytest.raises(MCPNotPermittedError):
+        seen(world, marker, monkeypatch, "alice_memory_review", {"status": "all"})
+    with pytest.raises(MCPNotPermittedError):
+        seen(
+            world,
+            bound,
+            monkeypatch,
+            "alice_memory_review",
+            {"status": "all", "agent_identity": {"project_scope": [LIGHTHOUSE]}},
+        )
+    assert rejections() == []
 
 
 # -- the guard ------------------------------------------------------------------------------------------------------

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import hashlib
 import hmac
+import logging
 import secrets
 from typing import Mapping, Protocol
 
@@ -23,6 +24,8 @@ from alicebot_api.vnext_repositories import JsonObject
 # without a cycle through the promotion policy. Re-exported here.
 from alicebot_api.agent_key_format import AGENT_KEY_PREFIX as AGENT_KEY_PREFIX
 from alicebot_api.agent_key_format import AGENT_KEY_PREFIX_LENGTH as AGENT_KEY_PREFIX_LENGTH
+
+logger = logging.getLogger(__name__)
 
 AGENT_KEY_AUTH = "agent_api_key"
 UNAUTHENTICATED_LOCAL_AUTH = "unauthenticated_local"
@@ -229,6 +232,15 @@ def resolve_agent_identity(
     stored_binding = record.get("project_scope")
     stored_reserved = reserved_project_marker(stored_binding) if isinstance(stored_binding, str) else None
     if stored_reserved is not None:
+        # Every surface answers with its standard refusal, which names no reason, so the reason and the prefix of
+        # the key to revoke go to the server log.
+        logger.warning(
+            "agent API key %s is refused: it is bound to the project name %s, which Alice reserves; revoke it with "
+            "'alicebot agent keys revoke %s' and create a new key bound to the name or id of a project",
+            record.get("key_prefix"),
+            stored_reserved,
+            record.get("key_prefix"),
+        )
         _append_key_rejection_event(
             store,
             record=record,

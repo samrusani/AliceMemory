@@ -11,6 +11,9 @@ The same cases on SQLite, with per-project scoping on and off, are in ``tests/un
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from uuid import uuid4
 
 import pytest
@@ -235,3 +238,73 @@ def test_a_declared_scope_with_the_reserved_name_is_refused_over_http(label_harn
             status, body, _headers = label_harness.request("POST", "/v0/vnext/context-packs", payload=payload, key=key)
             assert status == expected, (status, body)
             assert not [text for text in TEXTS.values() if text in json.dumps(body)]
+
+
+def rejection_reasons(harness) -> list[str]:
+    with harness.store() as store:
+        return [
+            event["payload_json"].get("reason")
+            for event in store.list_events()
+            if event["event_type"] == "agent.key_escalation_rejected"
+        ]
+
+
+def test_a_refused_key_persists_no_rejection_event_over_http_or_mcp(label_harness, monkeypatch):
+    """Pins today's behaviour: a refusal of a key leaves no ``agent.key_escalation_rejected`` event in the store.
+
+    The event is appended inside the transaction of the request, and the refusal rolls that transaction back, so no event
+    is stored for the reserved binding or for the older reasons (a claim wider than the binding), over the mounted
+    application and over the tool registry alike. Persisting refusals is a separate change that has to decide how a
+    refused request keeps a write; when it lands, this test changes with it. Until then the reason of the reserved
+    binding is written to the server log.
+    """
+
+    build_world(label_harness)
+    marker = stored_key(label_harness, "project_scoped_agent", "~global")
+    bound = stored_key(label_harness, "project_scoped_agent", ORCHARD)
+    status, _body, _headers = label_harness.request("POST", "/v0/vnext/context-packs", payload={"query": "x"}, key=marker)
+    assert status == 403
+    status, _body, _headers = label_harness.request(
+        "POST", "/v0/vnext/context-packs", payload={"query": "x", "project_scope": [LIGHTHOUSE]}, key=bound
+    )
+    assert status == 403
+    with pytest.raises(MCPNotPermittedError):
+        read_mcp(label_harness, monkeypatch, marker, "alice_memory_review", {"status": "all"})
+    with pytest.raises(MCPNotPermittedError):
+        read_mcp(
+            label_harness,
+            monkeypatch,
+            bound,
+            "alice_memory_review",
+            {"status": "all", "agent_identity": {"project_scope": [LIGHTHOUSE]}},
+        )
+    assert rejection_reasons(label_harness) == []
+
+
+def test_the_cli_prints_why_a_key_command_was_refused_on_stderr(label_harness, tmp_path):
+    """Mutation: log the reason of a key command below warning level, or drop the decorator.
+
+    Every refusal of these commands has the same public ``invalid_request`` error. Run as a person runs it, in its own
+    process, the command also prints the reason on stderr, which the log does at warning level when nothing configures
+    logging. A key bound to an ordinary name is created, and no key is made for the reserved one.
+    """
+
+    environment = {**os.environ, "DATABASE_URL": label_harness.urls["app"], "ALICEBOT_AUTH_USER_ID": str(label_harness.user_id)}
+
+    def run(*argv: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-m", "alicebot_api", "--user-id", str(label_harness.user_id), *argv],
+            capture_output=True, text=True, env=environment, cwd=tmp_path, timeout=120, check=False,
+        )
+
+    refused = run("agent", "keys", "create", "--agent-id", "reserved-agent", "--profile", "project_scoped_agent", "--project-scope", "~global")
+    assert refused.returncode != 0
+    assert "the project name ~global is reserved by Alice and cannot be a key's project scope" in refused.stderr
+    assert '"code":"invalid_request"' in refused.stderr
+    assert refused.stdout == ""
+    created = run("agent", "keys", "create", "--agent-id", "orchard-agent", "--profile", "project_scoped_agent", "--project-scope", "Orchard")
+    assert created.returncode == 0, created.stderr
+    listed = json.loads(run("agent", "keys", "list").stdout)
+    assert [item["agent_id"] for item in listed["items"]] == ["orchard-agent"]
+    unknown = run("agent", "keys", "revoke", "alice_sk_nokey")
+    assert unknown.returncode != 0 and "no agent API key matches 'alice_sk_nokey'" in unknown.stderr

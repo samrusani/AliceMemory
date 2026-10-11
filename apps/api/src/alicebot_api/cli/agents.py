@@ -1,10 +1,34 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable as _Callable
+import functools as _functools
 from alicebot_api.vnext_agent_keys import AgentKeyValidationError, create_agent_key
 from alicebot_api.vnext_repositories import JsonObject
+from .constants import logger
 from .models import CLIContext
 from .shared import _json_dumps, _vnext_store_context
+
+
+def _reason_to_the_owner(
+    handler: _Callable[[CLIContext, argparse.Namespace], str],
+) -> _Callable[[CLIContext, argparse.Namespace], str]:
+    """Log why a key command was refused at warning level, so the person who ran it reads it on stderr.
+
+    The command answers every refusal with the same public ``invalid_request`` error, which names no reason, and the
+    runner logs the exception only at debug level. The reasons of these two commands are fixed words and the names the
+    person typed, so they are safe to print: a reserved project name, a blank project scope, an unknown key.
+    """
+
+    @_functools.wraps(handler)
+    def run(ctx: CLIContext, args: argparse.Namespace) -> str:
+        try:
+            return handler(ctx, args)
+        except AgentKeyValidationError as exc:
+            logger.warning("%s", exc)
+            raise
+
+    return run
 
 
 def _agent_key_public_record(record: dict[str, object]) -> JsonObject:
@@ -22,6 +46,7 @@ def _agent_key_public_record(record: dict[str, object]) -> JsonObject:
     }
 
 
+@_reason_to_the_owner
 def _run_agent_keys_create(ctx: CLIContext, args: argparse.Namespace) -> str:
     with _vnext_store_context(ctx) as store:
         record, raw_key = create_agent_key(
@@ -52,6 +77,7 @@ def _run_agent_keys_list(ctx: CLIContext, args: argparse.Namespace) -> str:
     return _json_dumps({"items": items, "count": len(items), "order": ["created_at_desc", "id_desc"]})
 
 
+@_reason_to_the_owner
 def _run_agent_keys_revoke(ctx: CLIContext, args: argparse.Namespace) -> str:
     selector = args.key.strip()
     if not selector:
