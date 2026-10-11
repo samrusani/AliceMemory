@@ -566,6 +566,82 @@ def test_the_update_door_and_the_artifact_get_agree_for_every_profile(label_harn
         assert answer.ok is readable, (kind, profile, bound, answer)
 
 
+# -- an id that is not a uuid, and a key bound by slug or name ---------------------------------------------------------
+
+def _plain(answer: Answer, *echoed: str) -> tuple:
+    """The answer with the words the caller sent masked, for the door that echoes the project it was asked for."""
+
+    detail = answer.detail
+    if isinstance(detail, tuple) and detail and detail[0] == "refused":
+        text = detail[1]
+        for word in echoed:
+            text = text.replace(word, "<id>")
+        detail = ("refused", text)
+    return answer.ok, detail
+
+
+NOT_A_UUID = [
+    pytest.param("Kiln Plans", id="a free-form name"),
+    pytest.param("not-a-uuid-1234", id="a malformed id"),
+]
+
+
+@pytest.mark.parametrize("named", NOT_A_UUID)
+@pytest.mark.parametrize(
+    ("profile", "bound"),
+    [
+        pytest.param(None, False, id="owner"),
+        pytest.param("admin_agent", False, id="unbound admin key"),
+        pytest.param("trusted_local_agent", False, id="unbound trusted key"),
+    ],
+)
+def test_a_project_id_that_is_not_a_uuid_is_answered_as_a_project_that_is_not_stored(label_harness, ask, profile, bound, named):
+    """PostgreSQL casts the id it is given to a uuid, so a name sent to it raised a database error (a server error).
+    A name is read as an id that names no stored project, which is the answer a uuid that is not stored gets."""
+
+    _project(label_harness)
+    key = None if profile is None else label_harness.key(profile)
+    missing = ask(label_harness, key, uuid4())
+    assert missing.ok is False
+    before = label_harness.snapshot()
+
+    answer = ask(label_harness, key, named)
+
+    assert _plain(answer, named) == _plain(missing), answer
+    assert label_harness.snapshot() == before
+    assert _artifact_ids(label_harness) == []
+
+
+@pytest.mark.parametrize("form", ["slug", "name"])
+@pytest.mark.parametrize("profile", ["trusted_local_agent", "project_scoped_agent", "admin_agent"])
+def test_a_key_bound_by_slug_or_name_is_answered_as_a_missing_project_and_the_artifact_get_agrees(
+    label_harness, ask, profile, form
+):
+    """A project update is scoped to the uuid of its project, which a binding by slug or name does not name, so the
+    artifact get shows such a key none of them. The door answers it as it answers a project that is not stored: no
+    database error from the slug or the name, and the answer agrees with the get."""
+
+    project = _project(label_harness)
+    made = ask(label_harness, label_harness.key("admin_agent"), project["id"])
+    assert made.ok, made
+    binding = {"slug": project["slug"], "name": project["name"]}[form]
+    key = label_harness.key(profile, project=binding)
+    # A key bound by a slug that names no project is the reference answer.
+    nowhere = f"no-such-{uuid4().hex[:8]}"
+    missing = ask(label_harness, label_harness.key(profile, project=nowhere))
+    assert missing.ok is False
+    assert _get(label_harness, key, made.detail["id"]) == 404
+    before = label_harness.snapshot()
+
+    answer = ask(label_harness, key)
+
+    assert _plain(answer, binding) == _plain(missing, nowhere), answer
+    named = ask(label_harness, key, project["id"])
+    assert named.ok is False
+    assert label_harness.snapshot() == before
+    assert len(_artifact_ids(label_harness)) == 1
+
+
 # -- the owner's routes ----------------------------------------------------------------------------------------------
 
 

@@ -14,6 +14,8 @@ extraction; let the extraction admit every named project; make a store without p
 """
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 
 from alicebot_api.vnext_agent_control import AgentIdentity
@@ -175,3 +177,73 @@ def test_project_readable(caller, sensitivity, domain, readable):
     if caller is None or (caller.permission_profile in {"trusted_local_agent", "admin_agent"} and not caller.project_scope_locked):
         loops = _extract(store, PROJECT, caller)
         assert bool(loops) is readable
+
+
+# -- the lookup of a project by an id a caller sent ------------------------------------------------------------------
+
+STORED = "44444444-4444-4444-8444-444444444444"
+
+
+def _postgres_like():
+    """A store that is a PostgreSQL store to the lookup: it keeps uuids and would fail on a name."""
+
+    from alicebot_api.vnext_store import PostgresVNextStore
+
+    class FakePostgres(PostgresVNextStore):
+        def __init__(self) -> None:  # no connection: the lookup is all that is asked of it
+            self.asked: list[str] = []
+
+        def get_project(self, project_id: str):  # type: ignore[override]
+            self.asked.append(project_id)
+            return {"id": STORED, "name": "Kiln"} if project_id == STORED else None
+
+    return FakePostgres()
+
+
+class _Staged:
+    """What the scheduler runs on: reads go through to the store under it, which is kept as ``_delegate``."""
+
+    def __init__(self, delegate) -> None:
+        self._delegate = delegate
+
+    def __getattr__(self, name: str):
+        return getattr(self._delegate, name)
+
+
+@pytest.mark.parametrize("name", ["Kiln Plans", "not-a-uuid-1234", "", " ", "project-1"])
+@pytest.mark.parametrize("wrapped", [False, True], ids=["store", "staged store"])
+def test_a_name_is_not_sent_to_a_store_that_keeps_uuids(name, wrapped):
+    from alicebot_api.vnext_projects import stored_project
+
+    store = _postgres_like()
+    assert stored_project(_Staged(store) if wrapped else store, name) is None
+    assert store.asked == []
+
+
+@pytest.mark.parametrize("wrapped", [False, True], ids=["store", "staged store"])
+def test_a_uuid_is_sent_in_its_canonical_spelling(wrapped):
+    from alicebot_api.vnext_projects import stored_project
+
+    store = _postgres_like()
+    for spelling in (STORED, STORED.upper(), f" {STORED} ", STORED.replace("-", ""), f"urn:uuid:{STORED}"):
+        row = stored_project(_Staged(store) if wrapped else store, spelling)
+        assert row is not None and row["id"] == STORED, spelling
+    assert set(store.asked) == {STORED}
+    assert stored_project(_Staged(store) if wrapped else store, str(uuid4())) is None
+
+
+def test_a_store_that_keeps_ids_as_given_is_asked_with_the_id_as_it_came():
+    from alicebot_api.vnext_projects import stored_project
+
+    store = _store(sensitivity="private")
+    assert stored_project(store, PROJECT)["id"] == PROJECT  # type: ignore[index]
+    assert stored_project(store, GHOST) is None
+
+
+def test_a_store_that_keeps_no_projects_names_none():
+    from alicebot_api.vnext_projects import stored_project
+
+    class Without(InMemoryVNextProjectStore):
+        get_project = None  # type: ignore[assignment]
+
+    assert stored_project(Without(), PROJECT) is None

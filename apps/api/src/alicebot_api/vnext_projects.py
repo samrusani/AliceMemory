@@ -581,6 +581,28 @@ def project_readable_to_record(store: object, project: Mapping[str, object], rec
     return project_readable(store, project, _identity_of_record(record))
 
 
+def stored_project(store: object, project_id: object) -> JsonObject | None:
+    """The stored project row that ``project_id`` names, or ``None`` when no stored project has that id.
+
+    PostgreSQL keeps a project id as a uuid and casts the id it is given, so a name, a slug or a malformed id sent to it is a
+    database error (a server error for the caller) and not a missing row. It is read here as a project that is not stored.
+    The scheduler stages its writes over the store it runs on and keeps that store as ``_delegate``; the lookup reads
+    through to it, so the id is judged the way the store judges it. A store that keeps its project ids as it was given them
+    (an in-memory store) is asked with the id as it came.
+    """
+
+    lookup = getattr(store, "get_project", None)
+    if not callable(lookup):
+        return None
+    named = str(project_id).strip()
+    if isinstance(getattr(store, "_delegate", store), PostgresVNextStore):
+        try:
+            named = str(UUID(named))
+        except ValueError:
+            return None
+    return cast("JsonObject | None", lookup(named))
+
+
 def project_a_loop_is_filed_under(
     store: object, project_id: object, readable: Callable[[Mapping[str, object]], bool]
 ) -> str | None:
@@ -596,18 +618,10 @@ def project_a_loop_is_filed_under(
     lookup = getattr(store, "get_project", None)
     if not callable(lookup):
         return str(project_id)
-    named = str(project_id).strip()
-    # PostgreSQL casts the id it is given to a uuid. The scheduler stages its writes over the store it runs on and keeps
-    # that store as ``_delegate``; the lookup reads through to it, so the id is judged the way the store judges it.
-    if isinstance(getattr(store, "_delegate", store), PostgresVNextStore):
-        try:
-            named = str(UUID(named))
-        except ValueError:
-            return None
-    project = lookup(named)
+    project = stored_project(store, project_id)
     if project is None or not readable(project):
         return None
-    return str(project.get("id") or named)
+    return str(project.get("id") or str(project_id).strip())
 
 
 class VNextProjectService:
@@ -1646,7 +1660,7 @@ class VNextProjectService:
 
     def _resolve_project(self, request: ProjectAutomationRequest, caller: AgentIdentity | None) -> JsonObject:
         if request.project_id is not None:
-            project = self.store.get_project(request.project_id)
+            project = stored_project(self.store, request.project_id)
             if project is None or not project_readable(self.store, project, caller):
                 raise VNextProjectValidationError(f"project {request.project_id} was not found")
             return project
@@ -1683,4 +1697,5 @@ __all__ = [
     "project_in_view",
     "project_readable",
     "project_readable_to_record",
+    "stored_project",
 ]

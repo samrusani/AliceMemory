@@ -142,6 +142,7 @@ NOT_A_DOOR = {
     "vnext_artifact_review.py:lock_artifact_review_labels": "write lock classification only; the adapter authorizes before the dispatcher mutates",
     "routers/vnext_memories.py:regenerate_vnext_source": "operator-only regeneration rejects every profile except owner and unbound admin before the source lookup; test_source_routes_limits_postgres.py pins that gate for every profile",
     "vnext_projects.py:VNextProjectService.review_project_update": "write path; the route authorizes before this mutation",
+    "vnext_projects.py:stored_project": "loader of one project row by the id a caller sent; every caller judges the row it gets (project_readable, or the readable test project_a_loop_is_filed_under is given)",
     "vnext_projects.py:project_a_loop_is_filed_under": "returns an id and never a row; the callers pass the readability test of the caller (project_in_view for an operator guard, project_readable for an identity)",
     "vnext_projects.py:VNextProjectService.review_open_loop": "write path; the route and the open-loop tool settle the loop first",
     "vnext_memory_commit.py:VNextMemoryCommitService.confirm": "write path; _write_policy_decision settles the row",
