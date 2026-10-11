@@ -435,6 +435,61 @@ def test_edges_at_a_blanked_open_loop_go_with_it(tmp_path, capsys, operation):
     assert SENTINEL not in _whole_database(db)
 
 
+def test_the_mention_edges_of_a_rejected_candidate_count_with_a_replacement(tmp_path, capsys):
+    """A replacement rejects the candidate memories that cite the old source and closes the mentions they made. Those edges
+    are closed edges of the command, so the count of the replacement includes them: the file shows the same number of
+    changed edges."""
+
+    db = _vault(tmp_path)
+    folder = _folder(tmp_path, note=NOTE)
+    sid = run_import(db, folder).source_ids[0]
+    with sqlite_user_connection(db, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        candidate = store.create_memory(
+            {"memory_key": "pending", "value": {"text": NOTE}, "canonical_text": NOTE, "title": NOTE, "status": "candidate",
+             "memory_type": "semantic", "metadata_json": {"source_id": sid}, "source_event_ids": [sid]})
+        cid = str(candidate["id"])
+        store.create_provenance_link({"target_type": "memory", "target_id": cid, "source_id": sid, "quote": NOTE})
+        entity = _linker_entity(store, "Zorvex Holdings")
+        mention = _edge(store, ("memory", cid, "entity", entity, "mentions"), "candidate mention")
+    mentions = _rows(db, "SELECT count(*) FROM graph_edges WHERE from_id = ? AND edge_type = 'mentions'", (sid,))[0][0]
+    before = {row[0]: row[1] for row in _rows(db, "SELECT id, valid_to IS NULL FROM graph_edges")}
+    _, receipt = _retire(db, folder, sid, "replace", capsys)
+    changed = [edge_id for edge_id, still_open in before.items()
+               if still_open and not _rows(db, "SELECT valid_to IS NULL FROM graph_edges WHERE id = ?", (edge_id,))[0][0]]
+    assert mention in changed
+    assert receipt["graph_edges"] == len(changed) == mentions + 1, (receipt, len(changed))
+    assert receipt["mention_edges"] == mentions + 1
+    assert _rows(db, "SELECT status FROM memories WHERE id = ?", (cid,)) == [("rejected",)]
+
+
+def test_a_plan_that_missed_a_candidate_and_a_loop_is_completed(tmp_path):
+    """A caller may hand a retirement the edges that name the source and nothing else. The candidate it redacts and the
+    loop it blanks are looked at in the retirement, so the edges at them are closed all the same and counted."""
+
+    db = _vault(tmp_path)
+    folder = _folder(tmp_path, note=NOTE)
+    sid = run_import(db, folder).source_ids[0]
+    with sqlite_user_connection(db, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        candidate = store.create_memory(
+            {"memory_key": "pending", "value": {"text": NOTE}, "canonical_text": NOTE, "title": NOTE, "status": "candidate",
+             "memory_type": "semantic", "metadata_json": {"source_id": sid}, "source_event_ids": [sid]})
+        cid = str(candidate["id"])
+        store.create_provenance_link({"target_type": "memory", "target_id": cid, "source_id": sid, "quote": NOTE})
+        loop = str(store.create_open_loop({"title": "find the lantern", "description": "d", "resolution_note": None,
+                                           "source_id": sid, "status": "open", "metadata_json": {}})["id"])
+        entity = _linker_entity(store, "Zorvex Holdings")
+        at_candidate = _edge(store, ("memory", cid, "entity", entity, "supports"), "at candidate")
+        at_loop = _edge(store, ("open_loop", loop, "entity", entity, "supports"), "at loop")
+        counts = store.scrub_source(sid, edge_hits=edges_naming_sources(store, [sid])[sid])
+    mentions = _rows(db, "SELECT count(*) FROM graph_edges WHERE from_id = ? AND edge_type = 'mentions'", (sid,))[0][0]
+    for edge_id in (at_candidate, at_loop):
+        assert _rows(db, "SELECT explanation, metadata_json, valid_to IS NULL FROM graph_edges WHERE id = ?", (edge_id,)) == [
+            ("", "{}", 0)]
+    assert counts["graph_edges"] == mentions + 2
+
+
 def test_a_prune_after_a_replacement_does_not_count_an_entity_mention_twice(tmp_path, capsys):
     """The replacement closes the edges and counts the mentions down. The prune meets the same edges closed, blanks them
     again and must not count them down a second time, even for an edge that names two of the pruned sources."""

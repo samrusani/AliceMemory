@@ -180,6 +180,19 @@ def test_the_connector_normalizer_refuses_what_cannot_be_stored(connector: str, 
         normalize_connector_item(connector, payload)
 
 
+@pytest.mark.parametrize("bad", [*TOO_DEEP, *NOT_FINITE])
+@pytest.mark.parametrize("refs", (None, []))
+def test_the_connector_normalizer_measures_the_rest_of_an_item_from_the_item(refs: list | None, bad: object) -> None:
+    """An item with no ``source_refs`` is measured whole, and one with them is measured without them: a bad value in
+    another field is refused either way."""
+
+    payload: dict = {"content": "An agent output.", "agent_id": "agent-1", "title": "Output", "extra": bad}
+    if refs is not None:
+        payload["source_refs"] = refs
+    with pytest.raises(VNextConnectorValidationError, match=r"agent_output item must (nest at most 64 levels|not hold NaN)"):
+        normalize_connector_item("agent_output", payload)
+
+
 def test_the_connector_normalizer_takes_an_item_inside_the_limits() -> None:
     item = normalize_connector_item(
         "agent_output",

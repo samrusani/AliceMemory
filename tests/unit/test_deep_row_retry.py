@@ -83,23 +83,19 @@ def test_the_stored_decoder_cuts_on_the_second_attempt() -> None:
 
 
 def _raised_from(inner: BaseException) -> Exception:
-    try:
-        try:
-            raise inner
-        except BaseException as exc:
-            raise ValueError("outer") from exc
-    except ValueError as outer:
-        return outer
+    """An error whose ``__cause__`` is ``inner`` and whose ``__context__`` is not set."""
+
+    outer = ValueError("outer")
+    outer.__cause__ = inner
+    return outer
 
 
 def _raised_while_handling(inner: BaseException) -> Exception:
-    try:
-        try:
-            raise inner
-        except BaseException:
-            raise ValueError("outer")  # noqa: B904 - the context is the point
-    except ValueError as outer:
-        return outer
+    """An error whose ``__context__`` is ``inner`` and whose ``__cause__`` is not set."""
+
+    outer = ValueError("outer")
+    outer.__context__ = inner
+    return outer
 
 
 def test_a_recursion_error_is_found_wherever_the_chain_holds_it() -> None:
@@ -185,6 +181,9 @@ class _App:
         self.always_fail = always_fail
 
     async def __call__(self, scope, receive, send) -> None:
+        entered = dict(scope)
+        # Starlette puts its own keys into the scope as the request goes in; the replay must not see them.
+        scope["state"] = {"first_attempt": True}
         body = b""
         while True:
             message = await receive()
@@ -192,7 +191,7 @@ class _App:
             if not message.get("more_body"):
                 break
         cut = _levels(loads_stored(_text(MAX_READ_JSON_DEPTH + 10)))[1] == DEEP_PLACEHOLDER
-        self.attempts.append({"scope": dict(scope), "body": body, "cut": cut})
+        self.attempts.append({"scope": entered, "body": body, "cut": cut})
         if self.fail_after_start:
             await send({"type": "http.response.start", "status": 200, "headers": []})
         if self.always_fail or not cut:
@@ -228,6 +227,7 @@ def test_a_get_that_overflowed_is_replayed_with_the_same_request(method: str, pa
     assert [attempt["cut"] for attempt in app.attempts] == [False, True]
     assert app.attempts[0]["body"] == app.attempts[1]["body"] == b"abcdefghij"
     assert app.attempts[0]["scope"] == app.attempts[1]["scope"]
+    assert "state" not in app.attempts[1]["scope"]
 
 
 @pytest.mark.parametrize(
@@ -320,6 +320,39 @@ def test_a_tool_that_writes_is_not_run_twice(monkeypatch) -> None:
             answer = None
         # Whatever the server answers, the tool ran once.
         assert server.calls == [False], (tool, answer)
+
+
+def test_the_registry_runs_a_write_tool_once_and_a_read_tool_again(monkeypatch, tmp_path) -> None:
+    """``call_mcp_tool`` is the boundary every caller crosses, the server or not."""
+
+    from uuid import UUID
+
+    from alicebot_api.mcp import registry
+    from alicebot_api.onramp import sqlite_url_for_path
+    from tests.unit.test_importer_per_file_savepoint import USER_ID, _vault
+
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(_vault(tmp_path)), user_id=UUID(USER_ID))
+    calls: dict[str, list[bool]] = {"alice_memory_commit": [], "alice_recall": []}
+
+    def handler_for(tool: str):
+        def handler(_context, _arguments):
+            cut = _levels(loads_stored(_text(MAX_READ_JSON_DEPTH + 10)))[1] == DEEP_PLACEHOLDER
+            calls[tool].append(cut)
+            if not cut:
+                raise RecursionError("a writer")
+            return {"ok": True}
+
+        return handler
+
+    for tool in calls:
+        monkeypatch.setitem(registry._TOOL_HANDLERS, tool, handler_for(tool))
+    with pytest.raises(RecursionError):
+        registry.call_mcp_tool(context, name="alice_memory_commit", arguments={"title": "t", "canonical_text": "c"})
+    assert calls["alice_memory_commit"] == [False]
+    assert registry.call_mcp_tool(context, name="alice_recall", arguments={"query": "q"}) == {"ok": True}
+    assert calls["alice_recall"] == [False, True]
 
 
 def test_the_tools_that_read_are_the_tools_hinted_as_read_only() -> None:

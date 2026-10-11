@@ -10,8 +10,11 @@ drive the mounted application against PostgreSQL:
 * a row already stored with JSON nested far past the readers' recursion (written by SQL, as an older door or a hand edit
   could leave it) no longer makes the memory audit route, the recent commits route, ``alice_memory_review`` or
   ``alice_explain`` fail with ``RecursionError``, for the owner and for a key with limits. A row the route can walk is read
-  whole (400 levels). One it cannot (1500, and 5000 which the decoder itself cannot read) runs again with the part of the row
-  below 256 levels read as one placeholder string, the rest whole.
+  whole (400 levels). One it cannot (1500 and 5000) runs again with the part of the row below 256 levels read as one
+  placeholder string, the rest whole, and so does one that the decoder cannot read (12,000), which is cut at once;
+* a write is never run twice: ``forget`` and ``expire`` of a row nested 1,500 levels fail as they did before and change
+  nothing, of a row the decoder reads (400) work and keep the row whole, and of a row the decoder cannot read (12,000) work
+  and write the placeholder back, into the row and into the ``memory.updated`` event.
 
 Mutations, each one alone: ``set_json_loads(loads_stored)`` removed from ``alicebot_api.db`` (the 5000 level test fails),
 ``RetryDeepRowMiddleware`` removed from the application (the 1500 level route tests fail), ``retry_cutting_deep_json`` removed
@@ -269,8 +272,8 @@ def test_the_correction_route_refuses_what_cannot_be_stored(app) -> None:
 # A row stored too deep.
 
 
-def _store_a_deep_row(app, depth: int) -> str:
-    request = memory_commit_request_from_payload({"title": "cobalt door", "canonical_text": TEXT, "idempotency_key": "stored-deep"}, user_id=app.user)
+def _store_a_deep_row(app, depth: int, key: str = "stored-deep") -> str:
+    request = memory_commit_request_from_payload({"title": "cobalt door", "canonical_text": TEXT, "idempotency_key": key}, user_id=app.user)
     with user_connection(app.url, app.user_id) as conn:
         result = VNextMemoryCommitService(PostgresVNextStore(conn)).commit(identity=None, request=request)
     memory_id = str(result["memory"]["id"])
@@ -281,7 +284,7 @@ def _store_a_deep_row(app, depth: int) -> str:
 
 
 # What the audit route answers for ``note``: a row the routes can walk is whole, one they cannot is cut on the second attempt.
-READ = {400: (400, "x"), 1500: (255, DEEP_PLACEHOLDER), 5000: (255, DEEP_PLACEHOLDER)}
+READ = {400: (400, "x"), 1500: (255, DEEP_PLACEHOLDER), 5000: (255, DEEP_PLACEHOLDER), 12000: (255, DEEP_PLACEHOLDER)}
 
 
 @pytest.mark.parametrize("depth", sorted(READ))
@@ -320,3 +323,38 @@ def test_a_row_stored_too_deep_does_not_break_the_mcp_review_and_explain_tools(a
     explain = call_mcp_tool(context, name="alice_explain", arguments={"memory_id": memory_id})
     assert TEXT in json.dumps(explain)
     assert call_mcp_tool(context, name="alice_recall", arguments={"query": "cobalt door"})
+
+
+@pytest.mark.parametrize("action", ("forget", "expire"))
+def test_a_write_is_not_run_twice_and_writes_back_what_it_read(app, action: str) -> None:
+    """``forget`` and ``expire`` are writes: they are not run a second time when a reader overflows on the row."""
+
+    path = f"/v0/vnext/memories/{action}"
+
+    def run(depth: int) -> tuple[object, str, tuple[int, object], list[str], bool]:
+        memory_id = _store_a_deep_row(app, depth, key=f"deep-{depth}")
+        try:
+            outcome: object = _post(path, {"user_id": app.user, "memory_id": memory_id, "reason": "probe"})[0]
+        except RecursionError as error:
+            outcome = type(error).__name__
+        with psycopg.connect(app.admin_url) as conn:
+            note = conn.execute("SELECT metadata_json->'note' FROM memories WHERE id = %s", (memory_id,)).fetchone()[0]
+            events = [row[0] for row in conn.execute("SELECT event_type FROM event_log WHERE target_id = %s", (memory_id,))]
+            in_event = conn.execute("SELECT bool_or(payload_json::text LIKE '%%nested too deeply%%') FROM event_log WHERE target_id = %s",
+                                    (memory_id,)).fetchone()[0]
+        levels = 0
+        while isinstance(note, list):
+            levels += 1
+            note = note[0]
+        return outcome, memory_id, (levels, note), events, bool(in_event)
+
+    # A row the decoder reads and the writer can walk: kept whole.
+    outcome, _, stored, events, in_event = run(400)
+    assert outcome == 200 and stored == (400, "x") and not in_event
+    # A row nested past what the writer walks: the write fails as it did before, writes nothing, and ran once.
+    outcome, _, stored, events, in_event = run(1500)
+    assert outcome == "RecursionError" and stored == (1500, "x") and not in_event
+    assert not any(name in events for name in ("memory.updated", f"agent.memory_{'forgotten' if action == 'forget' else 'expired'}"))
+    # A row the decoder cannot read is read cut, so the write puts the placeholder back, into the row and the event.
+    outcome, _, stored, events, in_event = run(12000)
+    assert outcome == 200 and stored == (255, DEEP_PLACEHOLDER) and in_event and "memory.updated" in events
