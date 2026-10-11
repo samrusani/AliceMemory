@@ -13510,22 +13510,6 @@
       "expected_failure": "test_postgres_resume_stays_within_the_budget_of_main_with_many_hidden_rows"
     },
     {
-      "name": "readable-store-events-empty-ceiling-sqlite",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/sqlite_store.py",
-          "line": 790,
-          "before": "        if readable_by is not None and readable_by[1] is not None and not readable_by[1]:\n            return []",
-          "after": "        if False:\n            return []",
-          "sha256": "07fbe5c29219e334008447dbf46841b87ae8fd1a864852373b1eee46d28ab837"
-        }
-      ],
-      "pytest": [
-        "tests/unit/test_readable_scan_bounds.py::test_limits_that_admit_no_sensitivity_read_no_events"
-      ],
-      "expected_failure": "test_limits_that_admit_no_sensitivity_read_no_events"
-    },
-    {
       "name": "readable-store-events-empty-ceiling-postgres",
       "edits": [
         {

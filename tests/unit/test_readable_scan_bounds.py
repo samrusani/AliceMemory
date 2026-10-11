@@ -235,11 +235,10 @@ def test_the_proof_never_leaves_out_a_row_the_check_admits(tmp_path: Path, monke
 
 
 def test_limits_that_admit_no_sensitivity_read_no_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation: replace ``if readable_by is not None and readable_by[1] is not None and not readable_by[1]:`` in
-    ``list_resume_memory_events`` of ``sqlite_store.py`` with ``if False:``.
+    """Mutation: none for this file. The early return of ``list_resume_memory_events`` in ``sqlite_store.py`` saves a read, and
+    the clause of an empty list admits nothing as well; the PostgreSQL test of this name pins its clause.
 
-    Limits that admit no level of sensitivity admit no event, and the store says so before it reads. The control reads the
-    same events with no limits.
+    Limits that admit no level of sensitivity admit no event. The control reads the same events with no limits.
     """
 
     vault = _Vault(tmp_path, monkeypatch)
