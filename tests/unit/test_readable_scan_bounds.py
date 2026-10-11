@@ -234,6 +234,21 @@ def test_the_proof_never_leaves_out_a_row_the_check_admits(tmp_path: Path, monke
         assert left_out_somewhere, "the proof left nothing out for any pair of limits, so it proved nothing"
 
 
+def test_limits_that_admit_no_sensitivity_read_no_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation: replace ``if readable_by is not None and readable_by[1] is not None and not readable_by[1]:`` in
+    ``list_resume_memory_events`` of ``sqlite_store.py`` with ``if False:``.
+
+    Limits that admit no level of sensitivity admit no event, and the store says so before it reads. The control reads the
+    same events with no limits.
+    """
+
+    vault = _Vault(tmp_path, monkeypatch)
+    with vault.store() as store:
+        _populate(store, random.Random(0))
+        assert store.list_resume_memory_events(statuses=("active",), limit=50, domains=None, sensitivity_allowed=None)
+        assert store.list_resume_memory_events(statuses=("active",), limit=50, domains=None, sensitivity_allowed=None, readable_by=(None, [])) == []
+
+
 def admitted_rows(store, domains, levels, memories):  # type: ignore[no-untyped-def]
     return admit_loaded(store, kind="memory", rows=memories, domains=domains or [], sensitivity_allowed=levels, projects=())
 

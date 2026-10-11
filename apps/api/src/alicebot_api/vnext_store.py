@@ -765,19 +765,10 @@ class PostgresVNextStore:
     ) -> list[VNextRow]:
         """Return events joined to resume-admitted memories before LIMIT.
 
-        A memory is admitted when its status is in ``statuses`` and its
-        ``valid_to`` has not passed (the test recall uses), so the event of an
-        expired memory is not listed and does not use up the ``LIMIT``.
-
-        ``readable_by`` is ``(domains, sensitivity_allowed)``, the limits of a caller, and leaves out before ``LIMIT``
-        the events of a memory that those limits cannot admit: one whose stored labels are outside them, or one
-        that a direct input hides (see ``hidden_memory_input_sql``). It is a proof of what is hidden and never a
-        grant. This store takes no ``domains`` or ``sensitivity_allowed``; ``readable_by`` is how it is given limits.
-
-        ``domains`` and ``sensitivity_allowed`` have no defaults, as on the SQLite
-        store, where they fence the read before ``LIMIT``. The Postgres runtime
-        resolves no project view and has no such read, so only ``None`` is accepted
-        and anything else raises instead of being ignored.
+        A memory is admitted when its status is in ``statuses`` and its ``valid_to`` has not passed (the test recall
+        uses), so the event of an expired memory does not use up the ``LIMIT``. ``domains`` and ``sensitivity_allowed``
+        have no defaults, as on the SQLite store, and only ``None`` is accepted: the Postgres runtime resolves no project
+        view, so anything else raises instead of being ignored. ``readable_by`` gives it limits (``postgres_readable_events_sql``).
         """
 
         if domains is not None or sensitivity_allowed is not None:
@@ -793,22 +784,8 @@ class PostgresVNextStore:
             normalized_query = None
         escaped_query = _escape_like_literal(normalized_query) if normalized_query is not None else None
         qualified_columns = ", ".join(f"event.{column.strip()}" for column in EVENT_LOG_COLUMNS.split(","))
-        hidden_sql = ""
-        readable_params: tuple[object, ...] = ()
-        if readable_by is not None:
-            from alicebot_api.vnext_label_sql import hidden_memory_input_sql
-
-            readable_domains = list(readable_by[0]) if readable_by[0] else None
-            readable_sensitivity = list(readable_by[1]) if readable_by[1] is not None else None
-            if readable_sensitivity is not None and not readable_sensitivity:
-                return []
-            hidden_sql = (
-                "\n                  AND (%s::text[] IS NULL OR m.domain = ANY(%s::text[]) OR m.domain = 'unknown')"
-                "\n                  AND (%s::text[] IS NULL OR COALESCE(m.sensitivity, 'unknown') = ANY(%s::text[]))"
-                "\n                  AND "
-                + hidden_memory_input_sql(readable_by[1], sqlite=False, alias="m", domains=readable_by[0], memory_inputs=False)
-            )
-            readable_params = (readable_domains, readable_domains, readable_sensitivity, readable_sensitivity)
+        from alicebot_api.vnext_label_sql import postgres_readable_events_sql
+        hidden_sql, readable_params = postgres_readable_events_sql(readable_by)
         return self._fetch_all(
             f"""
                 SELECT {qualified_columns}
@@ -836,8 +813,7 @@ class PostgresVNextStore:
                 LIMIT %s
                 """,
             (
-                normalized_statuses,
-                *readable_params,
+                normalized_statuses, *readable_params,
                 project_list,
                 project_list,
                 escaped_query,

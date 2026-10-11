@@ -175,6 +175,30 @@ EVENT_REFERENCE_KEYS = tuple(
 )
 
 
+def postgres_readable_events_sql(readable_by):
+    """The clause and parameters that leave out, before a ``LIMIT``, the events of a memory a caller's limits cannot admit.
+
+    ``readable_by`` is ``(domains, sensitivity_allowed)``, the limits of a caller, or ``None`` for no clause. The memory
+    is the alias ``m``. A memory is left out when its stored domain or sensitivity is outside the limits, and when a direct
+    input proves it hidden (``hidden_memory_input_sql``, whose memory-input branch is not used because the event join is a
+    single pass). It is a proof of what is hidden and never a grant: the events it keeps still go through the caller's
+    check. Limits that admit no sensitivity give a clause that matches nothing.
+    """
+
+    if readable_by is None:
+        return "", ()
+    domains = list(readable_by[0]) if readable_by[0] else None
+    sensitivity = list(readable_by[1]) if readable_by[1] is not None else None
+    if sensitivity is not None and not sensitivity:
+        return "\n                  AND FALSE", ()
+    clause = (
+        "\n                  AND (%s::text[] IS NULL OR m.domain = ANY(%s::text[]) OR m.domain = 'unknown')"
+        "\n                  AND (%s::text[] IS NULL OR COALESCE(m.sensitivity, 'unknown') = ANY(%s::text[]))"
+        "\n                  AND " + hidden_memory_input_sql(readable_by[1], sqlite=False, alias="m", domains=readable_by[0], memory_inputs=False)
+    )
+    return clause, (domains, domains, sensitivity, sensitivity)
+
+
 def event_references_sql(*, sqlite: bool) -> str:
     """The payload of an event, or NULL when it holds none of the fields that name a row.
 

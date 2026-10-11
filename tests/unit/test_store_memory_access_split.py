@@ -44,8 +44,12 @@ SOURCE_RECEIPTS = {
     # and drops the ``deleted_at IS NULL`` clause only when it is true. Previous Postgres receipt f642880f...
     # Re-minted so the two roll-up lookups overlap scope united with floor.
     # Every other statement still uses the scope expression. Previous receipt 46946cc0...
+    # Re-minted for ``readable_by`` (reviewed change, not drift). Proof: the differences from origin/main are the new
+    # keyword-only ``readable_by`` of ``list_memories`` and ``search_memories_fts``, which adds a proof of what is hidden
+    # (``hidden_memory_input_sql``) to the statement only when it is given, and the ``domains`` argument of that proof in
+    # ``search_memories_fts``. Previous receipt ea1e4a4c...
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "ea1e4a4ce9f58968e4e10ac66830822798aa26118207a39fb465b4f26da74aea"
+        "792d2a9e46eb78a2eab4e6216b72f9033c937341e6ad6cf660a831a2be5eafcb"
     ),
     # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
     # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
@@ -91,8 +95,12 @@ SOURCE_RECEIPTS = {
     # Re-minted so the two roll-up lookups overlap scope or floor. Previous receipt 64f21989...
     # Re-minted so the memory partition read passes the floor identity.
     # Previous receipt 1580dca3...
+    # Re-minted for ``readable_by`` (reviewed change, not drift). Proof: the differences from origin/main are the new
+    # keyword-only ``readable_by`` of ``list_memories`` (and of ``_memory_list_clauses``, which builds its filters) and of
+    # ``search_memories_fts``, which adds a proof of what is hidden (``hidden_memory_input_sql``) to the statement only when
+    # it is given, and the ``domains`` argument of that proof in ``search_memories_fts``. Previous receipt 345262de...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "345262de6a46660a7156dbdc4c8ff41effcf5861e513bb8717365d53d880bd4f"
+        "fcf66fecda7b1c626a9ff9f8a83f1227ec419de54fcaecf8f2caf574c12ff402"
     ),
 }
 

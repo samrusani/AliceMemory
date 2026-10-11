@@ -99,6 +99,18 @@ def test_the_proof_never_leaves_out_a_row_the_check_admits(label_harness, seed: 
         assert left_out_somewhere, "the proof left nothing out for any pair of limits, so it proved nothing"
 
 
+def test_limits_that_admit_no_sensitivity_read_no_events(label_harness) -> None:  # noqa: F811
+    """Mutation: replace ``return "\\n                  AND FALSE", ()`` in ``postgres_readable_events_sql`` with ``return "", ()``.
+
+    Limits that admit no level of sensitivity admit no event. The control reads the same events with no limits.
+    """
+
+    with label_harness.store() as store:
+        _populate(store, random.Random(0))
+        assert store.list_resume_memory_events(statuses=("active",), limit=50, domains=None, sensitivity_allowed=None)
+        assert store.list_resume_memory_events(statuses=("active",), limit=50, domains=None, sensitivity_allowed=None, readable_by=(None, [])) == []
+
+
 def test_the_batched_event_fence_gives_the_verdicts_of_the_fence_by_id(label_harness) -> None:  # noqa: F811
     """Mutation: replace ``honoured = target_id in admitted`` in ``_resume_events_honouring_policy_fence`` with ``honoured = True``."""
 
