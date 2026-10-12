@@ -75,10 +75,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
-          "line": 676,
+          "line": 680,
           "before": "proposed[field] = meta[field]",
           "after": "pass  # removed requested scope alias",
-          "sha256": "12bfb1b279180c69270b5bbefcaef09db1d65a31239dbedea7d94a329507b490"
+          "sha256": "e35bc09097e65e659341ae67d3c19ea1f8cf22da629a41c9fa9c4a7986053858"
         }
       ],
       "pytest": [
@@ -91,10 +91,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
-          "line": 715,
+          "line": 719,
           "before": "if requested != settled:",
           "after": "if False:",
-          "sha256": "12bfb1b279180c69270b5bbefcaef09db1d65a31239dbedea7d94a329507b490"
+          "sha256": "e35bc09097e65e659341ae67d3c19ea1f8cf22da629a41c9fa9c4a7986053858"
         }
       ],
       "pytest": [
@@ -1028,10 +1028,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
-          "line": 937,
+          "line": 941,
           "before": "affected = readable_rows(store, identity, walk_dependants(store, [source_id]))",
           "after": "affected = walk_dependants(store, [source_id])",
-          "sha256": "12bfb1b279180c69270b5bbefcaef09db1d65a31239dbedea7d94a329507b490"
+          "sha256": "e35bc09097e65e659341ae67d3c19ea1f8cf22da629a41c9fa9c4a7986053858"
         }
       ],
       "pytest": [
@@ -1208,10 +1208,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
-          "line": 923,
+          "line": 927,
           "before": "new_scope: Sequence[str], *, identity: AgentIdentity | None\n)",
           "after": "new_scope: Sequence[str], *, identity: AgentIdentity | None = None\n)",
-          "sha256": "12bfb1b279180c69270b5bbefcaef09db1d65a31239dbedea7d94a329507b490"
+          "sha256": "e35bc09097e65e659341ae67d3c19ea1f8cf22da629a41c9fa9c4a7986053858"
         }
       ],
       "pytest": [
@@ -2677,10 +2677,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
-          "line": 711,
+          "line": 715,
           "before": "if not _same_labels(stored, settled):",
           "after": "if requested != settled:",
-          "sha256": "12bfb1b279180c69270b5bbefcaef09db1d65a31239dbedea7d94a329507b490"
+          "sha256": "e35bc09097e65e659341ae67d3c19ea1f8cf22da629a41c9fa9c4a7986053858"
         }
       ],
       "pytest": [
@@ -2694,10 +2694,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
-          "line": 711,
+          "line": 715,
           "before": "if not _same_labels(stored, settled):",
           "after": "if False:",
-          "sha256": "12bfb1b279180c69270b5bbefcaef09db1d65a31239dbedea7d94a329507b490"
+          "sha256": "e35bc09097e65e659341ae67d3c19ea1f8cf22da629a41c9fa9c4a7986053858"
         }
       ],
       "pytest": [
@@ -2710,10 +2710,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
-          "line": 693,
+          "line": 697,
           "before": "if _same_labels(requested, settled):\n        if not _same_labels(stored, requested):",
           "after": "if _same_labels(requested, settled):\n        if False:",
-          "sha256": "12bfb1b279180c69270b5bbefcaef09db1d65a31239dbedea7d94a329507b490"
+          "sha256": "e35bc09097e65e659341ae67d3c19ea1f8cf22da629a41c9fa9c4a7986053858"
         }
       ],
       "pytest": [
@@ -2726,10 +2726,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
-          "line": 688,
+          "line": 692,
           "before": "# Nothing to clamp against: the request is the label that is stored.\n        if not _same_labels(stored, requested):",
           "after": "# Nothing to clamp against: the request is the label that is stored.\n        if False:",
-          "sha256": "12bfb1b279180c69270b5bbefcaef09db1d65a31239dbedea7d94a329507b490"
+          "sha256": "e35bc09097e65e659341ae67d3c19ea1f8cf22da629a41c9fa9c4a7986053858"
         }
       ],
       "pytest": [
@@ -2742,10 +2742,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
-          "line": 280,
+          "line": 281,
           "before": "if clamp_follows and before and is_derived(kind, before) and is_label_edit(before, patch):",
           "after": "if False:",
-          "sha256": "12bfb1b279180c69270b5bbefcaef09db1d65a31239dbedea7d94a329507b490"
+          "sha256": "e35bc09097e65e659341ae67d3c19ea1f8cf22da629a41c9fa9c4a7986053858"
         }
       ],
       "pytest": [
@@ -2759,10 +2759,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
-          "line": 280,
+          "line": 281,
           "before": "if clamp_follows and before and",
           "after": "if before and",
-          "sha256": "12bfb1b279180c69270b5bbefcaef09db1d65a31239dbedea7d94a329507b490"
+          "sha256": "e35bc09097e65e659341ae67d3c19ea1f8cf22da629a41c9fa9c4a7986053858"
         }
       ],
       "pytest": [
@@ -16727,6 +16727,742 @@
         "tests/integration/test_resume_hidden_rows_budget_postgres.py::test_postgres_resume_stays_within_the_budget_of_the_baseline_with_many_hidden_rows[derived]"
       ],
       "expected_failure": "test_postgres_resume_stays_within_the_budget_of_the_baseline_with_many_hidden_rows"
+    },
+    {
+      "name": "legacy-cites-sqlite-repair-key",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_repair.py",
+          "before": "REPAIR_STATE_KEY = \"derived_labels_v4\"\n",
+          "after": "REPAIR_STATE_KEY = \"derived_labels_v3\"\n",
+          "line": 32,
+          "sha256": "8dfc357876911fa57a2b9a7d1b942664c03ac2136007d5da341ee484d87e4edc"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_sqlite_legacy_citations.py::test_a_vault_that_an_earlier_build_stamped_is_repaired_again"
+      ],
+      "expected_failure": "test_a_vault_that_an_earlier_build_stamped_is_repaired_again"
+    },
+    {
+      "name": "legacy-cites-revision-0097-repairs",
+      "edits": [
+        {
+          "file": "apps/api/alembic/versions/20261011_0097_derived_label_citations.py",
+          "before": "    for table, user, row_id, previous, new, node in plan_label_repairs(tables):\n",
+          "after": "    for table, user, row_id, previous, new, node in []:\n",
+          "line": 72,
+          "sha256": "13bd484d5cf75c8b8574dc34fa68f9c665be6275ac90fc89348664543d3cecfa"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_legacy_citation_shapes_postgres.py::test_revision_0097_repairs_a_database_that_already_ran_0096_with_the_narrow_reading"
+      ],
+      "expected_failure": "test_revision_0097_repairs_a_database_that_already_ran_0096_with_the_narrow_reading"
+    },
+    {
+      "name": "legacy-cites-revision-0097-is-atomic",
+      "edits": [
+        {
+          "file": "apps/api/alembic/versions/20261011_0097_derived_label_citations.py",
+          "before": "    for table, user, row_id, previous, new, node in plan_label_repairs(tables):\n",
+          "after": "    for table, user, row_id, previous, new, node in []:\n",
+          "line": 72,
+          "sha256": "13bd484d5cf75c8b8574dc34fa68f9c665be6275ac90fc89348664543d3cecfa"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_legacy_citation_shapes_postgres.py::test_a_0097_that_fails_part_way_changes_nothing_and_the_rerun_finishes"
+      ],
+      "expected_failure": "test_a_0097_that_fails_part_way_changes_nothing_and_the_rerun_finishes"
+    },
+    {
+      "name": "legacy-cites-reference-positions-are-read",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_citations.py",
+          "before": "                if lowered in REFERENCE_POSITION_KEYS:\n",
+          "after": "                if False:\n",
+          "line": 262,
+          "sha256": "05054aa7be4d9a1a8596a543a82073af760039fbf21304fd744b28731319f5d8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_provenance_and_replacement_provenance_are_reference_positions"
+      ],
+      "expected_failure": "test_provenance_and_replacement_provenance_are_reference_positions"
+    },
+    {
+      "name": "legacy-cites-producer-strings-skip-the-reader",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_citations.py",
+          "before": "                            if _CANONICAL.fullmatch(entry):\n",
+          "after": "                            if False:\n",
+          "line": 267,
+          "sha256": "05054aa7be4d9a1a8596a543a82073af760039fbf21304fd744b28731319f5d8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_record_is_scanned_once_per_request_however_many_times_it_is_asked_about"
+      ],
+      "expected_failure": "test_a_record_is_scanned_once_per_request_however_many_times_it_is_asked_about"
+    },
+    {
+      "name": "legacy-cites-a-memory-word-is-a-memory",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_citations.py",
+          "before": "    if entry[0] == \"m\":\n",
+          "after": "    if False:\n",
+          "line": 383,
+          "sha256": "05054aa7be4d9a1a8596a543a82073af760039fbf21304fd744b28731319f5d8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_memory_word_is_a_memory_and_never_a_source"
+      ],
+      "expected_failure": "test_a_memory_word_is_a_memory_and_never_a_source"
+    },
+    {
+      "name": "legacy-cites-unreadable-words-are-held-apart",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_citations.py",
+          "before": "    unreadable = frozenset(taken for taken in _marked_ids(text) if taken not in refs)\n",
+          "after": "    unreadable = frozenset()\n",
+          "line": 134,
+          "sha256": "05054aa7be4d9a1a8596a543a82073af760039fbf21304fd744b28731319f5d8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_marked_word_with_an_id_the_scan_cannot_take_apart_is_unverified_when_the_id_names_a_stored_row"
+      ],
+      "expected_failure": "test_a_marked_word_with_an_id_the_scan_cannot_take_apart_is_unverified_when_the_id_names_a_stored_row"
+    },
+    {
+      "name": "legacy-cites-prose-is-not-read",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_citations.py",
+          "before": "                    elif lowered not in prose and _worth_the_reader(child):\n",
+          "after": "                    elif _worth_the_reader(child):\n",
+          "line": 287,
+          "sha256": "05054aa7be4d9a1a8596a543a82073af760039fbf21304fd744b28731319f5d8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_the_prose_of_a_text_key_is_not_read_for_a_citation"
+      ],
+      "expected_failure": "test_the_prose_of_a_text_key_is_not_read_for_a_citation"
+    },
+    {
+      "name": "legacy-cites-json-text-under-any-key",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_citations.py",
+          "before": "    if first == \"{\" or first == \"[\":\n",
+          "after": "    if False:\n",
+          "line": 174,
+          "sha256": "05054aa7be4d9a1a8596a543a82073af760039fbf21304fd744b28731319f5d8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_json_text_and_a_marker_under_any_key_name_the_ids_they_name"
+      ],
+      "expected_failure": "test_json_text_and_a_marker_under_any_key_name_the_ids_they_name"
+    },
+    {
+      "name": "legacy-cites-what-the-reader-found-is-kept",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_citations.py",
+          "before": "    return _read_kept(text)\n",
+          "after": "    return _read(text)\n",
+          "line": 163,
+          "sha256": "05054aa7be4d9a1a8596a543a82073af760039fbf21304fd744b28731319f5d8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_string_the_reader_has_read_is_not_read_again_by_the_next_request"
+      ],
+      "expected_failure": "test_a_string_the_reader_has_read_is_not_read_again_by_the_next_request"
+    },
+    {
+      "name": "legacy-cites-a-short-string-is-never-read",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_citations.py",
+          "before": "    if len(text) < _MIN_ID_CHARS:\n        return _NOTHING  # too short to hold an id in any spelling\n",
+          "after": "    if False:\n        return _NOTHING  # too short to hold an id in any spelling\n",
+          "line": 159,
+          "sha256": "05054aa7be4d9a1a8596a543a82073af760039fbf21304fd744b28731319f5d8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_string_too_short_to_hold_an_id_never_goes_to_the_reader"
+      ],
+      "expected_failure": "test_a_string_too_short_to_hold_an_id_never_goes_to_the_reader"
+    },
+    {
+      "name": "legacy-cites-candidates-resolve-against-stored-rows",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "                if ref in labels and ref != label.key:\n",
+          "after": "                if False:\n",
+          "line": 1515,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_report_is_raised_to_the_row_it_cites_in_every_shape"
+      ],
+      "expected_failure": "test_a_report_is_raised_to_the_row_it_cites_in_every_shape"
+    },
+    {
+      "name": "legacy-cites-a-candidate-that-names-nothing-is-ignored",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "                if ref in labels and ref != label.key:\n",
+          "after": "                if ref != label.key:\n",
+          "line": 1515,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_citation_of_a_row_that_is_not_stored_is_ignored"
+      ],
+      "expected_failure": "test_a_citation_of_a_row_that_is_not_stored_is_ignored"
+    },
+    {
+      "name": "legacy-cites-an-unreadable-word-needs-a-stored-row",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "                (name, label.user_id, row_id) in labels for name, row_id in unreadable\n",
+          "after": "                (name, label.user_id, row_id) in labels or True for name, row_id in unreadable\n",
+          "line": 1518,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_marked_word_with_an_id_the_scan_cannot_take_apart_is_ignored_when_it_names_nothing"
+      ],
+      "expected_failure": "test_a_marked_word_with_an_id_the_scan_cannot_take_apart_is_ignored_when_it_names_nothing"
+    },
+    {
+      "name": "legacy-cites-an-unreadable-word-holds-the-row",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "                problems[label.key] = \"unreadable_citation\"\n",
+          "after": "                pass\n",
+          "line": 1520,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_marked_word_with_an_id_the_scan_cannot_take_apart_is_unverified_when_the_id_names_a_stored_row"
+      ],
+      "expected_failure": "test_a_marked_word_with_an_id_the_scan_cannot_take_apart_is_unverified_when_the_id_names_a_stored_row"
+    },
+    {
+      "name": "legacy-cites-a-row-is-not-its-own-input",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "        taken.add(own_id)\n",
+          "after": "        pass\n",
+          "line": 1028,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_row_does_not_resolve_to_itself"
+      ],
+      "expected_failure": "test_a_row_does_not_resolve_to_itself"
+    },
+    {
+      "name": "legacy-cites-parsing-key-carries-the-scan",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "            record_scan(row) if is_derived(kind, row) else None,\n",
+          "after": "            None,\n",
+          "line": 1271,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_two_rows_that_cite_different_ids_do_not_share_a_parsing_key"
+      ],
+      "expected_failure": "test_two_rows_that_cite_different_ids_do_not_share_a_parsing_key"
+    },
+    {
+      "name": "legacy-cites-signature-carries-the-ids",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "            is_redacted_row(row), soft, unreadable)\n",
+          "after": "            is_redacted_row(row), frozenset(), frozenset())\n",
+          "line": 1294,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_the_signature_carries_the_ids_a_row_may_cite"
+      ],
+      "expected_failure": "test_the_signature_carries_the_ids_a_row_may_cite"
+    },
+    {
+      "name": "legacy-cites-a-word-after-a-colon-that-is-no-id",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "                if _CANONICAL_ID.fullmatch(ref_id):\n",
+          "after": "                if True:\n",
+          "line": 634,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_citation_of_a_public_row_leaves_the_row_readable"
+      ],
+      "expected_failure": "test_a_citation_of_a_public_row_leaves_the_row_readable"
+    },
+    {
+      "name": "legacy-cites-producer-strings-are-taken-without-the-reader",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "            if _PRODUCER_REF.fullmatch(item):\n",
+          "after": "            if False:\n",
+          "line": 687,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_record_is_scanned_once_per_request_however_many_times_it_is_asked_about"
+      ],
+      "expected_failure": "test_a_record_is_scanned_once_per_request_however_many_times_it_is_asked_about"
+    },
+    {
+      "name": "legacy-cites-sources-the-reader-names-in-a-string-stay-hard",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "            ids |= {identifier(named) for named in read_reference(item).named_sources}\n",
+          "after": "            pass\n",
+          "line": 706,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_differential.py::test_what_the_previous_reading_took_from_a_string_as_an_id_is_still_a_hard_input"
+      ],
+      "expected_failure": "test_what_the_previous_reading_took_from_a_string_as_an_id_is_still_a_hard_input"
+    },
+    {
+      "name": "legacy-cites-closure-loader-loads-candidates",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_closure.py",
+          "before": "refs = [*dependencies_of(kind, row), *soft_refs(kind, row)] if is_derived(kind, row) else []",
+          "after": "refs = [*dependencies_of(kind, row)] if is_derived(kind, row) else []",
+          "line": 50,
+          "sha256": "a08d1394c4b6552c9a5223b4ca34dca329da4a63e6cbbefa5e678532e888a77d"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_legacy_citation_shapes_postgres.py::test_the_insert_floor_resolves_what_a_new_report_cites_in_any_wording"
+      ],
+      "expected_failure": "test_the_insert_floor_resolves_what_a_new_report_cites_in_any_wording"
+    },
+    {
+      "name": "legacy-cites-guard-prefetches-candidates",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "before": "                    refs.update(soft)\n",
+          "after": "                    pass\n",
+          "line": 656,
+          "sha256": "d2cab9938af2fe6fe1641fdd07ee98fa4b1f52fe0b8c153f19a22c9fdf1ee1aa"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_native_rank_admission.py::test_a_row_that_cites_a_hidden_memory_in_a_wording_no_producer_writes_is_not_counted_or_admitted"
+      ],
+      "expected_failure": "test_a_row_that_cites_a_hidden_memory_in_a_wording_no_producer_writes_is_not_counted_or_admitted"
+    },
+    {
+      "name": "legacy-cites-rank-batch-declines-candidates",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "before": "            if problem or (derived and any(soft_inputs(node_kind, row))):\n",
+          "after": "            if problem:\n",
+          "line": 816,
+          "sha256": "d2cab9938af2fe6fe1641fdd07ee98fa4b1f52fe0b8c153f19a22c9fdf1ee1aa"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_native_rank_admission.py::test_a_row_that_cites_a_hidden_memory_in_a_wording_no_producer_writes_is_not_counted_or_admitted"
+      ],
+      "expected_failure": "test_a_row_that_cites_a_hidden_memory_in_a_wording_no_producer_writes_is_not_counted_or_admitted"
+    },
+    {
+      "name": "legacy-cites-single-source-copy-shortcut-needs-no-candidates",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "before": "if (template[3] == \"copy\" and not template[2] and not template[-2] and not template[-1] and direct_ref is not None",
+          "after": "if (template[3] == \"copy\" and not template[2] and direct_ref is not None",
+          "line": 390,
+          "sha256": "d2cab9938af2fe6fe1641fdd07ee98fa4b1f52fe0b8c153f19a22c9fdf1ee1aa"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_native_rank_admission.py::test_a_copy_of_one_source_that_may_cite_more_does_not_skip_the_collector"
+      ],
+      "expected_failure": "test_a_copy_of_one_source_that_may_cite_more_does_not_skip_the_collector"
+    },
+    {
+      "name": "legacy-cites-reverse-lookup-follows-candidates",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_writes.py",
+          "before": "        row_id in frontier or _compact_id(row_id) in frontier for _kind, row_id in candidates\n",
+          "after": "        row_id in frontier or _compact_id(row_id) in frontier for _kind, row_id in ()\n",
+          "line": 564,
+          "sha256": "e35bc09097e65e659341ae67d3c19ea1f8cf22da629a41c9fa9c4a7986053858"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_legacy_citation_shapes_postgres.py::test_a_relabelled_memory_reaches_a_legacy_report_that_cites_it_in_json_text"
+      ],
+      "expected_failure": "test_a_relabelled_memory_reaches_a_legacy_report_that_cites_it_in_json_text"
+    },
+    {
+      "name": "legacy-cites-cheap-path-takes-a-candidate-that-names-a-row",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "before": "            if found:\n                inputs.add(candidate)\n",
+          "after": "            if False:\n                inputs.add(candidate)\n",
+          "line": 507,
+          "sha256": "d2cab9938af2fe6fe1641fdd07ee98fa4b1f52fe0b8c153f19a22c9fdf1ee1aa"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_native_rank_admission.py::test_the_cheap_settlement_takes_the_ids_a_row_may_cite_that_name_a_stored_row_and_ignores_the_rest"
+      ],
+      "expected_failure": "test_the_cheap_settlement_takes_the_ids_a_row_may_cite_that_name_a_stored_row_and_ignores_the_rest"
+    },
+    {
+      "name": "legacy-cites-cheap-path-ignores-a-candidate-that-names-nothing",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "before": "            if found:\n                inputs.add(candidate)\n",
+          "after": "            inputs.add(candidate)\n",
+          "line": 507,
+          "sha256": "d2cab9938af2fe6fe1641fdd07ee98fa4b1f52fe0b8c153f19a22c9fdf1ee1aa"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_native_rank_admission.py::test_the_cheap_settlement_takes_the_ids_a_row_may_cite_that_name_a_stored_row_and_ignores_the_rest"
+      ],
+      "expected_failure": "test_the_cheap_settlement_takes_the_ids_a_row_may_cite_that_name_a_stored_row_and_ignores_the_rest"
+    },
+    {
+      "name": "legacy-cites-cheap-path-leaves-an-unreadable-word-to-the-kernel",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "before": "            if loaded(*unread):\n                return None\n",
+          "after": "            pass\n",
+          "line": 500,
+          "sha256": "d2cab9938af2fe6fe1641fdd07ee98fa4b1f52fe0b8c153f19a22c9fdf1ee1aa"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_native_rank_admission.py::test_the_cheap_settlement_takes_the_ids_a_row_may_cite_that_name_a_stored_row_and_ignores_the_rest"
+      ],
+      "expected_failure": "test_the_cheap_settlement_takes_the_ids_a_row_may_cite_that_name_a_stored_row_and_ignores_the_rest"
+    },
+    {
+      "name": "legacy-cites-prefetch-leaves-out-a-row-past-the-soft-limit",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "before": "                    if len(soft) > SOFT_ROW_LIMIT:\n",
+          "after": "                    if False:\n",
+          "line": 651,
+          "sha256": "d2cab9938af2fe6fe1641fdd07ee98fa4b1f52fe0b8c153f19a22c9fdf1ee1aa"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_native_rank_admission.py::test_a_row_that_may_cite_very_many_ids_is_settled_alone_and_does_not_end_the_prefetch_of_the_rows_beside_it"
+      ],
+      "expected_failure": "test_a_row_that_may_cite_very_many_ids_is_settled_alone_and_does_not_end_the_prefetch_of_the_rows_beside_it"
+    },
+    {
+      "name": "legacy-cites-settlement-leaves-a-row-past-the-soft-limit-to-the-collector",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "before": "        if len(candidates) + len(unreadable) > SOFT_ROW_LIMIT:\n            return None\n",
+          "after": "",
+          "line": 497,
+          "sha256": "d2cab9938af2fe6fe1641fdd07ee98fa4b1f52fe0b8c153f19a22c9fdf1ee1aa"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_native_rank_admission.py::test_a_row_that_may_cite_very_many_ids_is_settled_alone_and_does_not_end_the_prefetch_of_the_rows_beside_it"
+      ],
+      "expected_failure": "test_a_row_that_may_cite_very_many_ids_is_settled_alone_and_does_not_end_the_prefetch_of_the_rows_beside_it"
+    },
+    {
+      "name": "legacy-cites-verified-inputs-take-the-candidates-the-caller-found",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "    if problem or not set(refs) <= supplied <= set(refs) | set(candidates) or any(",
+          "after": "    if problem or supplied != set(refs) or any(",
+          "line": 1411,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_native_rank_admission.py::test_the_cheap_settlement_takes_the_ids_a_row_may_cite_that_name_a_stored_row_and_ignores_the_rest"
+      ],
+      "expected_failure": "test_the_cheap_settlement_takes_the_ids_a_row_may_cite_that_name_a_stored_row_and_ignores_the_rest"
+    },
+    {
+      "name": "legacy-cites-an-object-gives-the-sources-its-values-name",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "            objects |= {(\"source\", row_id) for row_id in item_ids}\n",
+          "after": "            pass\n",
+          "line": 697,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_an_object_of_source_refs_is_held_to_the_row_its_typed_ref_or_source_names"
+      ],
+      "expected_failure": "test_an_object_of_source_refs_is_held_to_the_row_its_typed_ref_or_source_names"
+    },
+    {
+      "name": "legacy-cites-an-object-gives-the-typed-refs-of-its-strings",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "            objects |= _typed_refs(item)\n",
+          "after": "            pass\n",
+          "line": 698,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_an_object_of_source_refs_is_held_to_the_row_its_typed_ref_or_source_names"
+      ],
+      "expected_failure": "test_an_object_of_source_refs_is_held_to_the_row_its_typed_ref_or_source_names"
+    },
+    {
+      "name": "legacy-cites-a-source-refs-that-is-one-object-is-one-entry",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "    if isinstance(value, (str, Mapping)):\n",
+          "after": "    if isinstance(value, str):\n",
+          "line": 672,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_source_refs_that_is_one_object_is_read_like_a_list_of_one"
+      ],
+      "expected_failure": "test_a_source_refs_that_is_one_object_is_read_like_a_list_of_one"
+    },
+    {
+      "name": "legacy-cites-a-malformed-list-keeps-its-typed-refs",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "            return \"malformed\", set(), _typed_refs(value), set()\n",
+          "after": "            return \"malformed\", set(), set(), set()\n",
+          "line": 677,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_malformed_list_keeps_the_typed_refs_it_always_found"
+      ],
+      "expected_failure": "test_a_malformed_list_keeps_the_typed_refs_it_always_found"
+    },
+    {
+      "name": "legacy-cites-object-candidates-keep-their-kind",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "             *(ref for ref in objects if ref not in found and ref[1] != own_id))\n",
+          "after": "             *(ref for ref in objects if ref[1] not in taken))\n",
+          "line": 1031,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_an_id_that_a_string_and_an_object_cite_as_two_kinds_is_looked_up_as_both"
+      ],
+      "expected_failure": "test_an_id_that_a_string_and_an_object_cite_as_two_kinds_is_looked_up_as_both"
+    },
+    {
+      "name": "legacy-cites-a-long-list-keeps-its-hard-sources",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "        ids |= {identifier(named) for named in cited_source_ids(others).named}\n",
+          "after": "        pass\n",
+          "line": 703,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_long_list_keeps_the_hard_sources_it_names"
+      ],
+      "expected_failure": "test_a_long_list_keeps_the_hard_sources_it_names"
+    },
+    {
+      "name": "legacy-cites-a-record-past-the-bound-is-unverified",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "    if citations.too_many:\n        problem = problem or TOO_MANY_CITATIONS\n",
+          "after": "",
+          "line": 1020,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_record_past_the_read_bound_in_any_place_is_unverified"
+      ],
+      "expected_failure": "test_a_record_past_the_read_bound_in_any_place_is_unverified"
+    },
+    {
+      "name": "legacy-cites-a-list-past-the-bound-is-unverified",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "    if len(others) > MAX_READ_STRINGS:\n        problem = problem or TOO_MANY_CITATIONS\n    elif len(others) > BATCH_STRINGS:\n",
+          "after": "    if len(others) > BATCH_STRINGS:\n",
+          "line": 699,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_list_of_the_same_string_past_the_bound_is_unverified_too"
+      ],
+      "expected_failure": "test_a_list_of_the_same_string_past_the_bound_is_unverified_too"
+    },
+    {
+      "name": "legacy-cites-the-scan-stops-at-the-read-bound",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_citations.py",
+          "before": "        return Citations(frozenset(refs), frozenset(), True)\n",
+          "after": "        pass\n",
+          "line": 311,
+          "sha256": "05054aa7be4d9a1a8596a543a82073af760039fbf21304fd744b28731319f5d8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_record_past_the_read_bound_is_unverified_and_none_of_it_is_read"
+      ],
+      "expected_failure": "test_a_record_past_the_read_bound_is_unverified_and_none_of_it_is_read"
+    },
+    {
+      "name": "legacy-cites-a-long-record-is-read-in-one-batch",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_citations.py",
+          "before": "    if len(in_references) > BATCH_STRINGS:\n",
+          "after": "    if False:\n",
+          "line": 312,
+          "sha256": "05054aa7be4d9a1a8596a543a82073af760039fbf21304fd744b28731319f5d8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_a_long_list_is_read_in_one_batch_and_gives_what_string_by_string_gives"
+      ],
+      "expected_failure": "test_a_long_list_is_read_in_one_batch_and_gives_what_string_by_string_gives"
+    },
+    {
+      "name": "legacy-cites-strings-under-an-unknown-key-are-read-in-one-batch",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_citations.py",
+          "before": "    if len(distinct) > BATCH_STRINGS:\n",
+          "after": "    if False:\n",
+          "line": 337,
+          "sha256": "05054aa7be4d9a1a8596a543a82073af760039fbf21304fd744b28731319f5d8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_strings_under_an_unknown_key_are_read_in_one_batch_past_the_batch_size"
+      ],
+      "expected_failure": "test_strings_under_an_unknown_key_are_read_in_one_batch_past_the_batch_size"
+    },
+    {
+      "name": "legacy-cites-quote-text-is-not-an-unreadable-citation",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_citations.py",
+          "before": "                if type(value) is str and type(key) is str and key.lower() in _TEXT_KEYS:\n",
+          "after": "                if False:\n",
+          "line": 198,
+          "sha256": "05054aa7be4d9a1a8596a543a82073af760039fbf21304fd744b28731319f5d8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_an_object_of_source_refs_is_held_to_the_row_its_typed_ref_or_source_names"
+      ],
+      "expected_failure": "test_an_object_of_source_refs_is_held_to_the_row_its_typed_ref_or_source_names"
+    },
+    {
+      "name": "legacy-cites-the-label-check-advises-on-too-many-citations",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_repair.py",
+          "before": "        if reason == TOO_MANY_CITATIONS_REASON and ids:\n",
+          "after": "        if False:\n",
+          "line": 332,
+          "sha256": "8dfc357876911fa57a2b9a7d1b942664c03ac2136007d5da341ee484d87e4edc"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_legacy_citation_shapes.py::test_the_label_check_says_what_to_do_with_a_row_past_the_bound"
+      ],
+      "expected_failure": "test_the_label_check_says_what_to_do_with_a_row_past_the_bound"
+    },
+    {
+      "name": "legacy-cites-object-entries-through-the-upgrade",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "before": "            objects |= _typed_refs(item)\n",
+          "after": "            pass\n",
+          "line": 698,
+          "sha256": "1430dd81a15751c886c2243f428cc6a1eefb5e69e0b3e485857747667415496f"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_legacy_citation_shapes_postgres.py::test_objects_of_source_refs_keep_the_kinds_they_always_named_through_the_upgrade"
+      ],
+      "expected_failure": "test_objects_of_source_refs_keep_the_kinds_they_always_named_through_the_upgrade"
     }
   ]
 }

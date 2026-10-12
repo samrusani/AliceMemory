@@ -382,3 +382,141 @@ def test_same_origin_keeps_counts_and_event_grants_separate_across_rank_ceilings
             assert caller.admit_events([canonical, alias]) == ([canonical] if readable else [])
         assert len(public._state().rank_origins) == 1
         assert_only_full_labels(public._state())
+
+
+@pytest.mark.parametrize("scenario", ["every-id-names-a-stored-row", "some-ids-name-nothing"])
+def test_a_row_that_cites_a_hidden_memory_in_a_wording_no_producer_writes_is_not_counted_or_admitted(scenario):
+    """The reduced proof and the bulk kernel read the producers' own spelling only, so a row that may cite more takes the
+    complete collector, which looks the cited ids up. A ``memory:`` word in a reference position names a memory only, so when
+    every id a graph may cite names a stored row nothing else in it declines the reduced proof.
+    Mutations: the rank batch stops declining such a row; the prefetch stops loading what such a row may cite."""
+    source = {"kind": "source", "id": UUID(int=1), "user_id": "label-guard", "domain": "project", "sensitivity": "public",
+              "metadata_json": {"project_scope": [], "project_floor": []}}
+    hidden = {"kind": "memory", "id": UUID(int=7), "user_id": "label-guard", "domain": "health", "sensitivity": "confidential",
+              "status": "active", "value": {}, "metadata_json": {"project_scope": [], "project_floor": []}}
+
+    def derived(number: int, **metadata):
+        return {"kind": "memory", "id": UUID(int=number), "user_id": "label-guard", "domain": "project", "sensitivity": "public",
+                "status": "active", "value": {},
+                "metadata_json": {"candidate_kind": "memory_consolidation", "project_scope": [], "project_floor": [],
+                                  "source_refs": [f"source:{source['id']}"], **metadata}}
+
+    in_provenance = derived(0x1002, provenance=[f"memory:{hidden['id']}"])
+    plain = derived(0x1004)
+    roots = [in_provenance, plain]
+    visible = {plain["id"]}
+    if scenario == "some-ids-name-nothing":
+        # A sentence and JSON text name an id as a memory and as a source, and the source is not stored.
+        roots += [derived(0x1001, evidence=f"memory:{hidden['id']}", notes=json.dumps({"memory_id": str(hidden["id"])})),
+                  derived(0x1003, provenance=[f"memory:{UUID(int=99)}"], evidence=f"copied from memory: {UUID(int=98)} on Monday")]
+        visible.add(roots[-1]["id"])
+    expected = full_labels([source, hidden, *roots])
+    assert visible == {row["id"] for row in roots
+                       if not expected.by_stored("memory", str(row["id"]), user_id="label-guard").unverified
+                       and expected.by_stored("memory", str(row["id"]), user_id="label-guard").sensitivity == "public"}
+    store = NativeRows([source, hidden, *roots], roots)
+    with guards.label_read_scope(store):
+        guard = guards.LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        assert guard.readable_status_counts("memory") == {"active": len(visible)}
+        assert {row["id"] for row in guard.admit_rows("memory", roots)} == visible
+        assert guard.effective_row("memory", in_provenance)["sensitivity"] == "confidential"
+
+
+def _derived_with(number: int, source, **metadata):
+    return {"kind": "memory", "id": UUID(int=number), "user_id": "label-guard", "domain": "project", "sensitivity": "public",
+            "status": "active", "value": {},
+            "metadata_json": {"candidate_kind": "memory_consolidation", "project_scope": [], "project_floor": [],
+                              "source_refs": [f"source:{source['id']}"], **metadata}}
+
+
+def _public_source_and_hidden_memory():
+    source = {"kind": "source", "id": UUID(int=1), "user_id": "label-guard", "domain": "project", "sensitivity": "public",
+              "metadata_json": {"project_scope": [], "project_floor": []}}
+    hidden = {"kind": "memory", "id": UUID(int=7), "user_id": "label-guard", "domain": "health", "sensitivity": "confidential",
+              "status": "active", "value": {}, "metadata_json": {"project_scope": [], "project_floor": []}}
+    return source, hidden
+
+
+def test_the_cheap_settlement_takes_the_ids_a_row_may_cite_that_name_a_stored_row_and_ignores_the_rest():
+    """A row that may cite ids beyond its recorded inputs stays on the cheap path when every one of them is already read: an
+    id that names nothing is ignored and one that names a stored row is an input like a recorded one. Only a word the scan
+    cannot take apart that holds a stored row's id needs the complete kernel. Mutations: take a candidate that names a row
+    as nothing; take one that names none as missing."""
+    source, hidden = _public_source_and_hidden_memory()
+    def odd_hyphens(row_id: object) -> str:
+        bare = str(row_id).replace("-", "")
+        return "-".join((bare[:5], bare[5:11], bare[11:16], bare[16:24], bare[24:]))
+
+    odd = odd_hyphens(hidden["id"])
+    ghost_word = f"memory:{UUID(int=99)}"
+    cases = {
+        "names a stored row": (_derived_with(0x1001, source, provenance=[f"memory:{hidden['id']}"]), "confidential"),
+        "names nothing": (_derived_with(0x1002, source, provenance=[ghost_word]), "public"),
+        "both": (_derived_with(0x1003, source, provenance=[ghost_word, f"memory:{hidden['id']}"]), "confidential"),
+        "an unreadable word naming nothing": (_derived_with(0x1004, source, provenance=[f"memory:{odd_hyphens(UUID(int=98))}#chunk-1"]), "public"),
+        "an unreadable word naming a stored row": (_derived_with(0x1005, source, provenance=[f"memory:{odd}#chunk-1"]), None),
+    }
+    rows = [source, hidden, *(row for row, _ in cases.values())]
+    expected = full_labels(rows)
+    store = NativeRows(rows, [row for row, _ in cases.values()])
+    with guards.label_read_scope(store):
+        guard = guards.LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        guard._prefetch_inputs("memory", [row for row, _ in cases.values()])
+        for name, (row, sensitivity) in cases.items():
+            direct = guard._settled_inputs("memory", row, frozenset())
+            label = expected.by_stored("memory", str(row["id"]), user_id="label-guard")
+            if sensitivity is None:
+                assert direct is None, name
+                assert label.unverified and label.reason == "unreadable_citation", name
+            else:
+                assert direct is not None, name
+                assert (direct[0].domain, direct[0].sensitivity, direct[0].unverified) == (label.domain, label.sensitivity, label.unverified), name
+                assert direct[0].sensitivity == sensitivity, name
+
+
+def test_a_row_that_may_cite_very_many_ids_is_settled_alone_and_does_not_end_the_prefetch_of_the_rows_beside_it():
+    """A prefetch that stops when the ids of the batch pass the node bound would stop for every row because of one.
+    Mutations: read such a row with the batch; settle such a row on the cheap path."""
+    source, hidden = _public_source_and_hidden_memory()
+    ghosts = [UUID(int=0x5000 + n) for n in range(guards.SOFT_ROW_LIMIT + 1)]
+    giant = _derived_with(0x1001, source, provenance=[f"memory:{ghost}" for ghost in ghosts])
+    beside = _derived_with(0x1002, source, provenance=[f"memory:{hidden['id']}"])
+    store = NativeRows([source, hidden, giant, beside], [giant, beside])
+    with guards.label_read_scope(store):
+        guard = guards.LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        guard._prefetch_inputs("memory", [giant, beside])
+        nodes = guard._state().nodes
+        assert ("memory", str(hidden["id"])) in nodes, "the row beside it was prefetched"
+        assert not any(("memory", str(ghost)) in nodes for ghost in ghosts), "the ids of the row past the limit were not"
+        assert guard._settled_inputs("memory", giant, frozenset()) is None
+        assert guard._settled_inputs("memory", beside, frozenset()) is not None
+
+
+def test_a_copy_of_one_source_that_may_cite_more_does_not_skip_the_collector():
+    """A row copied from one source has no other input, unless it may cite one. It then takes the collector that loads what it
+    cites, whether the cheap settlement left it (a word the scan cannot take apart that names a stored row, or more ids than
+    the limit) or not. Mutation: the single source shortcut stops asking whether the row may cite more."""
+    source, hidden = _public_source_and_hidden_memory()
+    bare = str(hidden["id"]).replace("-", "")
+    odd = "-".join((bare[:5], bare[5:11], bare[11:16], bare[16:24], bare[24:]))
+    ghosts = [f"memory:{UUID(int=0x6000 + n)}" for n in range(guards.SOFT_ROW_LIMIT)]
+
+    def copy_of_the_source(number: int, provenance: list[str]):
+        return {"kind": "memory", "id": UUID(int=number), "user_id": "label-guard", "domain": "project", "sensitivity": "public",
+                "status": "active", "value": {},
+                "metadata_json": {"source_id": str(source["id"]), "project_scope": [], "project_floor": [], "provenance": provenance}}
+
+    unreadable = copy_of_the_source(0x1001, [f"memory:{odd}#chunk-1"])
+    too_many = copy_of_the_source(0x1002, [*ghosts, f"memory:{hidden['id']}"])
+    plain = copy_of_the_source(0x1003, [])
+    rows = [source, hidden, unreadable, too_many, plain]
+    expected = full_labels(rows)
+    store = NativeRows(rows, [unreadable, too_many, plain])
+    with guards.label_read_scope(store):
+        guard = guards.LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        guard._prefetch_inputs("memory", [unreadable, too_many, plain])
+        for row, sensitivity in ((unreadable, "regulated"), (too_many, "confidential"), (plain, "public")):
+            label = expected.by_stored("memory", str(row["id"]), user_id="label-guard")
+            effective = guard.effective_row("memory", row)
+            assert effective["sensitivity"] == sensitivity, (row["id"], effective["sensitivity"])
+            assert effective["sensitivity"] == (label.sensitivity if not label.unverified else "regulated")

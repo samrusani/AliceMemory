@@ -40,6 +40,8 @@ from alicebot_api.vnext_derived_labels import (
     input_admitted,
     settle_labels,
     settle_verified_inputs,
+    soft_inputs,
+    soft_refs,
     _mark_dependency_bounds,
 )
 from alicebot_api.vnext_label_closure import collect_label_rows
@@ -61,6 +63,9 @@ from alicebot_api.vnext_project_scope import (
 
 
 _GUARD_USER = "label-guard"
+# The most ids a row may cite beyond its recorded inputs (``soft_inputs``) for the shared reads of a batch and for the
+# cheap settlement. A row past it takes the collector alone.
+SOFT_ROW_LIMIT = 256
 # The reach of an event feed for a caller with limits: this many events, newest first, and no more.
 EVENT_FEED_SCAN_LIMIT = 2_000
 _Row = TypeVar("_Row", bound=Mapping[str, object])
@@ -393,7 +398,7 @@ class LabelGuard:
             refs = template[1]
             direct_ref = next(iter(refs)) if len(refs) == 1 else None
             parents: Sequence[Mapping[str, object]] = state.nodes.get(direct_ref, ()) if direct_ref is not None else ()
-            if (template[3] == "copy" and not template[2] and direct_ref is not None
+            if (template[3] == "copy" and not template[2] and not template[-2] and not template[-1] and direct_ref is not None
                     and direct_ref[0] == "source" and len(parents) == 1
                     and identifier(parents[0].get("id")) == direct_ref[1]
                     and NODE_BOUND >= 2 and HOP_BOUND >= 1):
@@ -421,7 +426,7 @@ class LabelGuard:
             if copy_template is not None and not label.unverified:
                 state.source_copies[copy_template] = label
             ancestry = frozenset(
-                [*(ref for node in nodes for ref in dependencies_of(str(node["kind"]), node)),
+                [*(ref for node in nodes for ref in (*dependencies_of(str(node["kind"]), node), *soft_refs(str(node["kind"]), node))),
                  *((str(node["kind"]), identifier(node.get("id"))) for node in nodes[1:]),
                  *(("memory", identifier(node["memory_id"])) for node in nodes
                    if node.get("kind") == "belief" and node.get("memory_id"))]
@@ -483,22 +488,42 @@ class LabelGuard:
             return None
         template = self._signature(kind, row, key=key)
         refs, problem = template[1:3]
+        candidates, unreadable = template[-2], template[-1]
         if problem or has_implicit_weekly_inputs(kind, row):
             return None
         reader = getattr(self.store, "read_label_rows", None)
-        if refs and not callable(reader):
+        if (refs or candidates or unreadable) and not callable(reader):
             return None
+
+        def loaded(ref_kind: str, ref_id: str) -> list:
+            ref_key = (ref_kind, ref_id)
+            if ref_key not in state.nodes and callable(reader):
+                state.nodes[ref_key] = [dict(found) for found in reader(ref_kind, [ref_id])
+                                        if identifier(found.get("id")) == ref_id]
+            return state.nodes[ref_key]
+
+        # The ids the row may cite beyond its recorded inputs (``soft_inputs``): resolve or ignore. One that names no stored
+        # row is ignored, one that names a stored row is an input like a recorded one, and a word the scan cannot take
+        # apart that holds a stored row's id leaves the row unverified, which only the complete kernel answers.
+        if len(candidates) + len(unreadable) > SOFT_ROW_LIMIT:
+            return None
+        for unread in unreadable:
+            if loaded(*unread):
+                return None
+        inputs = set(refs)
+        for candidate in candidates:
+            found = loaded(*candidate)
+            if len(found) > 1:
+                return None
+            if found:
+                inputs.add(candidate)
         parents = []
         ancestry = {root}
         depth = 0
-        for parent_kind, parent_id in sorted(refs):
+        for parent_kind, parent_id in sorted(inputs):
             if parent_kind == "belief":
                 return None
-            parent_key = (parent_kind, parent_id)
-            if parent_key not in state.nodes and callable(reader):
-                state.nodes[parent_key] = [dict(found) for found in reader(parent_kind, [parent_id])
-                                           if identifier(found.get("id")) == parent_id]
-            raw = state.nodes[parent_key]
+            raw = loaded(parent_kind, parent_id)
             if len(raw) != 1 or identifier(raw[0].get("id")) != parent_id:
                 return None
             parent = self._settled_inputs(parent_kind, raw[0], trail | {root})
@@ -514,8 +539,8 @@ class LabelGuard:
                 return None
         semantic_parents = tuple((parent.kind, parent.domain, parent.sensitivity, parent.project_scope,
                                   parent.project_floor, parent.carries_scope) for parent in parents)
-        # Root rule and stored labels plus resolved input labels, excluding IDs.
-        semantic = (template[:1] + template[2:], semantic_parents)
+        # Root rule and stored labels plus resolved input labels, excluding IDs, the ids the row may cite among them.
+        semantic = (template[:1] + template[2:-2], semantic_parents)
         label = state.resolved_inputs.get(semantic)
         if label is None:
             label = settle_verified_inputs(kind, {**dict(row), "user_id": _GUARD_USER}, parents)
@@ -633,7 +658,13 @@ class LabelGuard:
                     if native is not None:
                         state.labels[key] = native
                         continue
+                    soft = soft_refs(row_kind, row)
+                    if len(soft) > SOFT_ROW_LIMIT:
+                        # A row that may cite this many ids is settled alone, by the collector that bounds its own reads;
+                        # its ids would otherwise end the prefetch of every other row of the batch.
+                        continue
                     refs.update(dependencies_of(row_kind, row))
+                    refs.update(soft)
                     pending.append(key)
             refs.difference_update(expanded)
             if len(expanded | refs) > NODE_BOUND:
@@ -793,7 +824,7 @@ class LabelGuard:
                 return False
             derived = is_derived(node_kind, row)
             refs, problem = dependency_record(node_kind, row) if derived else (frozenset(), "")
-            if problem:
+            if problem or (derived and any(soft_inputs(node_kind, row))):
                 return False
             graph[key] = frozenset((ref_kind, _GUARD_USER, ref_id) for ref_kind, ref_id in refs)
             ranks[key] = SENSITIVITY_RANK[sensitivity]

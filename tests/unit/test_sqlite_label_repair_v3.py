@@ -59,7 +59,7 @@ def test_open_raises_a_public_copy_of_a_confidential_source(tmp_path, monkeypatc
     raw_event = event["payload_json"] if isinstance(event, dict) else event[0]
     assert sensitivity == "confidential"
     payload = json.loads(raw_event)
-    assert payload["cause"] == "repair_v3"
+    assert payload["cause"] == "repair_v4"
     assert "title" not in json.dumps(payload)
     assert SOURCE_TEXT not in json.dumps(payload)
 
