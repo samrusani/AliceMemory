@@ -188,7 +188,12 @@ def test_the_generate_artifact_tool_answers_not_found_for_a_report_the_caller_ma
     if workflow in {"open_loop_review", "project_update_scan", "memory_consolidation"}:
         # These run as scheduler workflows, whose answer carries a run and a null report.
         again = _tool(h, monkeypatch, "alice_vnext_generate_artifact", arguments)
-        assert again["artifact"] is None and again["run"]["artifact_id"] is None, again
+        if workflow == "project_update_scan" and again["artifact"] is not None:
+            # The scan judges the stored candidate before it writes and makes its own "no project matched" report instead.
+            assert again["artifact"]["id"] != artifact_id and again["run"]["artifact_id"] == again["artifact"]["id"], again
+            assert "No active project matched this scheduler scope." in again["artifact"]["content_markdown"], again
+        else:
+            assert again["artifact"] is None and again["run"]["artifact_id"] is None, again
         assert _traces(again, artifact_id) == []
     else:
         with pytest.raises(MCPReferenceNotFoundError):

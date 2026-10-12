@@ -194,6 +194,26 @@ def _refused_answer(status, body, *, artifact_ids=(), needles=()):
     assert _traces(body, *artifact_ids, *needles) == []
 
 
+def _refused_or_scanned_again(h, key, workflow, status, body, *, artifact_id):
+    """The answer to a run whose stored report the caller may no longer read.
+
+    Most workflows find the report again under the run's digest and leave it out of the answer. The project update scan
+    judges the stored candidate before it writes anything and, when the caller may not read it, makes the scan's own
+    "no project matched" report instead, which the caller may read. Either way the answer names nothing of the report the
+    caller may not read.
+    """
+
+    if workflow != "project_update_scan" or body.get("artifact") is None:
+        _refused_answer(status, body, artifact_ids=[artifact_id])
+        return
+    assert status == 201, body
+    made = body["artifact"]
+    assert made["id"] != artifact_id and body["run"]["artifact_id"] == made["id"], body
+    assert "No active project matched this scheduler scope." in made["content_markdown"], made
+    assert _get_artifact(h, made["id"], key)[0] == 200
+    assert _traces(body, artifact_id) == []
+
+
 def _owner_harness(urls):
     """A vault with no key at all: a request with no key is the owner's only while the vault has no key."""
 
@@ -267,7 +287,7 @@ def test_a_report_found_again_that_the_caller_may_no_longer_read_is_left_out_of_
 
     status, again, _ = _run(h, workflow, key, project)
 
-    _refused_answer(status, again, artifact_ids=[artifact_id])
+    _refused_or_scanned_again(h, key, workflow, status, again, artifact_id=artifact_id)
     assert artifact_id in {row["id"] for row in _stored_artifacts(h)}
 
 
@@ -281,7 +301,7 @@ def test_the_same_holds_for_a_key_with_the_profile_of_a_project_agent(label_harn
     artifact_id = first["artifact"]["id"]
     _raise(h, "generated_artifacts", [artifact_id])
     status, again, _ = _run(h, workflow, key, project)
-    _refused_answer(status, again, artifact_ids=[artifact_id])
+    _refused_or_scanned_again(h, key, workflow, status, again, artifact_id=artifact_id)
 
 
 # -- a report made from rows that were raised while it was being made ---------------------------------------------
