@@ -4,13 +4,14 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 import re
-from collections.abc import Mapping, Sequence
+from uuid import UUID
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Protocol, cast
 
 from alicebot_api.vnext_derived_domain import derived_domain
 from alicebot_api.vnext_derived_labels import input_admitted, locked_projects, with_derived_from
 from alicebot_api.credential_floor import refuse_credential_activation
-from alicebot_api.vnext_agent_control import resource_project_scope
+from alicebot_api.vnext_agent_control import AgentIdentity, resource_project_scope
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
@@ -515,6 +516,114 @@ def _project_update_markdown(
     )
 
 
+def _identity_of_record(record: object) -> AgentIdentity | None:
+    """The caller an automation request records, or ``None`` (the owner) when it records none."""
+
+    if not isinstance(record, Mapping):
+        return None
+    scope = record.get("project_scope")
+    return AgentIdentity(
+        agent_id=str(record.get("agent_id") or ""),
+        agent_type=str(record.get("agent_type") or "unknown"),
+        project_scope=tuple(str(item) for item in scope) if isinstance(scope, (list, tuple)) else (),
+        permission_profile=str(record.get("permission_profile") or "read_only_agent"),
+        auth=str(record.get("auth") or "unauthenticated_local"),
+        project_scope_locked=bool(record.get("project_scope_locked")),
+    )
+
+
+def project_in_view(store: object, project: Mapping[str, object], guard: LabelGuard) -> bool:
+    """True when the operator caller ``guard`` stands for may read this project row now. An inactive guard admits all.
+
+    The guard of an operator route is the guard of an owner, an unbound admin key or an unbound trusted key, so it holds
+    domains and sensitivities and no project binding. The project is judged on its effective label: the domain and the
+    sensitivity it has, raised to those of its inputs once an accepted update made it a derived row. A door that serves
+    a key with a project binding judges a project with ``project_readable``.
+    """
+
+    from alicebot_api.vnext_label_guard import LabelGuard
+
+    if not guard.active:
+        return True
+    view = LabelGuard.for_filters(store, guard.domains, guard.sensitivity_allowed)
+    return bool(view.admit_rows("project", [project]))
+
+
+def project_readable(store: object, project: Mapping[str, object], caller: AgentIdentity | None) -> bool:
+    """True when ``caller`` may read this project row now. The owner and an unbound admin key read every project.
+
+    This is the test the artifact get applies to an artifact, applied to the project: the policy engine's read of the
+    row's domain and sensitivity (the caller's profile ceiling and permitted domains, not a default selection), on the
+    effective labels of the row (raised to its inputs once an accepted update made it a derived row). A project row has
+    no scope of its own, so a key bound to a project is shown the project it is bound to and no other: the binding names
+    an id, a slug or a name, and the project's own identity is tested against it, and a bound key whose binding does not
+    name this project is given no scope, which the policy engine refuses. A bound key that is allowed every sensitivity
+    (an admin key) therefore reads its own confidential project.
+    """
+
+    from alicebot_api.vnext_label_guard import effective_row_for_fence
+    from alicebot_api.vnext_source_fence import SourceReadFence
+
+    fence = SourceReadFence.for_identity(caller)
+    if not fence.entity_read_fenced:
+        return True
+    effective = effective_row_for_fence(store, caller, "project", project)
+    scope: tuple[str, ...] = ()
+    if caller is not None and caller.project_scope_locked:
+        named = set(project_scope_identity([str(project.get("id") or ""), project.get("slug"), project.get("name")]))
+        scope = tuple(item for item in caller.project_scope if set(project_scope_identity([item])) & named)
+    return fence.admits_memory({**effective, "project_scope": list(scope), "project_floor": []})
+
+
+def project_readable_to_record(store: object, project: Mapping[str, object], record: object) -> bool:
+    """``project_readable`` for the caller an automation request records, or the owner when it records none."""
+
+    return project_readable(store, project, _identity_of_record(record))
+
+
+def stored_project(store: object, project_id: object) -> JsonObject | None:
+    """The stored project row that ``project_id`` names, or ``None`` when no stored project has that id.
+
+    PostgreSQL keeps a project id as a uuid and casts the id it is given, so a name, a slug or a malformed id sent to it is a
+    database error (a server error for the caller) and not a missing row. It is read here as a project that is not stored.
+    The scheduler stages its writes over the store it runs on and keeps that store as ``_delegate``; the lookup reads
+    through to it, so the id is judged the way the store judges it. A store that keeps its project ids as it was given them
+    (an in-memory store) is asked with the id as it came.
+    """
+
+    lookup = getattr(store, "get_project", None)
+    if not callable(lookup):
+        return None
+    named = str(project_id).strip()
+    if isinstance(getattr(store, "_delegate", store), PostgresVNextStore):
+        try:
+            named = str(UUID(named))
+        except ValueError:
+            return None
+    return cast("JsonObject | None", lookup(named))
+
+
+def project_a_loop_is_filed_under(
+    store: object, project_id: object, readable: Callable[[Mapping[str, object]], bool]
+) -> str | None:
+    """The id a loop is filed under for the project ``project_id`` names, or ``None`` when no loop may be filed there.
+
+    A loop is filed under a project that is stored and that ``readable`` admits. A project that is not stored, an id that
+    is not well formed, a free-form name and a project the caller may not read all answer ``None``, so the caller cannot
+    tell a hidden project from a missing one, and nothing is filed under a name the foreign key would refuse. A store
+    that keeps no projects (the local SQLite vault, where a project is a free-form name in a scope) has no project to
+    judge and the name stands. Every door that files a loop under the project a request or a source names uses this.
+    """
+
+    lookup = getattr(store, "get_project", None)
+    if not callable(lookup):
+        return str(project_id)
+    project = stored_project(store, project_id)
+    if project is None or not readable(project):
+        return None
+    return str(project.get("id") or str(project_id).strip())
+
+
 class VNextProjectService:
     def __init__(self, store: VNextProjectStore, *, defer_embeddings: bool = False) -> None:
         self.store = store
@@ -533,10 +642,28 @@ class VNextProjectService:
 
         return is_project_update_artifact(artifact)
 
-    def generate_project_update_candidate(self, request: ProjectAutomationRequest | None = None) -> JsonObject:
+    def generate_project_update_candidate(
+        self, request: ProjectAutomationRequest | None = None, *, identity: AgentIdentity | None = None
+    ) -> JsonObject:
+        """Make the update candidate of one project, or return the one already stored under the digest of its inputs.
+
+        The caller is judged twice with the functions the reads of that caller use. The project is read first, before a
+        source or a memory is read and before anything is written, and a project the caller may not read is answered
+        exactly as a project that does not exist. Every artifact that comes back is read through the check the artifact
+        get applies: a new one, one found again by its digest, and the row an upsert returns after it meets the unique
+        digest. That row carries the labels it has now, which can be above the caller's, and one the caller may not read
+        is not returned, no event records it, and the call raises the error of a missing project so the route rolls
+        back the candidate memory that was written for it.
+
+        ``identity`` is the caller a door resolved, or ``None``. With ``None`` the caller is the one the request records
+        in ``agent_identity``, and the owner when it records none, so a door that passes no identity (the scheduler)
+        is judged as the identity its request carries.
+        """
+
         request = request or ProjectAutomationRequest(agent_identity=None, )
         _validate_request(request)
-        project = self._resolve_project(request)
+        caller = identity if identity is not None else _identity_of_record(request.agent_identity)
+        project = self._resolve_project(request, caller)
         domains = list(request.domains) if request.domains else None
         sensitivity_allowed = list(request.sensitivity_allowed)
         sources = self.store.search_sources(
@@ -609,7 +736,17 @@ class VNextProjectService:
                 scope_projects=(project_id,),
             )
             if existing is not None:
-                return existing
+                return self._stored_candidate(existing, caller=caller, project_id=project_id)
+            # The upsert below returns the row stored under this digest whatever its scope, so a row the scoped lookup
+            # missed comes back from it. That row is judged now, before the candidate memory is written, so a refusal
+            # leaves nothing staged or written behind.
+            conflicting = find_existing(
+                artifact_type="project_update",
+                workflow="project_auto_update",
+                digest=automation_digest,
+            )
+            if conflicting is not None:
+                self._stored_candidate(conflicting, caller=caller, project_id=project_id)
         change = _detect_project_change(project, sources, memories)
         suggested_current_state = change
         upsert_memory = getattr(self.store, "upsert_memory_by_key", None)
@@ -699,6 +836,7 @@ class VNextProjectService:
             )
         else:
             artifact = self.store.create_artifact(artifact_record, actor_type=request.generated_by)
+        artifact = self._new_candidate(artifact, caller=caller, project_id=project_id)
         append_event(
             self.store,
             event_type="project.update_candidate_created",
@@ -792,24 +930,40 @@ class VNextProjectService:
         request = request or ProjectAutomationRequest(agent_identity=None, )
         _validate_request(request)
         domains = list(request.domains) if request.domains else None
-        sources = self.store.search_sources(
-            query="",
-            domains=domains,
-            sensitivity_allowed=list(request.sensitivity_allowed),
-            limit=request.max_items,
-            scope_projects=(request.project_id,) if request.project_id is not None else (),
-        )
+        if request.project_id is not None and self._project_loops_are_filed_under(request.project_id, guard) is None:
+            # A loop is filed under the project the request names, so the project is judged first. One the caller may not
+            # read is answered as one that is not stored, and no source is read for it.
+            sources: list[JsonObject] = []
+        else:
+            sources = self.store.search_sources(
+                query="",
+                domains=domains,
+                sensitivity_allowed=list(request.sensitivity_allowed),
+                limit=request.max_items,
+                scope_projects=(request.project_id,) if request.project_id is not None else (),
+            )
         if request.project_id is not None:
             sources = [row for row in sources if _is_source_in_project(row, request.project_id)]
         existing_by_digest: dict[str, JsonObject] = {}
         find_existing_loop = getattr(self.store, "find_open_loop_by_automation_digest", None)
         created: list[JsonObject] = []
+        filed_under: dict[str, str | None] = {}
         for source in sources:
             for candidate in _open_loop_candidates(source):
                 source_scope = source_project_scope(source)
                 canonical_scope = (request.project_id,) if request.project_id is not None else source_scope
                 if len(canonical_scope) == 1:
-                    candidate["project_id"] = canonical_scope[0]
+                    if request.project_id is None:
+                        # The project is the one the source names in its scope, and the caller did not name it, so it is
+                        # judged like a named one. A loop is not made for a source whose single project is not stored or
+                        # not readable, whichever of the two it is.
+                        if canonical_scope[0] not in filed_under:
+                            filed_under[canonical_scope[0]] = self._project_loops_are_filed_under(canonical_scope[0], guard)
+                        if filed_under[canonical_scope[0]] is None:
+                            continue
+                        candidate["project_id"] = filed_under[canonical_scope[0]]
+                    else:
+                        candidate["project_id"] = canonical_scope[0]
                 if request.person_id is not None:
                     candidate["person_id"] = request.person_id
                 metadata_value = candidate.get("metadata_json")
@@ -1468,10 +1622,46 @@ class VNextProjectService:
             "counts": {"memories": len(memories), "open_loops": len(open_loops), "artifacts": len(artifacts)},
         }
 
-    def _resolve_project(self, request: ProjectAutomationRequest) -> JsonObject:
+    def _project_loops_are_filed_under(self, project_id: str, guard: LabelGuard) -> str | None:
+        """The id a loop is filed under for the project ``project_id`` names, or ``None`` when none may be filed there."""
+
+        return project_a_loop_is_filed_under(self.store, project_id, lambda project: project_in_view(self.store, project, guard))
+
+    def _stored_candidate(self, artifact: JsonObject, *, caller: AgentIdentity | None, project_id: str) -> JsonObject:
+        """``artifact``, a row that came back from storage, when ``caller`` may read it now, otherwise the error of a
+        project that does not exist.
+
+        This is the check the artifact get applies (``outside_caller_limits``): the labels the stored row has now, raised
+        to the rows it was made from, which are read from the database. It takes no part in what the caller asked for:
+        a request filter is a selection, never a grant.
+        """
+
+        from alicebot_api.vnext_label_guard import outside_caller_limits
+
+        if outside_caller_limits(self.store, caller, "artifact", artifact):
+            raise VNextProjectValidationError(f"project {project_id} was not found")
+        return artifact
+
+    def _new_candidate(self, artifact: JsonObject, *, caller: AgentIdentity | None, project_id: str) -> JsonObject:
+        """``artifact``, the row that was just made, when its own labels are ones ``caller`` may read.
+
+        The row was made from inputs that were read on the caller's limits, and a store that stages its writes (the
+        scheduler's) has not written it or its candidate memory yet, so the database holds nothing to read its inputs
+        from. It is judged on the labels it carries, which the policy engine reads as it reads a stored one. A row that
+        already existed under the digest is judged from storage before it is written to (``_stored_candidate``).
+        """
+
+        from alicebot_api.vnext_source_fence import SourceReadFence
+
+        fence = SourceReadFence.for_identity(caller)
+        if fence.entity_read_fenced and not fence.admits_memory(artifact):
+            raise VNextProjectValidationError(f"project {project_id} was not found")
+        return artifact
+
+    def _resolve_project(self, request: ProjectAutomationRequest, caller: AgentIdentity | None) -> JsonObject:
         if request.project_id is not None:
-            project = self.store.get_project(request.project_id)
-            if project is None:
+            project = stored_project(self.store, request.project_id)
+            if project is None or not project_readable(self.store, project, caller):
                 raise VNextProjectValidationError(f"project {request.project_id} was not found")
             return project
         projects = self.store.list_projects(
@@ -1490,6 +1680,7 @@ class VNextProjectService:
             sensitivity_allowed=request.sensitivity_allowed,
             projects=(),
         )
+        projects = [project for project in projects if project_readable(self.store, project, caller)]
         if not projects:
             raise VNextProjectValidationError("no active project was found for update candidate generation")
         return projects[0]
@@ -1502,4 +1693,9 @@ __all__ = [
     "VNextProjectStore",
     "VNextProjectTerminalConsistencyError",
     "VNextProjectValidationError",
+    "project_a_loop_is_filed_under",
+    "project_in_view",
+    "project_readable",
+    "project_readable_to_record",
+    "stored_project",
 ]

@@ -55,6 +55,7 @@ from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_projects import (
     VNextProjectService,
     VNextProjectValidationError,
+    project_readable,
 )
 from alicebot_api.vnext_scheduler import (
     SchedulerRunRequest,
@@ -243,8 +244,9 @@ def _vnext_project_id_within_binding(
 ) -> str | None:
     """The canonical id of the stored project when this caller may file work under it, otherwise None.
 
-    A project that does not exist, one whose id is not a well-formed id, and one outside the project binding of a
-    locked key are the same None. The owner and a key with no binding may use every stored project.
+    A project that does not exist, one whose id is not a well-formed id, one outside the project binding of a locked
+    key and one the caller may not read (its domain or its sensitivity is outside the caller's limits) are the same
+    None. The owner and an unbound admin key may use every stored project.
     """
 
     try:
@@ -259,6 +261,8 @@ def _vnext_project_id_within_binding(
         named = set(project_scope_identity([str(project["id"]), project.get("slug"), project.get("name")]))
         if not named & bound:
             return None
+    if not project_readable(store, project, identity):
+        return None
     return canonical
 
 

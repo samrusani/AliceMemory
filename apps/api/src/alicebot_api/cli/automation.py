@@ -96,8 +96,9 @@ def _project_automation_request_from_args(args: argparse.Namespace) -> ProjectAu
 
 def _run_vnext_project_update_candidate(ctx: CLIContext, args: argparse.Namespace) -> str:
     with _vnext_store_context(ctx) as store:
+        # The command takes no agent identity: it runs for the owner of the vault, who has no limits.
         artifact = VNextProjectService(store).generate_project_update_candidate(
-            _project_automation_request_from_args(args)
+            _project_automation_request_from_args(args), identity=None
         )
     return _json_dumps(artifact)
 

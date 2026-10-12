@@ -75,11 +75,15 @@ def _handle_alice_project_update_candidate(context: MCPRuntimeContext, arguments
         if decision.decision == "blocked":
             blocked_decision = decision
         else:
+            # A key bound to one project is given that project, as the route gives it, when the call names none.
+            project_id = request.project_id
+            if project_id is None and len(decision.effective_project_scope) == 1:
+                project_id = decision.effective_project_scope[0]
             payload = VNextProjectService(store).generate_project_update_candidate(
                 ProjectAutomationRequest(
                     domains=decision.effective_domains,
                     sensitivity_allowed=decision.effective_sensitivity_allowed,
-                    project_id=request.project_id,
+                    project_id=project_id,
                     person_id=request.person_id,
                     max_items=request.max_items,
                     generated_by=actor_type,
@@ -95,7 +99,8 @@ def _handle_alice_project_update_candidate(context: MCPRuntimeContext, arguments
                     model=request.model,
                     model_temperature=request.model_temperature,
                     allow_cloud_private=request.allow_cloud_private,
-                )
+                ),
+                identity=identity,
             )
     if blocked_decision is not None:
         _raise_mcp_policy_blocked(blocked_decision)

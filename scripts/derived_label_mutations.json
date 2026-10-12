@@ -310,7 +310,7 @@
           "line": 5,
           "before": "`GET /v0/vnext/doctor` and `POST /v0/vnext/doctor/run` now omit their content diagnostics for callers with limits: the owner and an unbound admin key receive the flagged-source ids and the derived-label counts, and a trusted key receives both checks as skipped, with no id, count or message taken from the vault. The flagged-source ids were returned to trusted keys in v0.20.0 and baseline main 48873b03.",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -323,10 +323,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 82,
+          "line": 85,
           "before": "omit content diagnostics for a caller with limits",
           "after": "show content diagnostics to a caller",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -983,7 +983,7 @@
           "line": 977,
           "before": "A call answered HTTP 404 changes nothing",
           "after": "A call answered HTTP 404 may change a thing",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -999,7 +999,7 @@
           "line": 21,
           "before": "stays refused to every key but an unbound `admin_agent`",
           "after": "stays refused",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -1015,7 +1015,7 @@
           "line": 7,
           "before": "disclosure, unauthorized modification and unauthorized deletion",
           "after": "disclosure",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -1147,7 +1147,7 @@
           "line": 977,
           "before": "the only row it adds is the policy event that the operator gate records for its own refusal",
           "after": "it adds no row",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -1163,7 +1163,7 @@
           "line": 977,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -1179,7 +1179,7 @@
           "line": 21,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -1195,7 +1195,7 @@
           "line": 7,
           "before": "the count now covers only the rows the caller may read",
           "after": "the count now covers every row",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -1227,7 +1227,7 @@
           "line": 1003,
           "before": "belief = _vnext_readable_belief(store, identity, belief_id)",
           "after": "belief = _vnext_readable_belief(store, None, belief_id)",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -1245,7 +1245,7 @@
           "line": 1009,
           "before": "if belief is None or (request.superseded_by is not None and replacement is None):",
           "after": "if belief is None:",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -1261,7 +1261,7 @@
           "line": 931,
           "before": "edge = _vnext_readable_edge(store, identity, edge_id)",
           "after": "edge = _vnext_readable_edge(store, None, edge_id)",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -1455,7 +1455,7 @@
           "line": 17,
           "before": "This is a known exception, not a way of meeting the requirement to filter hidden ids. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -1471,7 +1471,7 @@
           "line": 17,
           "before": "They grant no access. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -1487,7 +1487,7 @@
           "line": 25,
           "before": "The full-text stage does refill until its limit is met. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -1503,7 +1503,7 @@
           "line": 9,
           "before": "The exposure covers disclosure and unauthorized modification. The route code is identical",
           "after": "The route code is identical",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -1551,7 +1551,7 @@
           "line": 22,
           "before": "where it raised a server error",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -1629,7 +1629,7 @@
           "line": 17,
           "before": "none of these is the member's text. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -1722,10 +1722,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 787,
+          "line": 791,
           "before": "            if target is None or outside_caller_limits(store, identity, \"open_loop\", target):",
           "after": "            if target is None:",
-          "sha256": "684395729bcea9d732468eceb70f3beb170f536c288e32f83dd3b31d26c35141"
+          "sha256": "6e77cd4ca7996ffba36b5c854c45f4b9f304ba287b64eeaf33789a8b2c055b65"
         }
       ],
       "pytest": [
@@ -1899,10 +1899,17 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 260,
+          "line": 262,
           "before": "        if not named & bound:\n            return None",
           "after": "        if False:\n            return None",
-          "sha256": "684395729bcea9d732468eceb70f3beb170f536c288e32f83dd3b31d26c35141"
+          "sha256": "6e77cd4ca7996ffba36b5c854c45f4b9f304ba287b64eeaf33789a8b2c055b65"
+        },
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 574,
+          "before": "        scope = tuple(item for item in caller.project_scope if set(project_scope_identity([item])) & named)\n",
+          "after": "        scope = tuple(caller.project_scope)\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -1915,10 +1922,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 250,
+          "line": 252,
           "before": "    try:\n        canonical = str(UUID(str(project_id).strip()))\n    except ValueError:\n        return None\n    project = store.get_project(canonical)",
           "after": "    canonical = str(project_id)\n    project = store.get_project(canonical)",
-          "sha256": "684395729bcea9d732468eceb70f3beb170f536c288e32f83dd3b31d26c35141"
+          "sha256": "6e77cd4ca7996ffba36b5c854c45f4b9f304ba287b64eeaf33789a8b2c055b65"
         }
       ],
       "pytest": [
@@ -1966,7 +1973,7 @@
           "line": 17,
           "before": "is answered exactly as for a missing id: the same status and body, or the same tool error, and no stored row changes. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -1982,7 +1989,7 @@
           "line": 17,
           "before": "The detail modes of `alice_explain` and `alice_memory_review` return them for a derived memory, such as a project update that lists the sources it was made from, and the list modes of the other memory tools return none of them.",
           "after": "The memory tools return none of them.",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -1998,7 +2005,7 @@
           "line": 19,
           "before": "That includes the policy events and the agent record: a key reads them back in its own policy telemetry, so a count that moved would tell it that the id named a row. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -2014,7 +2021,7 @@
           "line": 21,
           "before": " and write nothing. The owner and a key with no binding may file a loop under any stored project.",
           "after": ". The owner and a key with no binding may file a loop under any stored project.",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -2030,7 +2037,7 @@
           "line": 983,
           "before": "The call now writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry. ",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -2046,7 +2053,7 @@
           "line": 24,
           "before": "and the call writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry.",
           "after": "and the call is recorded.",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -2174,7 +2181,7 @@
           "line": 17,
           "before": "Ids are not the only thing a report keeps. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -2190,7 +2197,7 @@
           "line": 19,
           "before": "An archived or redacted memory is read by no door but redact, and it is outside the limits of every key that has any, so a refused redact of one is answered and written exactly as a redact of a missing id is: HTTP 404 or the tool's not-found error, and no policy event and no agent record. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -2206,7 +2213,7 @@
           "line": 748,
           "before": "A refused `redact` of an archived or redacted row writes nothing, as a",
           "after": "A refused `redact` of an archived or redacted row is audited, as a",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -2235,10 +2242,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 65,
+          "line": 68,
           "before": "A refused redact of an archived or redacted row now writes nothing, as a redact of an id the vault never held writes nothing: no policy event and no agent record.",
           "after": "A refused redact of an archived or redacted row is still recorded.",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -3888,7 +3895,7 @@
           "line": 17,
           "before": "The memory audit route (`GET /v0/vnext/memories/{id}/audit`) returns the same lists for a readable derived memory as stored",
           "after": "The memory audit route returns lists",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -3904,7 +3911,7 @@
           "line": 17,
           "before": "It is not the text, but it tells a caller who holds a text whether it is the one the source had. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -3920,7 +3927,7 @@
           "line": 17,
           "before": " `alice_explain` returns them while the source can be read and answers the memory of an archived source as unavailable.",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -3936,7 +3943,7 @@
           "line": 17,
           "before": " The scheduler's run records, in the workspace (`scheduler.recent_runs` and `scheduler.last_success_by_workflow`) and in the dogfooding view (`last_successful_scheduler_run`), carry the `artifact_id` of the report a run made, also after that report was made confidential.",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -3952,7 +3959,7 @@
           "line": 11,
           "before": "A chunk of a source has no label, so its `source_chunk.created` event takes the label of the source its payload names, and a chunk event that names no source, or one that is not stored, is not shown to a caller with limits. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -3968,7 +3975,7 @@
           "line": 11,
           "before": "An edge with an end of another kind, or an end that is not stored, cannot be shown to be readable and is not shown to a caller with limits either. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -4000,7 +4007,7 @@
           "line": 981,
           "before": "`GET /v0/vnext/memories/{id}/audit` returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, the ids of archived members included. ",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -4016,7 +4023,7 @@
           "line": 23,
           "before": "The memory audit route (`GET /v0/vnext/memories/{id}/audit`) returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, so the ids of archived members stand there too (a derived memory that recorded a redacted memory as a member is read by the owner and an unbound admin key only), ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -4032,7 +4039,7 @@
           "line": 15,
           "before": "The context tree and the dogfooding view read the same rule. ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -4694,7 +4701,7 @@
           "line": 7,
           "before": "An artifact event that holds anything more still stops the redaction, so no text is left behind. ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -4726,7 +4733,7 @@
           "line": 17,
           "before": " And a memory commit whose",
           "after": " The graph neighborhood route returns the edges of any id with their explanations, which hold the titles and shared terms of the rows an edge joins, as the graph-edge limit named above says. And a memory commit whose",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -4758,7 +4765,7 @@
           "line": 17,
           "before": ", so a redacted memory's text stays in them",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -4790,7 +4797,7 @@
           "line": 981,
           "before": " The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only (see [Redacted memories](#redacted-memories)).",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -4806,7 +4813,7 @@
           "line": 23,
           "before": " The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says.",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -5189,7 +5196,7 @@
           "line": 35,
           "before": "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -5205,7 +5212,7 @@
           "line": 9,
           "before": "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -5221,7 +5228,7 @@
           "line": 1151,
           "before": "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -5253,7 +5260,7 @@
           "line": 9,
           "before": "This is temporary access containment, not removal",
           "after": "This is removal",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -5285,7 +5292,7 @@
           "line": 1155,
           "before": "Archiving keeps reports' historical content and does not restrict them.",
           "after": "Archiving restricts them.",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -5301,7 +5308,7 @@
           "line": 35,
           "before": "only when that key may read every labelled row the edge joins and none of them is redacted",
           "after": "for every key",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -5317,7 +5324,7 @@
           "line": 9,
           "before": "say to regenerate or delete the reports built from a redacted memory",
           "after": "say nothing",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -5367,7 +5374,7 @@
           "line": 35,
           "before": "A belief keeps the claim it copied from its memory",
           "after": "A belief keeps nothing of its memory",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -5417,7 +5424,7 @@
           "line": 1157,
           "before": "The recommended fix of the check is to regenerate or delete those reports, and not `alicebot vnext labels repair`",
           "after": "The recommended fix of the check is labels repair",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -5469,7 +5476,7 @@
           "line": 972,
           "before": "            payload = VNextConnectionService(store).graph_neighborhood(\n                target_id=target_id,\n                sensitivity_allowed=sensitivity_ceiling(identity),",
           "after": "            payload = VNextConnectionService(store).graph_neighborhood(\n                target_id=target_id,\n                sensitivity_allowed=None,",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -5503,7 +5510,7 @@
           "line": 935,
           "before": "                edge_id=str(edge[\"id\"]),\n                action=request.action,\n                sensitivity_allowed=sensitivity_ceiling(identity),",
           "after": "                edge_id=str(edge[\"id\"]),\n                action=request.action,\n                sensitivity_allowed=None,",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -5537,7 +5544,7 @@
           "line": 1015,
           "before": "                superseded_by=str(replacement[\"id\"]) if replacement is not None else None,\n                sensitivity_allowed=sensitivity_ceiling(identity),",
           "after": "                superseded_by=str(replacement[\"id\"]) if replacement is not None else None,\n                sensitivity_allowed=None,",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -5661,7 +5668,7 @@
           "line": 9,
           "before": "is refused to a key that may not read the belief, with the answer of a missing belief, and a refused review changes nothing.",
           "after": "is open to every key.",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -5677,7 +5684,7 @@
           "line": 1165,
           "before": "only when that key may read every labelled row the edge joins and none of them is redacted",
           "after": "for every key",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -5693,7 +5700,7 @@
           "line": 1165,
           "before": "Unreleased (on main, not in v0.20.0): a graph edge has no label",
           "after": "Unreleased (on main, not in v0.20.0): the graph edges are the exception: they have no label",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -5709,7 +5716,7 @@
           "line": 1167,
           "before": "The only tools a key can call are the core tools",
           "after": "A key can call any tool",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -5725,7 +5732,7 @@
           "line": 287,
           "before": "It does not rewrite\n  the reports and cards made from the memory before: they keep the words they\n  copied",
           "after": "It rewrites\n  the reports and cards made from the memory before: they lose the words they\n  copied",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -5983,7 +5990,7 @@
           "line": 35,
           "before": "A project end that names the project by a name or by an id that finds no project row hides nothing",
           "after": "A project end hides every edge",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -5999,7 +6006,7 @@
           "line": 1165,
           "before": "A project end that names the project by a name or by an id that finds no project row hides nothing",
           "after": "A project end hides every edge",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -6015,7 +6022,7 @@
           "line": 9,
           "before": "A project end that names the project by a name or by an id that finds no project row hides nothing",
           "after": "A project end hides every edge",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -6031,7 +6038,7 @@
           "line": 17,
           "before": "Two answers show a little more, and they belong to this exception.",
           "after": "Three answers show a little more, and they belong to this exception.",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -6047,7 +6054,7 @@
           "line": 17,
           "before": " The words of a redacted memory are not read that way: a report that recorded a redacted memory is read by the owner and an unbound admin key only (see the paragraph on redacted memories), so no other key reads them.",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -6063,7 +6070,7 @@
           "line": 17,
           "before": "A key reads the words of an archived row as it read them in the report",
           "after": "A key reads the words of a row as it read them in the report",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -6111,7 +6118,7 @@
           "line": 981,
           "before": "but a report that recorded a redacted memory is read by the owner and an unbound admin key only (see [Redacted memories](#redacted-memories))",
           "after": "but a report that recorded a redacted memory is read like any other report (see [Redacted memories](#redacted-memories))",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -6127,7 +6134,7 @@
           "line": 981,
           "before": "and a key that can read the report reads those words; withholding them is tracked for v0.21.0 too.",
           "after": "withholding them is tracked for v0.21.0 too.",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -6143,7 +6150,7 @@
           "line": 23,
           "before": "but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says",
           "after": "but a report that recorded a redacted memory is read like any other report, as the entry on redacted memories says",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -6159,7 +6166,7 @@
           "line": 5,
           "before": "baseline main 48873b03; it now lists only the edges whose ends the key may read (see the paragraph on redacted memories).",
           "after": "baseline main 48873b03; it still does (see the paragraph on redacted memories).",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -6172,10 +6179,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 38,
+          "line": 41,
           "before": "The graph neighborhood and the edge review route apply the same ceiling to the rows an edge joins, as the entry on redacted memories and the draft security note say.",
           "after": "Graph edge explanations remain outside that ceiling, as disclosed in the draft security note.",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -6191,7 +6198,7 @@
           "line": 977,
           "before": "and the rule that fences it is under [Graph edges and beliefs](#redacted-memories-and-the-graph).",
           "after": "and its limit is listed in the release security note.",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -6223,7 +6230,7 @@
           "line": 35,
           "before": "The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -6239,7 +6246,7 @@
           "line": 1165,
           "before": "The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. ",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -6255,7 +6262,7 @@
           "line": 9,
           "before": "The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -6287,7 +6294,7 @@
           "line": 23,
           "before": "Two answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; and a memory commit",
           "after": "Three answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; the graph neighborhood route, which returns the edges of any id with their explanations; and a memory commit",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -6303,7 +6310,7 @@
           "line": 17,
           "before": "so a redacted memory's text stays in them. A key reads the words of an archived row",
           "after": "so a redacted memory's text can still be read in them. A key reads the words of an archived row",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -6540,10 +6547,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 748,
+          "line": 752,
           "before": "                replace(automation, domains=domains, sensitivity_allowed=sensitivity_allowed)",
           "after": "                automation",
-          "sha256": "684395729bcea9d732468eceb70f3beb170f536c288e32f83dd3b31d26c35141"
+          "sha256": "6e77cd4ca7996ffba36b5c854c45f4b9f304ba287b64eeaf33789a8b2c055b65"
         }
       ],
       "pytest": [
@@ -6572,10 +6579,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 377,
+          "line": 381,
           "before": "            payload = readable[0] if readable else None",
           "after": "            payload = charter",
-          "sha256": "684395729bcea9d732468eceb70f3beb170f536c288e32f83dd3b31d26c35141"
+          "sha256": "6e77cd4ca7996ffba36b5c854c45f4b9f304ba287b64eeaf33789a8b2c055b65"
         }
       ],
       "pytest": [
@@ -6588,10 +6595,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 404,
+          "line": 408,
           "before": "            if stored is not None and not readable_own_label_rows(identity, [stored]):",
           "after": "            if False:",
-          "sha256": "684395729bcea9d732468eceb70f3beb170f536c288e32f83dd3b31d26c35141"
+          "sha256": "6e77cd4ca7996ffba36b5c854c45f4b9f304ba287b64eeaf33789a8b2c055b65"
         }
       ],
       "pytest": [
@@ -7068,10 +7075,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 402,
+          "line": 406,
           "before": "            lock_brain_charter(store)\n            stored = store.get_brain_charter()",
           "after": "            stored = store.get_brain_charter()",
-          "sha256": "684395729bcea9d732468eceb70f3beb170f536c288e32f83dd3b31d26c35141"
+          "sha256": "6e77cd4ca7996ffba36b5c854c45f4b9f304ba287b64eeaf33789a8b2c055b65"
         }
       ],
       "pytest": [
@@ -7411,10 +7418,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 414,
+          "line": 418,
           "before": "                append_policy_events(\n                    store, identity=identity, decision=refusal, target_type=\"http_route\",\n                    target_id=\"/v0/vnext/settings/brain-charter\",\n                )\n",
           "after": "",
-          "sha256": "684395729bcea9d732468eceb70f3beb170f536c288e32f83dd3b31d26c35141"
+          "sha256": "6e77cd4ca7996ffba36b5c854c45f4b9f304ba287b64eeaf33789a8b2c055b65"
         }
       ],
       "pytest": [
@@ -7508,7 +7515,7 @@
           "line": 580,
           "before": "                .process_next_task(readable_labels=claimable_task_labels(identity))\n",
           "after": "                .process_next_task()\n",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -7617,10 +7624,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 174,
+          "line": 175,
           "before": "    except ProjectSlugConflictError:\n        # Outside the connection block, so the refused call rolls back and writes nothing. One answer for every caller\n        # and every holder of the slug: it names no project, so the owner, an admin and a key with a ceiling are told\n        # the same whether the project that has the slug is readable, hidden, archived or does not show in any list.\n        return _vnext_public_error_response(status_code=409, detail=PROJECT_SLUG_CONFLICT_DETAIL)\n",
           "after": "    except ProjectSlugConflictError:\n        raise\n",
-          "sha256": "684395729bcea9d732468eceb70f3beb170f536c288e32f83dd3b31d26c35141"
+          "sha256": "6e77cd4ca7996ffba36b5c854c45f4b9f304ba287b64eeaf33789a8b2c055b65"
         }
       ],
       "pytest": [
@@ -7636,7 +7643,7 @@
           "line": 6,
           "before": "The CTE now names the picked id `next_id`. ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -7652,7 +7659,7 @@
           "line": 39,
           "before": "It still tells a key with a ceiling that some project it may not read has the slug, because a slug is unique in the vault and a create cannot succeed without saying so. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -7668,7 +7675,7 @@
           "line": 1005,
           "before": "(the sweep holds it as an expected failure).",
           "after": "(the sweep holds it as an expected failure); and `POST /v0/vnext/queue/process-next` answers HTTP 500 to every caller because its claim statement is ambiguous in PostgreSQL.",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -7828,7 +7835,7 @@
           "line": 580,
           "before": "                .process_next_task(readable_labels=claimable_task_labels(identity))\n",
           "after": "                .process_next_task(readable_labels=claimable_task_labels(identity) or None)\n",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -7844,7 +7851,7 @@
           "line": 580,
           "before": "                .process_next_task(readable_labels=claimable_task_labels(identity))\n",
           "after": "                .process_next_task(readable_labels=claimable_task_labels(identity) or None)\n",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -7860,7 +7867,7 @@
           "line": 39,
           "before": " A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made. The event guard judges that artifact like the artifact of any other event, so a key with a ceiling is shown neither event when the task was above its ceiling, the id of the artifact is not in its feed, and its event count leaves both out. The claim and the failure of a task name no artifact and hold the id of the task, which is the limit already listed for the creation events of a queued task.",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -7876,7 +7883,7 @@
           "line": 6,
           "before": " A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made. The event guard judges that artifact like the artifact of any other event, so the workspace feed of a key with a ceiling holds neither event, and not the id of the artifact, when the task was above its ceiling, and its event count leaves both out. The claim and the failure of a task name no artifact and hold the id of the task, which the entry on the operator routes lists for the creation events of a queued task.",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -7892,7 +7899,7 @@
           "line": 989,
           "before": " A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made, so the workspace feed of a key with a ceiling holds neither event, and not the id of the artifact, when the task was above its ceiling.",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -7908,7 +7915,7 @@
           "line": 37,
           "before": ", and, for a task that a worker has claimed, `task.claimed`, and `task.updated` and `queue.task_failed` when it failed",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -7924,7 +7931,7 @@
           "line": 11,
           "before": ", and, for a task that a worker has claimed, `task.claimed`, and `task.updated` and `queue.task_failed` when it failed",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -7940,7 +7947,7 @@
           "line": 1005,
           "before": " and, for a task that a worker has claimed, of its claim event (`task.claimed`) and of its failure events (`task.updated` and `queue.task_failed`)",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -8199,7 +8206,7 @@
           "line": 13,
           "before": "and the owner and an unbound admin key keep every event of the source",
           "after": "and no caller keeps more",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -8215,7 +8222,7 @@
           "line": 15,
           "before": "A key therefore does not read its own explains of continuity objects in its telemetry. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -8231,7 +8238,7 @@
           "line": 12,
           "before": "The filter on the target stays: an event about a row the trace does not list is still left out. ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -8247,7 +8254,7 @@
           "line": 13,
           "before": "so no caller left an event that names an object it may not read",
           "after": "so a caller may have left an event",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -8471,7 +8478,7 @@
           "line": 13,
           "before": "A caller with limits is read the newest 2,000 events that the trace asks for, the reach of the event feeds, and no further",
           "after": "A caller with limits is read every event that the trace asks for",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -8487,7 +8494,7 @@
           "line": 12,
           "before": "A key with limits is read the newest 2,000 events that the trace asks for, as the event feeds are",
           "after": "A key with limits is read every event that the trace asks for",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -8503,7 +8510,7 @@
           "line": 15,
           "before": "and a selection is not a limit",
           "after": "and a selection is a limit",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -8519,7 +8526,7 @@
           "line": 13,
           "before": "which by default leaves out the confidential levels, is not a limit: the owner",
           "after": "which by default leaves out the confidential levels, is a limit: the owner",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -8599,7 +8606,7 @@
           "line": 13,
           "before": "Only the events the caller can be shown count against that reach: the store reads the events aimed at the source or at a row the trace lists",
           "after": "Every event of the source counts against that reach: the store reads the events aimed at the source or at a row the trace lists",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -8615,7 +8622,7 @@
           "line": 12,
           "before": "only the events aimed at the source or at a row the trace lists count against that reach",
           "after": "every event of the source counts against that reach",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -8628,10 +8635,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 1008,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8644,10 +8651,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 1008,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8660,10 +8667,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 1008,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8676,10 +8683,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 1008,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8692,10 +8699,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 1008,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8708,10 +8715,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 1008,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8724,10 +8731,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 1008,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8740,10 +8747,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 1008,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8756,10 +8763,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 1008,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = [] if guard.active else list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8772,10 +8779,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 1008,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = [] if guard.active else list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8788,10 +8795,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 854,
+          "line": 1008,
           "before": "readable = guard.admit_rows(\"open_loop\", created)",
           "after": "readable = [] if guard.active else list(created)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8804,10 +8811,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 863,
+          "line": 1017,
           "before": "\"created_count\": len(readable), \"source_ids\": _source_ids(sources)",
           "after": "\"created_count\": len(created), \"source_ids\": _source_ids(sources)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8820,10 +8827,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 863,
+          "line": 1017,
           "before": "\"created_count\": len(readable), \"source_ids\": _source_ids(sources)",
           "after": "\"created_count\": len(created), \"source_ids\": _source_ids(sources)",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8836,10 +8843,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 749,
+          "line": 753,
           "before": "guard=guard_for_caller(store, identity),",
           "after": "guard=guard_for_caller(store, None),",
-          "sha256": "684395729bcea9d732468eceb70f3beb170f536c288e32f83dd3b31d26c35141"
+          "sha256": "6e77cd4ca7996ffba36b5c854c45f4b9f304ba287b64eeaf33789a8b2c055b65"
         }
       ],
       "pytest": [
@@ -8852,10 +8859,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 779,
+          "line": 917,
           "before": "self, request: ProjectAutomationRequest | None = None, *, guard: LabelGuard\n",
           "after": "self, request: ProjectAutomationRequest | None = None, *, guard: LabelGuard | None = None\n",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -8871,7 +8878,7 @@
           "line": 997,
           "before": "A loop that was made earlier and is found again by its digest is judged on its effective labels like a new loop: ",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -8887,7 +8894,7 @@
           "line": 26,
           "before": "out of the `created_count` of the `open_loop.extraction_completed` event, as a missing row is, and nothing about it is returned",
           "after": "as a missing row is, and nothing about it is returned",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -8903,7 +8910,7 @@
           "line": 23,
           "before": "so the key cannot learn from either count that the loop exists, ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -9351,10 +9358,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_projects.py",
-          "line": 1443,
+          "line": 1597,
           "before": "        if quote_fence.entity_read_fenced:\n            memories = SavedProvenanceReader(self.store, fence=quote_fence).memories(memories)\n",
           "after": "        if False:\n            memories = SavedProvenanceReader(self.store, fence=quote_fence).memories(memories)\n",
-          "sha256": "59a08e699cabd2399db9fd87f0fafeab6f927d3a065e3f8621ae025e53a0261a"
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
         }
       ],
       "pytest": [
@@ -9385,10 +9392,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
-          "line": 330,
+          "line": 334,
           "before": "                        \"created_from\": \"vnext_workspace\",\n",
           "after": "                        \"created_from\": \"vnext_workspace\",\n                        \"derived_from\": {\"v\": 1, \"sources\": [], \"memories\": [memory_id], \"open_loops\": [], \"artifacts\": [], \"beliefs\": [], \"counts\": {\"sources\": 0, \"memories\": 1, \"open_loops\": 0, \"artifacts\": 0, \"beliefs\": 0}},\n",
-          "sha256": "684395729bcea9d732468eceb70f3beb170f536c288e32f83dd3b31d26c35141"
+          "sha256": "6e77cd4ca7996ffba36b5c854c45f4b9f304ba287b64eeaf33789a8b2c055b65"
         }
       ],
       "pytest": [
@@ -9420,7 +9427,7 @@
           "line": 40,
           "before": "Unreleased (on main, not in v0.20.0): the quote a commit saved of a memory is withheld from a caller who may not read that memory",
           "after": "Unreleased (on main, not in v0.20.0): the quote a commit saved of a memory is shown to every caller",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -9436,7 +9443,7 @@
           "line": 962,
           "before": "a quote saved of a memory follows that memory as a quote saved of a source follows its source",
           "after": "a quote saved of a memory is shown to every caller",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -9452,7 +9459,7 @@
           "line": 8,
           "before": "Unreleased (on main, not in v0.20.0): the quote a commit saved of a memory is withheld from a caller who may not read that memory",
           "after": "Unreleased (on main, not in v0.20.0): the quote a commit saved of a memory is shown to every caller",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -9468,7 +9475,7 @@
           "line": 962,
           "before": "`memory_ids`, `memory_ref`, `memory_refs`, `memory_references`, `source_memory_ids`",
           "after": "`memory_ids`, `memory_ref`, `memory_refs`, `memory_references`, `source_memory_ids`, `memory_notes`",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -9500,7 +9507,7 @@
           "line": 1161,
           "before": "but not through recall, the context pack or the default context tree, because the default sensitivity filter of those three reads an unverified row as regulated.",
           "after": "and through recall, the context pack and the default context tree, because the default sensitivity filter of those three reads an unverified row as regulated.",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -9516,7 +9523,7 @@
           "line": 46,
           "before": "but not through recall, the context pack or the default context tree, because the default sensitivity filter of those three reads an unverified row as regulated.",
           "after": "and through recall, the context pack and the default context tree, because the default sensitivity filter of those three reads an unverified row as regulated.",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -10077,7 +10084,7 @@
           "line": 962,
           "before": "is looked up as well, because it may name a memory:",
           "after": "is not looked up, because it names no memory:",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -10093,7 +10100,7 @@
           "line": 40,
           "before": "and every other id in the ref, outside the text of a `quote` or `conversation_excerpt`, is looked up as well because it may name a memory",
           "after": "and an id with no marker outside those keys names no memory, so it is not looked up",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -10109,7 +10116,7 @@
           "line": 962,
           "before": "the `quote` and the `conversation_excerpt` become `null`, and so does any other text in the entry (a sentence that has the id in it, or a string in a `memory_id`, `source_id`, `id` or `ref` field that holds more than an id), while the entry keeps its ids, its numbers and its booleans under the fields the product writes",
           "after": "the `quote` and the `conversation_excerpt` become `null` while the entry keeps every other field",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -10125,7 +10132,7 @@
           "line": 1161,
           "before": "A request that names every sensitivity lists them: the `sensitivity_allowed` argument of `alice_recall` and of the context pack, and the `sensitivity_allowed` query of the context tree.",
           "after": "A request that names every sensitivity (the `sensitivity_allowed` option of the context pack, the `sensitivity_allowed` query of the context tree) lists them. Recall takes no sensitivity argument, so it never lists them.",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -10141,7 +10148,7 @@
           "line": 46,
           "before": "A request that names every sensitivity lists them: the `sensitivity_allowed` argument of `alice_recall` and of the context pack, and the `sensitivity_allowed` query of the context tree.",
           "after": "A request that names every sensitivity (the `sensitivity_allowed` option of the context pack, the `sensitivity_allowed` query of the context tree) lists them. Recall takes no sensitivity argument, so it never lists them.",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -10157,7 +10164,7 @@
           "line": 962,
           "before": "and the three feeds of events (the recent events and the agent activity of the workspace, and the events of a source trace) hold that payload to the same rule as the events of one memory in its audit",
           "after": "and nothing else holds that payload",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -10173,7 +10180,7 @@
           "line": 8,
           "before": "and the recent events and the agent activity of the workspace and the events of a source trace hold the payload of a confirmed commit to the same rule.",
           "after": "and nothing else holds a confirmed commit to it.",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -10189,7 +10196,7 @@
           "line": 48,
           "before": "is not contained. A project is contained when its state was copied from a memory that is then redacted.",
           "after": "is contained. A project is contained when its state was copied from a memory that is then redacted.",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -10431,7 +10438,7 @@
           "line": 962,
           "before": "recent events, agent activity and the source traces it embeds), the project dashboard",
           "after": "recent events and the source traces it embeds), the project dashboard",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -10447,7 +10454,7 @@
           "line": 40,
           "before": "recent events, agent activity and the source traces it embeds), the project dashboard",
           "after": "recent events and the source traces it embeds), the project dashboard",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -10463,7 +10470,7 @@
           "line": 8,
           "before": "the recent events and the agent activity of the workspace and the events of a source trace hold the payload",
           "after": "the recent events of the workspace and the events of a source trace hold the payload",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -10479,7 +10486,7 @@
           "line": 962,
           "before": "and a `#` and what follows it after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`",
           "after": "and a `#` fragment after a reference is kept",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -10495,7 +10502,7 @@
           "line": 40,
           "before": "and a `#` and what follows it after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`",
           "after": "and a `#` fragment after a reference is kept",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -10511,7 +10518,7 @@
           "line": 8,
           "before": "(a `#` fragment after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`, and a field that holds an id and more than an id reads `null`)",
           "after": "(a `#` fragment after a reference is kept)",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -10527,7 +10534,7 @@
           "line": 962,
           "before": "Not judged: the text of an entry beside a refused ref that names a stored source or memory the caller may read, which keeps the strings under the fields the product writes, a `quote` or a string beside a `source_id` (the reader cannot tell whose words they are; every other field name goes from it with its value); words a writer typed in a field that is not a ref",
           "after": "Not judged: the name of a field, which is kept as written (a word used as a key cannot be told from a label); text in an entry that names no refused memory, beside an entry that does (an entry that names nothing loses its `quote` and `conversation_excerpt`, and no other string); words a writer typed in a field that is not a ref",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -10543,7 +10550,7 @@
           "line": 40,
           "before": "Not judged: the text of an entry beside a refused ref that names a stored source or memory the caller may read, which keeps the strings under the fields the product writes, a `quote` or a string beside a `source_id` (the reader cannot tell whose words they are; every other field name goes from it with its value); words a writer typed in a field that is not a ref",
           "after": "Not judged: the name of a field, which is kept as written (a word used as a key cannot be told from a label); text in an entry that names no refused memory, beside an entry that does (an entry that names nothing loses its `quote` and `conversation_excerpt`, and no other string); words a writer typed in a field that is not a ref",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -10559,7 +10566,7 @@
           "line": 962,
           "before": " A ref that lists tens of thousands of ids is read in several passes and its ids are looked up in slices of 500, so each page that returns the commit takes longer in proportion to the size of the ref, bounded by the body limit: about eight times as long at 100,000 ids on SQLite, against a few milliseconds more for a page of ordinary commits.",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -10575,7 +10582,7 @@
           "line": 40,
           "before": " A ref that lists tens of thousands of ids is read in several passes and its ids are looked up in slices of 500, so each page that returns the commit takes longer in proportion to the size of the ref, bounded by the body limit: about eight times as long at 100,000 ids on SQLite, against a few milliseconds more for a page of ordinary commits.",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -10831,7 +10838,7 @@
           "line": 409,
           "before": "    return list(dict.fromkeys(refs))\n",
           "after": "    return [{\"source_id\": ref, \"label\": \"x\"} for ref in dict.fromkeys(refs)]\n",
-          "sha256": "46c1147cfea202698303d337a8fcfa45c10c43c61ca77663b5e0f2c76753f7db"
+          "sha256": "b723a3f99ef9b32cc9d58873f92401146bf88df2adf25654ead0be05aaeb2028"
         }
       ],
       "pytest": [
@@ -10847,7 +10854,7 @@
           "line": 962,
           "before": "The names of the fields are withheld with their values. A name holds words whatever its value is, so the entry keeps a field only when its name is one the product writes (the memory reference keys,",
           "after": "The names of the fields are kept as written (the memory reference keys,",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -10863,7 +10870,7 @@
           "line": 962,
           "before": "a `text`, `excerpt`, `snippet`, `note` or `page` field goes whole, and so does an id that sits under a name such as `origin`, `ref_id` or `evidence`",
           "after": "a `text` field goes",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -10879,7 +10886,7 @@
           "line": 962,
           "before": " The commit route, the memory proposal and the agent-output ingest still accept any name in an object ref, so the reader is the fence for new rows and for the rows stored by earlier releases.",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -10895,7 +10902,7 @@
           "line": 962,
           "before": "`source_ref`, `source_refs`, `source_references`, `selected_source_ids` and `sources`, `id`, `ref`,",
           "after": "`source_ref`, `source_refs`, `selected_source_ids` and `sources`, `id`, `ref`,",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -10911,7 +10918,7 @@
           "line": 40,
           "before": "The names of the fields are withheld with their values. A name holds words whatever its value is, so the entry keeps a field only when its name is one the product writes (the memory reference keys,",
           "after": "The names of the fields are kept as written (the memory reference keys,",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -10927,7 +10934,7 @@
           "line": 40,
           "before": "a `text`, `excerpt`, `snippet`, `note` or `page` field goes whole, and so does an id that sits under a name such as `origin`, `ref_id` or `evidence`",
           "after": "a `text` field goes",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -10943,7 +10950,7 @@
           "line": 40,
           "before": " The commit route, the memory proposal and the agent-output ingest still accept any name in an object ref, so the reader is the fence for new rows and for the rows stored by earlier releases.",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -10959,7 +10966,7 @@
           "line": 40,
           "before": "`source_ref`, `source_refs`, `source_references`, `selected_source_ids` and `sources`, `id`, `ref`,",
           "after": "`source_ref`, `source_refs`, `selected_source_ids` and `sources`, `id`, `ref`,",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -10975,7 +10982,7 @@
           "line": 40,
           "before": "the `quote` and the `conversation_excerpt` become `null`, and so does any other text in the entry (a sentence that has the id in it, or a string in a `memory_id`, `source_id`, `id` or `ref` field that holds more than an id), while the entry keeps its ids, its numbers and its booleans under the fields the product writes",
           "after": "the `quote` and the `conversation_excerpt` become `null` while the entry keeps every other field",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -10991,7 +10998,7 @@
           "line": 8,
           "before": "and the names of the fields are withheld with their values: the entry keeps a field only when its name is one the product writes",
           "after": "and the entry keeps every field",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -11711,7 +11718,7 @@
           "line": 842,
           "before": "            rows = _vnext_ratings_for_caller(store, identity, rows)\n",
           "after": "            pass\n",
-          "sha256": "942bdc0a4bc21418e3ca2edbf625297bc7903779d07d1fffbbf4875b6247df18"
+          "sha256": "3dadb89a76142132a5103261b021f29ff378fdc4a3f3bccc74c1533922493c00"
         }
       ],
       "pytest": [
@@ -11920,7 +11927,7 @@
           "line": 962,
           "before": "An entry names a row when a reference position says so (`source_id`, `memory_id`, a `source:` or `memory:` ref) and the row is stored and readable by the caller, and only then does it keep its text; an id under `chunk_id`, in a sentence or in a quote, and an id that names no stored row, name nothing, so adding one to an entry keeps no quote.",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -11936,7 +11943,7 @@
           "line": 962,
           "before": "A quote or an excerpt that is an object or a list is read like the rest of the ref, and an id typed in the text of a quote or of the commit's excerpt (`memory:<id> words`) takes the quote when it names a stored memory the caller may not read. ",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -11952,7 +11959,7 @@
           "line": 964,
           "before": "the same rule holds the other rows that keep a structure their writer chose. A source made by the agent-output ingest keeps the `source_refs` it was sent in its `metadata_json` and again in `metadata_json.raw_payload`.",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -11968,7 +11975,7 @@
           "line": 964,
           "before": "now show a key with limits both copies of the refs with the ids and a `null` quote, and drop an entry that names a source the key may not read; the stored row is not changed.",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -11984,7 +11991,7 @@
           "line": 964,
           "before": "`alicebot vnext memories audit` with an agent key now authorizes the memory and its replacement chain as the audit route does and holds the result to the reader; until now it returned the audit as stored to a key that reached it.",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -12000,7 +12007,7 @@
           "line": 40,
           "before": "An entry names a row when a reference position says so (`source_id`, `memory_id`, a `source:` or `memory:` ref) and the row is stored and readable by the caller, and only then does it keep its text; an id under `chunk_id`, in a sentence or in a quote, and an id that names no stored row, name nothing, so adding one to an entry keeps no quote.",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -12016,7 +12023,7 @@
           "line": 40,
           "before": "A quote or an excerpt that is an object or a list is read like the rest of the ref, and an id typed in the text of a quote or of the commit's excerpt (`memory:<id> words`) takes the quote when it names a stored memory the caller may not read. ",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -12032,7 +12039,7 @@
           "line": 42,
           "before": "the same rule holds the other rows that keep a structure their writer chose. A source made by the agent-output ingest keeps the `source_refs` it was sent in its `metadata_json` and again in `metadata_json.raw_payload`.",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -12048,7 +12055,7 @@
           "line": 42,
           "before": "now show a key with limits both copies of the refs with the ids and a `null` quote, and drop an entry that names a source the key may not read; the stored row is not changed.",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -12064,7 +12071,7 @@
           "line": 42,
           "before": "`alicebot vnext memories audit` with an agent key now authorizes the memory and its replacement chain as the audit route does and holds the result to the reader; until now it returned the audit as stored to a key that reached it.",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -12080,7 +12087,7 @@
           "line": 957,
           "before": "returns the source subject to the route's current read fence (the memory audit, recent commits and source routes hold a\nsaved quote, and the refs a source kept, to the caller now, see the paragraphs below);",
           "after": "returns what was stored subject to the route's current read fence (the memory audit and recent commits routes hold a\nsaved quote to the caller now, see the paragraph below);",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -12096,7 +12103,7 @@
           "line": 8,
           "before": "An entry beside such a ref that names nothing the caller may read is held to the same rule (a bare string and a `text` field go with the `quote`), one that names a stored source or memory the caller may read keeps its text and loses the names the product does not write with their values, and so are the refs a source made by the agent-output ingest keeps (the source routes, the source trace, the artifact trace, the context pack, the workspace and the connector status), the metadata of a quality rating and the allowed sources and scope of a queued task; the report of a consolidation run and the artifact a queue worker makes are derived from the memories their refs and tasks name, and `alicebot vnext memories audit` with an agent key applies the reader. ",
           "after": "",
-          "sha256": "24a0c25008225225a30cdabff6059835213f487fb875a4f268ed73986a3ddd82"
+          "sha256": "82a0b027a681efa58299021849308d33e5f30482ea5149c9765843b2f724e8ca"
         }
       ],
       "pytest": [
@@ -12304,7 +12311,7 @@
           "line": 962,
           "before": ", and the entry beside a refused ref is held to the same rule on names whether or not it names a readable row: one that names nothing readable loses its text as well, and one that names a stored source or memory the caller may read keeps its text and loses every name the product does not write, with its value",
           "after": "",
-          "sha256": "3c0e466e8a4faf60657bb0418b2428604f56d06c37c99b63430989305879fbe6"
+          "sha256": "3d8b8467647b2f2e76afd3c5f214195bb88bebfc34bffbca2b81d102f602b27c"
         }
       ],
       "pytest": [
@@ -12320,7 +12327,7 @@
           "line": 40,
           "before": ", and the entry beside a refused ref is held to the same rule on names whether or not it names a readable row: one that names nothing readable loses its text as well, and one that names a stored source or memory the caller may read keeps its text and loses every name the product does not write, with its value",
           "after": "",
-          "sha256": "a2dfe5a490ea70a62efa22827d02b0b80a84e7dfb030c5399a5d7b2d4abd8604"
+          "sha256": "a5a4811238d5b1104dc20270e367d4af29e46699575f261b0ba22c6245d1a176"
         }
       ],
       "pytest": [
@@ -12503,6 +12510,664 @@
         "tests/unit/test_round3_budget_profile_protocol.py::test_ci_applies_the_absolute_gate_only_in_the_maximum_smoke_and_with_the_shared_runner_limit"
       ],
       "expected_failure": "test_ci_applies_the_absolute_gate_only_in_the_maximum_smoke_and_with_the_shared_runner_limit"
+    },
+    {
+      "name": "project-update-project-is-not-judged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 1664,
+          "before": "            if project is None or not project_readable(self.store, project, caller):\n",
+          "after": "            if project is None:\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now[http]",
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now[mcp]"
+      ],
+      "expected_failure": "test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now"
+    },
+    {
+      "name": "project-update-project-is-not-judged-unit",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 1664,
+          "before": "            if project is None or not project_readable(self.store, project, caller):\n",
+          "after": "            if project is None:\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_a_project_the_caller_may_not_read_is_answered_as_a_project_that_does_not_exist"
+      ],
+      "expected_failure": "test_a_project_the_caller_may_not_read_is_answered_as_a_project_that_does_not_exist"
+    },
+    {
+      "name": "project-update-listed-project-is-not-judged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 1683,
+          "before": "        projects = [project for project in projects if project_readable(self.store, project, caller)]\n",
+          "after": "        projects = list(projects)\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_a_project_the_listing_picks_is_judged_too"
+      ],
+      "expected_failure": "test_a_project_the_listing_picks_is_judged_too"
+    },
+    {
+      "name": "project-update-replay-is-returned-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 739,
+          "before": "                return self._stored_candidate(existing, caller=caller, project_id=project_id)\n",
+          "after": "                return existing\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay[http-bound, replay, confidential]",
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay[mcp-unbound trusted, replay, confidential]"
+      ],
+      "expected_failure": "test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay"
+    },
+    {
+      "name": "project-update-replay-is-returned-unjudged-unit",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 739,
+          "before": "                return self._stored_candidate(existing, caller=caller, project_id=project_id)\n",
+          "after": "                return existing\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_an_artifact_found_again_above_the_ceiling_is_not_returned_and_no_event_records_it"
+      ],
+      "expected_failure": "test_an_artifact_found_again_above_the_ceiling_is_not_returned_and_no_event_records_it"
+    },
+    {
+      "name": "project-update-conflicting-row-is-not-judged-before-the-write",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 748,
+          "before": "            if conflicting is not None:\n                self._stored_candidate(conflicting, caller=caller, project_id=project_id)\n",
+          "after": "            if conflicting is not None:\n                pass\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_a_row_the_scoped_lookup_misses_and_the_upsert_would_return_is_judged_before_anything_is_written"
+      ],
+      "expected_failure": "test_a_row_the_scoped_lookup_misses_and_the_upsert_would_return_is_judged_before_anything_is_written"
+    },
+    {
+      "name": "project-update-upserted-artifact-is-returned-unjudged-unit",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 839,
+          "before": "        artifact = self._new_candidate(artifact, caller=caller, project_id=project_id)\n",
+          "after": "        artifact = artifact\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_a_row_the_upsert_returns_that_no_lookup_found_is_judged_on_its_own_labels"
+      ],
+      "expected_failure": "test_a_row_the_upsert_returns_that_no_lookup_found_is_judged_on_its_own_labels"
+    },
+    {
+      "name": "project-update-new-artifact-is-returned-unjudged-unit",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 839,
+          "before": "        artifact = self._new_candidate(artifact, caller=caller, project_id=project_id)\n",
+          "after": "        artifact = artifact\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_a_new_artifact_above_the_ceiling_is_not_returned_and_no_event_records_it"
+      ],
+      "expected_failure": "test_a_new_artifact_above_the_ceiling_is_not_returned_and_no_event_records_it"
+    },
+    {
+      "name": "project-update-new-artifact-own-labels-are-not-judged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 1657,
+          "before": "        if fence.entity_read_fenced and not fence.admits_memory(artifact):\n",
+          "after": "        if False:\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_a_new_artifact_above_the_ceiling_is_not_returned_and_no_event_records_it",
+        "tests/unit/test_project_update_candidate_admission.py::test_a_row_the_upsert_returns_that_no_lookup_found_is_judged_on_its_own_labels"
+      ],
+      "expected_failure": "test_a_new_artifact_above_the_ceiling_is_not_returned_and_no_event_records_it"
+    },
+    {
+      "name": "project-update-new-artifact-is-judged-from-storage",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 839,
+          "before": "        artifact = self._new_candidate(artifact, caller=caller, project_id=project_id)\n",
+          "after": "        artifact = self._stored_candidate(artifact, caller=caller, project_id=project_id)\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_the_scan_of_a_key_with_limits_returns_the_candidate_of_a_project_it_may_read[unbound trusted key]",
+        "tests/unit/test_project_update_candidate_admission.py::test_a_new_artifact_is_judged_on_its_own_labels_when_the_store_has_not_written_it_yet"
+      ],
+      "expected_failure": "test_the_scan_of_a_key_with_limits_returns_the_candidate_of_a_project_it_may_read"
+    },
+    {
+      "name": "project-update-artifact-check-admits-everything",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 1641,
+          "before": "        if outside_caller_limits(self.store, caller, \"artifact\", artifact):\n",
+          "after": "        if False:\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay[http-bound, replay, confidential]"
+      ],
+      "expected_failure": "test_an_artifact_the_key_may_no_longer_read_is_not_returned_by_a_replay"
+    },
+    {
+      "name": "project-update-caller-ignores-the-request-record",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 665,
+          "before": "        caller = identity if identity is not None else _identity_of_record(request.agent_identity)\n",
+          "after": "        caller = identity\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_a_call_with_no_identity_is_judged_as_the_identity_its_request_records"
+      ],
+      "expected_failure": "test_a_call_with_no_identity_is_judged_as_the_identity_its_request_records"
+    },
+    {
+      "name": "project-update-caller-ignores-the-identity-passed",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 665,
+          "before": "        caller = identity if identity is not None else _identity_of_record(request.agent_identity)\n",
+          "after": "        caller = _identity_of_record(request.agent_identity)\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_the_identity_a_door_passes_decides_whatever_the_request_records"
+      ],
+      "expected_failure": "test_the_identity_a_door_passes_decides_whatever_the_request_records"
+    },
+    {
+      "name": "project-update-project-label-is-not-read",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 575,
+          "before": "    return fence.admits_memory({**effective, \"project_scope\": list(scope), \"project_floor\": []})\n",
+          "after": "    return True\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now[http]",
+        "tests/unit/test_project_update_candidate_admission.py::test_a_project_the_caller_may_not_read_is_answered_as_a_project_that_does_not_exist"
+      ],
+      "expected_failure": "test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now"
+    },
+    {
+      "name": "project-update-project-is-read-at-its-stored-label",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 570,
+          "before": "    effective = effective_row_for_fence(store, caller, \"project\", project)\n",
+          "after": "    effective = project\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now[http]"
+      ],
+      "expected_failure": "test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now"
+    },
+    {
+      "name": "project-update-project-binding-is-not-tested",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 574,
+          "before": "        scope = tuple(item for item in caller.project_scope if set(project_scope_identity([item])) & named)\n",
+          "after": "        scope = tuple(caller.project_scope)\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_project_update_candidate_admission.py::test_a_caller_bound_to_another_project_is_answered_as_a_missing_project"
+      ],
+      "expected_failure": "test_a_caller_bound_to_another_project_is_answered_as_a_missing_project"
+    },
+    {
+      "name": "project-update-project-ignores-the-caller",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 567,
+          "before": "    fence = SourceReadFence.for_identity(caller)\n    if not fence.entity_read_fenced:\n        return True\n    effective = ",
+          "after": "    fence = SourceReadFence.for_identity(None)\n    if not fence.entity_read_fenced:\n        return True\n    effective = ",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now[http]",
+        "tests/unit/test_project_update_candidate_admission.py::test_a_project_the_caller_may_not_read_is_answered_as_a_project_that_does_not_exist"
+      ],
+      "expected_failure": "test_a_project_raised_by_its_inputs_is_read_at_the_label_it_has_now"
+    },
+    {
+      "name": "project-update-project-is-judged-on-the-default-selection",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 575,
+          "before": "    return fence.admits_memory({**effective, \"project_scope\": list(scope), \"project_floor\": []})\n",
+          "after": "    return str(effective.get(\"sensitivity\") or \"unknown\") in (\"public\", \"internal\", \"private\", \"unknown\") and fence.admits_memory({**effective, \"project_scope\": list(scope), \"project_floor\": []})\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_bound_admin_key_is_given_a_candidate_for_its_own_project[http-confidential]"
+      ],
+      "expected_failure": "test_a_bound_admin_key_is_given_a_candidate_for_its_own_project"
+    },
+    {
+      "name": "project-update-tool-ignores-the-key-binding",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/projects.py",
+          "line": 80,
+          "before": "            if project_id is None and len(decision.effective_project_scope) == 1:\n",
+          "after": "            if False:\n",
+          "sha256": "f8ad8e548567bfc7ccc977ce03346e64bdac4230d4a93cf4f9634796e1cf23c5"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_bound_key_is_given_its_project_when_it_names_none[mcp]"
+      ],
+      "expected_failure": "test_a_bound_key_is_given_its_project_when_it_names_none"
+    },
+    {
+      "name": "open-loop-create-skips-the-project-readability-test",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_projects.py",
+          "line": 264,
+          "before": "    if not project_readable(store, project, identity):\n",
+          "after": "    if False:\n",
+          "sha256": "6e77cd4ca7996ffba36b5c854c45f4b9f304ba287b64eeaf33789a8b2c055b65"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_project_admission_postgres.py::test_a_loop_is_not_filed_under_a_project_the_key_may_not_read[unbound trusted key, confidential project]"
+      ],
+      "expected_failure": "test_a_loop_is_not_filed_under_a_project_the_key_may_not_read"
+    },
+    {
+      "name": "open-loop-create-reads-the-project-at-its-stored-label",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 570,
+          "before": "    effective = effective_row_for_fence(store, caller, \"project\", project)\n",
+          "after": "    effective = project\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_project_admission_postgres.py::test_a_project_raised_by_its_inputs_is_judged_at_the_label_it_has_now"
+      ],
+      "expected_failure": "test_a_project_raised_by_its_inputs_is_judged_at_the_label_it_has_now"
+    },
+    {
+      "name": "open-loop-create-judges-the-project-as-the-owner",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 567,
+          "before": "    fence = SourceReadFence.for_identity(caller)\n    if not fence.entity_read_fenced:\n        return True\n    effective = ",
+          "after": "    fence = SourceReadFence.for_identity(None)\n    if not fence.entity_read_fenced:\n        return True\n    effective = ",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_project_admission_postgres.py::test_a_project_raised_by_its_inputs_is_judged_at_the_label_it_has_now"
+      ],
+      "expected_failure": "test_a_project_raised_by_its_inputs_is_judged_at_the_label_it_has_now"
+    },
+    {
+      "name": "open-loop-create-judges-a-bound-admin-key-on-the-default-selection",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 575,
+          "before": "    return fence.admits_memory({**effective, \"project_scope\": list(scope), \"project_floor\": []})\n",
+          "after": "    return str(effective.get(\"sensitivity\") or \"unknown\") in (\"public\", \"internal\", \"private\", \"unknown\") and fence.admits_memory({**effective, \"project_scope\": list(scope), \"project_floor\": []})\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_project_admission_postgres.py::test_a_bound_admin_key_files_a_loop_under_its_own_project[confidential]"
+      ],
+      "expected_failure": "test_a_bound_admin_key_files_a_loop_under_its_own_project"
+    },
+    {
+      "name": "open-loop-extract-does-not-judge-the-named-project",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 933,
+          "before": "        if request.project_id is not None and self._project_loops_are_filed_under(request.project_id, guard) is None:\n",
+          "after": "        if False:\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_project_admission_postgres.py::test_extraction_files_no_loop_under_a_project_the_key_may_not_read"
+      ],
+      "expected_failure": "test_extraction_files_no_loop_under_a_project_the_key_may_not_read"
+    },
+    {
+      "name": "open-loop-extract-does-not-judge-the-named-project-unit",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 933,
+          "before": "        if request.project_id is not None and self._project_loops_are_filed_under(request.project_id, guard) is None:\n",
+          "after": "        if False:\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_open_loop_project_admission.py::test_a_project_the_caller_may_not_read_files_no_loop_and_is_answered_as_a_project_not_stored"
+      ],
+      "expected_failure": "test_a_project_the_caller_may_not_read_files_no_loop_and_is_answered_as_a_project_not_stored"
+    },
+    {
+      "name": "open-loop-extract-admits-every-stored-project",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 622,
+          "before": "    if project is None or not readable(project):\n",
+          "after": "    if project is None:\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_project_admission_postgres.py::test_extraction_files_no_loop_under_a_project_the_key_may_not_read",
+        "tests/unit/test_open_loop_project_admission.py::test_a_project_the_caller_may_not_read_files_no_loop_and_is_answered_as_a_project_not_stored"
+      ],
+      "expected_failure": "test_extraction_files_no_loop_under_a_project_the_key_may_not_read"
+    },
+    {
+      "name": "open-loop-extract-admits-a-project-that-is-not-stored",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 622,
+          "before": "    if project is None or not readable(project):\n",
+          "after": "    if False:\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_project_admission_postgres.py::test_a_project_that_is_not_stored_gives_no_loop_and_no_database_error[owner]"
+      ],
+      "expected_failure": "test_a_project_that_is_not_stored_gives_no_loop_and_no_database_error"
+    },
+    {
+      "name": "open-loop-extract-treats-a-malformed-id-as-a-stored-project",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 601,
+          "before": "        except ValueError:\n            return None\n",
+          "after": "        except ValueError:\n            pass\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_project_admission_postgres.py::test_a_project_that_is_not_stored_gives_no_loop_and_no_database_error[owner]"
+      ],
+      "expected_failure": "test_a_project_that_is_not_stored_gives_no_loop_and_no_database_error"
+    },
+    {
+      "name": "open-loop-extract-refuses-every-name-on-a-store-without-projects",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 619,
+          "before": "    if not callable(lookup):\n        return str(project_id)\n",
+          "after": "    if not callable(lookup):\n        return None\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_open_loop_project_admission.py::test_a_store_that_keeps_no_projects_admits_the_name"
+      ],
+      "expected_failure": "test_a_store_that_keeps_no_projects_admits_the_name"
+    },
+    {
+      "name": "open-loop-extract-in-view-admits-every-project",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 549,
+          "before": "    return bool(view.admit_rows(\"project\", [project]))\n",
+          "after": "    return True\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_project_admission_postgres.py::test_extraction_files_no_loop_under_a_project_the_key_may_not_read",
+        "tests/unit/test_open_loop_project_admission.py::test_a_project_the_caller_may_not_read_files_no_loop_and_is_answered_as_a_project_not_stored"
+      ],
+      "expected_failure": "test_extraction_files_no_loop_under_a_project_the_key_may_not_read"
+    },
+    {
+      "name": "open-loop-extract-files-under-a-source-scope-project-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 956,
+          "before": "                    if request.project_id is None:\n",
+          "after": "                    if False:\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_project_admission_postgres.py::test_extraction_files_no_loop_under_a_project_only_a_source_scope_names[a project the key may not read]",
+        "tests/unit/test_open_loop_project_admission.py::test_a_source_that_names_a_project_the_caller_may_not_read_or_that_is_not_stored_files_no_loop"
+      ],
+      "expected_failure": "test_extraction_files_no_loop_under_a_project_only_a_source_scope_names"
+    },
+    {
+      "name": "open-loop-extract-files-a-loop-for-an-unfiled-source-scope-project",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 962,
+          "before": "                        if filed_under[canonical_scope[0]] is None:\n                            continue\n",
+          "after": "                        if False:\n                            continue\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_open_loop_project_admission_postgres.py::test_extraction_files_no_loop_under_a_project_only_a_source_scope_names[a project the key may not read]",
+        "tests/unit/test_open_loop_project_admission.py::test_a_source_that_names_a_project_the_caller_may_not_read_or_that_is_not_stored_files_no_loop"
+      ],
+      "expected_failure": "test_extraction_files_no_loop_under_a_project_only_a_source_scope_names"
+    },
+    {
+      "name": "daily-brief-files-the-loop-under-an-unjudged-project",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_brain.py",
+          "line": 1055,
+          "before": "                project_id = filed_under[project_scope[0]]\n",
+          "after": "                project_id = _stored_open_loop_project_id(project_scope)\n",
+          "sha256": "b723a3f99ef9b32cc9d58873f92401146bf88df2adf25654ead0be05aaeb2028"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_daily_brief_project_admission_postgres.py::test_a_brief_files_its_loop_under_no_project_for_a_project_the_key_may_not_read_or_that_is_not_stored[http-named in the source-hidden]",
+        "tests/integration/test_daily_brief_project_admission_postgres.py::test_a_brief_files_its_loop_under_no_project_for_a_project_the_key_may_not_read_or_that_is_not_stored[mcp-named in the request-missing]",
+        "tests/unit/test_daily_brief_project_admission.py::test_a_brief_files_its_loop_under_no_project_for_a_project_the_caller_may_not_read"
+      ],
+      "expected_failure": "test_a_brief_files_its_loop_under_no_project_for_a_project_the_key_may_not_read_or_that_is_not_stored"
+    },
+    {
+      "name": "daily-brief-judges-the-project-as-the-owner",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_brain.py",
+          "line": 1053,
+          "before": "                        lambda project: project_readable_to_record(self.store, project, request.agent_identity),\n",
+          "after": "                        lambda project: project_readable_to_record(self.store, project, None),\n",
+          "sha256": "b723a3f99ef9b32cc9d58873f92401146bf88df2adf25654ead0be05aaeb2028"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_daily_brief_project_admission_postgres.py::test_a_brief_files_its_loop_under_no_project_for_a_project_the_key_may_not_read_or_that_is_not_stored[http-named in the source-hidden]",
+        "tests/unit/test_daily_brief_project_admission.py::test_a_brief_files_its_loop_under_no_project_for_a_project_the_caller_may_not_read"
+      ],
+      "expected_failure": "test_a_brief_files_its_loop_under_no_project_for_a_project_the_key_may_not_read_or_that_is_not_stored"
+    },
+    {
+      "name": "daily-brief-looks-a-project-up-on-a-store-that-keeps-none",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_brain.py",
+          "line": 1041,
+          "before": "            if len(project_scope) == 1 and callable(getattr(self.store, \"get_project\", None)):\n",
+          "after": "            if len(project_scope) == 1:\n",
+          "sha256": "b723a3f99ef9b32cc9d58873f92401146bf88df2adf25654ead0be05aaeb2028"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_daily_brief_project_id.py::test_a_free_form_name_is_not_a_stored_project_id",
+        "tests/unit/test_daily_brief_project_admission.py::test_a_store_that_keeps_no_projects_files_under_the_uuid_a_scope_gives"
+      ],
+      "expected_failure": "test_a_free_form_name_is_not_a_stored_project_id"
+    },
+    {
+      "name": "daily-brief-judges-a-bound-admin-key-on-the-default-selection",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 575,
+          "before": "    return fence.admits_memory({**effective, \"project_scope\": list(scope), \"project_floor\": []})\n",
+          "after": "    return str(effective.get(\"sensitivity\") or \"unknown\") in (\"public\", \"internal\", \"private\", \"unknown\") and fence.admits_memory({**effective, \"project_scope\": list(scope), \"project_floor\": []})\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_daily_brief_project_admission_postgres.py::test_a_brief_files_a_loop_under_a_project_the_key_may_read[http-named in the source-bound admin key, confidential project]",
+        "tests/unit/test_daily_brief_project_admission.py::test_a_bound_admin_key_files_a_loop_under_its_own_project"
+      ],
+      "expected_failure": "test_a_brief_files_a_loop_under_a_project_the_key_may_read"
+    },
+    {
+      "name": "project-id-test-ignores-the-store-the-scheduler-stages-over",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 598,
+          "before": "    if isinstance(getattr(store, \"_delegate\", store), PostgresVNextStore):\n",
+          "after": "    if isinstance(store, PostgresVNextStore):\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_daily_brief_project_admission_postgres.py::test_a_brief_files_its_loop_under_no_project_for_a_project_the_key_may_not_read_or_that_is_not_stored[scheduler-named in the source-free-form]",
+        "tests/unit/test_open_loop_project_admission.py::test_a_name_is_not_sent_to_a_store_that_keeps_uuids"
+      ],
+      "expected_failure": "test_a_brief_files_its_loop_under_no_project_for_a_project_the_key_may_not_read_or_that_is_not_stored"
+    },
+    {
+      "name": "project-update-sends-a-name-to-the-store-as-an-id",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 1663,
+          "before": "            project = stored_project(self.store, request.project_id)\n",
+          "after": "            project = self.store.get_project(request.project_id)\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_id_that_is_not_a_uuid_is_answered_as_a_project_that_is_not_stored[http-owner-a free-form name]",
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_key_bound_by_slug_or_name_is_answered_as_a_missing_project_and_the_artifact_get_agrees[mcp-trusted_local_agent-slug]"
+      ],
+      "expected_failure": "test_a_project_id_that_is_not_a_uuid_is_answered_as_a_project_that_is_not_stored"
+    },
+    {
+      "name": "project-lookup-reads-a-malformed-id-as-a-stored-one",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 601,
+          "before": "        except ValueError:\n            return None\n",
+          "after": "        except ValueError:\n            pass\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_project_id_that_is_not_a_uuid_is_answered_as_a_project_that_is_not_stored[http-owner-a malformed id]",
+        "tests/unit/test_open_loop_project_admission.py::test_a_name_is_not_sent_to_a_store_that_keeps_uuids"
+      ],
+      "expected_failure": "test_a_project_id_that_is_not_a_uuid_is_answered_as_a_project_that_is_not_stored"
+    },
+    {
+      "name": "project-lookup-sends-a-uuid-in-the-spelling-it-came",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 600,
+          "before": "            named = str(UUID(named))\n",
+          "after": "            named = named\n",
+          "sha256": "064faa11ab8682a9130df57cbf92cec869553f81c3c4a61b9e0c245ea9959841"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_open_loop_project_admission.py::test_a_uuid_is_sent_in_its_canonical_spelling"
+      ],
+      "expected_failure": "test_a_uuid_is_sent_in_its_canonical_spelling"
     }
   ]
 }

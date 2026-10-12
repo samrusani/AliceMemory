@@ -53,6 +53,7 @@ GUARD_CALLS = {
     "admit_edges",
     "admit_events", "admit_related_rows", "readable_status_counts", "readable_event_count",
     "guard_for_caller", "newest_admitted_rows", "readable_own_label_rows",
+    "project_in_view", "project_readable", "project_readable_to_record",
 }
 
 # function -> helper that holds the guard call, or None when the function calls it
@@ -96,6 +97,8 @@ DOORS = {
     "vnext_projects.py:VNextProjectService.project_dashboard": None,
     "vnext_projects.py:VNextProjectService._resolve_project": None,
     "vnext_projects.py:VNextProjectService.generate_project_update_candidate": None,
+    "vnext_brain.py:VNextBrainService._create_candidate_open_loops": None,
+    "routers/vnext_projects.py:_vnext_project_id_within_binding": None,
     "mcp/retrieval.py:_resume_event_honours_policy_fence": None,
     "mcp/retrieval.py:_vnext_recent_decisions": None,
     "mcp/retrieval.py:_vnext_resume": None,
@@ -139,6 +142,8 @@ NOT_A_DOOR = {
     "vnext_artifact_review.py:lock_artifact_review_labels": "write lock classification only; the adapter authorizes before the dispatcher mutates",
     "routers/vnext_memories.py:regenerate_vnext_source": "operator-only regeneration rejects every profile except owner and unbound admin before the source lookup; test_source_routes_limits_postgres.py pins that gate for every profile",
     "vnext_projects.py:VNextProjectService.review_project_update": "write path; the route authorizes before this mutation",
+    "vnext_projects.py:stored_project": "loader of one project row by the id a caller sent; every caller judges the row it gets (project_readable, or the readable test project_a_loop_is_filed_under is given)",
+    "vnext_projects.py:project_a_loop_is_filed_under": "returns an id and never a row; the callers pass the readability test of the caller (project_in_view for an operator guard, project_readable for an identity)",
     "vnext_projects.py:VNextProjectService.review_open_loop": "write path; the route and the open-loop tool settle the loop first",
     "vnext_memory_commit.py:VNextMemoryCommitService.confirm": "write path; _write_policy_decision settles the row",
     "vnext_memory_commit.py:VNextMemoryCommitService.undo": "write path; _write_policy_decision settles the row",
@@ -189,7 +194,6 @@ NOT_A_DOOR = {
     "vnext_dogfooding.py:VNextDogfoodingStore.list_artifact_quality_ratings": "store protocol declaration; no execution or response",
     "vnext_artifact_review.py:dispatch_vnext_artifact_review": "writer entry; calling route or MCP authorizes the artifact before dispatch",
     "vnext_memory_commit.py:VNextMemoryCommitService._guard_supersession_acyclic": "write validation traverses pointers without exposing their content",
-    "routers/vnext_projects.py:_vnext_project_id_within_binding": "a project has no labels; the open-loop create route holds the id to the key's project binding, and a project outside it reads as a missing one",
 }
 
 SCAN_MODULES = tuple(sorted({
