@@ -40,6 +40,8 @@ from alicebot_api.vnext_derived_labels import (
     input_admitted,
     settle_labels,
     settle_verified_inputs,
+    soft_inputs,
+    soft_refs,
     _mark_dependency_bounds,
 )
 from alicebot_api.vnext_label_closure import collect_label_rows
@@ -382,7 +384,7 @@ class LabelGuard:
             refs = template[1]
             direct_ref = next(iter(refs)) if len(refs) == 1 else None
             parents: Sequence[Mapping[str, object]] = state.nodes.get(direct_ref, ()) if direct_ref is not None else ()
-            if (template[3] == "copy" and not template[2] and direct_ref is not None
+            if (template[3] == "copy" and not template[2] and not template[-2] and not template[-1] and direct_ref is not None
                     and direct_ref[0] == "source" and len(parents) == 1
                     and identifier(parents[0].get("id")) == direct_ref[1]
                     and NODE_BOUND >= 2 and HOP_BOUND >= 1):
@@ -410,7 +412,7 @@ class LabelGuard:
             if copy_template is not None and not label.unverified:
                 state.source_copies[copy_template] = label
             ancestry = frozenset(
-                [*(ref for node in nodes for ref in dependencies_of(str(node["kind"]), node)),
+                [*(ref for node in nodes for ref in (*dependencies_of(str(node["kind"]), node), *soft_refs(str(node["kind"]), node))),
                  *((str(node["kind"]), identifier(node.get("id"))) for node in nodes[1:]),
                  *(("memory", identifier(node["memory_id"])) for node in nodes
                    if node.get("kind") == "belief" and node.get("memory_id"))]
@@ -472,7 +474,8 @@ class LabelGuard:
             return None
         template = self._signature(kind, row, key=key)
         refs, problem = template[1:3]
-        if problem or has_implicit_weekly_inputs(kind, row):
+        # A row that may cite ids beyond its hard inputs (``soft_inputs``) takes the complete collector, which loads them.
+        if problem or template[-2] or template[-1] or has_implicit_weekly_inputs(kind, row):
             return None
         reader = getattr(self.store, "read_label_rows", None)
         if refs and not callable(reader):
@@ -623,6 +626,7 @@ class LabelGuard:
                         state.labels[key] = native
                         continue
                     refs.update(dependencies_of(row_kind, row))
+                    refs.update(soft_refs(row_kind, row))
                     pending.append(key)
             refs.difference_update(expanded)
             if len(expanded | refs) > NODE_BOUND:
@@ -782,7 +786,7 @@ class LabelGuard:
                 return False
             derived = is_derived(node_kind, row)
             refs, problem = dependency_record(node_kind, row) if derived else (frozenset(), "")
-            if problem:
+            if problem or (derived and any(soft_inputs(node_kind, row))):
                 return False
             graph[key] = frozenset((ref_kind, _GUARD_USER, ref_id) for ref_kind, ref_id in refs)
             ranks[key] = SENSITIVITY_RANK[sensitivity]

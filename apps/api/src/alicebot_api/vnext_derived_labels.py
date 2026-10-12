@@ -32,7 +32,7 @@ from alicebot_api.vnext_project_scope import (
     resolve_project_scope,
     source_project_scope,
 )
-from alicebot_api.vnext_citations import cited_inputs, has_unreadable_citation
+from alicebot_api.vnext_citations import NO_CITATIONS, Citations, read_reference, scan_citations
 from alicebot_api.vnext_source_fence import cited_source_ids
 
 # Public 1, internal 2, unknown 2, private 3, confidential 4,
@@ -149,9 +149,7 @@ _DERIVED_FROM_KIND = {
     "artifacts": "artifact",
     "beliefs": "belief",
 }
-# Sources and memories are cited in more shapes than ``kind:id``, and the saved-quote reader's parser reads all of them
-# (``vnext_citations``). A report also prints ``open_loop:<id>`` and ``artifact:<id>``, which that parser does not read.
-_REF_KINDS = {"open_loop": "open_loop", "artifact": "artifact"}
+_REF_KINDS = {"source": "source", "memory": "memory", "open_loop": "open_loop", "artifact": "artifact"}
 _SKIP_RECURSE = frozenset(
     {
         "quote",
@@ -537,6 +535,7 @@ def _as_string_list(value: object) -> tuple[str, list[str]] | None:
 
 
 _CANONICAL_SOURCE_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_CANONICAL_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 def _source_ids_from(value: object) -> tuple[str, set[str]]:
@@ -627,12 +626,80 @@ def _typed_refs(value: object) -> set[tuple[str, str]]:
         if isinstance(node, str):
             kind, separator, row_id = node.partition(":")
             if separator and kind in _REF_KINDS and row_id and _plain_token(row_id):
-                found.add((_REF_KINDS[kind], identifier(row_id)))
+                ref_id = identifier(row_id.strip())
+                # A word after the colon that is no id (``memory:notes``, ``source:'<id>'``, ``<id>#chunk-1``) names nothing.
+                # An id inside it is a candidate of the scan (``vnext_citations``), which is resolved against the stored rows.
+                if _CANONICAL_ID.fullmatch(ref_id):
+                    found.add((_REF_KINDS[kind], ref_id))
         elif isinstance(node, list):
             nodes.extend(node)
         elif isinstance(node, Mapping):
             nodes.extend(node.values())
     return found
+
+
+# The one spelling every producer writes into ``source_refs``: ``memory:<id>`` or ``source:<id>``, in lower case.
+_PRODUCER_REF = re.compile(r"(?:memory|source):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def _source_refs_strings(value: object) -> tuple[str, set[str], set[tuple[str, str]], set[str]]:
+    """``(problem, source ids, typed refs, extras)`` that the closure always took from ``source_refs``.
+
+    The source ids and the typed refs are hard inputs, as they have been: a row that cites one and does not find it
+    stored is unverified. They are the strings of the list (a bare id, ``source:<id>``, ``memory:<id>`` and the other typed
+    refs) and the sources the saved-quote reader names in any entry. A word after a colon that is no id
+    (``source:'<id>'``, ``memory:<id>#chunk-1``) names nothing here: an id inside it is a candidate of the scan, resolved
+    against the stored rows (``vnext_citations``). ``extras`` are the ids that the closure took from the objects of the list, where
+    it took every string value for a source token, which names the wrong kind for a memory: they are candidates too.
+
+    A list with an item that is neither a string nor an object is malformed, as it has been. A string in the one spelling
+    every producer writes is taken as it always was without asking the reader, which finds nothing more in it; any other
+    string, and every object, goes through the same readers once.
+    """
+
+    if value is None:
+        return "", set(), set(), set()
+    if isinstance(value, str):
+        items: list[object] = [value]
+    elif isinstance(value, list):
+        items = value
+        if any(not isinstance(item, (str, Mapping)) for item in items):
+            return "malformed", set(), set(), set()
+    else:
+        return _source_ids_from(value)[0], set(), set(), set()
+    ids: set[str] = set()
+    refs: set[tuple[str, str]] = set()
+    extras: set[str] = set()
+    problem = ""
+    rest: list[object] = []
+    for item in items:
+        if isinstance(item, str):
+            if _PRODUCER_REF.fullmatch(item):
+                if item[0] == "m":
+                    refs.add(("memory", item[7:]))
+                else:
+                    ids.add(item[-36:])
+                continue
+            if len(item) < 32:
+                continue  # too short to hold an id in any spelling
+        rest.append(item)
+    if rest:
+        objects = [item for item in rest if not isinstance(item, str)]
+        if objects:
+            ids |= {identifier(named) for named in cited_source_ids(objects).named}
+        for item in rest:
+            if isinstance(item, str):
+                ids |= {identifier(named) for named in read_reference(item).named_sources}
+                token = _source_token(item)
+                if token:
+                    ids.add(token)
+                refs |= _typed_refs(item)
+            else:
+                item_problem, item_ids = _source_ids_from(item)
+                problem = problem or item_problem
+                extras |= item_ids
+                extras |= {ref_id for _kind, ref_id in _typed_refs(item)}
+    return problem, ids, refs, extras
 
 
 def _add_ids(found: set[tuple[str, str]], kind: str, values: Iterable[str]) -> None:
@@ -641,8 +708,11 @@ def _add_ids(found: set[tuple[str, str]], kind: str, values: Iterable[str]) -> N
             found.add((kind, item))
 
 
-def _collect_metadata_ids(value: object, found: set[tuple[str, str]]) -> str:
-    """Walk server-written metadata. Return ``malformed`` or ``""``."""
+def _collect_metadata_ids(value: object, found: set[tuple[str, str]], extras: set[str] | None = None) -> str:
+    """Walk server-written metadata. Return ``malformed`` or ``""``.
+
+    ``extras`` collects the ids that the closure took from the objects of a ``source_refs`` list, which are candidates.
+    """
 
     problem = ""
     nodes: list[object] = [value]
@@ -668,11 +738,16 @@ def _collect_metadata_ids(value: object, found: set[tuple[str, str]]) -> str:
                     problem = problem or "malformed"
                 continue
             if key == "source_refs":
-                # The sources and memories a ref names are the shared parser's (``record_citations``), in every shape the
-                # saved-quote reader reads. This walk keeps the shape check of the list and the refs that parser does not read.
-                child_problem, _named = _source_ids_from(child)
+                # What this reading found before the saved-quote reader's parser joined it stays a hard input: the strings of the
+                # list, as they were read. The objects of the list were read with every string value taken for a source token, which names
+                # the wrong kind for a memory, so what they hold is a candidate that is resolved against the stored rows
+                # (``soft_inputs``), as are the shapes only the saved-quote reader reads.
+                child_problem, string_ids, string_refs, object_ids = _source_refs_strings(child)
                 problem = problem or child_problem
-                found.update(_typed_refs(child))
+                _add_ids(found, "source", string_ids)
+                found.update(string_refs)
+                if extras is not None:
+                    extras |= object_ids
                 continue
             if key == "member_snapshots" and isinstance(child, list):
                 for item in child:
@@ -842,9 +917,45 @@ def dependencies_of(kind: object, row: Mapping[str, object]) -> frozenset[tuple[
 def dependency_record(kind: object, row: Mapping[str, object]) -> tuple[frozenset[tuple[str, str]], str]:
     """Dependencies and a structural problem, or ``""`` when the record is sound.
 
-    An empty record is sound. A missing record on a derived row is ``no_record``.
+    An empty record is sound. A missing record on a derived row is ``no_record``. These are the hard inputs: a row that
+    cites one that is not stored is unverified. The ids that the record may also cite, and that are inputs only when they
+    name a stored memory or source, are in ``soft_inputs``.
     """
 
+    full = _dependency_full(kind, row)
+    return full[0], full[1]
+
+
+def soft_inputs(
+    kind: object, row: Mapping[str, object]
+) -> tuple[frozenset[tuple[str, str]], frozenset[tuple[str, str]]]:
+    """``(candidates, unreadable)``: what a derived row may cite, and what it holds in a word the scan cannot take apart.
+
+    Both are ``(kind, id)`` with kind ``memory`` or ``source``. A candidate is an input when it names a stored row of the
+    row's user, and is ignored when it names none (``vnext_citations``). An unreadable id makes the row unverified when it
+    names a stored row. Neither holds an id that is a hard input already.
+    """
+
+    full = _dependency_full(kind, row)
+    return full[2], full[3]
+
+
+def soft_refs(kind: object, row: Mapping[str, object]) -> frozenset[tuple[str, str]]:
+    """The ``(kind, id)`` pairs to look up for the soft inputs of ``row``: the candidates and the unreadable ids."""
+
+    candidates, unreadable = soft_inputs(kind, row)
+    if not candidates and not unreadable:
+        return _NO_REFS
+    return candidates | unreadable
+
+
+_SOFT_KINDS = ("memory", "source")
+_NO_REFS: frozenset[tuple[str, str]] = frozenset()
+
+
+def _dependency_full(
+    kind: object, row: Mapping[str, object]
+) -> tuple[frozenset[tuple[str, str]], str, frozenset[tuple[str, str]], frozenset[tuple[str, str]]]:
     # Closure walks and settlement revisit the same raw metadata within one
     # guarded snapshot. Cache parsing, never labels or admission. The top-level
     # fields used by this parser remain part of the key, including presence.
@@ -855,34 +966,37 @@ def dependency_record(kind: object, row: Mapping[str, object]) -> tuple[frozense
     cached = cache.get(key) if cache is not None else None
     if cached is not None and cached[0] is raw:
         return cached[1]
-    result = _dependency_record(kind, row)
+    result = _dependency_uncached(kind, row)
     if cache is not None:
         cache[key] = (raw, result)
     return result
 
 
-def _dependency_record(kind: object, row: Mapping[str, object]) -> tuple[frozenset[tuple[str, str]], str]:
+def _dependency_uncached(
+    kind: object, row: Mapping[str, object]
+) -> tuple[frozenset[tuple[str, str]], str, frozenset[tuple[str, str]], frozenset[tuple[str, str]]]:
     if not is_derived(kind, row):
-        return frozenset(), ""
+        return frozenset(), "", _NO_REFS, _NO_REFS
     return _derived_dependency_record(canon_kind(kind), row)
 
 
-def _derived_dependency_record(name: str, row: Mapping[str, object]) -> tuple[frozenset[tuple[str, str]], str]:
-    """The canonical parser after the caller has checked this row is derived."""
+def _derived_dependency_record(
+    name: str, row: Mapping[str, object]
+) -> tuple[frozenset[tuple[str, str]], str, frozenset[tuple[str, str]], frozenset[tuple[str, str]]]:
+    """The canonical parser after the caller has checked this row is derived.
+
+    Returns the hard inputs, the structural problem, the candidates and the unreadable ids (see ``soft_inputs``)."""
 
     meta = _metadata(row)
     found: set[tuple[str, str]] = set()
+    extras: set[str] = set()
     problem = "malformed_marker" if _malformed_marker(name, meta) else ""
-    problem = problem or _collect_metadata_ids(meta, found)
+    problem = problem or _collect_metadata_ids(meta, found, extras)
     if "derived_from" in meta:
         derived_problem, derived_deps = _derived_from_deps(meta.get("derived_from"))
         problem = problem or derived_problem
         found |= derived_deps
     found |= _value_dependencies(row)
-    citations, unreadable = record_citations(row)
-    found |= citations
-    if unreadable:
-        problem = problem or "unreadable_citation"
     if name == "open_loop" and _nonempty_str(row.get("source_id")):
         found.add(("source", identifier(row.get("source_id"))))
     floor_shape, _floor = _floor_of(row)
@@ -892,59 +1006,79 @@ def _derived_dependency_record(name: str, row: Mapping[str, object]) -> tuple[fr
         problem = _legacy_count_problem(name, row, meta)
     if not problem and not _record_present(meta, row) and not found:
         # A weekly candidate may still be completed from its parent artifact
-        # inside settle_labels. The structural pass says no_record until then.
+        # inside settle_labels. The structural pass says no_record until then, and
+        # settle_labels clears it when an id the record may cite names a stored row.
         problem = "no_record"
-    if problem:
-        return frozenset(found), problem
-    return frozenset(found), ""
+    citations = record_scan(row)
+    soft = _NO_REFS
+    unreadable = _NO_REFS
+    if citations or extras:
+        # An id is one row, so an id that is a hard input is not a candidate in either kind, and a row is not its own input.
+        taken = {row_id for _kind, row_id in found}
+        if row.get("id") is not None:
+            taken.add(identifier(row.get("id")))
+        soft = frozenset(
+            (*(ref for ref in citations.refs if ref[1] not in taken),
+             *((name, row_id) for row_id in extras if row_id not in taken for name in _SOFT_KINDS))
+        )
+        unreadable = frozenset(ref for ref in citations.unreadable if ref[1] not in taken)
+    return frozenset(found), problem, soft, unreadable
 
 
-def _without_prose(value: object) -> object:
-    """A copy of a record without the strings of the text keys (``text``, ``title``, ``summary``, ``content_markdown`` and the
-    rest of ``_SKIP_RECURSE``). Prose is never read for a citation: a promoted copy of a report holds the whole report as its
-    ``text``, with a ``[memory:<id>]`` after each line, and those words are the report's, which the copy is derived from. A key
-    of that name that holds a list or an object is a structure and is read like any other."""
+def _value_object(row: Mapping[str, object]) -> Mapping[str, object]:
+    """The ``value`` of a row as a plain object with its ids as text, decoded once per request."""
 
-    if isinstance(value, Mapping):
-        return {
-            key: _without_prose(child)
-            for key, child in value.items()
-            if not (isinstance(key, str) and key.lower() in _SKIP_RECURSE and isinstance(child, str))
-        }
-    if isinstance(value, list):
-        return [_without_prose(child) for child in value]
-    return value
-
-
-def record_citations(row: Mapping[str, object]) -> tuple[frozenset[tuple[str, str]], bool]:
-    """``(inputs, unreadable)`` for the record of ``row``, read by the parser the saved-quote reader uses.
-
-    The whole ``metadata_json`` and ``value`` are read, whatever the key, except the prose of a text key (see
-    ``_without_prose``). A writer put a citation where it liked: the consolidation report copies the ``source_refs`` of its
-    members as the members' writers sent them, as JSON text, in capitals, with a ``memory:`` prefix in any case, as an
-    ``alice://`` URL. The reader of a saved quote names the same ids in the same positions (``vnext_citations``).
-    ``unreadable`` is true when a reference was meant to name a row and the reader cannot name it (JSON that does not
-    decode and holds an id, or a ``memory:`` or ``source:`` word whose id is not in a spelling the reader takes), which the
-    row answers by being unverified. A decoded row and a raw one give the same answer, and the answer is kept for the
-    request like the rest of the parsing.
-    """
-
-    cache = _READ_METADATA.get()
-    raw = row.get("metadata_json")
     raw_value = row.get("value")
-    key = ("citations", id(raw), id(raw_value))
+    if raw_value is None:
+        return {}
+    cache = _READ_METADATA.get()
+    key = ("value-object", id(raw_value))
     cached = cache.get(key) if cache is not None else None
-    if cached is not None and cached[0] is raw and cached[1] is raw_value:
-        return cached[2]
-    records = (_without_prose(_metadata(row)), _without_prose(_object(_uuid_strings(_object(raw_value)))))
-    result = (cited_inputs(*records), has_unreadable_citation(*records))
+    if cached is not None and cached[0] is raw_value:
+        return cached[1]
+    result = _object(_uuid_strings(_object(raw_value)))
     if cache is not None:
-        cache[key] = (raw, raw_value, result)
+        cache[key] = (raw_value, result)
     return result
 
 
+def record_scan(row: Mapping[str, object]) -> Citations:
+    """The ids the record of ``row`` may cite, read once per distinct record in a request (see ``vnext_citations``).
+
+    The whole ``metadata_json`` and ``value`` are read, whatever the key, and two projections of the same stored row (the
+    row a list door loaded and the row the guard reads again for its ancestry) share one scan when their records are equal.
+    """
+
+    raw = row.get("metadata_json")
+    raw_value = row.get("value")
+    cache = _READ_METADATA.get()
+    if cache is None:
+        return _scan_row(row)
+    key = ("citations", id(raw), id(raw_value))
+    cached = cache.get(key)
+    if cached is not None and cached[0] is raw and cached[1] is raw_value:
+        return cached[2]
+    ident = row.get("id")
+    row_key = None
+    if ident is not None:
+        row_key = ("citations-of", str(row.get("kind") or ""), str(row.get("user_id") or ""), str(ident))
+        other = cache.get(row_key)
+        if other is not None and (other[0] is raw or other[0] == raw) and (other[1] is raw_value or other[1] == raw_value):
+            cache[key] = (raw, raw_value, other[2])
+            return other[2]
+    result = _scan_row(row)
+    cache[key] = (raw, raw_value, result)
+    if row_key is not None:
+        cache[row_key] = (raw, raw_value, result)
+    return result
+
+
+def _scan_row(row: Mapping[str, object]) -> Citations:
+    return scan_citations((_metadata(row), _value_object(row)), prose=_SKIP_RECURSE)
+
+
 def _value_dependencies(row: Mapping[str, object]) -> set[tuple[str, str]]:
-    value = _object(_uuid_strings(_object(row.get("value"))))
+    value = _value_object(row)
     found: set[tuple[str, str]] = set()
     if _nonempty_str(value.get("source_id")):
         found.add(("source", identifier(value.get("source_id"))))
@@ -1121,10 +1255,11 @@ def dependency_syntax_key(kind: str, row: Mapping[str, object]) -> tuple:
                          and (nested := metadata_key(child)))
         return ()
 
-    # The shared citation parser reads every string of a derived record, so the key carries what it found and not the text.
-    # An original row has no inputs, and its metadata (a source holds its whole text) is not read.
+    # The signature this key memoizes carries the ids a derived record may cite, so two records that cite different ids
+    # must not share a key. The scan is the one the signature reads next (it is kept for the request), and an original
+    # row has no inputs: its metadata, which a source fills with its whole text, is not read.
     return (canon_kind(kind), isinstance(row.get("metadata_json"), Mapping), metadata_key(_metadata(row)),
-            record_citations(row) if is_derived(kind, row) else None,
+            record_scan(row) if is_derived(kind, row) else None,
             *((field, ("uuid", row[field]) if type(row[field]) is UUID else repr(row[field]))
               for field in _DEPENDENCY_SYNTAX_FIELDS if field in row))
 
@@ -1137,14 +1272,17 @@ def dependency_label_signature(kind: str, row: Mapping[str, object]) -> tuple:
     Structural errors are part of the signature, never normalized into validity.
     """
     name = canon_kind(kind)
-    deps, problem = dependency_record(name, row)
+    deps, problem, soft, unreadable = _dependency_full(name, row)
     floor_shape, floor = _floor_of(row)
     # A signature excludes row identity. Construct only its label semantics,
     # rather than allocating a full node label and normalizing unused IDs.
+    # The ids a row may cite come last, so the places that read the first
+    # elements by position are not moved: two rows share an answer only when
+    # they may cite the same ids.
     return (name, deps, problem, row_class(name, row), str(row.get("domain") or "unknown"),
             str(row.get("sensitivity") or "unknown"), stored_scope(name, row),
             floor if floor_shape == "list" else (), carries_scope(name, row), str(row.get("user_id") or ""),
-            is_redacted_row(row))
+            is_redacted_row(row), soft, unreadable)
 
 
 def has_implicit_weekly_inputs(kind: str, row: Mapping[str, object]) -> bool:
@@ -1344,9 +1482,9 @@ def settle_labels(
         if not label.derived:
             continue
         if one_pass:
-            deps, problem = _derived_dependency_record(label.kind, row)
+            deps, problem, soft, unreadable = _derived_dependency_record(label.kind, row)
         else:
-            deps, problem = dependency_record(label.kind, row)
+            deps, problem, soft, unreadable = _dependency_full(label.kind, row)
         if problem == "no_record" and label.row_class == "aggregate":
             # Filled from the parent artifact below when one names this row.
             problem = ""
@@ -1355,6 +1493,18 @@ def settle_labels(
             problems[label.key] = problem
         keyed = {(kind, label.user_id, row_id) for kind, row_id in deps}
         own[label.key] = keyed
+        if soft or unreadable:
+            # Resolve or ignore: an id the record may cite is an input when this user stores a memory or a source under
+            # it, and names nothing otherwise. A word the scan cannot take apart that holds such an id leaves the row
+            # unverified.
+            for name, row_id in soft:
+                ref = (name, label.user_id, row_id)
+                if ref in labels and ref != label.key:
+                    keyed.add(ref)
+            if unreadable and label.key not in problems and any(
+                (name, label.user_id, row_id) in labels for name, row_id in unreadable
+            ):
+                problems[label.key] = "unreadable_citation"
     _weekly_parent_deps(labels, own, prepared)
     stored_ids: dict[tuple[str, str, str], str] = {}
     for label, _row in prepared:

@@ -29,6 +29,7 @@ from alicebot_api.vnext_derived_labels import (
     input_admitted,
     labels_raised_payload,
     settle_labels,
+    soft_inputs,
     stored_scope,
     union_floor,
 )
@@ -556,9 +557,12 @@ def _depends_on(row: Mapping[str, object], frontier: set[str]) -> bool:
     kind = str(row.get("kind") or "")
     try:
         deps = dependencies_of(kind, row)
+        candidates, _unreadable = soft_inputs(kind, row)
     except ValueError:
         return False
-    return any(identifier(dep_id) in frontier or _compact_id(dep_id) in frontier for _dep_kind, dep_id in deps)
+    return any(identifier(dep_id) in frontier or _compact_id(dep_id) in frontier for _dep_kind, dep_id in deps) or any(
+        row_id in frontier or _compact_id(row_id) in frontier for _kind, row_id in candidates
+    )
 
 
 def walk_dependants(store: Any, roots: Sequence[str]) -> list[dict[str, object]]:

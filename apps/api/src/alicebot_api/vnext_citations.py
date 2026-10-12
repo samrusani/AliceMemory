@@ -1,148 +1,341 @@
-"""The sources and memories a stored record cites.
+"""The ids a stored record may cite, found with the parser of the saved-quote reader.
 
 Two readers ask what a stored record cites. The saved-quote reader (``vnext_source_fence``) decides what a caller is
 shown of a quote by the ids its reference names. The derived-label closure (``vnext_derived_labels``) decides what a
-derived row is raised to by the rows it cites, at a read, at an insert, in a relabel, in the migration and the open pass
-that repair stored labels, and in ``labels repair``. The two questions are one question, so they have one parser:
-``cited_source_ids`` and ``cited_memory_refs`` of the saved-quote reader, and this module is the only place the closure
-calls them from.
+derived row is raised to by the rows it cites, at a read, at an insert, in a relabel, in the migrations and the open pass
+that repair stored labels, and in ``labels repair``. The two ask one question, and the closure asks it with the reader's
+own functions, ``cited_source_ids`` and ``cited_memory_refs``.
 
 A report written before derived labels existed keeps whatever its writer copied into it. The consolidation report copies
 the ``source_refs`` of the memories it clusters as strings, and a client wrote those strings: ``memory:<id>`` in any case
 and with any number of prefixes, ``alice://memories/<id>``, ``urn:uuid:<id>``, an id in braces, with no hyphens or in
 capitals, JSON text such as ``{"memory_id": "<id>", "quote": "..."}`` (or a list of such objects, or JSON text inside JSON
-text), a source under ``source_id`` or ``source:<id>`` in the same spellings. The closure used to read the plain
-``memory:<id>`` and ``source:<id>`` strings and a few id keys, so a report that cited a confidential memory in any other
-shape stayed at the label it was stored with, and a restricted caller read the quote and the id. Redacting the memory did
-not hide the report either, because the report had no recorded input to be redacted.
+text), an id in a sentence, in an outside URL, under a key such as ``origin``. A report that cited a confidential memory in
+any of these shapes kept the label it was stored with, so a caller with a lower ceiling read the quote and the id, and
+redacting the memory did not hide the report either, because the report had no recorded input to be redacted.
 
-``cited_inputs`` reads a whole record (a row's ``metadata_json``, its ``value``) with the reader's rules, so the closure
-finds exactly the ids the reader names, wherever they stand in the record. An id is an input when the reader *names* it:
-it follows a ``source:``, ``memory:`` or ``alice://`` marker, stands under a reference key (``source_id``,
-``source_refs``, ``memory_id``, ``memories``, ``selected_memory_ids`` and the rest of ``SOURCE_REFERENCE_KEYS`` and
-``MEMORY_REFERENCE_KEYS``), is the whole of a reference string, or is inside JSON text. The reader's *incidental* ids (an
-id under ``origin``, in a sentence, in an outside URL) may be a chunk or a session and are judged only when they name a
-stored row; they are not recorded inputs, here or for a source before this module existed.
+The closure has two kinds of input. The recorded ones (``vnext_derived_labels``) are the keys that name a row
+(``source_id``, ``derived_from``, ``cluster_member_ids`` and the rest), the strings every producer writes in
+``source_refs`` (``memory:<id>`` and ``source:<id>``) and the sources the reader names there; its ``_source_ids_from``
+calls ``cited_source_ids`` for them. A row that records an input that is not stored is unverified. This module finds the
+rest, by resolve or ignore: an id is a candidate when the reader finds it, a candidate is an input when it names a stored
+memory or source of the same user, and it is ignored when it names none. There are two places to look.
 
-A ``quote`` or ``conversation_excerpt`` is text taken from a row and names nothing, as the reader reads it. The closure also leaves
-the prose of a text key (``text``, ``title``, ``summary``) out of the record it passes in: a promoted copy of a report holds the
-whole report as its ``text``, with a ``[memory:<id>]`` after each line, and those words are the report's.
+* A *reference position*: a ``source_refs``, ``provenance`` or ``replacement_provenance`` value, at any depth. Every id the
+  reader finds there is a candidate, the ones it names and the incidental ones (an id under ``origin``, in a sentence, in
+  ``mem:<id>``, in an outside URL, in a Markdown link, in JSON text that does not decode). These are the positions where
+  the producers copy a client's references, and they read them the same way (``memories_named_by_refs`` and
+  ``sources_named_by_refs`` resolve ``.every``).
+* Anywhere else in the metadata and the value, only an id the reader *names* is a candidate: it follows a ``memory:``,
+  ``source:`` or ``alice://`` marker, stands under a reference key (``source_id``, ``memory_ids``, ``selected_memory_ids``
+  and the rest of ``SOURCE_REFERENCE_KEYS`` and ``MEMORY_REFERENCE_KEYS``) or is inside JSON text. The bare ids of a
+  ``trace_id`` or an ``agent_run_id`` are not candidates, and neither is the prose of a text key (``text``, ``title``,
+  ``summary``): a promoted copy of a report holds the whole report as its ``text``, with a ``[memory:<id>]`` after each
+  line, and those words are the report's.
 
-A citation the parser cannot read is not a citation of nothing. Two shapes say that a reference was meant to name a row and
-does not, and ``has_unreadable_citation`` finds both:
+A word that marks itself as a citation (``memory:`` or ``source:`` or an ``alice://`` URL) and holds an id in a spelling
+the scan cannot take apart (hyphens in places ``uuid.UUID`` accepts and the reader's pattern does not) is *unreadable*: its id
+is held apart, and the closure leaves the row unverified only when that id resolves to a stored row. Syntax alone never
+makes a row unverified.
 
-* a reference that is meant as JSON (it starts with ``{`` or ``[``), does not decode, and holds an id the reader does not
-  name. It was cut or damaged after its writer sent it; the reader scans it as text, where a ``memory_id`` key names
-  nothing, so the id it holds could be a memory the row quotes. (``{<id>}`` does not decode either, and is an id in braces,
-  which the reader names, so it is a citation like any other.);
-* a word of a reference that starts with a marker (``memory:``, ``source:``, ``alice://memories/``, ``alice://sources/``)
-  and holds an id, when the reader names no id in that word (``memory:{<id>}#chunk-1``, ``source:<id>/page/2``). The writer
-  marked it as a citation and the id is in the word, but not in a spelling the reader takes.
-
-The closure leaves such a row unverified (readable by the owner and an unbound admin key only) instead of judging it by the
-inputs it could read. Text with no id in it, and a bracket or a marker in a title or a note, are left alone.
+The scan is one pass over the record. A string in the one spelling every producer writes (``memory:<id>``, ``source:<id>``
+or a bare id, all in lower case) is taken without the reader; any other string that can hold a citation goes to the reader.
+What the reader finds in a string is a function of the string alone, so it is kept for the next record that holds the same
+string (``read_reference``): a report is read again at every request, and its strings do not change. A record with no such
+string costs one walk.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from uuid import UUID
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from functools import lru_cache
 
 from alicebot_api.vnext_source_fence import (
-    _ID_IN_TEXT,
     _MIN_ID_CHARS,
     _REFERENCE_KEYS,
-    _TEXT_KEYS,
     _TOKEN_BREAK,
     MEMORY_REFERENCE_KEYS,
-    _json_container,
+    _uuid_text,
     cited_memory_refs,
     cited_source_ids,
 )
 
-# A mapping is wrapped under a key that is no reference key, which makes every key of the record an ordinary key. Without
-# it the reader would read an ``id`` or ``ref`` at the top of a metadata object as the id of a source, which it does only
-# inside an entry of a reference. A list or a string is a reference already and is read as the reader reads one.
-_ROOT = "record"
+# Where a client's references live in a record. Every id the reader finds under these keys is a candidate.
+REFERENCE_POSITION_KEYS = frozenset({"source_refs", "provenance", "replacement_provenance"})
+# The keys under which the reader reads an id as a citation by position.
+CITATION_KEYS = _REFERENCE_KEYS | MEMORY_REFERENCE_KEYS
+
+_CANONICAL = re.compile(r"(?:memory:|source:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+_MARKERS = ("memory:", "source:", "alice://memories/", "alice://sources/")
+# Where the id of a marked word ends: a fragment, a path, a query, a closing bracket or quote.
+_WORD_END = re.compile(r"[#/?)\]>\"'\\]")
 
 
-def cited_inputs(*records: object) -> frozenset[tuple[str, str]]:
-    """``(kind, canonical id)`` for every source and memory ``records`` name, with kind ``source`` or ``memory``.
+@dataclass(frozen=True, slots=True)
+class Citations:
+    """What a record may cite, as ``(kind, canonical id)`` with kind ``memory`` or ``source``, and what it holds in a word
+    the scan cannot take apart.
 
-    Each record is a mapping, a list or a string, read as ``cited_source_ids`` and ``cited_memory_refs`` read a stored
-    reference. A record that is ``None`` or empty names nothing.
+    The kind is the one the reader reads the id as: an incidental id of a ``memory:`` word or of a quote is a memory the
+    reader judges when the store holds a row for it, and never a source, as ``sources_named_by_refs`` and
+    ``memories_named_by_refs`` look the two kinds up apart.
     """
 
-    found: set[tuple[str, str]] = set()
-    for record in records:
-        if not record or not isinstance(record, (Mapping, list, tuple, str)):
-            continue
-        read = {_ROOT: record} if isinstance(record, Mapping) else record
-        found.update(("source", row_id) for row_id in cited_source_ids(read).named)
-        found.update(("memory", row_id) for row_id in cited_memory_refs(read).named)
-    return frozenset(found)
+    refs: frozenset[tuple[str, str]] = frozenset()
+    unreadable: frozenset[tuple[str, str]] = frozenset()
+
+    def __bool__(self) -> bool:
+        return bool(self.refs or self.unreadable)
 
 
-_CITATION_KEYS = _REFERENCE_KEYS | MEMORY_REFERENCE_KEYS
-_MARKERS = ("memory:", "source:", "alice://memories/", "alice://sources/")
+NO_CITATIONS = Citations()
 
 
-def _ids_the_reader_does_not_name(text: str) -> bool:
-    """True when ``text`` holds an id (in any spelling the reader scans for) that ``cited_inputs`` does not name."""
+@dataclass(frozen=True, slots=True)
+class Reading:
+    """What the reader finds in one string of a reference position.
 
-    named = {row_id for _kind, row_id in cited_inputs(text)}
-    return any(str(UUID(match.group(0))) not in named for match in _ID_IN_TEXT.finditer(text))
+    ``refs`` is every id it finds, named or incidental, with the kind it is read as. ``named_sources`` are the sources it
+    names, which the recorded inputs of a row take. ``unreadable`` are the ids of marked words that it does not find.
+    """
+
+    refs: frozenset[tuple[str, str]]
+    named_sources: frozenset[str]
+    unreadable: frozenset[tuple[str, str]]
 
 
-def _marked_word_without_a_readable_id(text: str) -> bool:
-    """True when a word of ``text`` starts with a citation marker, holds an id, and the reader names no id in the word."""
+# A string longer than this is read each time and not kept: the cache is for the short references a report copies.
+_KEPT_CHARS = 2048
+_KEPT_STRINGS = 4096
+
+
+def _read(text: str) -> Reading:
+    unit = [text]
+    source = cited_source_ids(unit)
+    memory = cited_memory_refs(unit)
+    refs = frozenset({("source", row_id) for row_id in source.every} | {("memory", row_id) for row_id in memory.every})
+    unreadable = frozenset(taken for taken in _marked_ids(text) if taken not in refs)
+    return Reading(refs, frozenset(source.named), unreadable)
+
+
+@lru_cache(maxsize=_KEPT_STRINGS)
+def _read_kept(text: str) -> Reading:
+    return _read(text)
+
+
+_NOTHING = Reading(frozenset(), frozenset(), frozenset())
+
+
+def read_reference(text: str) -> Reading:
+    """What the saved-quote reader finds in a string that is a reference (an entry of ``source_refs``)."""
+
+    if len(text) < _MIN_ID_CHARS:
+        return _NOTHING  # too short to hold an id in any spelling
+    if len(text) > _KEPT_CHARS:
+        return _read(text)
+    return _read_kept(text)
+
+
+def clear_reading_cache() -> None:
+    _read_kept.cache_clear()
+
+
+def _worth_the_reader(text: str) -> bool:
+    """True when a string outside a reference position can name a memory: it is JSON text, or it holds a marker."""
+
+    first = text[0]
+    if first == "{" or first == "[":
+        return True
+    if first.isspace() and text.lstrip()[:1] in ("{", "["):
+        return True
+    if ":" in text:
+        lowered = text.lower()
+        return "memory:" in lowered or "alice://memories/" in lowered
+    return False
+
+
+def _strings_of(entry: object) -> list[str]:
+    """Every string of a nested entry, for the words that mark themselves as a citation."""
+
+    found: list[str] = []
+    pending = [entry]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, str):
+            found.append(node)
+        elif isinstance(node, Mapping):
+            pending.extend(node.values())
+        elif isinstance(node, (list, tuple)):
+            pending.extend(node)
+    return found
+
+
+def _marked_ids(text: str) -> set[tuple[str, str]]:
+    """The ``(kind, id)`` that the marked words of ``text`` hold, cut where a fragment, a path or a bracket starts.
+
+    ``memory:{<id>}#chunk-1`` holds the id in braces before a fragment; ``uuid.UUID`` takes the id with its hyphens in any
+    places, which the reader's pattern does not, and a word that marks itself as a citation and holds such an id is a citation
+    the scan cannot take apart.
+    """
 
     lowered = text.lower()
     if not any(marker in lowered for marker in _MARKERS):
-        return False
+        return set()
+    found: set[tuple[str, str]] = set()
     for word in _TOKEN_BREAK.split(text.strip()):
-        if len(word) < _MIN_ID_CHARS or not word.lower().startswith(_MARKERS):
+        if len(word) < _MIN_ID_CHARS:
             continue
-        if _ID_IN_TEXT.search(word) is not None and not cited_inputs(word):
-            return True
-    return False
+        rest = word
+        kind = ""
+        while True:
+            lowered_rest = rest.lower()
+            for marker in _MARKERS:
+                if lowered_rest.startswith(marker):
+                    rest = rest[len(marker) :].lstrip()
+                    kind = "memory" if "memor" in marker else "source"
+                    break
+            else:
+                break
+        if not kind:
+            continue
+        token = _WORD_END.split(rest.strip(" {([<"), maxsplit=1)[0]
+        taken = _uuid_text(token) if len(token) >= _MIN_ID_CHARS else None
+        if taken is not None:
+            found.add((kind, taken))
+    return found
 
 
-def has_unreadable_citation(*records: object) -> bool:
-    """True when a reference in ``records`` was meant to name a row and the reader cannot name it (see the module text).
+def scan_citations(records: Sequence[object], *, prose: frozenset[str] = frozenset()) -> Citations:
+    """The ids the records (a row's metadata and value, as plain JSON values) may cite. See the module text.
 
-    Only a reference is judged: a value under one of the reference keys of the reader (``source_refs``, ``memory_id``,
-    ``memories`` and the others), an entry of such a list, and JSON text inside JSON text. Ordinary text that starts with a
-    bracket (a title, a note) is not a reference and is left alone, and so is a reference with no id in it. The walk keeps
-    its own stack, so a ref nested to any depth is read to the end.
+    ``prose`` names the keys whose string values are text and not references, outside a reference position.
     """
 
-    pending: list[tuple[object, bool]] = [(record, False) for record in records]
+    refs: set[tuple[str, str]] = set()
+    unreadable: set[tuple[str, str]] = set()
+    in_references: list[object] = []
+    seen: set[str] = set()
+    named: list[tuple[str, str]] = []
+    keyed: list[tuple[str, str]] = []
+    # (node, nearest ancestor key that makes its children citations, "" when there is none)
+    pending: list[tuple[object, str]] = [(record, "") for record in records if record]
     while pending:
-        node, in_reference = pending.pop()
-        if isinstance(node, str):
-            if not in_reference or len(node) < _MIN_ID_CHARS:
-                continue
-            if node.lstrip()[:1] in ("{", "["):
-                nested = _json_container(node)
-                if nested is not None:
-                    pending.append((nested, True))
-                elif _ids_the_reader_does_not_name(node):
-                    return True
-            elif _marked_word_without_a_readable_id(node):
-                return True
-        elif isinstance(node, Mapping):
+        node, cited_by = pending.pop()
+        if type(node) is dict or isinstance(node, Mapping):
             for key, child in node.items():
-                key_text = key.lower() if isinstance(key, str) else None
-                if key_text in _TEXT_KEYS:
-                    # The text of a quote names nothing. A quote that is an object or a list is read like the rest.
-                    if isinstance(child, (Mapping, list, tuple)):
-                        pending.append((child, False))
+                if type(key) is not str:
                     continue
-                pending.append((child, in_reference or key_text in _CITATION_KEYS))
-        elif isinstance(node, (list, tuple)):
-            pending.extend((child, in_reference) for child in node)
-    return False
+                lowered = key if key.islower() else key.lower()
+                if lowered in REFERENCE_POSITION_KEYS:
+                    for entry in child if type(child) is list else (child,):
+                        if type(entry) is str:
+                            if len(entry) < _MIN_ID_CHARS:
+                                continue
+                            if _CANONICAL.fullmatch(entry):
+                                _take_canonical(entry, refs)
+                            elif entry not in seen:
+                                seen.add(entry)
+                                in_references.append(entry)
+                        elif entry is not None and type(entry) not in (int, float, bool):
+                            in_references.append(entry)
+                    continue
+                inside = cited_by or (lowered if lowered in CITATION_KEYS else "")
+                if inside and len(key) >= _MIN_ID_CHARS:
+                    keyed.append((inside, key))
+                kind = type(child)
+                if kind is str:
+                    if len(child) < _MIN_ID_CHARS:
+                        continue
+                    if inside:
+                        if _CANONICAL.fullmatch(child):
+                            _take_both(child[-36:], refs)
+                        else:
+                            named.append((inside, child))
+                    elif lowered not in prose and _worth_the_reader(child):
+                        named.append(("", child))
+                elif kind is dict or kind is list:
+                    pending.append((child, inside))
+                elif isinstance(child, (Mapping, list, tuple)):
+                    pending.append((child, inside))
+        elif type(node) is list or isinstance(node, (list, tuple)):
+            for child in node:
+                kind = type(child)
+                if kind is str:
+                    if len(child) < _MIN_ID_CHARS:
+                        continue
+                    if cited_by:
+                        if _CANONICAL.fullmatch(child):
+                            _take_both(child[-36:], refs)
+                        else:
+                            named.append((cited_by, child))
+                    elif _worth_the_reader(child):
+                        named.append(("", child))
+                elif kind is dict or kind is list or isinstance(child, (Mapping, list, tuple)):
+                    pending.append((child, cited_by))
+    for entry in in_references:
+        if type(entry) is str:
+            reading = read_reference(entry)
+            refs |= reading.refs
+            unreadable |= reading.unreadable
+            continue
+        unit = [entry]
+        found = {("source", row_id) for row_id in cited_source_ids(unit).every}
+        found |= {("memory", row_id) for row_id in cited_memory_refs(unit).every}
+        refs |= found
+        for text in _strings_of(entry):
+            for taken in _marked_ids(text):
+                if taken not in found:
+                    unreadable.add(taken)
+    done: set[tuple[str, str]] = set()
+    for cited_by, text in named:
+        if (cited_by, text) in done:
+            continue
+        done.add((cited_by, text))
+        skeleton = {cited_by or "value": text}
+        found = {("source", row_id) for row_id in cited_source_ids(skeleton).named}
+        found |= {("memory", row_id) for row_id in cited_memory_refs(skeleton).named}
+        refs |= found
+        if cited_by:
+            for taken in _marked_ids(text):
+                if taken not in found:
+                    unreadable.add(taken)
+    for cited_by, key in keyed:
+        under_key: dict[str, object] = {cited_by: {key: None}}
+        refs |= {("source", row_id) for row_id in cited_source_ids(under_key).named}
+        refs |= {("memory", row_id) for row_id in cited_memory_refs(under_key).named}
+    if not refs and not unreadable:
+        return NO_CITATIONS
+    return Citations(frozenset(refs), frozenset(unreadable))
 
 
-__all__ = ["cited_inputs", "has_unreadable_citation"]
+def _take_both(row_id: str, refs: set[tuple[str, str]]) -> None:
+    refs.add(("source", row_id))
+    refs.add(("memory", row_id))
+
+
+def _take_canonical(entry: str, refs: set[tuple[str, str]]) -> None:
+    """A string in the one spelling every producer writes, in a reference position.
+
+    ``memory:<id>`` names a memory and, to the reader, no source. ``source:<id>`` names a source, and the reader also
+    finds the id as an incidental memory. A bare id is a source to the reader and an incidental memory.
+    """
+
+    row_id = entry[-36:]
+    if entry[0] == "m":
+        refs.add(("memory", row_id))
+    else:
+        _take_both(row_id, refs)
+
+
+__all__ = [
+    "CITATION_KEYS",
+    "NO_CITATIONS",
+    "REFERENCE_POSITION_KEYS",
+    "Citations",
+    "Reading",
+    "clear_reading_cache",
+    "read_reference",
+    "scan_citations",
+]

@@ -5,7 +5,7 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from alicebot_api.vnext_derived_labels import canon_kind, dependencies_of, identifier, is_derived
+from alicebot_api.vnext_derived_labels import canon_kind, dependencies_of, identifier, is_derived, soft_refs
 
 
 def collect_label_rows(
@@ -45,7 +45,9 @@ def collect_label_rows(
         if user_id is not None:
             row["user_id"] = user_id
         rows.append(row)
-        refs = list(dependencies_of(kind, row)) if is_derived(kind, row) else []
+        # The ids a derived row may cite are read with the rest: one that names no stored row finds nothing here, and one that
+        # does is a node, which the settlement takes for an input (resolve or ignore).
+        refs = [*dependencies_of(kind, row), *soft_refs(kind, row)] if is_derived(kind, row) else []
         if kind == "belief" and row.get("memory_id"):
             refs.append(("memory", identifier(row["memory_id"])))
         grouped: dict[str, list[str]] = {}
