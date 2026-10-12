@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 from alicebot_api.continuity_brief import compile_continuity_brief
 from alicebot_api.continuity_recall import (
     get_retrieval_trace,
@@ -30,6 +30,8 @@ from alicebot_api.project_view import (
     ProjectView,
     fetch_in_two_queries,
     project_first_fill,
+    project_first_fill_readable,
+    readable_prefix,
 )
 from alicebot_api.session_briefing import sensitive_global_exclusion
 from alicebot_api.source_ranking import SourceRanking
@@ -238,6 +240,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
             limit=candidate_limit,
+            read_fence=source_fence,
             **retrieval_filters,
         )
         if context_depth == CONTEXT_DEPTH_MINIMAL:
@@ -850,6 +853,75 @@ def _resume_event_honours_policy_fence(
     )
 
 
+def _resume_events_honouring_policy_fence(
+    store: Any,
+    events: Sequence[Mapping[str, object]],
+    *,
+    effective_domains: tuple[str, ...],
+    effective_sensitivity_allowed: tuple[str, ...],
+    exclude_global_domains: frozenset[str],
+    effective_project_scope: tuple[str, ...] = (),
+) -> list[Mapping[str, object]]:
+    """The events ``_resume_event_honours_policy_fence`` keeps, with one read of the memories they point at.
+
+    A caller with limits judges up to ``READABLE_SCAN_CAP`` events in one read, and the by-id fence asks the store for the
+    memory of each event and then checks it, a round trip for every event. This reads the distinct memories of a list of
+    events in one query and checks them together, and gives each event the verdict the by-id fence gives it. An event whose
+    target is not among the rows that query returned (a memory that is gone or spelled another way, an open loop, any other
+    target) goes through the by-id fence.
+    """
+
+    from alicebot_api.vnext_label_guard import admit_loaded
+
+    memory_ids = list(
+        dict.fromkeys(
+            str(event["target_id"])
+            for event in events
+            if event.get("target_type") == "memory" and isinstance(event.get("target_id"), str) and event["target_id"]
+        )
+    )
+    rows = {str(row["id"]): row for row in (store.get_memories_by_ids(memory_ids) if memory_ids else [])}
+    candidates = [
+        row
+        for row in rows.values()
+        if memory_window_is_open(row) and not _resource_is_held_back_global(row, exclude_global_domains)
+    ]
+    admitted = {
+        str(row["id"])
+        for row in admit_loaded(
+            store,
+            kind="memory",
+            rows=candidates,
+            domains=effective_domains,
+            sensitivity_allowed=effective_sensitivity_allowed,
+            projects=effective_project_scope,
+        )
+        if _resource_matches_domains(row, effective_domains)
+        and _resource_matches_sensitivity(row, effective_sensitivity_allowed)
+    }
+    verdicts: dict[tuple[object, object], bool] = {}
+    kept: list[Mapping[str, object]] = []
+    for event in events:
+        target_type, target_id = event.get("target_type"), event.get("target_id")
+        if target_type == "memory" and isinstance(target_id, str) and target_id in rows:
+            honoured = target_id in admitted
+        else:
+            key = (target_type, target_id)
+            if key not in verdicts:
+                verdicts[key] = _resume_event_honours_policy_fence(
+                    store,
+                    event,
+                    effective_domains=effective_domains,
+                    effective_sensitivity_allowed=effective_sensitivity_allowed,
+                    exclude_global_domains=exclude_global_domains,
+                    effective_project_scope=effective_project_scope,
+                )
+            honoured = verdicts[key]
+        if honoured:
+            kept.append(event)
+    return kept
+
+
 def _require_literal_match_query(store: object, query: str | None) -> None:
     """Refuse a query the store's literal substring reads cannot take, before any read.
 
@@ -989,6 +1061,39 @@ def _vnext_resume(
     with _vnext_store_context(context) as store:
         _require_literal_match_query(store, query)
 
+        # A caller with limits is shown the newest rows it may read. Read with a limit and then the drop, a newer row that
+        # its limits hide by the labels of its inputs takes the place of an older readable one, and the answer then depends on
+        # rows the caller may not read. Such a caller reads again with a longer window, up to ``READABLE_SCAN_CAP`` rows.
+        # The owner and an unbound admin key have no limits and keep the read they had.
+        limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced
+
+        def list_memory_rows(
+            memory_types: tuple[str, ...],
+            projects: tuple[str, ...] | None,
+            count: int,
+            excluded: frozenset[str] | None = None,
+        ) -> list[JsonObject]:
+            """One read of newest memories. ``excluded`` is stated in the project view only."""
+
+            held_back_domains: dict[str, object] = (
+                {} if excluded is None else {"exclude_global_domains": tuple(sorted(excluded))}
+            )
+            return store.list_memories(
+                status=None,
+                statuses=tuple(_CONTEXT_MEMORY_STATUSES),
+                memory_types=memory_types,
+                domains=domain_filter,
+                sensitivity_allowed=sensitivity_filter,
+                projects=projects,
+                created_at_start=since,
+                created_at_end=until,
+                query=query,
+                order_by_created_at=True,
+                limit=count,
+                include_expired=False,
+                **held_back_domains,
+            )
+
         def read_memories(memory_types: tuple[str, ...]) -> list[JsonObject]:
             """One memory, newest first: this project's, else a global one, in the project view."""
 
@@ -998,41 +1103,14 @@ def _vnext_resume(
                     view=project_view,
                     exclude_global_domains=held_back,
                     fetch=fetch_in_two_queries(
-                        lambda scope, excluded, count: store.list_memories(
-                            status=None,
-                            statuses=tuple(_CONTEXT_MEMORY_STATUSES),
-                            memory_types=memory_types,
-                            domains=domain_filter,
-                            sensitivity_allowed=sensitivity_filter,
-                            projects=scope,
-                            created_at_start=since,
-                            created_at_end=until,
-                            query=query,
-                            order_by_created_at=True,
-                            limit=count,
-                            include_expired=False,
-                            exclude_global_domains=tuple(sorted(excluded)),
-                        )
+                        lambda scope, excluded, count: list_memory_rows(memory_types, scope, count, excluded)
                     ),
                 )
-            return store.list_memories(
-                status=None,
-                statuses=tuple(_CONTEXT_MEMORY_STATUSES),
-                memory_types=memory_types,
-                domains=domain_filter,
-                sensitivity_allowed=sensitivity_filter,
-                projects=effective_project_scope or None,
-                created_at_start=since,
-                created_at_end=until,
-                query=query,
-                order_by_created_at=True,
-                limit=1,
-                include_expired=False,
-            )
+            return list_memory_rows(memory_types, effective_project_scope or None, 1)
 
         from alicebot_api.vnext_label_guard import admit_loaded
 
-        def admit_memories(rows: list[JsonObject]) -> list[JsonObject]:
+        def admit_memories(rows: Sequence[JsonObject]) -> list[JsonObject]:
             return admit_loaded(
                 store,
                 kind="memory",
@@ -1042,7 +1120,24 @@ def _vnext_resume(
                 projects=effective_project_scope,
             )
 
-        decisions = admit_memories(read_memories(("decision",)))
+        def newest_readable(memory_types: tuple[str, ...]) -> list[JsonObject]:
+            if not limited:
+                return admit_memories(read_memories(memory_types))
+            if project_view.mode == "project":
+                return project_first_fill_readable(
+                    limit=1,
+                    view=project_view,
+                    exclude_global_domains=held_back,
+                    fetch_one=lambda scope, excluded, count: list_memory_rows(memory_types, scope, count, excluded),
+                    keep=admit_memories,
+                )
+            return readable_prefix(
+                limit=1,
+                fetch=lambda count: list_memory_rows(memory_types, effective_project_scope or None, count),
+                keep=admit_memories,
+            )
+
+        decisions = newest_readable(("decision",))
         last_decision: JsonObject | None = None
         if decisions:
             last_decision = {
@@ -1061,55 +1156,70 @@ def _vnext_resume(
             # list_open_loops already accepts domains and sensitivity_allowed.
             # Apply the decision here. An empty sensitivity list is deny-all;
             # passing it through would build `sensitivity IN ()` on SQLite.
-            if not effective_sensitivity_allowed:
-                loop_rows = []
-            elif project_view.mode == "project":
-                loop_rows = project_first_fill(
-                    limit=max_open_loops,
-                    view=project_view,
-                    exclude_global_domains=held_back,
-                    fetch=fetch_in_two_queries(
-                        lambda scope, excluded, count: store.list_open_loops(
-                            status=None,
-                            statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
-                            query=query,
-                            domains=domain_filter,
-                            sensitivity_allowed=sensitivity_filter,
-                            limit=count,
-                            scope_projects=scope,
-                            scope_window_start=since,
-                            scope_window_end=until,
-                            exclude_global_domains=tuple(sorted(excluded)),
-                        )
-                    ),
-                )
-            else:
-                loop_rows = store.list_open_loops(
+
+            def list_loop_rows(scope: tuple[str, ...] | None, excluded: frozenset[str] | None, count: int) -> list[JsonObject]:
+                """One read of the newest open loops. ``excluded`` is stated in the project view only."""
+
+                held_back_domains = {} if excluded is None else {"exclude_global_domains": tuple(sorted(excluded))}
+                return store.list_open_loops(
                     status=None,
                     statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
                     query=query,
                     domains=domain_filter,
                     sensitivity_allowed=sensitivity_filter,
-                    limit=max_open_loops,
-                    scope_projects=effective_project_scope,
+                    limit=count,
+                    scope_projects=scope,
                     scope_window_start=since,
                     scope_window_end=until,
+                    **held_back_domains,
                 )
-            loop_rows = admit_loaded(
-                store,
-                kind="open_loop",
-                rows=loop_rows,
-                domains=domain_filter,
-                sensitivity_allowed=sensitivity_filter,
-                projects=effective_project_scope,
-            )
+
+            def admit_loops(rows: Sequence[JsonObject]) -> list[JsonObject]:
+                return admit_loaded(
+                    store,
+                    kind="open_loop",
+                    rows=rows,
+                    domains=domain_filter,
+                    sensitivity_allowed=sensitivity_filter,
+                    projects=effective_project_scope,
+                )
+
+            if not effective_sensitivity_allowed:
+                loop_rows = []
+            elif limited and project_view.mode == "project":
+                # A loop whose stored labels are within the limits and whose inputs are not passes the store's filters,
+                # takes a place and is dropped by the check, so the loops are read again with a longer window.
+                loop_rows = project_first_fill_readable(
+                    limit=max_open_loops,
+                    view=project_view,
+                    exclude_global_domains=held_back,
+                    fetch_one=list_loop_rows,
+                    keep=admit_loops,
+                )
+            elif limited:
+                loop_rows = readable_prefix(
+                    limit=max_open_loops,
+                    fetch=lambda count: list_loop_rows(effective_project_scope, None, count),
+                    keep=admit_loops,
+                )
+            elif project_view.mode == "project":
+                loop_rows = admit_loops(
+                    project_first_fill(
+                        limit=max_open_loops,
+                        view=project_view,
+                        exclude_global_domains=held_back,
+                        fetch=fetch_in_two_queries(list_loop_rows),
+                    )
+                )
+            else:
+                loop_rows = admit_loops(list_loop_rows(effective_project_scope, None, max_open_loops))
         open_loops = [
             present_model_item(_compact_vnext_open_loop(row), source=row) for row in loop_rows[:max_open_loops]
         ]
 
         next_action: JsonObject | None = open_loops[0] if open_loops else None
         if next_action is None:
-            todo_memories = admit_memories(read_memories(tuple(_SQLITE_NEXT_ACTION_MEMORY_TYPES)))
+            todo_memories = newest_readable(tuple(_SQLITE_NEXT_ACTION_MEMORY_TYPES))
             if todo_memories:
                 next_action = {
                     "kind": "memory",
@@ -1139,6 +1249,33 @@ def _vnext_resume(
             # outside those fences are dropped after the join. Events that are
             # not a memory or open_loop target are dropped; they are not
             # claimed as fenced.
+            def readable_events(events: Sequence[JsonObject]) -> list[JsonObject]:
+                return [
+                    event
+                    for event in events
+                    if _resume_event_honours_policy_fence(
+                        store,
+                        event,
+                        effective_domains=effective_domains,
+                        effective_sensitivity_allowed=effective_sensitivity_allowed,
+                        exclude_global_domains=held_back,
+                        effective_project_scope=effective_project_scope,
+                    )
+                ]
+
+            def readable_events_in_one_read(events: Sequence[JsonObject]) -> list[JsonObject]:
+                """The same verdicts, for a caller who judges up to ``READABLE_SCAN_CAP`` events a read."""
+
+                return _resume_events_honouring_policy_fence(  # type: ignore[return-value]
+                    store,
+                    events,
+                    effective_domains=effective_domains,
+                    effective_sensitivity_allowed=effective_sensitivity_allowed,
+                    exclude_global_domains=held_back,
+                    effective_project_scope=effective_project_scope,
+                )
+
+            judge_events = readable_events_in_one_read if limited else readable_events
             event_rows: list[JsonObject] = []
             if project_view.mode == "project":
                 # One list of max_recent_changes rows, so one fill (spec 6.2): the
@@ -1183,58 +1320,73 @@ def _vnext_resume(
                     events.sort(key=_event_recency, reverse=True)
                     return events[:count]
 
-                event_rows.extend(
-                    project_first_fill(
-                        limit=max_recent_changes,
-                        view=project_view,
-                        exclude_global_domains=held_back,
-                        fetch=fetch_in_two_queries(read_events),
+                if limited:
+                    # Cut after the drop, so an event about a memory the caller's limits hide by the labels of its
+                    # inputs takes no place from one it may read.
+                    event_rows.extend(
+                        project_first_fill_readable(
+                            limit=max_recent_changes,
+                            view=project_view,
+                            exclude_global_domains=held_back,
+                            fetch_one=read_events,
+                            keep=judge_events,
+                        )
                     )
-                )
+                else:
+                    event_rows.extend(
+                        project_first_fill(
+                            limit=max_recent_changes,
+                            view=project_view,
+                            exclude_global_domains=held_back,
+                            fetch=fetch_in_two_queries(read_events),
+                        )
+                    )
             else:
+
+                def read_memory_events(count: int) -> list[JsonObject]:
+                    return store.list_resume_memory_events(
+                        statuses=tuple(_CONTEXT_MEMORY_STATUSES),
+                        projects=effective_project_scope,
+                        query=query,
+                        occurred_at_start=since,
+                        occurred_at_end=until,
+                        limit=count,
+                        domains=None,
+                        sensitivity_allowed=None,
+                    )
+
+                def read_loop_events(count: int) -> list[JsonObject]:
+                    return store.list_open_loop_events(
+                        statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
+                        scope_projects=effective_project_scope,
+                        query=query,
+                        occurred_at_start=since,
+                        occurred_at_end=until,
+                        limit=count,
+                        domains=None,
+                        sensitivity_allowed=None,
+                    )
+
+                if limited:
+                    memory_events = readable_prefix(limit=max_recent_changes, fetch=read_memory_events, keep=judge_events)
+                    loop_events = readable_prefix(limit=max_recent_changes, fetch=read_loop_events, keep=judge_events)
+                else:
+                    memory_events = read_memory_events(max_recent_changes)
+                    loop_events = read_loop_events(max_recent_changes)
                 seen_event_ids: set[str] = set()
-                for event in store.list_resume_memory_events(
-                    statuses=tuple(_CONTEXT_MEMORY_STATUSES),
-                    projects=effective_project_scope,
-                    query=query,
-                    occurred_at_start=since,
-                    occurred_at_end=until,
-                    limit=max_recent_changes,
-                    domains=None,
-                    sensitivity_allowed=None,
-                ):
+                for event in memory_events:
                     event_id = str(event.get("id") or "")
                     if event_id:
                         seen_event_ids.add(event_id)
                     event_rows.append(event)
-                for event in store.list_open_loop_events(
-                    statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
-                    scope_projects=effective_project_scope,
-                    query=query,
-                    occurred_at_start=since,
-                    occurred_at_end=until,
-                    limit=max_recent_changes,
-                    domains=None,
-                    sensitivity_allowed=None,
-                ):
+                for event in loop_events:
                     event_id = str(event.get("id") or "")
                     if event_id and event_id in seen_event_ids:
                         continue
                     if event_id:
                         seen_event_ids.add(event_id)
                     event_rows.append(event)
-            event_rows = [
-                event
-                for event in event_rows
-                if _resume_event_honours_policy_fence(
-                    store,
-                    event,
-                    effective_domains=effective_domains,
-                    effective_sensitivity_allowed=effective_sensitivity_allowed,
-                    exclude_global_domains=held_back,
-                    effective_project_scope=effective_project_scope,
-                )
-            ]
+            event_rows = judge_events(event_rows)
             event_rows.sort(key=_event_recency, reverse=True)
             recent_changes = [
                 present_model_item(

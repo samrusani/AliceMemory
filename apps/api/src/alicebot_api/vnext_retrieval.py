@@ -100,6 +100,7 @@ from alicebot_api.vnext_embeddings import (
     get_embedding_provider,
 )
 from alicebot_api.vnext_event_log import append_event
+from alicebot_api.project_view import readable_prefix
 from alicebot_api.vnext_grounding import compute_query_grounding
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded, label_read_request
@@ -3076,7 +3077,20 @@ class VNextRetrievalService:
         scope_person_memory_ids: tuple[str, ...] = (),
         scope_window_start: datetime | None = None,
         scope_window_end: datetime | None = None,
+        read_fence: SourceReadFence,
     ) -> tuple[list[JsonObject], str]:
+        """Ranked memory rows of the full-text stage and the label of the pass that found them.
+
+        ``read_fence`` is the read fence of the caller and has no default, because it decides when the relaxed
+        (OR) pass runs. For a caller with limits (``read_fence.entity_read_fenced``) a strict pass that left no
+        row the caller may read has found nothing, so the OR pass runs exactly then. Decided on the rows
+        before the caller's labels were applied, the visible result and the stage label in the trace would tell
+        the caller that a row it may not read matches every word of its query. The owner and an unbound admin
+        key have no limits and keep the decision they had: the OR pass runs when the strict pass returned no
+        row at all, before their request filters are applied. The owner passes ``SourceReadFence.unfenced()``,
+        written at the call site.
+        """
+
         filters = _optional_search_filters(memory_types, projects, created_by_agent_ids, run_id)
         scope_filters: dict[str, object] = {}
         search_memories_fts = getattr(self.store, "search_memories_fts", None)
@@ -3107,47 +3121,68 @@ class VNextRetrievalService:
         fts = callable(search_memories_fts)
         source = str(getattr(self.store, "fts_stage_source", "postgres_fts")) if fts else "store_lexical"
         rows = active_search(limit=limit, **options)
-        if fts and not rows and len(fts_fallback_tokens(query)) >= 2:
-            # Preserve the strict-AND to OR fallback and its disclosed stage.
+        relaxable = fts and len(fts_fallback_tokens(query)) >= 2
+
+        def relaxed_pass() -> list[JsonObject] | None:
+            """The OR pass over the same filters, or None for a store that predates the ``match_any`` kwarg."""
+
+            options["match_any"] = True
             try:
-                options["match_any"] = True
-                rows = active_search(limit=limit, **options)
+                return active_search(limit=limit, **options)
             except TypeError:
+                return None
+
+        if relaxable and not rows:
+            # Preserve the strict-AND to OR fallback and its disclosed stage.
+            relaxed = relaxed_pass()
+            if relaxed is None:
                 return [], source
+            rows = relaxed
             source += "_or_fallback"
 
-        def fetch(prefix_limit):
-            raw = rows if prefix_limit == limit else active_search(limit=prefix_limit, **options)
-            return raw, source
+        def select_pass(first_page, pass_source):
+            def fetch(prefix_limit):
+                raw = first_page if prefix_limit == limit else active_search(limit=prefix_limit, **options)
+                return raw, pass_source
 
-        def select_rows(raw):
-            return admit_loaded(
-                self.store, kind="memory", rows=raw, domains=domains,
-                sensitivity_allowed=sensitivity_allowed, projects=projects,
-            )
+            def select_rows(raw):
+                return admit_loaded(
+                    self.store, kind="memory", rows=raw, domains=domains,
+                    sensitivity_allowed=sensitivity_allowed, projects=projects,
+                )
 
-        if fts and getattr(self.store, "memory_fts_offset_paging", False) is True:
-            # Native stores page their ranked SQL result to actual exhaustion.
-            # Only legacy prefix adapters have the 16,384-row compatibility
-            # ceiling. Do not turn that ceiling into a native false negative.
-            selected = []
-            seen: set[str] = set()
-            offset, page_limit, raw = 0, limit, rows
-            while True:
-                fresh = [row for row in _dedupe_retrieval_rows(raw) if str(row.get("id")) not in seen]
-                if raw and not fresh:
-                    raise VNextRetrievalCompletenessError("native memory search returned a non-progressing page")
-                seen.update(str(row.get("id")) for row in fresh)
-                selected.extend(select_rows(fresh))
-                if len(selected) >= limit or len(raw) < page_limit:
-                    break
-                offset += len(raw)
-                page_limit = min(max(limit, 128), 1024)
-                raw = active_search(limit=page_limit, offset=offset, **options)
-        else:
-            selected, source = _fetch_filtered_prefix(
+            if fts and getattr(self.store, "memory_fts_offset_paging", False) is True:
+                # Native stores page their ranked SQL result to actual exhaustion.
+                # Only legacy prefix adapters have the 16,384-row compatibility
+                # ceiling. Do not turn that ceiling into a native false negative.
+                selected = []
+                seen: set[str] = set()
+                offset, page_limit, raw = 0, limit, first_page
+                while True:
+                    fresh = [row for row in _dedupe_retrieval_rows(raw) if str(row.get("id")) not in seen]
+                    if raw and not fresh:
+                        raise VNextRetrievalCompletenessError("native memory search returned a non-progressing page")
+                    seen.update(str(row.get("id")) for row in fresh)
+                    selected.extend(select_rows(fresh))
+                    if len(selected) >= limit or len(raw) < page_limit:
+                        break
+                    offset += len(raw)
+                    page_limit = min(max(limit, 128), 1024)
+                    raw = active_search(limit=page_limit, offset=offset, **options)
+                return selected, pass_source
+            return _fetch_filtered_prefix(
                 fetch, select_rows=select_rows, target=limit, initial_limit=limit,
             )
+
+        selected, source = select_pass(rows, source)
+        if relaxable and not selected and "match_any" not in options and read_fence.entity_read_fenced:
+            # The strict pass found rows, and every one is a row this caller may not read. For this caller it found
+            # nothing, so the relaxed pass runs as it would had the strict pass been empty.
+            relaxed = relaxed_pass()
+            if relaxed is None:
+                return [], source
+            source += "_or_fallback"
+            selected, source = select_pass(relaxed, source)
         selected = selected[:limit]
         return (_stabilize_scored_rows(selected) if fts else selected), source
 
@@ -4143,6 +4178,7 @@ class VNextRetrievalService:
                 run_id=filter_run_id,
                 scope=scope,
                 person_linked_memory_ids=person_linked_memory_ids,
+                read_fence=source_fence,
             ),
             scope=scope,
             person_linked_memory_ids=person_linked_memory_ids,
@@ -4298,6 +4334,7 @@ class VNextRetrievalService:
                             run_id=filter_run_id,
                             scope=scope,
                             person_linked_memory_ids=person_linked_memory_ids,
+                            read_fence=source_fence,
                         )
 
                     clause_rows, _clause_fts_source = _fetch_scope_filtered(
@@ -4472,21 +4509,35 @@ class VNextRetrievalService:
                 )
             ), "listing"
 
-        open_loop_rows, _open_loop_source = _fetch_scope_filtered(
-            _fetch_open_loops,
-            scope=scope,
-            person_linked_memory_ids=frozenset(),
-            target=DEFAULT_OPEN_LOOP_LIMIT,
-            store_scope_complete=bool(open_loop_scope_filters),
-        )
-        open_loop_rows = admit_loaded(
-            self.store,
-            kind="open_loop",
-            rows=open_loop_rows,
-            domains=domains,
-            sensitivity_allowed=sensitivity_allowed,
-            projects=tuple(scope.projects),
-        )
+        def _admit_open_loops(rows: Sequence[JsonObject]) -> list[JsonObject]:
+            return admit_loaded(
+                self.store,
+                kind="open_loop",
+                rows=rows,
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                projects=tuple(scope.projects),
+            )
+
+        def _open_loops_up_to(n: int) -> list[JsonObject]:
+            rows, _source = _fetch_scope_filtered(
+                _fetch_open_loops,
+                scope=scope,
+                person_linked_memory_ids=frozenset(),
+                target=n,
+                store_scope_complete=bool(open_loop_scope_filters),
+            )
+            return rows
+
+        if source_fence.entity_read_fenced:
+            # A loop whose stored labels are within the caller's limits and whose inputs are not passes the store's
+            # filters, takes a place of the limit and is dropped by the check. A caller with limits reads the loops
+            # again with a longer window, up to READABLE_SCAN_CAP rows, until it holds enough loops it may read.
+            open_loop_rows = readable_prefix(
+                limit=DEFAULT_OPEN_LOOP_LIMIT, fetch=_open_loops_up_to, keep=_admit_open_loops
+            )
+        else:
+            open_loop_rows = _admit_open_loops(_open_loops_up_to(DEFAULT_OPEN_LOOP_LIMIT))
         open_loop_rows = open_loop_rows[:DEFAULT_OPEN_LOOP_LIMIT]
 
         source_candidates = _fused_candidates(
@@ -5024,6 +5075,21 @@ class VNextRetrievalService:
                     allow_entity_lookup=not source_fence.entity_read_fenced,
                     admitted_entity_names=tuple(str(entity["name"]) for entity in matched_entities),
                     admitted_entity_ids=tuple(str(entity["id"]) for entity in matched_entities),
+                    # A memory the key's limits hide by the labels of its inputs must not count as a mention.
+                    readable_memory_rows=(
+                        (
+                            lambda rows: admit_loaded(
+                                self.store,
+                                kind="memory",
+                                rows=rows,
+                                domains=domains,
+                                sensitivity_allowed=sensitivity_allowed,
+                                projects=projects,
+                            )
+                        )
+                        if source_fence.entity_read_fenced
+                        else None
+                    ),
                 )
             except Exception:
                 # Final best-effort boundary: operational probe failures must

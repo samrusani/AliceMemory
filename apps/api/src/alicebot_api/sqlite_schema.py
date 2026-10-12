@@ -51,6 +51,7 @@ import json
 import sqlite3
 from uuid import uuid4
 
+from alicebot_api.json_bounds import loads_stored
 from alicebot_api.vnext_project_scope import (
     normalize_project_scope,
     project_scope_identity,
@@ -1555,7 +1556,7 @@ def _backfill_legacy_memory_project_scopes(conn: sqlite3.Connection) -> None:
             project_id = raw_row[column_indexes["project_id"]]
             metadata_text = raw_row[column_indexes["metadata_json"]]
         try:
-            metadata = json.loads(str(metadata_text))
+            metadata = loads_stored(str(metadata_text))
         except (TypeError, ValueError):
             continue
         if not isinstance(metadata, dict):
@@ -1630,7 +1631,7 @@ def _backfill_source_dedupe_keys(conn: sqlite3.Connection) -> None:
         metadata_raw = record["metadata_json"]
         if isinstance(metadata_raw, str):
             try:
-                metadata = json.loads(metadata_raw)
+                metadata = loads_stored(metadata_raw)
             except json.JSONDecodeError:
                 metadata = {}
         elif isinstance(metadata_raw, dict):
@@ -2021,19 +2022,19 @@ def _relabel_derived_labels(conn: sqlite3.Connection) -> None:
 
     from alicebot_api.vnext_label_repair import relabel_labels_sqlite
 
-    conn.execute("SAVEPOINT alice_derived_labels_v3")
+    conn.execute("SAVEPOINT alice_derived_labels_v4")
     try:
         relabel_labels_sqlite(conn)
     except Exception as exc:
-        conn.execute("ROLLBACK TO SAVEPOINT alice_derived_labels_v3")
-        conn.execute("RELEASE SAVEPOINT alice_derived_labels_v3")
+        conn.execute("ROLLBACK TO SAVEPOINT alice_derived_labels_v4")
+        conn.execute("RELEASE SAVEPOINT alice_derived_labels_v4")
         left = getattr(exc, "left", "an unknown number of")
         logging.getLogger(__name__).warning(
             "alice-memory: label repair did not run, %s rows left to the read check; run alice-memory labels check",
             left,
         )
         return
-    conn.execute("RELEASE SAVEPOINT alice_derived_labels_v3")
+    conn.execute("RELEASE SAVEPOINT alice_derived_labels_v4")
 
 
 def bootstrap_sqlite_schema(conn: sqlite3.Connection, *, repair_labels: bool = True) -> None:

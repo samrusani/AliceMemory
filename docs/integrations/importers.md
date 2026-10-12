@@ -304,7 +304,8 @@ and every retained memory id in `memories_citing_replaced`, without a silent cap
 
 Replacement keeps old source text inside the live vault file, but exports omit
 it. It closes and blanks source-backed open loops, rejects pending candidates,
-removes source mention edges from live entity counts, scrubs unsupported linker
+closes and blanks every graph edge that names the source (see the edge rule
+below), updates the live entity counts, scrubs unsupported linker
 entities and removes sleep proposals. Entity observation windows only widen.
 Every memory whose text was not redacted keeps its own text and provenance;
 review the listed memory ids separately, including rejected, stale, superseded
@@ -400,8 +401,9 @@ selects its targets again under the writer lock and applies one transaction.
 
 Scrub first removes the source's sleep proposals, then clears source labels and
 metadata, overwrites chunks and provenance quotes, redacts pending or rejected
-candidates and their revisions, blanks mention edges, updates entity counts,
-scrubs unsupported linker entities, and closes and blanks source-backed loops.
+candidates and their revisions, closes and blanks every graph edge that names
+the source, updates entity counts, scrubs unsupported linker entities, and
+closes and blanks source-backed loops.
 A candidate the existing redaction path cannot cover refuses the database
 transaction and names its id. A later failure may remove sleep proposals; they
 can regenerate with `alice-memory sleep`. Every citing memory that was not
@@ -409,6 +411,33 @@ redacted keeps its text and is listed in both preview and receipt without a cap,
 including active, accepted, private_only, stale, superseded and archived rows. Use `alice_memory_manage` with action `forget` to remove a
 listed memory from recall, or the owner's memory redaction command to overwrite
 its own text. Source deletion alone does neither to committed memories.
+
+An edge names the source when the source, or one of its chunks, is at either end
+of the edge, whatever the edge type and whatever the type written for the end
+(`from_type` and `to_type`), in any spelling the saved-quote reader names:
+capitals, no hyphens, braces, `urn:uuid:` or a `source:` prefix. Such an edge is
+closed, and its explanation and metadata are blanked. An edge that names the
+source or one of its chunks only in its explanation or metadata is blanked and
+keeps its link. The same applies to an edge that has a redacted candidate memory
+at an end, or an open loop that the command dismisses and blanks. The preview
+and the receipt count every edge the command closes or blanks for the source as
+`graph_edges`, each edge once; `mention_edges` counts the mention edges among
+them. One pass over the edges answers for every source of the command.
+`import-markdown --supersede` makes that pass when its first file is replaced,
+so a folder that replaces nothing reads no edge. The product's own SQLite writers make only mention
+edges, but `alice-memory import` restores an edge of any shape, including the
+connection and contradiction edges of a PostgreSQL vault. Unreleased (on main,
+not in v0.20.0): earlier builds of this command, which is new on main, closed the
+mention edges that start at the source and left every other edge readable
+through `alice_graph_neighborhood`, the legacy tool of the keyless owner. A key
+cannot read an edge on SQLite: `alice_graph_neighborhood` and
+`alice_graph_edge_review` are legacy tools, which a configured
+`ALICE_AGENT_API_KEY` removes, and no other tool returns an edge row.
+`entity_relationship_events` is append-only and no part of the product writes its
+`source_id`, so it is not scrubbed. A name form that an entity learned from the
+source, such as the alias `dr alice marlow` for `Alice Marlow`, stays on the
+entity while another live edge reaches it: the entity is shared and nothing
+records which source taught the alias.
 
 Each scrub enables SQLite secure deletion to zero freed space, and each delete
 or prune transaction merges both full-text indexes to remove obsolete postings.

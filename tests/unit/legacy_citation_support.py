@@ -1,0 +1,282 @@
+"""The citation shapes a report written before derived labels existed can hold, and the rows that hold them.
+
+The consolidation report of v0.20.0 copies, as strings, the ``source_refs`` of the memories it clusters, and the weekly
+candidate and the roll-up cards copy them too. A client wrote those strings (the commit route, the memory proposal and the
+agent-output ingest keep a ref as sent), so a report holds whatever shape a client chose: a prefix in any case, an
+``alice://`` URL, JSON text that quotes the memory, an id with braces or without hyphens. The shapes here are the ones the
+saved-quote reader names (``cited_source_ids``, ``cited_memory_refs``), written out one by one so a test can state each.
+
+Every builder returns the entry to put in a ``source_refs`` list. The row builders return the row as the version before
+derived labels wrote it: a marker the server wrote, the refs as sent, and no ``derived_from``.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from uuid import UUID
+
+# How one id can be spelled. ``uuid.UUID`` takes every one of them, and so does the link writer.
+SPELLINGS: dict[str, Callable[[str], str]] = {
+    "canonical": lambda row_id: row_id,
+    "capitals": lambda row_id: row_id.upper(),
+    "no-hyphens": lambda row_id: row_id.replace("-", ""),
+    "capitals-no-hyphens": lambda row_id: row_id.replace("-", "").upper(),
+    "braces": lambda row_id: "{" + row_id + "}",
+    "urn": lambda row_id: "urn:uuid:" + row_id,
+    "padded": lambda row_id: "  " + row_id + "  ",
+}
+
+
+def memory_shapes(quote: str) -> dict[str, Callable[[str], object]]:
+    """Each way a ref can name a memory, as a function of the (already spelled) id."""
+
+    return {
+        "prefix": lambda x: f"memory:{x}",
+        "prefix-capitals": lambda x: f"MEMORY:{x}",
+        "prefix-mixed-case": lambda x: f"MeMoRy:{x}",
+        "prefix-twice": lambda x: f"memory: memory:{x}",
+        "prefix-spaced": lambda x: f"  memory:  {x}",
+        "prefix-fragment": lambda x: f"memory:{x}#chunk-1",
+        "prefix-in-a-sentence": lambda x: f"copied from memory:{x} on Monday",
+        "url": lambda x: f"alice://memories/{x}",
+        "url-capitals": lambda x: f"ALICE://MEMORIES/{x}",
+        "url-in-a-sentence": lambda x: f"see alice://memories/{x} for the words",
+        "json-object": lambda x: json.dumps({"memory_id": x, "quote": quote}),
+        "json-object-spaced": lambda x: "  \n" + json.dumps({"memory_id": x, "quote": quote}, indent=2) + "\n ",
+        "json-list": lambda x: json.dumps([{"memory_id": x, "quote": quote}]),
+        "json-ids": lambda x: json.dumps({"memory_ids": [x]}),
+        "json-refs": lambda x: json.dumps({"memory_refs": [x], "quote": quote}),
+        "json-selected": lambda x: json.dumps({"selected_memory_ids": [x]}),
+        "json-memories": lambda x: json.dumps({"memories": [x]}),
+        "json-prefixed": lambda x: json.dumps({"ref": f"memory:{x}", "quote": quote}),
+        "json-in-json": lambda x: json.dumps({"entry": json.dumps({"memory_id": x, "quote": quote})}),
+        "json-repeated-key": lambda x: '{"memory_id": "00000000-0000-0000-0000-00000000dead", "memory_id": "' + x + '"}',
+        "object": lambda x: {"memory_id": x, "quote": quote},
+        "object-ids": lambda x: {"memory_ids": [x], "quote": quote},
+        "object-json-inside": lambda x: {"note": json.dumps({"memory_id": x, "quote": quote})},
+    }
+
+
+def source_shapes(quote: str) -> dict[str, Callable[[str], object]]:
+    """Each way a ref can name a source, as a function of the (already spelled) id."""
+
+    return {
+        "bare": lambda x: x,
+        "prefix": lambda x: f"source:{x}",
+        "prefix-capitals": lambda x: f"SOURCE:{x}",
+        "prefix-twice": lambda x: f"source: source:{x}",
+        "prefix-fragment": lambda x: f"source:{x}#chunk-1",
+        "url": lambda x: f"alice://sources/{x}",
+        "url-capitals": lambda x: f"ALICE://SOURCES/{x}",
+        "json-object": lambda x: json.dumps({"source_id": x, "quote": quote}),
+        "json-list": lambda x: json.dumps([{"source_id": x, "quote": quote}]),
+        "json-ids": lambda x: json.dumps({"source_ids": [x]}),
+        "json-sources": lambda x: json.dumps({"sources": [x]}),
+        "json-selected": lambda x: json.dumps({"selected_source_ids": [x]}),
+        "json-prefixed": lambda x: json.dumps({"ref": f"source:{x}", "quote": quote}),
+        "json-in-json": lambda x: json.dumps({"entry": json.dumps({"source_id": x, "quote": quote})}),
+        "object": lambda x: {"source_id": x, "quote": quote},
+        "object-ids": lambda x: {"source_ids": [x], "quote": quote},
+    }
+
+
+# Where a ref sits in the record of a row, as a function of the entries (a list of refs).
+def _top(entries: list[object]) -> dict[str, object]:
+    return {"source_refs": entries}
+
+
+def _consolidation(entries: list[object]) -> dict[str, object]:
+    # The consolidation report keeps the refs it copied at the top and again in each proposal.
+    return {"consolidation": {"proposals": [{"source_refs": entries, "cluster_member_ids": []}]}}
+
+
+METADATA_POSITIONS: dict[str, Callable[[list[object]], dict[str, object]]] = {
+    "source_refs": _top,
+    "proposal-source_refs": _consolidation,
+    "agentic_memory": lambda entries: {"agentic_memory": {"source_refs": entries}},
+    "provenance": lambda entries: {"provenance": entries},
+    "replacement_provenance": lambda entries: {"replacement_provenance": entries},
+}
+
+
+def report(entries: list[object], *, position: str = "source_refs", workflow: str = "memory_consolidation") -> dict[str, object]:
+    """An artifact row as the version before derived labels wrote a consolidation report that copied ``entries``."""
+
+    metadata: dict[str, object] = {
+        "workflow": workflow,
+        "workflow_type": workflow,
+        "generated_by": "scheduler",
+        "review_status": "needs_review",
+        "input_counts": {"clusters": 1, "proposals": 1, "active_memories": 3},
+        "project_scope": [],
+        "candidate_memory_ids": [],
+        **METADATA_POSITIONS[position](entries),
+    }
+    return {
+        "artifact_type": "memory_consolidation" if workflow == "memory_consolidation" else workflow,
+        "title": "Memory Consolidation",
+        "content_markdown": "No near-duplicate cluster needs review.",
+        "status": "needs_review",
+        "domain": "unknown",
+        "sensitivity": "internal",
+        "metadata_json": metadata,
+    }
+
+
+def candidate_memory(entries: list[object], *, position: str = "source_refs") -> dict[str, object]:
+    """A consolidation candidate memory as it was written: the marker, the refs of its members, a stored label below them."""
+
+    metadata: dict[str, object] = {
+        "candidate_kind": "memory_consolidation",
+        "review_required": True,
+        "consolidation": {"proposal_kind": "dedup", "cluster_member_ids": []},
+        "project_scope": [],
+    }
+    value: dict[str, object] = {"kind": "memory_consolidation_proposal", "text": "The kiln is fired on Mondays."}
+    if position == "value":
+        value["source_refs"] = entries
+    else:
+        metadata.update(METADATA_POSITIONS[position](entries))
+    return {
+        "memory_key": "legacy-candidate",
+        "memory_type": "semantic",
+        "canonical_text": "The kiln is fired on Mondays.",
+        "status": "candidate",
+        "domain": "unknown",
+        "sensitivity": "internal",
+        "metadata_json": metadata,
+        "value": value,
+    }
+
+
+def open_loop(entries: list[object], *, source_id: str | None = None) -> dict[str, object]:
+    """A loop a daily brief found: ``discovered_by``, the source it came from, and refs as sent."""
+
+    metadata: dict[str, object] = {"discovered_by": "vnext_daily_brief", "project_scope": [], "source_refs": entries}
+    if source_id is not None:
+        metadata["source_id"] = source_id
+    return {
+        "title": "Check the kiln",
+        "status": "open",
+        "domain": "unknown",
+        "sensitivity": "internal",
+        "source_id": source_id,
+        "metadata_json": metadata,
+    }
+
+
+def canonical(row_id: object) -> str:
+    return str(UUID(str(row_id)))
+
+
+# The wordings of ``corpus_entries`` that no marker covers and the reader finds anyway: the id sits under ``origin``, in a
+# sentence, in ``mem:<id>``, in an outside URL, in a Markdown link, in a list repr, in cut-off JSON text, or in JSON text
+# whose id stands under a key that is not a reference key. A bare id is left out: the closure has always read it as a hard input.
+INCIDENTAL_NAMES = (
+    "memory-json-origin", "memory-sentence-space", "memory-sentence-colon", "memory-mem-prefix", "memory-markdown-link",
+    "memory-outside-url", "memory-list-repr", "memory-json-cut", "memory-json-trailing-comma", "memory-object-origin",
+    "memory-json-parent", "memory-prefix-fragment", "memory-prefix-braces-fragment", "memory-prefix-path",
+    "source-json-origin", "source-sentence-space", "source-markdown-link", "source-outside-url", "source-list-repr",
+    "source-json-cut", "source-object-origin", "source-prefix-fragment", "source-prefix-path",
+)
+
+
+def odd_hyphens(row_id: str) -> str:
+    """The id with its hyphens where ``uuid.UUID`` takes them and the reader's pattern does not."""
+
+    bare = row_id.replace("-", "")
+    return "-".join((bare[:5], bare[5:11], bare[11:16], bare[16:24], bare[24:]))
+
+
+def corpus_entries(memory_id: str, source_id: str, quote: str = "Cedar kiln code 4417") -> dict[str, object]:
+    """Entries of ``source_refs`` that name a memory or a source in a wording a client could choose, including the ones the
+    saved-quote reader reads only as incidental (an id under ``origin``, in a sentence, in a URL, in an object under a text
+    key). Each is a string or an object, as the commit route stores it."""
+
+    entries: dict[str, object] = {}
+    for label, ident, mark, key, url in (
+        ("memory", memory_id, "memory", "memory_id", "alice://memories/"),
+        ("source", source_id, "source", "source_id", "alice://sources/"),
+    ):
+        for spelling, spell in SPELLINGS.items():
+            text = spell(ident)
+            entries[f"{label}-prefix-{spelling}"] = f"{mark}:{text}"
+            entries[f"{label}-json-{spelling}"] = json.dumps({key: text, "quote": quote})
+            entries[f"{label}-url-{spelling}"] = f"{url}{text}"
+            entries[f"{label}-bare-{spelling}"] = text
+        entries[f"{label}-prefix-space"] = f"{mark}: {ident}"
+        entries[f"{label}-prefix-capitals-keyword"] = f"{mark.upper()}:{ident}"
+        entries[f"{label}-sentence-colon"] = f"copied from {mark}:{ident} on Monday"
+        entries[f"{label}-sentence-space"] = f"copied from {mark}: {ident} on Monday"
+        entries[f"{label}-sentence-bare"] = f"see {ident} for the words"
+        entries[f"{label}-mem-prefix"] = f"mem:{ident}"
+        entries[f"{label}-markdown-link"] = f"[{mark}]({ident})"
+        entries[f"{label}-outside-url"] = f"https://host.example/{mark}s/{ident}"
+        entries[f"{label}-list-repr"] = f"['{ident}']"
+        entries[f"{label}-json-list"] = json.dumps([{key: ident, "quote": quote}])
+        entries[f"{label}-json-in-json"] = json.dumps({"entry": json.dumps({key: ident, "quote": quote})})
+        entries[f"{label}-json-origin"] = json.dumps({"origin": ident, "quote": quote})
+        entries[f"{label}-json-parent"] = json.dumps({"parent_memory_id": ident, "quote": quote})
+        entries[f"{label}-json-quote-has-id"] = json.dumps({"quote": f"{mark}:{ident} {quote}"})
+        entries[f"{label}-json-cut"] = '{"%s": "%s", "quote": "cut' % (key, ident)
+        entries[f"{label}-json-trailing-comma"] = '{"%s": "%s",}' % (key, ident)
+        entries[f"{label}-prefix-fragment"] = f"{mark}:{ident}#chunk-1"
+        entries[f"{label}-prefix-braces-fragment"] = "%s:{%s}#chunk-1" % (mark, ident)
+        entries[f"{label}-prefix-path"] = f"{mark}:{ident}/page/2"
+        entries[f"{label}-object-id"] = {key: ident, "quote": quote}
+        entries[f"{label}-object-origin"] = {"origin": ident, "quote": quote}
+        entries[f"{label}-object-chunk"] = {"chunk_id": ident, "quote": quote}
+        entries[f"{label}-object-ref"] = {"ref": f"{mark}:{ident}", "quote": quote}
+        entries[f"{label}-object-quote-object"] = {"quote": {key: ident}}
+        entries[f"{label}-object-id-key-only"] = {"id": ident, "quote": quote}
+        # An id with its hyphens where ``uuid.UUID`` takes them and the reader's pattern does not.
+        entries[f"{label}-bare-odd"] = odd_hyphens(ident)
+        entries[f"{label}-object-origin-odd"] = {"origin": odd_hyphens(ident), "quote": quote}
+        for text_key in ("title", "text", "summary", "description", "content", "body", "label", "note", "excerpt"):
+            entries[f"{label}-object-{text_key}-prefix"] = {text_key: f"{mark}:{ident}"}
+            entries[f"{label}-object-{text_key}-bare"] = {text_key: ident}
+        entries[f"{label}-object-title-json"] = {"title": json.dumps({key: ident, "quote": quote})}
+        entries[f"{label}-object-text-key"] = {"text": quote, key: ident}
+    return entries
+
+
+TYPED_OBJECT_KEYS = ("origin", "ref", "source_ref", "memory_id", "id", "title", "text", "summary", "description", "content", "body",
+                     "label", "note", "excerpt", "conversation_excerpt", "quote")
+
+
+def typed_object_entries(
+    memory_id: str, source_id: str, artifact_id: str, open_loop_id: str, quote: str = "Cedar kiln code 4417"
+) -> dict[str, object]:
+    """Object entries of ``source_refs`` that hold a typed ref (``artifact:<id>``, ``open_loop:<id>``, ``memory:<id>``,
+    ``source:<id>``) under any key, the text keys included, and the entries that hold a source in the text key
+    ``conversation_excerpt``, which the saved-quote reader skips as quote text."""
+
+    entries: dict[str, object] = {}
+    for label, ident in (("artifact", artifact_id), ("open_loop", open_loop_id), ("memory", memory_id), ("source", source_id)):
+        entries[f"{label}-typed-string"] = f"{label}:{ident}"
+        for key in TYPED_OBJECT_KEYS:
+            entries[f"{label}-typed-object-{key}"] = {"note": quote, key: f"{label}:{ident}"}
+        entries[f"{label}-typed-object-nested"] = {"items": [{"origin": f"{label}:{ident}"}], "quote": quote}
+        entries[f"{label}-typed-object-braces"] = {"origin": "%s:{%s}" % (label, ident), "quote": quote}
+        entries[f"{label}-typed-object-capitals"] = {"origin": f"{label}:{ident.upper()}", "quote": quote}
+    entries["source-excerpt-bare"] = {"conversation_excerpt": source_id, "quote": quote}
+    entries["source-excerpt-prefix"] = {"conversation_excerpt": f"source:{source_id}"}
+    entries["source-excerpt-url"] = {"conversation_excerpt": f"alice://sources/{source_id}"}
+    entries["source-excerpt-json"] = {"conversation_excerpt": json.dumps({"source_refs": [f"alice://sources/{source_id}"]})}
+    entries["source-excerpt-list"] = {"conversation_excerpt": [source_id, f"source:{source_id}"]}
+    return entries
+
+
+def positions(entry: object) -> dict[str, dict[str, object]]:
+    """The records that hold ``entry`` in each place a client's reference is copied to."""
+
+    return {
+        "top": {"source_refs": [entry]},
+        "proposal": {"consolidation": {"proposals": [{"source_refs": [entry]}]}},
+        "agentic": {"agentic_memory": {"source_refs": [entry]}},
+        "provenance": {"provenance": entry},
+        "replacement": {"replacement_provenance": [entry]},
+        "nested": {"a": {"b": {"c": {"source_refs": [entry]}}}},
+        "bare": {"source_refs": entry},
+    }

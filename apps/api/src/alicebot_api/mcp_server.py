@@ -9,7 +9,9 @@ from typing import Any, BinaryIO, Literal
 from uuid import UUID
 
 from alicebot_api import __version__
+from alicebot_api.json_bounds import MAX_READ_JSON_DEPTH, retry_cutting_deep_json, text_nests_deeper_than
 from alicebot_api.config import Settings, get_runtime_settings, get_settings
+from alicebot_api.mcp.definitions import tool_only_reads
 from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES, MCPCodedToolError, MCPInvalidRequestError
 from alicebot_api.mcp_tools import (
     MCPRuntimeContext,
@@ -90,6 +92,10 @@ def _build_runtime_context(args: argparse.Namespace) -> MCPRuntimeContext:
 
 
 def _parse_json_rpc_payload(raw_payload: str) -> dict[str, Any]:
+    # A message nested past what the decoder takes raised RecursionError out of the read loop and stopped the server.
+    # It is an invalid request like any other malformed message, answered before it is decoded.
+    if text_nests_deeper_than(raw_payload, MAX_READ_JSON_DEPTH):
+        raise ValueError("JSON-RPC payload is nested too deeply")
     payload = json.loads(raw_payload)
     if not isinstance(payload, dict):
         raise ValueError("JSON-RPC payload must be an object")
@@ -280,11 +286,19 @@ class MCPServer:
 
             arguments = params.get("arguments")
             try:
-                structured = call_mcp_tool(
-                    self._context,
-                    name=name,
-                    arguments=arguments,
-                )
+                # The call and the serialization of its result are one attempt: a row nested near the recursion limit
+                # can overflow either, and the second attempt cuts the deep part of every stored column. Only a tool
+                # that writes nothing but the audit events of its policy check is run a second time.
+                def attempt() -> str:
+                    return serialize_mcp_tool_result(
+                        call_mcp_tool(
+                            self._context,
+                            name=name,
+                            arguments=arguments,
+                        )
+                    )
+
+                text = retry_cutting_deep_json(attempt) if tool_only_reads(name, arguments) else attempt()
             except MCPToolNotFoundError:
                 logger.info("MCP tool was not found name=%s", name, exc_info=True)
                 return _response_success(
@@ -350,7 +364,7 @@ class MCPServer:
                     "content": [
                         {
                             "type": "text",
-                            "text": serialize_mcp_tool_result(structured),
+                            "text": text,
                         }
                     ],
                     "isError": False,

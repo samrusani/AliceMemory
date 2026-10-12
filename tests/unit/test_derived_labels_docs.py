@@ -1,8 +1,8 @@
-"""The pages that describe derived labels agree with the v3 repair and with migration 0096.
+"""The pages that describe derived labels agree with the v4 repair and with migrations 0096 and 0097.
 
 A revision, a table list and the SQLite state key are read from the code. The sentences are pinned by phrase.
 
-Mutations, each one alone: delete ``derived_labels_v3`` from the repair module; drop ``projects`` from the 0096
+Mutations, each one alone: delete ``derived_labels_v4`` from the repair module; drop ``projects`` from the 0096
 FORCE bracket; delete ``apply the caller's sensitivity ceiling`` from the tool reference; delete ``rows the caller
 may read``; put back ``apply no label``; delete ``label_floor_applied``; delete ``alicebot vnext labels check`` from
 the disaster-recovery verify list; delete ``alice-memory labels check`` from the SQLite recovery steps; delete the
@@ -32,7 +32,7 @@ def _text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_the_pages_name_the_v3_repair_and_the_seven_table_migration() -> None:
+def test_the_pages_name_the_v4_repair_and_the_seven_table_migration() -> None:
     """Docs name the state key, the revision and every table the migration brackets, including projects."""
 
     from alicebot_api.vnext_label_repair import REPAIR_STATE_KEY
@@ -49,7 +49,7 @@ def test_the_pages_name_the_v3_repair_and_the_seven_table_migration() -> None:
         "event_log",
         "projects",
     ]
-    assert REPAIR_STATE_KEY == "derived_labels_v3"
+    assert REPAIR_STATE_KEY == "derived_labels_v4"
 
     tools = _text("docs/alpha/mcp-tools.md")
     assert "promoted copies of reports" in tools

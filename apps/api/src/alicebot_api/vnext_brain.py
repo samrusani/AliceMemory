@@ -1028,11 +1028,31 @@ class VNextBrainService:
     ) -> list[JsonObject]:
         if not request.discover_open_loops:
             return []
+        # Imported here: the project service imports the modules that import this one.
+        from alicebot_api.vnext_projects import project_a_loop_is_filed_under, project_readable_to_record
+
         created: list[JsonObject] = []
         upsert_open_loop = getattr(self.store, "upsert_open_loop_by_automation_digest", None)
+        filed_under: dict[str, str | None] = {}
         for title, source in candidates:
             source_scope = _canonical_project_scope(source_project_scope(source))
             project_scope = source_scope or _canonical_project_scope(request.projects)
+            project_id = _stored_open_loop_project_id(project_scope)
+            if len(project_scope) == 1 and callable(getattr(self.store, "get_project", None)):
+                # The loop is filed under the one project its source (or, with none, the request) names, so that project
+                # is judged like a project the caller names: with the caller's own limits and binding, and by a lookup
+                # of the stored project, never of a row this run is still staging. The project column holds a project
+                # that is stored and that the caller may read, and nothing else. A project that is hidden, not stored,
+                # a free-form name or a malformed id leaves it empty, as a name always did, and the scope stays in the
+                # loop's metadata, so the four are answered alike and nothing raises. A store that keeps no projects (the
+                # local SQLite vault) has none to judge and keeps the uuid a scope gives.
+                if project_scope[0] not in filed_under:
+                    filed_under[project_scope[0]] = project_a_loop_is_filed_under(
+                        self.store,
+                        project_scope[0],
+                        lambda project: project_readable_to_record(self.store, project, request.agent_identity),
+                    )
+                project_id = filed_under[project_scope[0]]
             automation_digest = _digest_payload(
                 {
                     "workflow_digest": workflow_digest,
@@ -1047,7 +1067,7 @@ class VNextBrainService:
                 "status": "open",
                 "priority": "normal",
                 "source_id": str(source["id"]),
-                "project_id": _stored_open_loop_project_id(project_scope),
+                "project_id": project_id,
                 "domain": source.get("domain", "unknown"),
                 "sensitivity": source.get("sensitivity", "unknown"),
                 "metadata_json": {

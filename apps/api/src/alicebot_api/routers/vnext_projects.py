@@ -10,6 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import Field
 
+from alicebot_api.http_json_types import BoundedJsonList, BoundedJsonObject
 from alicebot_api.config import get_settings
 from alicebot_api.db import user_connection
 from alicebot_api.public_errors import public_exception_response
@@ -55,6 +56,7 @@ from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_projects import (
     VNextProjectService,
     VNextProjectValidationError,
+    project_readable,
 )
 from alicebot_api.vnext_scheduler import (
     SchedulerRunRequest,
@@ -118,28 +120,28 @@ class VNextOpenLoopCreateRequest(VNextAgentRequest):
 class VNextBrainCharterUpsertRequest(VNextAgentRequest):
     user_id: UUID
     content_markdown: str = Field(min_length=1, max_length=200_000)
-    owner_json: dict[str, object] = Field(default_factory=dict)
-    memory_philosophy_json: dict[str, object] = Field(default_factory=dict)
-    life_domains_json: dict[str, object] = Field(default_factory=dict)
-    active_projects_json: list[object] = Field(default_factory=list)
-    communication_style_json: dict[str, object] = Field(default_factory=dict)
-    priorities_json: dict[str, object] = Field(default_factory=dict)
-    autonomous_rules_json: list[object] = Field(default_factory=list)
-    quality_standard_json: list[object] = Field(default_factory=list)
+    owner_json: BoundedJsonObject = Field(default_factory=dict)
+    memory_philosophy_json: BoundedJsonObject = Field(default_factory=dict)
+    life_domains_json: BoundedJsonObject = Field(default_factory=dict)
+    active_projects_json: BoundedJsonList = Field(default_factory=list)
+    communication_style_json: BoundedJsonObject = Field(default_factory=dict)
+    priorities_json: BoundedJsonObject = Field(default_factory=dict)
+    autonomous_rules_json: BoundedJsonList = Field(default_factory=list)
+    quality_standard_json: BoundedJsonList = Field(default_factory=list)
     sensitivity: VNextSensitivity = "private"
 
 class VNextSchedulerWorkflowPatchRequest(VNextAgentRequest):
     user_id: UUID
     enabled: bool | None = None
     paused: bool | None = None
-    schedule_json: dict[str, object] | None = None
+    schedule_json: BoundedJsonObject | None = None
     timezone: str | None = Field(default=None, min_length=1, max_length=120)
-    model_options: dict[str, object] = Field(default_factory=dict)
+    model_options: BoundedJsonObject = Field(default_factory=dict)
 
 class VNextSchedulerRunNowRequest(VNextAgentRequest):
     user_id: UUID
-    scope: dict[str, object] = Field(default_factory=dict)
-    options: dict[str, object] = Field(default_factory=dict)
+    scope: BoundedJsonObject = Field(default_factory=dict)
+    options: BoundedJsonObject = Field(default_factory=dict)
 
 class VNextSchedulerRunDueRequest(VNextAgentRequest):
     user_id: UUID
@@ -243,8 +245,9 @@ def _vnext_project_id_within_binding(
 ) -> str | None:
     """The canonical id of the stored project when this caller may file work under it, otherwise None.
 
-    A project that does not exist, one whose id is not a well-formed id, and one outside the project binding of a
-    locked key are the same None. The owner and a key with no binding may use every stored project.
+    A project that does not exist, one whose id is not a well-formed id, one outside the project binding of a locked
+    key and one the caller may not read (its domain or its sensitivity is outside the caller's limits) are the same
+    None. The owner and an unbound admin key may use every stored project.
     """
 
     try:
@@ -259,6 +262,8 @@ def _vnext_project_id_within_binding(
         named = set(project_scope_identity([str(project["id"]), project.get("slug"), project.get("name")]))
         if not named & bound:
             return None
+    if not project_readable(store, project, identity):
+        return None
     return canonical
 
 

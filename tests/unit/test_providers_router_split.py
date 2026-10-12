@@ -77,7 +77,11 @@ CARRIER_NAMES = tuple(
 )
 
 EXPECTED_ROUTE_AST_SHA256 = "9e5d6c2c79cc1391688b74bb5138ccaa881033546e7b0cfd34ad92e8d98ba614"
-EXPECTED_SUPPORT_AST_SHA256 = "bb694bc545e514bb81e2aa568eba1cb72ba813373015d979bac452d23d4dbd74"
+# Re-pinned 2026-10-11 (write limits on caller JSON). The `metadata` field of the six provider request models is
+# typed `BoundedJsonObject` (alicebot_api.http_json_types) instead of `dict[str, object]`: a value nested past 64
+# levels, or one that holds NaN or Infinity, is HTTP 422 before the handler runs. One import is added (89 below). The
+# route definitions, their order and the set of definitions are the same, and the published schema is unchanged.
+EXPECTED_SUPPORT_AST_SHA256 = "65593860adda61aea673cec7d9bc345c47ed6ed6d0518e78c284dcbd88a97a79"
 EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e92413391541a7e504da328b"
 # Re-pinned 2026-10-02 (DB-005, legacy /v0 routes). One definition changed,
 # found by a per-definition AST diff against the previous pin:
@@ -125,7 +129,7 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 EXPECTED_CARRIER_AST_SHA256 = "7aade286308c3e4aeb2775eaa350eb739681f3e68d7f20435adf5495bede2c60"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "1a438538e16120361f92d30375cc94679d598fe4b78ba5a58a7d8a4dda6af83c"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "8b79ceaf996b8c51b5bb2f3f38a8c19a4e33796955d8b8f7a66e7ac01ea1732d"
-EXPECTED_IMPORT_MANIFEST_SHA256 = "17484ccdd460e42e2ad5c82a8ca867664694feaf871118c410a134996a532358"
+EXPECTED_IMPORT_MANIFEST_SHA256 = "2fbc286e5aeaca8cb8c5ae1d0e1d7ef7816ae2d905542f967c813a047e1f2c29"
 
 EXPECTED_ROUTE_MANIFEST = [
     ("POST", "/v1/providers", "register_v1_provider"),
@@ -335,7 +339,7 @@ def test_provider_import_direction_pruning_and_runtime_identities_are_exact() ->
     router_tree = ast.parse(ROUTER_PATH.read_text(encoding="utf-8"))
 
     import_blob = json.dumps(_import_manifest(router_tree), separators=(",", ":")).encode()
-    assert len(_import_manifest(router_tree)) == 88
+    assert len(_import_manifest(router_tree)) == 89
     assert hashlib.sha256(import_blob).hexdigest() == EXPECTED_IMPORT_MANIFEST_SHA256
 
     for node in router_tree.body:

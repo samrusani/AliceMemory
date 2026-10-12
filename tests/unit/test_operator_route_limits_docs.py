@@ -12,7 +12,9 @@ and the charter from any of the three pages; say again that the clipper capture 
 holder; delete ``so a trusted key cannot learn how many confidential commits exist`` from the security note; say
 again that the refused charter save writes nothing; delete the sentence that the refusal tells the key a charter exists;
 delete ``found again by its digest`` from the tool reference, the changelog or the security note; delete ``out of the
-``created_count`` of the ``open_loop.extraction_completed`` event`` from the changelog or the security note.
+``created_count`` of the ``open_loop.extraction_completed`` event`` from the changelog or the security note; delete ``is judged
+on the caller's limits, as the read of the report is`` from the tool reference or the changelog, or ``no longer returns the
+``artifact_id`` of a result the caller may not read`` from the security note.
 """
 
 from __future__ import annotations
@@ -80,7 +82,13 @@ def test_the_tool_reference_names_every_route_and_what_a_key_with_a_ceiling_is_s
     assert "the owner and an unbound `admin_agent` key are shown what they were" in paragraph
     assert "A route added without a probe fails the test" in paragraph
     assert "still lists an edge whose far end the key may not read" not in paragraph
-    assert "`recent_failures` of the connector status names the id the importer gave to an item that failed" in paragraph
+    assert "`recent_failures` of the connector status names the id the importer gave to an item that failed" not in paragraph
+    assert "a failed item or a failed sync without the id the importer gave the item (for a file, its path)" in paragraph
+    assert "`connector.item_failed` records the cursor the failed item would have set (`sync_cursor`)" in paragraph
+    assert "`failed_external_ids` follows it too, each id in its place in the list" in paragraph
+    assert "a key that imports a public item at a path it already knows (it was told the path or guessed it) is then shown a failed import of that same path" in paragraph
+    assert "it learns the path it sent and nothing about the file" in paragraph
+    assert "`connector.sync_failed` and `connector.sync_completed` (`failed_external_ids`)" in paragraph
 
 
 def test_the_saved_quotes_list_no_longer_says_the_recent_commits_tool_has_no_fence() -> None:
@@ -143,7 +151,10 @@ def test_the_security_note_covers_disclosure_the_charter_write_and_the_limits_it
     assert "the events hold the id and the names of the fields and no text" in paragraph
     assert "the probe table must list exactly the routes of the application" in paragraph
     assert "graph neighborhood still lists an edge whose far end the key may not read" not in paragraph
-    assert "such as a file path" in paragraph
+    assert "such as a file path" not in paragraph
+    assert "a key that imports a public item at a path it already knows is then shown a failed import of that same path" in paragraph
+    assert "in the failure list of the connector status, in those events and in the answer of a sync" in paragraph
+    assert "The id the importer gave to an item that failed to import (for a file, its path) and the cursor it would have set follow the same rule" in paragraph
     assert "take no agent key and list rows whatever their label while `APP_ENV` is `development` or `test`" in paragraph
     assert "answer HTTP 404 in any other environment" in paragraph
     assert "process-next" not in paragraph
@@ -184,3 +195,94 @@ def test_the_pages_say_that_extraction_judges_a_loop_found_again_by_its_digest()
     assert "The service takes the guard as a required argument" in paragraph
     assert "the daily brief, the weekly synthesis, the connection report, the contradiction report, the project update candidate" in paragraph
     assert "never with the admin key's" in paragraph
+
+
+_RUN_OPENING = "the answer of a run that makes a report is judged on the caller's limits"
+_NULL_ANSWERS = "answers `artifact: null` and a run record with no `artifact_id`, in its column and in its metadata"
+_NOT_FOUND_ANSWERS = (
+    "the tools `alice_generate_daily_brief`, `alice_generate_weekly_synthesis`, `alice_generate_connections`, "
+    "`alice_generate_contradictions` and `alice_vnext_find_connections`, and the `daily_brief`, `weekly_synthesis`, "
+    "`connection_report` and `contradiction_report` branches of `alice_vnext_generate_artifact`, answer the error `not_found`"
+)
+_RUN_TOOLS = (
+    "the tools `alice_vnext_scheduler_run_now` and `alice_vnext_scheduler_run_due`, and the `open_loop_review`, "
+    "`project_update_scan` and `memory_consolidation` branches of `alice_vnext_generate_artifact`"
+)
+_RACE = "A report that a relabel during the run raised after the run had read its inputs is judged the same way"
+_STILL_NAMED = (
+    "The scheduler status route (`GET /v0/vnext/scheduler/status`, in `recent_runs` and `last_success_by_workflow`) and the runs route "
+    "(`GET /v0/vnext/scheduler/runs`, in `items`) list the same run records, and the workspace lists a queued task with the id of the "
+    "result report it made, in `tasks[].output_artifact_id` and `tasks[].metadata_json.artifact_id`."
+)
+# The doors this change covers, and only these: the project update door is covered by its own change.
+_COVERED = (
+    "`POST /v0/vnext/scheduler/workflows/{workflow_type}/run-now`",
+    "`POST /v0/vnext/scheduler/run-due`",
+    "`POST /v0/vnext/artifacts/generate/daily-brief`",
+    "`alice_vnext_scheduler_run_now`",
+    "`alice_vnext_generate_artifact`",
+    "`alice_generate_contradictions`",
+    "`alice_vnext_find_connections`",
+    "`alicebot vnext scheduler run-now` and `run-due`",
+)
+
+
+def _check_run_paragraph(paragraph: str) -> None:
+    for door in _COVERED:
+        assert door in paragraph, door
+    assert "update-candidates" not in paragraph and "alice_project_update_candidate" not in paragraph
+    assert "whether the run made it or found it again under the same digest" in paragraph or "found again under the same digest" in paragraph
+    assert f"{_RUN_TOOLS}" in paragraph or _RUN_TOOLS.replace("the tools ", "") in paragraph
+    assert _NULL_ANSWERS in paragraph
+    assert _NOT_FOUND_ANSWERS in paragraph
+    assert "The four generation routes answer HTTP 404 with `{\"detail\": \"vNext artifact was not found\"}`" in paragraph
+    assert "The answer does not echo the report: not its id, its title, a quote it holds or a count." in paragraph
+    assert "A run that `succeeded` with `artifact: null` shows that a report was made" in paragraph
+    assert _RACE in paragraph
+    assert "it is stored with the current floor, and a caller who may not read it is answered as for a missing artifact" in paragraph
+    assert "Nothing of the report is echoed" not in paragraph
+
+
+def test_the_pages_say_that_the_answer_of_a_run_is_judged_like_the_read_of_its_report() -> None:
+    tools = _text("docs/alpha/mcp-tools.md")
+    paragraphs = [line for line in tools.splitlines() if line.startswith(f"{MARK} {_RUN_OPENING}, as the read of the report is.")]
+    assert len(paragraphs) == 1
+    paragraph = paragraphs[0]
+    _check_run_paragraph(paragraph)
+    assert "The owner and an unbound `admin_agent` key are answered with the report, as before." in paragraph
+    queue = next(line for line in tools.splitlines() if line.startswith(f"{MARK} `POST /v0/vnext/queue/process-next`"))
+    assert "the answer leaves `artifact_id` empty when the caller may not read the result" in queue
+
+    entries = [line.removeprefix("- ") for line in _text("CHANGELOG.md").splitlines() if line.startswith("- ")]
+    matches = [entry for entry in entries if entry.startswith(f"{MARK} {_RUN_OPENING}, as the read of the report is.")]
+    assert len(matches) == 1
+    entry = matches[0]
+    _check_run_paragraph(entry)
+    assert "while `GET /v0/vnext/artifacts/{id}` answered HTTP 404 for the same report" in entry
+    assert "In v0.20.0 that case was not a difference between two doors" in entry
+    assert "while the read answered HTTP 403 in v0.20.0 and HTTP 404 on main" in entry
+    assert "A report the caller may not read is left out as a missing report is." in entry
+    assert "`POST /v0/vnext/queue/process-next` stops returning the `artifact_id` of a result report the caller may not read" in entry
+    assert "The owner and an unbound `admin_agent` key are answered as before, and nothing is read for them." in entry
+    assert entry.endswith("No migration is required.")
+
+    note = _text("docs/release/derived-labels-security-note-draft.md")
+    paragraphs = [line for line in note.splitlines() if line.startswith(f"{MARK} {_RUN_OPENING}.")]
+    assert len(paragraphs) == 1
+    paragraph = paragraphs[0]
+    _check_run_paragraph(paragraph)
+    assert "in v0.20.0 as well as on main" in paragraph
+    assert "`POST /v0/vnext/queue/process-next` no longer returns the `artifact_id` of a result the caller may not read" in paragraph
+    assert "What is not withheld: the owner, an unbound `admin_agent` key and an unbound `trusted_local_agent` key can still read the id of such a report" in paragraph
+
+
+def test_the_pages_list_the_run_records_and_task_rows_that_still_name_a_report_the_answer_left_out() -> None:
+    for page, opening in (
+        ("CHANGELOG.md", f"- {MARK} rows a key can read may list in their metadata the ids of rows it cannot read"),
+        ("docs/alpha/mcp-tools.md", f"{MARK} a row a key can read may list in its metadata the id of a row the key cannot read."),
+        ("docs/release/derived-labels-security-note-draft.md", f"{MARK} rows a key can read may list in their metadata the ids of rows it cannot read"),
+    ):
+        paragraph = next(line for line in _text(page).splitlines() if line.startswith(opening))
+        assert _STILL_NAMED in paragraph, page
+        assert "left out because the caller may not read it" in paragraph, page
+        assert "The routes admit the owner, an unbound `admin_agent` key and an unbound `trusted_local_agent` key, and refuse every other key HTTP 403" in paragraph, page

@@ -61,7 +61,11 @@ ROUTER_NAMES = {
 }
 
 EXPECTED_ROUTE_AST_SHA256 = "fe7161e22a80ee48d6ab3be642fe77585c60db692138979d5f242e2214acb9c4"
-EXPECTED_SUPPORT_AST_SHA256 = "9ab78c031f4607670d25dec5fcb964cc9dac549c1d118acab3e6ecfc46927582"
+# Re-pinned 2026-10-11 (write limits on caller JSON). The free JSON field of five request models (`value`, `metadata`,
+# `conditions` and `attributes`) is typed `BoundedJsonValue` or `BoundedJsonObject` (alicebot_api.http_json_types), so a
+# value nested past 64 levels, or one that holds NaN or Infinity, is HTTP 422 before the handler runs. Previous receipt
+# 9ab78c03.... The route definitions, the set of definitions and the published schema are the same.
+EXPECTED_SUPPORT_AST_SHA256 = "bff93fce9dc6bc7693c1bdcc841c51f00ad862178721763b9b9f316d0958c30e"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "14109d63265453c664352c357d930b91cc617257dda1034ad0917a5ce974b34e"
 
 INTEGRATION_SETTINGS_PATCH_COUNTS = {

@@ -1350,13 +1350,28 @@ class VNextCaptureService:
             for row in matches:
                 if str(row['id']) == str(result.source_id):
                     continue
+                cached_edges = self._edges_of_indexed_sources()
                 loop_ids = None if cached is None else [str(loop["id"]) for loop in cached.get(str(row["id"]), [])]
+                edge_hits = None if cached_edges is None else cached_edges.get(str(row["id"]))
                 counts = getattr(self.store, "supersede_source")(str(row['id']), superseded_by=result.source_id,
                     allow_looser_classification=policy.allow_looser_classification, dry_run=policy.dry_run,
-                    loop_ids=loop_ids)
+                    loop_ids=loop_ids, edge_hits=edge_hits)
                 retired.append({"id": str(row['id']), "title": printed_source_label(row.get('title'))})
                 citing.extend(counts['memories_citing_replaced'])
             return replace(result, superseded=tuple(retired), memories_citing_replaced=tuple(dict.fromkeys(citing)))
+
+    def _edges_of_indexed_sources(self) -> Mapping[str, object] | None:
+        """The edges a retirement of each indexed source of this import closes or blanks, from one pass over the user's
+        edges that the first replacement makes; ``None`` when the import did not index its sources (a single capture)."""
+
+        indexed: list[str] | None = getattr(self, "_indexed_sources", None)
+        if getattr(self, "_edge_names", None) is None and indexed is not None:
+            from alicebot_api.vnext_stores.sqlite.source_retirement import retirement_edges
+
+            loops = getattr(self, "_open_loop_names", None) or {}
+            self._edge_names = retirement_edges(
+                self.store, indexed, loop_ids={sid: [str(loop["id"]) for loop in loops.get(sid, [])] for sid in indexed})
+        return getattr(self, "_edge_names", None)
 
     def _capture_source(self, source_input: SourceCaptureInput) -> CaptureResult:
         # Before dedupe and before the try that logs a failure. A refusal
@@ -1852,10 +1867,14 @@ class VNextCaptureService:
             with self.store.savepoint() if callable(scan) or dry_run else nullcontext():
                 self._markdown_path_index = scan() if callable(scan) else {}
                 self._open_loop_names = None
+                self._edge_names = None
+                self._indexed_sources = None
                 if policy.mode != "off":
                     from alicebot_api.vnext_stores.sqlite.source_retirement import open_loops_naming_sources
                     indexed = [str(row["id"]) for rows in self._markdown_path_index.values() for row in rows]
                     self._open_loop_names = open_loops_naming_sources(self.store, indexed)
+                    # The edges are read when the first source is replaced: a folder that changed nothing reads none.
+                    self._indexed_sources = indexed
                 result = self._import_markdown_folder(folder, domain=domain, sensitivity=sensitivity,
                     max_file_bytes=max_file_bytes, policy=policy)
                 if dry_run:
@@ -1865,6 +1884,8 @@ class VNextCaptureService:
         finally:
             self._markdown_path_index = None
             self._open_loop_names = None
+            self._edge_names = None
+            self._indexed_sources = None
         return result
 
     def _import_markdown_folder(

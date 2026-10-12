@@ -1,4 +1,5 @@
 from __future__ import annotations
+from alicebot_api.http_json_types import BoundedJsonList, BoundedJsonObject
 from alicebot_api.vnext_label_writes import label_http_errors
 
 from uuid import UUID
@@ -70,6 +71,7 @@ from alicebot_api.vnext_contradictions import (
     VNextContradictionValidationError,
 )
 from alicebot_api.vnext_dogfooding import VNextDogfoodingService
+from alicebot_api.vnext_label_guard import readable_artifact
 from alicebot_api.vnext_projects import (
     PROJECT_UPDATE_TERMINAL_CONSISTENCY_MESSAGE,
     VNextProjectService,
@@ -98,20 +100,20 @@ class VNextArtifactInsightFeedbackRequest(VNextAgentRequest):
 
 class VNextBrainArtifactGenerateRequest(VNextAgentRequest):
     user_id: UUID
-    scope: dict[str, object] = Field(default_factory=dict)
-    options: dict[str, object] = Field(default_factory=dict)
+    scope: BoundedJsonObject = Field(default_factory=dict)
+    options: BoundedJsonObject = Field(default_factory=dict)
 
 class VNextConnectionReportGenerateRequest(VNextAgentRequest):
     user_id: UUID
     query: str = Field(default="", max_length=4000)
-    scope: dict[str, object] = Field(default_factory=dict)
-    options: dict[str, object] = Field(default_factory=dict)
+    scope: BoundedJsonObject = Field(default_factory=dict)
+    options: BoundedJsonObject = Field(default_factory=dict)
 
 class VNextContradictionReportGenerateRequest(VNextAgentRequest):
     user_id: UUID
     query: str = Field(default="", max_length=4000)
-    scope: dict[str, object] = Field(default_factory=dict)
-    options: dict[str, object] = Field(default_factory=dict)
+    scope: BoundedJsonObject = Field(default_factory=dict)
+    options: BoundedJsonObject = Field(default_factory=dict)
 
 class VNextProjectUpdateReviewRequest(VNextAgentRequest):
     user_id: UUID
@@ -126,8 +128,8 @@ class VNextQueueTaskCreateRequest(VNextAgentRequest):
     domain: VNextDomain = "unknown"
     sensitivity: VNextSensitivity = "unknown"
     write_policy: str = Field(default="proposal_only", min_length=1, max_length=80)
-    scope_json: dict[str, object] = Field(default_factory=dict)
-    allowed_sources_json: list[object] = Field(default_factory=list)
+    scope_json: BoundedJsonObject = Field(default_factory=dict)
+    allowed_sources_json: BoundedJsonList = Field(default_factory=list)
 
 class VNextQueueProcessNextRequest(VNextAgentRequest):
     user_id: UUID
@@ -148,7 +150,7 @@ class VNextArtifactQualityRatingRequest(VNextAgentRequest):
     verbosity: str = Field(default="unknown", min_length=1, max_length=40)
     missed_context: str | None = Field(default=None, min_length=1, max_length=4000)
     comments: str | None = Field(default=None, min_length=1, max_length=4000)
-    metadata_json: dict[str, object] = Field(default_factory=dict)
+    metadata_json: BoundedJsonObject = Field(default_factory=dict)
 
 class VNextGraphEdgeReviewRequest(VNextAgentRequest):
     user_id: UUID
@@ -336,8 +338,14 @@ def generate_vnext_daily_brief(
             )
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
-            payload = VNextBrainService(store).generate_daily_brief(
-                _vnext_brain_artifact_request(request, identity=identity, decision=decision)
+            # The report is stored whoever asked for it, and the answer is a read of it: the report this run made, or
+            # the one it found again under the same digest, is judged on the labels it has now, as the artifact read is.
+            payload = readable_artifact(
+                store,
+                identity,
+                VNextBrainService(store).generate_daily_brief(
+                    _vnext_brain_artifact_request(request, identity=identity, decision=decision)
+                ),
             )
     except VNextBrainValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext daily brief request is invalid")
@@ -346,6 +354,9 @@ def generate_vnext_daily_brief(
     except AgentPolicyBlockedError as exc:
         return _vnext_permission_response(exc.decision)
 
+    if payload is None:
+        # The report was made and stays stored for the owner. This caller may not read it, which is a missing artifact.
+        return _vnext_public_error_response(status_code=404, detail="vNext artifact was not found")
     return JSONResponse(
         status_code=201,
         content=jsonable_encoder(payload),
@@ -385,8 +396,12 @@ def generate_vnext_weekly_synthesis(
             )
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
-            payload = VNextBrainService(store).generate_weekly_synthesis(
-                _vnext_brain_artifact_request(request, identity=identity, decision=decision)
+            payload = readable_artifact(
+                store,
+                identity,
+                VNextBrainService(store).generate_weekly_synthesis(
+                    _vnext_brain_artifact_request(request, identity=identity, decision=decision)
+                ),
             )
     except VNextBrainValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext weekly synthesis request is invalid")
@@ -395,6 +410,9 @@ def generate_vnext_weekly_synthesis(
     except AgentPolicyBlockedError as exc:
         return _vnext_permission_response(exc.decision)
 
+    if payload is None:
+        # The report was made and stays stored for the owner. This caller may not read it, which is a missing artifact.
+        return _vnext_public_error_response(status_code=404, detail="vNext artifact was not found")
     return JSONResponse(
         status_code=201,
         content=jsonable_encoder(payload),
@@ -435,8 +453,12 @@ def generate_vnext_connection_report(
             )
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
-            payload = VNextConnectionService(store).generate_connection_report(
-                _vnext_connection_request(request, identity=identity, decision=decision)
+            payload = readable_artifact(
+                store,
+                identity,
+                VNextConnectionService(store).generate_connection_report(
+                    _vnext_connection_request(request, identity=identity, decision=decision)
+                ),
             )
     except VNextConnectionValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext connection report request is invalid")
@@ -445,6 +467,9 @@ def generate_vnext_connection_report(
     except AgentPolicyBlockedError as exc:
         return _vnext_permission_response(exc.decision)
 
+    if payload is None:
+        # The report was made and stays stored for the owner. This caller may not read it, which is a missing artifact.
+        return _vnext_public_error_response(status_code=404, detail="vNext artifact was not found")
     return JSONResponse(
         status_code=201,
         content=jsonable_encoder(payload),
@@ -485,8 +510,12 @@ def generate_vnext_contradiction_report(
             )
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
-            payload = VNextContradictionService(store).generate_contradiction_report(
-                _vnext_contradiction_request(request, identity=identity, decision=decision)
+            payload = readable_artifact(
+                store,
+                identity,
+                VNextContradictionService(store).generate_contradiction_report(
+                    _vnext_contradiction_request(request, identity=identity, decision=decision)
+                ),
             )
     except VNextContradictionValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext contradiction report request is invalid")
@@ -495,6 +524,9 @@ def generate_vnext_contradiction_report(
     except AgentPolicyBlockedError as exc:
         return _vnext_permission_response(exc.decision)
 
+    if payload is None:
+        # The report was made and stays stored for the owner. This caller may not read it, which is a missing artifact.
+        return _vnext_public_error_response(status_code=404, detail="vNext artifact was not found")
     return JSONResponse(
         status_code=201,
         content=jsonable_encoder(payload),
@@ -580,6 +612,12 @@ def process_next_vnext_queue_task(
                 .process_next_task(readable_labels=claimable_task_labels(identity))
                 .to_record()
             )
+            # The result report is stored under the labels of the rows its task names, which can be above the labels of
+            # the task the caller was allowed to claim. The id of a report the caller may not read is not handed back.
+            if payload.get("artifact_id") is not None and readable_artifact(
+                store, identity, {"id": payload["artifact_id"]}
+            ) is None:
+                payload = {**payload, "artifact_id": None}
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
     except AgentIdentityValidationError:
@@ -1096,8 +1134,12 @@ def generate_vnext_project_update_candidate(
             )
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
+            # The service reads the project and every artifact it returns on this caller's limits, as the artifact get
+            # does: a project the key may not read answers as a project that does not exist, and an artifact it may not
+            # read (one found again by its digest included) is not returned.
             payload = VNextProjectService(store).generate_project_update_candidate(
-                _vnext_project_automation_request(request, identity=identity, decision=decision)
+                _vnext_project_automation_request(request, identity=identity, decision=decision),
+                identity=identity,
             )
     except (ValueError, VNextProjectValidationError):
         return _vnext_public_error_response(status_code=400, detail="vNext project update request is invalid")

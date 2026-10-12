@@ -1,6 +1,19 @@
 """Conservative SQL partition: anything uncertain still reaches the kernel."""
 from alicebot_api.vnext_derived_labels import MARKER_KEYS, DERIVED_ARTIFACT_TYPES, SENSITIVITY_RANK
 
+#: The most rows one read of a list judges for the first rows a caller with limits may read, past rows its limits hide.
+#:
+#: A list read cuts to its limit in the store, and the store judges stored labels and the direct inputs of a row only, so a
+#: row that its inputs put above the caller's limits takes a place and is dropped afterwards. A caller with limits therefore
+#: reads again, with a longer window, until it holds enough rows it may read. Without a bound, a vault with many such rows
+#: newer than the first readable one would make every such read as long as the vault is full of them, and a caller who
+#: chooses the query could make it so on purpose. The read judges at most this many rows, per list and per partition of the
+#: project view. If it reaches this many without enough rows to read, the caller is given the rows it may read among them,
+#: which can be none: ``alice_resume`` then shows no decision and no next action, and no more events than it found. The
+#: context pack's open loops and the grounding probe stop the same way. A read that stops here tells its caller that at
+#: least this many newer rows are hidden from it, or that fewer than that were readable among them, and nothing more.
+READABLE_SCAN_CAP = 128
+
 
 def hidden_memory_input_sql(sensitivity_allowed, *, sqlite: bool, alias: str = "m") -> str:
     """Reject only a row proved hidden from the highest requested rank.

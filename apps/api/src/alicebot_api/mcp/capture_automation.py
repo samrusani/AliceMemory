@@ -16,6 +16,7 @@ from alicebot_api.vnext_brain import (
 )
 from alicebot_api.vnext_capture import VNextCaptureService
 from alicebot_api.vnext_connectors import VNextConnectorService
+from alicebot_api.vnext_label_guard import readable_artifact
 from alicebot_api.vnext_queue import (
     QueueTaskRequest,
     VNextQueueService,
@@ -44,7 +45,7 @@ from .synthesis import (
     _handle_alice_generate_connections,
     _handle_alice_generate_contradictions,
 )
-from .types import MCPArgumentError
+from .types import MCPArgumentError, MCPReferenceNotFoundError
 
 
 def _handle_alice_vnext_capture(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -234,6 +235,7 @@ def _handle_alice_vnext_generate_artifact(context: MCPRuntimeContext, arguments:
     generation_kwargs = _parse_model_generation_kwargs(arguments)
     blocked_decision: PolicyDecision | None = None
     payload: VNextJsonObject | None = None
+    missing = False
     with _vnext_store_context(context) as store:
         actor_type, actor_id, decision = _policy_checked(
             store,
@@ -268,13 +270,20 @@ def _handle_alice_vnext_generate_artifact(context: MCPRuntimeContext, arguments:
                 **generation_kwargs,
             )
             service = VNextBrainService(store)
-            payload = (
+            # The report is stored whoever asked for it, and the answer is a read of it: judged on the labels it has now,
+            # as the artifact read is, whether the run made it or found it again under the same digest.
+            payload = readable_artifact(
+                store,
+                identity,
                 service.generate_weekly_synthesis(request)
                 if workflow_type == "weekly_synthesis"
-                else service.generate_daily_brief(request)
+                else service.generate_daily_brief(request),
             )
+            missing = payload is None
     if blocked_decision is not None:
         _raise_mcp_policy_blocked(blocked_decision)
+    if missing:
+        raise MCPReferenceNotFoundError("the artifact was not found")
     if payload is None:
         raise MCPToolError("vNext artifact generation did not complete")
     return _json_object(payload)

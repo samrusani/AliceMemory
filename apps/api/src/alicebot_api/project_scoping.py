@@ -32,6 +32,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from alicebot_api.json_bounds import loads_stored
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_repositories import EventStore
 
@@ -206,7 +207,7 @@ def _event_payload_value(record: Mapping[str, object]) -> ScopingValue | None:
     payload = record.get("payload_json")
     if isinstance(payload, str):
         try:
-            payload = json.loads(payload)
+            payload = loads_stored(payload)
         except ValueError:
             return None
     if not isinstance(payload, Mapping):

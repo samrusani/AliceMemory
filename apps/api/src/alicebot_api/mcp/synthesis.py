@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
+from typing import Any
 from alicebot_api.project_view import ProjectView
 from alicebot_api.store import JsonObject
 from alicebot_api.vnext_brain import (
@@ -18,6 +19,8 @@ from alicebot_api.vnext_contradictions import (
     ContradictionFinderRequest,
     VNextContradictionService,
 )
+from alicebot_api.vnext_label_guard import readable_artifact
+from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 
 from .shared import (
     MCPRuntimeContext,
@@ -33,6 +36,7 @@ from .shared import (
     _parse_string_list,
     _vnext_store_context,
 )
+from .types import MCPReferenceNotFoundError
 
 
 def _brain_artifact_request_from_arguments(arguments: Mapping[str, object]) -> BrainArtifactRequest:
@@ -57,20 +61,36 @@ def _brain_artifact_request_from_arguments(arguments: Mapping[str, object]) -> B
     )
 
 
+def _generated_artifact_answer(
+    context: MCPRuntimeContext, arguments: Mapping[str, object], make: Callable[[Any], VNextJsonObject]
+) -> JsonObject:
+    """Run ``make(store)`` and answer with its report only when the caller may read that report now.
+
+    The report is stored whoever asked for it and the owner reads it. A report this caller may not read (it was made from
+    a row above the caller's limits, or it is one the run found again that the owner raised) is answered as a missing
+    artifact is, and nothing about it is echoed.
+    """
+
+    identity = _agent_identity_from_arguments(context, arguments)
+    with _vnext_store_context(context) as store:
+        artifact = readable_artifact(store, identity, make(store))
+    if artifact is None:
+        raise MCPReferenceNotFoundError("the artifact was not found")
+    return _json_object(artifact)
+
+
 def _handle_alice_generate_daily_brief(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     request = _authorized_brain_request(context, arguments)
-    with _vnext_store_context(context) as store:
-        return _json_object(
-            VNextBrainService(store).generate_daily_brief(request)
-        )
+    return _generated_artifact_answer(
+        context, arguments, lambda store: VNextBrainService(store).generate_daily_brief(request)
+    )
 
 
 def _handle_alice_generate_weekly_synthesis(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     request = _authorized_brain_request(context, arguments)
-    with _vnext_store_context(context) as store:
-        return _json_object(
-            VNextBrainService(store).generate_weekly_synthesis(request)
-        )
+    return _generated_artifact_answer(
+        context, arguments, lambda store: VNextBrainService(store).generate_weekly_synthesis(request)
+    )
 
 
 def _authorized_brain_request(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> BrainArtifactRequest:
@@ -131,8 +151,9 @@ def _handle_alice_generate_connections(context: MCPRuntimeContext, arguments: Ma
         model_temperature=request.model_temperature,
         allow_cloud_private=request.allow_cloud_private,
     )
-    with _vnext_store_context(context) as store:
-        return _json_object(VNextConnectionService(store).generate_connection_report(request))
+    return _generated_artifact_answer(
+        context, arguments, lambda store: VNextConnectionService(store).generate_connection_report(request)
+    )
 
 
 def _handle_alice_graph_edge_review(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -196,8 +217,9 @@ def _handle_alice_generate_contradictions(context: MCPRuntimeContext, arguments:
         model_temperature=request.model_temperature,
         allow_cloud_private=request.allow_cloud_private,
     )
-    with _vnext_store_context(context) as store:
-        return _json_object(VNextContradictionService(store).generate_contradiction_report(request))
+    return _generated_artifact_answer(
+        context, arguments, lambda store: VNextContradictionService(store).generate_contradiction_report(request)
+    )
 
 
 def _handle_alice_belief_review(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:

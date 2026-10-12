@@ -8,6 +8,7 @@ from alicebot_api.cli.shared import CLIContext, _vnext_store_context
 from alicebot_api.db import user_read_snapshot_connection
 from alicebot_api.vnext_derived_domain_backfill import DerivedDomainRepairError, require_changed
 from alicebot_api.vnext_label_repair import (
+    REPAIR_CAUSE,
     classify_stored_labels,
     format_label_check,
     plan_label_repairs,
@@ -104,7 +105,7 @@ def _run_vnext_labels_repair(ctx: CLIContext, args: object) -> str:
                     actor_type="system",
                     target_type=target,
                     target_id=row_id,
-                    payload=labels_raised_payload(cause="repair_v3", previous=previous, new=new),
+                    payload=labels_raised_payload(cause=REPAIR_CAUSE, previous=previous, new=new),
                 )
                 store.conn.execute(
                     """
