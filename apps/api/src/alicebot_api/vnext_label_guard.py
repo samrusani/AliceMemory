@@ -51,7 +51,13 @@ from alicebot_api.vnext_label_sql import (
     EVENT_TYPE_REFERENCES,
     EVENT_UNJUDGED_TARGETS,
 )
-from alicebot_api.vnext_project_scope import project_floor_shape, project_scope_identity, project_scopes_overlap, resolve_project_scope
+from alicebot_api.vnext_project_scope import (
+    project_floor_shape,
+    project_scope_identity,
+    project_scopes_overlap,
+    reserved_project_marker,
+    resolve_project_scope,
+)
 
 
 _GUARD_USER = "label-guard"
@@ -302,6 +308,11 @@ class LabelGuard:
     selection_only: bool = False
     _nodes: dict[tuple[str, str], list[dict[str, object]]] | None = None
     _request: _RequestLabels | None = None
+    # True when ``all_of``, a key's binding, holds a reserved name. Judged once here and not once for each row.
+    _binding_reserved: bool = field(init=False, default=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        self._binding_reserved = self.all_of is not None and reserved_project_marker(self.all_of) is not None
 
     def _state(self) -> _RequestLabels:
         current = _REQUEST_LABELS.get()
@@ -1107,6 +1118,10 @@ class LabelGuard:
         return list(kept.values())
 
     def _admits_effective(self, row: Mapping[str, object], *, kind: str) -> bool:
+        if self._binding_reserved:
+            # A key's binding that holds a reserved name is invalid, so it admits no row: the name has its meaning only
+            # in a request tuple that Alice builds, never in a binding.
+            return False
         if self.all_of is not None and (row.get("unverified") or not input_admitted(kind, row, self.all_of)):
             return False
         domain = str(row.get("domain") or "unknown")

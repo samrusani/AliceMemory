@@ -646,7 +646,8 @@ def _(v):
         Call(
             "local_folder",
             path={"connector_name": "local_folder"},
-            admin_sees=("capture_hidden-title", "capture_hidden-raw", "synced-title", "synced-file"),
+            # The failed item never became a source, so the id the importer gave it is shown to the admin key only.
+            admin_sees=("capture_hidden-title", "capture_hidden-raw", "synced-title", "synced-file", "failed-item"),
             trusted_sees=("capture_shown-title",),
             statuses=(200,),
         ),
