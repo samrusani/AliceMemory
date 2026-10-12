@@ -85,7 +85,7 @@ from .context import (
 from .definitions import (
     _CORE_TOOL_DEFINITIONS,
     _LEGACY_TOOL_DEFINITIONS,
-    READ_ONLY_TOOL_NAMES,
+    tool_only_reads,
 )
 from .evidence_artifacts import (
     _handle_alice_artifact_inspect,
@@ -566,9 +566,10 @@ def call_mcp_tool(
                 agent_identity=identity,
                 agent_identity_resolved=True,
             )
-        # A reader that overflows on a stored row nested near the recursion limit fails the call once; a call that only
-        # reads then runs again with the deep part of every stored column cut. A tool that writes is never run twice.
-        if name in READ_ONLY_TOOL_NAMES:
+        # A reader that overflows on a stored row nested near the recursion limit fails the call once; a call that writes
+        # nothing but the audit events of its policy check then runs again with the deep part of every stored column cut,
+        # and does not write those events again. A tool that writes is never run twice.
+        if tool_only_reads(name, parsed_arguments):
             payload = retry_cutting_deep_json(lambda: handler(context, parsed_arguments))
         else:
             payload = handler(context, parsed_arguments)

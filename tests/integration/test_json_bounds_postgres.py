@@ -360,13 +360,85 @@ def test_a_write_is_not_run_twice_and_writes_back_what_it_read(app, action: str)
     assert outcome == 200 and stored == (255, DEEP_PLACEHOLDER) and in_event and "memory.updated" in events
 
 
-@pytest.mark.parametrize("depth", (400, 1500, 12000))
-def test_a_context_pack_request_is_read_again_with_its_body_when_a_row_is_too_deep(app, depth: int) -> None:
-    """``POST /v0/vnext/context-packs`` is the one POST route the layer may run again, with the same body, when the pack
-    builder overflows on a row. This vault's row does not make the builder overflow at these depths (the unit tests of the
-    layer hold the replay of a body), so the test holds what a caller sees: the pack is made and names the memory."""
+@pytest.mark.parametrize("where", ("memories.value", "sources.metadata_json"))
+def test_a_context_pack_request_is_read_again_with_its_body_when_a_row_is_too_deep(app, where: str) -> None:
+    """``POST /v0/vnext/context-packs`` is the one POST route the layer may run again, with the same body. The pack builder
+    reads ``memories.value`` and ``sources.metadata_json`` for the rows it returns, and a value nested 1,500 levels in either
+    overflows it: without the layer the request fails with ``RecursionError`` and no pack is compiled. With it the answer is
+    201, it names the row, and exactly one compile event was written (the first attempt rolled back)."""
 
-    memory_id = _store_a_deep_row(app, depth)
+    from alicebot_api.vnext_capture import SourceCaptureInput, VNextCaptureService
+
+    memory_id = _store_a_deep_row(app, 10, key="pack-deep")
+    with user_connection(app.url, app.user_id) as conn:
+        captured = VNextCaptureService(PostgresVNextStore(conn)).capture_source(SourceCaptureInput(
+            source_type="note", title="cobalt door note", raw_text="The cobalt door opens on Monday for the vendor.",
+            connector_name="manual", external_id="pack-deep", domain="project", sensitivity="private"))
+    source_id = str(captured.source_id)
+    table, column = where.split(".")
+    with psycopg.connect(app.admin_url, autocommit=True) as conn:
+        conn.execute(f"UPDATE {table} SET {column} = jsonb_set(coalesce({column}, '{{}}'::jsonb), '{{note}}', %s::jsonb) WHERE id = %s",
+                     ("[" * 1500 + '"x"' + "]" * 1500, memory_id if table == "memories" else source_id))
+    before = _event_counts(app)
     status, answer = _post("/v0/vnext/context-packs", {"user_id": app.user, "query": "cobalt door", "options": {"include_sources": True}})
     assert status == 201, answer
-    assert memory_id in json.dumps(answer)
+    assert (memory_id if table == "memories" else source_id) in json.dumps(answer)
+    assert _new_events(before, _event_counts(app)).get("retrieval.context_pack_compiled") == 1
+
+
+def _event_counts(app) -> dict[str, int]:
+    with psycopg.connect(app.admin_url) as conn:
+        return dict(conn.execute("SELECT event_type, count(*) FROM event_log GROUP BY 1").fetchall())
+
+
+def _new_events(before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
+    return {kind: after.get(kind, 0) - before.get(kind, 0) for kind in after if after.get(kind, 0) != before.get(kind, 0)}
+
+
+def _tool_calls(memory_id: str) -> list[tuple[str, dict[str, Any]]]:
+    return [
+        ("alice_recall", {"query": "cobalt door"}),
+        ("alice_resume", {"query": "cobalt"}),
+        ("alice_context_pack", {"query": "cobalt door"}),
+        ("alice_recent_decisions", {}),
+        ("alice_memory_review", {"review_item_id": memory_id}),
+        ("alice_memory_review", {"status": "all"}),
+        ("alice_explain", {"memory_id": memory_id}),
+        ("alice_open_loops", {"action": "list"}),
+    ]
+
+
+@pytest.mark.parametrize("index", range(8))
+def test_a_retried_mcp_read_tool_writes_the_events_of_an_ordinary_call_on_postgres(app, monkeypatch, index: int) -> None:
+    """The tools marked read-only write the audit events of their policy check. A declared agent makes them, and a call that
+    is run again must not write them twice (the first head left two of each for ``alice_resume``). The handler here does
+    its work, commits, and then overflows once, as a reader does after its transaction closed."""
+
+    from alicebot_api import json_bounds
+    from alicebot_api.mcp import registry
+
+    memory_id = _store_a_deep_row(app, 10, key="events-shallow")
+    name, base = _tool_calls(memory_id)[index]
+    arguments = {**base, "agent_id": "probe-agent", "agent_type": "coding_agent", "permission_profile": "trusted_local_agent"}
+    context = MCPRuntimeContext(database_url=app.url, user_id=app.user_id)
+    before = _event_counts(app)
+    call_mcp_tool(context, name=name, arguments=dict(arguments))
+    ordinary = _new_events(before, _event_counts(app))
+    assert ordinary.get("policy.decision") == 1, (name, ordinary)
+
+    real = registry._TOOL_HANDLERS[name]
+    attempts: list[bool] = []
+
+    def overflows_once(handler_context, handler_arguments):
+        result = real(handler_context, handler_arguments)
+        attempts.append(json_bounds._CUT_DEEP.get())
+        if not json_bounds._CUT_DEEP.get():
+            raise RecursionError("a reader, after the transaction closed")
+        return result
+
+    monkeypatch.setitem(registry._TOOL_HANDLERS, name, overflows_once)
+    before = _event_counts(app)
+    call_mcp_tool(context, name=name, arguments=dict(arguments))
+    retried = _new_events(before, _event_counts(app))
+    assert attempts == [False, True], (name, attempts)
+    assert retried == ordinary, (name, retried, ordinary)

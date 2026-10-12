@@ -38,7 +38,8 @@ import json
 import logging
 import math
 import re
-from collections.abc import Callable, Iterator, Mapping
+from collections import deque
+from collections.abc import Callable, Hashable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from itertools import accumulate
@@ -268,18 +269,143 @@ def overflowed(error: BaseException) -> bool:
     return False
 
 
+class _Scope:
+    """The attempts of one tool call: whether the call has been run again, and what its first attempt left behind that must
+    not be done twice. ``durable`` holds the results of work the first attempt committed (the policy check of the agent
+    and the compiled context pack, which write audit events); ``replay`` hands them back to the second attempt in the
+    order they were made."""
+
+    __slots__ = ("retried", "durable", "replay")
+
+    def __init__(self) -> None:
+        self.retried = False
+        self.durable: list[tuple[Hashable, Any]] = []
+        self.replay: dict[Hashable, deque[Any]] = {}
+
+
+# The scope of the tool call that is running, set by the outermost ``retry_cutting_deep_json``.
+_SCOPE: ContextVar[_Scope | None] = ContextVar("alicebot_retry_scope", default=None)
+# The results remembered by the transaction that is open, kept only if it commits.
+_UNIT: ContextVar[list[tuple[Hashable, Any]] | None] = ContextVar("alicebot_retry_unit", default=None)
+_NOT_REMEMBERED: Any = object()
+
+
 def retry_cutting_deep_json(call: Callable[[], _Result]) -> _Result:
     """Run ``call``; when it fails with a ``RecursionError`` (see ``overflowed``), run it once more with the deep part of
-    every stored column cut. A second failure, or a failure of any other kind, is raised as it is."""
+    every stored column cut. A second failure, or a failure of any other kind, is raised as it is.
 
+    The retry is once for the whole tool call, however many layers ask for it: the first caller owns the scope, and a
+    caller inside it (the registry inside the server) neither starts another nor runs a third attempt.
+    """
+
+    scope = _SCOPE.get()
+    token = None
+    if scope is None:
+        scope = _Scope()
+        token = _SCOPE.set(scope)
     try:
-        return call()
-    except Exception as error:
-        if _CUT_DEEP.get() or not overflowed(error):
-            raise
-    logger.warning("A stored row nests too deeply for a reader; the call runs again with the deep part cut")
-    with cutting_deep_json():
-        return call()
+        try:
+            return call()
+        except Exception as error:
+            if scope.retried or _CUT_DEEP.get() or not overflowed(error):
+                raise
+        scope.retried = True
+        scope.replay = {}
+        for key, value in scope.durable:
+            scope.replay.setdefault(key, deque()).append(value)
+        scope.durable = []
+        logger.warning("A stored row nests too deeply for a reader; the call runs again with the deep part cut")
+        with cutting_deep_json():
+            return call()
+    finally:
+        if token is not None:
+            _SCOPE.reset(token)
+
+
+@contextmanager
+def durable_unit() -> Iterator[None]:
+    """One transaction of a tool call that may be run again. What ``remember_durable`` is given inside is kept for the
+    second attempt only if the block ends without an error, which is when the transaction commits; a block that fails
+    rolled its writes back, so the second attempt has to make them."""
+
+    scope = _SCOPE.get()
+    if scope is None:
+        yield
+        return
+    unit: list[tuple[Hashable, Any]] = []
+    token = _UNIT.set(unit)
+    try:
+        yield
+        scope.durable.extend(unit)  # not reached when the block raised
+    finally:
+        _UNIT.reset(token)
+
+
+def replay_durable(key: Hashable) -> Any:
+    """The result the first attempt of this tool call committed for ``key``, or ``_NOT_REMEMBERED`` (test with
+    ``is_remembered``). Results come back in the order they were made, so a call that makes the same check twice gets each."""
+
+    scope = _SCOPE.get()
+    if scope is not None:
+        queue = scope.replay.get(key)
+        if queue:
+            return queue.popleft()
+    return _NOT_REMEMBERED
+
+
+def is_remembered(value: Any) -> bool:
+    return value is not _NOT_REMEMBERED
+
+
+def remember_durable(key: Hashable, value: Any) -> None:
+    """Note a result made inside a ``durable_unit``; it is replayed on the second attempt if that unit committed."""
+
+    unit = _UNIT.get()
+    if unit is not None:
+        unit.append((key, value))
+
+
+def durable_once(key: Hashable, compute: Callable[[], _Result], *, replay: Callable[[Any], Any] | None = None) -> _Result:
+    """``compute()``, or on the second attempt of a tool call that already finished it, the result of the first attempt
+    (through ``replay`` when given). ``compute`` commits its own transactions: that it returned is the proof, so a result
+    is remembered only when it returns, and an error leaves nothing to replay."""
+
+    scope = _SCOPE.get()
+    if scope is None:
+        return compute()
+    queue = scope.replay.get(key)
+    if queue:
+        value = queue.popleft()
+        return value if replay is None else replay(value)
+    result = compute()
+    scope.durable.append((key, result))
+    return result
+
+
+def cut_deep_value(value: Any, limit: int = MAX_READ_JSON_DEPTH) -> Any:
+    """A copy of a decoded JSON value with each array or object nested deeper than ``limit`` levels replaced by
+    ``DEEP_PLACEHOLDER``, as ``loads_bounded`` cuts a text. The walk keeps its own stack, so it cannot overflow."""
+
+    if not isinstance(value, (dict, list, tuple)):
+        return value
+    root: dict[Any, Any] | list[Any] = {} if isinstance(value, dict) else []
+    stack: list[tuple[Any, Any, int]] = [(value, root, 1)]
+    while stack:
+        source, target, depth = stack.pop()
+        for key, child in source.items() if isinstance(source, dict) else enumerate(source):
+            if isinstance(child, (dict, list, tuple)):
+                if depth + 1 > limit:
+                    copied: Any = DEEP_PLACEHOLDER
+                else:
+                    copied = {} if isinstance(child, dict) else []
+                    stack.append((child, copied, depth + 1))
+            else:
+                copied = child
+            if isinstance(target, dict):
+                target[key] = copied
+            else:
+                target.append(copied)
+    return root
 
 
 def _refuse_constant(_name: str) -> object:
@@ -342,14 +468,20 @@ __all__ = [
     "NOT_FINITE",
     "TOO_DEEP",
     "cut_deep_json",
+    "cut_deep_value",
     "cutting_deep_json",
+    "durable_once",
+    "durable_unit",
     "first_json_problem",
+    "is_remembered",
     "loads_bounded",
     "loads_caller_json",
     "loads_finite",
     "loads_stored",
     "overflowed",
     "refuse_unstorable_json",
+    "remember_durable",
+    "replay_durable",
     "retry_cutting_deep_json",
     "text_nests_deeper_than",
 ]

@@ -16,7 +16,9 @@ The PostgreSQL routes (audit, recent commits) are covered by ``tests/integration
 Mutations, each one alone: ``retry_cutting_deep_json`` stops retrying
 (``test_a_row_stored_deeper_than_the_decoder_reads_does_not_break_a_door``); ``SQLiteVNextStore._decode_row`` goes back to
 ``json.loads`` (``test_the_cut_is_a_placeholder_and_the_rest_is_whole``); the three sqlite_store hint decoders go back to
-``json.loads`` (``test_the_sqlite_functions_that_read_a_column_survive_a_deep_one``); ``loads_bounded`` stops cutting (both).
+``json.loads`` (``test_the_sqlite_functions_that_read_a_column_survive_a_deep_one``); ``loads_bounded`` stops cutting (both);
+``tool_only_reads`` stops naming the list action of ``alice_open_loops``
+(``test_one_deep_open_loop_does_not_break_the_list_action_for_any_caller``).
 """
 
 from __future__ import annotations
@@ -193,3 +195,39 @@ def test_the_sqlite_functions_that_read_a_column_survive_a_deep_one(tmp_path) ->
                 assert "no such function" in str(exc), sql
         assert [str(row["id"]) for row in store.list_memories(status=None)] == [memory_id]
         assert store.search_memories(query="cobalt door", limit=5)
+
+
+@pytest.mark.parametrize("arguments", ({}, {"action": "list"}))
+@pytest.mark.parametrize("caller", list(CALLERS))
+def test_one_deep_open_loop_does_not_break_the_list_action_for_any_caller(tmp_path, caplog, caller: str, arguments: dict) -> None:
+    """``alice_open_loops`` lists with its default action. One loop whose metadata nests 990 levels made the list fail with
+    ``RecursionError`` for every caller until the list action was run again with the cut like the six read-only tools; the
+    other actions change a loop and are never run twice."""
+
+    from tests.unit.test_importer_per_file_savepoint import _folder
+    from tests.unit.test_source_supersede import run_import
+
+    db = _vault(tmp_path)
+    source_id = run_import(db, _folder(tmp_path, note=TEXT)).source_ids[0]
+    with sqlite_user_connection(db, USER_ID) as conn:
+        loop_id = str(SQLiteVNextStore(conn, USER_ID).create_open_loop(
+            {"title": "find the lantern", "description": "d", "resolution_note": None, "source_id": source_id, "status": "open",
+             "metadata_json": {}})["id"])
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute("UPDATE open_loops SET metadata_json = ? WHERE id = ?",
+                     ('{"keep":1,"note":' + "[" * 989 + '"x"' + "]" * 989 + "}", loop_id))
+        conn.commit()
+    identity, may_read = CALLERS[caller]
+    keyword = {} if identity is None else {"agent_identity": identity, "agent_identity_resolved": True}
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(db), user_id=UUID(USER_ID), **keyword)
+    with caplog.at_level("WARNING", logger="alicebot_api.json_bounds"):
+        try:
+            answer = call_mcp_tool(context, name="alice_open_loops", arguments=dict(arguments))
+        except Exception as exc:
+            # A key may be refused by policy; it must never be a RecursionError.
+            assert type(exc).__name__.startswith("MCP"), (caller, type(exc).__name__)
+            return
+    assert answer is not None
+    # A key that may not read the loop never decodes it, so only the callers that may read it need the second attempt.
+    if may_read:
+        assert any("runs again with the deep part cut" in record.getMessage() for record in caplog.records)

@@ -9,8 +9,8 @@ the same body, in a context where every stored column is decoded by ``loads_boun
 levels. The second attempt is the only difference; a request that does not overflow runs once, and pays one wrapper
 call and the list of the messages it received.
 
-Only a request that reads is run twice: a request that wrote may have committed before the response failed, and
-running it again would write it twice. A write route that returns a row too deep to walk fails as it failed before. A
+Only a request that changes nothing a client asked for is run twice: a request that wrote may have committed before the
+response failed, and running it again would write it twice. A write route that returns a row too deep to walk fails as it failed before. A
 failure of any other kind, a second ``RecursionError`` and a failure after the response has started are raised as they
 are.
 """
@@ -25,8 +25,9 @@ from alicebot_api.json_bounds import cutting_deep_json, overflowed
 
 logger = logging.getLogger(__name__)
 
-# A request that wrote may have committed before the response failed, so only a request that reads is run twice: every GET,
-# and the POST routes that only read. A test holds each of these paths to a route of the application.
+# A request that wrote may have committed before the response failed, so only a request that changes nothing a client asked
+# for is run twice: every GET, and the POST routes that only compile an answer. A test holds each of these paths to a route
+# of the application.
 RETRIED_METHODS = frozenset({"GET", "HEAD"})
 READ_ONLY_POSTS = frozenset({"/v0/vnext/context-packs"})
 

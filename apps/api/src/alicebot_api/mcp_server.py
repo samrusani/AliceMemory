@@ -11,7 +11,7 @@ from uuid import UUID
 from alicebot_api import __version__
 from alicebot_api.json_bounds import MAX_READ_JSON_DEPTH, retry_cutting_deep_json, text_nests_deeper_than
 from alicebot_api.config import Settings, get_runtime_settings, get_settings
-from alicebot_api.mcp.definitions import READ_ONLY_TOOL_NAMES
+from alicebot_api.mcp.definitions import tool_only_reads
 from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES, MCPCodedToolError, MCPInvalidRequestError
 from alicebot_api.mcp_tools import (
     MCPRuntimeContext,
@@ -288,7 +288,7 @@ class MCPServer:
             try:
                 # The call and the serialization of its result are one attempt: a row nested near the recursion limit
                 # can overflow either, and the second attempt cuts the deep part of every stored column. Only a tool
-                # that reads is run a second time.
+                # that writes nothing but the audit events of its policy check is run a second time.
                 def attempt() -> str:
                     return serialize_mcp_tool_result(
                         call_mcp_tool(
@@ -298,7 +298,7 @@ class MCPServer:
                         )
                     )
 
-                text = retry_cutting_deep_json(attempt) if name in READ_ONLY_TOOL_NAMES else attempt()
+                text = retry_cutting_deep_json(attempt) if tool_only_reads(name, arguments) else attempt()
             except MCPToolNotFoundError:
                 logger.info("MCP tool was not found name=%s", name, exc_info=True)
                 return _response_success(

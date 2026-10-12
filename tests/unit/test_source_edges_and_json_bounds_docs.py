@@ -6,9 +6,9 @@ Both changes are on main and not in v0.20.0, so every sentence that states them 
 Mutations, each one alone: delete the marker from an entry or a paragraph; delete the clause that names the edges the
 command left open (``left every other edge open``); delete the clause that says no key reads an edge on SQLite; delete the
 limit (`64 levels`) or the non-finite numbers from the changelog entry or from ``mcp-tools.md``; delete the sentence of
-``threat-model.md`` that names `finite_number`; put back the claim that v0.20.0 and main stored a ref nested about 950 levels
-(the HTTP route of v0.20.0 refuses it and the MCP commit tool takes strings only); delete the sentence that says a write is
-never run twice or the one that says a write of a row the decoder cannot read writes the placeholder back. Each fails the
+``threat-model.md`` that names `finite_number`; put back the claim that v0.20.0 and main stored a ref nested about 950 levels over HTTP or MCP (only a direct call of the
+commit service did); delete the sentence that says a write is never run twice, the one that says the second attempt does not
+write the audit events again, or the one that says a write of a row the decoder cannot read writes the placeholder back. Each fails the
 test named for it.
 """
 
@@ -60,8 +60,10 @@ def test_the_changelog_entry_for_the_write_limits_names_the_limits_and_what_was_
     assert entry.count(MARK) == 1
     for clause in (
         "holds no `NaN`, `Infinity`, `-Infinity` or number too large for a float (`1e999`)",
-        "In v0.19.2, and in a caller of the commit service in any version, a memory commit measured the serialized size",
-        "nested about 950 levels deep was stored; the HTTP route of v0.20.0 and main already answers HTTP 422 to a body nested past 256 levels, and the MCP commit tool takes strings only",
+        "A memory commit measured the serialized size",
+        "A direct call of the commit service stored an entry nested about 950 levels deep (in v0.19.2, in v0.20.0 and on main until now)",
+        "v0.19.2 stored an entry nested up to about 200 levels and answered a server error from about 255 on",
+        "the MCP commit tool takes strings only",
         "in v0.20.0 and on main until now a stored value nested near the interpreter's recursion limit",
         "`GET /v0/vnext/memories/{id}/audit`",
         "stored it as `null` without a word",
@@ -71,7 +73,9 @@ def test_the_changelog_entry_for_the_write_limits_names_the_limits_and_what_was_
         "Each entry of the `source_refs` of an agent output is held to 64 levels",
         "decoded by `loads_stored` on both stores",
         "which is `json.loads` and costs what it costs",
-        "an MCP tool that only reads (the six tools marked read-only) is then run once more with every stored column decoded by `loads_bounded`",
+        "an MCP tool call that writes nothing but the audit events of its policy check (the tools marked read-only, and `alice_open_loops` with its `list` action)",
+        "The retry is once for the whole call",
+        "so a retried call leaves the events an ordinary call leaves",
         "`[nested too deeply]`",
         "A request or tool call that may have written is never run twice",
         "writes the placeholder back into the row and into the audit event it appends",
@@ -109,8 +113,11 @@ def test_the_mcp_tools_page_states_the_write_limits_as_main_only() -> None:
         "A tool answers `invalid_request` before it runs",
         "answers HTTP 422 on every route",
         "it nests past 256 levels is an invalid request, and the server goes on",
-        "about 950 levels deep was stored (the HTTP route of v0.20.0 refuses a body nested past 256 levels and the MCP commit tool takes strings only)",
+        "direct call of the commit service stored a ref nested about 950 levels deep (in v0.19.2, in v0.20.0 and on main until now)",
+        "and the MCP commit tool takes strings only",
         "is run once more with every stored column cut to 256 levels",
+        "The second attempt does not write those audit events again",
+        "`alice_open_loops` with its `list` action",
         "the part below is one placeholder string",
         "A call that may have written is never run twice",
         "writes the placeholder back into the row and into the audit event",

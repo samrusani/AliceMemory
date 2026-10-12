@@ -1,8 +1,8 @@
 """A stored row too deep for a reader is read whole when it can be and cut when it cannot, and a call that wrote never runs twice.
 
 ``loads_stored`` is ``json.loads``. A reader that overflows on what it decoded fails the request or the tool call once, and
-a call that only reads runs again with ``cutting_deep_json()`` set, in which every stored column is decoded by
-``loads_bounded``. These tests hold the pieces: the decoder, the walk that finds a ``RecursionError`` in a chain of
+a call that writes nothing but the audit events of its policy check runs again with ``cutting_deep_json()`` set, in which
+every stored column is decoded by ``loads_bounded``. These tests hold the pieces: the decoder, the walk that finds a ``RecursionError`` in a chain of
 errors, the retry, the ASGI layer for an HTTP request and the MCP server for a tool call.
 
 Mutations, each one alone, each named by the test that fails (replayed by ``scripts/verify_derived_label_mutations.py``):
@@ -10,8 +10,9 @@ Mutations, each one alone, each named by the test that fails (replayed by ``scri
 * ``loads_stored`` stops falling back when ``json.loads`` overflows: ``test_the_stored_decoder_falls_back_when_the_decoder_overflows``.
 * ``loads_stored`` ignores ``cutting_deep_json``: ``test_the_stored_decoder_cuts_on_the_second_attempt``.
 * ``overflowed`` stops reading ``__cause__``, ``__context__`` or the members of a group: ``test_a_recursion_error_is_found_wherever_the_chain_holds_it``.
-* ``retry_cutting_deep_json`` retries an error that is not a ``RecursionError``, or retries twice:
-  ``test_the_retry_runs_a_call_that_overflowed_once_more_and_nothing_else``.
+* ``retry_cutting_deep_json`` retries an error that is not a ``RecursionError``, or retries once for each layer that asks
+  instead of once for the call: ``test_the_retry_runs_a_call_that_overflowed_once_more_and_nothing_else``, and the server and
+  the registry together: ``test_a_handler_that_overflows_twice_is_run_twice_through_the_server``.
 * the ASGI layer replays a request that wrote, or one whose response has started, or does not replay the body:
   ``test_a_get_that_overflowed_is_replayed_with_the_same_request`` and ``test_a_request_that_may_have_written_is_not_replayed``.
 * ``READ_ONLY_POSTS`` names a path that is no route: ``test_the_read_only_posts_are_posts_of_the_application``.
@@ -26,7 +27,7 @@ from io import BytesIO
 
 import pytest
 
-from alicebot_api import mcp_server
+from alicebot_api import json_bounds, mcp_server
 from alicebot_api.deep_row_retry import READ_ONLY_POSTS, RetryDeepRowMiddleware
 from alicebot_api.json_bounds import (
     DEEP_PLACEHOLDER,
@@ -36,7 +37,7 @@ from alicebot_api.json_bounds import (
     overflowed,
     retry_cutting_deep_json,
 )
-from alicebot_api.mcp.definitions import READ_ONLY_TOOL_NAMES
+from alicebot_api.mcp.definitions import READ_ONLY_TOOL_NAMES, tool_only_reads
 from alicebot_api.mcp.types import MCPRuntimeContext
 
 
@@ -165,8 +166,9 @@ def test_the_retry_runs_a_call_that_overflowed_once_more_and_nothing_else() -> N
 
     with pytest.raises(RecursionError):
         retry_cutting_deep_json(nested)
-    # The first attempt of ``nested`` retried inside (two calls); its second attempt ran with the cut on and did not (one).
-    assert len(inner) == 2 and len(calls) == 2 + 2 + 1
+    # The retry is once for the whole call, whichever layer asks: the inner layer ran its callee twice, and the outer layer,
+    # which saw the call had been run again, did not run ``nested`` a second time.
+    assert len(inner) == 1 and len(calls) == 2 + 2
 
 
 # The ASGI layer.
@@ -299,8 +301,9 @@ class _Server:
         self.server = mcp_server.MCPServer(context=MCPRuntimeContext(database_url="x", user_id=None), input_stream=BytesIO(), output_stream=BytesIO())  # type: ignore[arg-type]
         self.tool = tool
 
-    def call(self) -> dict | None:
-        return self.server._handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": self.tool, "arguments": {}}})
+    def call(self, arguments: dict | None = None) -> dict | None:
+        return self.server._handle_request(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": self.tool, "arguments": arguments or {}}})
 
 
 def test_a_tool_that_reads_is_run_again_with_the_cut(monkeypatch) -> None:
@@ -311,15 +314,27 @@ def test_a_tool_that_reads_is_run_again_with_the_cut(monkeypatch) -> None:
 
 
 def test_a_tool_that_writes_is_not_run_twice(monkeypatch) -> None:
-    for tool in ("alice_memory_commit", "alice_capture", "alice_memory_correct", "alice_memory_manage", "alice_open_loops"):
-        assert tool not in READ_ONLY_TOOL_NAMES
+    for tool, arguments in (
+        ("alice_memory_commit", {}), ("alice_capture", {}), ("alice_memory_correct", {}), ("alice_memory_manage", {}),
+        ("alice_open_loops", {"action": "close", "loop_id": "x"}), ("alice_open_loops", {"action": "dismiss"}),
+        ("alice_open_loops", {"action": 5}),
+    ):
+        assert not tool_only_reads(tool, arguments), (tool, arguments)
         server = _Server(monkeypatch, tool)
         try:
-            answer = server.call()
+            answer = server.call(arguments)
         except RecursionError:
             answer = None
         # Whatever the server answers, the tool ran once.
         assert server.calls == [False], (tool, answer)
+
+
+def test_the_list_action_of_the_open_loops_tool_is_run_again_and_the_other_actions_are_not(monkeypatch) -> None:
+    for arguments in ({}, {"action": "list"}, {"action": " List "}, {"action": None}):
+        assert tool_only_reads("alice_open_loops", arguments), arguments
+    server = _Server(monkeypatch, "alice_open_loops")
+    server.call({"action": "list"})
+    assert server.calls == [False, True]
 
 
 def test_the_registry_runs_a_write_tool_once_and_a_read_tool_again(monkeypatch, tmp_path) -> None:
@@ -364,3 +379,33 @@ def test_the_tools_that_read_are_the_tools_hinted_as_read_only() -> None:
         if tool["annotations"].get("readOnlyHint")  # type: ignore[index, union-attr]
     }
     assert hinted == set(READ_ONLY_TOOL_NAMES)
+
+
+def test_a_handler_that_overflows_twice_is_run_twice_through_the_server(monkeypatch, tmp_path) -> None:
+    """The server and the registry both ask for the retry, and the handler still runs twice in all, not three times."""
+
+    from uuid import UUID
+
+    from alicebot_api.mcp import registry
+    from alicebot_api.onramp import sqlite_url_for_path
+    from tests.unit.test_importer_per_file_savepoint import USER_ID, _vault
+
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    runs: list[bool] = []
+
+    def always_overflows(_context, _arguments):
+        runs.append(json_bounds._CUT_DEEP.get())
+        raise RecursionError("always")
+
+    monkeypatch.setitem(registry._TOOL_HANDLERS, "alice_recall", always_overflows)
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(_vault(tmp_path)), user_id=UUID(USER_ID))
+    server = mcp_server.MCPServer(context=context, input_stream=BytesIO(), output_stream=BytesIO())
+    server._handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "alice_recall", "arguments": {"query": "q"}}})
+    assert runs == [False, True]
+    # A handler that finishes, whose result the server then fails to serialize, is run twice and not more.
+    runs.clear()
+    monkeypatch.setitem(registry._TOOL_HANDLERS, "alice_recall", lambda c, a: runs.append(json_bounds._CUT_DEEP.get()) or {"ok": True})
+    monkeypatch.setattr(mcp_server, "serialize_mcp_tool_result", lambda payload: (_ for _ in ()).throw(RecursionError("serialize")))
+    server._handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "alice_recall", "arguments": {"query": "q"}}})
+    assert runs == [False, True]

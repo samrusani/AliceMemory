@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
+from alicebot_api.json_bounds import is_remembered, remember_durable, replay_durable
 from alicebot_api.project_view import (
     ProjectView,
     effective_scope_for_view,
@@ -148,6 +149,18 @@ def _policy_checked(
     promotion_candidate: PromotionCandidate | None = None,
     owner_verified: bool = False,
 ) -> tuple[str, str | None, PolicyDecision]:
+    # A tool call that is run again after a reader overflowed (``retry_cutting_deep_json``) must not write its audit
+    # events twice. When the first attempt's transaction committed this check, its result comes back and the identity row
+    # and the policy events, which are in the file already, are not written again. A first attempt that rolled back left
+    # nothing, and the check runs and writes as it always does.
+    check = repr((
+        identity.agent_id if identity is not None else None, action, domains, sensitivity_allowed, project_scope, project_floor,
+        workflow_type, write_policy, require_explicit_project_scope, require_unfiltered_target, target_type, target_id,
+        owner_verified,
+    ))
+    done = replay_durable(check)
+    if is_remembered(done):
+        return done  # type: ignore[no-any-return]
     if identity is not None:
         store.upsert_agent_identity(
             {
@@ -199,7 +212,9 @@ def _policy_checked(
         target_type=target_type,
         target_id=target_id,
     )
-    return ("agent", identity.agent_id, decision) if identity is not None else ("system", None, decision)
+    checked = ("agent", identity.agent_id, decision) if identity is not None else ("system", None, decision)
+    remember_durable(check, checked)
+    return checked
 
 
 def _raise_mcp_policy_blocked(decision: PolicyDecision) -> None:
