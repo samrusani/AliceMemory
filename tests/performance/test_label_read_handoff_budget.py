@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
+from tests.performance.read_budget_gate import append_evidence, over_merge_base, prelabels_checkout
+
 from alicebot_api.onramp import bootstrap_database
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_control import AgentIdentity
@@ -67,14 +69,41 @@ def test_sqlite_five_thousand_derived_rows_budget(tmp_path):
         assert not any(row_id in str(pack) for row_id in ids)
         print(f"SQLite 5000: counted={counted:.4f}s pack={elapsed:.4f}s")
         assert elapsed <= 0.15, elapsed
-    from tests.integration.test_label_read_handoff_budget_postgres import probe
-    head = probe(Path(__file__).resolve().parents[2], "sqlite", path, USER)
-    main = os.environ.get("ALICE_READ_MAIN_CHECKOUT")
-    if main:
-        baseline = probe(main, "sqlite", path, USER)
-        print("SQLite head=" + json.dumps(head) + " main=" + json.dumps(baseline))
-        for action in ("pack", "recall"):
-            assert head[action]["median"] <= 2 * baseline[action]["median"] + .1, (action, head, baseline)
+    from tests.integration.test_label_read_handoff_budget_postgres import (
+        close_probe, interleaved_medians, open_probe, prelabels_medians, solo_medians,
+    )
+    repo = Path(__file__).resolve().parents[2]
+    actions = ("pack", "recall")
+    merge_base = os.environ.get("ALICE_READ_MERGE_BASE_CHECKOUT", "").strip()
+    if merge_base:
+        processes = [open_probe(checkout, "sqlite", path, USER) for checkout in (merge_base, repo)]
+        try:
+            measured = interleaved_medians(processes[0], processes[1], actions)
+        finally:
+            for process in processes:
+                close_probe(process)
+        head = measured["head"]
+        report = None
+        prelabels = prelabels_checkout()
+        if prelabels:
+            process = open_probe(prelabels, "sqlite", path, USER)
+            try:
+                report = prelabels_medians(process, actions, head)
+            finally:
+                close_probe(process)
+        row = {"store": "sqlite", "gate": "merge_base", "merge_base": measured["merge_base"], "head": head}
+        if report is not None:
+            row["prelabels_report"] = report
+        print(json.dumps(row), flush=True)
+        append_evidence(row)
+        for action in actions:
+            assert not over_merge_base(head[action]["median"], measured["merge_base"][action]["median"]), (action, row)
     else:
+        process = open_probe(repo, "sqlite", path, USER)
+        try:
+            head = solo_medians(process, actions)
+        finally:
+            close_probe(process)
+        print("SQLite head=" + json.dumps(head))
         assert head["pack"]["median"] <= .15, head
         assert head["recall"]["median"] <= .15, head

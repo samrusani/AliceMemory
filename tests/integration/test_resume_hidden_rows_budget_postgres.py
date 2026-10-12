@@ -1,7 +1,7 @@
 """Resume and the grounding probe stay within a budget of the baseline when many newer rows are hidden from the caller, on PostgreSQL.
 
 Unreleased (on main, not in v0.20.0). The measurement of ``tests/performance/test_resume_hidden_rows_budget.py`` on a real
-PostgreSQL store, against the paired checkout named by ``ALICE_READ_MAIN_CHECKOUT``: 10,000 hidden rows newer than twelve
+PostgreSQL store, against the merge base named by ``ALICE_READ_MERGE_BASE_CHECKOUT``: 10,000 hidden rows newer than twelve
 readable decisions in two shapes, 100 hidden rows, and a vault of 200,000 sources with no hidden row, each with an event. The
 tables are analyzed before any sample, as a vault that has been used would have been: without statistics the planner joins
 ``event_log`` to ``memories`` with a nested loop that takes seconds on the baseline as well.

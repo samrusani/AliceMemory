@@ -16,6 +16,13 @@ from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_label_repair import label_gap_counts
 from alicebot_api.vnext_label_guard import LabelGuard, label_read_request
 from alicebot_api.vnext_agent_control import ALL_SENSITIVITY, DEFAULT_AGENT_SENSITIVITY
+from tests.performance.read_budget_gate import (
+    append_evidence,
+    merge_base_checkout,
+    over_merge_base,
+    prelabels_action,
+    prelabels_checkout,
+)
 
 USER = "11111111-1111-4111-8111-111111111111"
 
@@ -63,27 +70,109 @@ def seed_varied(store, *, postgres=False, count=5000, source_count=300, mixed=Tr
     return keys
 
 
-def probe(repo, backend, location, user, profile, key):
+def _open_probe(repo, backend, location, user, profile, key):
     script = Path(__file__).with_name("round2_budget_probe.py")
-    completed = subprocess.run([sys.executable, str(script), str(repo), backend, str(location), str(user), profile, key],
-                               capture_output=True, text=True, timeout=180)
-    assert completed.returncode == 0, completed.stderr
-    return json.loads(completed.stdout.strip().splitlines()[-1])["times"]
+    return subprocess.Popen(
+        [sys.executable, str(script), str(repo), backend, str(location), str(user), profile, key],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+
+
+def _read_sample(process):
+    line = process.stdout.readline()
+    assert line, process.stderr.read()
+    return json.loads(line)
+
+
+def _close_probe(process):
+    if process.poll() is None:
+        process.stdin.write("stop\n")
+        process.stdin.flush()
+    process.communicate(timeout=30)
+
+
+def _samples(process, action, count):
+    process.stdin.write(action + "\n")
+    process.stdin.flush()
+    _read_sample(process)
+    walls, cpus = [], []
+    for _ in range(count):
+        process.stdin.write(action + "\n")
+        process.stdin.flush()
+        sample = _read_sample(process)
+        walls.append(sample["wall"])
+        cpus.append(sample["cpu"])
+    return {"minimum_wall": min(walls), "minimum_cpu": min(cpus), "wall": walls, "cpu": cpus}
+
+
+def _interleaved(base_process, head_process, actions, samples=5):
+    measured = {"merge_base": {}, "head": {}}
+    for action in actions:
+        for process in (base_process, head_process):
+            process.stdin.write(action + "\n")
+            process.stdin.flush()
+            _read_sample(process)
+        arrays = [{"wall": [], "cpu": []} for _ in range(2)]
+        for sample in range(samples):
+            for index in (0, 1) if sample % 2 == 0 else (1, 0):
+                process = (base_process, head_process)[index]
+                process.stdin.write(action + "\n")
+                process.stdin.flush()
+                result = _read_sample(process)
+                arrays[index]["wall"].append(result["wall"])
+                arrays[index]["cpu"].append(result["cpu"])
+        for index, revision in enumerate(("merge_base", "head")):
+            measured[revision][action] = {
+                "minimum_wall": min(arrays[index]["wall"]),
+                "minimum_cpu": min(arrays[index]["cpu"]),
+                "wall": arrays[index]["wall"],
+                "cpu": arrays[index]["cpu"],
+            }
+    return measured
 
 
 def assert_budgets(backend, location, user, keys):
     repo = Path(__file__).resolve().parents[2]
-    main = os.environ.get("ALICE_READ_MAIN_CHECKOUT")
-    assert main, "round-two budgets require the exact paired main checkout"
+    merge_base = merge_base_checkout()
+    prelabels = prelabels_checkout()
+    actions = ("pack", "recall", "workspace", "dogfooding") if backend == "postgres" else ("pack", "recall")
     for profile, key in keys.items():
-        baseline = probe(main, backend, location, user, profile, key)
-        head = probe(repo, backend, location, user, profile, key)
-        print(json.dumps({"store": backend, "case": os.environ.get("ALICE_READ_BUDGET_CASE", "unspecified"), "profile": profile, "main": baseline, "head": head}))
+        processes = [_open_probe(checkout, backend, location, user, profile, key) for checkout in (merge_base, repo)]
+        try:
+            measured = _interleaved(processes[0], processes[1], actions)
+        finally:
+            for process in processes:
+                _close_probe(process)
+        report = None
+        if prelabels:
+            process = _open_probe(prelabels, backend, location, user, profile, key)
+            try:
+                report = {"gated": False, "actions": {action: {} for action in actions}}
+                for action in actions:
+                    taken = _samples(process, action, 5)
+                    for clock in ("minimum_wall", "minimum_cpu"):
+                        report["actions"][action][clock] = prelabels_action(measured["head"][action][clock], taken[clock])
+            finally:
+                _close_probe(process)
+        row = {
+            "store": backend,
+            "case": os.environ.get("ALICE_READ_BUDGET_CASE", "unspecified"),
+            "profile": profile,
+            "gate": "merge_base",
+            "merge_base": measured["merge_base"],
+            "head": measured["head"],
+        }
+        if report is not None:
+            row["prelabels_report"] = report
+        print(json.dumps(row), flush=True)
+        append_evidence(row)
         for action in ("pack", "recall"):
             for clock in ("minimum_wall", "minimum_cpu"):
-                assert head[action][clock] <= 2 * baseline[action][clock] + .1, (action, clock, head, baseline)
+                assert not over_merge_base(measured["head"][action][clock], measured["merge_base"][action][clock]), (
+                    action, clock, measured["head"], measured["merge_base"],
+                )
         for action in ("workspace", "dogfooding") if backend == "postgres" else ():
-            assert head[action]["minimum_wall"] <= 1, (action, head)
+            assert measured["head"][action]["minimum_wall"] <= 1, (action, measured["head"])
 
 
 @label_read_request
