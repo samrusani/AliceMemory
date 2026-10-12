@@ -1721,7 +1721,6 @@ class FakeVNextMCPStore:
         order_by_created_at: bool = False,
         limit: int | None = None,
         include_expired: bool = True,
-        readable_by: tuple[Sequence[str] | None, Sequence[str] | None] | None = None,
     ) -> list[dict[str, object]]:
         if limit is not None and limit < 1:
             raise ValueError("limit must be positive")
@@ -2111,7 +2110,6 @@ class FakeVNextMCPStore:
         limit: int = 20,
         domains: list[str] | None,
         sensitivity_allowed: list[str] | None,
-        readable_by: tuple[Sequence[str] | None, Sequence[str] | None] | None = None,
     ) -> list[dict[str, object]]:
         if limit < 1:
             raise ValueError("limit must be positive")

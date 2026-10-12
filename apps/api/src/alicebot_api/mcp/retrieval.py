@@ -1063,11 +1063,9 @@ def _vnext_resume(
 
         # A caller with limits is shown the newest rows it may read. Read with a limit and then the drop, a newer row that
         # its limits hide by the labels of its inputs takes the place of an older readable one, and the answer then depends on
-        # rows the caller may not read. Such a caller reads again with a longer window, up to ``READABLE_SCAN_CAP`` rows,
-        # and the store leaves out before the limit what its limits provably hide. The owner and an unbound admin key have
-        # no limits and keep the read they had.
+        # rows the caller may not read. Such a caller reads again with a longer window, up to ``READABLE_SCAN_CAP`` rows.
+        # The owner and an unbound admin key have no limits and keep the read they had.
         limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced
-        readable_by = (domain_filter, sensitivity_filter)
 
         def list_memory_rows(
             memory_types: tuple[str, ...],
@@ -1080,9 +1078,6 @@ def _vnext_resume(
             held_back_domains: dict[str, object] = (
                 {} if excluded is None else {"exclude_global_domains": tuple(sorted(excluded))}
             )
-            if limited:
-                # The store leaves out, before the limit, the memories whose direct inputs the caller's limits cannot admit.
-                held_back_domains["readable_by"] = readable_by
             return store.list_memories(
                 status=None,
                 statuses=tuple(_CONTEXT_MEMORY_STATUSES),
@@ -1309,7 +1304,6 @@ def _vnext_resume(
                             exclude_global_domains=tuple(sorted(excluded)),
                             domains=domain_filter,
                             sensitivity_allowed=sensitivity_filter,
-                            **({"readable_by": readable_by} if limited else {}),
                         ),
                         *store.list_open_loop_events(
                             statuses=tuple(_SQLITE_OPEN_LOOP_ACTIVE_STATUSES),
@@ -1359,7 +1353,6 @@ def _vnext_resume(
                         limit=count,
                         domains=None,
                         sensitivity_allowed=None,
-                        **({"readable_by": readable_by} if limited else {}),
                     )
 
                 def read_loop_events(count: int) -> list[JsonObject]:

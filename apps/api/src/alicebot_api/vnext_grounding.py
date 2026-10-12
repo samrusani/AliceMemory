@@ -37,7 +37,6 @@ from capitalized spans ("Did Marcus Chen ..." -> "Marcus Chen").
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-import inspect
 import re
 
 from alicebot_api.vnext_entities import (
@@ -381,7 +380,6 @@ def _first_readable_memory_row(
     kwargs: Mapping[str, object],
     readable_rows: Callable[[Sequence[JsonObject]], Sequence[JsonObject]],
     native_paging: bool,
-    readable_by: tuple[Sequence[str] | None, Sequence[str] | None] | None = None,
 ) -> list[JsonObject]:
     """The first row of the OR probe that ``readable_rows`` keeps, as a list of one, or ``[]`` when none is kept.
 
@@ -390,16 +388,13 @@ def _first_readable_memory_row(
     probe, is dropped, and the name would then read as supported or not depending on that row. The probe is asked once
     for one row, as the owner's is. When that row is not one the caller may read, it is asked once more for the rows up to
     ``READABLE_SCAN_CAP`` (the rest of them, from the offset, on a store that pages by offset; a prefix of that length on
-    any other). A store that takes ``readable_by`` leaves out before its limit the rows its direct inputs hide from the
-    caller. When ``READABLE_SCAN_CAP`` rows have been read without a row the caller may read, and the matches did not end,
-    the probe gives up and the name reads as supported (``_PROBE_GAVE_UP``).
+    any other). When ``READABLE_SCAN_CAP`` rows have been read without a row the caller may read, and the matches did
+    not end, the probe gives up and the name reads as supported (``_PROBE_GAVE_UP``).
     """
 
     variants = _probe_query_variants(query)
     use_any = True
     filters = {key: value for key, value in kwargs.items() if key != "limit"}
-    if readable_by is not None and _takes_keyword(method, "readable_by"):
-        filters["readable_by"] = readable_by
 
     def ask(**extra: object) -> list[JsonObject]:
         nonlocal use_any
@@ -429,15 +424,6 @@ def _first_readable_memory_row(
     if kept:
         return kept[:1]
     return [] if len(later) < room else [_PROBE_GAVE_UP]
-
-
-def _takes_keyword(method: object, name: str) -> bool:
-    """Whether a store method names the keyword. A store that does not is not given it."""
-
-    try:
-        return name in inspect.signature(method).parameters  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return False
 
 
 def _probe_rows(
@@ -473,8 +459,7 @@ def _probe_rows(
     if readable_rows is not None:
         try:
             return _first_readable_memory_row(
-                method, query=query, kwargs=kwargs, readable_rows=readable_rows, native_paging=native_paging,
-                readable_by=(domains, sensitivity_allowed),
+                method, query=query, kwargs=kwargs, readable_rows=readable_rows, native_paging=native_paging
             )
         except Exception:
             return None

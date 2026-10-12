@@ -1,9 +1,9 @@
-"""A caller with limits reads past the rows it may not read with a proof in the store and a cap, on PostgreSQL.
+"""A caller with limits reads past the rows it may not read, and a cap bounds how many rows a read judges, on PostgreSQL.
 
 Unreleased (on main, not in v0.20.0). The same checks as ``tests/unit/test_readable_scan_bounds.py`` and the loop and
 ceiling cases of ``tests/unit/test_hidden_rows_resume_and_grounding.py`` on a real PostgreSQL store, through the MCP tool
-registry and a minted key. The proof reads ``sources`` and ``memories`` with hashed sub-selects, and the event reader joins
-``event_log`` to ``memories`` on the text of the id, so these are the queries whose plans differ from the SQLite ones.
+registry and a minted key. The full-text proof reads ``sources`` and ``memories`` with hashed sub-selects, and the event reader
+joins ``event_log`` to ``memories`` on the text of the id, so these are the queries whose plans differ from the SQLite ones.
 
 Each test names the mutation that must fail it, and the cases ``resume-*``, ``grounding-*`` and ``readable-*`` of
 ``scripts/derived_label_mutations.json`` replay them.
@@ -60,55 +60,20 @@ def test_the_read_stops_at_the_cap_and_gives_what_it_found(label_harness, monkey
     assert (text == "alpha only visible note") is found, brief["last_decision"]
 
 
-def test_rows_a_direct_input_proves_hidden_use_no_place_of_the_cap(label_harness, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
-    """Mutation: drop ``held_back_domains["readable_by"] = readable_by`` in ``list_memory_rows`` (``_vnext_resume``), or
-    drop ``**({"readable_by": readable_by} if limited else {})`` in ``read_memory_events``."""
-
-    vault = _Postgres(label_harness, monkeypatch, "read_only")
-    before = _brief(vault, vault.key, query="alpha")
-    assert before["last_decision"]
-    _decisions(label_harness, CAP * 3, provable=True, tag="hidden")
-    after = _brief(vault, vault.key, query="alpha")
-    assert after["last_decision"] == before["last_decision"]
-    assert after["recent_changes"] == before["recent_changes"]
-
-
 @pytest.mark.parametrize("seed", range(2))
-def test_the_proof_never_leaves_out_a_row_the_check_admits(label_harness, seed: int) -> None:  # noqa: F811
-    """Mutation: the same edits as the SQLite test of this name, in the PostgreSQL text of ``hidden_memory_input_sql``."""
+def test_the_full_text_proof_never_leaves_out_a_row_the_check_admits(label_harness, seed: int) -> None:  # noqa: F811
+    """Mutation: the edits of the SQLite test of this name, in the PostgreSQL text of ``hidden_memory_input_sql``."""
 
     with label_harness.store() as store:
-        memories = _populate(store, random.Random(seed))
+        _populate(store, random.Random(seed))
         left_out_somewhere = False
         for domains, levels in FILTERS:
             stored_fence = store.list_memories(statuses=("active",), domains=domains, sensitivity_allowed=levels, include_expired=False)
             admitted = {str(row["id"]) for row in admit_loaded(store, kind="memory", rows=stored_fence, domains=domains or [], sensitivity_allowed=levels, projects=())}
-            listed = {str(row["id"]) for row in store.list_memories(statuses=("active",), domains=domains, sensitivity_allowed=levels,
-                                                                     include_expired=False, readable_by=(domains, levels))}
-            assert admitted <= listed, (domains, levels, sorted(admitted - listed))
-            left_out_somewhere |= listed != {str(row["id"]) for row in stored_fence}
-            found = {str(row["id"]) for row in store.search_memories_fts(query="alpha", domains=domains, sensitivity_allowed=levels, limit=500, readable_by=(domains, levels))}
-            by_check = {str(row["id"]) for row in admit_loaded(
-                store, kind="memory", rows=store.search_memories_fts(query="alpha", domains=domains, sensitivity_allowed=levels, limit=500),
-                domains=domains or [], sensitivity_allowed=levels, projects=())}
-            assert by_check <= found, (domains, levels, sorted(by_check - found))
-            readable_targets = {str(row["id"]) for row in admit_loaded(store, kind="memory", rows=memories, domains=domains or [], sensitivity_allowed=levels, projects=())}
-            all_events = store.list_resume_memory_events(statuses=("active",), limit=5000, domains=None, sensitivity_allowed=None)
-            kept = store.list_resume_memory_events(statuses=("active",), limit=5000, domains=None, sensitivity_allowed=None, readable_by=(domains, levels))
-            assert {str(e["target_id"]) for e in all_events if str(e["target_id"]) in readable_targets} <= {str(e["target_id"]) for e in kept}, (domains, levels)
+            found = {str(row["id"]) for row in store.search_memories_fts(query="alpha", domains=domains, sensitivity_allowed=levels, limit=500)}
+            assert admitted <= found, (domains, levels, sorted(admitted - found))
+            left_out_somewhere |= found != {str(row["id"]) for row in stored_fence}
         assert left_out_somewhere, "the proof left nothing out for any pair of limits, so it proved nothing"
-
-
-def test_limits_that_admit_no_sensitivity_read_no_events(label_harness) -> None:  # noqa: F811
-    """Mutation: replace ``return "\\n                  AND FALSE", ()`` in ``postgres_readable_events_sql`` with ``return "", ()``.
-
-    Limits that admit no level of sensitivity admit no event. The control reads the same events with no limits.
-    """
-
-    with label_harness.store() as store:
-        _populate(store, random.Random(0))
-        assert store.list_resume_memory_events(statuses=("active",), limit=50, domains=None, sensitivity_allowed=None)
-        assert store.list_resume_memory_events(statuses=("active",), limit=50, domains=None, sensitivity_allowed=None, readable_by=(None, [])) == []
 
 
 def test_the_batched_event_fence_gives_the_verdicts_of_the_fence_by_id(label_harness) -> None:  # noqa: F811

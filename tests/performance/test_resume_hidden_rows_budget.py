@@ -1,23 +1,28 @@
-"""Resume and the grounding probe stay within a budget of main when many newer rows are hidden from the caller.
+"""Resume and the grounding probe stay within a budget of the baseline when many newer rows are hidden from the caller.
 
 Unreleased (on main, not in v0.20.0). ``alice_resume`` and the grounding probe of the context pack read past the rows a caller's
 limits hide by the labels of their inputs. A vault with 10,000 such rows newer than the first row the caller may read must not
-make them slow: the store leaves out the rows a direct input proves hidden before its limit, and a read stops at
-``READABLE_SCAN_CAP`` rows when nothing proves them hidden.
+make them slow: a read judges at most ``READABLE_SCAN_CAP`` rows, whatever the vault holds. And a vault with no such row must
+not make them slower than they were: a read that looks past hidden rows pays for it only when there are some.
 
 The paired measurement is the one of the read budgets next to this file: a persistent process per revision (this checkout and the
-checkout named by ``ALICE_READ_MAIN_CHECKOUT``) answers the same action in turn on the same data, ten samples each, and the
-minimum wall and CPU time of this revision must be at most twice main's plus a tenth of a second. A fast read that returns the
-wrong answer passes no budget: what the revision returned is checked too.
+checkout named by ``ALICE_READ_MAIN_CHECKOUT``, which the test requires) answers the same action in turn on the same data, ten
+samples each, and the minimum wall and CPU time of this revision must be at most twice the baseline's plus a tenth of a second
+(plus 0.03 s for the case with no hidden row, where the two should be equal). A fast read that returns the wrong answer passes
+no budget: what this revision returned is checked too.
 
-Two shapes of hidden row, 10,000 of each, newer than twelve readable decisions and each with an event:
+Cases, each with twelve readable decisions older than the hidden rows, and an event for each row:
 
-* ``derived``: the row's source is in the health domain. A direct input proves it hidden from a key that may not read that domain.
-  This revision answers as it does without the rows (the newest readable decision).
-* ``unproven``: the row lists an input that does not exist, which no direct input proves hidden and the check reads as unverified.
-  This revision reads the first rows of the list up to the cap and answers nothing.
+* ``derived``: 10,000 hidden rows whose source is in the health domain. The cap is reached: no decision, no recent change, and the
+  grounding probe gave up and reads the name as supported.
+* ``unproven``: 10,000 hidden rows that list an input that does not exist, which the check reads as unverified. The same answers.
+* ``under``: 100 hidden rows, fewer than the cap. The key is shown the newest readable decision and the recent changes of a
+  vault without them, and the grounding probe, which looked at every hidden mention, lists both names.
+* ``sources`` (PostgreSQL only): 200,000 sources, one in ten in the health domain, and no hidden row. A read that scanned the
+  sources table for every list would cost many times the baseline here and nothing in the other cases.
 
-The grounding probe is not measured for the ``unproven`` shape on SQLite (see the test below).
+The grounding probe is not measured on SQLite: its full-text query scores every hidden match, which costs about 2.5 ms a match
+there at every revision that applies the label proof to it, and the baseline of CI is older than that.
 
 The paired checkout may be an older revision than the one that judges rows by their inputs (the CI baseline is), and such a
 revision shows the hidden decision. Only this revision's answers are checked; the other's time is the measurement.
@@ -41,13 +46,15 @@ USER = "11111111-1111-4111-8111-111111111111"
 READABLE_DECISIONS = 12
 HIDDEN_ROWS = 10_000
 # The hidden rows that mention the name the grounding probe looks for. The full-text search scores every match before it returns
-# the first, which costs about 1.6 ms a match on SQLite on main already, so the probe is measured over a thousand of them and
-# the other rows are hidden decisions that do not match.
+# the first, so the probe is measured over a thousand of them and the other rows are hidden decisions that do not match.
 HIDDEN_MENTIONS = 1_000
-SHAPES = ("derived", "unproven")
+BULK_SOURCES = 200_000
+# case: (hidden rows, shape of the rows)
+CASES = {"derived": (HIDDEN_ROWS, "derived"), "unproven": (HIDDEN_ROWS, "unproven"), "under": (100, "derived"), "sources": (0, "derived")}
 # The domains a key that may not read the restricted ones (``read_only_agent``) is given.
 READ_ONLY_DOMAINS = ["professional", "personal", "learning", "relationship", "project", "agent_run", "system", "unknown"]
 ACTIONS = ("resume", "resume_changes", "resume_query", "grounding")
+SQLITE_ACTIONS = tuple(action for action in ACTIONS if action != "grounding")
 SAMPLES = 10
 
 
@@ -90,11 +97,12 @@ def seed_hidden_rows(store, *, postgres, hidden=HIDDEN_ROWS, shape="derived"):
             "VALUES(?,?,?,'memory.created','system','memory','{}',?)", events)
 
 
-def paired_resume_budgets(backend, location, user, key, *, shape, assert_budget=True, samples=SAMPLES, actions=ACTIONS):
+def paired_resume_budgets(backend, location, user, key, *, case, assert_budget=True, samples=SAMPLES, actions=ACTIONS):
     assert samples >= 10
     repo = Path(__file__).resolve().parents[2]
     main = os.environ.get("ALICE_READ_MAIN_CHECKOUT")
-    assert main, "the resume budgets require the exact paired main checkout"
+    assert main, "the resume budgets require the paired baseline checkout (ALICE_READ_MAIN_CHECKOUT)"
+    slack = 0.03 if case == "sources" else 0.1
     script = Path(__file__).with_name("resume_budget_probe.py")
     processes = [subprocess.Popen([sys.executable, str(script), str(checkout), backend, location, str(user), key, json.dumps(READ_ONLY_DOMAINS)],
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -120,7 +128,7 @@ def paired_resume_budgets(backend, location, user, key, *, shape, assert_budget=
                     arrays[index]["returned"].append(result)
             measured = {revision: {"minimum_wall": min(a["wall"]), "minimum_cpu": min(a["cpu"]), "returned": a["returned"][-1]}
                         for revision, a in zip(("main", "head"), arrays)}
-            row = {"store": backend, "shape": shape, "hidden": HIDDEN_ROWS, "action": action, "samples": samples, **measured}
+            row = {"store": backend, "case": case, "hidden": CASES[case][0], "action": action, "samples": samples, **measured}
             rows.append(row)
             print(json.dumps(row), flush=True)
             evidence = os.environ.get("ALICE_READ_BUDGET_EVIDENCE")
@@ -129,7 +137,7 @@ def paired_resume_budgets(backend, location, user, key, *, shape, assert_budget=
                 with Path(evidence).open("a") as output:
                     output.write(json.dumps(row) + "\n")
             for clock in ("minimum_wall", "minimum_cpu"):
-                if measured["head"][clock] > 2 * measured["main"][clock] + 0.1:
+                if measured["head"][clock] > 2 * measured["main"][clock] + slack:
                     failures.append((action, clock, row))
     finally:
         for process in processes:
@@ -137,57 +145,49 @@ def paired_resume_budgets(backend, location, user, key, *, shape, assert_budget=
                 process.stdin.write("stop\n")
                 process.stdin.flush()
             process.communicate(timeout=30)
-    wrong = returned_answers_wrong(shape, rows)
+    wrong = returned_answers_wrong(case, rows)
     if assert_budget:
         assert not failures, failures
         assert not wrong, wrong
     return failures + wrong
 
 
-def returned_answers_wrong(shape, rows):
+def returned_answers_wrong(case, rows):
     """What this revision returned. A read that is fast and empty passes no budget.
 
     Only this revision's answers are held to a value. The paired checkout is whatever revision the caller names, and an older
     one does not judge a row by its inputs: it shows the hidden decision where a later one shows none. Its time is the
     measurement, and what it returned is recorded with the row of evidence.
 
-    ``derived``: this revision shows the newest readable decision (the twelfth) and some recent changes, and the grounding block
-    lists both names, as it does without the rows.
-    ``unproven``: the rows are more than the cap, so this revision shows no decision, and its grounding probe gave up and reads
-    the name as supported.
+    With the cap reached (``derived`` and ``unproven``) this revision shows no decision and no recent change, and its grounding
+    probe gave up and reads the name as supported. With fewer hidden rows than the cap (``under``) and with none (``sources``)
+    it shows the newest readable decision and some recent changes, and the grounding block lists both names.
     """
 
-    assert HIDDEN_ROWS > READABLE_SCAN_CAP
+    capped = CASES[case][0] >= READABLE_SCAN_CAP
     wrong = []
     for row in rows:
         head, action = row["head"]["returned"], row["action"]
         if action == "grounding":
-            if shape == "derived" and sorted(head["unsupported"]) != ["Quuxington", "Zorblax"]:
-                wrong.append((action, "head", head))
-            if shape == "unproven" and head["unsupported"] != ["Quuxington"]:
+            if sorted(head["unsupported"]) != (["Quuxington"] if capped else ["Quuxington", "Zorblax"]):
                 wrong.append((action, "head", head))
         elif action in {"resume", "resume_changes"}:
-            expected = f"visible decision {READABLE_DECISIONS - 1}" if shape == "derived" else None
-            if head["decision"] != expected:
+            if head["decision"] != (None if capped else f"visible decision {READABLE_DECISIONS - 1}"):
                 wrong.append((action, "head", head))
-            if shape == "derived" and head["changes"] < 1:
+            if (head["changes"] == 0) != capped:
                 wrong.append((action, "head changes", head))
         elif action == "resume_query" and head["decision"] is not None:
             wrong.append((action, "head", head))
     return wrong
 
 
-@pytest.mark.parametrize("shape", SHAPES)
-def test_sqlite_resume_stays_within_the_budget_of_main_with_many_hidden_rows(tmp_path, shape):
+@pytest.mark.parametrize("case", [name for name in CASES if name != "sources"])
+def test_sqlite_resume_stays_within_the_budget_of_the_baseline_with_many_hidden_rows(tmp_path, case):
     path = tmp_path / "resume-budget.db"
     bootstrap_database(path, user_id=USER, user_email="budget@example.invalid")
+    hidden, shape = CASES[case]
     with sqlite_user_connection(path, USER) as conn:
         store = SQLiteVNextStore(conn, USER)
-        seed_hidden_rows(store, postgres=False, shape=shape)
+        seed_hidden_rows(store, postgres=False, hidden=hidden, shape=shape)
         _record, key = create_agent_key(store, user_id=USER, agent_id="resume-budget", permission_profile="read_only_agent")
-    # The grounding probe is left out for the ``unproven`` shape on SQLite. The full-text query over a thousand hidden matches
-    # that nothing proves hidden costs about 2.5 ms a match there, at every revision that applies the label proof to the
-    # query (the baseline of CI is older than that), so the time is the one of the query and not of the probe. The cap of the
-    # probe is pinned by ``tests/unit/test_readable_scan_bounds.py`` and measured on PostgreSQL.
-    actions = tuple(action for action in ACTIONS if not (shape == "unproven" and action == "grounding"))
-    paired_resume_budgets("sqlite", "sqlite:///" + str(path), USER, key, shape=shape, actions=actions)
+    paired_resume_budgets("sqlite", "sqlite:///" + str(path), USER, key, case=case, actions=SQLITE_ACTIONS)

@@ -761,14 +761,17 @@ class PostgresVNextStore:
         limit: int = 20,
         domains: list[str] | None,
         sensitivity_allowed: list[str] | None,
-        readable_by: tuple[Sequence[str] | None, Sequence[str] | None] | None = None,
     ) -> list[VNextRow]:
         """Return events joined to resume-admitted memories before LIMIT.
 
-        A memory is admitted when its status is in ``statuses`` and its ``valid_to`` has not passed (the test recall
-        uses), so the event of an expired memory does not use up the ``LIMIT``. ``domains`` and ``sensitivity_allowed``
-        have no defaults, as on the SQLite store, and only ``None`` is accepted: the Postgres runtime resolves no project
-        view, so anything else raises instead of being ignored. ``readable_by`` gives it limits (``postgres_readable_events_sql``).
+        A memory is admitted when its status is in ``statuses`` and its
+        ``valid_to`` has not passed (the test recall uses), so the event of an
+        expired memory is not listed and does not use up the ``LIMIT``.
+
+        ``domains`` and ``sensitivity_allowed`` have no defaults, as on the SQLite
+        store, where they fence the read before ``LIMIT``. The Postgres runtime
+        resolves no project view and has no such read, so only ``None`` is accepted
+        and anything else raises instead of being ignored.
         """
 
         if domains is not None or sensitivity_allowed is not None:
@@ -784,8 +787,6 @@ class PostgresVNextStore:
             normalized_query = None
         escaped_query = _escape_like_literal(normalized_query) if normalized_query is not None else None
         qualified_columns = ", ".join(f"event.{column.strip()}" for column in EVENT_LOG_COLUMNS.split(","))
-        from alicebot_api.vnext_label_sql import postgres_readable_events_sql
-        hidden_sql, readable_params = postgres_readable_events_sql(readable_by)
         return self._fetch_all(
             f"""
                 SELECT {qualified_columns}
@@ -796,7 +797,7 @@ class PostgresVNextStore:
                  AND event.user_id = m.user_id
                 WHERE m.deleted_at IS NULL
                   AND m.status = ANY(%s::text[])
-                  AND {postgres_unexpired_sql("m.")}{hidden_sql}
+                  AND {postgres_unexpired_sql("m.")}
                   AND (
                     %s::text[] IS NULL
                     OR ({_SCOPED_MEMORY_PROJECT_SQL}) ?| %s::text[]
@@ -813,7 +814,7 @@ class PostgresVNextStore:
                 LIMIT %s
                 """,
             (
-                normalized_statuses, *readable_params,
+                normalized_statuses,
                 project_list,
                 project_list,
                 escaped_query,

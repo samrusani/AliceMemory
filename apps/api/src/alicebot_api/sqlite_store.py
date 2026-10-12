@@ -757,18 +757,12 @@ class SQLiteVNextStore:
         # ``None`` is the statement "no filter".
         domains: list[str] | None,
         sensitivity_allowed: list[str] | None,
-        readable_by: tuple[Sequence[str] | None, Sequence[str] | None] | None = None,
     ) -> list[VNextRow]:
         """Return events joined to resume-admitted memories before LIMIT.
 
         A memory is admitted when its status is in ``statuses`` and its
         ``valid_to`` has not passed (recall's ``_expiry_clause``), so the event of
         an expired memory is not listed and does not use up the ``LIMIT``.
-
-        ``readable_by`` is ``(domains, sensitivity_allowed)``, the limits of a caller, and leaves out before ``LIMIT``
-        the events of a memory that those limits cannot admit: one whose stored labels are outside them (the
-        fence ``domains`` and ``sensitivity_allowed`` make), or one that a direct input hides (see
-        ``hidden_memory_input_sql``). It is a proof of what is hidden and never a grant.
 
         ``projects`` may hold the reserved global marker (spec 6.1). With it,
         ``exclude_global_domains`` leaves out events of global memories in those
@@ -786,8 +780,6 @@ class SQLiteVNextStore:
         if limit < 1:
             raise ValueError("limit must be positive")
         if sensitivity_allowed is not None and not sensitivity_allowed:
-            return []
-        if readable_by is not None and readable_by[1] is not None and not readable_by[1]:
             return []
         normalized_statuses = list(dict.fromkeys(str(value) for value in statuses if str(value)))
         if not normalized_statuses:
@@ -815,22 +807,6 @@ class SQLiteVNextStore:
             *sensitivity_params,
         ]
         scoped_where_sql = " AND ".join(clauses) + project_sql + expiry_sql + domain_sql + sensitivity_sql
-        if readable_by is not None:
-            from alicebot_api.vnext_label_sql import hidden_memory_input_sql
-
-            readable_domain_sql, readable_domain_params = self._domain_clause(
-                list(readable_by[0]) if readable_by[0] else None, prefix="memory."
-            )
-            readable_sensitivity_sql, readable_sensitivity_params = self._sensitivity_clause(
-                list(readable_by[1]) if readable_by[1] is not None else None, prefix="memory."
-            )
-            scoped_where_sql += (
-                readable_domain_sql
-                + readable_sensitivity_sql
-                + " AND "
-                + hidden_memory_input_sql(readable_by[1], sqlite=True, alias="memory", domains=readable_by[0], memory_inputs=False)
-            )
-            params.extend((*readable_domain_params, *readable_sensitivity_params))
         filters: list[str] = []
         normalized_query = str(query).strip() if query is not None else ""
         if normalized_query:

@@ -1,18 +1,13 @@
-"""A caller with limits reads past the rows it may not read with a proof in the store and a cap on rows judged.
+"""A caller with limits reads past the rows it may not read, and a cap bounds how many rows a read judges.
 
-Unreleased (on main, not in v0.20.0). ``alice_resume`` and the grounding probe now read again, past the rows a caller's limits
+Unreleased (on main, not in v0.20.0). ``alice_resume`` and the grounding probe read again, past the rows a caller's limits
 hide by the labels of their inputs, until they hold enough rows the caller may read. Without a bound that costs time in
 proportion to the hidden rows newer than the first readable one, and a caller who chooses the query could make it so on
-purpose. Two things bound it, and the tests here pin both:
-
-* The store leaves out, before its limit, the rows that a direct input proves hidden (``readable_by``, built on
-  ``hidden_memory_input_sql``): a source or a memory input in a restricted domain, when the caller's domains hold none, and a
-  source above the caller's sensitivity ceiling. Such rows use no place and are not judged. The proof is only ever a
-  proof of what is hidden, so it must never leave out a row the caller may read; a randomized test over many shapes and
-  limits holds the stores to that against the real check.
-* The read stops at ``READABLE_SCAN_CAP`` rows. Past it the caller is given the rows it may read among them, which can be
-  none, and nothing else: ``alice_resume`` shows no decision and no next action and the events it found, the pack the open
-  loops it found, the grounding probe reads the name as supported.
+purpose. The read judges at most ``READABLE_SCAN_CAP`` rows, per list and per partition of the project view: the read it
+made before, then once more up to the cap, and no row twice. Past the cap the caller is given the rows it may read among
+them, which can be none: ``alice_resume`` shows no decision and no next action and the events it found, the pack the open
+loops it found, the grounding probe reads the name as supported. The tests here pin the cap, that the full-text proof
+the grounding probe and recall rely on never leaves out a row the check admits, and the batched check of the events.
 
 Each test names the mutation that must fail it, and the cases ``resume-*``, ``grounding-*`` and ``readable-*`` of
 ``scripts/derived_label_mutations.json`` replay them.
@@ -31,7 +26,7 @@ from alicebot_api import vnext_label_guard
 from alicebot_api.mcp import retrieval as mcp_retrieval
 from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
 from alicebot_api.vnext_label_guard import admit_loaded
-from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP, hidden_memory_input_sql
+from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
 from tests.unit.test_recall_fallback_hidden_rows import KEYS, _memory, _scope, _source, _Vault
 
 CAP = READABLE_SCAN_CAP
@@ -49,7 +44,7 @@ def _text(item: object) -> object:
 
 def _add_decisions(vault: _Vault, count: int, *, provable: bool, tag: str) -> None:
     """``count`` decisions newer than anything in the vault. Provable ones have a direct source in the health domain; the
-    others list an input that does not exist, which no direct input proves hidden and the check reads as unverified."""
+    others list an input that does not exist, which the check reads as unverified. The store proves neither hidden."""
 
     with vault.store() as store:
         parent = _source(store, "parent-" + tag, domain="health", scope=vault.scope) if provable else None
@@ -119,45 +114,7 @@ def test_no_read_judges_more_than_the_cap_or_reads_a_list_more_than_twice(
     assert len(reads) <= 4, reads
 
 
-# -- the proof in the store --------------------------------------------------------------------------------------------
-
-
-def test_rows_a_direct_input_proves_hidden_use_no_place_of_the_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation: drop ``held_back_domains["readable_by"] = readable_by`` in ``list_memory_rows`` (``_vnext_resume``), or
-    drop ``**({"readable_by": readable_by} if limited else {})`` in ``read_memory_events``.
-
-    Three times the cap in hidden decisions whose source is in the health domain come before the readable one. The store
-    leaves them out before its limit, so the key is shown the readable decision, the next action and the events of a vault
-    without them, however many there are. Without the proof the read stops at the cap and the decision is empty.
-    """
-
-    vault = _Vault(tmp_path, monkeypatch)
-    key = vault.key("read_only")
-    before = _brief(vault, key, query="alpha")
-    assert _text(before["last_decision"]) == "alpha only visible note"
-    _add_decisions(vault, CAP * 3, provable=True, tag="hidden")
-    after = _brief(vault, key, query="alpha")
-    assert _text(after["last_decision"]) == "alpha only visible note"
-    assert after["recent_changes"] == before["recent_changes"]
-
-
-def test_the_proof_by_domain_is_made_only_for_a_filter_without_a_restricted_domain() -> None:
-    """Mutation: drop ``and not (set(domains) & RESTRICTED_DOMAINS)`` from ``hidden_memory_input_sql``.
-
-    A derived row takes the most frequent restricted domain among its inputs. A filter that holds a restricted domain, so a
-    source in the health domain proves nothing about a key that may read financial notes, gets no proof by domain.
-    """
-
-    without = hidden_memory_input_sql(["public"], sqlite=True)
-    assert "'health'" not in without
-    assert "'health'" in hidden_memory_input_sql(["public"], sqlite=True, domains=["project"])
-    assert "'health'" in hidden_memory_input_sql(None, sqlite=True, domains=["project"])
-    assert "'health'" not in hidden_memory_input_sql(["public"], sqlite=True, domains=["project", "financial"])
-    assert hidden_memory_input_sql(None, sqlite=True, domains=["project", "health"]) == "TRUE"
-    assert hidden_memory_input_sql(None, sqlite=True, domains=None) == "TRUE"
-    for sqlite in (True, False):
-        assert "label_input" not in hidden_memory_input_sql(["public"], sqlite=sqlite, domains=["project"], memory_inputs=False)
-        assert "label_input" in hidden_memory_input_sql(["public"], sqlite=sqlite, domains=["project"])
+# -- the full-text proof --------------------------------------------------------------------------------------------
 
 
 # One input of each kind, in each domain and at each level, and rows that name them.
@@ -195,61 +152,43 @@ def _populate(store, rng: random.Random):  # type: ignore[no-untyped-def]
     memories.append(_memory(store, "over-redacted", "alpha over redacted", {"consolidation": {"cluster_member_ids": [str(redacted["id"])]}}))
     memories.append(_memory(store, "missing", "alpha missing input", {"source_id": str(uuid4())}))
     memories.append(_memory(store, "original", "alpha original", {}))
+    # Rows the check reads as unverified, and so as regulated: the counts of the record disagree with its list, the marker is
+    # malformed, and the source is redacted.
+    base = memories[-1]
+    memories.append(_memory(store, "counts-disagree", "alpha counts disagree",
+                            {"derived_from": {"memories": [str(base["id"])], "counts": {"memories": 2}}}))
+    memories.append(_memory(store, "malformed", "alpha malformed marker", {"derived_from": "not a record"}))
+    redacted_source = store.create_source({"source_type": "note", "title": "redacted source", "content_hash": "redacted-source",
+                                           "domain": "project", "sensitivity": "public", "metadata_json": {"redacted": True}})
+    memories.append(_memory(store, "over-redacted-source", "alpha over a redacted source", {"source_id": str(redacted_source["id"])}))
     rng.shuffle(memories)
     return memories
 
 
 @pytest.mark.parametrize("seed", range(4))
-def test_the_proof_never_leaves_out_a_row_the_check_admits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seed: int) -> None:
-    """Mutation: replace ``input_in_restricted_domain = f"label_input.domain IN ({domain_names}) OR " if domain_blocked else ""``
-    in ``hidden_memory_input_sql`` with a version that also lists ``'unknown'``, or drop the ``domains`` argument ``None``
-    guard so that a filter holding a restricted domain gets the proof.
+def test_the_full_text_proof_never_leaves_out_a_row_the_check_admits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seed: int) -> None:
+    """Mutation: replace ``{alias}.sensitivity NOT IN ({names})`` in ``hidden_memory_input_sql`` with ``TRUE``, or drop its
+    ``{not_redacted} AND`` guard.
 
-    Every row the real check (``admit_loaded`` with the same limits) admits is among the rows each reader returns when it is
-    given ``readable_by``: the memory list, the full-text search and the resume event reader, over memories derived from
-    sources and memory inputs in five domains and three levels, from redacted inputs and from inputs that do not exist, for
-    six pairs of limits. The proof also leaves rows out, or it proves nothing: some limits drop rows.
+    The grounding probe and recall ask the store's full-text search, which leaves out the rows a direct input proves above the
+    ceiling before its limit. Every row the real check (``admit_loaded`` with the same limits) admits is among the rows the
+    search returns, over memories derived from sources and memory inputs in five domains and three levels, from redacted
+    inputs, from inputs that do not exist, from a redacted source, and from records whose counts disagree or whose marker
+    is malformed (the check reads those as unverified), for six pairs of limits. The proof also leaves rows out, or it
+    proves nothing: some limits drop rows.
     """
 
     vault = _Vault(tmp_path, monkeypatch)
     with vault.store() as store:
-        memories = _populate(store, random.Random(seed))
+        _populate(store, random.Random(seed))
         left_out_somewhere = False
         for domains, levels in FILTERS:
             stored_fence = store.list_memories(statuses=("active",), domains=domains, sensitivity_allowed=levels, include_expired=False)
             admitted = {str(row["id"]) for row in admit_loaded(store, kind="memory", rows=stored_fence, domains=domains or [], sensitivity_allowed=levels, projects=())}
-            listed = {str(row["id"]) for row in store.list_memories(statuses=("active",), domains=domains, sensitivity_allowed=levels,
-                                                                     include_expired=False, readable_by=(domains, levels))}
-            assert admitted <= listed, (domains, levels, sorted(admitted - listed))
-            left_out_somewhere |= listed != {str(row["id"]) for row in stored_fence}
-            found = {str(row["id"]) for row in store.search_memories_fts(query="alpha", domains=domains, sensitivity_allowed=levels, limit=500, readable_by=(domains, levels))}
-            via_fts_check = {str(row["id"]) for row in admit_loaded(
-                store, kind="memory", rows=store.search_memories_fts(query="alpha", domains=domains, sensitivity_allowed=levels, limit=500),
-                domains=domains or [], sensitivity_allowed=levels, projects=())}
-            assert via_fts_check <= found, (domains, levels, sorted(via_fts_check - found))
-            event_rows = store.list_resume_memory_events(statuses=("active",), limit=5000, domains=None, sensitivity_allowed=None)
-            kept_events = store.list_resume_memory_events(statuses=("active",), limit=5000, domains=None, sensitivity_allowed=None, readable_by=(domains, levels))
-            readable_targets = {str(row["id"]) for row in admitted_rows(store, domains, levels, memories)}
-            assert {str(e["target_id"]) for e in event_rows if str(e["target_id"]) in readable_targets} <= {str(e["target_id"]) for e in kept_events}, (domains, levels)
+            found = {str(row["id"]) for row in store.search_memories_fts(query="alpha", domains=domains, sensitivity_allowed=levels, limit=500)}
+            assert admitted <= found, (domains, levels, sorted(admitted - found))
+            left_out_somewhere |= found != {str(row["id"]) for row in stored_fence}
         assert left_out_somewhere, "the proof left nothing out for any pair of limits, so it proved nothing"
-
-
-def test_limits_that_admit_no_sensitivity_read_no_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation: none for this file. The early return of ``list_resume_memory_events`` in ``sqlite_store.py`` saves a read, and
-    the clause of an empty list admits nothing as well; the PostgreSQL test of this name pins its clause.
-
-    Limits that admit no level of sensitivity admit no event. The control reads the same events with no limits.
-    """
-
-    vault = _Vault(tmp_path, monkeypatch)
-    with vault.store() as store:
-        _populate(store, random.Random(0))
-        assert store.list_resume_memory_events(statuses=("active",), limit=50, domains=None, sensitivity_allowed=None)
-        assert store.list_resume_memory_events(statuses=("active",), limit=50, domains=None, sensitivity_allowed=None, readable_by=(None, [])) == []
-
-
-def admitted_rows(store, domains, levels, memories):  # type: ignore[no-untyped-def]
-    return admit_loaded(store, kind="memory", rows=memories, domains=domains or [], sensitivity_allowed=levels, projects=())
 
 
 # -- the batched fence of the events ----------------------------------------------------------------------------------------
@@ -286,18 +225,19 @@ def test_the_batched_event_fence_gives_the_verdicts_of_the_fence_by_id(tmp_path:
             assert one_by_one and len(one_by_one) < len(events)
 
 
-def test_a_key_bound_to_a_project_reads_the_same_with_and_without_hidden_rows_the_proof_takes_out(
+def test_a_key_bound_to_a_project_reads_the_same_with_and_without_hidden_rows_under_the_cap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Mutation: replace ``limited = SourceReadFence...entity_read_fenced`` in ``_vnext_resume`` with ``limited = False``.
 
-    The bound key's resume with 3 times the cap in provable hidden decisions equals its resume without them.
+    The bound key's resume with a quarter of the cap in hidden decisions, each below a source in the health domain and each
+    with two events (so the events stay under the cap), equals its resume without them.
     """
 
     vault = _Vault(tmp_path, monkeypatch, scoped=True)
     key = vault.key("read_only_alpha")
     before = _brief(vault, key, query="alpha")
-    _add_decisions(vault, CAP * 3, provable=True, tag="hidden")
+    _add_decisions(vault, CAP // 4, provable=True, tag="hidden")
     assert _brief(vault, key, query="alpha") == before
     assert KEYS["read_only_alpha"][1] == "alpha"
 
