@@ -199,6 +199,11 @@ class InMemorySchedulerStore:
         self.append_event({"event_type": "artifact.created", "actor_type": actor_type, "target_id": row["id"]})
         return row
 
+    def get_artifact(self, artifact_id: str) -> dict[str, object] | None:
+        """The stored report by id, as the real store reads it. A run for a caller with limits reads its report again."""
+
+        return self.artifacts.get(str(artifact_id))
+
     def find_artifact_by_workflow_digest(
         self,
         *,

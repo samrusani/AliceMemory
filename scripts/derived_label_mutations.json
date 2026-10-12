@@ -14096,6 +14096,390 @@
         "tests/unit/test_operator_route_limits_docs.py::test_the_security_note_covers_disclosure_the_charter_write_and_the_limits_it_leaves"
       ],
       "expected_failure": "test_the_security_note_covers_disclosure_the_charter_write_and_the_limits_it_leaves"
+    },
+    {
+      "name": "readable-artifact-admits-a-report-above-the-limits",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 1241,
+          "before": "    if current is None or outside_caller_limits(store, identity, \"artifact\", current):\n",
+          "after": "    if current is None:\n",
+          "sha256": "b3f60d30afbf0649f553471e0d1e48d695bbd82aa6c8e2ae0ec038dff71859cc"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_scheduler_run_response_admission_postgres.py::test_a_cluster_that_quotes_a_confidential_memory_is_left_out_of_the_answer[project_scoped_agent]"
+      ],
+      "expected_failure": "test_a_cluster_that_quotes_a_confidential_memory_is_left_out_of_the_answer"
+    },
+    {
+      "name": "readable-artifact-judges-the-row-it-was-given",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 1240,
+          "before": "    current = store.get_artifact(str(artifact.get(\"id\")))\n",
+          "after": "    current = artifact\n",
+          "sha256": "b3f60d30afbf0649f553471e0d1e48d695bbd82aa6c8e2ae0ec038dff71859cc"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_scheduler_run_response_admission_postgres.py::test_a_report_found_again_is_read_again_before_it_is_answered"
+      ],
+      "expected_failure": "test_a_report_found_again_is_read_again_before_it_is_answered"
+    },
+    {
+      "name": "readable-artifact-refuses-the-owner",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 1238,
+          "before": "    if not SourceReadFence.for_identity(identity).entity_read_fenced:\n        return artifact\n",
+          "after": "    if not SourceReadFence.for_identity(identity).entity_read_fenced:\n        return None\n",
+          "sha256": "b3f60d30afbf0649f553471e0d1e48d695bbd82aa6c8e2ae0ec038dff71859cc"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_readable_artifact_without_limits.py::test_the_owner_and_an_unbound_admin_key_are_handed_the_report_and_nothing_is_read"
+      ],
+      "expected_failure": "test_the_owner_and_an_unbound_admin_key_are_handed_the_report_and_nothing_is_read"
+    },
+    {
+      "name": "readable-artifact-reads-the-store-for-the-owner",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 1238,
+          "before": "    if not SourceReadFence.for_identity(identity).entity_read_fenced:\n        return artifact\n",
+          "after": "    if False:\n        return artifact\n",
+          "sha256": "b3f60d30afbf0649f553471e0d1e48d695bbd82aa6c8e2ae0ec038dff71859cc"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_readable_artifact_without_limits.py::test_the_owner_and_an_unbound_admin_key_are_handed_the_report_and_nothing_is_read"
+      ],
+      "expected_failure": "test_the_owner_and_an_unbound_admin_key_are_handed_the_report_and_nothing_is_read"
+    },
+    {
+      "name": "withhold-unreadable-artifact-answers-the-report",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_scheduler.py",
+          "line": 657,
+          "before": "    return answered, None\n",
+          "after": "    return run, artifact\n",
+          "sha256": "659accf5b0ae89b7363ed906595897d02449aaf1011737bc50d960fc81de7144"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_readable_artifact_without_limits.py::test_a_run_is_answered_without_the_id_of_a_report_the_caller_may_not_read"
+      ],
+      "expected_failure": "test_a_run_is_answered_without_the_id_of_a_report_the_caller_may_not_read"
+    },
+    {
+      "name": "withhold-unreadable-artifact-keeps-the-id-in-the-run",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_scheduler.py",
+          "line": 653,
+          "before": "    answered = {**run, \"artifact_id\": None}\n",
+          "after": "    answered = {**run}\n",
+          "sha256": "659accf5b0ae89b7363ed906595897d02449aaf1011737bc50d960fc81de7144"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_readable_artifact_without_limits.py::test_a_run_is_answered_without_the_id_of_a_report_the_caller_may_not_read"
+      ],
+      "expected_failure": "test_a_run_is_answered_without_the_id_of_a_report_the_caller_may_not_read"
+    },
+    {
+      "name": "withhold-unreadable-artifact-keeps-the-id-in-the-metadata",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_scheduler.py",
+          "line": 656,
+          "before": "        answered[\"metadata_json\"] = {key: value for key, value in metadata.items() if key != \"artifact_id\"}\n",
+          "after": "        answered[\"metadata_json\"] = {key: value for key, value in metadata.items() if key != \"artifact_ids\"}\n",
+          "sha256": "659accf5b0ae89b7363ed906595897d02449aaf1011737bc50d960fc81de7144"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_readable_artifact_without_limits.py::test_a_run_is_answered_without_the_id_of_a_report_the_caller_may_not_read"
+      ],
+      "expected_failure": "test_a_run_is_answered_without_the_id_of_a_report_the_caller_may_not_read"
+    },
+    {
+      "name": "publish-started-workflow-answers-the-stored-report",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_scheduler.py",
+          "line": 1157,
+          "before": "        return {\"run\": answered_run, \"artifact\": answered_artifact}\n",
+          "after": "        return {\"run\": updated_run, \"artifact\": artifact}\n",
+          "sha256": "659accf5b0ae89b7363ed906595897d02449aaf1011737bc50d960fc81de7144"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_scheduler_run_response_admission_postgres.py::test_a_cluster_that_quotes_a_confidential_memory_is_left_out_of_the_answer[project_scoped_agent]"
+      ],
+      "expected_failure": "test_a_cluster_that_quotes_a_confidential_memory_is_left_out_of_the_answer"
+    },
+    {
+      "name": "run-due-answers-the-stored-report",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_scheduler_runtime.py",
+          "line": 635,
+          "before": "                \"artifact\": answered_artifact if status == \"succeeded\" else None,\n",
+          "after": "                \"artifact\": artifact if status == \"succeeded\" else None,\n",
+          "sha256": "0e33a18f31759dfb5ee8f7b88343d120338e1cffe2a250686e92bed3b2e9352a"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_scheduler_run_response_admission_postgres.py::test_a_scan_leaves_out_a_report_found_again_that_the_caller_may_no_longer_read[daily_brief]"
+      ],
+      "expected_failure": "test_a_scan_leaves_out_a_report_found_again_that_the_caller_may_no_longer_read[daily_brief]"
+    },
+    {
+      "name": "run-due-answers-the-stored-run",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_scheduler_runtime.py",
+          "line": 634,
+          "before": "                \"run\": answered_run if status == \"succeeded\" and answered_run is not None else finalized,\n",
+          "after": "                \"run\": finalized,\n",
+          "sha256": "0e33a18f31759dfb5ee8f7b88343d120338e1cffe2a250686e92bed3b2e9352a"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_scheduler_run_response_admission_postgres.py::test_a_scan_leaves_out_a_report_found_again_that_the_caller_may_no_longer_read[daily_brief]"
+      ],
+      "expected_failure": "test_a_scan_leaves_out_a_report_found_again_that_the_caller_may_no_longer_read[daily_brief]"
+    },
+    {
+      "name": "generate-route-daily-brief-answers-the-report-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_review.py",
+          "line": 342,
+          "before": "            payload = readable_artifact(\n                store,\n                identity,\n                VNextBrainService(store).generate_daily_brief(\n                    _vnext_brain_artifact_request(request, identity=identity, decision=decision)\n                ),\n            )\n",
+          "after": "            payload = VNextBrainService(store).generate_daily_brief(\n                _vnext_brain_artifact_request(request, identity=identity, decision=decision)\n            )\n",
+          "sha256": "256048c2727486f3b0e6c28c76ea8e13e7be36a5a3e838c7545952a48fa79b84"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_generated_artifact_answers_postgres.py::test_a_generation_route_answers_a_missing_artifact_for_a_report_the_caller_may_no_longer_read[daily_brief]"
+      ],
+      "expected_failure": "test_a_generation_route_answers_a_missing_artifact_for_a_report_the_caller_may_no_longer_read[daily_brief]"
+    },
+    {
+      "name": "generate-route-weekly-synthesis-answers-the-report-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_review.py",
+          "line": 398,
+          "before": "            payload = readable_artifact(\n                store,\n                identity,\n                VNextBrainService(store).generate_weekly_synthesis(\n                    _vnext_brain_artifact_request(request, identity=identity, decision=decision)\n                ),\n            )\n",
+          "after": "            payload = VNextBrainService(store).generate_weekly_synthesis(\n                _vnext_brain_artifact_request(request, identity=identity, decision=decision)\n            )\n",
+          "sha256": "256048c2727486f3b0e6c28c76ea8e13e7be36a5a3e838c7545952a48fa79b84"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_generated_artifact_answers_postgres.py::test_a_generation_route_answers_a_missing_artifact_for_a_report_the_caller_may_no_longer_read[weekly_synthesis]"
+      ],
+      "expected_failure": "test_a_generation_route_answers_a_missing_artifact_for_a_report_the_caller_may_no_longer_read[weekly_synthesis]"
+    },
+    {
+      "name": "generate-route-connections-answers-the-report-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_review.py",
+          "line": 455,
+          "before": "            payload = readable_artifact(\n                store,\n                identity,\n                VNextConnectionService(store).generate_connection_report(\n                    _vnext_connection_request(request, identity=identity, decision=decision)\n                ),\n            )\n",
+          "after": "            payload = VNextConnectionService(store).generate_connection_report(\n                _vnext_connection_request(request, identity=identity, decision=decision)\n            )\n",
+          "sha256": "256048c2727486f3b0e6c28c76ea8e13e7be36a5a3e838c7545952a48fa79b84"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_generated_artifact_answers_postgres.py::test_a_generation_route_answers_a_missing_artifact_for_a_report_the_caller_may_no_longer_read[connection_report]"
+      ],
+      "expected_failure": "test_a_generation_route_answers_a_missing_artifact_for_a_report_the_caller_may_no_longer_read[connection_report]"
+    },
+    {
+      "name": "generate-route-contradictions-answers-the-report-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_review.py",
+          "line": 512,
+          "before": "            payload = readable_artifact(\n                store,\n                identity,\n                VNextContradictionService(store).generate_contradiction_report(\n                    _vnext_contradiction_request(request, identity=identity, decision=decision)\n                ),\n            )\n",
+          "after": "            payload = VNextContradictionService(store).generate_contradiction_report(\n                _vnext_contradiction_request(request, identity=identity, decision=decision)\n            )\n",
+          "sha256": "256048c2727486f3b0e6c28c76ea8e13e7be36a5a3e838c7545952a48fa79b84"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_generated_artifact_answers_postgres.py::test_a_generation_route_answers_a_missing_artifact_for_a_report_the_caller_may_no_longer_read[contradiction_report]"
+      ],
+      "expected_failure": "test_a_generation_route_answers_a_missing_artifact_for_a_report_the_caller_may_no_longer_read[contradiction_report]"
+    },
+    {
+      "name": "generate-route-daily-brief-answers-a-missing-report-with-201",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_review.py",
+          "line": 350,
+          "before": "        return _vnext_public_error_response(status_code=400, detail=\"vNext daily brief request is invalid\")\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n    except AgentPolicyBlockedError as exc:\n        return _vnext_permission_response(exc.decision)\n\n    if payload is None:\n",
+          "after": "        return _vnext_public_error_response(status_code=400, detail=\"vNext daily brief request is invalid\")\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n    except AgentPolicyBlockedError as exc:\n        return _vnext_permission_response(exc.decision)\n\n    if False:\n",
+          "sha256": "256048c2727486f3b0e6c28c76ea8e13e7be36a5a3e838c7545952a48fa79b84"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_generated_artifact_answers_postgres.py::test_a_generation_route_answers_a_missing_artifact_for_a_report_the_caller_may_no_longer_read[daily_brief]"
+      ],
+      "expected_failure": "test_a_generation_route_answers_a_missing_artifact_for_a_report_the_caller_may_no_longer_read[daily_brief]"
+    },
+    {
+      "name": "process-next-names-a-result-the-caller-may-not-read",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_review.py",
+          "line": 619,
+          "before": "                payload = {**payload, \"artifact_id\": None}\n",
+          "after": "                payload = {**payload}\n",
+          "sha256": "256048c2727486f3b0e6c28c76ea8e13e7be36a5a3e838c7545952a48fa79b84"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_generated_artifact_answers_postgres.py::test_the_queue_worker_does_not_name_a_result_report_the_caller_may_not_read"
+      ],
+      "expected_failure": "test_the_queue_worker_does_not_name_a_result_report_the_caller_may_not_read"
+    },
+    {
+      "name": "generation-tool-answers-the-report-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/synthesis.py",
+          "line": 76,
+          "before": "        artifact = readable_artifact(store, identity, make(store))\n",
+          "after": "        artifact = make(store)\n",
+          "sha256": "e0e6d484dcf12e4fb451cbedf2bcb051b9874cdf2e082c8cbeda74752f688375"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_generated_artifact_answers_postgres.py::test_a_generation_tool_answers_not_found_for_a_report_the_caller_may_no_longer_read[daily_brief]"
+      ],
+      "expected_failure": "test_a_generation_tool_answers_not_found_for_a_report_the_caller_may_no_longer_read[daily_brief]"
+    },
+    {
+      "name": "generate-artifact-tool-answers-the-daily-brief-unjudged",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/capture_automation.py",
+          "line": 275,
+          "before": "            payload = readable_artifact(\n                store,\n                identity,\n                service.generate_weekly_synthesis(request)\n                if workflow_type == \"weekly_synthesis\"\n                else service.generate_daily_brief(request),\n            )\n",
+          "after": "            payload = (\n                service.generate_weekly_synthesis(request)\n                if workflow_type == \"weekly_synthesis\"\n                else service.generate_daily_brief(request)\n            )\n",
+          "sha256": "d1be2a40e23793bd962d7fef5d2a0de792cd2c6acb41cc64d7a5e37350fac6d9"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_generated_artifact_answers_postgres.py::test_the_generate_artifact_tool_answers_not_found_for_a_report_the_caller_may_no_longer_read[daily_brief]"
+      ],
+      "expected_failure": "test_the_generate_artifact_tool_answers_not_found_for_a_report_the_caller_may_no_longer_read[daily_brief]"
+    },
+    {
+      "name": "run-tool-reference-drops-the-answer-rule",
+      "edits": [
+        {
+          "file": "docs/alpha/mcp-tools.md",
+          "line": 991,
+          "before": "A report the caller may not read now is left out, whether the run made it or found it again under the same digest. ",
+          "after": "",
+          "sha256": "cf35e9446813014a6fb229c3496445fa759e7bfd90f064f668e1d82ee8d0fedf"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_operator_route_limits_docs.py::test_the_pages_say_that_the_answer_of_a_run_is_judged_like_the_read_of_its_report"
+      ],
+      "expected_failure": "test_the_pages_say_that_the_answer_of_a_run_is_judged_like_the_read_of_its_report"
+    },
+    {
+      "name": "run-security-note-drops-the-queue-answer",
+      "edits": [
+        {
+          "file": "docs/release/derived-labels-security-note-draft.md",
+          "line": 25,
+          "before": "`POST /v0/vnext/queue/process-next` no longer returns the `artifact_id` of a result the caller may not read. ",
+          "after": "",
+          "sha256": "f2d5ba30ec711cc9ddbce15bc256cb70746198ba2702c7de871c87cf4fd52f75"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_operator_route_limits_docs.py::test_the_pages_say_that_the_answer_of_a_run_is_judged_like_the_read_of_its_report"
+      ],
+      "expected_failure": "test_the_pages_say_that_the_answer_of_a_run_is_judged_like_the_read_of_its_report"
+    },
+    {
+      "name": "readable-artifact-admits-a-report-raised-during-the-run",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 1241,
+          "before": "    if current is None or outside_caller_limits(store, identity, \"artifact\", current):\n",
+          "after": "    if current is None:\n",
+          "sha256": "b3f60d30afbf0649f553471e0d1e48d695bbd82aa6c8e2ae0ec038dff71859cc"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_derived_labels_concurrency_postgres.py::test_a_report_built_from_stale_inputs_is_floored_at_insert"
+      ],
+      "expected_failure": "test_a_report_built_from_stale_inputs_is_floored_at_insert"
+    },
+    {
+      "name": "run-tool-reference-drops-the-not-found-answers",
+      "edits": [
+        {
+          "file": "docs/alpha/mcp-tools.md",
+          "line": 991,
+          "before": "The four generation routes answer HTTP 404 with `{\"detail\": \"vNext artifact was not found\"}`, and the tools `alice_generate_daily_brief`, `alice_generate_weekly_synthesis`, `alice_generate_connections`, `alice_generate_contradictions` and `alice_vnext_find_connections`, and the `daily_brief`, `weekly_synthesis`, `connection_report` and `contradiction_report` branches of `alice_vnext_generate_artifact`, answer the error `not_found`. ",
+          "after": "",
+          "sha256": "cf35e9446813014a6fb229c3496445fa759e7bfd90f064f668e1d82ee8d0fedf"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_operator_route_limits_docs.py::test_the_pages_say_that_the_answer_of_a_run_is_judged_like_the_read_of_its_report"
+      ],
+      "expected_failure": "test_the_pages_say_that_the_answer_of_a_run_is_judged_like_the_read_of_its_report"
+    },
+    {
+      "name": "run-changelog-drops-the-race-rule",
+      "edits": [
+        {
+          "file": "CHANGELOG.md",
+          "line": 27,
+          "before": "A report that a relabel during the run raised after the run had read its inputs is judged the same way: it is stored with the current floor, and a caller who may not read it is answered as for a missing artifact. ",
+          "after": "",
+          "sha256": "78b80f0ce173cf031ed9ccc54dbc90cee31fb9979411b41faaaaa7158f94e385"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_operator_route_limits_docs.py::test_the_pages_say_that_the_answer_of_a_run_is_judged_like_the_read_of_its_report"
+      ],
+      "expected_failure": "test_the_pages_say_that_the_answer_of_a_run_is_judged_like_the_read_of_its_report"
+    },
+    {
+      "name": "hidden-ids-security-note-drops-the-status-and-runs-routes",
+      "edits": [
+        {
+          "file": "docs/release/derived-labels-security-note-draft.md",
+          "line": 17,
+          "before": "The scheduler status route (`GET /v0/vnext/scheduler/status`, in `recent_runs` and `last_success_by_workflow`) and the runs route (`GET /v0/vnext/scheduler/runs`, in `items`) list the same run records, and the workspace lists a queued task with the id of the result report it made, in `tasks[].output_artifact_id` and `tasks[].metadata_json.artifact_id`. ",
+          "after": "",
+          "sha256": "f2d5ba30ec711cc9ddbce15bc256cb70746198ba2702c7de871c87cf4fd52f75"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_operator_route_limits_docs.py::test_the_pages_list_the_run_records_and_task_rows_that_still_name_a_report_the_answer_left_out"
+      ],
+      "expected_failure": "test_the_pages_list_the_run_records_and_task_rows_that_still_name_a_report_the_answer_left_out"
     }
   ]
 }

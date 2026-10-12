@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+import json
 from datetime import UTC, datetime, timedelta
 from threading import Barrier, Event, Thread
 import time
@@ -62,17 +63,23 @@ def test_a_report_built_from_stale_inputs_is_floored_at_insert(label_harness, mo
         payload={"options": {"generated_for": today(), "discover_open_loops": True}},
         key=reader,
     )
-    assert status == 201, body
-    assert "Synthetic acceptance" in body["content_markdown"]
-    # The 201 is the read made at selection; the durable row has the current floor.
+    # The report is built from the inputs read before the relabel and stored with the current floor. The caller may not read
+    # a report that is confidential now, so its answer is the one for a missing artifact, and the report is read here from the
+    # store: it is the durable row that carries the floor.
+    assert (status, body) == (404, {"detail": "vNext artifact was not found"})
     with h.store() as store:
-        assert_raised(store.get_artifact(str(body["id"])))
+        reports = store.list_artifacts(artifact_type="daily_brief", limit=10)
+        assert len(reports) == 1
+        report = store.get_artifact(str(reports[0]["id"]))
+        assert report is not None and "Synthetic acceptance" in report["content_markdown"]
+        assert_raised(report)
         loops = store.list_open_loops(status=None, sensitivity_allowed=["confidential", "regulated"], limit=50)
         assert loops
         for loop in loops:
             assert_raised(loop)
             assert "project_floor" in loop["metadata_json"]
-    assert h.request("GET", f"/v0/vnext/artifacts/{body['id']}", key=reader)[0] == 404
+    assert h.request("GET", f"/v0/vnext/artifacts/{report['id']}", key=reader)[0] == 404
+    assert str(report["id"]) not in json.dumps(body)
 
 
 def test_a_relabel_waits_for_an_open_generation_and_then_labels_its_report(label_harness):

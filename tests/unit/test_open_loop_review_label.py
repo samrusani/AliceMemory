@@ -35,6 +35,13 @@ class SourceReadingStore(InMemorySchedulerStore):
         wanted = {str(value).lower() for value in ids}
         return [dict(row) for row in self.sources if str(row["id"]).lower() in wanted]
 
+    def read_label_rows(self, kind, ids):
+        """The rows a report is derived from, by id: what the check of a caller with limits reads to settle its label."""
+
+        wanted = {str(value).lower() for value in ids}
+        pool = {"source": self.sources, "open_loop": self.open_loops}.get(kind, [])
+        return [dict(row) for row in pool if str(row["id"]).lower() in wanted]
+
     def find_artifact_by_workflow_digest(self, *, artifact_type, workflow, digest, scope_projects=None):
         """The stores return the report an earlier run made for the same ``workflow_digest``."""
 
@@ -67,6 +74,7 @@ class SingleSourceStore(InMemorySchedulerStore):
         return None
 
     find_artifact_by_workflow_digest = SourceReadingStore.find_artifact_by_workflow_digest
+    read_label_rows = SourceReadingStore.read_label_rows
 
 
 def _store(

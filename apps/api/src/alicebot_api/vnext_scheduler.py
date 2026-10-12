@@ -628,6 +628,35 @@ def _logical_agent_identity(identity: AgentIdentity | None) -> JsonObject | None
     return cast(JsonObject, _digest_stable_value(identity.to_record()))
 
 
+def withhold_unreadable_artifact(
+    store: object,
+    identity: AgentIdentity | None,
+    *,
+    run: JsonObject,
+    artifact: JsonObject | None,
+) -> tuple[JsonObject, JsonObject | None]:
+    """The run and the artifact an on-demand answer may carry for ``identity``.
+
+    The artifact of a run is a row the caller is shown, whether the run made it or found it already stored under the same
+    digest, so it is judged as the artifact read is (``readable_artifact``), on the labels it has now. When the caller may
+    not read it the answer carries no artifact, and the run is returned without the id it recorded, in its own column and
+    in its metadata, so the answer names no report, quotes none and counts none. It still shows that one was made: a run
+    that succeeded with no artifact is not a run that failed. The stored run keeps both ids for the owner, and so do the
+    status and runs routes, which admit only the owner, an unbound admin key and an unbound trusted key. The owner and an
+    unbound admin key have no limits and get both unchanged, with nothing read.
+    """
+
+    from alicebot_api.vnext_label_guard import readable_artifact
+
+    if artifact is None or readable_artifact(store, identity, artifact) is not None:
+        return run, artifact
+    answered = {**run, "artifact_id": None}
+    metadata = run.get("metadata_json")
+    if isinstance(metadata, dict):
+        answered["metadata_json"] = {key: value for key, value in metadata.items() if key != "artifact_id"}
+    return answered, None
+
+
 def default_schedule(workflow_type: str) -> JsonObject:
     if workflow_type == "daily_brief":
         return {"kind": "daily", "time_of_day": "08:00", "days_of_week": list(DAY_NAMES)}
@@ -1120,7 +1149,12 @@ class VNextSchedulerService:
             run_id=run_id,
             payload={"workflow_type": request.workflow_type, "scheduler_run_id": run_id},
         )
-        return {"run": updated_run, "artifact": artifact}
+        # The report is stored whoever asked for the run, and the owner reads it. The answer is a read of it by the caller
+        # of the run, judged on the labels it has now, after everything it was made from is written.
+        answered_run, answered_artifact = withhold_unreadable_artifact(
+            self.store, request.agent_identity, run=updated_run, artifact=artifact
+        )
+        return {"run": answered_run, "artifact": answered_artifact}
 
     def fail_started_workflow(
         self,
@@ -1951,4 +1985,5 @@ __all__ = [
     "compute_next_run_at",
     "default_schedule",
     "validate_schedule",
+    "withhold_unreadable_artifact",
 ]
