@@ -642,36 +642,34 @@ def _typed_refs(value: object) -> set[tuple[str, str]]:
 _PRODUCER_REF = re.compile(r"(?:memory|source):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
-def _source_refs_strings(value: object) -> tuple[str, set[str], set[tuple[str, str]], set[str]]:
-    """``(problem, source ids, typed refs, extras)`` that the closure always took from ``source_refs``.
+def _source_refs_strings(value: object) -> tuple[str, set[str], set[tuple[str, str]]]:
+    """``(problem, source ids, typed refs)`` that the closure always took from the strings of ``source_refs``.
 
-    The source ids and the typed refs are hard inputs, as they have been: a row that cites one and does not find it
-    stored is unverified. They are the strings of the list (a bare id, ``source:<id>``, ``memory:<id>`` and the other typed
-    refs) and the sources the saved-quote reader names in any entry. A word after a colon that is no id
-    (``source:'<id>'``, ``memory:<id>#chunk-1``) names nothing here: an id inside it is a candidate of the scan, resolved
-    against the stored rows (``vnext_citations``). ``extras`` are the ids that the closure took from the objects of the list, where
-    it took every string value for a source token, which names the wrong kind for a memory: they are candidates too.
+    They are hard inputs, as they have been: a row that cites one and does not find it stored is unverified. They are the
+    sources the saved-quote reader names in a string, in any spelling ``uuid.UUID`` takes (a bare id, ``source:<id>``,
+    ``urn:uuid:<id>``, an id in braces, JSON text), and the typed refs of a string (``memory:<id>``, ``source:<id>``,
+    ``open_loop:<id>`` and ``artifact:<id>``). A word after a colon that is no id (``source:'<id>'``,
+    ``memory:<id>#chunk-1``) names nothing here: an id inside it is a candidate of the scan, resolved against the stored rows
+    (``vnext_citations``), as is every id the reader finds in an object of the list.
 
     A list with an item that is neither a string nor an object is malformed, as it has been. A string in the one spelling
-    every producer writes is taken as it always was without asking the reader, which finds nothing more in it; any other
-    string, and every object, goes through the same readers once.
+    every producer writes is taken without asking the reader, which finds nothing more in it; any other string goes to the
+    reader once.
     """
 
     if value is None:
-        return "", set(), set(), set()
+        return "", set(), set()
     if isinstance(value, str):
         items: list[object] = [value]
     elif isinstance(value, list):
         items = value
         if any(not isinstance(item, (str, Mapping)) for item in items):
-            return "malformed", set(), set(), set()
+            return "malformed", set(), set()
     else:
-        return _source_ids_from(value)[0], set(), set(), set()
+        return _source_ids_from(value)[0], set(), set()
     ids: set[str] = set()
     refs: set[tuple[str, str]] = set()
-    extras: set[str] = set()
     problem = ""
-    rest: list[object] = []
     for item in items:
         if isinstance(item, str):
             if _PRODUCER_REF.fullmatch(item):
@@ -679,27 +677,13 @@ def _source_refs_strings(value: object) -> tuple[str, set[str], set[tuple[str, s
                     refs.add(("memory", item[7:]))
                 else:
                     ids.add(item[-36:])
-                continue
-            if len(item) < 32:
-                continue  # too short to hold an id in any spelling
-        rest.append(item)
-    if rest:
-        objects = [item for item in rest if not isinstance(item, str)]
-        if objects:
-            ids |= {identifier(named) for named in cited_source_ids(objects).named}
-        for item in rest:
-            if isinstance(item, str):
+            elif len(item) >= 32:  # shorter holds no id in any spelling
                 ids |= {identifier(named) for named in read_reference(item).named_sources}
-                token = _source_token(item)
-                if token:
-                    ids.add(token)
                 refs |= _typed_refs(item)
-            else:
-                item_problem, item_ids = _source_ids_from(item)
-                problem = problem or item_problem
-                extras |= item_ids
-                extras |= {ref_id for _kind, ref_id in _typed_refs(item)}
-    return problem, ids, refs, extras
+        else:
+            item_problem, _named = _source_ids_from(item)
+            problem = problem or item_problem
+    return problem, ids, refs
 
 
 def _add_ids(found: set[tuple[str, str]], kind: str, values: Iterable[str]) -> None:
@@ -708,11 +692,8 @@ def _add_ids(found: set[tuple[str, str]], kind: str, values: Iterable[str]) -> N
             found.add((kind, item))
 
 
-def _collect_metadata_ids(value: object, found: set[tuple[str, str]], extras: set[str] | None = None) -> str:
-    """Walk server-written metadata. Return ``malformed`` or ``""``.
-
-    ``extras`` collects the ids that the closure took from the objects of a ``source_refs`` list, which are candidates.
-    """
+def _collect_metadata_ids(value: object, found: set[tuple[str, str]]) -> str:
+    """Walk server-written metadata. Return ``malformed`` or ``""``."""
 
     problem = ""
     nodes: list[object] = [value]
@@ -738,16 +719,12 @@ def _collect_metadata_ids(value: object, found: set[tuple[str, str]], extras: se
                     problem = problem or "malformed"
                 continue
             if key == "source_refs":
-                # What this reading found before the saved-quote reader's parser joined it stays a hard input: the strings of the
-                # list, as they were read. The objects of the list were read with every string value taken for a source token, which names
-                # the wrong kind for a memory, so what they hold is a candidate that is resolved against the stored rows
-                # (``soft_inputs``), as are the shapes only the saved-quote reader reads.
-                child_problem, string_ids, string_refs, object_ids = _source_refs_strings(child)
+                # What this reading always found in the strings of the list stays a hard input. The rest of what the saved-quote
+                # reader finds there is a candidate, resolved against the stored rows (``soft_inputs``).
+                child_problem, string_ids, string_refs = _source_refs_strings(child)
                 problem = problem or child_problem
                 _add_ids(found, "source", string_ids)
                 found.update(string_refs)
-                if extras is not None:
-                    extras |= object_ids
                 continue
             if key == "member_snapshots" and isinstance(child, list):
                 for item in child:
@@ -949,7 +926,6 @@ def soft_refs(kind: object, row: Mapping[str, object]) -> frozenset[tuple[str, s
     return candidates | unreadable
 
 
-_SOFT_KINDS = ("memory", "source")
 _NO_REFS: frozenset[tuple[str, str]] = frozenset()
 
 
@@ -989,9 +965,8 @@ def _derived_dependency_record(
 
     meta = _metadata(row)
     found: set[tuple[str, str]] = set()
-    extras: set[str] = set()
     problem = "malformed_marker" if _malformed_marker(name, meta) else ""
-    problem = problem or _collect_metadata_ids(meta, found, extras)
+    problem = problem or _collect_metadata_ids(meta, found)
     if "derived_from" in meta:
         derived_problem, derived_deps = _derived_from_deps(meta.get("derived_from"))
         problem = problem or derived_problem
@@ -1012,15 +987,12 @@ def _derived_dependency_record(
     citations = record_scan(row)
     soft = _NO_REFS
     unreadable = _NO_REFS
-    if citations or extras:
+    if citations:
         # An id is one row, so an id that is a hard input is not a candidate in either kind, and a row is not its own input.
         taken = {row_id for _kind, row_id in found}
         if row.get("id") is not None:
             taken.add(identifier(row.get("id")))
-        soft = frozenset(
-            (*(ref for ref in citations.refs if ref[1] not in taken),
-             *((name, row_id) for row_id in extras if row_id not in taken for name in _SOFT_KINDS))
-        )
+        soft = frozenset(ref for ref in citations.refs if ref[1] not in taken)
         unreadable = frozenset(ref for ref in citations.unreadable if ref[1] not in taken)
     return frozenset(found), problem, soft, unreadable
 

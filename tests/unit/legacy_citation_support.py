@@ -230,6 +230,9 @@ def corpus_entries(memory_id: str, source_id: str, quote: str = "Cedar kiln code
         entries[f"{label}-object-ref"] = {"ref": f"{mark}:{ident}", "quote": quote}
         entries[f"{label}-object-quote-object"] = {"quote": {key: ident}}
         entries[f"{label}-object-id-key-only"] = {"id": ident, "quote": quote}
+        # An id with its hyphens where ``uuid.UUID`` takes them and the reader's pattern does not.
+        entries[f"{label}-bare-odd"] = odd_hyphens(ident)
+        entries[f"{label}-object-origin-odd"] = {"origin": odd_hyphens(ident), "quote": quote}
         for text_key in ("title", "text", "summary", "description", "content", "body", "label", "note", "excerpt"):
             entries[f"{label}-object-{text_key}-prefix"] = {text_key: f"{mark}:{ident}"}
             entries[f"{label}-object-{text_key}-bare"] = {text_key: ident}

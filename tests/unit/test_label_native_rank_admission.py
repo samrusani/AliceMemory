@@ -382,3 +382,41 @@ def test_same_origin_keeps_counts_and_event_grants_separate_across_rank_ceilings
             assert caller.admit_events([canonical, alias]) == ([canonical] if readable else [])
         assert len(public._state().rank_origins) == 1
         assert_only_full_labels(public._state())
+
+
+@pytest.mark.parametrize("scenario", ["every-id-names-a-stored-row", "some-ids-name-nothing"])
+def test_a_row_that_cites_a_hidden_memory_in_a_wording_no_producer_writes_is_not_counted_or_admitted(scenario):
+    """The reduced proof and the bulk kernel read the producers' own spelling only, so a row that may cite more takes the
+    complete collector, which looks the cited ids up. A ``memory:`` word in a reference position names a memory only, so when
+    every id a graph may cite names a stored row nothing else in it declines the reduced proof.
+    Mutations: the rank batch stops declining such a row; the prefetch stops loading what such a row may cite."""
+    source = {"kind": "source", "id": UUID(int=1), "user_id": "label-guard", "domain": "project", "sensitivity": "public",
+              "metadata_json": {"project_scope": [], "project_floor": []}}
+    hidden = {"kind": "memory", "id": UUID(int=7), "user_id": "label-guard", "domain": "health", "sensitivity": "confidential",
+              "status": "active", "value": {}, "metadata_json": {"project_scope": [], "project_floor": []}}
+
+    def derived(number: int, **metadata):
+        return {"kind": "memory", "id": UUID(int=number), "user_id": "label-guard", "domain": "project", "sensitivity": "public",
+                "status": "active", "value": {},
+                "metadata_json": {"candidate_kind": "memory_consolidation", "project_scope": [], "project_floor": [],
+                                  "source_refs": [f"source:{source['id']}"], **metadata}}
+
+    in_provenance = derived(0x1002, provenance=[f"memory:{hidden['id']}"])
+    plain = derived(0x1004)
+    roots = [in_provenance, plain]
+    visible = {plain["id"]}
+    if scenario == "some-ids-name-nothing":
+        # A sentence and JSON text name an id as a memory and as a source, and the source is not stored.
+        roots += [derived(0x1001, evidence=f"memory:{hidden['id']}", notes=json.dumps({"memory_id": str(hidden["id"])})),
+                  derived(0x1003, provenance=[f"memory:{UUID(int=99)}"], evidence=f"copied from memory: {UUID(int=98)} on Monday")]
+        visible.add(roots[-1]["id"])
+    expected = full_labels([source, hidden, *roots])
+    assert visible == {row["id"] for row in roots
+                       if not expected.by_stored("memory", str(row["id"]), user_id="label-guard").unverified
+                       and expected.by_stored("memory", str(row["id"]), user_id="label-guard").sensitivity == "public"}
+    store = NativeRows([source, hidden, *roots], roots)
+    with guards.label_read_scope(store):
+        guard = guards.LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        assert guard.readable_status_counts("memory") == {"active": len(visible)}
+        assert {row["id"] for row in guard.admit_rows("memory", roots)} == visible
+        assert guard.effective_row("memory", in_provenance)["sensitivity"] == "confidential"

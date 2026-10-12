@@ -198,8 +198,8 @@ def test_a_report_is_raised_to_the_row_it_cites_in_a_wording_no_marker_covers(na
     """An id in a sentence, under ``origin``, in a URL or a Markdown link names a row, and the report holds its words."""
 
     settled = _settled(_held("artifact", [entry]))
-    if name.startswith("memory-bare-") or name == "memory-object-id-key-only":
-        # Main read a bare id, and the id of an object, as a source: it names no stored source, so the row is unverified.
+    if name.startswith("memory-bare-"):
+        # A bare id was always read as a source: it names no stored source, so the row is unverified.
         assert (settled.unverified, settled.reason) == (True, "missing_dependency"), name
     elif name == "source-json-quote-has-id":
         # The reader reads the text of a quote as naming no source, and a memory only if the store holds one under the id.
@@ -211,10 +211,11 @@ def test_a_report_is_raised_to_the_row_it_cites_in_a_wording_no_marker_covers(na
 @pytest.mark.parametrize("holder", HOLDERS)
 def test_a_citation_of_a_row_that_is_not_stored_is_ignored(holder: str) -> None:
     for name, entry in corpus_entries(GHOST, GHOST, QUOTE).items():
-        if re.fullmatch(r"(memory|source)-prefix-(canonical|capitals|no-hyphens|capitals-no-hyphens|braces|padded|space)", name) or (
-            "-bare-" in name or name.endswith("-object-id-key-only") or cited_source_ids([entry]).named
+        if isinstance(entry, str) and (
+            re.fullmatch(r"(memory|source)-prefix-(canonical|capitals|no-hyphens|capitals-no-hyphens|braces|padded|space)", name)
+            or "-bare-" in name or cited_source_ids([entry]).named
         ):
-            continue  # an input that was always read as one that must be stored: a marker and an id, a bare id, a source the reader names
+            continue  # a string that was always read as an input that must be stored: a marker and an id, a bare id, a source the reader names
         row = _held(holder, [entry])
         settled = _settled(row)
         assert (settled.unverified, settled.sensitivity) == (False, "internal"), name
@@ -457,6 +458,7 @@ def test_a_row_does_not_resolve_to_itself() -> None:
     row = _node("memory", MEMORY, **candidate_memory([f"copied from memory: {MEMORY}"]))
     settled = settle_labels([row]).by_stored("memory", MEMORY)
     assert (settled.unverified, settled.reason) == (False, None)
+    assert soft_inputs("memory", row) == (frozenset(), frozenset()), "its own id is not a row to look up"
 
 
 def test_a_candidate_resolves_only_within_the_tenant() -> None:
@@ -595,6 +597,12 @@ def test_what_the_reader_finds_in_a_string_does_not_depend_on_what_the_string_si
         assert {row_id for reading in got for row_id in reading.named_sources} == set(cited_source_ids(group).named)
 
 
+def test_a_string_too_short_to_hold_an_id_never_goes_to_the_reader(monkeypatch: pytest.MonkeyPatch) -> None:
+    spy = _Spy(monkeypatch)
+    assert read_reference("memory:abc") == vnext_citations.Reading(frozenset(), frozenset(), frozenset())
+    assert spy.reads == 0
+
+
 def test_a_record_with_nothing_that_can_hold_a_citation_never_goes_to_the_reader(monkeypatch: pytest.MonkeyPatch) -> None:
     spy = _Spy(monkeypatch)
     row = _held("artifact", [])
@@ -612,11 +620,12 @@ def test_two_rows_that_cite_different_ids_do_not_share_a_parsing_key() -> None:
     """The guard shares one answer between rows with equal keys, so the ids a record may cite must be in the key."""
 
     def report_citing(text: str) -> dict[str, object]:
+        # Under a key the parsing key does not carry, so only the scan tells the rows apart.
         return _node("artifact", str(uuid4()), artifact_type="memory_consolidation",
-                     metadata_json={"workflow": "memory_consolidation", "evidence": text, "source_refs": [text]})
+                     metadata_json={"workflow": "memory_consolidation", "evidence": text})
 
     keys = {dependency_syntax_key("artifact", report_citing(text)) for text in (
-        json.dumps({"memory_id": MEMORY}), json.dumps({"memory_id": str(uuid4())}), f"see {MEMORY}", f"see {SOURCE}", "nothing cited here")}
+        json.dumps({"memory_id": MEMORY}), json.dumps({"memory_id": str(uuid4())}), f"memory:{SOURCE}", f"alice://memories/{PUBLIC_MEMORY}", "nothing cited here")}
     assert len(keys) == 5
 
 
