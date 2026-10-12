@@ -241,6 +241,33 @@ def corpus_entries(memory_id: str, source_id: str, quote: str = "Cedar kiln code
     return entries
 
 
+TYPED_OBJECT_KEYS = ("origin", "ref", "source_ref", "memory_id", "id", "title", "text", "summary", "description", "content", "body",
+                     "label", "note", "excerpt", "conversation_excerpt", "quote")
+
+
+def typed_object_entries(
+    memory_id: str, source_id: str, artifact_id: str, open_loop_id: str, quote: str = "Cedar kiln code 4417"
+) -> dict[str, object]:
+    """Object entries of ``source_refs`` that hold a typed ref (``artifact:<id>``, ``open_loop:<id>``, ``memory:<id>``,
+    ``source:<id>``) under any key, the text keys included, and the entries that hold a source in the text key
+    ``conversation_excerpt``, which the saved-quote reader skips as quote text."""
+
+    entries: dict[str, object] = {}
+    for label, ident in (("artifact", artifact_id), ("open_loop", open_loop_id), ("memory", memory_id), ("source", source_id)):
+        entries[f"{label}-typed-string"] = f"{label}:{ident}"
+        for key in TYPED_OBJECT_KEYS:
+            entries[f"{label}-typed-object-{key}"] = {"note": quote, key: f"{label}:{ident}"}
+        entries[f"{label}-typed-object-nested"] = {"items": [{"origin": f"{label}:{ident}"}], "quote": quote}
+        entries[f"{label}-typed-object-braces"] = {"origin": "%s:{%s}" % (label, ident), "quote": quote}
+        entries[f"{label}-typed-object-capitals"] = {"origin": f"{label}:{ident.upper()}", "quote": quote}
+    entries["source-excerpt-bare"] = {"conversation_excerpt": source_id, "quote": quote}
+    entries["source-excerpt-prefix"] = {"conversation_excerpt": f"source:{source_id}"}
+    entries["source-excerpt-url"] = {"conversation_excerpt": f"alice://sources/{source_id}"}
+    entries["source-excerpt-json"] = {"conversation_excerpt": json.dumps({"source_refs": [f"alice://sources/{source_id}"]})}
+    entries["source-excerpt-list"] = {"conversation_excerpt": [source_id, f"source:{source_id}"]}
+    return entries
+
+
 def positions(entry: object) -> dict[str, dict[str, object]]:
     """The records that hold ``entry`` in each place a client's reference is copied to."""
 

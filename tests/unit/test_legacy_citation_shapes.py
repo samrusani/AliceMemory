@@ -28,7 +28,7 @@ from uuid import uuid4
 import pytest
 
 from alicebot_api import vnext_citations, vnext_derived_labels, vnext_source_fence
-from alicebot_api.vnext_citations import clear_reading_cache, read_reference, scan_citations
+from alicebot_api.vnext_citations import BATCH_STRINGS, MAX_READ_STRINGS, clear_reading_cache, read_reference, scan_citations
 from alicebot_api.vnext_derived_labels import (
     _SKIP_RECURSE,
     dependencies_of,
@@ -50,6 +50,7 @@ from tests.unit.legacy_citation_support import (
     positions,
     report,
     source_shapes,
+    typed_object_entries,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -60,6 +61,8 @@ SOURCE = str(uuid4())
 PUBLIC_MEMORY = str(uuid4())
 PUBLIC_SOURCE = str(uuid4())
 GHOST = str(uuid4())
+ARTIFACT = str(uuid4())
+OPEN_LOOP = str(uuid4())
 # The source a loop came from. It is an input of the loop whatever the refs say.
 LOOP_SOURCE = str(uuid4())
 HOLDERS = ("artifact", "memory", "open_loop")
@@ -92,11 +95,14 @@ def _confidential_source() -> dict[str, object]:
 
 
 def _stored() -> list[dict[str, object]]:
-    """The rows a record can cite: a confidential memory and source, a public memory and source, and the loop's source."""
+    """The rows a record can cite: a confidential memory, source, artifact and open loop, a public memory and source, and the
+    loop's source."""
 
     return [
         _confidential_memory(),
         _confidential_source(),
+        _node("artifact", ARTIFACT, domain="health", sensitivity="confidential"),
+        _node("open_loop", OPEN_LOOP, domain="health", sensitivity="confidential"),
         _memory(PUBLIC_MEMORY, domain="project", sensitivity="public"),
         _node("source", PUBLIC_SOURCE, domain="project", sensitivity="public"),
         _node("source", LOOP_SOURCE, domain="project", sensitivity="public"),
@@ -239,6 +245,65 @@ def test_a_record_that_cites_only_where_no_producer_writes_is_judged_by_the_rows
     assert (public.unverified, public.sensitivity) == (False, "internal")
     ghost = _settled(nested(f"copied from memory: {GHOST} on Monday"))
     assert (ghost.unverified, ghost.sensitivity) == (False, "internal")
+
+
+OBJECT_PLACES = ("top", "proposal", "agentic", "nested", "bare")
+
+
+@pytest.mark.parametrize("position", OBJECT_PLACES)
+@pytest.mark.parametrize("name,entry", sorted(typed_object_entries(MEMORY, SOURCE, ARTIFACT, OPEN_LOOP, QUOTE).items()))
+def test_an_object_of_source_refs_is_held_to_the_row_its_typed_ref_or_source_names(name: str, entry: object, position: str) -> None:
+    """An object entry has always given the closure the typed refs in any of its strings, under any key (an artifact under
+    ``origin``, an open loop under ``title``), and the sources its values name, ``conversation_excerpt`` included, which the
+    saved-quote reader skips as quote text. They are looked up as the kind they name."""
+
+    row = _held("artifact", [])
+    row["metadata_json"] = {**row["metadata_json"], **positions(entry)[position]}  # type: ignore[arg-type]
+    settled = _settled(row)
+    assert (settled.unverified, settled.domain, settled.sensitivity) == (False, "health", "confidential"), (name, position)
+
+
+@pytest.mark.parametrize("position", OBJECT_PLACES)
+@pytest.mark.parametrize("name,entry", sorted(typed_object_entries(GHOST, GHOST, GHOST, GHOST, QUOTE).items()))
+def test_an_object_of_source_refs_that_names_no_stored_row_is_ignored(name: str, entry: object, position: str) -> None:
+    if name.endswith("-typed-string"):
+        pytest.skip("a string the producers write is a hard input")
+    row = _held("artifact", [])
+    row["metadata_json"] = {**row["metadata_json"], **positions(entry)[position]}  # type: ignore[arg-type]
+    settled = _settled(row)
+    assert (settled.unverified, settled.sensitivity) == (False, "internal"), (name, position)
+
+
+@pytest.mark.parametrize("holder", HOLDERS)
+def test_a_source_refs_that_is_one_object_is_read_like_a_list_of_one(holder: str) -> None:
+    for entry, expected in (
+        ({"title": f"artifact:{ARTIFACT}"}, True),
+        ({"origin": f"open_loop:{OPEN_LOOP}", "quote": QUOTE}, True),
+        ({"conversation_excerpt": SOURCE}, True),
+        ({"title": f"artifact:{GHOST}"}, False),
+    ):
+        row = _held(holder, [])
+        row["metadata_json"] = {**row["metadata_json"], "source_refs": entry}  # type: ignore[arg-type]
+        settled = _settled(row)
+        assert settled.unverified is False, entry
+        assert (settled.sensitivity == "confidential") is expected, entry
+
+
+def test_an_id_that_a_string_and_an_object_cite_as_two_kinds_is_looked_up_as_both() -> None:
+    """No id names a row in two tables, but the closure found both and the pair is kept: the string makes the row unverified
+    unless the source is stored, and the object still names the open loop."""
+
+    row = _held("artifact", [f"source:{OPEN_LOOP}", {"origin": f"open_loop:{OPEN_LOOP}"}])
+    candidates, _unreadable = soft_inputs("artifact", row)
+    assert ("source", OPEN_LOOP) in dependencies_of("artifact", row)
+    assert ("open_loop", OPEN_LOOP) in candidates
+
+
+def test_a_malformed_list_keeps_the_typed_refs_it_always_found() -> None:
+    row = _held("artifact", [])
+    row["metadata_json"] = {**row["metadata_json"], "source_refs": [f"artifact:{ARTIFACT}", 7]}  # type: ignore[arg-type]
+    assert ("artifact", ARTIFACT) in dependencies_of("artifact", row)
+    assert _settled(row).reason == "malformed"
 
 
 def test_the_strings_a_producer_writes_stay_hard_inputs() -> None:
@@ -400,6 +465,25 @@ def test_a_memory_word_is_a_memory_and_never_a_source(position: str) -> None:
     # The words of a source: or a bare id are read as a source, and the reader also reads them as an incidental memory.
     row["metadata_json"] = {**row["metadata_json"], position: [f"source:{clash}"]}  # type: ignore[arg-type]
     assert _settled(row, stored).sensitivity == "confidential"
+
+
+@pytest.mark.parametrize("make", [
+    lambda: f"source:{SOURCE}",
+    lambda: f"alice://sources/{SOURCE}",
+    lambda: json.dumps({"source_id": SOURCE}),
+    lambda: SOURCE,
+], ids=["marker", "url", "json", "bare"])
+def test_a_source_is_named_under_a_source_reference_key_and_not_under_any_other(make) -> None:
+    """The reader names a source only under a source reference key; under another key a ``source:`` marker, a URL, JSON text
+    or a bare id is incidental to it, and outside a reference position the closure looks up what the reader names."""
+
+    elsewhere = _held("artifact", [f"source:{PUBLIC_SOURCE}"])
+    elsewhere["metadata_json"] = {**elsewhere["metadata_json"], "note": make()}  # type: ignore[arg-type]
+    assert SOURCE not in _looked_up("artifact", elsewhere)
+    keyed = _held("artifact", [f"source:{PUBLIC_SOURCE}"])
+    keyed["metadata_json"] = {**keyed["metadata_json"], "extra": {"sources": [make()]}}  # type: ignore[arg-type]
+    assert SOURCE in _looked_up("artifact", keyed)
+    assert _settled(keyed).sensitivity == "confidential"
 
 
 def test_a_bare_id_in_an_ordinary_field_is_not_an_input() -> None:
@@ -601,6 +685,83 @@ def test_a_string_too_short_to_hold_an_id_never_goes_to_the_reader(monkeypatch: 
     spy = _Spy(monkeypatch)
     assert read_reference("memory:abc") == vnext_citations.Reading(frozenset(), frozenset(), frozenset())
     assert spy.reads == 0
+
+
+def _many(count: int, *, real: str | None = None) -> list[str]:
+    """``count`` JSON texts that each cite an id the store does not hold, and ``real`` among them when it is given."""
+
+    entries = [json.dumps({"memory_id": str(uuid4()), "quote": QUOTE}) for _ in range(count)]
+    if real is not None:
+        entries[count // 2] = json.dumps({"memory_id": real, "quote": QUOTE})
+    return entries
+
+
+def test_a_long_list_is_read_in_one_batch_and_gives_what_string_by_string_gives(monkeypatch: pytest.MonkeyPatch) -> None:
+    short = _many(BATCH_STRINGS, real=MEMORY)
+    long = _many(BATCH_STRINGS + 1, real=MEMORY)
+    spy = _Spy(monkeypatch)
+    assert MEMORY in _ids(scan_citations(({"source_refs": short},)))
+    assert spy.reads == 2 * len(short), "a short list is read string by string, from the kept readings"
+    spy.reads = 0
+    clear_reading_cache()
+    citations = scan_citations(({"source_refs": long},))
+    assert spy.reads == 2, "one call of each half of the reader for the whole list"
+    assert MEMORY in _ids(citations)
+    assert vnext_citations._read_kept.cache_info().currsize == 0, "a long list does not push the short ones out of the kept readings"
+    one_by_one = set().union(*(read_reference(entry).refs for entry in long))
+    assert citations.refs == one_by_one
+
+
+def test_strings_under_an_unknown_key_are_read_in_one_batch_past_the_batch_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    spy = _Spy(monkeypatch)
+    citations = scan_citations(({"evidence": _many(BATCH_STRINGS + 1, real=MEMORY)},))
+    assert MEMORY in _ids(citations)
+    assert spy.reads == 2
+
+
+def test_a_long_list_keeps_the_hard_sources_it_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The batch that reads a long list gives the closure the same hard inputs as the string by string reading does."""
+
+    for count in (3, BATCH_STRINGS + 1):
+        entries = _many(count) + [json.dumps({"source_id": SOURCE, "quote": QUOTE}), f"artifact:{ARTIFACT}"]
+        row = _held("artifact", entries)
+        assert ("source", SOURCE) in dependencies_of("artifact", row), count
+        assert ("artifact", ARTIFACT) in dependencies_of("artifact", row), count
+
+
+def test_a_record_past_the_read_bound_is_unverified_and_none_of_it_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reading every string of such a record costs a request seconds, and leaving the ones past a bound unread would hide what
+    they cite. The row is unverified, as a row with more ancestors than the node bound is."""
+
+    spy = _Spy(monkeypatch)
+    at_the_bound = _held("artifact", _many(MAX_READ_STRINGS, real=MEMORY))
+    assert (_settled(at_the_bound).unverified, _settled(at_the_bound).sensitivity) == (False, "confidential")
+    reads_at_the_bound = spy.reads
+    assert reads_at_the_bound > 0
+    past = _held("artifact", _many(MAX_READ_STRINGS + 1, real=MEMORY))
+    settled = _settled(past)
+    assert (settled.unverified, settled.reason) == (True, "too_many_citations")
+    assert spy.reads == reads_at_the_bound, "the record past the bound went to the reader"
+    assert scan_citations(({"source_refs": _many(MAX_READ_STRINGS + 1)},)).too_many
+
+
+def test_a_list_of_the_same_string_past_the_bound_is_unverified_too() -> None:
+    settled = _settled(_held("artifact", [json.dumps({"memory_id": MEMORY})] * (MAX_READ_STRINGS + 1)))
+    assert (settled.unverified, settled.reason) == (True, "too_many_citations")
+
+
+def test_any_number_of_the_strings_every_producer_writes_is_not_a_record_past_the_bound() -> None:
+    refs = [f"memory:{PUBLIC_MEMORY}"] * 3 + [f"source:{uuid4()}" for _ in range(MAX_READ_STRINGS * 2)]
+    row = _held("artifact", refs)
+    assert scan_citations((row["metadata_json"],)).too_many is False
+    assert dependency_record("artifact", row)[1] == ""
+
+
+def test_the_label_check_says_what_to_do_with_a_row_past_the_bound() -> None:
+    from alicebot_api.vnext_label_repair import TOO_MANY_CITATIONS_ADVICE, format_label_check
+
+    text = format_label_check([], {"too_many_citations": ["row-1"]})
+    assert "too_many_citations 1" in text and TOO_MANY_CITATIONS_ADVICE in text
 
 
 def test_a_record_with_nothing_that_can_hold_a_citation_never_goes_to_the_reader(monkeypatch: pytest.MonkeyPatch) -> None:

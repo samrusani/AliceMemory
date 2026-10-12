@@ -1,19 +1,25 @@
-"""The closure finds at least every id that its reading of ``source_refs`` found before the saved-quote parser joined it.
+"""The closure finds at least every input that its reading of ``source_refs`` found before the saved-quote parser joined it.
 
 ``previous_closure_reading`` holds that reading word for word. These tests run it and the closure on a corpus of citation
-shapes in every place a client's reference is copied to, and on seeded random records, and fail when the closure finds
-fewer ids than the previous reading did. The closure may find more: the reader's shapes and its incidental ids are candidates that are
-inputs when they name a stored row. It may never find less.
+shapes in every place a client's reference is copied to, on object entries that hold a typed ref or a source under any key
+(the text keys included), and on seeded random records, and fail when the closure finds fewer inputs than the previous reading
+did. The closure may find more: the reader's shapes and its incidental ids are candidates that are inputs when they name a
+stored row. It may never find less.
 
-Two levels. Every id the previous reading found must be an input or a candidate of the closure
-(``test_the_closure_finds_every_id_the_previous_reading_found``).
+The comparison is on ``(kind, id)``: an ``artifact:<id>`` that the previous reading found is lost if the closure finds that id
+only as a memory or a source, because the row it names is then never looked up. Every pair the previous reading found must be a
+hard input, a candidate or an unreadable id of the closure (``test_the_closure_finds_every_input_the_previous_reading_found``).
+The one exception is an id that the closure holds as a hard input of another kind: no id names a row in two tables, and the
+row is unverified whenever that hard input is not stored.
+
 And what a producer writes (``memory:<id>`` and ``source:<id>``) and the keys that name a row stay hard inputs in the same
 kind: a row that cites a row that is not stored by one of them is unverified, as it was. What the previous reading took from a word that is
-not an id (``source:'<id>'``, ``memory:<id>#chunk-1``) or from a bare id is a candidate now: it resolves to a stored row or
-names nothing, and syntax alone does not make a row unverified.
+not an id (``source:'<id>'``, ``memory:<id>#chunk-1``), from a bare id, or from an object of the list is a candidate now: it
+resolves to a stored row of its kind or names nothing, and syntax alone does not make a row unverified.
 
-Mutations (``scripts/derived_label_mutations.json``): in ``_collect_metadata_ids`` drop the strings of ``source_refs`` from the
-hard inputs; drop the objects of ``source_refs`` from the candidates.
+Mutations (``scripts/derived_label_mutations.json``): in ``_source_refs_strings`` drop the strings of ``source_refs`` from the
+hard inputs; drop the sources or the typed refs that the objects of ``source_refs`` give; read a ``source_refs`` that is one
+object as nothing.
 """
 
 from __future__ import annotations
@@ -26,11 +32,13 @@ from uuid import UUID, uuid4
 import pytest
 
 from alicebot_api.vnext_derived_labels import dependencies_of, soft_inputs
-from tests.unit.legacy_citation_support import corpus_entries, positions
+from tests.unit.legacy_citation_support import corpus_entries, positions, typed_object_entries
 from tests.unit.previous_closure_reading import previous_dependencies
 
 MEMORY = "11111111-2222-4333-8444-555555555555"
 SOURCE = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+ARTIFACT = "5eadbeef-0000-4000-8000-0000000000ff"
+OPEN_LOOP = "77777777-6666-4555-8444-333333333333"
 GHOST_ID = "99999999-8888-4777-8666-555555555555"
 
 
@@ -59,15 +67,41 @@ def _canonical(ids: set[str]) -> set[str]:
 
 
 def _closure_ids(kind: str, row: dict[str, object]) -> set[str]:
-    hard = {row_id for _kind, row_id in dependencies_of(kind, row)}
+    return {row_id for _kind, row_id in _closure_pairs(kind, row)}
+
+
+def _closure_pairs(kind: str, row: dict[str, object]) -> set[tuple[str, str]]:
+    hard = set(dependencies_of(kind, row))
     candidates, unreadable = soft_inputs(kind, row)
-    return hard | {row_id for _kind, row_id in candidates} | {row_id for _kind, row_id in unreadable}
+    return hard | set(candidates) | set(unreadable)
 
 
+def _canonical_pairs(pairs: set[tuple[str, str]]) -> set[tuple[str, str]]:
+    kept = _canonical({row_id for _kind, row_id in pairs})
+    return {(kind, row_id) for kind, row_id in pairs if row_id in kept}
+
+
+def _lost(kind: str, row: dict[str, object], *, other_kind_is_found: bool) -> set[tuple[str, str]]:
+    """The ``(kind, id)`` pairs of canonical ids that the previous reading found and the closure does not.
+
+    ``other_kind_is_found`` lets an id stand when the closure holds it as a hard input of another kind (see the module text)."""
+
+    lost = _canonical_pairs(previous_dependencies(kind, row)) - _closure_pairs(kind, row)
+    if other_kind_is_found:
+        hard_ids = {row_id for _kind, row_id in dependencies_of(kind, row)}
+        lost = {pair for pair in lost if pair[1] not in hard_ids}
+    return lost
+
+
+ENTRIES = {
+    **corpus_entries(MEMORY, SOURCE),
+    **typed_object_entries(MEMORY, SOURCE, ARTIFACT, OPEN_LOOP),
+}
+PLACES = ("top", "proposal", "agentic", "provenance", "replacement", "nested", "bare")
 CASES = [
     (holder, position, name, entry)
-    for name, entry in corpus_entries(MEMORY, SOURCE).items()
-    for position in ("top", "proposal", "agentic", "provenance", "replacement", "nested", "bare")
+    for name, entry in ENTRIES.items()
+    for position in PLACES
     for holder in ("artifact", "memory", "open_loop")
 ]
 
@@ -77,10 +111,9 @@ def _is_object_entry(entry: object) -> bool:
 
 
 @pytest.mark.parametrize("holder,position,name,entry", CASES, ids=lambda value: value if isinstance(value, str) else "e")
-def test_the_closure_finds_every_id_the_previous_reading_found(holder: str, position: str, name: str, entry: object) -> None:
+def test_the_closure_finds_every_input_the_previous_reading_found(holder: str, position: str, name: str, entry: object) -> None:
     row = _record(holder, positions(entry)[position])
-    previous_ids = _canonical({row_id for _kind, row_id in previous_dependencies(holder, row)})
-    assert previous_ids <= _closure_ids(holder, row), (holder, position, name)
+    assert not _lost(holder, row, other_kind_is_found=False), (holder, position, name, _lost(holder, row, other_kind_is_found=False))
 
 
 @pytest.mark.parametrize("holder,position,name,entry", [case for case in CASES if isinstance(case[3], str)],
@@ -107,14 +140,15 @@ def test_what_the_previous_reading_took_from_the_id_keys_is_still_a_hard_input(k
 def test_the_corpus_is_not_vacuous() -> None:
     """The previous reading found something in many of the shapes, and the closure finds something it did not in many more."""
 
-    found_before = found_more = 0
+    found_before = found_more = typed = 0
     for holder, position, _name, entry in CASES:
         row = _record(holder, positions(entry)[position])
-        previous_ids = _canonical({row_id for _kind, row_id in previous_dependencies(holder, row)})
-        closure = _closure_ids(holder, row)
-        found_before += bool(previous_ids)
-        found_more += bool(closure - previous_ids)
-    assert found_before > 500 and found_more > 800, (found_before, found_more)
+        previous = _canonical_pairs(previous_dependencies(holder, row))
+        closure = _closure_pairs(holder, row)
+        found_before += bool(previous)
+        found_more += bool(closure - previous)
+        typed += bool({kind for kind, _row_id in previous} & {"artifact", "open_loop"})
+    assert found_before > 800 and found_more > 800 and typed > 150, (found_before, found_more, typed)
 
 
 def test_the_value_of_a_memory_is_read_as_well() -> None:
@@ -124,7 +158,7 @@ def test_the_value_of_a_memory_is_read_as_well() -> None:
 
 # --- seeded random records -----------------------------------------------------------------------------------------------
 
-IDS = (MEMORY, SOURCE)
+IDS = (MEMORY, SOURCE, ARTIFACT)
 PREFIX = ("", "", "memory:", "source:", "MEMORY:", "Source:", "alice://memories/", "alice://sources/", "open_loop:", "artifact:",
           "memory: ", "source: ", "memory:memory:")
 KEYS = ("memory_id", "memory_ids", "source_id", "source_ids", "source_ref", "id", "ref", "origin", "chunk_id", "ref_id", "title",
@@ -178,5 +212,5 @@ def test_random_records_give_the_closure_every_id_the_previous_reading_found(see
             expected = previous_dependencies(kind, row)
         except Exception:
             continue
-        previous_ids = _canonical({row_id for _kind, row_id in expected})
-        assert previous_ids <= _closure_ids(kind, row), (kind, json.dumps(extra, sort_keys=True))
+        lost = _lost(kind, row, other_kind_is_found=True)
+        assert not lost, (kind, json.dumps(extra, sort_keys=True), lost)

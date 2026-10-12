@@ -48,6 +48,7 @@ from tests.unit.legacy_citation_support import (
     memory_shapes,
     odd_hyphens,
     source_shapes,
+    typed_object_entries,
 )
 
 USER = str(UUID("00000000-0000-4000-8000-0000000000a1"))
@@ -62,6 +63,13 @@ UNREADABLE = {
     "odd-fragment": "memory:%s#chunk-1",
     "odd-url": "alice://memories/%s#section",
 }
+
+
+# Object entries the closure has always read as the kind they name (an artifact has no table in a vault).
+OBJECT_NAMES = (
+    "open_loop-typed-object-ref", "open_loop-typed-object-origin", "open_loop-typed-object-text", "open_loop-typed-object-title",
+    "memory-typed-object-summary", "source-typed-object-quote", "source-excerpt-bare", "source-excerpt-json", "source-excerpt-prefix",
+)
 
 
 def _cases(memory_id: str, source_id: str) -> dict[str, tuple[str, object]]:
@@ -161,6 +169,19 @@ class Vault:
                     row = store.create_memory(_derived_memory(f"incidental-{name}", corpus[name]))
                     self.rows[f"incidental-{name}"] = ("memories", str(row["id"]))
                     self.cites[f"incidental-{name}"] = name.split("-", 1)[0]
+                # Objects of source_refs that hold a typed ref under a key the saved-quote reader skips as text, or a source in a
+                # conversation_excerpt: a confidential open loop and source are cited as the kind they are.
+                confidential_loop = store.create_open_loop(
+                    {"title": "Confidential follow up", "status": "open", "domain": "health", "sensitivity": "confidential",
+                     "source_id": self.public_id,
+                     "metadata_json": {"discovered_by": "vnext_daily_brief", "source_id": self.public_id, "project_scope": []}}
+                )
+                self.loop_id = str(confidential_loop["id"])
+                objects = typed_object_entries(self.memory_id, self.source_id, str(uuid4()), self.loop_id, SENTINEL)
+                for name in OBJECT_NAMES:
+                    row = store.create_memory(_derived_memory(f"object-{name}", objects[name]))
+                    self.rows[f"object-{name}"] = ("memories", str(row["id"]))
+                    self.cites[f"object-{name}"] = name.split("-", 1)[0]
                 # Syntax and ids that name nothing confidential: every one of them stays where it was stored.
                 ghost = str(uuid4())
                 for name, entry in (
@@ -396,7 +417,7 @@ def _reads(vault, monkeypatch, key, name, *, quote_is_hidden: bool = True) -> li
 
 NAMES = ("memory-json-object", "memory-prefix", "memory-url-capitals", "memory-json-in-json", "position-value", "position-agentic",
          "source-json-object", "regenerated", "incidental-memory-json-origin", "incidental-memory-sentence-space",
-         "incidental-source-outside-url")
+         "incidental-source-outside-url", "object-open_loop-typed-object-ref", "object-source-excerpt-bare")
 # Rows that cite nothing confidential: every key reads them, repaired or not.
 CALM = ("calm-ghost-sentence", "calm-markdown-link", "calm-list-repr", "calm-cut-json", "calm-run-id")
 
@@ -427,8 +448,8 @@ def test_a_redacted_memory_takes_the_rows_that_cite_it_out_of_every_key_but_the_
     with vault.open():
         pass
     for name in NAMES:
-        if name.startswith(("source-", "incidental-source")):
-            continue  # it cites the confidential source, which hides it from the start
+        if name.startswith(("source-", "incidental-source", "object-")):
+            continue  # it cites the confidential source or open loop, which hides it from the start
         assert [seen for _tool, seen in _reads(vault, monkeypatch, key, name, quote_is_hidden=False)] == [True] * 3, ("before", reader, name)
     with vault.open() as conn:
         redact_memory_flow(SQLiteVNextStore(conn, USER), memory_id=vault.memory_id, reason="synthetic")

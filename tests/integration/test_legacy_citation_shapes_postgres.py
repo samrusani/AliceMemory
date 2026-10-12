@@ -64,6 +64,7 @@ from tests.unit.legacy_citation_support import (
     open_loop,
     report,
     source_shapes,
+    typed_object_entries,
 )
 
 SENTINEL = "ZQXCITED" + uuid4().hex[:12]
@@ -131,6 +132,26 @@ class Scene:
                      "project_id": self.project, "metadata_json": {"project_scope": [self.project]}}
                 )["id"]
             )
+        # A confidential artifact and open loop, which a report can cite as ``artifact:<id>`` and ``open_loop:<id>``. They cite
+        # nothing confidential themselves, so a read of one shows no words of the confidential source and memory.
+        with user_connection(urls["app"], self.user) as conn:
+            store = _store(conn)
+            self.artifact = str(
+                store.create_artifact(
+                    {"artifact_type": "memory_consolidation", "title": "Confidential report", "content_markdown": "confidential",
+                     "status": "needs_review", "domain": "health", "sensitivity": "confidential",
+                     "metadata_json": {"workflow": "memory_consolidation", "project_scope": [self.project], "source_refs": []}}
+                )["id"]
+            )
+            self.loop = str(
+                store.create_open_loop(
+                    {"title": "Confidential loop", "status": "open", "domain": "health", "sensitivity": "confidential",
+                     "source_id": self.public_source, "project_id": self.project,
+                     "metadata_json": {"discovered_by": "vnext_daily_brief", "source_id": self.public_source,
+                                       "project_scope": [self.project]}},
+                    actor_type="user",
+                )["id"]
+            )
 
     def expected(self, entries: list[object], *, unreadable: bool = False) -> str:
         """What the upgrade does to a row that holds ``entries`` in a reference position, by the saved-quote reader and not by
@@ -145,13 +166,16 @@ class Scene:
             return "unverified"
         return "raised" if found & {self.memory, self.source} else "unchanged"
 
-    def add_report(self, name: str, entries: list[object], *, position: str = "source_refs", unreadable: bool = False) -> str:
+    def add_report(
+        self, name: str, entries: list[object], *, position: str = "source_refs", unreadable: bool = False, outcome: str | None = None
+    ) -> str:
+        """``outcome`` states what the upgrade does when the reader cannot say (a typed ref the saved-quote reader skips)."""
         row = report(entries, position=position)
         row["metadata_json"]["project_scope"] = [self.project]  # type: ignore[index]
         with without_insert_floor(), user_connection(self.urls["app"], self.user) as conn:
             created = _store(conn).create_artifact(row)
         self.artifacts[name] = str(created["id"])
-        self.outcome[name] = self.expected(entries, unreadable=unreadable)
+        self.outcome[name] = outcome or self.expected(entries, unreadable=unreadable)
         if unreadable or self.memory in set(cited_source_ids(entries).every) | set(cited_memory_refs(entries).every):
             self.cites_memory.add(name)
         if self.outcome[name] == "unverified":
@@ -423,6 +447,39 @@ def seed_incidental_and_calm(scene: Scene, *, few: bool = False) -> None:
     scene.add_report("calm-odd-ghost", [f"memory:{odd_hyphens(ghost)}#chunk-1"])
 
 
+OBJECT_NAMES = (
+    "artifact-typed-object-origin", "artifact-typed-object-title", "artifact-typed-object-nested",
+    "open_loop-typed-object-ref", "open_loop-typed-object-text", "open_loop-typed-object-source_ref",
+    "memory-typed-object-summary", "source-typed-object-quote", "source-excerpt-bare", "source-excerpt-json",
+    "source-excerpt-prefix",
+)
+
+
+def seed_object_entries(scene: Scene) -> None:
+    """Objects of ``source_refs`` that hold a typed ref or a source under a key the saved-quote reader skips as text: the
+    closure has always taken them, as the kind they name. The same objects that name nothing stored change nothing."""
+    entries = typed_object_entries(scene.memory, scene.source, scene.artifact, scene.loop, SENTINEL)
+    for name in OBJECT_NAMES:
+        scene.add_report(f"object-{name}", [entries[name]], outcome="raised")
+    scene.add_report("object-bare-origin", {"origin": f"artifact:{scene.artifact}", "quote": SENTINEL}, outcome="raised")  # type: ignore[arg-type]
+    scene.add_report("object-bare-title", {"title": f"open_loop:{scene.loop}"}, outcome="raised")  # type: ignore[arg-type]
+    ghosts = typed_object_entries(*(str(uuid4()) for _ in range(4)), SENTINEL)
+    for name in OBJECT_NAMES:
+        scene.add_report(f"object-ghost-{name}", [ghosts[name]], outcome="unchanged")
+
+
+def test_objects_of_source_refs_keep_the_kinds_they_always_named_through_the_upgrade(database_urls, monkeypatch):
+    urls = database_urls
+    scene = v020_database(urls, monkeypatch)
+    seed_object_entries(scene)
+    command.upgrade(make_alembic_config(urls["admin"]), "head")
+    assert_stored_as_the_reader_says(scene)
+    assert scene.below() == []
+    harness = wire(urls, monkeypatch, scene)
+    keys = keys_for(harness, scene)
+    assert_every_report(harness, scene, keys, label="objects")
+
+
 def test_every_shape_is_raised_by_the_upgrade_and_no_restricted_key_reads_any_of_them(database_urls, monkeypatch):
     urls = database_urls
     scene = v020_database(urls, monkeypatch)
@@ -648,7 +705,7 @@ def test_a_row_that_was_never_repaired_is_read_at_the_label_of_its_inputs_and_la
         causes = {row["cause"] for row in conn.execute(
             "SELECT payload_json->>'cause' AS cause FROM event_log WHERE event_type LIKE '%.labels_raised'"
         )}
-    assert causes == {"repair_v4"}
+    assert causes == {"repair_v4", "insert_floor"}, "the repair, and the floor that wrote the scene's own artifact and loop"
     assert_every_report(harness, scene, keys, label="after the repair")
 
 
@@ -677,6 +734,11 @@ def test_a_relabelled_memory_reaches_a_legacy_report_that_cites_it_in_json_text(
 
 
 def stage_for_the_sweep(scene: Scene) -> None:
+    # The notes of these objects are not the sentinel: a project-bound admin key reads a report that cites a confidential
+    # artifact, loop or source, as it should, and the sweep looks for the words of the memory.
+    entries = typed_object_entries(scene.memory, scene.source, scene.artifact, scene.loop, "a plain note")
+    for name in OBJECT_NAMES[::3]:
+        scene.add_report(f"object-{name}", [entries[name]], outcome="raised")
     for shape, spelling in (("prefix", "canonical"), ("prefix-capitals", "canonical"), ("url", "canonical"), ("json-object", "canonical"),
                             ("json-list", "capitals"), ("json-in-json", "canonical"), ("prefix", "no-hyphens"), ("json-ids", "braces")):
         scene.add_report(f"memory-{shape}-{spelling}", [_memory_entry(shape, spelling, scene.memory)])
@@ -718,7 +780,7 @@ def test_no_door_gives_a_restricted_key_the_quote_of_a_memory_it_may_not_read(da
     control = sweep(harness, _sweep_scene(scene), monkeypatch, {"admin": keys["admin"]})
     assert leaks(control, SENTINEL), "the unbound admin key reads the quote at the doors"
     gets = [item for item in control if item.door == "artifact get" and item.status == 200]
-    assert len(gets) == len(scene.artifacts)
+    assert len(gets) == len(scene.artifacts) + 1, "the reports, and the confidential report the scene holds"
 
 
 def test_after_redaction_no_door_gives_any_key_but_the_owner_and_the_unbound_admin_key_the_quote(database_urls, monkeypatch):
@@ -739,7 +801,7 @@ def test_after_redaction_no_door_gives_any_key_but_the_owner_and_the_unbound_adm
         assert not [item for item in responses if artifact_id in item.text and item.status == 200 and item.key_name != "admin_bound"], artifact_id
     control = sweep(harness, _sweep_scene(scene), monkeypatch, {"admin": keys["admin"]})
     gets = [item for item in control if item.door == "artifact get" and item.status == 200]
-    assert len(gets) == len(scene.artifacts)
+    assert len(gets) == len(scene.artifacts) + 1, "the reports, and the confidential report the scene holds"
     # The reports of the memory are unverified now it is redacted, and so are the two that hold it in a word nothing can take apart.
     assert set(scene.unverified()) == {"input_redacted", "unreadable_citation"}
 
