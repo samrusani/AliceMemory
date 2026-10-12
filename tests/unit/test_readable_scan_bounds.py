@@ -247,15 +247,18 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.mark.parametrize("page", ["CHANGELOG.md", "docs/release/derived-labels-security-note-draft.md"])
 def test_the_pages_state_the_cap_and_the_answer_at_it(page: str) -> None:
-    """Mutation: change ``READABLE_SCAN_CAP`` in ``vnext_label_sql.py`` without the pages, or delete the sentence that gives the
-    answer at the cap from either page.
+    """Mutation: change ``READABLE_SCAN_CAP`` in ``vnext_label_sql.py`` without the pages, or delete from either page the sentence
+    that says what the cap counts, what a null decision means at it, or what the walk of a judged row costs.
 
-    The changelog and the security note say how many rows a read judges, what a key is given when it reaches that many, and
-    what that answer tells it. The number is the constant's.
+    The changelog and the security note say how many rows a read judges and that the count is per list and not per call, what a
+    key is given when it reaches that many and what a null decision then means, and that the label walk of a judged row costs
+    what it costs on main. The number is the constant's.
     """
 
     text = " ".join((ROOT / page).read_text(encoding="utf-8").split())
     assert f"up to {CAP} rows" in text
-    assert f"at least {CAP} newer rows are hidden from the key" in text
+    assert "per list and per partition of the project view, not per call" in text
     assert "which can be none" in text
-    assert "`alice_resume` then shows no `last_decision` and no `next_action`" in text
+    assert f"the newest {CAP} matching" in text
+    assert "A null `last_decision`" in text
+    assert "is as slow to judge as" in text
