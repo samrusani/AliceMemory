@@ -12900,9 +12900,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_legacy_citation_shapes_postgres.py::test_no_door_gives_a_restricted_key_the_quote_when_nothing_was_repaired"
+        "tests/unit/test_label_native_rank_admission.py::test_a_copy_of_one_source_that_may_cite_more_does_not_skip_the_collector"
       ],
-      "expected_failure": "test_no_door_gives_a_restricted_key_the_quote_when_nothing_was_repaired"
+      "expected_failure": "test_a_copy_of_one_source_that_may_cite_more_does_not_skip_the_collector"
     },
     {
       "name": "legacy-cites-reverse-lookup-follows-candidates",
@@ -13124,9 +13124,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_legacy_citation_shapes.py::test_a_record_past_the_read_bound_is_unverified_and_none_of_it_is_read"
+        "tests/unit/test_legacy_citation_shapes.py::test_a_record_past_the_read_bound_in_any_place_is_unverified"
       ],
-      "expected_failure": "test_a_record_past_the_read_bound_is_unverified_and_none_of_it_is_read"
+      "expected_failure": "test_a_record_past_the_read_bound_in_any_place_is_unverified"
     },
     {
       "name": "legacy-cites-a-list-past-the-bound-is-unverified",

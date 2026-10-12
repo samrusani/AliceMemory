@@ -490,3 +490,33 @@ def test_a_row_that_may_cite_very_many_ids_is_settled_alone_and_does_not_end_the
         assert not any(("memory", str(ghost)) in nodes for ghost in ghosts), "the ids of the row past the limit were not"
         assert guard._settled_inputs("memory", giant, frozenset()) is None
         assert guard._settled_inputs("memory", beside, frozenset()) is not None
+
+
+def test_a_copy_of_one_source_that_may_cite_more_does_not_skip_the_collector():
+    """A row copied from one source has no other input, unless it may cite one. It then takes the collector that loads what it
+    cites, whether the cheap settlement left it (a word the scan cannot take apart that names a stored row, or more ids than
+    the limit) or not. Mutation: the single source shortcut stops asking whether the row may cite more."""
+    source, hidden = _public_source_and_hidden_memory()
+    bare = str(hidden["id"]).replace("-", "")
+    odd = "-".join((bare[:5], bare[5:11], bare[11:16], bare[16:24], bare[24:]))
+    ghosts = [f"memory:{UUID(int=0x6000 + n)}" for n in range(guards.SOFT_ROW_LIMIT)]
+
+    def copy_of_the_source(number: int, provenance: list[str]):
+        return {"kind": "memory", "id": UUID(int=number), "user_id": "label-guard", "domain": "project", "sensitivity": "public",
+                "status": "active", "value": {},
+                "metadata_json": {"source_id": str(source["id"]), "project_scope": [], "project_floor": [], "provenance": provenance}}
+
+    unreadable = copy_of_the_source(0x1001, [f"memory:{odd}#chunk-1"])
+    too_many = copy_of_the_source(0x1002, [*ghosts, f"memory:{hidden['id']}"])
+    plain = copy_of_the_source(0x1003, [])
+    rows = [source, hidden, unreadable, too_many, plain]
+    expected = full_labels(rows)
+    store = NativeRows(rows, [unreadable, too_many, plain])
+    with guards.label_read_scope(store):
+        guard = guards.LabelGuard(store, active=True, sensitivity_allowed=("public",))
+        guard._prefetch_inputs("memory", [unreadable, too_many, plain])
+        for row, sensitivity in ((unreadable, "regulated"), (too_many, "confidential"), (plain, "public")):
+            label = expected.by_stored("memory", str(row["id"]), user_id="label-guard")
+            effective = guard.effective_row("memory", row)
+            assert effective["sensitivity"] == sensitivity, (row["id"], effective["sensitivity"])
+            assert effective["sensitivity"] == (label.sensitivity if not label.unverified else "regulated")

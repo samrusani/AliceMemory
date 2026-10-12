@@ -745,6 +745,18 @@ def test_a_record_past_the_read_bound_is_unverified_and_none_of_it_is_read(monke
     assert scan_citations(({"source_refs": _many(MAX_READ_STRINGS + 1)},)).too_many
 
 
+@pytest.mark.parametrize("place", ["provenance", "replacement_provenance", "evidence"])
+def test_a_record_past_the_read_bound_in_any_place_is_unverified(place: str) -> None:
+    """The bound is the scan's, whichever key holds the strings, and not only the list of ``source_refs`` the closure reads
+    for its recorded inputs."""
+
+    row = _held("artifact", [f"source:{PUBLIC_SOURCE}"])
+    row["metadata_json"] = {**row["metadata_json"], place: _many(MAX_READ_STRINGS + 1)}  # type: ignore[arg-type]
+    settled = _settled(row)
+    assert (settled.unverified, settled.reason) == (True, "too_many_citations"), place
+    assert dependency_record("artifact", row)[1] == "too_many_citations"
+
+
 def test_a_list_of_the_same_string_past_the_bound_is_unverified_too() -> None:
     settled = _settled(_held("artifact", [json.dumps({"memory_id": MEMORY})] * (MAX_READ_STRINGS + 1)))
     assert (settled.unverified, settled.reason) == (True, "too_many_citations")
