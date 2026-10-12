@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import functools
+import json
+from collections.abc import Callable, Mapping
 from typing import TypedDict
+from alicebot_api.json_bounds import cut_deep_value, durable_once
 from alicebot_api.project_view import ProjectView
 from alicebot_api.recall_framing import (
     present_model_item,
@@ -342,6 +345,24 @@ class _ContextPackRequestKwargs(TypedDict, total=False):
     created_by_agent_ids: tuple[str, ...]
 
 
+def _compiled_once_per_call(compile_pack: Callable[[MCPRuntimeContext, Mapping[str, object]], JsonObject]):
+    """Compile a context pack once for a tool call. Compiling writes its audit events, and a tool call that is run again after
+    a reader overflowed on a deep stored row (``retry_cutting_deep_json``) must not compile it twice: when the first attempt
+    finished the compile, its pack comes back with the part nested past the read limit cut in memory, and nothing is
+    written again."""
+
+    @functools.wraps(compile_pack)
+    def once(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
+        return durable_once(
+            ("context_pack", json.dumps(dict(arguments), sort_keys=True, default=str)),
+            lambda: compile_pack(context, arguments),
+            replay=cut_deep_value,
+        )
+
+    return once
+
+
+@_compiled_once_per_call
 def _vnext_context_pack_payload(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     max_items = _parse_int(
         arguments,

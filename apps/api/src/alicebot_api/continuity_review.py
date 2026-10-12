@@ -31,6 +31,7 @@ from alicebot_api.credential_floor import (
     refuse_credential_material,
     withhold_credential_text,
 )
+from alicebot_api.json_bounds import JsonShapeError, refuse_unstorable_json
 from alicebot_api.write_bounds import MAX_CORRECTION_FIELD_CHARS, MAX_CORRECTION_TITLE_CHARS, first_oversized
 from alicebot_api.store import (
     ContinuityCorrectionEventRow,
@@ -356,6 +357,17 @@ def apply_continuity_correction(
     for name, title in (("title", request.title), ("replacement_title", request.replacement_title)):
         if title is not None and len(title) > MAX_CORRECTION_TITLE_CHARS:
             raise ContinuityReviewValidationError(f"{name} must be {MAX_CORRECTION_TITLE_CHARS} characters or fewer")
+    for name, mapping in (
+        ("body", request.body),
+        ("provenance", request.provenance),
+        ("replacement_body", request.replacement_body),
+        ("replacement_provenance", request.replacement_provenance),
+    ):
+        # Before the size is measured, which serializes the mapping: depth and finite numbers need no recursion.
+        try:
+            refuse_unstorable_json(mapping, name=name)
+        except JsonShapeError as exc:
+            raise ContinuityReviewValidationError(str(exc)) from exc
     oversized = first_oversized(
         {
             "body": request.body,

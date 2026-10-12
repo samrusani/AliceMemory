@@ -13,6 +13,7 @@ from pydantic import ConfigDict, Field, model_validator
 import psycopg
 from psycopg.rows import dict_row
 
+from alicebot_api.http_json_types import BoundedJsonObject
 from alicebot_api.azure_provider_helpers import (
     AZURE_AUTH_MODE_AD_TOKEN,
     AZURE_AUTH_MODE_API_KEY,
@@ -1402,7 +1403,7 @@ class RegisterProviderRequest(BaseModel):
     model_list_path: str = Field(default="/models", min_length=1, max_length=200)
     healthcheck_path: str = Field(default="/models", min_length=1, max_length=200)
     invoke_path: str = Field(default="/responses", min_length=1, max_length=200)
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: BoundedJsonObject = Field(default_factory=dict)
 
 
 class RegisterOllamaProviderRequest(BaseModel):
@@ -1416,7 +1417,7 @@ class RegisterOllamaProviderRequest(BaseModel):
     model_list_path: str = Field(default="/api/tags", min_length=1, max_length=200)
     healthcheck_path: str = Field(default="/api/version", min_length=1, max_length=200)
     invoke_path: str = Field(default="/api/chat", min_length=1, max_length=200)
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: BoundedJsonObject = Field(default_factory=dict)
 
 
 class RegisterLlamaCppProviderRequest(BaseModel):
@@ -1430,7 +1431,7 @@ class RegisterLlamaCppProviderRequest(BaseModel):
     model_list_path: str = Field(default="/v1/models", min_length=1, max_length=200)
     healthcheck_path: str = Field(default="/health", min_length=1, max_length=200)
     invoke_path: str = Field(default="/v1/chat/completions", min_length=1, max_length=200)
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: BoundedJsonObject = Field(default_factory=dict)
 
 
 class RegisterVllmProviderRequest(BaseModel):
@@ -1444,7 +1445,7 @@ class RegisterVllmProviderRequest(BaseModel):
     model_list_path: str = Field(default="/v1/models", min_length=1, max_length=200)
     healthcheck_path: str = Field(default="/health", min_length=1, max_length=200)
     invoke_path: str = Field(default="/v1/chat/completions", min_length=1, max_length=200)
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: BoundedJsonObject = Field(default_factory=dict)
 
 
 class RegisterAzureProviderRequest(BaseModel):
@@ -1460,7 +1461,7 @@ class RegisterAzureProviderRequest(BaseModel):
     model_list_path: str = Field(default="/openai/models", min_length=1, max_length=200)
     healthcheck_path: str = Field(default="/openai/models", min_length=1, max_length=200)
     invoke_path: str = Field(default="/openai/responses", min_length=1, max_length=200)
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: BoundedJsonObject = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_auth_payload(self) -> "RegisterAzureProviderRequest":
@@ -1506,7 +1507,7 @@ class UpdateProviderRequest(BaseModel):
     model_list_path: str | None = Field(default=None, min_length=1, max_length=200)
     healthcheck_path: str | None = Field(default=None, min_length=1, max_length=200)
     invoke_path: str | None = Field(default=None, min_length=1, max_length=200)
-    metadata: dict[str, object] | None = None
+    metadata: BoundedJsonObject | None = None
 
 
 class RuntimeInvokeRequest(BaseModel):

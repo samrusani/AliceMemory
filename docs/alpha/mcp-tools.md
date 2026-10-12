@@ -1060,6 +1060,36 @@ most 4,000 characters as sent. Any other ref is at most 4,000 characters
 once serialized. The service enforces the bound, and the MCP schema
 advertises it.
 
+Unreleased (on main, not in v0.20.0): JSON that a caller hands a tool, the
+HTTP API or the command line to be stored nests at most 64 levels of arrays and
+objects and holds no `NaN`, `Infinity`, `-Infinity` or number too large for a
+float (`1e999`). That covers `source_refs` of a commit and of a proposal (each entry, and each
+entry of an agent output, is held to 64 levels), the `body` and `provenance` of
+a correction, a capture candidate, a connector item and an agent output, and the
+free JSON fields of the HTTP request models, nested ones included. A tool
+answers `invalid_request` before it runs; the commit and the agent output
+routes answer HTTP 400, and a request that holds a number that is not finite
+answers HTTP 422 on every route. A message the MCP server cannot decode because
+it nests past 256 levels is an invalid request, and the server goes on. A
+direct call of the commit service stored a ref nested about 950 levels deep (in
+v0.19.2, in v0.20.0 and on main until now); over HTTP a ref nested up to about
+250 levels was stored (v0.19.2 about 200), and v0.20.0 refuses a body nested past
+256 levels, and the MCP commit tool takes strings only. A row stored by a service
+call or by an older version made the memory audit route, the recent commits
+route and `alice_memory_review` fail for every caller in v0.20.0 and on main
+until now. A stored column is read as it was stored. When a reader overflows on
+a row nested near the recursion limit (about 1,000 levels), an HTTP request that
+changes nothing a client asked for, or a tool call that writes nothing but the
+audit events of its policy check (the tools marked read-only, and
+`alice_open_loops` with its `list` action), is run once more with every stored
+column cut to 256 levels, and the part below is one placeholder string. The
+second attempt does not write those audit events again. A call that may have
+written is never run twice, so a write that handles such a row fails as it did
+before. A row nested so deeply that the JSON decoder itself fails (about 10,000
+levels, PostgreSQL only) is always read cut, and a write that reads it, `forget`
+and `expire` among them, writes the placeholder back into the row and into the
+audit event.
+
 A correction refuses a body, provenance, replacement body, or replacement
 provenance over 20,000 characters serialized. That covers
 `alice_memory_correct`, `alice_review_apply`, and

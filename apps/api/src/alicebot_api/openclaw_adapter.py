@@ -127,6 +127,8 @@ def _parse_json(path: Path, raw_text: str) -> object:
         raise OpenClawAdapterValidationError(
             f"invalid JSON at {path}: {exc.msg}"
         ) from exc
+    except RecursionError as exc:
+        raise OpenClawAdapterValidationError(f"JSON at {path} is nested too deeply to read") from exc
 
 
 def _extract_workspace_payloads(payload: object) -> tuple[JsonObject | None, list[JsonObject]]:

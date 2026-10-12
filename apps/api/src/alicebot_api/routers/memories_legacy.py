@@ -16,6 +16,7 @@ from pydantic import (
 from fastapi.responses import JSONResponse
 import psycopg
 from psycopg.rows import dict_row
+from alicebot_api.http_json_types import BoundedJsonObject, BoundedJsonValue
 from alicebot_api.compiler import (
     compile_and_persist_trace,
     compile_resumption_brief,
@@ -319,7 +320,7 @@ class AdmitMemoryOpenLoopRequest(BaseModel):
 class AdmitMemoryRequest(BaseModel):
     user_id: UUID
     memory_key: str = Field(min_length=1, max_length=200)
-    value: object | None = None
+    value: BoundedJsonValue | None = None
     source_event_ids: list[UUID] = Field(min_length=1)
     agent_profile_id: str | None = Field(default=None, min_length=1, max_length=100)
     delete_requested: bool = False
@@ -394,7 +395,7 @@ class CreateEmbeddingConfigRequest(BaseModel):
     version: str = Field(min_length=1, max_length=100)
     dimensions: int = Field(ge=1, le=20000)
     status: EmbeddingConfigStatus = "active"
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: BoundedJsonObject = Field(default_factory=dict)
 
 class UpsertMemoryEmbeddingRequest(BaseModel):
     user_id: UUID
@@ -432,7 +433,7 @@ class UpsertConsentRequest(BaseModel):
     user_id: UUID
     consent_key: str = Field(min_length=1, max_length=200)
     status: ConsentStatus
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: BoundedJsonObject = Field(default_factory=dict)
 
 class CreatePolicyRequest(BaseModel):
     user_id: UUID
@@ -442,7 +443,7 @@ class CreatePolicyRequest(BaseModel):
     effect: PolicyEffect
     priority: int = Field(ge=0, le=1000000)
     active: bool = True
-    conditions: dict[str, object] = Field(default_factory=dict)
+    conditions: BoundedJsonObject = Field(default_factory=dict)
     required_consents: list[str] = Field(default_factory=list)
     agent_profile_id: str | None = Field(default=None, min_length=1, max_length=100)
 
@@ -451,7 +452,7 @@ class EvaluatePolicyRequest(BaseModel):
     thread_id: UUID
     action: str = Field(min_length=1, max_length=100)
     scope: str = Field(min_length=1, max_length=200)
-    attributes: dict[str, object] = Field(default_factory=dict)
+    attributes: BoundedJsonObject = Field(default_factory=dict)
 
 class IngestTaskArtifactRequest(BaseModel):
     user_id: UUID

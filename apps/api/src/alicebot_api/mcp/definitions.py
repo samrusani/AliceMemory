@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from alicebot_api.contracts import (
     CONTINUITY_CAPTURE_CANDIDATE_TYPES,
     CONTINUITY_CAPTURE_COMMIT_MODES,
@@ -2075,6 +2077,27 @@ _READ_ONLY_HINT_TOOLS = frozenset(
         "alice_memory_review",
     }
 )
+# The tools that write nothing a caller asked for: they record the audit events of their policy check (the agent identity row
+# and the policy events) and read. A call of one that overflowed on a deep stored row may run again, and the second attempt
+# does not write those events again (see ``durable_unit``).
+READ_ONLY_TOOL_NAMES = _READ_ONLY_HINT_TOOLS
+
+
+def tool_only_reads(name: object, arguments: object) -> bool:
+    """Whether a call of tool ``name`` with ``arguments`` writes no more than the audit events of its policy check: one of
+    the tools marked read-only, or ``alice_open_loops`` with the action ``list`` (its default), whose other actions change a
+    loop."""
+
+    if name in READ_ONLY_TOOL_NAMES:
+        return True
+    if name != "alice_open_loops":
+        return False
+    if arguments is None:
+        return True
+    if not isinstance(arguments, Mapping):
+        return False
+    action = arguments.get("action")
+    return action is None or (isinstance(action, str) and action.strip().lower() in ("", "list"))
 _ADD_ONLY_HINT_TOOLS = frozenset({"alice_memory_commit", "alice_capture"})
 _DESTRUCTIVE_HINT_TOOLS = frozenset(
     {

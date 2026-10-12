@@ -8,6 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import Field
 
+from alicebot_api.http_json_types import BoundedJsonObject
 from alicebot_api.db import user_connection
 from alicebot_api.recall_framing import annotate_http_context_pack
 from alicebot_api.config import get_settings
@@ -62,8 +63,8 @@ context_router = APIRouter()
 class VNextContextPackRequest(VNextAgentRequest):
     user_id: UUID
     query: str = Field(min_length=1, max_length=4000)
-    scope: dict[str, object] = Field(default_factory=dict)
-    options: dict[str, object] = Field(default_factory=dict)
+    scope: BoundedJsonObject = Field(default_factory=dict)
+    options: BoundedJsonObject = Field(default_factory=dict)
 
 
 def _vnext_optional_bool(mapping: dict[str, object], key: str) -> bool | None:

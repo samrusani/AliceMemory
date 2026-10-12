@@ -336,9 +336,13 @@ def test_the_guard_is_the_innermost_layer() -> None:
 
     Identity, security headers, the ``/v1`` key check and the vNext check all
     come before the guard, so it reads a body only for a request they let
-    through. The request size limit is outside all of them. Mutations: register
-    the guard after the vNext layer, or before
-    ``enforce_v1_agent_authentication``.
+    through. The request size limit is outside all of them, and the layer that
+    runs a read-only request again after a reader overflowed on a deep stored
+    row (``RetryDeepRowMiddleware``) is just inside it, so it wraps every layer
+    that reads a body and replays what the size limit let through. Mutations:
+    register the guard after the vNext layer, or before
+    ``enforce_v1_agent_authentication``; register the retry layer outside the
+    size limit.
     """
 
     order = [
@@ -348,6 +352,7 @@ def test_the_guard_is_the_innermost_layer() -> None:
 
     assert order == [
         "RequestBodyLimitMiddleware",
+        "RetryDeepRowMiddleware",
         "enforce_authenticated_user_identity",
         "apply_http_security_posture",
         "enforce_v1_agent_authentication",

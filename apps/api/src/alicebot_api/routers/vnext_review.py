@@ -1,4 +1,5 @@
 from __future__ import annotations
+from alicebot_api.http_json_types import BoundedJsonList, BoundedJsonObject
 from alicebot_api.vnext_label_writes import label_http_errors
 
 from uuid import UUID
@@ -99,20 +100,20 @@ class VNextArtifactInsightFeedbackRequest(VNextAgentRequest):
 
 class VNextBrainArtifactGenerateRequest(VNextAgentRequest):
     user_id: UUID
-    scope: dict[str, object] = Field(default_factory=dict)
-    options: dict[str, object] = Field(default_factory=dict)
+    scope: BoundedJsonObject = Field(default_factory=dict)
+    options: BoundedJsonObject = Field(default_factory=dict)
 
 class VNextConnectionReportGenerateRequest(VNextAgentRequest):
     user_id: UUID
     query: str = Field(default="", max_length=4000)
-    scope: dict[str, object] = Field(default_factory=dict)
-    options: dict[str, object] = Field(default_factory=dict)
+    scope: BoundedJsonObject = Field(default_factory=dict)
+    options: BoundedJsonObject = Field(default_factory=dict)
 
 class VNextContradictionReportGenerateRequest(VNextAgentRequest):
     user_id: UUID
     query: str = Field(default="", max_length=4000)
-    scope: dict[str, object] = Field(default_factory=dict)
-    options: dict[str, object] = Field(default_factory=dict)
+    scope: BoundedJsonObject = Field(default_factory=dict)
+    options: BoundedJsonObject = Field(default_factory=dict)
 
 class VNextProjectUpdateReviewRequest(VNextAgentRequest):
     user_id: UUID
@@ -127,8 +128,8 @@ class VNextQueueTaskCreateRequest(VNextAgentRequest):
     domain: VNextDomain = "unknown"
     sensitivity: VNextSensitivity = "unknown"
     write_policy: str = Field(default="proposal_only", min_length=1, max_length=80)
-    scope_json: dict[str, object] = Field(default_factory=dict)
-    allowed_sources_json: list[object] = Field(default_factory=list)
+    scope_json: BoundedJsonObject = Field(default_factory=dict)
+    allowed_sources_json: BoundedJsonList = Field(default_factory=list)
 
 class VNextQueueProcessNextRequest(VNextAgentRequest):
     user_id: UUID
@@ -149,7 +150,7 @@ class VNextArtifactQualityRatingRequest(VNextAgentRequest):
     verbosity: str = Field(default="unknown", min_length=1, max_length=40)
     missed_context: str | None = Field(default=None, min_length=1, max_length=4000)
     comments: str | None = Field(default=None, min_length=1, max_length=4000)
-    metadata_json: dict[str, object] = Field(default_factory=dict)
+    metadata_json: BoundedJsonObject = Field(default_factory=dict)
 
 class VNextGraphEdgeReviewRequest(VNextAgentRequest):
     user_id: UUID

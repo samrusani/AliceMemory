@@ -15,6 +15,7 @@ from datetime import (
 )
 from uuid import UUID
 from psycopg.errors import CheckViolation, ForeignKeyViolation
+from alicebot_api.json_bounds import JsonShapeError, refuse_unstorable_json, retry_cutting_deep_json
 from alicebot_api.commit_result import (
     COMMIT_RESULT_TOOL,
     commit_result_mode,
@@ -84,6 +85,7 @@ from .context import (
 from .definitions import (
     _CORE_TOOL_DEFINITIONS,
     _LEGACY_TOOL_DEFINITIONS,
+    tool_only_reads,
 )
 from .evidence_artifacts import (
     _handle_alice_artifact_inspect,
@@ -541,7 +543,14 @@ def call_mcp_tool(
         )
 
     parsed_arguments = _normalize_arguments(arguments)
+    # The schema walk first: it names the field of a typed number that is NaN or out of range. Then the write limits, for
+    # whatever the schema leaves free (a tool that takes an object or a list of objects): before any handler runs, and
+    # before anything of the arguments is stored.
     _validate_mcp_arguments_against_advertised_schema(name, parsed_arguments)
+    try:
+        refuse_unstorable_json(parsed_arguments, name=f"tool '{name}' arguments")
+    except JsonShapeError as exc:
+        raise MCPArgumentError(str(exc)) from exc
     # The reserved global marker of per-project memory is never caller input.
     _refuse_reserved_project_marker(parsed_arguments)
     try:
@@ -557,7 +566,13 @@ def call_mcp_tool(
                 agent_identity=identity,
                 agent_identity_resolved=True,
             )
-        payload = handler(context, parsed_arguments)
+        # A reader that overflows on a stored row nested near the recursion limit fails the call once; a call that writes
+        # nothing but the audit events of its policy check then runs again with the deep part of every stored column cut,
+        # and does not write those events again. A tool that writes is never run twice.
+        if tool_only_reads(name, parsed_arguments):
+            payload = retry_cutting_deep_json(lambda: handler(context, parsed_arguments))
+        else:
+            payload = handler(context, parsed_arguments)
     except MCPToolError:
         # A handler already classified this refusal: a coded error, or the
         # public invalid_request. It is a ValueError, so without this clause

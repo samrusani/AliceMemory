@@ -116,6 +116,7 @@ from typing import IO
 from uuid import UUID
 
 from alicebot_api import __version__
+from alicebot_api.json_bounds import JsonNotFinite, loads_finite
 from alicebot_api.credential_floor import (
     VERDICT_EXPANSION,
     credential_verdict,
@@ -2309,6 +2310,14 @@ class _ImportDepthError(_ImportError):
         return f"{where}{self.table} column {self.column} is nested too deeply for import to read"
 
 
+class _ImportNotFiniteError(_ImportError):
+    """A record's JSON holds NaN, Infinity or a number too large for a float. The message names the line and never a value."""
+
+    def __init__(self, *, line_no: int) -> None:
+        super().__init__(f"line {line_no}: a number is not finite (NaN, Infinity or a value too large for a float)")
+        self.line_no = line_no
+
+
 class _ImportCredentialError(_ImportError):
     """Memory records carry credential material. Reported under its own code,
     naming every offender's line and memory id, never the matched text."""
@@ -2407,9 +2416,12 @@ def _decode_import_envelope(
     text: str, *, line_no: int
 ) -> tuple[str, dict[str, object]]:
     try:
-        payload = json.loads(text)
+        payload = loads_finite(text)
     except json.JSONDecodeError as exc:
         raise _ImportError(f"line {line_no}: invalid JSON: {exc}") from exc
+    except JsonNotFinite as exc:
+        # Not JSON: SQLite's JSON checks let some columns hold NaN or Infinity, and a later reader would meet it.
+        raise _ImportNotFiniteError(line_no=line_no) from exc
     except RecursionError as exc:
         raise _ImportDepthError(line_no=line_no) from exc
     if not isinstance(payload, dict):
@@ -4089,6 +4101,10 @@ def _run_import_snapshot(
         return 1
     except _ImportDepthError as exc:
         _report_nesting_refusal(exc)
+        return 1
+    except _ImportNotFiniteError as exc:
+        _stderr_line(f"alice-memory: {exc}")
+        _emit_error("import_validation_failed")
         return 1
     except _ImportError as exc:
         logger.debug(

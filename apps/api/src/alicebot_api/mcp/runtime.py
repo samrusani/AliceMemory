@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from urllib.parse import unquote, urlparse
 
 from alicebot_api.db import user_connection
+from alicebot_api.json_bounds import durable_unit
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
 from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_embeddings import (
@@ -60,6 +61,16 @@ def _store_context(context: MCPRuntimeContext):
 
 @contextmanager
 def _vnext_store_context(context: MCPRuntimeContext):
+    """A store inside one transaction. What a tool call writes here and remembers for a second attempt
+    (``durable_unit``) counts as done only if the block ends and commits."""
+
+    with durable_unit():
+        with _open_vnext_store(context) as store:
+            yield store
+
+
+@contextmanager
+def _open_vnext_store(context: MCPRuntimeContext):
     from alicebot_api.vnext_label_guard import label_read_scope
 
     store: SQLiteVNextStore | PostgresVNextStore
