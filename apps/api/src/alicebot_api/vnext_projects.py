@@ -1664,26 +1664,42 @@ class VNextProjectService:
             if project is None or not project_readable(self.store, project, caller):
                 raise VNextProjectValidationError(f"project {request.project_id} was not found")
             return project
-        projects = self.store.list_projects(
-            status="active",
-            domains=list(request.domains) if request.domains else None,
-            sensitivity_allowed=list(request.sensitivity_allowed),
-            limit=1,
-        )
-        from alicebot_api.vnext_label_guard import admit_loaded
-
-        projects = admit_loaded(
-            self.store,
-            kind="project",
-            rows=projects,
-            domains=list(request.domains) if request.domains else (),
-            sensitivity_allowed=request.sensitivity_allowed,
-            projects=(),
-        )
-        projects = [project for project in projects if project_readable(self.store, project, caller)]
-        if not projects:
+        project = self._first_readable_active_project(request, caller)
+        if project is None:
             raise VNextProjectValidationError("no active project was found for update candidate generation")
-        return projects[0]
+        return project
+
+    def _first_readable_active_project(
+        self, request: ProjectAutomationRequest, caller: AgentIdentity | None
+    ) -> JsonObject | None:
+        """The newest active project ``caller`` may read, or ``None`` when none of the first 128 is.
+
+        The list is newest first. A project the caller may not read, including one stored inside the
+        request's sensitivity filter whose inputs put it outside that caller's ceiling, is skipped.
+        At most ``READABLE_SCAN_CAP`` rows are judged. Past that the answer is the one a vault with
+        no active project gives.
+        """
+
+        from alicebot_api.project_view import readable_prefix
+        from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
+
+        domains = list(request.domains) if request.domains else None
+
+        def fetch(window: int) -> list[JsonObject]:
+            return self.store.list_projects(
+                status="active",
+                domains=domains,
+                sensitivity_allowed=list(request.sensitivity_allowed),
+                limit=window,
+            )
+
+        def keep(rows: Sequence[JsonObject]) -> list[JsonObject]:
+            # The caller's own ceiling, not the request's sensitivity selection. A project stored
+            # public whose inputs the caller may not read is skipped. The owner may read it.
+            return [project for project in rows if project_readable(self.store, project, caller)]
+
+        found = readable_prefix(limit=1, fetch=fetch, keep=keep, cap=READABLE_SCAN_CAP)
+        return found[0] if found else None
 
 
 __all__ = [
