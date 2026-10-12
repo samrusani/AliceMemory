@@ -11827,10 +11827,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_consolidation.py",
-          "line": 1553,
+          "line": 1555,
           "before": "                        *named_memories,\n",
           "after": "",
-          "sha256": "28e96a9ef0944a8b5804cf7083a5ca52091f8ecff1c693321981ee46ba95b48e"
+          "sha256": "e50054d261a84d9d0c0acfa3a7d345fb8fb12206c38bf01cd11d37e518b34e1a"
         }
       ],
       "pytest": [
@@ -11844,10 +11844,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_consolidation.py",
-          "line": 1326,
+          "line": 1328,
           "before": "                    if named_memories\n                    else {}\n",
           "after": "                    if False\n                    else {}\n",
-          "sha256": "28e96a9ef0944a8b5804cf7083a5ca52091f8ecff1c693321981ee46ba95b48e"
+          "sha256": "e50054d261a84d9d0c0acfa3a7d345fb8fb12206c38bf01cd11d37e518b34e1a"
         }
       ],
       "pytest": [
@@ -11860,10 +11860,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_consolidation.py",
-          "line": 1260,
+          "line": 1262,
           "before": "                if str(row.get(\"id\")) not in cluster_member_ids\n",
           "after": "                if True\n",
-          "sha256": "28e96a9ef0944a8b5804cf7083a5ca52091f8ecff1c693321981ee46ba95b48e"
+          "sha256": "e50054d261a84d9d0c0acfa3a7d345fb8fb12206c38bf01cd11d37e518b34e1a"
         }
       ],
       "pytest": [
@@ -17447,6 +17447,22 @@
         "tests/integration/test_legacy_citation_shapes_postgres.py::test_objects_of_source_refs_keep_the_kinds_they_always_named_through_the_upgrade"
       ],
       "expected_failure": "test_objects_of_source_refs_keep_the_kinds_they_always_named_through_the_upgrade"
+    },
+    {
+      "name": "consolidation-candidate-lookup-judges-the-default-levels",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_consolidation.py",
+          "line": 554,
+          "before": "            sensitivity_allowed=[str(memory.get(\"sensitivity\") or \"unknown\")],",
+          "after": "            sensitivity_allowed=list(DEFAULT_SENSITIVITY_ALLOWED),",
+          "sha256": "e50054d261a84d9d0c0acfa3a7d345fb8fb12206c38bf01cd11d37e518b34e1a"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_generated_artifact_answers_postgres.py::test_the_run_now_tool_leaves_out_the_cluster_that_quotes_a_confidential_memory"
+      ],
+      "expected_failure": "test_the_run_now_tool_leaves_out_the_cluster_that_quotes_a_confidential_memory"
     }
   ]
 }

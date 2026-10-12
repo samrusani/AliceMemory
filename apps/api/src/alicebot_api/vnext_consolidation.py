@@ -546,10 +546,12 @@ def _existing_cluster_candidates(
     else:
         candidate_rows = store.list_memories(status="candidate")
     for memory in candidate_rows:
+        # Only the project is checked here. A candidate that its inputs raised above the default levels (one whose refs
+        # quote a confidential memory) is still a candidate of this project.
         if projects and not _scoped_rows(
             [memory],
             domains=None,
-            sensitivity_allowed=list(DEFAULT_SENSITIVITY_ALLOWED),
+            sensitivity_allowed=[str(memory.get("sensitivity") or "unknown")],
             projects=projects,
         ):
             raise VNextConsolidationValidationError(
