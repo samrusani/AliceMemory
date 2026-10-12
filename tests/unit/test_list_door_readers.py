@@ -13,6 +13,7 @@ from alicebot_api.vnext_contradictions import VNextContradictionService
 from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling
 from alicebot_api.vnext_projects import VNextProjectService
 from alicebot_api.vnext_retrieval import VNextRetrievalService
+from alicebot_api.vnext_source_fence import SourceReadFence
 
 SOURCE_ID = "11111111-1111-1111-1111-111111111111"
 MEMORY_ID = "33333333-3333-3333-3333-333333333333"
@@ -139,6 +140,7 @@ def test_fts_stage_drops_a_public_copy_of_a_confidential_source(stage) -> None:
         domains=["project"],
         sensitivity_allowed=["public", "internal", "private", "unknown"],
         limit=10,
+        read_fence=SourceReadFence.unfenced(),
     )
     assert rows == []
     assert SECRET not in str(rows)
@@ -147,6 +149,7 @@ def test_fts_stage_drops_a_public_copy_of_a_confidential_source(stage) -> None:
     visible, _status = VNextRetrievalService(store)._memory_fts_rows(
         query="sentinel fact" if stage == "or_fallback" else "sentinel", domains=["project"],
         sensitivity_allowed=["public", "internal", "private", "unknown"], limit=10,
+        read_fence=SourceReadFence.unfenced(),
     )
     assert [row["id"] for row in visible] == [MEMORY_ID]
 

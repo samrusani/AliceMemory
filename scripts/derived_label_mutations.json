@@ -243,10 +243,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 19,
+          "line": 32,
           "before": "if not blocked:",
           "after": "if True:",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -259,10 +259,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
-          "line": 3142,
+          "line": 3167,
           "before": "if len(selected) >= limit or len(raw) < page_limit:",
           "after": "if True:",
-          "sha256": "a97ef1e256eef7e14c2cc209c477bba6f7b4a99ab5c15ca08e09a75da3463dcf"
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
         }
       ],
       "pytest": [
@@ -1738,10 +1738,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 764,
+          "line": 767,
           "before": "        if target is None or outside_caller_limits(store, identity, \"open_loop\", target):",
           "after": "        if target is None:",
-          "sha256": "f98839ba52a9854475549faa443f1de6efd94589547dbe6bf11ac3bfcfd36bb6"
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
         }
       ],
       "pytest": [
@@ -3558,10 +3558,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 94,
+          "line": 107,
           "before": "    \"source_id\": \"source\",",
           "after": "    \"source_id\": \"artifact\",",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -3574,10 +3574,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 102,
+          "line": 115,
           "before": "    \"member_id\": \"memory\",\n",
           "after": "",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -3590,10 +3590,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 101,
+          "line": 114,
           "before": "    \"superseded_member_ids\": \"memory\",\n",
           "after": "",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -3606,10 +3606,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 90,
+          "line": 103,
           "before": "EVENT_CHILD_TARGETS = {\"source_chunk\": (\"source\", \"source_id\")}",
           "after": "EVENT_CHILD_TARGETS = {}",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -3622,10 +3622,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 131,
+          "line": 144,
           "before": "THEN json_object({pairs}) END\"",
           "after": "THEN NULL END\"",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -3638,10 +3638,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 135,
+          "line": 148,
           "before": "THEN payload_json END\"",
           "after": "THEN NULL END\"",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -3654,10 +3654,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 144,
+          "line": 157,
           "before": "    return f\"({prefix}payload_json ?| ARRAY[{names}]::text[])\"",
           "after": "    return \"FALSE\"",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -4246,7 +4246,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py -q",
           "after": "tests/performance/test_label_read_handoff_budget.py -q",
-          "sha256": "1df869ed204ee10de7718d4235a52ce842a1d175adf0054bb154e432e8315b74",
+          "sha256": "8e4130d65af059741df27a17037c391083a135ad078fb6c63c51321b8b8ab644",
           "line": 2366
         }
       ],
@@ -4324,10 +4324,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 103,
+          "line": 116,
           "before": "    \"replacement_memory_id\": \"memory\",\n",
           "after": "",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -4341,10 +4341,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 103,
+          "line": 116,
           "before": "    \"replacement_memory_id\": \"memory\",\n",
           "after": "",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -4357,10 +4357,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 103,
+          "line": 116,
           "before": "    \"replacement_memory_id\": \"memory\",\n",
           "after": "",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -4963,10 +4963,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 56,
+          "line": 69,
           "before": "WHERE {input_redacted} OR ({input_not_redacted} AND COALESCE((label_input.user_id, {parent_source}) IN (",
           "after": "WHERE ({input_not_redacted} AND COALESCE((label_input.user_id, {parent_source}) IN (",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -4981,10 +4981,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 68,
+          "line": 81,
           "before": "AND ({input_redacted} OR ({input_not_redacted} AND EXISTS (",
           "after": "AND (({input_not_redacted} AND EXISTS (",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -4997,10 +4997,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 37,
+          "line": 50,
           "before": "input_redacted = f\"COALESCE(json_extract({safe_input}, '$.redacted') = 1, 0)\"",
           "after": "input_redacted = \"1\"",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -8041,10 +8041,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_label_sql.py",
-          "line": 87,
+          "line": 100,
           "before": "EVENT_UNJUDGED_TARGETS = frozenset({\"continuity_object\"})",
           "after": "EVENT_UNJUDGED_TARGETS = frozenset()",
-          "sha256": "759d51bbfbc45e79673ad832b15f060e34c2d93c1ea6a80214a0ae9382cd9727"
+          "sha256": "6defb63ffacb7267c8245ed68f2097deda3eeebfb67627f72dc1afdc21afdcbf"
         }
       ],
       "pytest": [
@@ -11731,10 +11731,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
-          "line": 4638,
+          "line": 4689,
           "before": "        ranked_sources = cast(list[JsonObject], saved_provenance.sources(ranked_sources))\n",
           "after": "        pass\n",
-          "sha256": "a97ef1e256eef7e14c2cc209c477bba6f7b4a99ab5c15ca08e09a75da3463dcf"
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
         }
       ],
       "pytest": [
@@ -12503,7 +12503,7 @@
           "line": 2381,
           "before": "          ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"\n",
           "after": "",
-          "sha256": "1df869ed204ee10de7718d4235a52ce842a1d175adf0054bb154e432e8315b74"
+          "sha256": "8e4130d65af059741df27a17037c391083a135ad078fb6c63c51321b8b8ab644"
         }
       ],
       "pytest": [
@@ -15817,6 +15817,916 @@
         "tests/unit/test_source_retirement_edges.py::test_another_users_edge_is_left_alone"
       ],
       "expected_failure": "test_another_users_edge_is_left_alone"
+    },
+    {
+      "name": "recall-fallback-never-runs-for-a-key-sqlite",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 3178,
+          "before": "if relaxable and not selected and \"match_any\" not in options and read_fence.entity_read_fenced:",
+          "after": "if False:",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_fallback_hidden_rows.py::test_a_hidden_strict_hit_does_not_change_the_answer_or_the_trace_of_a_restricted_key[chain-read_only]"
+      ],
+      "expected_failure": "test_a_hidden_strict_hit_does_not_change_the_answer_or_the_trace_of_a_restricted_key"
+    },
+    {
+      "name": "recall-fallback-never-runs-for-a-key-postgres",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 3178,
+          "before": "if relaxable and not selected and \"match_any\" not in options and read_fence.entity_read_fenced:",
+          "after": "if False:",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_recall_fallback_hidden_rows_postgres.py::test_a_hidden_strict_hit_does_not_change_the_answer_or_the_trace_of_a_restricted_key[domain-read_only]"
+      ],
+      "expected_failure": "test_a_hidden_strict_hit_does_not_change_the_answer_or_the_trace_of_a_restricted_key"
+    },
+    {
+      "name": "recall-fallback-never-runs-for-a-key-legacy-store",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 3178,
+          "before": "if relaxable and not selected and \"match_any\" not in options and read_fence.entity_read_fenced:",
+          "after": "if False:",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_fallback_hidden_rows.py::test_a_caller_with_limits_gets_the_or_pass_when_the_strict_rows_are_all_hidden[_LegacyPrefixStore]"
+      ],
+      "expected_failure": "test_a_caller_with_limits_gets_the_or_pass_when_the_strict_rows_are_all_hidden"
+    },
+    {
+      "name": "recall-fallback-runs-beside-a-readable-hit",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 3178,
+          "before": "if relaxable and not selected and \"match_any\" not in options and read_fence.entity_read_fenced:",
+          "after": "if relaxable and True and \"match_any\" not in options and read_fence.entity_read_fenced:",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_fallback_hidden_rows.py::test_a_readable_strict_hit_still_stops_the_or_pass"
+      ],
+      "expected_failure": "test_a_readable_strict_hit_still_stops_the_or_pass"
+    },
+    {
+      "name": "recall-fallback-runs-beside-a-hit-the-key-may-read",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 3178,
+          "before": "if relaxable and not selected and \"match_any\" not in options and read_fence.entity_read_fenced:",
+          "after": "if relaxable and True and \"match_any\" not in options and read_fence.entity_read_fenced:",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_fallback_hidden_rows.py::test_a_restricted_key_that_may_read_the_strict_hit_gets_it[read_only]"
+      ],
+      "expected_failure": "test_a_restricted_key_that_may_read_the_strict_hit_gets_it"
+    },
+    {
+      "name": "recall-fallback-runs-for-the-owner-sqlite",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 3178,
+          "before": "if relaxable and not selected and \"match_any\" not in options and read_fence.entity_read_fenced:",
+          "after": "if relaxable and not selected and \"match_any\" not in options:",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_fallback_hidden_rows.py::test_the_owner_and_an_unbound_admin_key_keep_their_decision[None]"
+      ],
+      "expected_failure": "test_the_owner_and_an_unbound_admin_key_keep_their_decision"
+    },
+    {
+      "name": "recall-fallback-runs-for-an-unbound-admin-key",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 3178,
+          "before": "if relaxable and not selected and \"match_any\" not in options and read_fence.entity_read_fenced:",
+          "after": "if relaxable and not selected and \"match_any\" not in options:",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_fallback_hidden_rows.py::test_the_owner_and_an_unbound_admin_key_keep_their_decision[admin]"
+      ],
+      "expected_failure": "test_the_owner_and_an_unbound_admin_key_keep_their_decision"
+    },
+    {
+      "name": "recall-fallback-runs-for-the-owner-store-stage",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 3178,
+          "before": "if relaxable and not selected and \"match_any\" not in options and read_fence.entity_read_fenced:",
+          "after": "if relaxable and not selected and \"match_any\" not in options:",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_fallback_hidden_rows.py::test_the_owner_does_not_get_the_or_pass_after_a_strict_hit_of_its_own_filter[_PagedStore]"
+      ],
+      "expected_failure": "test_the_owner_does_not_get_the_or_pass_after_a_strict_hit_of_its_own_filter"
+    },
+    {
+      "name": "recall-fallback-runs-for-the-owner-postgres",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 3178,
+          "before": "if relaxable and not selected and \"match_any\" not in options and read_fence.entity_read_fenced:",
+          "after": "if relaxable and not selected and \"match_any\" not in options:",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_recall_fallback_hidden_rows_postgres.py::test_the_owner_keeps_its_decision"
+      ],
+      "expected_failure": "test_the_owner_keeps_its_decision"
+    },
+    {
+      "name": "recall-fallback-refused-relaxed-pass-keeps-the-strict-label",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 3182,
+          "before": "            if relaxed is None:\n                return [], source\n            source += \"_or_fallback\"\n            selected, source = select_pass(relaxed, source)",
+          "after": "            if relaxed is None:\n                return [], source + \"_or_fallback\"\n            source += \"_or_fallback\"\n            selected, source = select_pass(relaxed, source)",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_fallback_hidden_rows.py::test_a_store_without_match_any_keeps_the_strict_label_when_the_relaxed_pass_is_refused"
+      ],
+      "expected_failure": "test_a_store_without_match_any_keeps_the_strict_label_when_the_relaxed_pass_is_refused"
+    },
+    {
+      "name": "recall-fallback-pack-main-call-uses-the-owners-fence",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 4180,
+          "before": "                person_linked_memory_ids=person_linked_memory_ids,\n                read_fence=source_fence,\n            ),\n",
+          "after": "                person_linked_memory_ids=person_linked_memory_ids,\n                read_fence=SourceReadFence.unfenced(),\n            ),\n",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_fallback_hidden_rows.py::test_a_hidden_strict_hit_does_not_change_the_context_pack_of_a_restricted_key[chain-read_only]"
+      ],
+      "expected_failure": "test_a_hidden_strict_hit_does_not_change_the_context_pack_of_a_restricted_key"
+    },
+    {
+      "name": "recall-fallback-pack-main-call-uses-the-owners-fence-postgres",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 4180,
+          "before": "                person_linked_memory_ids=person_linked_memory_ids,\n                read_fence=source_fence,\n            ),\n",
+          "after": "                person_linked_memory_ids=person_linked_memory_ids,\n                read_fence=SourceReadFence.unfenced(),\n            ),\n",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_recall_fallback_hidden_rows_postgres.py::test_a_hidden_strict_hit_does_not_change_the_context_pack_of_a_restricted_key[domain-read_only]"
+      ],
+      "expected_failure": "test_a_hidden_strict_hit_does_not_change_the_context_pack_of_a_restricted_key"
+    },
+    {
+      "name": "recall-fallback-pack-clause-call-uses-the-owners-fence",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 4336,
+          "before": "                            person_linked_memory_ids=person_linked_memory_ids,\n                            read_fence=source_fence,\n                        )\n",
+          "after": "                            person_linked_memory_ids=person_linked_memory_ids,\n                            read_fence=SourceReadFence.unfenced(),\n                        )\n",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_fallback_hidden_rows.py::test_every_call_of_the_stage_carries_the_fence_of_the_caller"
+      ],
+      "expected_failure": "test_every_call_of_the_stage_carries_the_fence_of_the_caller"
+    },
+    {
+      "name": "recall-fallback-recall-call-uses-the-owners-fence",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 243,
+          "before": "            read_fence=source_fence,\n",
+          "after": "            read_fence=SourceReadFence.unfenced(),\n",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_fallback_hidden_rows.py::test_a_hidden_strict_hit_does_not_change_the_answer_or_the_trace_of_a_restricted_key[chain-read_only]"
+      ],
+      "expected_failure": "test_a_hidden_strict_hit_does_not_change_the_answer_or_the_trace_of_a_restricted_key"
+    },
+    {
+      "name": "recall-fallback-recall-call-uses-the-owners-fence-fence-spy",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 243,
+          "before": "            read_fence=source_fence,\n",
+          "after": "            read_fence=SourceReadFence.unfenced(),\n",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_fallback_hidden_rows.py::test_every_call_of_the_stage_carries_the_fence_of_the_caller"
+      ],
+      "expected_failure": "test_every_call_of_the_stage_carries_the_fence_of_the_caller"
+    },
+    {
+      "name": "grounding-probe-ignores-the-readable-check",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_grounding.py",
+          "line": 459,
+          "before": "    if readable_rows is not None:",
+          "after": "    if False:",
+          "sha256": "c606b0946940fb13acdd14477725fb94365e63030477b7275d774dc6d1a1d1d9"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key[domain-read_only]"
+      ],
+      "expected_failure": "test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key"
+    },
+    {
+      "name": "grounding-probe-ignores-the-readable-check-postgres",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_grounding.py",
+          "line": 459,
+          "before": "    if readable_rows is not None:",
+          "after": "    if False:",
+          "sha256": "c606b0946940fb13acdd14477725fb94365e63030477b7275d774dc6d1a1d1d9"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_hidden_rows_resume_and_grounding_postgres.py::test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key[domain-read_only]"
+      ],
+      "expected_failure": "test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key"
+    },
+    {
+      "name": "grounding-memory-probe-is-not-given-the-check",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_grounding.py",
+          "line": 542,
+          "before": "readable_rows=readable_memory_rows if memory_probe else None,",
+          "after": "readable_rows=None,",
+          "sha256": "c606b0946940fb13acdd14477725fb94365e63030477b7275d774dc6d1a1d1d9"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key[domain-read_only]"
+      ],
+      "expected_failure": "test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key"
+    },
+    {
+      "name": "grounding-probe-drops-the-strict-fallback",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_grounding.py",
+          "line": 406,
+          "before": "                use_any = False",
+          "after": "                raise",
+          "sha256": "c606b0946940fb13acdd14477725fb94365e63030477b7275d774dc6d1a1d1d9"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_store_without_match_any_gets_the_strict_probe"
+      ],
+      "expected_failure": "test_a_store_without_match_any_gets_the_strict_probe"
+    },
+    {
+      "name": "grounding-call-is-not-fenced",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 5090,
+          "before": "                        if source_fence.entity_read_fenced\n                        else None",
+          "after": "                        if False\n                        else None",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key[domain-read_only]"
+      ],
+      "expected_failure": "test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key"
+    },
+    {
+      "name": "grounding-call-fences-the-owner",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 5090,
+          "before": "                        if source_fence.entity_read_fenced\n                        else None",
+          "after": "                        if True\n                        else None",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_the_owner_and_an_unbound_admin_key_keep_the_grounding_they_had[None]"
+      ],
+      "expected_failure": "test_the_owner_and_an_unbound_admin_key_keep_the_grounding_they_had"
+    },
+    {
+      "name": "grounding-call-fences-the-owner-postgres",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 5090,
+          "before": "                        if source_fence.entity_read_fenced\n                        else None",
+          "after": "                        if True\n                        else None",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_hidden_rows_resume_and_grounding_postgres.py::test_the_owner_keeps_the_grounding_it_had"
+      ],
+      "expected_failure": "test_the_owner_keeps_the_grounding_it_had"
+    },
+    {
+      "name": "resume-reads-as-the-owner-does",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1068,
+          "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
+          "after": "limited = False",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key[last_decision-chain-read_only]"
+      ],
+      "expected_failure": "test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key"
+    },
+    {
+      "name": "resume-reads-as-the-owner-does-next-action",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1068,
+          "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
+          "after": "limited = False",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key[next_action-domain-read_only]"
+      ],
+      "expected_failure": "test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key"
+    },
+    {
+      "name": "resume-reads-as-the-owner-does-recent-changes",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1068,
+          "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
+          "after": "limited = False",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key[recent_changes-domain-read_only]"
+      ],
+      "expected_failure": "test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key"
+    },
+    {
+      "name": "resume-reads-as-the-owner-does-postgres",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1068,
+          "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
+          "after": "limited = False",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_hidden_rows_resume_and_grounding_postgres.py::test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key[last_decision]"
+      ],
+      "expected_failure": "test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key"
+    },
+    {
+      "name": "resume-reads-as-a-key-for-the-owner",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1068,
+          "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
+          "after": "limited = True",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_the_owner_and_an_unbound_admin_key_keep_the_read_they_had[None]"
+      ],
+      "expected_failure": "test_the_owner_and_an_unbound_admin_key_keep_the_read_they_had"
+    },
+    {
+      "name": "resume-reads-as-a-key-for-the-owner-postgres",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1068,
+          "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
+          "after": "limited = True",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_hidden_rows_resume_and_grounding_postgres.py::test_the_owner_keeps_the_resume_it_had"
+      ],
+      "expected_failure": "test_the_owner_keeps_the_resume_it_had"
+    },
+    {
+      "name": "resume-project-view-keeps-the-rows-it-may-not-read",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1132,
+          "before": "                    keep=admit_memories,\n                )\n            return readable_prefix(",
+          "after": "                    keep=list,\n                )\n            return readable_prefix(",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_hidden_newer_decision_of_the_project_does_not_change_the_last_decision_in_the_project_view[1-alpha project decision 0]"
+      ],
+      "expected_failure": "test_a_hidden_newer_decision_of_the_project_does_not_change_the_last_decision_in_the_project_view"
+    },
+    {
+      "name": "resume-unscoped-read-keeps-the-rows-it-may-not-read",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1137,
+          "before": "                keep=admit_memories,\n            )\n\n        decisions = newest_readable",
+          "after": "                keep=list,\n            )\n\n        decisions = newest_readable",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key[last_decision-chain-read_only]"
+      ],
+      "expected_failure": "test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key"
+    },
+    {
+      "name": "resume-project-view-events-cut-before-the-check",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1323,
+          "before": "                if limited:\n                    # Cut after the drop",
+          "after": "                if False:\n                    # Cut after the drop",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_hidden_events_of_the_project_do_not_change_the_recent_changes_in_the_project_view"
+      ],
+      "expected_failure": "test_hidden_events_of_the_project_do_not_change_the_recent_changes_in_the_project_view"
+    },
+    {
+      "name": "resume-unscoped-events-cut-before-the-check",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1370,
+          "before": "                if limited:\n                    memory_events = readable_prefix(",
+          "after": "                if False:\n                    memory_events = readable_prefix(",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key[recent_changes-domain-read_only]"
+      ],
+      "expected_failure": "test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key"
+    },
+    {
+      "name": "grounding-probe-reads-no-further-than-the-first-row",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_grounding.py",
+          "line": 416,
+          "before": "    room = READABLE_SCAN_CAP - len(first)",
+          "after": "    room = 0",
+          "sha256": "c606b0946940fb13acdd14477725fb94365e63030477b7275d774dc6d1a1d1d9"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_the_probe_reads_past_the_first_row_to_the_first_readable_one"
+      ],
+      "expected_failure": "test_the_probe_reads_past_the_first_row_to_the_first_readable_one"
+    },
+    {
+      "name": "grounding-probe-reads-the-end-at-the-cap-as-the-end",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_grounding.py",
+          "line": 426,
+          "before": "    return [] if len(later) < room else [_PROBE_GAVE_UP]",
+          "after": "    return []",
+          "sha256": "c606b0946940fb13acdd14477725fb94365e63030477b7275d774dc6d1a1d1d9"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_the_probe_stops_at_the_cap_and_reads_the_name_as_supported"
+      ],
+      "expected_failure": "test_the_probe_stops_at_the_cap_and_reads_the_name_as_supported"
+    },
+    {
+      "name": "grounding-probe-gives-up-when-the-matches-end",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_grounding.py",
+          "line": 426,
+          "before": "    return [] if len(later) < room else [_PROBE_GAVE_UP]",
+          "after": "    return [_PROBE_GAVE_UP]",
+          "sha256": "c606b0946940fb13acdd14477725fb94365e63030477b7275d774dc6d1a1d1d9"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_the_probe_ends_when_the_matches_run_out_and_none_is_readable"
+      ],
+      "expected_failure": "test_the_probe_ends_when_the_matches_run_out_and_none_is_readable"
+    },
+    {
+      "name": "grounding-probe-rejudges-the-first-row-on-a-prefix-adapter",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_grounding.py",
+          "line": 422,
+          "before": "        later = ask(limit=READABLE_SCAN_CAP)[len(first):]",
+          "after": "        later = ask(limit=READABLE_SCAN_CAP)",
+          "sha256": "c606b0946940fb13acdd14477725fb94365e63030477b7275d774dc6d1a1d1d9"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_an_adapter_without_offset_is_asked_for_a_prefix_up_to_the_cap"
+      ],
+      "expected_failure": "test_an_adapter_without_offset_is_asked_for_a_prefix_up_to_the_cap"
+    },
+    {
+      "name": "grounding-call-judges-by-the-public-level",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 5081,
+          "before": "                            lambda rows: admit_loaded(\n                                self.store,\n                                kind=\"memory\",\n                                rows=rows,\n                                domains=domains,\n                                sensitivity_allowed=sensitivity_allowed,\n",
+          "after": "                            lambda rows: admit_loaded(\n                                self.store,\n                                kind=\"memory\",\n                                rows=rows,\n                                domains=domains,\n                                sensitivity_allowed=[\"public\"],\n",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_derived_mention_the_trusted_key_may_read_supports_the_name[private-level]",
+        "tests/integration/test_readable_scan_bounds_postgres.py::test_the_grounding_check_judges_a_derived_mention_by_the_ceiling_of_the_trusted_key[project-private-True]"
+      ],
+      "expected_failure": "test_a_derived_mention_the_trusted_key_may_read_supports_the_name"
+    },
+    {
+      "name": "grounding-call-judges-by-the-project-domain",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 5081,
+          "before": "                            lambda rows: admit_loaded(\n                                self.store,\n                                kind=\"memory\",\n                                rows=rows,\n                                domains=domains,\n                                sensitivity_allowed=sensitivity_allowed,\n",
+          "after": "                            lambda rows: admit_loaded(\n                                self.store,\n                                kind=\"memory\",\n                                rows=rows,\n                                domains=[\"project\"],\n                                sensitivity_allowed=sensitivity_allowed,\n",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_derived_mention_the_trusted_key_may_read_supports_the_name[health-domain]",
+        "tests/integration/test_readable_scan_bounds_postgres.py::test_the_grounding_check_judges_a_derived_mention_by_the_ceiling_of_the_trusted_key[health-public-True]"
+      ],
+      "expected_failure": "test_a_derived_mention_the_trusted_key_may_read_supports_the_name"
+    },
+    {
+      "name": "grounding-call-keeps-every-row",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 5081,
+          "before": "                            lambda rows: admit_loaded(\n",
+          "after": "                            lambda rows: list(rows) or admit_loaded(\n",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key[chain-trusted]",
+        "tests/integration/test_hidden_rows_resume_and_grounding_postgres.py::test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key[chain-trusted]"
+      ],
+      "expected_failure": "test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key"
+    },
+    {
+      "name": "resume-open-loops-read-as-the-owner-does",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1199,
+          "before": "            elif limited:\n                loop_rows = readable_prefix(",
+          "after": "            elif False:\n                loop_rows = readable_prefix(",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_newer_unfloored_open_loop_does_not_change_the_open_loops_of_a_restricted_key[read_only]",
+        "tests/integration/test_readable_scan_bounds_postgres.py::test_a_newer_unfloored_open_loop_does_not_change_the_open_loops_of_a_restricted_key"
+      ],
+      "expected_failure": "test_a_newer_unfloored_open_loop_does_not_change_the_open_loops_of_a_restricted_key"
+    },
+    {
+      "name": "resume-project-open-loops-read-as-the-owner-does",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1189,
+          "before": "            elif limited and project_view.mode == \"project\":",
+          "after": "            elif False and project_view.mode == \"project\":",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_hidden_open_loops_of_the_project_do_not_change_the_open_loops_in_the_project_view"
+      ],
+      "expected_failure": "test_hidden_open_loops_of_the_project_do_not_change_the_open_loops_in_the_project_view"
+    },
+    {
+      "name": "pack-open-loops-read-as-the-owner-does",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 4532,
+          "before": "        if source_fence.entity_read_fenced:\n            # A loop whose stored labels",
+          "after": "        if False:\n            # A loop whose stored labels",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_a_newer_unfloored_open_loop_does_not_change_the_open_loops_of_a_restricted_key[read_only]",
+        "tests/integration/test_readable_scan_bounds_postgres.py::test_a_newer_unfloored_open_loop_does_not_change_the_open_loops_of_a_restricted_key"
+      ],
+      "expected_failure": "test_a_newer_unfloored_open_loop_does_not_change_the_open_loops_of_a_restricted_key"
+    },
+    {
+      "name": "readable-scan-window-overshoots-the-cap",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/project_view.py",
+          "line": 401,
+          "before": "        window = cap\n",
+          "after": "        window = cap * 100\n",
+          "sha256": "7983109275e84380558d5468607bd3047af133e57a26303e0261a4cae0ae31cd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_readable_scan_bounds.py::test_the_read_stops_at_the_cap_and_gives_what_it_found",
+        "tests/integration/test_readable_scan_bounds_postgres.py::test_the_read_stops_at_the_cap_and_gives_what_it_found"
+      ],
+      "expected_failure": "test_the_read_stops_at_the_cap_and_gives_what_it_found"
+    },
+    {
+      "name": "readable-scan-grows-a-row-a-round",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/project_view.py",
+          "line": 401,
+          "before": "        window = cap\n",
+          "after": "        window = min(window + 1, cap)\n",
+          "sha256": "7983109275e84380558d5468607bd3047af133e57a26303e0261a4cae0ae31cd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_readable_scan_bounds.py::test_no_read_judges_more_than_the_cap_or_reads_a_list_more_than_twice",
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_readable_prefix_gives_the_first_readable_rows_of_the_first_cap_rows"
+      ],
+      "expected_failure": "test_no_read_judges_more_than_the_cap_or_reads_a_list_more_than_twice"
+    },
+    {
+      "name": "readable-scan-judges-rows-twice",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/project_view.py",
+          "line": 397,
+          "before": "        kept.extend(keep(rows[judged:]))",
+          "after": "        kept.extend(keep(rows))",
+          "sha256": "7983109275e84380558d5468607bd3047af133e57a26303e0261a4cae0ae31cd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_readable_prefix_gives_the_first_readable_rows_of_the_first_cap_rows"
+      ],
+      "expected_failure": "test_readable_prefix_gives_the_first_readable_rows_of_the_first_cap_rows"
+    },
+    {
+      "name": "readable-fill-never-reads-the-global-partition",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/project_view.py",
+          "line": 450,
+          "before": "    if limit // 4 > 0 or len(project_kept) < limit:",
+          "after": "    if False:",
+          "sha256": "7983109275e84380558d5468607bd3047af133e57a26303e0261a4cae0ae31cd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_the_readable_fill_equals_the_fill_over_the_readable_rows"
+      ],
+      "expected_failure": "test_the_readable_fill_equals_the_fill_over_the_readable_rows"
+    },
+    {
+      "name": "readable-fill-always-reads-the-global-partition",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/project_view.py",
+          "line": 450,
+          "before": "    if limit // 4 > 0 or len(project_kept) < limit:",
+          "after": "    if True:",
+          "sha256": "7983109275e84380558d5468607bd3047af133e57a26303e0261a4cae0ae31cd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_resume_and_grounding.py::test_the_readable_fill_reads_one_window_and_skips_the_global_partition_it_cannot_use"
+      ],
+      "expected_failure": "test_the_readable_fill_reads_one_window_and_skips_the_global_partition_it_cannot_use"
+    },
+    {
+      "name": "readable-batched-event-fence-honours-every-memory",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 907,
+          "before": "            honoured = target_id in admitted",
+          "after": "            honoured = True",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_readable_scan_bounds.py::test_the_batched_event_fence_gives_the_verdicts_of_the_fence_by_id",
+        "tests/integration/test_readable_scan_bounds_postgres.py::test_the_batched_event_fence_gives_the_verdicts_of_the_fence_by_id"
+      ],
+      "expected_failure": "test_the_batched_event_fence_gives_the_verdicts_of_the_fence_by_id"
+    },
+    {
+      "name": "three-deep-resume-memory-check-ignores-the-domains",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1116,
+          "before": "                kind=\"memory\",\n                rows=rows,\n                domains=domain_filter,\n                sensitivity_allowed=sensitivity_filter,\n                projects=effective_project_scope,\n            )\n\n        def newest_readable",
+          "after": "                kind=\"memory\",\n                rows=rows,\n                domains=None,\n                sensitivity_allowed=sensitivity_filter,\n                projects=effective_project_scope,\n            )\n\n        def newest_readable",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_three_deep.py::test_a_hidden_decision_three_deep_does_not_change_the_last_decision[health-chain-health-public]",
+        "tests/integration/test_hidden_rows_three_deep_postgres.py::test_a_hidden_decision_three_deep_does_not_change_the_last_decision[health-chain-health-public]"
+      ],
+      "expected_failure": "test_a_hidden_decision_three_deep_does_not_change_the_last_decision"
+    },
+    {
+      "name": "three-deep-resume-loop-check-judges-by-the-trusted-levels",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1180,
+          "before": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=sensitivity_filter,\n                    projects=effective_project_scope,\n                )",
+          "after": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=('public', 'internal', 'private', 'unknown'),\n                    projects=effective_project_scope,\n                )",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_three_deep.py::test_a_hidden_loop_three_deep_does_not_change_the_open_loops_of_resume_or_the_pack[private-chain-project-private]",
+        "tests/integration/test_hidden_rows_three_deep_postgres.py::test_a_hidden_loop_three_deep_does_not_change_the_open_loops_of_resume_or_the_pack[private-chain-project-private]"
+      ],
+      "expected_failure": "test_a_hidden_loop_three_deep_does_not_change_the_open_loops_of_resume_or_the_pack"
+    },
+    {
+      "name": "three-deep-resume-loop-check-ignores-the-project-scope",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 1180,
+          "before": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=sensitivity_filter,\n                    projects=effective_project_scope,\n                )",
+          "after": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=sensitivity_filter,\n                    projects=(),\n                )",
+          "sha256": "88f3d1c2ed6f792f8aa54e1ef97922999997dea2b3365caf3103957df4299ecd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_three_deep.py::test_a_loop_and_a_decision_from_another_project_do_not_change_the_brief_of_a_bound_key",
+        "tests/integration/test_hidden_rows_three_deep_postgres.py::test_a_loop_and_a_decision_from_another_project_do_not_change_the_brief_of_a_bound_key"
+      ],
+      "expected_failure": "test_a_loop_and_a_decision_from_another_project_do_not_change_the_brief_of_a_bound_key"
+    },
+    {
+      "name": "three-deep-pack-loop-check-judges-by-the-trusted-levels",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 4515,
+          "before": "                kind=\"open_loop\",\n                rows=rows,\n                domains=domains,\n                sensitivity_allowed=sensitivity_allowed,\n                projects=tuple(scope.projects),\n            )",
+          "after": "                kind=\"open_loop\",\n                rows=rows,\n                domains=domains,\n                sensitivity_allowed=('public', 'internal', 'private', 'unknown'),\n                projects=tuple(scope.projects),\n            )",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_three_deep.py::test_a_hidden_loop_three_deep_does_not_change_the_open_loops_of_resume_or_the_pack[private-chain-project-private]",
+        "tests/integration/test_hidden_rows_three_deep_postgres.py::test_a_hidden_loop_three_deep_does_not_change_the_open_loops_of_resume_or_the_pack[private-chain-project-private]"
+      ],
+      "expected_failure": "test_a_hidden_loop_three_deep_does_not_change_the_open_loops_of_resume_or_the_pack"
+    },
+    {
+      "name": "three-deep-grounding-check-judges-by-the-trusted-levels",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 5086,
+          "before": "                                sensitivity_allowed=sensitivity_allowed,\n                                projects=projects,\n                            )\n                        )\n                        if source_fence.entity_read_fenced",
+          "after": "                                sensitivity_allowed=('public', 'internal', 'private', 'unknown'),\n                                projects=projects,\n                            )\n                        )\n                        if source_fence.entity_read_fenced",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_three_deep.py::test_a_hidden_mention_three_deep_does_not_change_the_grounding[private-chain-project-private-read_only-False]",
+        "tests/integration/test_hidden_rows_three_deep_postgres.py::test_a_hidden_mention_three_deep_does_not_change_the_grounding[private-chain-project-private-read_only-False]"
+      ],
+      "expected_failure": "test_a_hidden_mention_three_deep_does_not_change_the_grounding"
+    },
+    {
+      "name": "three-deep-grounding-check-ignores-the-domains",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 5085,
+          "before": "                                domains=domains,\n                                sensitivity_allowed=sensitivity_allowed,\n                                projects=projects,\n                            )\n                        )\n                        if source_fence.entity_read_fenced",
+          "after": "                                domains=None,\n                                sensitivity_allowed=sensitivity_allowed,\n                                projects=projects,\n                            )\n                        )\n                        if source_fence.entity_read_fenced",
+          "sha256": "842d07e133e49bd5c1fb736d7088c8ff3193b844da88c803eca3d02c45ce234f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_rows_three_deep.py::test_a_hidden_mention_three_deep_does_not_change_the_grounding[health-chain-health-public-read_only-False]",
+        "tests/integration/test_hidden_rows_three_deep_postgres.py::test_a_hidden_mention_three_deep_does_not_change_the_grounding[health-chain-health-public-read_only-False]"
+      ],
+      "expected_failure": "test_a_hidden_mention_three_deep_does_not_change_the_grounding"
+    },
+    {
+      "name": "readable-budget-reads-past-the-cap-sqlite",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/project_view.py",
+          "line": 401,
+          "before": "        window = cap\n",
+          "after": "        window = cap * 1000\n",
+          "sha256": "7983109275e84380558d5468607bd3047af133e57a26303e0261a4cae0ae31cd"
+        }
+      ],
+      "pytest": [
+        "tests/performance/test_resume_hidden_rows_budget.py::test_sqlite_resume_stays_within_the_budget_of_the_baseline_with_many_hidden_rows[derived]"
+      ],
+      "expected_failure": "test_sqlite_resume_stays_within_the_budget_of_the_baseline_with_many_hidden_rows"
+    },
+    {
+      "name": "readable-budget-reads-past-the-cap-postgres",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/project_view.py",
+          "line": 401,
+          "before": "        window = cap\n",
+          "after": "        window = cap * 1000\n",
+          "sha256": "7983109275e84380558d5468607bd3047af133e57a26303e0261a4cae0ae31cd"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_resume_hidden_rows_budget_postgres.py::test_postgres_resume_stays_within_the_budget_of_the_baseline_with_many_hidden_rows[derived]"
+      ],
+      "expected_failure": "test_postgres_resume_stays_within_the_budget_of_the_baseline_with_many_hidden_rows"
     }
   ]
 }

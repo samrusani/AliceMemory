@@ -100,6 +100,7 @@ DOORS = {
     "vnext_brain.py:VNextBrainService._create_candidate_open_loops": None,
     "routers/vnext_projects.py:_vnext_project_id_within_binding": None,
     "mcp/retrieval.py:_resume_event_honours_policy_fence": None,
+    "mcp/retrieval.py:_resume_events_honouring_policy_fence": None,
     "mcp/retrieval.py:_vnext_recent_decisions": None,
     "mcp/retrieval.py:_vnext_resume": None,
     "mcp/projects.py:_handle_alice_vnext_open_loops": None,

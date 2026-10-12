@@ -36,7 +36,7 @@ from capitalized spans ("Did Marcus Chen ..." -> "Marcus Chen").
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 import re
 
 from alicebot_api.vnext_entities import (
@@ -45,6 +45,7 @@ from alicebot_api.vnext_entities import (
     store_supports_entity_linking,
 )
 from alicebot_api.vnext_entity_names import normalize_entity_name
+from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
 from alicebot_api.vnext_repositories import JsonObject
 
 
@@ -366,14 +367,79 @@ def _probe_query_variants(name: str) -> str:
     return " ".join(tokens)
 
 
+#: The row a probe returns when it stopped at ``READABLE_SCAN_CAP`` rows without a row the caller may read and without
+#: having seen the last match. The name then reads as supported: the module claims a name is unmentioned only when it
+#: has looked at every match, and a probe that gave up has not.
+_PROBE_GAVE_UP: JsonObject = {"probe": "stopped at the scan cap"}
+
+
+def _first_readable_memory_row(
+    method: object,
+    *,
+    query: str,
+    kwargs: Mapping[str, object],
+    readable_rows: Callable[[Sequence[JsonObject]], Sequence[JsonObject]],
+    native_paging: bool,
+) -> list[JsonObject]:
+    """The first row of the OR probe that ``readable_rows`` keeps, as a list of one, or ``[]`` when none is kept.
+
+    The probe of a caller with limits has to find out whether a row *the caller may read* mentions the name. The
+    store filters by stored labels only, so a row that is hidden by the labels of its inputs comes back from a one-row
+    probe, is dropped, and the name would then read as supported or not depending on that row. The probe is asked once
+    for one row, as the owner's is. When that row is not one the caller may read, it is asked once more for the rows up to
+    ``READABLE_SCAN_CAP`` (the rest of them, from the offset, on a store that pages by offset; a prefix of that length on
+    any other). When ``READABLE_SCAN_CAP`` rows have been read without a row the caller may read, and the matches did
+    not end, the probe gives up and the name reads as supported (``_PROBE_GAVE_UP``).
+    """
+
+    variants = _probe_query_variants(query)
+    use_any = True
+    filters = {key: value for key, value in kwargs.items() if key != "limit"}
+
+    def ask(**extra: object) -> list[JsonObject]:
+        nonlocal use_any
+        if use_any:
+            try:
+                return list(method(query=variants, match_any=True, **filters, **extra))  # type: ignore[operator]
+            except TypeError:
+                # A store that predates ``match_any`` gets the strict single-name call (see ``_probe_rows``).
+                use_any = False
+        return list(method(query=query, **filters, **extra))  # type: ignore[operator]
+
+    first_size = int(kwargs["limit"])  # type: ignore[call-overload]
+    first = ask(limit=first_size)
+    kept = list(readable_rows(first))
+    if kept:
+        return kept[:1]
+    if len(first) < first_size:
+        return []
+    room = READABLE_SCAN_CAP - len(first)
+    if room < 1:
+        return [_PROBE_GAVE_UP]
+    if native_paging:
+        later = ask(limit=room, offset=len(first))
+    else:
+        later = ask(limit=READABLE_SCAN_CAP)[len(first):]
+    kept = list(readable_rows(later))
+    if kept:
+        return kept[:1]
+    return [] if len(later) < room else [_PROBE_GAVE_UP]
+
+
 def _probe_rows(
     method: object,
     *,
     query: str,
     domains: Sequence[str] | None,
     sensitivity_allowed: Sequence[str] | None,
+    readable_rows: Callable[[Sequence[JsonObject]], Sequence[JsonObject]] | None = None,
+    native_paging: bool = False,
 ) -> list[JsonObject] | None:
     """One cheap one-row FTS existence probe; ``None`` when it cannot run.
+
+    ``readable_rows`` is set for a probe of memories for a caller with limits: it keeps the rows that caller may
+    read, and the probe is asked again past the first row until one is kept (``_first_readable_memory_row``). The
+    probe of the owner and of an unbound admin key leaves it ``None`` and stays the one-row probe it was.
 
     ``match_any=True`` over the name's token VARIANTS is the
     conservative direction: ANY variant of ANY token anywhere in the
@@ -390,6 +456,13 @@ def _probe_rows(
         "sensitivity_allowed": list(sensitivity_allowed) if sensitivity_allowed else None,
         "limit": 1,
     }
+    if readable_rows is not None:
+        try:
+            return _first_readable_memory_row(
+                method, query=query, kwargs=kwargs, readable_rows=readable_rows, native_paging=native_paging
+            )
+        except Exception:
+            return None
     try:
         return list(method(query=_probe_query_variants(query), match_any=True, **kwargs))
     except TypeError:
@@ -414,6 +487,7 @@ def corpus_support(
     allow_entity_lookup: bool = True,
     admitted_entity_names: Sequence[str] = (),
     admitted_entity_ids: Sequence[str] = (),
+    readable_memory_rows: Callable[[Sequence[JsonObject]], Sequence[JsonObject]] | None = None,
 ) -> dict[str, bool] | None:
     """Per-entity corpus support; ``None`` when the store cannot be checked.
 
@@ -455,12 +529,18 @@ def corpus_support(
 
     chunk_search = getattr(store, "search_source_chunks", None)
     memory_search = getattr(store, "search_memories_fts", None)
+    native_paging = getattr(store, "memory_fts_offset_paging", False) is True
     for name in names:
         if support[name]:
             continue
         for method in (chunk_search, memory_search):
+            # A source is read by its own stored labels, which the store filters. A memory may be hidden by the
+            # labels of its inputs, which only the caller's own check sees.
+            memory_probe = method is memory_search and readable_memory_rows is not None
             rows = _probe_rows(
-                method, query=name, domains=domains, sensitivity_allowed=sensitivity_allowed
+                method, query=name, domains=domains, sensitivity_allowed=sensitivity_allowed,
+                readable_rows=readable_memory_rows if memory_probe else None,
+                native_paging=native_paging,
             )
             if rows is None:
                 continue
@@ -481,8 +561,13 @@ def compute_query_grounding(
     allow_entity_lookup: bool = True,
     admitted_entity_names: Sequence[str] = (),
     admitted_entity_ids: Sequence[str] = (),
+    readable_memory_rows: Callable[[Sequence[JsonObject]], Sequence[JsonObject]] | None,
 ) -> JsonObject | None:
     """The ``pack["grounding"]`` payload, or ``None`` (the common case).
+
+    ``readable_memory_rows`` has no default. For a caller with limits it keeps the memory rows that caller may read
+    (effective labels included), so a name that only a hidden row mentions is as unsupported as it is when the row
+    does not exist. The owner and an unbound admin key have no limits and pass ``None``, written at the call site.
 
     Present ONLY when at least one salient query entity has zero corpus
     support::
@@ -500,6 +585,7 @@ def compute_query_grounding(
         names, store, domains=domains, sensitivity_allowed=sensitivity_allowed,
         allow_entity_lookup=allow_entity_lookup, admitted_entity_names=admitted_entity_names,
         admitted_entity_ids=admitted_entity_ids,
+        readable_memory_rows=readable_memory_rows,
     )
     if not support:
         return None

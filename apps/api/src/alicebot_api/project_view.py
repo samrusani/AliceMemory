@@ -68,6 +68,7 @@ from alicebot_api.project_identity import (
     host_platform,
 )
 from alicebot_api.project_scoping import ScopingState, read_vault_setting, resolve_scoping
+from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
 from alicebot_api.vnext_project_scope import GLOBAL_PROJECT_MARKER
 
 ViewMode = Literal["unscoped", "explicit", "project", "project_only", "global", "all"]
@@ -371,6 +372,96 @@ def project_first_fill(
     return [*project_rows[:project_take], *global_rows[:global_take]]
 
 
+def _scan_readable(
+    *,
+    want: int,
+    fetch: Callable[[int], Sequence[_ROW]],
+    keep: Callable[[Sequence[_ROW]], Sequence[_ROW]],
+    cap: int,
+) -> list[_ROW]:
+    """The first ``want`` rows of a newest-first read that ``keep`` keeps, and fewer when the read ends or reaches ``cap``.
+
+    ``fetch(window)`` returns at most ``window`` rows, newest first. The first read has ``want`` rows, which is the read
+    that was made before there was a scan, and a vault in which the check drops nothing needs no other. The one after it has
+    ``cap`` rows: every read is a query over a table that can be large, so a few long reads cost less than many that grow
+    a little each time. A row that the first read returned is not judged again: the rows of the longer window start with
+    the rows of the shorter one. The scan ends when ``want`` rows are kept, when a read returns fewer rows than it asked
+    for (the read is exhausted), or when ``cap`` rows have been read.
+    """
+
+    window = max(1, min(want, cap))
+    judged = 0
+    kept: list[_ROW] = []
+    while True:
+        rows = fetch(window)
+        kept.extend(keep(rows[judged:]))
+        judged = len(rows)
+        if len(kept) >= want or len(rows) < window or window >= cap:
+            return kept
+        window = cap
+
+
+def readable_prefix(
+    *,
+    limit: int,
+    fetch: Callable[[int], Sequence[_ROW]],
+    keep: Callable[[Sequence[_ROW]], Sequence[_ROW]],
+    cap: int = READABLE_SCAN_CAP,
+) -> list[_ROW]:
+    """The first ``limit`` rows of a newest-first read that ``keep`` keeps, reading at most ``cap`` rows.
+
+    A read that cuts to ``limit`` rows and drops the rows a caller may not read afterwards gives that caller fewer rows
+    than exist, or none, when the dropped rows are the newest. ``keep`` is the check that drops them. A vault in which
+    ``keep`` drops nothing is read once, with a window of ``limit`` rows, as it was. When ``cap`` rows are read and fewer than
+    ``limit`` are kept, the answer is the rows kept among them (see ``READABLE_SCAN_CAP``).
+    """
+
+    return _scan_readable(want=limit, fetch=fetch, keep=keep, cap=cap)[:limit]
+
+
+def project_first_fill_readable(
+    *,
+    limit: int,
+    view: ProjectView,
+    exclude_global_domains: frozenset[str],
+    fetch_one: Callable[[tuple[str, ...], frozenset[str], int], Sequence[_ROW]],
+    keep: Callable[[Sequence[_ROW]], Sequence[_ROW]],
+    cap: int = READABLE_SCAN_CAP,
+) -> list[_ROW]:
+    """``project_first_fill`` over the rows ``keep`` keeps, reading at most ``cap`` rows of each partition.
+
+    ``fetch_one(project_ids, exclude_global_domains, window)`` is one ordinary query for one partition (the project's own
+    rows with the project's ids and nothing left out, or the global rows with the marker). Each partition is scanned as
+    ``readable_prefix`` scans a list. The global partition is read only when the fill can use it: spec 6.2 holds
+    ``limit // 4`` places for it, so a limit below four takes a global row only when the project's kept rows do not fill the
+    limit. The fill then runs over the kept rows exactly as ``project_first_fill`` runs over the rows it is given, so a
+    vault in which ``keep`` drops nothing reads one window of ``limit`` rows and gives the same answer.
+    """
+
+    if view.mode != "project" or view.project is None:
+        raise ValueError("project_first_fill_readable needs the project view")
+    if not isinstance(exclude_global_domains, frozenset):
+        raise TypeError("exclude_global_domains must be a frozenset")
+    project_ids = view.project.ids
+    project_kept = _scan_readable(
+        want=limit, fetch=lambda window: fetch_one(project_ids, frozenset(), window), keep=keep, cap=cap
+    )
+    global_kept: list[_ROW] = []
+    if limit // 4 > 0 or len(project_kept) < limit:
+        global_kept = _scan_readable(
+            want=limit,
+            fetch=lambda window: fetch_one((GLOBAL_PROJECT_MARKER,), exclude_global_domains, window),
+            keep=keep,
+            cap=cap,
+        )
+    project_take, global_take = fill_counts(
+        limit=limit,
+        project_available=min(len(project_kept), limit),
+        global_available=min(len(global_kept), limit),
+    )
+    return [*project_kept[:project_take], *global_kept[:global_take]]
+
+
 def fetch_in_two_queries(
     fetch_one: Callable[[tuple[str, ...], frozenset[str], int], Sequence[_ROW]],
 ) -> PartitionFetch[_ROW]:
@@ -410,6 +501,8 @@ __all__ = [
     "fetch_in_two_queries",
     "fill_counts",
     "project_first_fill",
+    "project_first_fill_readable",
+    "readable_prefix",
     "resolve_project_view",
     "resolve_view_at_edge",
     "status_line",
