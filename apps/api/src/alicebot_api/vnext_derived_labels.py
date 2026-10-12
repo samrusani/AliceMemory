@@ -32,7 +32,7 @@ from alicebot_api.vnext_project_scope import (
     resolve_project_scope,
     source_project_scope,
 )
-from alicebot_api.vnext_citations import NO_CITATIONS, Citations, read_reference, scan_citations
+from alicebot_api.vnext_citations import BATCH_STRINGS, MAX_READ_STRINGS, NO_CITATIONS, Citations, read_reference, scan_citations
 from alicebot_api.vnext_source_fence import cited_source_ids
 
 # Public 1, internal 2, unknown 2, private 3, confidential 4,
@@ -535,6 +535,8 @@ def _as_string_list(value: object) -> tuple[str, list[str]] | None:
 
 
 _CANONICAL_SOURCE_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+# The reason a derived row is unverified when its record holds more strings that need the reader than a request may read.
+TOO_MANY_CITATIONS = "too_many_citations"
 _CANONICAL_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
@@ -642,15 +644,23 @@ def _typed_refs(value: object) -> set[tuple[str, str]]:
 _PRODUCER_REF = re.compile(r"(?:memory|source):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
-def _source_refs_strings(value: object) -> tuple[str, set[str], set[tuple[str, str]]]:
-    """``(problem, source ids, typed refs)`` that the closure always took from the strings of ``source_refs``.
+def _source_refs_strings(
+    value: object,
+) -> tuple[str, set[str], set[tuple[str, str]], set[tuple[str, str]]]:
+    """``(problem, source ids, typed refs, object refs)`` that the closure always took from ``source_refs``.
 
-    They are hard inputs, as they have been: a row that cites one and does not find it stored is unverified. They are the
-    sources the saved-quote reader names in a string, in any spelling ``uuid.UUID`` takes (a bare id, ``source:<id>``,
-    ``urn:uuid:<id>``, an id in braces, JSON text), and the typed refs of a string (``memory:<id>``, ``source:<id>``,
-    ``open_loop:<id>`` and ``artifact:<id>``). A word after a colon that is no id (``source:'<id>'``,
+    The strings of the list give hard inputs, as they always have: a row that cites one and does not find it stored is
+    unverified. They are the sources the saved-quote reader names in a string, in any spelling ``uuid.UUID`` takes (a bare
+    id, ``source:<id>``, ``urn:uuid:<id>``, an id in braces, JSON text), and the typed refs of a string (``memory:<id>``,
+    ``source:<id>``, ``open_loop:<id>`` and ``artifact:<id>``). A word after a colon that is no id (``source:'<id>'``,
     ``memory:<id>#chunk-1``) names nothing here: an id inside it is a candidate of the scan, resolved against the stored rows
-    (``vnext_citations``), as is every id the reader finds in an object of the list.
+    (``vnext_citations``).
+
+    An object of the list, or a ``source_refs`` that is one object, gives *object refs*, ``(kind, id)`` candidates that carry
+    the kind the closure always gave them: every source id its values name, wherever the key (the reader skips the text of a
+    ``conversation_excerpt`` and a ``quote``, and the closure has always read ``conversation_excerpt``), as a source, and
+    every typed ref in any of its strings, under any key, as the kind it names (``artifact:<id>`` under ``origin`` or ``title``
+    is an artifact). A candidate is an input when it names a stored row of that kind and is ignored when it names none.
 
     A list with an item that is neither a string nor an object is malformed, as it has been. A string in the one spelling
     every producer writes is taken without asking the reader, which finds nothing more in it; any other string goes to the
@@ -658,18 +668,20 @@ def _source_refs_strings(value: object) -> tuple[str, set[str], set[tuple[str, s
     """
 
     if value is None:
-        return "", set(), set()
-    if isinstance(value, str):
+        return "", set(), set(), set()
+    if isinstance(value, (str, Mapping)):
         items: list[object] = [value]
     elif isinstance(value, list):
         items = value
         if any(not isinstance(item, (str, Mapping)) for item in items):
-            return "malformed", set(), set()
+            return "malformed", set(), _typed_refs(value), set()
     else:
-        return _source_ids_from(value)[0], set(), set()
+        return _source_ids_from(value)[0], set(), set(), set()
     ids: set[str] = set()
     refs: set[tuple[str, str]] = set()
+    objects: set[tuple[str, str]] = set()
     problem = ""
+    others: list[str] = []
     for item in items:
         if isinstance(item, str):
             if _PRODUCER_REF.fullmatch(item):
@@ -678,12 +690,23 @@ def _source_refs_strings(value: object) -> tuple[str, set[str], set[tuple[str, s
                 else:
                     ids.add(item[-36:])
             elif len(item) >= 32:  # shorter holds no id in any spelling
-                ids |= {identifier(named) for named in read_reference(item).named_sources}
-                refs |= _typed_refs(item)
+                others.append(item)
         else:
-            item_problem, _named = _source_ids_from(item)
+            item_problem, item_ids = _source_ids_from(item)
             problem = problem or item_problem
-    return problem, ids, refs
+            objects |= {("source", row_id) for row_id in item_ids}
+            objects |= _typed_refs(item)
+    if len(others) > MAX_READ_STRINGS:
+        problem = problem or TOO_MANY_CITATIONS
+    elif len(others) > BATCH_STRINGS:
+        # A list this long is read in one call, as the scan reads it, and does not go through the kept readings.
+        ids |= {identifier(named) for named in cited_source_ids(others).named}
+    else:
+        for item in others:
+            ids |= {identifier(named) for named in read_reference(item).named_sources}
+    for item in others:
+        refs |= _typed_refs(item)
+    return problem, ids, refs, objects
 
 
 def _add_ids(found: set[tuple[str, str]], kind: str, values: Iterable[str]) -> None:
@@ -692,8 +715,13 @@ def _add_ids(found: set[tuple[str, str]], kind: str, values: Iterable[str]) -> N
             found.add((kind, item))
 
 
-def _collect_metadata_ids(value: object, found: set[tuple[str, str]]) -> str:
-    """Walk server-written metadata. Return ``malformed`` or ``""``."""
+def _collect_metadata_ids(
+    value: object, found: set[tuple[str, str]], objects: set[tuple[str, str]] | None = None
+) -> str:
+    """Walk server-written metadata. Return ``malformed`` or ``""``.
+
+    ``objects`` collects the candidates that the objects of a ``source_refs`` list give (see ``_source_refs_strings``).
+    """
 
     problem = ""
     nodes: list[object] = [value]
@@ -719,12 +747,15 @@ def _collect_metadata_ids(value: object, found: set[tuple[str, str]]) -> str:
                     problem = problem or "malformed"
                 continue
             if key == "source_refs":
-                # What this reading always found in the strings of the list stays a hard input. The rest of what the saved-quote
-                # reader finds there is a candidate, resolved against the stored rows (``soft_inputs``).
-                child_problem, string_ids, string_refs = _source_refs_strings(child)
+                # What this reading always found in the strings of the list stays a hard input. What it found in the objects of
+                # the list, and the rest of what the saved-quote reader finds there, are candidates resolved against the stored
+                # rows (``soft_inputs``).
+                child_problem, string_ids, string_refs, object_refs = _source_refs_strings(child)
                 problem = problem or child_problem
                 _add_ids(found, "source", string_ids)
                 found.update(string_refs)
+                if objects is not None:
+                    objects |= object_refs
                 continue
             if key == "member_snapshots" and isinstance(child, list):
                 for item in child:
@@ -965,8 +996,9 @@ def _derived_dependency_record(
 
     meta = _metadata(row)
     found: set[tuple[str, str]] = set()
+    objects: set[tuple[str, str]] = set()
     problem = "malformed_marker" if _malformed_marker(name, meta) else ""
-    problem = problem or _collect_metadata_ids(meta, found)
+    problem = problem or _collect_metadata_ids(meta, found, objects)
     if "derived_from" in meta:
         derived_problem, derived_deps = _derived_from_deps(meta.get("derived_from"))
         problem = problem or derived_problem
@@ -985,14 +1017,19 @@ def _derived_dependency_record(
         # settle_labels clears it when an id the record may cite names a stored row.
         problem = "no_record"
     citations = record_scan(row)
+    if citations.too_many:
+        problem = problem or TOO_MANY_CITATIONS
     soft = _NO_REFS
     unreadable = _NO_REFS
-    if citations:
+    if citations or objects:
         # An id is one row, so an id that is a hard input is not a candidate in either kind, and a row is not its own input.
         taken = {row_id for _kind, row_id in found}
-        if row.get("id") is not None:
-            taken.add(identifier(row.get("id")))
-        soft = frozenset(ref for ref in citations.refs if ref[1] not in taken)
+        own_id = identifier(row.get("id")) if row.get("id") is not None else ""
+        taken.add(own_id)
+        soft = frozenset(
+            (*(ref for ref in citations.refs if ref[1] not in taken),
+             *(ref for ref in objects if ref not in found and ref[1] != own_id))
+        )
         unreadable = frozenset(ref for ref in citations.unreadable if ref[1] not in taken)
     return frozenset(found), problem, soft, unreadable
 
@@ -1357,7 +1394,9 @@ def settle_verified_inputs(kind: str, row: Mapping[str, object], parents: Sequen
 
     The read guard separately proves unique stored identities, acyclic ancestry
     and the per-origin bounds. Implicit weekly artifact inputs must use the
-    complete graph kernel. This helper does not accept partial input lists.
+    complete graph kernel. This helper does not accept partial input lists: every
+    recorded input is supplied, and of the ids the row may cite beyond them
+    (``soft_inputs``) the ones the caller found stored.
     """
 
     label = _node_label(canon_kind(kind), row)
@@ -1366,8 +1405,10 @@ def settle_verified_inputs(kind: str, row: Mapping[str, object], parents: Sequen
             raise ValueError("original labels have no inputs")
         return label
     refs, problem = dependency_record(kind, row)
+    candidates, _unreadable = soft_inputs(kind, row)
     supplied = {(item.kind, item.normalized_id) for item in parents}
-    if problem or supplied != set(refs) or any(
+    # Every recorded input, and of the ids the row may cite only those the caller found stored.
+    if problem or not set(refs) <= supplied <= set(refs) | set(candidates) or any(
         item.unverified or item.redacted or item.user_id != label.user_id for item in parents
     ):
         raise ValueError("verified labels require the complete input set")

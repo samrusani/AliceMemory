@@ -26,9 +26,11 @@ memory or source of the same user, and it is ignored when it names none. There a
   ``mem:<id>``, in an outside URL, in a Markdown link, in JSON text that does not decode). These are the positions where
   the producers copy a client's references, and they read them the same way (``memories_named_by_refs`` and
   ``sources_named_by_refs`` resolve ``.every``).
-* Anywhere else in the metadata and the value, only an id the reader *names* is a candidate: it follows a ``memory:``,
-  ``source:`` or ``alice://`` marker, stands under a reference key (``source_id``, ``memory_ids``, ``selected_memory_ids``
-  and the rest of ``SOURCE_REFERENCE_KEYS`` and ``MEMORY_REFERENCE_KEYS``) or is inside JSON text. The bare ids of a
+* Anywhere else in the metadata and the value, only an id the reader *names* is a candidate. A memory is named after a
+  ``memory:`` or ``alice://memories/`` marker, under a memory reference key (``memory_ids``, ``selected_memory_ids`` and the
+  rest of ``MEMORY_REFERENCE_KEYS``) and in JSON text. A source is named only under a source reference key (``source_id``,
+  ``sources`` and the rest of ``SOURCE_REFERENCE_KEYS``), where a bare id, a ``source:`` marker, a URL and JSON text all
+  name it; a ``source:`` marker under another key is incidental to the reader and is not read here. The bare ids of a
   ``trace_id`` or an ``agent_run_id`` are not candidates, and neither is the prose of a text key (``text``, ``title``,
   ``summary``): a promoted copy of a report holds the whole report as its ``text``, with a ``[memory:<id>]`` after each
   line, and those words are the report's.
@@ -37,6 +39,15 @@ A word that marks itself as a citation (``memory:`` or ``source:`` or an ``alice
 the scan cannot take apart (hyphens in places ``uuid.UUID`` accepts and the reader's pattern does not) is *unreadable*: its id
 is held apart, and the closure leaves the row unverified only when that id resolves to a stored row. Syntax alone never
 makes a row unverified.
+
+An object in ``source_refs`` also gives what the closure always took from it (``vnext_derived_labels``): the sources its
+values name, ``conversation_excerpt`` included, which the reader skips as quote text, and the typed refs of its strings
+(``artifact:<id>``, ``open_loop:<id>``, ``memory:<id>``, ``source:<id>``) under any key. Those are candidates that carry the
+kind they name. The text of a ``quote`` or a ``conversation_excerpt`` is text to the reader, and a marked word in it is not
+an unreadable citation.
+
+A record that holds more than ``MAX_READ_STRINGS`` strings that need the reader is not read: reading them costs a request
+seconds, and ignoring the ones past a bound would hide what they cite. The row is unverified (``too_many_citations``).
 
 The scan is one pass over the record. A string in the one spelling every producer writes (``memory:<id>``, ``source:<id>``
 or a bare id, all in lower case) is taken without the reader; any other string that can hold a citation goes to the reader.
@@ -55,6 +66,7 @@ from functools import lru_cache
 from alicebot_api.vnext_source_fence import (
     _MIN_ID_CHARS,
     _REFERENCE_KEYS,
+    _TEXT_KEYS,
     _TOKEN_BREAK,
     MEMORY_REFERENCE_KEYS,
     _uuid_text,
@@ -85,9 +97,12 @@ class Citations:
 
     refs: frozenset[tuple[str, str]] = frozenset()
     unreadable: frozenset[tuple[str, str]] = frozenset()
+    # The record holds more strings that need the reader than a request may read (``MAX_READ_STRINGS``). Nothing past the
+    # bound is read, so the row cannot be judged by what it cites and the closure leaves it unverified.
+    too_many: bool = False
 
     def __bool__(self) -> bool:
-        return bool(self.refs or self.unreadable)
+        return bool(self.refs or self.unreadable or self.too_many)
 
 
 NO_CITATIONS = Citations()
@@ -126,6 +141,16 @@ def _read_kept(text: str) -> Reading:
 
 
 _NOTHING = Reading(frozenset(), frozenset(), frozenset())
+# A record with more strings than this that need the reader is read as one batch and not string by string: the strings of
+# such a record would only push the shorter records out of the kept readings, and one call over the list costs less than one
+# call for each string. The ids the reader finds are the same, and a marked word it does not find is held apart by the
+# batch as a whole.
+BATCH_STRINGS = 128
+# The most strings of one record that the scan reads, whatever their shape. A report copies the references of the memories it
+# clusters, a few dozen at most, so a record past this is not a report and not a client's reference list either. Reading
+# every string of such a record costs a request seconds, and ignoring the ones past a bound would hide what they cite, so
+# the row is unverified (reason ``too_many_citations``) and read only by the owner and an unbound admin key.
+MAX_READ_STRINGS = 1024
 
 
 def read_reference(text: str) -> Reading:
@@ -157,7 +182,10 @@ def _worth_the_reader(text: str) -> bool:
 
 
 def _strings_of(entry: object) -> list[str]:
-    """Every string of a nested entry, for the words that mark themselves as a citation."""
+    """Every string of a nested entry, for the words that mark themselves as a citation.
+
+    The text a reference saves of its source (a ``quote`` and a ``conversation_excerpt``) is text to the reader and names
+    nothing, so a marked word in it is not a citation the scan failed to read."""
 
     found: list[str] = []
     pending = [entry]
@@ -166,7 +194,10 @@ def _strings_of(entry: object) -> list[str]:
         if isinstance(node, str):
             found.append(node)
         elif isinstance(node, Mapping):
-            pending.extend(node.values())
+            for key, value in node.items():
+                if type(value) is str and type(key) is str and key.lower() in _TEXT_KEYS:
+                    continue
+                pending.append(value)
         elif isinstance(node, (list, tuple)):
             pending.extend(node)
     return found
@@ -274,34 +305,60 @@ def scan_citations(records: Sequence[object], *, prose: frozenset[str] = frozens
                         named.append(("", child))
                 elif kind is dict or kind is list or isinstance(child, (Mapping, list, tuple)):
                     pending.append((child, cited_by))
-    for entry in in_references:
-        if type(entry) is str:
-            reading = read_reference(entry)
-            refs |= reading.refs
-            unreadable |= reading.unreadable
-            continue
-        unit = [entry]
-        found = {("source", row_id) for row_id in cited_source_ids(unit).every}
-        found |= {("memory", row_id) for row_id in cited_memory_refs(unit).every}
+    distinct = list(dict.fromkeys(named))
+    keyed_distinct = set(keyed)
+    if len(in_references) + len(distinct) + len(keyed_distinct) > MAX_READ_STRINGS:
+        return Citations(frozenset(refs), frozenset(), True)
+    if len(in_references) > BATCH_STRINGS:
+        batch = list(in_references)
+        found = {("source", row_id) for row_id in cited_source_ids(batch).every}
+        found |= {("memory", row_id) for row_id in cited_memory_refs(batch).every}
         refs |= found
-        for text in _strings_of(entry):
-            for taken in _marked_ids(text):
-                if taken not in found:
-                    unreadable.add(taken)
-    done: set[tuple[str, str]] = set()
-    for cited_by, text in named:
-        if (cited_by, text) in done:
-            continue
-        done.add((cited_by, text))
-        skeleton = {cited_by or "value": text}
-        found = {("source", row_id) for row_id in cited_source_ids(skeleton).named}
-        found |= {("memory", row_id) for row_id in cited_memory_refs(skeleton).named}
+        for entry in batch:
+            for text in (_strings_of(entry) if type(entry) is not str else (entry,)):
+                for taken in _marked_ids(text):
+                    if taken not in found:
+                        unreadable.add(taken)
+    else:
+        for entry in in_references:
+            if type(entry) is str:
+                reading = read_reference(entry)
+                refs |= reading.refs
+                unreadable |= reading.unreadable
+                continue
+            unit = [entry]
+            found = {("source", row_id) for row_id in cited_source_ids(unit).every}
+            found |= {("memory", row_id) for row_id in cited_memory_refs(unit).every}
+            refs |= found
+            for text in _strings_of(entry):
+                for taken in _marked_ids(text):
+                    if taken not in found:
+                        unreadable.add(taken)
+    if len(distinct) > BATCH_STRINGS:
+        under: dict[str, list[str]] = {}
+        for cited_by, text in distinct:
+            under.setdefault(cited_by, []).append(text)
+        for cited_by, texts in under.items():
+            skeleton = {cited_by or "value": texts}
+            found = {("source", row_id) for row_id in cited_source_ids(skeleton).named}
+            found |= {("memory", row_id) for row_id in cited_memory_refs(skeleton).named}
+            refs |= found
+            if cited_by:
+                for text in texts:
+                    for taken in _marked_ids(text):
+                        if taken not in found:
+                            unreadable.add(taken)
+        distinct = []
+    for cited_by, text in distinct:
+        single: dict[str, object] = {cited_by or "value": text}
+        found = {("source", row_id) for row_id in cited_source_ids(single).named}
+        found |= {("memory", row_id) for row_id in cited_memory_refs(single).named}
         refs |= found
         if cited_by:
             for taken in _marked_ids(text):
                 if taken not in found:
                     unreadable.add(taken)
-    for cited_by, key in keyed:
+    for cited_by, key in keyed_distinct:
         under_key: dict[str, object] = {cited_by: {key: None}}
         refs |= {("source", row_id) for row_id in cited_source_ids(under_key).named}
         refs |= {("memory", row_id) for row_id in cited_memory_refs(under_key).named}
@@ -330,7 +387,9 @@ def _take_canonical(entry: str, refs: set[tuple[str, str]]) -> None:
 
 
 __all__ = [
+    "BATCH_STRINGS",
     "CITATION_KEYS",
+    "MAX_READ_STRINGS",
     "NO_CITATIONS",
     "REFERENCE_POSITION_KEYS",
     "Citations",

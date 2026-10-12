@@ -3,8 +3,8 @@
 Revision ID: 20261011_0097
 Revises: 20261005_0096
 
-Revision 20261005_0096 raised a derived row to the labels of the rows it records as inputs. It read a citation only when it
-was a plain ``memory:<id>`` or ``source:<id>`` string or sat under a few id keys. A report written before derived labels
+Revision 20261005_0096 raised a derived row to the labels of the rows it records as inputs. It took the sources the saved-quote
+reader names in ``source_refs``, and a memory only as a lower-case ``memory:<id>`` string or under a few id keys. A report written before derived labels
 existed keeps the references of its members as their writers sent them: JSON text such as ``{"memory_id": "<id>", "quote":
 "..."}``, ``alice://memories/<id>``, ``MEMORY:<id>``, an id in braces, without hyphens, in capitals. The closure now reads a
 record with the parser of the saved-quote reader (``vnext_citations``), so the same planner finds the inputs it missed, and
@@ -12,9 +12,12 @@ this revision runs it once more over every table for a database that already ran
 that goes from 0094 straight to this revision has already been repaired by 0096, because 0096 calls the same planner, and
 this pass finds nothing to change.
 
-The change is idempotent: the plan holds only rows whose stored label is below their inputs. A row whose record cannot be
-read (a saved reference that is JSON text which does not decode, with an id in it) is unverified and is not rewritten; the
-owner and an unbound admin key read it, no other key does, until it is regenerated or deleted.
+The change is idempotent: the plan holds only rows whose stored label is below their inputs. A saved reference that is JSON
+text which does not decode, with an id in it, is read like any other: its id is an input when it names a stored row, and the
+row is raised. A row whose record cannot be told is unverified and is not rewritten: one that holds a ``memory:`` or
+``source:`` word with an id in a spelling that cannot be taken apart (hyphens in places other than 8-4-4-4-12) which names a
+stored row, and one with more than 1,024 strings that are not in the spelling the producers write. The owner and an unbound
+admin key read it, no other key does, until it is regenerated or deleted.
 """
 
 from __future__ import annotations

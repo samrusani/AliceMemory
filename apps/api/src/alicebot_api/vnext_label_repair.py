@@ -37,10 +37,16 @@ REPAIR_CAUSE = "repair_v4"
 REDACTED_INPUT_REASON = "input_redacted"
 UNREADABLE_CITATION_REASON = "unreadable_citation"
 UNREADABLE_CITATION_ADVICE = (
-    "unreadable_citation rows hold a saved reference that was meant to name a memory or a source and cannot be read (JSON "
-    "text that does not decode, or a memory: or source: word whose id is in a spelling that is not taken), so the rows "
-    "they cite cannot be named. Regenerate or delete those reports and every report built from them; labels repair cannot "
-    "fix them. Until then only the owner and an unbound admin key read them."
+    "unreadable_citation rows hold a memory: or source: word whose id is in a spelling that cannot be taken apart (hyphens "
+    "in places other than 8-4-4-4-12) and names a stored row, so what they cite cannot be told. Regenerate or delete those "
+    "reports and every report built from them; labels repair cannot fix them. Until then only the owner and an unbound "
+    "admin key read them."
+)
+TOO_MANY_CITATIONS_REASON = "too_many_citations"
+TOO_MANY_CITATIONS_ADVICE = (
+    "too_many_citations rows hold more references than a read can look up (over 1,024 strings that are not in the spelling "
+    "the producers write), so what they cite cannot be told. Regenerate or delete those reports and every report built from "
+    "them; labels repair cannot fix them. Until then only the owner and an unbound admin key read them."
 )
 REDACTED_INPUT_ADVICE = (
     "input_redacted rows were built from a redacted memory and still hold the words they copied from it. "
@@ -323,6 +329,8 @@ def format_label_check(
             lines.append(REDACTED_INPUT_ADVICE)
         if reason == UNREADABLE_CITATION_REASON and ids:
             lines.append(UNREADABLE_CITATION_ADVICE)
+        if reason == TOO_MANY_CITATIONS_REASON and ids:
+            lines.append(TOO_MANY_CITATIONS_ADVICE)
     return "\n".join(lines)
 
 
@@ -446,6 +454,8 @@ __all__ = [
     "load_postgres_label_tables",
     "REPAIR_CAUSE",
     "REPAIR_STATE_KEY",
+    "TOO_MANY_CITATIONS_ADVICE",
+    "TOO_MANY_CITATIONS_REASON",
     "UNREADABLE_CITATION_ADVICE",
     "UNREADABLE_CITATION_REASON",
     "DerivedDomainRepairError",
