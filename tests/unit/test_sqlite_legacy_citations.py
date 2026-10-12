@@ -41,7 +41,14 @@ from alicebot_api.vnext_label_repair import (
     relabel_labels_sqlite,
 )
 from alicebot_api.vnext_label_writes import walk_dependants, without_insert_floor
-from tests.unit.legacy_citation_support import SPELLINGS, memory_shapes, source_shapes
+from tests.unit.legacy_citation_support import (
+    INCIDENTAL_NAMES,
+    SPELLINGS,
+    corpus_entries,
+    memory_shapes,
+    odd_hyphens,
+    source_shapes,
+)
 
 USER = str(UUID("00000000-0000-4000-8000-0000000000a1"))
 SENTINEL = "Cedar kiln code 4417"
@@ -49,9 +56,11 @@ PUBLIC_WORDS = "the kiln is fired on Mondays"
 # Shapes the reader names in a memory ref, at each spelling of the id, plus the sources.
 MEMORY_SHAPES = memory_shapes(SENTINEL)
 SOURCE_SHAPES = source_shapes(SENTINEL)
+# Words that mark themselves as a citation and hold an id with its hyphens in places ``uuid.UUID`` takes and the reader's pattern
+# does not. The scan cannot take them apart, so the row is held back when the id names a stored row.
 UNREADABLE = {
-    "cut-json": '{"memory_id": "%s", "quote": "cut off in the middle',
-    "prefix-braces": "memory:{%s}#chunk-1",
+    "odd-fragment": "memory:%s#chunk-1",
+    "odd-url": "alice://memories/%s#section",
 }
 
 
@@ -147,9 +156,30 @@ class Vault:
                 # What a regenerated report would hold: no citation of the confidential memory.
                 clean = store.create_memory(_derived_memory("regenerated", f"source:{self.public_id}", words=PUBLIC_WORDS))
                 self.rows["regenerated"] = ("memories", str(clean["id"]))
+                corpus = corpus_entries(self.memory_id, self.source_id, SENTINEL)
+                for name in INCIDENTAL_NAMES:
+                    row = store.create_memory(_derived_memory(f"incidental-{name}", corpus[name]))
+                    self.rows[f"incidental-{name}"] = ("memories", str(row["id"]))
+                    self.cites[f"incidental-{name}"] = name.split("-", 1)[0]
+                # Syntax and ids that name nothing confidential: every one of them stays where it was stored.
+                ghost = str(uuid4())
+                for name, entry in (
+                    ("list-repr", f"['{self.public_id}']"),
+                    ("markdown-link", f"[the note](alice://sources/{self.public_id})"),
+                    ("cut-json", '{"source_id": "%s", "quote": "cut off in the middle' % self.public_id),
+                    ("trailing-comma", '{"source_id": "%s",}' % self.public_id),
+                    ("bracket-title", "[1] Smith 2024, a long enough title with no id in it at all"),
+                    ("ghost-sentence", f"copied from memory: {ghost} on Monday"),
+                    ("ghost-json", '{"memory_id": "%s", "quote": "cut' % ghost),
+                ):
+                    row = store.create_memory(_derived_memory(f"calm-{name}", entry, words="A calm note that quotes nothing."))
+                    self.rows[f"calm-{name}"] = ("memories", str(row["id"]))
+                row = _derived_memory("calm-run-id", f"source:{self.public_id}", words="A calm note that quotes nothing.")
+                row["metadata_json"]["agent_run_id"] = f"memory:{ghost}"  # type: ignore[index]
+                self.rows["calm-run-id"] = ("memories", str(store.create_memory(row)["id"]))
                 if unreadable:
                     for name, template in UNREADABLE.items():
-                        row = store.create_memory(_derived_memory(f"unreadable-{name}", template % self.memory_id))
+                        row = store.create_memory(_derived_memory(f"unreadable-{name}", template % odd_hyphens(self.memory_id)))
                         self.rows[f"unreadable-{name}"] = ("memories", str(row["id"]))
                 if stamp is not None:
                     conn.execute("INSERT OR REPLACE INTO alice_schema_state (key, value) VALUES (?, '1')", (stamp,))
@@ -190,8 +220,10 @@ def _raised(vault: Vault) -> set[str]:
     return {name for name, label in vault.labels().items() if label == ("health", "confidential")}
 
 
-def _readable_names(vault: Vault) -> set[str]:
-    return {name for name, label in vault.labels().items() if label != ("health", "confidential")}
+def _held_still(vault: Vault) -> set[str]:
+    """Rows the open pass leaves where they were: the one a regenerated report is, syntax, ghosts, and the unverified."""
+
+    return {name for name in vault.rows if name == "regenerated" or name.startswith(("calm-", "unreadable-"))}
 
 
 @pytest.fixture
@@ -207,13 +239,11 @@ def test_the_vault_starts_below_the_memory_it_cites(vault) -> None:
 def test_the_open_pass_raises_every_row_that_cites_the_memory_in_a_shape_the_reader_names(vault) -> None:
     with vault.open():
         pass
-    unreadable = {name for name in vault.rows if name.startswith("unreadable-")}
-    expected = set(vault.rows) - unreadable - {"regenerated"}
+    expected = set(vault.rows) - _held_still(vault)
     assert _raised(vault) == expected
     labels = vault.labels()
-    assert labels["regenerated"] == ("project", "public")
-    for name in unreadable:
-        assert labels[name] == ("project", "public"), "an unverified row is not rewritten"
+    for name in _held_still(vault):
+        assert labels[name] == ("project", "public"), name  # an unverified row is not rewritten, and the rest names nothing
     assert vault.stamped()
 
 
@@ -238,6 +268,7 @@ def test_a_row_whose_citation_cannot_be_read_is_unverified_and_the_check_says_so
     names = {name for name in vault.rows if name.startswith("unreadable-")}
     assert {row_id for ids in unverified.values() for row_id in ids} == {vault.rows[name][1] for name in names}
     assert set(unverified) == {"unreadable_citation"}
+    assert len(names) == 2
 
 
 def test_a_second_open_changes_nothing(vault) -> None:
@@ -296,7 +327,7 @@ def test_the_explicit_repair_finishes_what_an_open_left_and_leaves_no_row_below_
     with vault.open() as conn:
         below, _unverified = classify_stored_labels(_load_tables(conn))
     assert below == []
-    assert _raised(vault) == set(vault.rows) - {name for name in vault.rows if name.startswith("unreadable-")} - {"regenerated"}
+    assert _raised(vault) == set(vault.rows) - _held_still(vault)
 
 
 def test_a_relabelled_memory_reaches_the_rows_that_cite_it_in_every_shape(vault) -> None:
@@ -364,7 +395,10 @@ def _reads(vault, monkeypatch, key, name, *, quote_is_hidden: bool = True) -> li
 
 
 NAMES = ("memory-json-object", "memory-prefix", "memory-url-capitals", "memory-json-in-json", "position-value", "position-agentic",
-         "source-json-object", "regenerated")
+         "source-json-object", "regenerated", "incidental-memory-json-origin", "incidental-memory-sentence-space",
+         "incidental-source-outside-url")
+# Rows that cite nothing confidential: every key reads them, repaired or not.
+CALM = ("calm-ghost-sentence", "calm-markdown-link", "calm-list-repr", "calm-cut-json", "calm-run-id")
 
 
 @pytest.mark.parametrize("reader", READERS)
@@ -378,6 +412,8 @@ def test_a_row_that_was_never_repaired_is_read_at_the_label_of_its_inputs(tmp_pa
     for name in NAMES:
         expected = reader in {"owner", "admin"} or name == "regenerated"
         assert [seen for _tool, seen in _reads(vault, monkeypatch, key, name)] == [expected] * 3, (reader, name)
+    for name in CALM:
+        assert [seen for _tool, seen in _reads(vault, monkeypatch, key, name)] == [True] * 3, (reader, name)
 
 
 @pytest.mark.parametrize("reader", READERS)
@@ -391,7 +427,7 @@ def test_a_redacted_memory_takes_the_rows_that_cite_it_out_of_every_key_but_the_
     with vault.open():
         pass
     for name in NAMES:
-        if name == "source-json-object":
+        if name.startswith(("source-", "incidental-source")):
             continue  # it cites the confidential source, which hides it from the start
         assert [seen for _tool, seen in _reads(vault, monkeypatch, key, name, quote_is_hidden=False)] == [True] * 3, ("before", reader, name)
     with vault.open() as conn:

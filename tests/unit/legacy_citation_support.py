@@ -96,6 +96,7 @@ METADATA_POSITIONS: dict[str, Callable[[list[object]], dict[str, object]]] = {
     "proposal-source_refs": _consolidation,
     "agentic_memory": lambda entries: {"agentic_memory": {"source_refs": entries}},
     "provenance": lambda entries: {"provenance": entries},
+    "replacement_provenance": lambda entries: {"replacement_provenance": entries},
 }
 
 
@@ -167,3 +168,85 @@ def open_loop(entries: list[object], *, source_id: str | None = None) -> dict[st
 
 def canonical(row_id: object) -> str:
     return str(UUID(str(row_id)))
+
+
+# The wordings of ``corpus_entries`` that no marker covers and the reader finds anyway: the id sits under ``origin``, in a
+# sentence, in ``mem:<id>``, in an outside URL, in a Markdown link, in a list repr, in cut-off JSON text, or in JSON text
+# whose id stands under a key that is not a reference key. A bare id is left out: the closure has always read it as a hard input.
+INCIDENTAL_NAMES = (
+    "memory-json-origin", "memory-sentence-space", "memory-sentence-colon", "memory-mem-prefix", "memory-markdown-link",
+    "memory-outside-url", "memory-list-repr", "memory-json-cut", "memory-json-trailing-comma", "memory-object-origin",
+    "memory-json-parent", "memory-prefix-fragment", "memory-prefix-braces-fragment", "memory-prefix-path",
+    "source-json-origin", "source-sentence-space", "source-markdown-link", "source-outside-url", "source-list-repr",
+    "source-json-cut", "source-object-origin", "source-prefix-fragment", "source-prefix-path",
+)
+
+
+def odd_hyphens(row_id: str) -> str:
+    """The id with its hyphens where ``uuid.UUID`` takes them and the reader's pattern does not."""
+
+    bare = row_id.replace("-", "")
+    return "-".join((bare[:5], bare[5:11], bare[11:16], bare[16:24], bare[24:]))
+
+
+def corpus_entries(memory_id: str, source_id: str, quote: str = "Cedar kiln code 4417") -> dict[str, object]:
+    """Entries of ``source_refs`` that name a memory or a source in a wording a client could choose, including the ones the
+    saved-quote reader reads only as incidental (an id under ``origin``, in a sentence, in a URL, in an object under a text
+    key). Each is a string or an object, as the commit route stores it."""
+
+    entries: dict[str, object] = {}
+    for label, ident, mark, key, url in (
+        ("memory", memory_id, "memory", "memory_id", "alice://memories/"),
+        ("source", source_id, "source", "source_id", "alice://sources/"),
+    ):
+        for spelling, spell in SPELLINGS.items():
+            text = spell(ident)
+            entries[f"{label}-prefix-{spelling}"] = f"{mark}:{text}"
+            entries[f"{label}-json-{spelling}"] = json.dumps({key: text, "quote": quote})
+            entries[f"{label}-url-{spelling}"] = f"{url}{text}"
+            entries[f"{label}-bare-{spelling}"] = text
+        entries[f"{label}-prefix-space"] = f"{mark}: {ident}"
+        entries[f"{label}-prefix-capitals-keyword"] = f"{mark.upper()}:{ident}"
+        entries[f"{label}-sentence-colon"] = f"copied from {mark}:{ident} on Monday"
+        entries[f"{label}-sentence-space"] = f"copied from {mark}: {ident} on Monday"
+        entries[f"{label}-sentence-bare"] = f"see {ident} for the words"
+        entries[f"{label}-mem-prefix"] = f"mem:{ident}"
+        entries[f"{label}-markdown-link"] = f"[{mark}]({ident})"
+        entries[f"{label}-outside-url"] = f"https://host.example/{mark}s/{ident}"
+        entries[f"{label}-list-repr"] = f"['{ident}']"
+        entries[f"{label}-json-list"] = json.dumps([{key: ident, "quote": quote}])
+        entries[f"{label}-json-in-json"] = json.dumps({"entry": json.dumps({key: ident, "quote": quote})})
+        entries[f"{label}-json-origin"] = json.dumps({"origin": ident, "quote": quote})
+        entries[f"{label}-json-parent"] = json.dumps({"parent_memory_id": ident, "quote": quote})
+        entries[f"{label}-json-quote-has-id"] = json.dumps({"quote": f"{mark}:{ident} {quote}"})
+        entries[f"{label}-json-cut"] = '{"%s": "%s", "quote": "cut' % (key, ident)
+        entries[f"{label}-json-trailing-comma"] = '{"%s": "%s",}' % (key, ident)
+        entries[f"{label}-prefix-fragment"] = f"{mark}:{ident}#chunk-1"
+        entries[f"{label}-prefix-braces-fragment"] = "%s:{%s}#chunk-1" % (mark, ident)
+        entries[f"{label}-prefix-path"] = f"{mark}:{ident}/page/2"
+        entries[f"{label}-object-id"] = {key: ident, "quote": quote}
+        entries[f"{label}-object-origin"] = {"origin": ident, "quote": quote}
+        entries[f"{label}-object-chunk"] = {"chunk_id": ident, "quote": quote}
+        entries[f"{label}-object-ref"] = {"ref": f"{mark}:{ident}", "quote": quote}
+        entries[f"{label}-object-quote-object"] = {"quote": {key: ident}}
+        entries[f"{label}-object-id-key-only"] = {"id": ident, "quote": quote}
+        for text_key in ("title", "text", "summary", "description", "content", "body", "label", "note", "excerpt"):
+            entries[f"{label}-object-{text_key}-prefix"] = {text_key: f"{mark}:{ident}"}
+            entries[f"{label}-object-{text_key}-bare"] = {text_key: ident}
+        entries[f"{label}-object-title-json"] = {"title": json.dumps({key: ident, "quote": quote})}
+        entries[f"{label}-object-text-key"] = {"text": quote, key: ident}
+    return entries
+
+
+def positions(entry: object) -> dict[str, dict[str, object]]:
+    """The records that hold ``entry`` in each place a client's reference is copied to."""
+
+    return {
+        "top": {"source_refs": [entry]},
+        "proposal": {"consolidation": {"proposals": [{"source_refs": [entry]}]}},
+        "agentic": {"agentic_memory": {"source_refs": [entry]}},
+        "provenance": {"provenance": entry},
+        "replacement": {"replacement_provenance": [entry]},
+        "nested": {"a": {"b": {"c": {"source_refs": [entry]}}}},
+        "bare": {"source_refs": entry},
+    }

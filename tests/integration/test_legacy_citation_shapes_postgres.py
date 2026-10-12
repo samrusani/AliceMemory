@@ -14,11 +14,16 @@ redacted. These tests run the real migrations over a v0.20.0-shaped database and
   raises it;
 * after the cited memory is redacted the report is readable by the owner and an unbound admin key only, until a report is
   made without the citation;
-* a citation the parser cannot read leaves the row unverified;
+* every id the saved-quote reader finds in a derived row, the incidental ones too (under ``origin``, in a sentence, in
+  ``mem:<id>``, in JSON text that does not decode), is an input when it names a stored memory or source and is ignored when
+  it names none, so a list repr, a Markdown link, a trailing comma or an id that names nothing never holds a row back;
+* a word that marks itself as a citation and holds an id the scan cannot take apart leaves the row unverified when that id
+  names a stored row, and only then;
 * every door that returns a report, a memory or a count of them answers a restricted key without the quote.
 
-Mutations (``scripts/derived_label_mutations.json``): drop ``found |= citations`` in ``_derived_dependency_record``; let
-``record_citations`` return no inputs for a JSON string; drop ``unreadable`` from ``record_citations``; drop the 0097 revision.
+Mutations (``scripts/derived_label_mutations.json``): drop the soft candidates of ``_derived_dependency_record``; let the
+settlement take a candidate that names no stored row as missing; let ``scan_citations`` skip the reference positions; drop
+``unreadable`` from the settlement; drop the 0097 revision.
 """
 
 from __future__ import annotations
@@ -42,7 +47,6 @@ from alicebot_api.config import Settings
 from alicebot_api.db import close_connection_pools, user_connection
 from alicebot_api.migrations import make_alembic_config
 from alicebot_api.store import ContinuityStore
-from alicebot_api.vnext_citations import has_unreadable_citation
 from alicebot_api.vnext_label_repair import classify_stored_labels, load_postgres_label_tables
 from alicebot_api.vnext_source_fence import cited_memory_refs, cited_source_ids
 from alicebot_api.vnext_label_writes import without_insert_floor
@@ -50,7 +54,17 @@ from tests.integration.derived_labels_postgres_support import LabelHarness
 from tests.integration.redaction_containment_support import keyless_owner, leaks, owner_artifact, sweep
 from tests.integration.conftest import _create_role_separated_database, _drop_database
 from tests.integration.test_derived_labels_migration_postgres import assert_roles_and_force, database_urls  # noqa: F401
-from tests.unit.legacy_citation_support import SPELLINGS, candidate_memory, memory_shapes, open_loop, report, source_shapes
+from tests.unit.legacy_citation_support import (
+    INCIDENTAL_NAMES,
+    SPELLINGS,
+    candidate_memory,
+    corpus_entries,
+    memory_shapes,
+    odd_hyphens,
+    open_loop,
+    report,
+    source_shapes,
+)
 
 SENTINEL = "ZQXCITED" + uuid4().hex[:12]
 RAISED = ("health", "confidential")
@@ -90,6 +104,7 @@ class Scene:
         self.loops: dict[str, str] = {}
         self.unreadable: set[str] = set()
         self.outcome: dict[str, str] = {}
+        self.cites_memory: set[str] = set()
         with without_insert_floor(), user_connection(urls["app"], self.user) as conn:
             ContinuityStore(conn).create_user(self.user, f"legacy-{self.user}@example.invalid", "Synthetic")
             store = _store(conn)
@@ -117,24 +132,28 @@ class Scene:
                 )["id"]
             )
 
-    def expected(self, entries: list[object]) -> str:
-        """What the upgrade does to a row that holds ``entries``, by the saved-quote reader and not by the closure.
+    def expected(self, entries: list[object], *, unreadable: bool = False) -> str:
+        """What the upgrade does to a row that holds ``entries`` in a reference position, by the saved-quote reader and not by
+        the closure.
 
-        ``raised``: the reader names the confidential memory or source. ``unverified``: a reference was meant to name a row and
-        the reader cannot (the parser's own rule for that is ``has_unreadable_citation``). ``unchanged``: it names neither.
+        ``raised``: the reader finds, named or incidental, the id of the confidential memory or source (it is a stored row).
+        ``unverified``: the caller says a word of the entry marks itself as a citation and holds that id in a spelling the
+        reader cannot take apart. ``unchanged``: the reader finds neither, whatever else the entries hold.
         """
-        named = {item for item in cited_source_ids(entries).named} | {item for item in cited_memory_refs(entries).named}
-        if has_unreadable_citation({"source_refs": entries}):
+        found = set(cited_source_ids(entries).every) | set(cited_memory_refs(entries).every)
+        if unreadable:
             return "unverified"
-        return "raised" if named & {self.memory, self.source} else "unchanged"
+        return "raised" if found & {self.memory, self.source} else "unchanged"
 
-    def add_report(self, name: str, entries: list[object], *, position: str = "source_refs") -> str:
+    def add_report(self, name: str, entries: list[object], *, position: str = "source_refs", unreadable: bool = False) -> str:
         row = report(entries, position=position)
         row["metadata_json"]["project_scope"] = [self.project]  # type: ignore[index]
         with without_insert_floor(), user_connection(self.urls["app"], self.user) as conn:
             created = _store(conn).create_artifact(row)
         self.artifacts[name] = str(created["id"])
-        self.outcome[name] = self.expected(entries)
+        self.outcome[name] = self.expected(entries, unreadable=unreadable)
+        if unreadable or self.memory in set(cited_source_ids(entries).every) | set(cited_memory_refs(entries).every):
+            self.cites_memory.add(name)
         if self.outcome[name] == "unverified":
             self.unreadable.add(name)
         return str(created["id"])
@@ -347,7 +366,7 @@ def seed_every_shape(scene: Scene, *, short: bool = False) -> None:
         scene.add_report(f"memory-{shape}-{spelling}", [_memory_entry(shape, spelling, scene.memory)])
     for shape, spelling in SHORT_SOURCE if short else SOURCE_SHAPE_CASES:
         scene.add_report(f"source-{shape}-{spelling}", [_source_entry(shape, spelling, scene.source)])
-    for position in ("proposal-source_refs", "agentic_memory", "provenance"):
+    for position in ("proposal-source_refs", "agentic_memory", "provenance", "replacement_provenance"):
         scene.add_report(f"position-{position}", [_memory_entry("json-object", "canonical", scene.memory)], position=position)
     for position in ("source_refs", "agentic_memory", "value"):
         scene.add_candidate(f"memory-{position}", [_memory_entry("json-object", "canonical", scene.memory)], position=position)
@@ -363,18 +382,61 @@ def expected_reads(scene: Scene, name: str, keys: dict[str, str]) -> dict[str, b
     return {key: True for key in keys}
 
 
+SWEEP_INCIDENTAL = ("memory-json-origin", "memory-sentence-space", "memory-mem-prefix", "memory-json-cut", "memory-object-origin",
+                    "source-outside-url", "source-list-repr")
+
+
+def seed_incidental_and_calm(scene: Scene, *, few: bool = False) -> None:
+    """Wordings no marker covers (raised, as the reader finds the id), and syntax or ids that name nothing confidential (not)."""
+    corpus = corpus_entries(scene.memory, scene.source, SENTINEL)
+    for name in SWEEP_INCIDENTAL if few else INCIDENTAL_NAMES:
+        scene.add_report(f"incidental-{name}", [corpus[name]])
+    ghost = str(uuid4())
+    public = scene.public_source
+    for name, entry in (
+        ("list-repr", f"['{public}']"),
+        ("markdown-link", f"[the note](alice://sources/{public})"),
+        ("cut-json", '{"source_id": "%s", "quote": "cut off in the middle' % public),
+        ("trailing-comma", '{"source_id": "%s",}' % public),
+        ("bracket-title", "[1] Smith 2024, a long enough title with no id in it at all"),
+        ("ghost-sentence", f"copied from memory: {ghost} on Monday"),
+        ("ghost-json", '{"memory_id": "%s", "quote": "cut' % ghost),
+        ("ghost-url", f"https://host.example/memories/{ghost}"),
+    ):
+        scene.add_report(f"calm-{name}", [entry])
+    # An id that is not a citation at all, in a field that is not a reference: a trace id, a run id.
+    row = report([f"source:{public}"])
+    row["metadata_json"]["project_scope"] = [scene.project]  # type: ignore[index]
+    row["metadata_json"]["agent_run_id"] = f"memory:{ghost}"  # type: ignore[index]
+    row["metadata_json"]["trace_id"] = scene.memory  # type: ignore[index]
+    with without_insert_floor(), user_connection(scene.urls["app"], scene.user) as conn:
+        created = _store(conn).create_artifact(row)
+    scene.artifacts["calm-run-id"] = str(created["id"])
+    scene.outcome["calm-run-id"] = "unchanged"
+    # Words that mark themselves as a citation and hold the confidential memory in a spelling the scan cannot take apart.
+    for name, entry in (
+        ("odd-fragment", f"memory:{odd_hyphens(scene.memory)}#chunk-1"),
+        ("odd-url", f"alice://memories/{odd_hyphens(scene.memory)}#section"),
+    ):
+        scene.add_report(f"unreadable-{name}", [entry], unreadable=True)
+    # The same words naming no stored row do not hold a row back.
+    scene.add_report("calm-odd-ghost", [f"memory:{odd_hyphens(ghost)}#chunk-1"])
+
+
 def test_every_shape_is_raised_by_the_upgrade_and_no_restricted_key_reads_any_of_them(database_urls, monkeypatch):
     urls = database_urls
     scene = v020_database(urls, monkeypatch)
     seed_every_shape(scene)
+    seed_incidental_and_calm(scene)
     scene.add_report("plain", [f"source:{scene.public_source}"])
-    scene.add_report("unreadable-cut-json", ['{"memory_id": "%s", "quote": "cut off' % scene.memory])
-    scene.add_report("unreadable-prefix-braces", ["memory:{%s}#chunk-1" % scene.memory])
     outcomes = list(scene.outcome.values())
-    # The corpus is not vacuous: most shapes are named, some are unverified, and a few are incidental to the reader.
-    assert outcomes.count("raised") > 60 and outcomes.count("unverified") >= 4 and outcomes.count("unchanged") >= 1, {
+    # The corpus is not vacuous: most shapes are raised, two are unverified, and the ones that name nothing stay.
+    assert outcomes.count("raised") > 80 and outcomes.count("unverified") == 2 and outcomes.count("unchanged") >= 10, {
         name: outcomes.count(name) for name in ("raised", "unverified", "unchanged")
     }
+    assert all(scene.outcome[f"calm-{name}"] == "unchanged" for name in ("list-repr", "markdown-link", "cut-json", "trailing-comma",
+                                                                         "ghost-sentence", "ghost-json", "odd-ghost", "run-id"))
+    assert all(scene.outcome[f"incidental-{name}"] == "raised" for name in INCIDENTAL_NAMES)
     before = scene.stored()
     assert all(label[1] == "internal" for label in before.values())
     command.upgrade(make_alembic_config(urls["admin"]), "head")
@@ -392,6 +454,13 @@ def test_every_shape_is_raised_by_the_upgrade_and_no_restricted_key_reads_any_of
     harness = wire(urls, monkeypatch, scene)
     keys = keys_for(harness, scene)
     assert_every_report(harness, scene, keys, label="upgraded")
+
+
+def assert_stored_as_the_reader_says(scene: Scene) -> None:
+    """A report the reader finds the confidential memory or source in is raised, and every other report stays where it was."""
+    stored = scene.stored()
+    for name, outcome in scene.outcome.items():
+        assert stored[f"generated_artifacts:{name}"] == (RAISED if outcome == "raised" else ("unknown", "internal")), (name, outcome)
 
 
 def test_a_second_upgrade_and_a_repeat_of_the_repair_change_nothing(database_urls, monkeypatch):
@@ -414,17 +483,22 @@ def test_a_second_upgrade_and_a_repeat_of_the_repair_change_nothing(database_url
 
 @contextmanager
 def narrow_reading(monkeypatch):
-    """The closure as it read before: the plain ``memory:<id>`` and ``source:<id>`` strings of ``source_refs`` and nothing else."""
+    """The closure as it read before: the plain ``memory:<id>`` and ``source:<id>`` strings of ``source_refs`` and nothing else,
+    with no candidate and no unreadable word."""
     plain = re.compile(r"^(memory|source):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$")
+    original = vnext_derived_labels._dependency_uncached
 
-    def old(row):
+    def old(kind, row):
+        full = original(kind, row)
+        if not vnext_derived_labels.is_derived(kind, row):
+            return full
         meta = vnext_derived_labels._metadata(row)
         refs = meta.get("source_refs") if isinstance(meta.get("source_refs"), list) else []
         found = {(m.group(1), m.group(2)) for ref in refs if isinstance(ref, str) and (m := plain.match(ref))}
-        return frozenset(found), False
+        return frozenset(found), "", frozenset(), frozenset()
 
     with monkeypatch.context() as patch:
-        patch.setattr(vnext_derived_labels, "record_citations", old)
+        patch.setattr(vnext_derived_labels, "_dependency_uncached", old)
         yield
 
 
@@ -471,6 +545,7 @@ def test_an_upgrade_that_fails_part_way_changes_nothing_and_the_rerun_leaves_no_
     command.upgrade(config, "20261004_0095")
     scene = Scene(urls)
     seed_every_shape(scene)
+    seed_incidental_and_calm(scene)
     before = scene.stored()
     backup, restored = "alicebot_backup_" + uuid4().hex[:12], "alicebot_restored_" + uuid4().hex[:12]
     close_connection_pools()
@@ -496,7 +571,8 @@ def test_an_upgrade_that_fails_part_way_changes_nothing_and_the_rerun_leaves_no_
         command.upgrade(config, "head")
         assert scene.below() == []
         assert scene.stored()["generated_artifacts:memory-json-object-canonical"] == RAISED
-        assert scene.stored()["generated_artifacts:memory-prefix-fragment-braces"] == ("unknown", "internal")
+        assert scene.stored()["generated_artifacts:memory-prefix-fragment-braces"] == RAISED
+        assert_stored_as_the_reader_says(scene)
         # A backup taken before the upgrade, restored and upgraded, ends the same way.
         close_connection_pools()
         restored_urls = _create_role_separated_database(restored, template=backup)
@@ -555,8 +631,9 @@ def test_a_row_that_was_never_repaired_is_read_at_the_label_of_its_inputs_and_la
     scene = Scene(urls)
     seed_every_shape(scene, short=True)
     seed_reported(scene)
+    seed_incidental_and_calm(scene, few=True)
     assert scene.stored()["generated_artifacts:reported"] == ("unknown", "internal")
-    assert len(scene.below()) > 15
+    assert len(scene.below()) > 20
     harness = wire(urls, monkeypatch, scene)
     keys = keys_for(harness, scene)
     assert_every_report(harness, scene, keys, label="before the repair")
@@ -580,13 +657,20 @@ def test_a_relabelled_memory_reaches_a_legacy_report_that_cites_it_in_json_text(
     urls = migrated_database_urls
     scene = Scene(urls)
     seed_reported(scene)
+    incidental = corpus_entries(scene.memory, scene.source, SENTINEL)["memory-sentence-space"]
+    scene.add_report("incidental", [incidental])
+    scene.add_report("calm", [f"copied from memory: {uuid4()} on Monday"])
     harness = wire(urls, monkeypatch, scene)
     ctx = SimpleNamespace(database_url=urls["app"], user_id=scene.user)
     labels._run_vnext_labels_repair(ctx, None)
     assert scene.stored()["generated_artifacts:reported"] == RAISED
+    assert scene.stored()["generated_artifacts:incidental"] == RAISED
+    assert scene.stored()["generated_artifacts:calm"] == ("unknown", "internal")
     status, body, _ = harness.relabel("memory", scene.memory, sensitivity="highly_sensitive")
     assert status == 200, body
     assert scene.stored()["generated_artifacts:reported"][1] == "highly_sensitive"
+    assert scene.stored()["generated_artifacts:incidental"][1] == "highly_sensitive", "the reverse lookup finds an incidental id"
+    assert scene.stored()["generated_artifacts:calm"] == ("unknown", "internal")
 
 
 # --- every door ------------------------------------------------------------------------------------------------------------
@@ -598,6 +682,7 @@ def stage_for_the_sweep(scene: Scene) -> None:
         scene.add_report(f"memory-{shape}-{spelling}", [_memory_entry(shape, spelling, scene.memory)])
     scene.add_candidate("memory-json", [_memory_entry("json-object", "canonical", scene.memory)])
     scene.add_loop("memory-json", [_memory_entry("json-object", "canonical", scene.memory)])
+    seed_incidental_and_calm(scene, few=True)
 
 
 def _sweep_scene(scene: Scene) -> SimpleNamespace:
@@ -605,6 +690,16 @@ def _sweep_scene(scene: Scene) -> SimpleNamespace:
 
 
 SWEEP_KEYS = ("trusted", "trusted_bound", "read_only", "alpha_only")
+
+
+def raised_ids(scene: Scene, *, of_the_memory: bool = False) -> list[str]:
+    """The reports that cite the confidential memory or source (or only the memory). The others cite nothing confidential and
+    stay readable; the ones that cite only the source do not depend on the memory."""
+    return [
+        scene.artifacts[name]
+        for name, outcome in scene.outcome.items()
+        if outcome == "raised" and (not of_the_memory or name in scene.cites_memory)
+    ]
 
 
 def test_no_door_gives_a_restricted_key_the_quote_of_a_memory_it_may_not_read(database_urls, monkeypatch):
@@ -617,7 +712,7 @@ def test_no_door_gives_a_restricted_key_the_quote_of_a_memory_it_may_not_read(da
     responses = sweep(harness, _sweep_scene(scene), monkeypatch, {name: keys[name] for name in SWEEP_KEYS})
     assert len(responses) > 150, "the sweep reaches every door"
     assert leaks(responses, SENTINEL) == [], leaks(responses, SENTINEL)[:5]
-    for artifact_id in list(scene.artifacts.values()):
+    for artifact_id in raised_ids(scene):
         assert not [item for item in responses if artifact_id in item.text], artifact_id
     # The control: the unbound admin key reads the same rows with the quote, so the sweep looks at something.
     control = sweep(harness, _sweep_scene(scene), monkeypatch, {"admin": keys["admin"]})
@@ -638,9 +733,73 @@ def test_after_redaction_no_door_gives_any_key_but_the_owner_and_the_unbound_adm
     restricted = {name: keys[name] for name in SWEEP_KEYS + ("admin_bound",)}
     responses = sweep(harness, _sweep_scene(scene), monkeypatch, restricted)
     assert leaks(responses, SENTINEL) == [], leaks(responses, SENTINEL)[:5]
-    for artifact_id in scene.artifacts.values():
+    for artifact_id in raised_ids(scene, of_the_memory=True):
         assert not [item for item in responses if artifact_id in item.text and item.status == 200], artifact_id
+    for artifact_id in raised_ids(scene):
+        assert not [item for item in responses if artifact_id in item.text and item.status == 200 and item.key_name != "admin_bound"], artifact_id
     control = sweep(harness, _sweep_scene(scene), monkeypatch, {"admin": keys["admin"]})
     gets = [item for item in control if item.door == "artifact get" and item.status == 200]
     assert len(gets) == len(scene.artifacts)
-    assert set(scene.unverified()) == {"input_redacted"}
+    # The reports of the memory are unverified now it is redacted, and so are the two that hold it in a word nothing can take apart.
+    assert set(scene.unverified()) == {"input_redacted", "unreadable_citation"}
+
+
+def test_no_door_gives_a_restricted_key_the_quote_when_nothing_was_repaired(migrated_database_urls, monkeypatch):
+    """A backup restored at the head: every door judges each report by the rows it really cites, the ids it only mentions and
+    the ids that name nothing included."""
+    urls = migrated_database_urls
+    scene = Scene(urls)
+    stage_for_the_sweep(scene)
+    assert len(scene.below()) > 10
+    harness = wire(urls, monkeypatch, scene)
+    keys = keys_for(harness, scene)
+    responses = sweep(harness, _sweep_scene(scene), monkeypatch, {name: keys[name] for name in SWEEP_KEYS})
+    assert leaks(responses, SENTINEL) == [], leaks(responses, SENTINEL)[:5]
+    raised = {scene.artifacts[name] for name, outcome in scene.outcome.items() if outcome == "raised"}
+    calm = {scene.artifacts[name] for name, outcome in scene.outcome.items() if outcome == "unchanged"}
+    assert raised and calm
+    for artifact_id in raised:
+        assert not [item for item in responses if artifact_id in item.text], artifact_id
+    # The reports that cite nothing confidential stay readable: the sweep does not hide everything.
+    gets = {item.body.get("id") for item in responses if item.door == "artifact get" and item.status == 200 and isinstance(item.body, dict)}
+    assert calm <= gets, "a report that cites nothing confidential is read by a key below the memory"
+
+
+# --- the insert floor -----------------------------------------------------------------------------------------------------
+
+
+def test_the_insert_floor_resolves_what_a_new_report_cites_in_any_wording(migrated_database_urls, monkeypatch):
+    urls = migrated_database_urls
+    scene = Scene(urls)
+    harness = wire(urls, monkeypatch, scene)
+    corpus = corpus_entries(scene.memory, scene.source, SENTINEL)
+    ghost = str(uuid4())
+    written = {
+        "plain": ([f"source:{scene.public_source}"], "unchanged"),
+        "json-object": ([_memory_entry("json-object", "canonical", scene.memory)], "raised"),
+        "origin": ([corpus["memory-json-origin"]], "raised"),
+        "sentence": ([corpus["memory-sentence-space"]], "raised"),
+        "mem-prefix": ([corpus["memory-mem-prefix"]], "raised"),
+        "source-url": ([corpus["source-outside-url"]], "raised"),
+        "markdown-ghost": ([f"[the note](alice://memories/{ghost})"], "unchanged"),
+        "list-repr": ([f"['{scene.public_source}']"], "unchanged"),
+        "ghost-sentence": ([f"copied from memory: {ghost} on Monday"], "unchanged"),
+        "odd-unreadable": ([f"memory:{odd_hyphens(scene.memory)}#chunk-1"], "unverified"),
+        "odd-ghost": ([f"memory:{odd_hyphens(ghost)}#chunk-1"], "unchanged"),
+    }
+    with harness.store() as store:
+        for name, (entries, _outcome) in written.items():
+            row = report(entries)
+            row["metadata_json"]["project_scope"] = [scene.project]  # type: ignore[index]
+            scene.artifacts[name] = str(store.create_artifact(row)["id"])
+    stored = scene.stored()
+    for name, (_entries, outcome) in written.items():
+        label = stored[f"generated_artifacts:{name}"]
+        if outcome == "raised":
+            assert label == RAISED, (name, label)
+        elif outcome == "unverified":
+            assert label[1] == "regulated", (name, label)
+        else:
+            assert label == ("unknown", "internal"), (name, label)
+    assert scene.below() == []
+    assert set(scene.unverified()) <= {"unreadable_citation"}
