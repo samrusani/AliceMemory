@@ -399,9 +399,10 @@ def test_a_report_whose_member_refs_quote_a_confidential_memory_is_refused_to_a_
     the report, so the label of the report did not cover the memory and a key below confidential read the words of a confidential
     memory in ``metadata_json.source_refs``. The report is labelled over the memories its refs name, as it is over the sources.
 
-    Mutation: leave ``named_memories`` out of the memories the report is derived from (``with_derived_from`` in
-    ``generate_memory_consolidation``): the stored label is raised by the inputs of the report, so the report keeps the label of its
-    members and the key reads the words.
+    Two lines raise the report, and either one is enough: ``named_memories`` in ``with_derived_from`` (in
+    ``generate_memory_consolidation``), and the closure loader, which reads the same refs with the shared citation reader at
+    insert. Leaving out either one alone keeps this test green; leaving out both (``named_memories`` and the candidate load in
+    ``vnext_label_closure.py``) fails every shape, so the case is not in the mutation manifest, which takes one edit at a time.
     """
     database_url = migrated_database_urls["app"]
     _point_routes_at(monkeypatch, database_url)

@@ -11840,22 +11840,6 @@
       "expected_failure": "test_a_report_whose_member_refs_quote_a_memory_that_is_redacted_afterwards_is_refused_to_a_trusted_agent"
     },
     {
-      "name": "consolidation-report-label-follows-the-memories-its-refs-name",
-      "edits": [
-        {
-          "file": "apps/api/src/alicebot_api/vnext_consolidation.py",
-          "line": 1553,
-          "before": "                        *named_memories,\n",
-          "after": "",
-          "sha256": "28e96a9ef0944a8b5804cf7083a5ca52091f8ecff1c693321981ee46ba95b48e"
-        }
-      ],
-      "pytest": [
-        "tests/integration/test_consolidation_report_sensitivity_postgres.py::test_a_report_whose_member_refs_quote_a_confidential_memory_is_refused_to_a_trusted_agent[json quote]"
-      ],
-      "expected_failure": "test_a_report_whose_member_refs_quote_a_confidential_memory_is_refused_to_a_trusted_agent"
-    },
-    {
       "name": "consolidation-run-digest-ignores-the-memories-its-refs-name",
       "edits": [
         {
