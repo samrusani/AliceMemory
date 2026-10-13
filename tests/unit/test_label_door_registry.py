@@ -96,6 +96,7 @@ DOORS = {
     "routers/vnext_memories.py:get_vnext_dogfooding_dashboard": None,
     "vnext_projects.py:VNextProjectService.project_dashboard": None,
     "vnext_projects.py:VNextProjectService._resolve_project": None,
+    "vnext_projects.py:VNextProjectService._first_readable_active_project": None,
     "vnext_projects.py:VNextProjectService.generate_project_update_candidate": None,
     "vnext_brain.py:VNextBrainService._create_candidate_open_loops": None,
     "routers/vnext_projects.py:_vnext_project_id_within_binding": None,

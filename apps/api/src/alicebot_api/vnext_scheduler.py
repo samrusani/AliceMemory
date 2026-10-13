@@ -36,11 +36,14 @@ from alicebot_api.vnext_model_intelligence import (
     resolve_model_route,
 )
 from alicebot_api.vnext_open_loop_references import sources_named_by_loops, withhold_unreadable_references
+from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
 from alicebot_api.vnext_projects import (
     ProjectAutomationRequest,
     VNextProjectService,
     VNextProjectStore,
     VNextProjectValidationError,
+    _identity_of_record,
+    project_readable,
 )
 from alicebot_api.vnext_project_scope import (
     normalize_project_scope,
@@ -1782,11 +1785,20 @@ class VNextSchedulerService:
         self, request: SchedulerRunRequest, *, metadata: JsonObject
     ) -> JsonObject:
         requested_projects = _normalized_project_scope(request.projects)
+        # None means the service keeps reading newest-first until a project this caller may read,
+        # at most READABLE_SCAN_CAP. A named scope walks that list the same way and stops at the cap.
+        chosen_id: str | None = None
+        scan = True
         if requested_projects:
-            projects = []
+            caller = _identity_of_record(_logical_agent_identity(request.agent_identity))
             allowed_domains = set(request.domains)
             allowed_sensitivity = set(request.sensitivity_allowed)
+            judged = 0
+            scan = False
             for project_id in requested_projects:
+                if judged >= READABLE_SCAN_CAP:
+                    break
+                judged += 1
                 project = self.store.get_project(project_id)
                 if project is None or project.get("status") != "active":
                     continue
@@ -1797,16 +1809,12 @@ class VNextSchedulerService:
                     continue
                 if str(project.get("sensitivity") or "unknown") not in allowed_sensitivity:
                     continue
-                projects.append(project)
+                if not project_readable(self.store, project, caller):
+                    continue
+                chosen_id = str(project["id"])
+                scan = True
                 break
-        else:
-            projects = self.store.list_projects(
-                status="active",
-                domains=list(request.domains) if request.domains else None,
-                sensitivity_allowed=list(request.sensitivity_allowed),
-                limit=1,
-            )
-        if projects:
+        if scan:
             try:
                 policy_decision_value = metadata.get("policy_decision")
                 return VNextProjectService(self.store).generate_project_update_candidate(
@@ -1814,7 +1822,7 @@ class VNextSchedulerService:
                         agent_identity=_logical_agent_identity(request.agent_identity),
                         domains=request.domains,
                         sensitivity_allowed=request.sensitivity_allowed,
-                        project_id=str(projects[0]["id"]),
+                        project_id=chosen_id,
                         generated_by="scheduler",
                         trace_id=str(metadata.get("trace_id")) if metadata.get("trace_id") is not None else None,
                         run_id=str(metadata.get("scheduler_run_id"))

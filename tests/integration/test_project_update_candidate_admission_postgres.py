@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import NamedTuple
 from uuid import uuid4
 
@@ -39,6 +40,7 @@ from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.vnext_agent_keys import resolve_agent_identity
 from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
 from alicebot_api.vnext_projects import VNextProjectValidationError
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 
@@ -56,15 +58,17 @@ def _masked(text: str) -> str:
     return UUID_TEXT.sub("<id>", text)
 
 
-def _http(harness, key, project_id) -> Answer:
+def _http(harness, key, project_id, sensitivity=None) -> Answer:
     options = {} if project_id is None else {"project_id": str(project_id)}
+    if sensitivity is not None:
+        options["sensitivity_allowed"] = list(sensitivity)
     status, payload, _headers = harness.request("POST", PATH, payload={"scope": {}, "options": options}, key=key)
     if status == 201:
         return Answer(True, payload)
     return Answer(False, (status, _masked(json.dumps(payload, sort_keys=True))))
 
 
-def _mcp(harness, key, project_id) -> Answer:
+def _mcp(harness, key, project_id, sensitivity=None) -> Answer:
     """The handler of ``alice_project_update_candidate`` with the identity a server resolved from the same key."""
 
     identity = None
@@ -75,6 +79,8 @@ def _mcp(harness, key, project_id) -> Answer:
         database_url=harness.urls["app"], user_id=harness.user_id, agent_identity=identity, agent_identity_resolved=True
     )
     arguments = {} if project_id is None else {"project_id": str(project_id)}
+    if sensitivity is not None:
+        arguments["sensitivity_allowed"] = list(sensitivity)
     try:
         return Answer(True, _handle_alice_project_update_candidate(context, arguments))
     except VNextProjectValidationError as exc:
@@ -87,11 +93,16 @@ def ask(request):
 
     door = {"http": _http, "mcp": _mcp}[request.param]
 
-    def asked(harness, key, project_id=None) -> Answer:
-        return door(harness, key, project_id)
+    def asked(harness, key, project_id=None, sensitivity=None) -> Answer:
+        return door(harness, key, project_id, sensitivity)
 
     asked.door = request.param
     return asked
+
+
+def _stamp_updated_at(harness, project, stamp: str) -> None:
+    with harness.store() as store:
+        store.conn.execute("UPDATE projects SET updated_at = %s WHERE id = %s", (stamp, str(project["id"])))
 
 
 def _project(harness, *, sensitivity: str = "public", domain: str = "project", name: str = NAME) -> dict:
@@ -724,8 +735,9 @@ RUN_NOW = "/v0/vnext/scheduler/workflows/project_update_scan/run-now"
 FALLBACK_TITLE = "Project Update Scan"
 
 
-def _run_now(harness, key) -> tuple[int, dict]:
-    status, body, _headers = harness.request("POST", RUN_NOW, payload={"scope": {}, "options": {}}, key=key)
+def _run_now(harness, key, sensitivity=None) -> tuple[int, dict]:
+    options = {} if sensitivity is None else {"sensitivity_allowed": list(sensitivity)}
+    status, body, _headers = harness.request("POST", RUN_NOW, payload={"scope": {}, "options": options}, key=key)
     return status, body
 
 
@@ -804,3 +816,122 @@ def test_the_scan_of_a_key_with_limits_leaves_no_candidate_behind_for_a_project_
         assert str(project["id"]) not in json.dumps(body, default=str)
     assert [title.startswith(FALLBACK_TITLE) for title in _stored_titles(label_harness)] == [True]
     assert _candidate_memories(label_harness) == 0
+
+
+def test_a_newer_project_raised_by_a_confidential_input_does_not_hide_an_older_one(label_harness, ask):
+    """No project id. The newer project is stored public and unreadable because of a confidential input.
+
+    The default request filter stops at public, internal, private and unknown, so it skips that newer project even
+    for the owner and an unbound admin key, who may read it, and takes the older project. A request that includes
+    confidential gets the newer project for those two. A key bound to the older project is given that project. A
+    bound admin key is given the newer one, which is its own. A trusted key bound to the newer one is answered as a
+    key bound to a project that does not exist.
+    """
+
+    older = _project(label_harness, name="Older Kiln")
+    newer = _project(label_harness, name="Newer Kiln")
+    _raise_project_by_its_inputs(label_harness, newer)
+    # A request with no key is the owner only while the vault has no key. Ask for confidential first, before a
+    # generation can change which project is newest.
+    wide = ("public", "internal", "private", "unknown", "confidential")
+    owner_wide = ask(label_harness, None, sensitivity=wide)
+    assert owner_wide.ok and owner_wide.detail["metadata_json"]["project_id"] == str(newer["id"]), owner_wide
+    owner = ask(label_harness, None)
+    assert owner.ok and owner.detail["metadata_json"]["project_id"] == str(older["id"]), owner
+    assert "Older Kiln" in owner.detail["content_markdown"]
+    assert "Newer Kiln" not in json.dumps(owner.detail, default=str)
+    admin_key = label_harness.key("admin_agent")
+    _stamp_updated_at(label_harness, newer, "2099-01-02T00:00:00Z")
+    _stamp_updated_at(label_harness, older, "2020-01-01T00:00:00Z")
+    admin_wide = ask(label_harness, admin_key, sensitivity=wide)
+    assert admin_wide.ok and admin_wide.detail["metadata_json"]["project_id"] == str(newer["id"]), admin_wide
+    admin = ask(label_harness, admin_key)
+    assert admin.ok and admin.detail["metadata_json"]["project_id"] == str(older["id"]), admin
+
+    trusted = label_harness.key("trusted_local_agent")
+    answer = ask(label_harness, trusted)
+    assert answer.ok, answer
+    assert answer.detail["metadata_json"]["project_id"] == str(older["id"])
+    assert "Older Kiln" in answer.detail["content_markdown"]
+    assert "Newer Kiln" not in json.dumps(answer.detail, default=str)
+
+    bound = _key(label_harness, "trusted_local_agent", project=older)
+    bound_answer = ask(label_harness, bound)
+    assert bound_answer.ok and bound_answer.detail["metadata_json"]["project_id"] == str(older["id"])
+
+    bound_admin = _key(label_harness, "admin_agent", project=newer)
+    admin_answer = ask(label_harness, bound_admin)
+    assert admin_answer.ok and admin_answer.detail["metadata_json"]["project_id"] == str(newer["id"])
+    assert "Newer Kiln" in admin_answer.detail["content_markdown"]
+
+    bound_hidden = _key(label_harness, "trusted_local_agent", project=newer)
+    missing = _missing_project_answer(label_harness, ask, "trusted_local_agent", bound=True)
+    assert ask(label_harness, bound_hidden) == missing
+
+
+def test_only_hidden_projects_answer_as_a_vault_with_no_project(label_harness, ask):
+    trusted = label_harness.key("trusted_local_agent")
+    empty = ask(label_harness, trusted)
+    newer = _project(label_harness, name="Newer Kiln")
+    _raise_project_by_its_inputs(label_harness, newer)
+    assert ask(label_harness, trusted) == empty
+
+
+def test_the_scan_stops_after_128_hidden_newer_projects(label_harness, ask):
+    trusted = label_harness.key("trusted_local_agent")
+    empty = ask(label_harness, trusted)
+    older = _project(label_harness, name="Older Kiln")
+    for index in range(100):
+        hidden = _project(label_harness, name=f"Hidden {index}")
+        _raise_project_by_its_inputs(label_harness, hidden)
+    found = ask(label_harness, trusted)
+    assert found.ok and found.detail["metadata_json"]["project_id"] == str(older["id"]), found
+    for index in range(100, READABLE_SCAN_CAP):
+        hidden = _project(label_harness, name=f"Hidden {index}")
+        _raise_project_by_its_inputs(label_harness, hidden)
+    started = time.perf_counter()
+    capped = ask(label_harness, trusted)
+    elapsed = time.perf_counter() - started
+    assert capped == empty, capped
+    assert elapsed < 2.0, elapsed
+
+
+def test_the_scheduler_scan_uses_the_older_project_a_key_may_read(label_harness):
+    older = _project(label_harness, name="Older Kiln")
+    newer = _project(label_harness, name="Newer Kiln")
+    _raise_project_by_its_inputs(label_harness, newer)
+    # A request with no key is the owner only while the vault has no key. The wide filter runs first.
+    wide = ("public", "internal", "private", "unknown", "confidential")
+    status, owner_wide = _run_now(label_harness, None, wide)
+    assert status == 201 and "Newer Kiln" in owner_wide["artifact"]["content_markdown"], owner_wide
+    status, owner = _run_now(label_harness, None)
+    assert status == 201 and "Older Kiln" in owner["artifact"]["content_markdown"], owner
+    assert "Newer Kiln" not in owner["artifact"]["content_markdown"]
+
+    admin_key = label_harness.key("admin_agent")
+    _stamp_updated_at(label_harness, newer, "2099-01-02T00:00:00Z")
+    _stamp_updated_at(label_harness, older, "2020-01-01T00:00:00Z")
+    status, admin_wide = _run_now(label_harness, admin_key, wide)
+    assert status == 201 and "Newer Kiln" in admin_wide["artifact"]["content_markdown"], admin_wide
+    status, admin = _run_now(label_harness, admin_key)
+    assert status == 201 and "Older Kiln" in admin["artifact"]["content_markdown"], admin
+
+    trusted = label_harness.key("trusted_local_agent")
+    status, body = _run_now(label_harness, trusted)
+    assert status == 201, body
+    assert "Older Kiln" in body["artifact"]["content_markdown"]
+    assert "Newer Kiln" not in json.dumps(body, default=str)
+    assert not body["artifact"]["title"].startswith(FALLBACK_TITLE)
+
+    status, bound = _run_now(label_harness, _key(label_harness, "trusted_local_agent", project=older))
+    assert status == 201 and "Older Kiln" in bound["artifact"]["content_markdown"]
+    assert "Newer Kiln" not in json.dumps(bound, default=str)
+
+    status, bound_admin = _run_now(label_harness, _key(label_harness, "admin_agent", project=newer))
+    assert status == 201 and "Newer Kiln" in bound_admin["artifact"]["content_markdown"]
+
+    status, hidden_only = _run_now(label_harness, _key(label_harness, "project_scoped_agent", project=newer))
+    assert status == 201, hidden_only
+    assert hidden_only["artifact"]["title"].startswith(FALLBACK_TITLE)
+    assert "No active project matched" in hidden_only["artifact"]["content_markdown"]
+    assert "Older Kiln" not in hidden_only["artifact"]["content_markdown"]
