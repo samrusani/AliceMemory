@@ -1672,15 +1672,17 @@ class VNextProjectService:
     def _first_readable_active_project(
         self, request: ProjectAutomationRequest, caller: AgentIdentity | None
     ) -> JsonObject | None:
-        """The newest active project ``caller`` may read, or ``None`` when none of the first 128 is.
+        """The newest active project the request's filter admits and ``caller`` may read, or ``None``.
 
-        The list is newest first. A project the caller may not read, including one stored inside the
-        request's sensitivity filter whose inputs put it outside that caller's ceiling, is skipped.
-        At most ``READABLE_SCAN_CAP`` rows are judged. Past that the answer is the one a vault with
-        no active project gives.
+        The list is newest first. ``admit_loaded`` applies the request's domains and sensitivity at the
+        project's effective label, raised by its inputs. ``project_readable`` then applies the caller's
+        own limits. A request narrower than those limits skips a project the caller could read but did
+        not ask for. At most ``READABLE_SCAN_CAP`` rows are judged. Past that the answer is the one a
+        vault with no active project gives.
         """
 
         from alicebot_api.project_view import readable_prefix
+        from alicebot_api.vnext_label_guard import admit_loaded
         from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
 
         domains = list(request.domains) if request.domains else None
@@ -1694,9 +1696,15 @@ class VNextProjectService:
             )
 
         def keep(rows: Sequence[JsonObject]) -> list[JsonObject]:
-            # The caller's own ceiling, not the request's sensitivity selection. A project stored
-            # public whose inputs the caller may not read is skipped. The owner may read it.
-            return [project for project in rows if project_readable(self.store, project, caller)]
+            admitted = admit_loaded(
+                self.store,
+                kind="project",
+                rows=rows,
+                domains=domains or (),
+                sensitivity_allowed=request.sensitivity_allowed,
+                projects=(),
+            )
+            return [project for project in admitted if project_readable(self.store, project, caller)]
 
         found = readable_prefix(limit=1, fetch=fetch, keep=keep, cap=READABLE_SCAN_CAP)
         return found[0] if found else None
