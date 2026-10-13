@@ -84,6 +84,22 @@ def _read_sample(process):
     return json.loads(line)
 
 
+def _profile_actions(processes, actions):
+    """Ask each probe to profile every action after the timing samples, when a directory is set.
+
+    The probe writes one file per action only when it is sent ``profile:<action>``. Closing the
+    probe without that command leaves the directory empty.
+    """
+
+    if not os.environ.get("ALICE_ROUND2_PROFILE_DIR"):
+        return
+    for process in processes:
+        for action in actions:
+            process.stdin.write("profile:" + action + "\n")
+            process.stdin.flush()
+            _read_sample(process)
+
+
 def _close_probe(process):
     if process.poll() is None:
         process.stdin.write("stop\n")
@@ -140,6 +156,7 @@ def assert_budgets(backend, location, user, keys):
         processes = [_open_probe(checkout, backend, location, user, profile, key) for checkout in (merge_base, repo)]
         try:
             measured = _interleaved(processes[0], processes[1], actions)
+            _profile_actions(processes, actions)
         finally:
             for process in processes:
                 _close_probe(process)
@@ -206,3 +223,27 @@ def test_sqlite_varied_read_budget(tmp_path, monkeypatch, case, repaired):
                               "minimum_wall": min(walls), "minimum_cpu": min(cpus), "admitted": expected}))
             assert min(walls) <= 1 and min(cpus) <= 1
     assert_budgets("sqlite", "sqlite:///" + str(path), USER, keys)
+
+
+def test_round2_profiling_writes_a_profile_file_after_the_samples(tmp_path, monkeypatch):
+    """With ALICE_ROUND2_PROFILE_DIR set, each measured action leaves a profile file.
+
+    Mutation: drop the ``_profile_actions`` call. The directory stays empty and this test fails.
+    """
+
+    profile_dir = tmp_path / "profiles"
+    monkeypatch.setenv("ALICE_ROUND2_PROFILE_DIR", str(profile_dir))
+    monkeypatch.setenv("ALICE_READ_MERGE_BASE_CHECKOUT", str(Path(__file__).resolve().parents[2]))
+    monkeypatch.delenv("ALICE_READ_MAIN_CHECKOUT", raising=False)
+    path = tmp_path / "profile.db"
+    bootstrap_database(path, user_id=USER, user_email="budget@example.invalid")
+    with sqlite_user_connection(path, USER) as conn:
+        _, key = create_agent_key(
+            SQLiteVNextStore(conn, USER), user_id=USER, agent_id="budget-trusted", permission_profile="trusted_local_agent"
+        )
+    assert_budgets("sqlite", "sqlite:///" + str(path), USER, {"trusted_local_agent": key})
+    files = sorted(profile_dir.glob("*.prof"))
+    assert files, "profiling wrote no profile file"
+    names = {item.name for item in files}
+    assert any(name.endswith("-trusted_local_agent-pack.prof") for name in names), names
+    assert any(name.endswith("-trusted_local_agent-recall.prof") for name in names), names

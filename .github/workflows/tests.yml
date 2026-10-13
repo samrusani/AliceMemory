@@ -2331,7 +2331,14 @@ jobs:
         if: matrix.integration_check != 'Default surface integration smoke (Postgres)'
         run: |
           git fetch --no-tags origin main
-          base=$(git merge-base HEAD origin/main)
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "read-budget comparison: push to main, first parent"
+            base=$(sh ./scripts/select_read_budget_base.sh push)
+          else
+            echo "read-budget comparison: pull request, merge base with main"
+            base=$(sh ./scripts/select_read_budget_base.sh pull_request)
+          fi
+          echo "read-budget base $base"
           git worktree add --detach .read-budget-merge-base "$base"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
