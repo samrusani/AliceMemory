@@ -4132,10 +4132,10 @@
       "edits": [
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
-          "before": "    if not head or not main or min(head) < min(READ_LIMIT, VISIBLE_ORIGINALS):",
-          "after": "    if not head or not main:",
-          "sha256": "e757b76d5af6a44a1d03c4b57a780ce2cf79eb4757c774fcd88d49a2bbc90b28",
-          "line": 236
+          "before": "    if not head or not base or min(head) < min(READ_LIMIT, VISIBLE_ORIGINALS):",
+          "after": "    if not head or not base:",
+          "sha256": "f7106c21d42ae6807090472a4b889366f337461deb9a481886085f1d8cf2d314",
+          "line": 242
         }
       ],
       "pytest": [
@@ -4148,26 +4148,26 @@
       "edits": [
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
-          "before": "        return len(set(head)) == len(set(main)) == 1 and head == main",
-          "after": "        return True",
-          "sha256": "e757b76d5af6a44a1d03c4b57a780ce2cf79eb4757c774fcd88d49a2bbc90b28",
-          "line": 239
+          "before": "    return len(set(head)) == len(set(base)) == 1 and head == base",
+          "after": "    return True",
+          "sha256": "f7106c21d42ae6807090472a4b889366f337461deb9a481886085f1d8cf2d314",
+          "line": 247
         }
       ],
       "pytest": [
-        "tests/unit/test_round3_budget_profile_protocol.py::test_without_hidden_input_head_must_return_what_main_returns"
+        "tests/unit/test_round3_budget_profile_protocol.py::test_head_must_return_what_the_merge_base_returns"
       ],
-      "expected_failure": "test_without_hidden_input_head_must_return_what_main_returns"
+      "expected_failure": "test_head_must_return_what_the_merge_base_returns"
     },
     {
       "name": "budget-cpu-clock-gate",
       "edits": [
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
-          "before": "                for clock in (\"minimum_wall\", \"minimum_cpu\"):\n                    if measurements[\"head\"][action][clock] > 2",
-          "after": "                for clock in (\"minimum_wall\",):\n                    if measurements[\"head\"][action][clock] > 2",
-          "sha256": "e757b76d5af6a44a1d03c4b57a780ce2cf79eb4757c774fcd88d49a2bbc90b28",
-          "line": 295
+          "before": "                for clock in (\"minimum_wall\", \"minimum_cpu\"):\n                    if over_merge_base(measurements[\"head\"][action][clock], measurements[\"merge_base\"][action][clock]):",
+          "after": "                for clock in (\"minimum_wall\",):\n                    if over_merge_base(measurements[\"head\"][action][clock], measurements[\"merge_base\"][action][clock]):",
+          "sha256": "f7106c21d42ae6807090472a4b889366f337461deb9a481886085f1d8cf2d314",
+          "line": 347
         }
       ],
       "pytest": [
@@ -4182,8 +4182,8 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "            for action in (\"pack\", \"recall\"):\n                for clock in (\"minimum_wall\", \"minimum_cpu\"):",
           "after": "            for action in (\"pack\",):\n                for clock in (\"minimum_wall\", \"minimum_cpu\"):",
-          "sha256": "e757b76d5af6a44a1d03c4b57a780ce2cf79eb4757c774fcd88d49a2bbc90b28",
-          "line": 294
+          "sha256": "f7106c21d42ae6807090472a4b889366f337461deb9a481886085f1d8cf2d314",
+          "line": 346
         }
       ],
       "pytest": [
@@ -4198,8 +4198,8 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "                for action in (\"workspace\", \"dogfooding\"):\n                    if measurements[\"head\"][action][\"minimum_wall\"] > limit:",
           "after": "                for action in (\"workspace\",):\n                    if measurements[\"head\"][action][\"minimum_wall\"] > limit:",
-          "sha256": "e757b76d5af6a44a1d03c4b57a780ce2cf79eb4757c774fcd88d49a2bbc90b28",
-          "line": 308
+          "sha256": "f7106c21d42ae6807090472a4b889366f337461deb9a481886085f1d8cf2d314",
+          "line": 360
         }
       ],
       "pytest": [
@@ -4214,8 +4214,8 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "    failures.extend(paired_budgets(\"sqlite\", location, USER, keys, case=case, source_count=source_count, repaired=repaired, assert_budget=False))\n    assert not failures, failures",
           "after": "    failures.extend(paired_budgets(\"sqlite\", location, USER, keys, case=case, source_count=source_count, repaired=repaired, assert_budget=False))",
-          "sha256": "e757b76d5af6a44a1d03c4b57a780ce2cf79eb4757c774fcd88d49a2bbc90b28",
-          "line": 339
+          "sha256": "f7106c21d42ae6807090472a4b889366f337461deb9a481886085f1d8cf2d314",
+          "line": 391
         }
       ],
       "pytest": [
@@ -4246,8 +4246,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py -q",
           "after": "tests/performance/test_label_read_handoff_budget.py -q",
-          "sha256": "8e4130d65af059741df27a17037c391083a135ad078fb6c63c51321b8b8ab644",
-          "line": 2366
+          "sha256": "8b5c54eb3de6f3ae2ae0ee0195be2d2fbbc4cca07c01274dbe106d599768277c",
+          "line": 2384
         }
       ],
       "pytest": [
@@ -4262,8 +4262,8 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "        metadata = {\"project_scope\": [], \"project_floor\": [], \"discovered_by\": \"vnext_project_open_loop_extraction\",\n                    **unique_metadata(rng, i)}",
           "after": "        metadata = {\"project_scope\": [], \"project_floor\": [], \"discovered_by\": \"vnext_project_open_loop_extraction\",\n                    \"observation_index\": i}",
-          "sha256": "e757b76d5af6a44a1d03c4b57a780ce2cf79eb4757c774fcd88d49a2bbc90b28",
-          "line": 137
+          "sha256": "f7106c21d42ae6807090472a4b889366f337461deb9a481886085f1d8cf2d314",
+          "line": 144
         }
       ],
       "pytest": [
@@ -4278,8 +4278,8 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "                        \"candidate_memory_ids\": [rng.choice(weekly) for _ in range(2)],",
           "after": "                        \"candidate_memory_ids\": [],",
-          "sha256": "e757b76d5af6a44a1d03c4b57a780ce2cf79eb4757c774fcd88d49a2bbc90b28",
-          "line": 155
+          "sha256": "f7106c21d42ae6807090472a4b889366f337461deb9a481886085f1d8cf2d314",
+          "line": 162
         }
       ],
       "pytest": [
@@ -4294,8 +4294,8 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "VISIBLE_ORIGINALS = 12",
           "after": "VISIBLE_ORIGINALS = 0",
-          "sha256": "e757b76d5af6a44a1d03c4b57a780ce2cf79eb4757c774fcd88d49a2bbc90b28",
-          "line": 25
+          "sha256": "f7106c21d42ae6807090472a4b889366f337461deb9a481886085f1d8cf2d314",
+          "line": 32
         }
       ],
       "pytest": [
@@ -12420,10 +12420,10 @@
       "edits": [
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
-          "line": 29,
+          "line": 36,
           "before": "DEFAULT_ABSOLUTE_LIMIT_SECONDS = 1.0\n",
           "after": "DEFAULT_ABSOLUTE_LIMIT_SECONDS = 1.5\n",
-          "sha256": "e757b76d5af6a44a1d03c4b57a780ce2cf79eb4757c774fcd88d49a2bbc90b28"
+          "sha256": "f7106c21d42ae6807090472a4b889366f337461deb9a481886085f1d8cf2d314"
         }
       ],
       "pytest": [
@@ -12436,10 +12436,10 @@
       "edits": [
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
-          "line": 42,
+          "line": 49,
           "before": "    limit = float(raw)\n",
           "after": "    limit = DEFAULT_ABSOLUTE_LIMIT_SECONDS\n",
-          "sha256": "e757b76d5af6a44a1d03c4b57a780ce2cf79eb4757c774fcd88d49a2bbc90b28"
+          "sha256": "f7106c21d42ae6807090472a4b889366f337461deb9a481886085f1d8cf2d314"
         }
       ],
       "pytest": [
@@ -12452,10 +12452,10 @@
       "edits": [
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
-          "line": 43,
+          "line": 50,
           "before": "    if not (math.isfinite(limit) and limit > 0):\n",
           "after": "    if False:\n",
-          "sha256": "e757b76d5af6a44a1d03c4b57a780ce2cf79eb4757c774fcd88d49a2bbc90b28"
+          "sha256": "f7106c21d42ae6807090472a4b889366f337461deb9a481886085f1d8cf2d314"
         }
       ],
       "pytest": [
@@ -12468,10 +12468,10 @@
       "edits": [
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
-          "line": 309,
+          "line": 361,
           "before": "                    if measurements[\"head\"][action][\"minimum_wall\"] > limit:\n",
           "after": "                    if measurements[\"head\"][action][\"minimum_wall\"] > 1:\n",
-          "sha256": "e757b76d5af6a44a1d03c4b57a780ce2cf79eb4757c774fcd88d49a2bbc90b28"
+          "sha256": "f7106c21d42ae6807090472a4b889366f337461deb9a481886085f1d8cf2d314"
         }
       ],
       "pytest": [
@@ -12484,10 +12484,10 @@
       "edits": [
         {
           "file": ".github/workflows/tests.yml",
-          "line": 2381,
+          "line": 2400,
           "before": "          ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"\n",
           "after": "",
-          "sha256": "8e4130d65af059741df27a17037c391083a135ad078fb6c63c51321b8b8ab644"
+          "sha256": "8b5c54eb3de6f3ae2ae0ee0195be2d2fbbc4cca07c01274dbe106d599768277c"
         }
       ],
       "pytest": [
@@ -17527,6 +17527,70 @@
         "tests/unit/test_label_reader_stage_matrix.py::test_each_stage_uses_current_parent_label[project_resolution]"
       ],
       "expected_failure": "test_each_stage_uses_current_parent_label"
+    },
+    {
+      "name": "merge-base-read-budget-factor",
+      "edits": [
+        {
+          "file": "tests/performance/read_budget_gate.py",
+          "before": "MERGE_BASE_FACTOR = 1.25\n",
+          "after": "MERGE_BASE_FACTOR = 100.0\n",
+          "sha256": "999bd11c0e54afd812ed3dac236597ee65982f590328299d348451d9cdce800f",
+          "line": 37
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_merge_base_gate.py::test_a_slowed_read_fails_the_merge_base_gate"
+      ],
+      "expected_failure": "test_a_slowed_read_fails_the_merge_base_gate"
+    },
+    {
+      "name": "merge-base-read-budget-always-over",
+      "edits": [
+        {
+          "file": "tests/performance/read_budget_gate.py",
+          "before": "    return head > MERGE_BASE_FACTOR * base + MERGE_BASE_SLACK_SECONDS\n",
+          "after": "    return True\n",
+          "sha256": "999bd11c0e54afd812ed3dac236597ee65982f590328299d348451d9cdce800f",
+          "line": 63
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_merge_base_gate.py::test_ten_unchanged_heads_pass_the_merge_base_gate"
+      ],
+      "expected_failure": "test_ten_unchanged_heads_pass_the_merge_base_gate"
+    },
+    {
+      "name": "round2-profile-commands",
+      "edits": [
+        {
+          "file": "tests/performance/test_label_round2_read_budget.py",
+          "before": "            _profile_actions(processes, actions)\n",
+          "after": "\n",
+          "sha256": "c8f1c19ab385a150e8790506d8f042216bf978df2427f4cfb45980c913ff425a",
+          "line": 159
+        }
+      ],
+      "pytest": [
+        "tests/performance/test_label_round2_read_budget.py::test_round2_profiling_writes_a_profile_file_after_the_samples"
+      ],
+      "expected_failure": "test_round2_profiling_writes_a_profile_file_after_the_samples"
+    },
+    {
+      "name": "read-budget-push-compares-with-itself",
+      "edits": [
+        {
+          "file": "scripts/select_read_budget_base.sh",
+          "before": "  git rev-parse HEAD^1\n",
+          "after": "  git merge-base HEAD origin/main\n",
+          "sha256": "77fd740f73aec8529327c7a1d79c0b3d51fbb50942a70e6e02e4e62281844e2e",
+          "line": 11
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_base.py::test_push_uses_the_first_parent_and_a_pull_request_uses_the_merge_base"
+      ],
+      "expected_failure": "test_push_uses_the_first_parent_and_a_pull_request_uses_the_merge_base"
     }
   ]
 }

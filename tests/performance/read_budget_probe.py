@@ -1,5 +1,5 @@
 """Measure native read paths on the same synthetic population."""
-import json, os, sys, time, statistics, inspect
+import json, os, sys, time, inspect
 from pathlib import Path
 repo, backend, location, user = sys.argv[1:5]
 sys.path[:0] = [str(Path(repo)/"apps/api/src"), repo]
@@ -46,17 +46,25 @@ if backend == "postgres":
             kwargs={"sensitivity_allowed":ceiling} if "sensitivity_allowed" in inspect.signature(service.dashboard).parameters else {}
             return service.dashboard(**kwargs)
     actions.update(workspace=workspace,dogfooding=dogfooding)
-times={}
-for name, action in actions.items():
-    if name == "pack" and os.environ.get("ALICE_BUDGET_PROFILE_PATH"):
+profiled = False
+
+
+def measure(name):
+    global profiled
+    action = actions[name]
+    if name == "pack" and not profiled and os.environ.get("ALICE_BUDGET_PROFILE_PATH"):
+        profiled = True
         import cProfile
         profile = cProfile.Profile()
         profile.runcall(action)
         profile.dump_stats(os.environ["ALICE_BUDGET_PROFILE_PATH"] + "." + Path(repo).name)
-    else:
-        action()
-    samples=[]
-    for _ in range(5):
-        start=time.perf_counter(); action(); samples.append(time.perf_counter()-start)
-    times[name]={"median":statistics.median(samples), "samples":samples}
-print(json.dumps(times))
+    start = time.perf_counter()
+    action()
+    return {"wall": time.perf_counter() - start}
+
+
+for line in sys.stdin:
+    command = line.strip()
+    if command == "stop" or command == "":
+        break
+    print(json.dumps(measure(command)), flush=True)

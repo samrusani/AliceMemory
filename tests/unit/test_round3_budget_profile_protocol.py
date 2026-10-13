@@ -16,22 +16,27 @@ from tests.performance import test_label_round3_read_budget as budgets
 
 
 READ_LIMIT = budgets.READ_LIMIT
-REVISIONS = {"main": "a" * 40, "head": "b" * 40}
+REVISIONS = {"merge_base": "a" * 40, "head": "b" * 40, "prelabels": "c" * 40}
 KEYS = {"trusted_local_agent": "synthetic-credential", "admin_agent": "synthetic-credential"}
+PATH_REVISION = {"paired-main": "merge_base", "prelabels-checkout": "prelabels"}
 
 
 def fake_children(monkeypatch, tmp_path, *, gate=None, capture_status="complete", timings=None, returned=None):
     events = []
     evidence = tmp_path / "samples.jsonl"
-    monkeypatch.setenv("ALICE_READ_MAIN_CHECKOUT", "paired-main")
+    monkeypatch.setenv("ALICE_READ_MERGE_BASE_CHECKOUT", "paired-main")
+    monkeypatch.delenv("ALICE_READ_MAIN_CHECKOUT", raising=False)
     monkeypatch.setenv("ALICE_READ_BUDGET_EVIDENCE", str(evidence))
     monkeypatch.setenv("ALICE_READ_ABSOLUTE_GATE", "1")
     monkeypatch.delenv("ALICE_READ_ABSOLUTE_LIMIT_SECONDS", raising=False)
-    monkeypatch.setattr(budgets.subprocess, "check_output", lambda args, **kwargs: REVISIONS["main" if args[2] == "paired-main" else "head"])
+    monkeypatch.setattr(
+        budgets.subprocess, "check_output",
+        lambda args, **kwargs: REVISIONS[PATH_REVISION.get(args[2], "head")],
+    )
 
     class Child:
         def __init__(self, args, **kwargs):
-            self.revision = "main" if args[2] == "paired-main" else "head"
+            self.revision = PATH_REVISION.get(args[2], "head")
             self.profile = args[-2]
             self.commands = []
             self.stdin = self.stdout = self.stderr = self
@@ -110,11 +115,11 @@ def test_diagnostics_do_not_change_samples_or_budget_verdict(monkeypatch, tmp_pa
         expected = []
         for profile in KEYS:
             for action in ("pack", "recall", "workspace", "dogfooding"):
-                expected.extend(("measurement", profile, revision, action) for revision in ("main", "head"))
+                expected.extend(("measurement", profile, revision, action) for revision in ("merge_base", "head"))
                 for sample in range(10):
                     expected.extend(("measurement", profile, revision, action)
-                                    for revision in (("main", "head") if sample % 2 == 0 else ("head", "main")))
-            expected.extend(("measurement", profile, revision, "stop") for revision in ("main", "head"))
+                                    for revision in (("merge_base", "head") if sample % 2 == 0 else ("head", "merge_base")))
+            expected.extend(("measurement", profile, revision, "stop") for revision in ("merge_base", "head"))
         assert measured == expected
         diagnostics = [event for event in events if event[0] == "diagnostic"]
         assert len(diagnostics) == (4 if profiling else 0)
@@ -122,7 +127,7 @@ def test_diagnostics_do_not_change_samples_or_budget_verdict(monkeypatch, tmp_pa
             assert all(event[0] == "measurement" for event in events[:-4])
     assert rows[0] == rows[1]
     for row in rows[1]:
-        for revision in REVISIONS:
+        for revision in ("merge_base", "head"):
             for action in ("pack", "recall", "workspace", "dogfooding"):
                 assert len(row[revision][action]["wall"]) == len(row[revision][action]["cpu"]) == 10
                 assert 999 not in row[revision][action]["wall"]
@@ -161,7 +166,7 @@ def test_profile_cases_have_distinct_directories_and_incomplete_captures_fail(mo
     assert all(json.loads(path.read_text())["status"] == "incomplete" for path in summaries)
     assert all(len(json.loads(path.read_text())["captures"]) == 2 for path in summaries)
     assert {path.parent.parent.name for path in summaries} == set(KEYS)
-    assert {path.parent.name for path in summaries} == set(REVISIONS)
+    assert {path.parent.name for path in summaries} == {"merge_base", "head"}
     assert {path.parent.parent.parent.name for path in summaries} == {
         "all-visible-3000-unrepaired", "extra-rows-3000-repaired",
     }
@@ -303,10 +308,15 @@ def test_each_clock_of_pack_and_recall_has_its_own_relative_gate(monkeypatch, tm
 
 
 @pytest.mark.parametrize("action", ["pack", "recall"])
-def test_the_relative_gate_is_twice_main_plus_a_tenth_and_inclusive(monkeypatch, tmp_path, action):
-    at_the_gate = slow_head(action, wall=2 * .1 + .1, cpu=2 * .1 + .1)
+def test_the_merge_base_gate_is_one_and_a_quarter_plus_fifty_milliseconds_and_inclusive(monkeypatch, tmp_path, action):
+    """1.25 times the merge base plus 0.05 seconds passes on the boundary and fails just past it.
+
+    Mutation: raise ``MERGE_BASE_FACTOR`` (a stall of a quarter no longer fails) or drop the slack.
+    """
+    limit = 1.25 * .1 + .05
+    at_the_gate = slow_head(action, wall=limit, cpu=limit)
     assert measured_failures(monkeypatch, tmp_path, timings=at_the_gate) == set()
-    just_over = slow_head(action, wall=2 * .1 + .1 + 1e-6, cpu=.1)
+    just_over = slow_head(action, wall=limit + 1e-6, cpu=.1)
     assert measured_failures(monkeypatch, tmp_path, timings=just_over) == {(profile, action, "minimum_wall") for profile in KEYS}
 
 
@@ -369,7 +379,7 @@ def test_the_one_second_gate_applies_only_when_the_absolute_gate_is_set(monkeypa
     monkeypatch.delenv("ALICE_READ_PROFILE", raising=False)
     assert budgets.paired_budgets("postgres", "synthetic-database", budgets.USER, KEYS,
                                   case="extra-rows", source_count=3000, repaired=False, assert_budget=False) == []
-    fake_children(monkeypatch, tmp_path, timings=slow_head("pack", wall=2 * .1 + .1 + 1e-6, cpu=.1))
+    fake_children(monkeypatch, tmp_path, timings=slow_head("pack", wall=1.25 * .1 + .05 + 1e-6, cpu=.1))
     monkeypatch.delenv("ALICE_READ_ABSOLUTE_GATE")
     failures = budgets.paired_budgets("postgres", "synthetic-database", budgets.USER, KEYS,
                                       case="extra-rows", source_count=3000, repaired=False, assert_budget=False)
@@ -378,7 +388,7 @@ def test_the_one_second_gate_applies_only_when_the_absolute_gate_is_set(monkeypa
 
 
 def test_the_absolute_gate_does_not_apply_to_the_sqlite_actions(monkeypatch, tmp_path):
-    fake_children(monkeypatch, tmp_path, timings=lambda revision, profile, action: (5, 5) if revision == "main" else (.1, .1))
+    fake_children(monkeypatch, tmp_path, timings=lambda revision, profile, action: (5, 5) if revision == "merge_base" else (.1, .1))
     monkeypatch.delenv("ALICE_READ_PROFILE", raising=False)
     assert budgets.paired_budgets("sqlite", "synthetic-database", budgets.USER, KEYS,
                                   case="half-hidden", source_count=300, repaired=False, assert_budget=False) == []
@@ -404,16 +414,12 @@ def test_the_returned_count_floor_is_the_default_limit_and_applies_to_each_actio
         (profile, "pack", "returned_memories") for profile in KEYS}
 
 
-def test_without_hidden_input_head_must_return_what_main_returns(monkeypatch, tmp_path):
-    """The admin key has no ceiling; an all-visible or identical-copy fixture hides nothing."""
+def test_head_must_return_what_the_merge_base_returns(monkeypatch, tmp_path):
+    """The merge base runs the same read. A different count fails for every caller, hidden rows included."""
     more = returning(READ_LIMIT + 1)
-    for case in ("all-visible", "identical-copies"):
-        assert measured_failures(monkeypatch, tmp_path, case=case, returned=more) == {
-            (profile, action, "returned_memories") for profile in KEYS for action in ("pack", "recall")}
-    assert measured_failures(monkeypatch, tmp_path, case="half-hidden", returned=more) == {
-        ("admin_agent", action, "returned_memories") for action in ("pack", "recall")}
-    assert measured_failures(monkeypatch, tmp_path, case="extra-rows", returned=more) == {
-        ("admin_agent", action, "returned_memories") for action in ("pack", "recall")}
+    expected = {(profile, action, "returned_memories") for profile in KEYS for action in ("pack", "recall")}
+    for case in ("all-visible", "identical-copies", "half-hidden", "extra-rows"):
+        assert measured_failures(monkeypatch, tmp_path, case=case, returned=more) == expected
 
 
 def test_a_probe_that_reports_no_count_fails_the_returned_floor(monkeypatch, tmp_path):
@@ -537,9 +543,47 @@ def test_ci_sqlite_budget_step_runs_the_round_two_complete_count_test():
     steps = workflow["jobs"]["python-integration"]["steps"]
     step = next(step for step in steps if step.get("name", "").startswith("SQLite random mixed-parent and keyless read budgets"))
     command = step["run"].split()
-    for name in ("test_label_round3_read_budget.py", "test_label_read_handoff_budget.py", "test_label_round2_read_budget.py"):
+    for name in (
+        "test_resume_hidden_rows_budget.py",
+        "test_label_round3_read_budget.py",
+        "test_label_read_handoff_budget.py",
+        "test_label_round2_read_budget.py",
+    ):
         assert "tests/performance/" + name in command
     assert step["env"]["ALICE_READ_MAIN_CHECKOUT"].endswith("/.read-budget-baseline")
+    assert step["env"]["ALICE_READ_MERGE_BASE_CHECKOUT"].endswith("/.read-budget-merge-base")
     source = (Path(__file__).resolve().parents[2] / "tests/performance/test_label_round2_read_budget.py").read_text()
     assert 'expected = 5000 if profile == "admin_agent" else 2500 if case == "mixed" else 0' in source
     assert '"one-hidden"' in source and "assert complete_count(store, ceiling) ==" in source
+    budget_steps = [
+        step for step in steps
+        if "ALICE_READ_BUDGET_EVIDENCE" in step.get("env", {})
+    ]
+    assert len(budget_steps) == 3
+    for budget_step in budget_steps:
+        assert budget_step["env"]["ALICE_READ_MERGE_BASE_CHECKOUT"].endswith("/.read-budget-merge-base")
+        assert budget_step["env"]["ALICE_READ_MAIN_CHECKOUT"].endswith("/.read-budget-baseline")
+
+
+def test_a_slow_prelabels_checkout_is_recorded_and_does_not_fail_the_gate(monkeypatch, tmp_path):
+    """The pre-labels ratio can be far past the old 2x line and the merge-base gate still passes.
+
+    Mutation: fail the job on ``prelabels_report`` (this assertion sees a failure).
+    """
+    evidence, _events = fake_children(
+        monkeypatch, tmp_path,
+        timings=lambda revision, profile, action: (0.01, 0.01) if revision == "prelabels" else (0.1, 0.1),
+    )
+    monkeypatch.setenv("ALICE_READ_MAIN_CHECKOUT", "prelabels-checkout")
+    monkeypatch.delenv("ALICE_READ_PROFILE", raising=False)
+    assert budgets.paired_budgets(
+        "postgres", "synthetic-database", budgets.USER, KEYS,
+        case="half-hidden", source_count=3000, repaired=False, assert_budget=False,
+    ) == []
+    rows = [json.loads(line) for line in evidence.read_text().splitlines()]
+    assert len(rows) == 2
+    for row in rows:
+        report = row["prelabels_report"]
+        assert report["gated"] is False
+        wall = report["actions"]["pack"]["minimum_wall"]
+        assert wall == {"head": 0.1, "prelabels": 0.01, "ratio": 10.0, "gated": False}

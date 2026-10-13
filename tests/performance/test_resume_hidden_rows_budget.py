@@ -6,10 +6,10 @@ make them slow: a read judges at most ``READABLE_SCAN_CAP`` rows, whatever the v
 not make them slower than they were: a read that looks past hidden rows pays for it only when there are some.
 
 The paired measurement is the one of the read budgets next to this file: a persistent process per revision (this checkout and the
-checkout named by ``ALICE_READ_MAIN_CHECKOUT``, which the test requires) answers the same action in turn on the same data, ten
-samples each, and the minimum wall and CPU time of this revision must be at most twice the baseline's plus a tenth of a second
-(plus 0.03 s for the case with no hidden row, where the two should be equal). A fast read that returns the wrong answer passes
-no budget: what this revision returned is checked too.
+merge base named by ``ALICE_READ_MERGE_BASE_CHECKOUT``, which the test requires) answers the same action in turn on the same
+data, ten samples each, and the minimum wall and CPU time of this revision must be at most 1.25 times the merge base plus 0.05
+seconds. The pre-labels checkout named by ``ALICE_READ_MAIN_CHECKOUT`` is recorded in the evidence and is not a gate. A fast
+read that returns the wrong answer passes no budget: what this revision returned is checked too.
 
 Cases, each with twelve readable decisions older than the hidden rows, and an event for each row:
 
@@ -24,12 +24,12 @@ Cases, each with twelve readable decisions older than the hidden rows, and an ev
 The grounding probe is not measured on SQLite: its full-text query scores every hidden match, which costs about 2.5 ms a match
 there at every revision that applies the label proof to it, and the baseline of CI is older than that.
 
-The paired checkout may be an older revision than the one that judges rows by their inputs (the CI baseline is), and such a
-revision shows the hidden decision. Only this revision's answers are checked; the other's time is the measurement.
+The merge base is the pass or fail comparison. The pre-labels checkout may be an older revision than the one that judges rows
+by their inputs (the CI report checkout is), and such a revision shows the hidden decision. Only this revision's answers are
+checked. The pre-labels time is recorded and is not a gate.
 """
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -41,6 +41,13 @@ from alicebot_api.onramp import bootstrap_database
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
+from tests.performance.read_budget_gate import (
+    append_evidence,
+    merge_base_checkout,
+    over_merge_base,
+    prelabels_action,
+    prelabels_checkout,
+)
 
 USER = "11111111-1111-4111-8111-111111111111"
 READABLE_DECISIONS = 12
@@ -100,13 +107,17 @@ def seed_hidden_rows(store, *, postgres, hidden=HIDDEN_ROWS, shape="derived"):
 def paired_resume_budgets(backend, location, user, key, *, case, assert_budget=True, samples=SAMPLES, actions=ACTIONS):
     assert samples >= 10
     repo = Path(__file__).resolve().parents[2]
-    main = os.environ.get("ALICE_READ_MAIN_CHECKOUT")
-    assert main, "the resume budgets require the paired baseline checkout (ALICE_READ_MAIN_CHECKOUT)"
-    slack = 0.03 if case == "sources" else 0.1
+    merge_base = merge_base_checkout()
+    prelabels = prelabels_checkout()
     script = Path(__file__).with_name("resume_budget_probe.py")
-    processes = [subprocess.Popen([sys.executable, str(script), str(checkout), backend, location, str(user), key, json.dumps(READ_ONLY_DOMAINS)],
-                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                 for checkout in (main, repo)]
+    def open_at(checkout):
+        return subprocess.Popen(
+            [sys.executable, str(script), str(checkout), backend, location, str(user), key, json.dumps(READ_ONLY_DOMAINS)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+
+    processes = [open_at(checkout) for checkout in (merge_base, repo)]
+    report_process = open_at(prelabels) if prelabels else None
     failures, rows = [], []
     try:
         for action in actions:
@@ -127,20 +138,40 @@ def paired_resume_budgets(backend, location, user, key, *, case, assert_budget=T
                     arrays[index]["cpu"].append(result.pop("cpu"))
                     arrays[index]["returned"].append(result)
             measured = {revision: {"minimum_wall": min(a["wall"]), "minimum_cpu": min(a["cpu"]), "returned": a["returned"][-1]}
-                        for revision, a in zip(("main", "head"), arrays)}
-            row = {"store": backend, "case": case, "hidden": CASES[case][0], "action": action, "samples": samples, **measured}
+                        for revision, a in zip(("merge_base", "head"), arrays)}
+            report = None
+            if report_process is not None:
+                report_process.stdin.write(action + "\n")
+                report_process.stdin.flush()
+                assert report_process.stdout.readline(), report_process.stderr.read()
+                walls, cpus = [], []
+                for _ in range(3):
+                    report_process.stdin.write(action + "\n")
+                    report_process.stdin.flush()
+                    line = report_process.stdout.readline()
+                    assert line, report_process.stderr.read()
+                    result = json.loads(line)
+                    walls.append(result["wall"])
+                    cpus.append(result["cpu"])
+                report = {
+                    "gated": False,
+                    "minimum_wall": prelabels_action(measured["head"]["minimum_wall"], min(walls)),
+                    "minimum_cpu": prelabels_action(measured["head"]["minimum_cpu"], min(cpus)),
+                }
+            row = {"store": backend, "case": case, "hidden": CASES[case][0], "action": action, "samples": samples,
+                   "gate": "merge_base", **measured}
+            if report is not None:
+                row["prelabels_report"] = report
             rows.append(row)
             print(json.dumps(row), flush=True)
-            evidence = os.environ.get("ALICE_READ_BUDGET_EVIDENCE")
-            if evidence:
-                Path(evidence).parent.mkdir(parents=True, exist_ok=True)
-                with Path(evidence).open("a") as output:
-                    output.write(json.dumps(row) + "\n")
+            append_evidence(row)
             for clock in ("minimum_wall", "minimum_cpu"):
-                if measured["head"][clock] > 2 * measured["main"][clock] + slack:
+                if over_merge_base(measured["head"][clock], measured["merge_base"][clock]):
                     failures.append((action, clock, row))
     finally:
-        for process in processes:
+        for process in [*processes, report_process]:
+            if process is None:
+                continue
             if process.poll() is None:
                 process.stdin.write("stop\n")
                 process.stdin.flush()
