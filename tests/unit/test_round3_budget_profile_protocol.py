@@ -20,6 +20,14 @@ REVISIONS = {"main": "a" * 40, "head": "b" * 40}
 KEYS = {"trusted_local_agent": "synthetic-credential", "admin_agent": "synthetic-credential"}
 
 
+def _revision_name(path):
+    if path == "paired-main":
+        return "main"
+    if path == "paired-merge-base":
+        return "merge_base"
+    return "head"
+
+
 def fake_children(monkeypatch, tmp_path, *, gate=None, capture_status="complete", timings=None, returned=None):
     events = []
     evidence = tmp_path / "samples.jsonl"
@@ -27,11 +35,14 @@ def fake_children(monkeypatch, tmp_path, *, gate=None, capture_status="complete"
     monkeypatch.setenv("ALICE_READ_BUDGET_EVIDENCE", str(evidence))
     monkeypatch.setenv("ALICE_READ_ABSOLUTE_GATE", "1")
     monkeypatch.delenv("ALICE_READ_ABSOLUTE_LIMIT_SECONDS", raising=False)
-    monkeypatch.setattr(budgets.subprocess, "check_output", lambda args, **kwargs: REVISIONS["main" if args[2] == "paired-main" else "head"])
+    monkeypatch.setattr(
+        budgets.subprocess, "check_output",
+        lambda args, **kwargs: ("c" * 40) if _revision_name(args[2]) == "merge_base" else REVISIONS[_revision_name(args[2])],
+    )
 
     class Child:
         def __init__(self, args, **kwargs):
-            self.revision = "main" if args[2] == "paired-main" else "head"
+            self.revision = _revision_name(args[2])
             self.profile = args[-2]
             self.commands = []
             self.stdin = self.stdout = self.stderr = self
@@ -302,6 +313,38 @@ def test_each_clock_of_pack_and_recall_has_its_own_relative_gate(monkeypatch, tm
     assert failed == {(profile, action, clock) for profile in KEYS}
 
 
+def test_the_merge_base_gate_fails_a_stall_and_passes_the_prelabels_gap(monkeypatch, tmp_path):
+    """Round-three SQLite pack is gated on the merge base at 1.25 times plus 0.05 seconds.
+
+    A head of 0.30 seconds against a merge base of 0.10 seconds fails. A head of 0.32 seconds
+    against a merge base of 0.30 seconds passes, which is the shape of a pack that is about
+    three times the pre-labels checkout and level with current main.
+    Mutation: raise ``MERGE_BASE_FACTOR`` so the stall passes.
+    """
+
+    fake_children(monkeypatch, tmp_path, timings=slow_head("pack", wall=0.30, cpu=0.30))
+    monkeypatch.setenv("ALICE_READ_MERGE_BASE_CHECKOUT", "paired-merge-base")
+    monkeypatch.delenv("ALICE_READ_PROFILE", raising=False)
+    failed = budgets.paired_budgets(
+        "sqlite", "synthetic-database", budgets.USER, {"keyless_agent_id": ""},
+        case="deeper-ancestry", source_count=3000, repaired=False, assert_budget=False,
+    )
+    assert {(profile, action, clock) for profile, action, clock, _row in failed} == {
+        ("keyless_agent_id", "pack", "minimum_wall"),
+        ("keyless_agent_id", "pack", "minimum_cpu"),
+    }
+    fake_children(
+        monkeypatch, tmp_path,
+        timings=lambda revision, profile, action: (0.32, 0.32) if revision == "head" else (0.30, 0.30),
+    )
+    monkeypatch.setenv("ALICE_READ_MERGE_BASE_CHECKOUT", "paired-merge-base")
+    monkeypatch.delenv("ALICE_READ_PROFILE", raising=False)
+    assert budgets.paired_budgets(
+        "sqlite", "synthetic-database", budgets.USER, {"keyless_agent_id": ""},
+        case="deeper-ancestry", source_count=3000, repaired=False, assert_budget=False,
+    ) == []
+
+
 @pytest.mark.parametrize("action", ["pack", "recall"])
 def test_the_relative_gate_is_twice_main_plus_a_tenth_and_inclusive(monkeypatch, tmp_path, action):
     at_the_gate = slow_head(action, wall=2 * .1 + .1, cpu=2 * .1 + .1)
@@ -540,6 +583,7 @@ def test_ci_sqlite_budget_step_runs_the_round_two_complete_count_test():
     for name in ("test_label_round3_read_budget.py", "test_label_read_handoff_budget.py", "test_label_round2_read_budget.py"):
         assert "tests/performance/" + name in command
     assert step["env"]["ALICE_READ_MAIN_CHECKOUT"].endswith("/.read-budget-baseline")
+    assert step["env"]["ALICE_READ_MERGE_BASE_CHECKOUT"].endswith("/.read-budget-merge-base")
     source = (Path(__file__).resolve().parents[2] / "tests/performance/test_label_round2_read_budget.py").read_text()
     assert 'expected = 5000 if profile == "admin_agent" else 2500 if case == "mixed" else 0' in source
     assert '"one-hidden"' in source and "assert complete_count(store, ceiling) ==" in source

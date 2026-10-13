@@ -24,6 +24,10 @@ SOURCE_COUNTS = (300, 1000, 3000)
 # whatever its ceiling, so a read that returns fewer than the default limit has lost rows.
 VISIBLE_ORIGINALS = 12
 READ_LIMIT = 8
+# The merge-base gate. A head past 1.25 times the merge base plus 0.05 seconds fails.
+# The older paired checkout stays on twice its time plus 0.1 seconds when no merge base is set.
+MERGE_BASE_FACTOR = 1.25
+MERGE_BASE_SLACK_SECONDS = 0.05
 # The wall limit, in seconds, that ALICE_READ_ABSOLUTE_GATE applies to the workspace and dogfooding screens. One second holds on
 # the reference machine; ALICE_READ_ABSOLUTE_LIMIT_SECONDS sets another for a slower one.
 DEFAULT_ABSOLUTE_LIMIT_SECONDS = 1.0
@@ -223,38 +227,69 @@ def capture_read_profiles(backend, location, user, keys, *, case, source_count, 
     return failures
 
 
+def _budget_baseline():
+    """The checkout the round-three gate measures, and the name of that revision.
+
+    ``ALICE_READ_MERGE_BASE_CHECKOUT`` is the merge base with main. Without it, the paired
+    checkout named by ``ALICE_READ_MAIN_CHECKOUT`` is the older comparison.
+    """
+
+    merge_base = os.environ.get("ALICE_READ_MERGE_BASE_CHECKOUT", "").strip()
+    if merge_base:
+        return merge_base, "merge_base"
+    main = os.environ.get("ALICE_READ_MAIN_CHECKOUT", "").strip()
+    if not main:
+        raise AssertionError(
+            "round-three budgets require the merge-base checkout (ALICE_READ_MERGE_BASE_CHECKOUT)"
+            " or the paired main checkout"
+        )
+    return main, "main"
+
+
+def _over_budget(head, base, baseline_name):
+    """True when ``head`` fails the gate for ``baseline_name``.
+
+    The merge base passes at 1.25 times the base plus 0.05 seconds, and the boundary itself
+    passes. The older paired checkout passes at twice the base plus 0.1 seconds.
+    """
+
+    if baseline_name == "merge_base":
+        return head > MERGE_BASE_FACTOR * base + MERGE_BASE_SLACK_SECONDS
+    return head > 2 * base + 0.1
+
+
 def returned_memories_ok(profile, action, case, measurements):
     """A fast read that returns nothing passes no budget.
 
     Every fixture holds VISIBLE_ORIGINALS public memories, so head must return at least
     min(READ_LIMIT, VISIBLE_ORIGINALS) in every sample. Where no input is hidden from the
     caller (a fixture of visible sources only, or the admin key, which has no ceiling) head
-    must return exactly what main returns.
+    must return exactly what the paired checkout returns.
     """
     head = measurements["head"][action]["returned_memories"]
-    main = measurements["main"][action]["returned_memories"]
-    if not head or not main or min(head) < min(READ_LIMIT, VISIBLE_ORIGINALS):
+    paired = measurements["merge_base"] if "merge_base" in measurements else measurements["main"]
+    base = paired[action]["returned_memories"]
+    if not head or not base or min(head) < min(READ_LIMIT, VISIBLE_ORIGINALS):
         return False
     if case in {"all-visible", "identical-copies"} or profile == "admin_agent":
-        return len(set(head)) == len(set(main)) == 1 and head == main
+        return len(set(head)) == len(set(base)) == 1 and head == base
     return True
 
 
 def paired_budgets(backend, location, user, keys, *, case, source_count, repaired, samples=10, assert_budget=True):
     assert samples >= 10
     repo = Path(__file__).resolve().parents[2]
-    main = os.environ.get("ALICE_READ_MAIN_CHECKOUT")
-    assert main, "round-three budgets require the exact paired main checkout"
+    baseline_checkout, baseline_name = _budget_baseline()
     script = Path(__file__).with_name("round3_budget_probe.py")
     revisions = {name: subprocess.check_output(["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True).strip()
-                 for name, checkout in (("main", main), ("head", repo))}
+                 for name, checkout in ((baseline_name, baseline_checkout), ("head", repo))}
     failures = []
     for profile, key in keys.items():
         processes = [subprocess.Popen([sys.executable, str(script), str(checkout), backend, location, str(user), profile, key],
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                     for checkout in (main, repo)]
+                     for checkout in (baseline_checkout, repo)]
         try:
-            measurements = {revision: {} for revision in ("main", "head")}
+            measurements = {revision: {} for revision in (baseline_name, "head")}
             for action in ("pack", "recall", "workspace", "dogfooding") if backend == "postgres" else ("pack", "recall"):
                 for process in processes:
                     process.stdin.write(action + "\n")
@@ -274,7 +309,7 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
                             arrays[index][clock].append(result[clock])
                         if "memories" in result:
                             arrays[index]["returned_memories"].append(result["memories"])
-                for index, revision in enumerate(("main", "head")):
+                for index, revision in enumerate((baseline_name, "head")):
                     measurements[revision][action] = {**arrays[index], "minimum_wall": min(arrays[index]["wall"]),
                                                      "minimum_cpu": min(arrays[index]["cpu"])}
             row = {"store": backend, "case": case, "source_count": source_count, "repaired": repaired,
@@ -293,7 +328,7 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
                     output.write(encoded_row + "\n")
             for action in ("pack", "recall"):
                 for clock in ("minimum_wall", "minimum_cpu"):
-                    if measurements["head"][action][clock] > 2 * measurements["main"][action][clock] + .1:
+                    if _over_budget(measurements["head"][action][clock], measurements[baseline_name][action][clock], baseline_name):
                         failures.append((profile, action, clock, row))
                 if not returned_memories_ok(profile, action, case, measurements):
                     failures.append((profile, action, "returned_memories", row))
@@ -314,8 +349,11 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
                     process.stdin.write("stop\n")
                     process.stdin.flush()
                 process.communicate(timeout=30)
-    profile_failures = capture_read_profiles(backend, location, user, keys, case=case, source_count=source_count,
-                                            repaired=repaired, revisions=revisions, main=main, repo=repo, script=script)
+    if "main" in revisions:
+        profile_failures = capture_read_profiles(backend, location, user, keys, case=case, source_count=source_count,
+                                                repaired=repaired, revisions=revisions, main=baseline_checkout, repo=repo, script=script)
+    else:
+        profile_failures = []
     if assert_budget:
         assert not failures, failures
     assert not profile_failures, profile_failures

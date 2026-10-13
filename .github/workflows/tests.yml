@@ -2318,12 +2318,28 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history so the merge base with main is in this checkout.
+          fetch-depth: 0
       - name: Paired read-budget baseline (main at the round-three handoff)
         if: matrix.integration_check != 'Default surface integration smoke (Postgres)'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: 48873b038013f4cf548099fcc4610a150972eedd
           path: .read-budget-baseline
+      - name: Merge base with main for the round-three SQLite read budget
+        if: matrix.integration_check == 'Integration tests (Postgres + pgvector, role separation)'
+        run: |
+          git fetch --no-tags origin main
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "read-budget comparison: push to main, first parent"
+            base=$(git rev-parse HEAD^1)
+          else
+            echo "read-budget comparison: pull request, merge base with main"
+            base=$(git merge-base HEAD origin/main)
+          fi
+          echo "read-budget base $base"
+          git worktree add --detach .read-budget-merge-base "$base"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -2362,6 +2378,7 @@ jobs:
         if: matrix.integration_check == 'Integration tests (Postgres + pgvector, role separation)'
         env:
           ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
+          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base
           ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-sqlite-read-budgets.jsonl
         run: ./.venv/bin/python -m pytest tests/performance/test_resume_hidden_rows_budget.py tests/performance/test_label_round3_read_budget.py tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py -q --timeout=180 --session-timeout=1800
 
