@@ -369,16 +369,18 @@ def test_the_absolute_gate_holds_the_screens_to_the_limit_the_environment_sets(m
 
 @pytest.mark.parametrize("action", ["workspace", "dogfooding"])
 def test_the_one_second_gate_applies_only_when_the_absolute_gate_is_set(monkeypatch, tmp_path, action):
-    """Without ALICE_READ_ABSOLUTE_GATE a slow screen is recorded, not failed; the relative gates still fail.
+    """Without ALICE_READ_ABSOLUTE_GATE the screens are not timed, so a slow screen cannot fail; the relative gates still fail.
 
-    Mutations: apply the one-second gate whatever the variable says (the first assertion fails); drop the
+    Mutations: time the screens on every postgres run (the evidence then names the screen); drop the
     relative pack gate when the variable is unset (the second assertion fails).
     """
-    fake_children(monkeypatch, tmp_path, timings=slow_head(action, wall=5.0, cpu=.1))
+    evidence, _events = fake_children(monkeypatch, tmp_path, timings=slow_head(action, wall=5.0, cpu=.1))
     monkeypatch.delenv("ALICE_READ_ABSOLUTE_GATE")
     monkeypatch.delenv("ALICE_READ_PROFILE", raising=False)
     assert budgets.paired_budgets("postgres", "synthetic-database", budgets.USER, KEYS,
                                   case="extra-rows", source_count=3000, repaired=False, assert_budget=False) == []
+    rows = [json.loads(line) for line in evidence.read_text().splitlines()]
+    assert rows and all(set(row["head"]) == {"pack", "recall"} for row in rows)
     fake_children(monkeypatch, tmp_path, timings=slow_head("pack", wall=1.25 * .1 + .05 + 1e-6, cpu=.1))
     monkeypatch.delenv("ALICE_READ_ABSOLUTE_GATE")
     failures = budgets.paired_budgets("postgres", "synthetic-database", budgets.USER, KEYS,
@@ -401,6 +403,21 @@ def returning(head, main=READ_LIMIT):
 @pytest.mark.parametrize("action_count", [0, 1, READ_LIMIT - 1])
 def test_a_head_that_returns_too_little_fails_whatever_its_speed(monkeypatch, tmp_path, action_count):
     failed = measured_failures(monkeypatch, tmp_path, returned=returning(action_count))
+    assert failed == {(profile, action, "returned_memories") for profile in KEYS for action in ("pack", "recall")}
+
+
+@pytest.mark.parametrize("action_count", [0, 1, READ_LIMIT - 1])
+def test_the_floor_fails_when_the_head_and_the_merge_base_return_the_same_too_small_count(
+    monkeypatch, tmp_path, action_count
+):
+    """Both revisions can return too little, which is what a regression already on main looks like.
+
+    The counts match, so the equality check passes and only the floor fails the read.
+    Mutation: delete ``min(head) < min(READ_LIMIT, VISIBLE_ORIGINALS)``.
+    """
+
+    same = lambda revision, profile, action: action_count
+    failed = measured_failures(monkeypatch, tmp_path, returned=same)
     assert failed == {(profile, action, "returned_memories") for profile in KEYS for action in ("pack", "recall")}
 
 
@@ -550,7 +567,7 @@ def test_ci_sqlite_budget_step_runs_the_round_two_complete_count_test():
         "test_label_round2_read_budget.py",
     ):
         assert "tests/performance/" + name in command
-    assert step["env"]["ALICE_READ_MAIN_CHECKOUT"].endswith("/.read-budget-baseline")
+    assert "ALICE_READ_MAIN_CHECKOUT" not in step["env"]
     assert step["env"]["ALICE_READ_MERGE_BASE_CHECKOUT"].endswith("/.read-budget-merge-base")
     source = (Path(__file__).resolve().parents[2] / "tests/performance/test_label_round2_read_budget.py").read_text()
     assert 'expected = 5000 if profile == "admin_agent" else 2500 if case == "mixed" else 0' in source
@@ -562,7 +579,32 @@ def test_ci_sqlite_budget_step_runs_the_round_two_complete_count_test():
     assert len(budget_steps) == 3
     for budget_step in budget_steps:
         assert budget_step["env"]["ALICE_READ_MERGE_BASE_CHECKOUT"].endswith("/.read-budget-merge-base")
-        assert budget_step["env"]["ALICE_READ_MAIN_CHECKOUT"].endswith("/.read-budget-baseline")
+    smoke = next(step for step in budget_steps if step.get("name") == "Maximum-workload read-budget controls")
+    assert smoke["env"]["ALICE_READ_MAIN_CHECKOUT"].endswith("/.read-budget-baseline")
+    required = [step for step in budget_steps if step is not smoke]
+    assert required and all("ALICE_READ_MAIN_CHECKOUT" not in step["env"] for step in required)
+
+
+def test_the_required_jobs_do_not_measure_the_prelabels_checkout():
+    """The required integration step and the SQLite budget step measure the head and the merge base.
+
+    The pre-labels checkout is checked out, and ``ALICE_READ_MAIN_CHECKOUT`` is set, only for the
+    maximum-workload smoke job. Mutation: put the variable back on the integration step. That step
+    then measures a third revision and the assertion fails.
+    """
+
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/tests.yml").read_text())
+    steps = workflow["jobs"]["python-integration"]["steps"]
+    baseline = next(step for step in steps if str(step.get("name", "")).startswith("Paired read-budget baseline"))
+    assert baseline["if"] == "matrix.integration_check == 'Read-budget maximum workload smoke (Postgres)'"
+    integration = next(step for step in steps if step.get("name") == "Integration tests")
+    sqlite = next(step for step in steps if str(step.get("name", "")).startswith("SQLite random mixed-parent"))
+    smoke = next(step for step in steps if step.get("name") == "Maximum-workload read-budget controls")
+    assert "ALICE_READ_MAIN_CHECKOUT" not in integration.get("env", {})
+    assert "ALICE_READ_MAIN_CHECKOUT" not in sqlite.get("env", {})
+    assert smoke["env"]["ALICE_READ_MAIN_CHECKOUT"].endswith("/.read-budget-baseline")
+    assert "--session-timeout=4200" in integration["run"]
+    assert "--session-timeout=1800" in sqlite["run"]
 
 
 def test_a_slow_prelabels_checkout_is_recorded_and_does_not_fail_the_gate(monkeypatch, tmp_path):

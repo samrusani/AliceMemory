@@ -301,7 +301,11 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
     revisions = {name: subprocess.check_output(["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True).strip()
                  for name, checkout in (("merge_base", merge_base), ("head", repo))}
     failures = []
-    actions = ("pack", "recall", "workspace", "dogfooding") if backend == "postgres" else ("pack", "recall")
+    # Pack and recall are the merge-base gate. The operator screens are timed only when the absolute
+    # gate is on, which is the maximum-workload smoke job. The required job does not spend its session on them.
+    actions = ("pack", "recall")
+    if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
+        actions = ("pack", "recall", "workspace", "dogfooding")
     for profile, key in keys.items():
         processes = [subprocess.Popen([sys.executable, str(script), str(checkout), backend, location, str(user), profile, key],
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -352,9 +356,9 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
             # The wall gate for the operator screens is an absolute number (one
             # second unless ALICE_READ_ABSOLUTE_LIMIT_SECONDS says otherwise), so it
             # holds only on a known machine: the reference run and the separate
-            # maximum-workload smoke job set ALICE_READ_ABSOLUTE_GATE. Shared CI
-            # runners differ in speed, so the required jobs keep the merge-base
-            # gate and the returned counts.
+            # maximum-workload smoke job set ALICE_READ_ABSOLUTE_GATE. Those are the
+            # runs that time the screens. Shared CI runners differ in speed, so the
+            # required jobs keep the merge-base gate and the returned counts.
             if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
                 limit = absolute_limit_seconds()
                 for action in ("workspace", "dogfooding"):

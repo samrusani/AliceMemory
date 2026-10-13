@@ -2322,7 +2322,7 @@ jobs:
           # Full history so the merge base with main is in this checkout.
           fetch-depth: 0
       - name: Paired read-budget baseline (pre-labels report, not a gate)
-        if: matrix.integration_check != 'Default surface integration smoke (Postgres)'
+        if: matrix.integration_check == 'Read-budget maximum workload smoke (Postgres)'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: 48873b038013f4cf548099fcc4610a150972eedd
@@ -2365,20 +2365,20 @@ jobs:
         env:
           DATABASE_URL: postgresql://alicebot_app:ci@localhost:5432/alicebot
           DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot
-          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
           ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base
           ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
         # --timeout=180 names one test that runs that long. The cancelled
         # jobs were slow database setup, not a gap near 180s. The round-three
         # grid includes 30 paired fixtures with ten interleaved samples per
-        # action and profile. Session bounds allow that grid to finish while
-        # each measured request retains its unchanged acceptance gate.
+        # action and profile. This step measures the head and the merge base
+        # only. The pre-labels checkout is recorded by the maximum-workload
+        # smoke job, which is not required. Session bounds allow that grid to
+        # finish while each measured request retains its unchanged acceptance gate.
         run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest tests/integration -q -p no:cacheprovider --durations=20 --timeout=180 --session-timeout=4200
 
       - name: SQLite random mixed-parent and keyless read budgets against the merge base
         if: matrix.integration_check == 'Integration tests (Postgres + pgvector, role separation)'
         env:
-          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
           ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base
           ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-sqlite-read-budgets.jsonl
         run: ./.venv/bin/python -m pytest tests/performance/test_resume_hidden_rows_budget.py tests/performance/test_label_round3_read_budget.py tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py -q --timeout=180 --session-timeout=1800
