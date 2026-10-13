@@ -589,8 +589,11 @@ def test_the_required_jobs_do_not_measure_the_prelabels_checkout():
     """The required integration step and the SQLite budget step measure the head and the merge base.
 
     The pre-labels checkout is checked out, and ``ALICE_READ_MAIN_CHECKOUT`` is set, only for the
-    maximum-workload smoke job. Mutation: put the variable back on the integration step. That step
-    then measures a third revision and the assertion fails.
+    maximum-workload smoke job. Those required steps also do not set ``ALICE_READ_ABSOLUTE_GATE``,
+    in the step environment or in the command, so they do not time the screens or apply the
+    fixed-second limits. Mutation: put ``ALICE_READ_MAIN_CHECKOUT`` back on the integration step,
+    or set ``ALICE_READ_ABSOLUTE_GATE`` there. That step then measures a third revision, or applies
+    the absolute gate, and the assertion fails.
     """
 
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/tests.yml").read_text())
@@ -603,8 +606,25 @@ def test_the_required_jobs_do_not_measure_the_prelabels_checkout():
     assert "ALICE_READ_MAIN_CHECKOUT" not in integration.get("env", {})
     assert "ALICE_READ_MAIN_CHECKOUT" not in sqlite.get("env", {})
     assert smoke["env"]["ALICE_READ_MAIN_CHECKOUT"].endswith("/.read-budget-baseline")
+    for step in (integration, sqlite):
+        assert "ALICE_READ_ABSOLUTE_GATE" not in step.get("env", {})
+        assert "ALICE_READ_ABSOLUTE_GATE" not in step.get("run", "")
+    assert smoke["env"]["ALICE_READ_ABSOLUTE_GATE"] == "1"
     assert "--session-timeout=4200" in integration["run"]
     assert "--session-timeout=1800" in sqlite["run"]
+
+
+def test_the_maximum_smoke_runs_a_round_two_postgres_case_and_a_handoff_postgres_case():
+    """The screens and their fixed limits still run in the smoke job, on one case from each suite.
+
+    Mutation: drop either node id from the smoke step.
+    """
+
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/tests.yml").read_text())
+    steps = workflow["jobs"]["python-integration"]["steps"]
+    smoke = next(step for step in steps if step.get("name") == "Maximum-workload read-budget controls")
+    assert "test_postgres_round2_read_budgets[one-hidden]" in smoke["run"]
+    assert "test_postgres_five_thousand_native_read_budgets[False]" in smoke["run"]
 
 
 def test_a_slow_prelabels_checkout_is_recorded_and_does_not_fail_the_gate(monkeypatch, tmp_path):

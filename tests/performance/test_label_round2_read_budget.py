@@ -23,6 +23,7 @@ from tests.performance.read_budget_gate import (
     prelabels_action,
     prelabels_checkout,
 )
+from tests.performance.test_label_round3_read_budget import absolute_limit_seconds
 
 USER = "11111111-1111-4111-8111-111111111111"
 
@@ -151,7 +152,11 @@ def assert_budgets(backend, location, user, keys):
     repo = Path(__file__).resolve().parents[2]
     merge_base = merge_base_checkout()
     prelabels = prelabels_checkout()
-    actions = ("pack", "recall", "workspace", "dogfooding") if backend == "postgres" else ("pack", "recall")
+    # Pack and recall are the merge-base gate. The screens are timed only when the absolute
+    # gate is on, which is the maximum-workload smoke job. The required job does not spend its session on them.
+    actions = ("pack", "recall")
+    if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
+        actions = ("pack", "recall", "workspace", "dogfooding")
     for profile, key in keys.items():
         processes = [_open_probe(checkout, backend, location, user, profile, key) for checkout in (merge_base, repo)]
         try:
@@ -188,8 +193,11 @@ def assert_budgets(backend, location, user, keys):
                 assert not over_merge_base(measured["head"][action][clock], measured["merge_base"][action][clock]), (
                     action, clock, measured["head"], measured["merge_base"],
                 )
-        for action in ("workspace", "dogfooding") if backend == "postgres" else ():
-            assert measured["head"][action]["minimum_wall"] <= 1, (action, measured["head"])
+        # The screen wall limit is absolute_limit_seconds(), and only when the absolute gate is on.
+        if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
+            limit = absolute_limit_seconds()
+            for action in ("workspace", "dogfooding"):
+                assert measured["head"][action]["minimum_wall"] <= limit, (action, measured["head"])
 
 
 @label_read_request
@@ -221,7 +229,9 @@ def test_sqlite_varied_read_budget(tmp_path, monkeypatch, case, repaired):
                 cpus.append(time.process_time() - cpu_start)
             print(json.dumps({"count_case": case, "repaired": repaired, "profile": profile,
                               "minimum_wall": min(walls), "minimum_cpu": min(cpus), "admitted": expected}))
-            assert min(walls) <= 1 and min(cpus) <= 1
+            # One second of wall time and one second of CPU, only when the absolute gate is on.
+            if os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
+                assert min(walls) <= 1 and min(cpus) <= 1
     assert_budgets("sqlite", "sqlite:///" + str(path), USER, keys)
 
 
