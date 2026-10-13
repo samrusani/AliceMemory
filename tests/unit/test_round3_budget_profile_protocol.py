@@ -369,16 +369,18 @@ def test_the_absolute_gate_holds_the_screens_to_the_limit_the_environment_sets(m
 
 @pytest.mark.parametrize("action", ["workspace", "dogfooding"])
 def test_the_one_second_gate_applies_only_when_the_absolute_gate_is_set(monkeypatch, tmp_path, action):
-    """Without ALICE_READ_ABSOLUTE_GATE a slow screen is recorded, not failed; the relative gates still fail.
+    """Without ALICE_READ_ABSOLUTE_GATE the screens are not timed, so a slow screen cannot fail; the relative gates still fail.
 
-    Mutations: apply the one-second gate whatever the variable says (the first assertion fails); drop the
+    Mutations: time the screens on every postgres run (the evidence then names the screen); drop the
     relative pack gate when the variable is unset (the second assertion fails).
     """
-    fake_children(monkeypatch, tmp_path, timings=slow_head(action, wall=5.0, cpu=.1))
+    evidence, _events = fake_children(monkeypatch, tmp_path, timings=slow_head(action, wall=5.0, cpu=.1))
     monkeypatch.delenv("ALICE_READ_ABSOLUTE_GATE")
     monkeypatch.delenv("ALICE_READ_PROFILE", raising=False)
     assert budgets.paired_budgets("postgres", "synthetic-database", budgets.USER, KEYS,
                                   case="extra-rows", source_count=3000, repaired=False, assert_budget=False) == []
+    rows = [json.loads(line) for line in evidence.read_text().splitlines()]
+    assert rows and all(set(row["head"]) == {"pack", "recall"} for row in rows)
     fake_children(monkeypatch, tmp_path, timings=slow_head("pack", wall=1.25 * .1 + .05 + 1e-6, cpu=.1))
     monkeypatch.delenv("ALICE_READ_ABSOLUTE_GATE")
     failures = budgets.paired_budgets("postgres", "synthetic-database", budgets.USER, KEYS,
