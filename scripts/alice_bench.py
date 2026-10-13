@@ -1543,14 +1543,19 @@ class McpSession:
     here is the text a host would put in front of the model.
     """
 
-    def __init__(self, db_path: Path, *, user_id: str = DEFAULT_USER_ID) -> None:
+    def __init__(self, db_path: Path, *, user_id: str = DEFAULT_USER_ID, agent_identity: object | None = None) -> None:
         from uuid import UUID
 
         from alicebot_api import onramp
         from alicebot_api.mcp_server import MCPServer
         from alicebot_api.mcp_tools import MCPRuntimeContext
 
-        context = MCPRuntimeContext(database_url=onramp.sqlite_url_for_path(db_path), user_id=UUID(user_id))
+        context = MCPRuntimeContext(
+            database_url=onramp.sqlite_url_for_path(db_path),
+            user_id=UUID(user_id),
+            agent_identity=agent_identity,
+            agent_identity_resolved=agent_identity is not None,
+        )
         self._server = MCPServer(context=context, input_stream=io.BytesIO(), output_stream=io.BytesIO())
         self._next_id = 1
         # The arguments of every alice_recall call this session sent, as they reached the
@@ -1937,6 +1942,9 @@ def build_parser() -> argparse.ArgumentParser:
     finger = sub.add_parser("fingerprint", help="Print the fingerprint of a run.")
     _add_run_arguments(finger)
     finger.add_argument("--questions", default=None)
+    from scripts.showcase_bench import add_showcase_commands
+
+    add_showcase_commands(sub)
     return parser
 
 
