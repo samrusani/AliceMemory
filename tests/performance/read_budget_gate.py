@@ -21,9 +21,9 @@ A move of 0.02 seconds passes on a read of 0.32 seconds and on a read of
 0.05 seconds.
 
 The comparison with the pre-labels commit (``ALICE_READ_MAIN_CHECKOUT``,
-pinned at 48873b03 in CI) is a ratio in the evidence file. It is not a gate.
-The absolute wall limit (``ALICE_READ_ABSOLUTE_LIMIT_SECONDS``) is a separate
-check and is unchanged.
+pinned at 48873b03) is a ratio only when that variable is set. The required
+jobs do not set it. The maximum-workload smoke job does, and it is not a gate.
+The absolute wall limit is a separate check and is unchanged.
 """
 
 from __future__ import annotations

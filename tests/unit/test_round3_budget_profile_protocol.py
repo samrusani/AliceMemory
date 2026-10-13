@@ -550,7 +550,7 @@ def test_ci_sqlite_budget_step_runs_the_round_two_complete_count_test():
         "test_label_round2_read_budget.py",
     ):
         assert "tests/performance/" + name in command
-    assert step["env"]["ALICE_READ_MAIN_CHECKOUT"].endswith("/.read-budget-baseline")
+    assert "ALICE_READ_MAIN_CHECKOUT" not in step["env"]
     assert step["env"]["ALICE_READ_MERGE_BASE_CHECKOUT"].endswith("/.read-budget-merge-base")
     source = (Path(__file__).resolve().parents[2] / "tests/performance/test_label_round2_read_budget.py").read_text()
     assert 'expected = 5000 if profile == "admin_agent" else 2500 if case == "mixed" else 0' in source
@@ -562,7 +562,32 @@ def test_ci_sqlite_budget_step_runs_the_round_two_complete_count_test():
     assert len(budget_steps) == 3
     for budget_step in budget_steps:
         assert budget_step["env"]["ALICE_READ_MERGE_BASE_CHECKOUT"].endswith("/.read-budget-merge-base")
-        assert budget_step["env"]["ALICE_READ_MAIN_CHECKOUT"].endswith("/.read-budget-baseline")
+    smoke = next(step for step in budget_steps if step.get("name") == "Maximum-workload read-budget controls")
+    assert smoke["env"]["ALICE_READ_MAIN_CHECKOUT"].endswith("/.read-budget-baseline")
+    required = [step for step in budget_steps if step is not smoke]
+    assert required and all("ALICE_READ_MAIN_CHECKOUT" not in step["env"] for step in required)
+
+
+def test_the_required_jobs_do_not_measure_the_prelabels_checkout():
+    """The required integration step and the SQLite budget step measure the head and the merge base.
+
+    The pre-labels checkout is checked out, and ``ALICE_READ_MAIN_CHECKOUT`` is set, only for the
+    maximum-workload smoke job. Mutation: put the variable back on the integration step. That step
+    then measures a third revision and the assertion fails.
+    """
+
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/tests.yml").read_text())
+    steps = workflow["jobs"]["python-integration"]["steps"]
+    baseline = next(step for step in steps if str(step.get("name", "")).startswith("Paired read-budget baseline"))
+    assert baseline["if"] == "matrix.integration_check == 'Read-budget maximum workload smoke (Postgres)'"
+    integration = next(step for step in steps if step.get("name") == "Integration tests")
+    sqlite = next(step for step in steps if str(step.get("name", "")).startswith("SQLite random mixed-parent"))
+    smoke = next(step for step in steps if step.get("name") == "Maximum-workload read-budget controls")
+    assert "ALICE_READ_MAIN_CHECKOUT" not in integration.get("env", {})
+    assert "ALICE_READ_MAIN_CHECKOUT" not in sqlite.get("env", {})
+    assert smoke["env"]["ALICE_READ_MAIN_CHECKOUT"].endswith("/.read-budget-baseline")
+    assert "--session-timeout=4200" in integration["run"]
+    assert "--session-timeout=1800" in sqlite["run"]
 
 
 def test_a_slow_prelabels_checkout_is_recorded_and_does_not_fail_the_gate(monkeypatch, tmp_path):
