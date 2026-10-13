@@ -22,10 +22,11 @@ and carry shown text of their own: a restricted key may read the commit and must
 tests that count the rows of the vault keep their numbers; ``tests/integration/test_saved_quote_memory_refs_postgres.py`` sweeps
 every route with it on.
 
-The derived project is created after the scheduler runs. The scheduler's project update scan takes the newest active project, and
-an update candidate generated for a project that is itself derived from a redacted memory records the memory and the sources as
-its inputs and not the project, so its title names the project; with ``contained_project_scanned=True`` the project exists when the
-scan runs, and ``test_the_update_candidate_of_a_contained_project_is_contained`` records that gap as a failing test.
+The derived project is created after the scheduler runs. With ``contained_project_scanned=True`` the project exists when the
+scan runs. A scan that asks for the default levels skips it. A scan that names every sensitivity reaches it and writes an update
+candidate that records the memory and the sources as its inputs and not the project, so its title names the project.
+``test_the_update_candidate_of_a_contained_project_is_contained`` records that gap as a failing test, and
+``test_the_default_levels_scan_skips_a_contained_project`` records the skip.
 """
 from __future__ import annotations
 
@@ -60,6 +61,8 @@ class Vault:
     owner: bool = False
     redacted_family: bool = False
     contained_project_scanned: bool = False
+    # None keeps the levels the other workflows use. A tuple replaces them for the project update scan only.
+    project_update_scan_sensitivity: tuple[str, ...] | None = None
     ids: dict[str, str] = field(default_factory=dict)
     keys: dict[str, str | None] = field(default_factory=dict)
     agent_ids: dict[str, str] = field(default_factory=dict)
@@ -794,10 +797,13 @@ class Vault:
         """Runs by the admin key, so the scheduler history holds work done over the hidden rows."""
 
         for workflow in ("daily_brief", "weekly_synthesis", "open_loop_review", "memory_consolidation", "project_update_scan"):
+            levels = ["public", "internal", "private", "confidential", "unknown"]
+            if workflow == "project_update_scan" and self.project_update_scan_sensitivity is not None:
+                levels = list(self.project_update_scan_sensitivity)
             status, body = self.admin_request(
                 "POST",
                 f"/v0/vnext/scheduler/workflows/{workflow}/run-now",
-                {"options": {"sensitivity_allowed": ["public", "internal", "private", "confidential", "unknown"]}},
+                {"options": {"sensitivity_allowed": levels}},
             )
             assert status in {200, 201}, (workflow, status, str(body)[:300])
 

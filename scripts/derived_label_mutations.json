@@ -17623,6 +17623,22 @@
         "tests/unit/test_round3_budget_profile_protocol.py::test_the_one_second_gate_applies_only_when_the_absolute_gate_is_set"
       ],
       "expected_failure": "test_the_one_second_gate_applies_only_when_the_absolute_gate_is_set"
+    },
+    {
+      "name": "contained-project-scan-asks-for-the-default-levels",
+      "edits": [
+        {
+          "file": "tests/integration/test_saved_quote_memory_refs_postgres.py",
+          "before": "        contained_project_scanned=True,\n        project_update_scan_sensitivity=tuple(ALL_SENSITIVITY),\n",
+          "after": "        contained_project_scanned=True,\n        project_update_scan_sensitivity=DEFAULT_AGENT_SENSITIVITY,\n",
+          "sha256": "f33d3713a6d7e93789c0cb151e689e902152339e3ef448c92a5c1cdd1e944e75",
+          "line": 699
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_saved_quote_memory_refs_postgres.py::test_the_update_candidate_of_a_contained_project_is_contained"
+      ],
+      "expected_failure": "test_the_update_candidate_of_a_contained_project_is_contained"
     }
   ]
 }
