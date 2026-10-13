@@ -3,7 +3,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import statistics
 import sys
 import time
 from uuid import UUID
@@ -53,22 +52,26 @@ if backend == "postgres":
     actions.update(workspace=lambda: read("/v0/vnext/workspace"),
                    dogfooding=lambda: read("/v0/vnext/dogfooding"))
 
-results = {}
-for name, action in actions.items():
+def measure(name):
+    action = actions[name]
+    wall_start, cpu_start = time.perf_counter(), time.process_time()
     action()
-    wall, cpu = [], []
-    for _ in range(5):
-        wall_start, cpu_start = time.perf_counter(), time.process_time()
-        action()
-        wall.append(time.perf_counter() - wall_start)
-        cpu.append(time.process_time() - cpu_start)
-    results[name] = {"minimum_wall": min(wall), "minimum_cpu": min(cpu),
-                     "median_wall": statistics.median(wall), "wall": wall, "cpu": cpu}
-    if os.environ.get("ALICE_ROUND2_PROFILE_DIR"):
-        import cProfile
-        output = Path(os.environ["ALICE_ROUND2_PROFILE_DIR"])
-        output.mkdir(parents=True, exist_ok=True)
-        profiler = cProfile.Profile()
-        profiler.runcall(action)
-        profiler.dump_stats(str(output / f"{Path(repo).name}-{profile}-{name}.prof"))
-print(json.dumps({"profile": profile, "times": results}))
+    return {"wall": time.perf_counter() - wall_start, "cpu": time.process_time() - cpu_start}
+
+
+for line in sys.stdin:
+    command = line.strip()
+    if command == "stop" or command == "":
+        break
+    if command.startswith("profile:"):
+        name = command.split(":", 1)[1]
+        if os.environ.get("ALICE_ROUND2_PROFILE_DIR"):
+            import cProfile
+            output = Path(os.environ["ALICE_ROUND2_PROFILE_DIR"])
+            output.mkdir(parents=True, exist_ok=True)
+            profiler = cProfile.Profile()
+            profiler.runcall(actions[name])
+            profiler.dump_stats(str(output / f"{Path(repo).name}-{profile}-{name}.prof"))
+        print(json.dumps({"profiled": name}), flush=True)
+        continue
+    print(json.dumps(measure(command)), flush=True)

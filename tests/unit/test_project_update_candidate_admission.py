@@ -313,6 +313,151 @@ def test_a_project_the_listing_picks_is_judged_too():
     assert "Open Kiln" in picked["content_markdown"]
 
 
+def _ordered(store):
+    """Newest ``updated_at`` first, and record each limit the scan asks for."""
+
+    store.list_limits = []
+    real = store.list_projects
+
+    def list_projects(**kwargs):
+        limit = kwargs.get("limit", 8)
+        store.list_limits.append(limit)
+        rows = real(**{**kwargs, "limit": 10_000})
+        rows.sort(key=lambda row: str(row.get("updated_at") or ""), reverse=True)
+        return rows[:limit]
+
+    store.list_projects = list_projects  # type: ignore[method-assign]
+    return store
+
+
+def _beside(store, project_id, *, name, updated_at, sensitivity="public", domain="project"):
+    store.projects[project_id] = {
+        **store.projects[PROJECT],
+        "id": project_id,
+        "name": name,
+        "slug": project_id,
+        "sensitivity": sensitivity,
+        "domain": domain,
+        "status": "active",
+        "updated_at": updated_at,
+    }
+
+
+WIDE = ("public", "internal", "private", "unknown", "confidential", "highly_sensitive", "regulated")
+
+
+def test_a_newer_project_the_caller_may_not_read_does_not_hide_an_older_one():
+    """The request asks for every sensitivity. That is a selection, not a grant: the newest project is confidential."""
+
+    store = _ordered(_store(sensitivity="public"))
+    store.projects[PROJECT]["updated_at"] = "2026-01-01T00:00:00Z"
+    store.projects[PROJECT]["name"] = "Older Kiln"
+    _beside(store, "project-new", name="Newer Kiln", updated_at="2026-02-01T00:00:00Z", sensitivity="confidential")
+    request = ProjectAutomationRequest(agent_identity=TRUSTED.to_record(), sensitivity_allowed=WIDE)
+    picked = VNextProjectService(store).generate_project_update_candidate(request, identity=TRUSTED)
+    assert "Older Kiln" in picked["content_markdown"] and "Newer Kiln" not in picked["content_markdown"]
+    assert store.list_limits == [1, 128]
+
+
+def test_the_owner_and_an_unbound_admin_still_get_the_newest_project():
+    store = _ordered(_store(sensitivity="confidential"))
+    store.projects[PROJECT]["updated_at"] = "2026-02-01T00:00:00Z"
+    store.projects[PROJECT]["name"] = "Newer Kiln"
+    _beside(store, "project-old", name="Older Kiln", updated_at="2026-01-01T00:00:00Z", sensitivity="public")
+    for identity in (None, ADMIN):
+        store.list_limits.clear()
+        request = ProjectAutomationRequest(
+            agent_identity=None if identity is None else identity.to_record(), sensitivity_allowed=WIDE
+        )
+        picked = VNextProjectService(store).generate_project_update_candidate(request, identity=identity)
+        assert "Newer Kiln" in picked["content_markdown"]
+        assert store.list_limits == [1]
+
+
+def test_a_bound_key_is_given_the_project_it_may_read_when_a_newer_one_is_hidden():
+    store = _ordered(_store(sensitivity="public"))
+    store.projects[PROJECT]["updated_at"] = "2026-01-01T00:00:00Z"
+    store.projects[PROJECT]["name"] = "Older Kiln"
+    _beside(store, "project-new", name="Newer Kiln", updated_at="2026-02-01T00:00:00Z", sensitivity="confidential")
+    identity = _bound(PROJECT, "trusted_local_agent")
+    request = ProjectAutomationRequest(agent_identity=identity.to_record(), sensitivity_allowed=WIDE)
+    picked = VNextProjectService(store).generate_project_update_candidate(request, identity=identity)
+    assert "Older Kiln" in picked["content_markdown"] and "Newer Kiln" not in picked["content_markdown"]
+
+
+def test_a_bound_admin_key_still_gets_its_own_newer_project():
+    store = _ordered(_store(sensitivity="confidential"))
+    store.projects[PROJECT]["updated_at"] = "2026-02-01T00:00:00Z"
+    _beside(store, "project-old", name="Older Kiln", updated_at="2026-01-01T00:00:00Z", sensitivity="public")
+    identity = _bound(PROJECT, "admin_agent")
+    request = ProjectAutomationRequest(agent_identity=identity.to_record(), sensitivity_allowed=("public", "confidential"))
+    picked = VNextProjectService(store).generate_project_update_candidate(request, identity=identity)
+    assert NAME in picked["content_markdown"] and "Older Kiln" not in picked["content_markdown"]
+
+
+def test_only_hidden_projects_answer_as_a_vault_with_no_project():
+    empty = _ordered(_store(sensitivity="public"))
+    empty.projects.clear()
+    missing = _refusal(empty, TRUSTED, None)
+    hidden = _ordered(_store(sensitivity="confidential"))
+    hidden.projects[PROJECT]["updated_at"] = "2026-02-01T00:00:00Z"
+    request = ProjectAutomationRequest(agent_identity=TRUSTED.to_record(), sensitivity_allowed=WIDE)
+    with pytest.raises(VNextProjectValidationError) as refused:
+        VNextProjectService(hidden).generate_project_update_candidate(request, identity=TRUSTED)
+    assert str(refused.value) == missing
+    assert _written(hidden) == _written(_store(sensitivity="confidential"))
+
+
+def test_the_scan_stops_after_128_hidden_projects():
+    """129 hidden rows would make a caller slow on purpose. The 129th is not judged, so the older project is not found."""
+
+    from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
+
+    store = _ordered(_store(sensitivity="public"))
+    store.projects[PROJECT]["updated_at"] = "2026-01-01T00:00:00Z"
+    store.projects[PROJECT]["name"] = "Older Kiln"
+    for index in range(READABLE_SCAN_CAP):
+        _beside(
+            store, f"hidden-{index}", name=f"Hidden {index}", updated_at=f"2026-03-01T00:{index // 60:02d}:{index % 60:02d}Z",
+            sensitivity="confidential",
+        )
+    request = ProjectAutomationRequest(agent_identity=TRUSTED.to_record(), sensitivity_allowed=WIDE)
+    with pytest.raises(VNextProjectValidationError) as refused:
+        VNextProjectService(store).generate_project_update_candidate(request, identity=TRUSTED)
+    assert "Older Kiln" not in str(refused.value) and "no active project" in str(refused.value)
+    assert store.list_limits == [1, READABLE_SCAN_CAP]
+    # One fewer hidden row and the older project is inside the cap.
+    del store.projects[f"hidden-{READABLE_SCAN_CAP - 1}"]
+    store.list_limits.clear()
+    picked = VNextProjectService(store).generate_project_update_candidate(request, identity=TRUSTED)
+    assert "Older Kiln" in picked["content_markdown"]
+    assert max(store.list_limits) == READABLE_SCAN_CAP
+
+
+def test_the_scheduler_scan_skips_a_newer_project_the_caller_may_not_read():
+    from alicebot_api.vnext_scheduler import SchedulerRunRequest, VNextSchedulerService
+
+    store = _ordered(_store(sensitivity="public"))
+    store.projects[PROJECT]["updated_at"] = "2026-01-01T00:00:00Z"
+    store.projects[PROJECT]["name"] = "Older Kiln"
+    _beside(store, "project-new", name="Newer Kiln", updated_at="2026-02-01T00:00:00Z", sensitivity="confidential")
+    request = SchedulerRunRequest(
+        workflow_type="project_update_scan",
+        agent_identity=TRUSTED,
+        sensitivity_allowed=WIDE,
+    )
+    made = VNextSchedulerService(store)._generate_project_update_scan_artifact(request, metadata={})
+    assert "Older Kiln" in made["content_markdown"] and "Newer Kiln" not in made["content_markdown"]
+    named = SchedulerRunRequest(
+        workflow_type="project_update_scan",
+        projects=("project-new", PROJECT),
+        agent_identity=TRUSTED,
+        sensitivity_allowed=WIDE,
+    )
+    made = VNextSchedulerService(store)._generate_project_update_scan_artifact(named, metadata={})
+    assert "Older Kiln" in made["content_markdown"] and "Newer Kiln" not in made["content_markdown"]
+
+
 def test_the_identity_a_door_passes_decides_whatever_the_request_records():
     """The request here records no caller, so it would run for the owner; the door passed the identity it resolved."""
 

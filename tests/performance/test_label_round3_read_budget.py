@@ -16,6 +16,13 @@ from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_derived_labels import with_derived_from, is_derived, dependencies_of
 from alicebot_api.vnext_label_repair import label_gap_counts, relabel_labels_sqlite
+from tests.performance.read_budget_gate import (
+    append_evidence,
+    merge_base_checkout,
+    over_merge_base,
+    prelabels_action,
+    prelabels_checkout,
+)
 
 USER = "11111111-1111-4111-8111-111111111111"
 CASES = ("half-hidden", "all-hidden", "all-visible", "deeper-ancestry", "extra-rows")
@@ -183,14 +190,14 @@ def repair_fixture(backend, location, user):
     return applied
 
 
-def capture_read_profiles(backend, location, user, keys, *, case, source_count, repaired, revisions, main, repo, script):
+def capture_read_profiles(backend, location, user, keys, *, case, source_count, repaired, revisions, merge_base, repo, script):
     """Run optional diagnostics only after every profile's budget samples are retained."""
     trace = os.environ.get("ALICE_READ_PROFILE")
     if not trace or backend != "postgres":
         return []
     failures = []
     for profile, key in keys.items():
-        for revision, checkout in (("main", main), ("head", repo)):
+        for revision, checkout in (("merge_base", merge_base), ("head", repo)):
             directory = Path(trace) / backend / f"{case}-{source_count}-{'repaired' if repaired else 'unrepaired'}" / profile / revision
             directory.mkdir(parents=True, exist_ok=True)
             context = {"store": backend, "case": case, "source_count": source_count, "repaired": repaired,
@@ -227,35 +234,85 @@ def returned_memories_ok(profile, action, case, measurements):
     """A fast read that returns nothing passes no budget.
 
     Every fixture holds VISIBLE_ORIGINALS public memories, so head must return at least
-    min(READ_LIMIT, VISIBLE_ORIGINALS) in every sample. Where no input is hidden from the
-    caller (a fixture of visible sources only, or the admin key, which has no ceiling) head
-    must return exactly what main returns.
+    min(READ_LIMIT, VISIBLE_ORIGINALS) in every sample, and the same counts the merge base
+    returned. The merge base runs the same read.
     """
     head = measurements["head"][action]["returned_memories"]
-    main = measurements["main"][action]["returned_memories"]
-    if not head or not main or min(head) < min(READ_LIMIT, VISIBLE_ORIGINALS):
+    base = measurements["merge_base"][action]["returned_memories"]
+    if not head or not base or min(head) < min(READ_LIMIT, VISIBLE_ORIGINALS):
         return False
-    if case in {"all-visible", "identical-copies"} or profile == "admin_agent":
-        return len(set(head)) == len(set(main)) == 1 and head == main
-    return True
+    # The merge base runs the same read as this checkout. A difference in what
+    # came back is a regression, including where an older pre-labels checkout
+    # would have returned the hidden rows.
+    return len(set(head)) == len(set(base)) == 1 and head == base
+
+
+def _stop_process(process) -> None:
+    if process.poll() is None:
+        process.stdin.write("stop\n")
+        process.stdin.flush()
+    process.communicate(timeout=30)
+
+
+def _prelabels_report(script, checkout, backend, location, user, profile, key, actions, measurements):
+    """Timings of the pre-labels checkout, and the ratio of the head to them. Not a gate.
+
+    Three samples, taken after the merge-base samples, so they do not share the interleaved clock.
+    """
+
+    if not checkout:
+        return None
+    revision = subprocess.check_output(["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True).strip()
+    process = subprocess.Popen(
+        [sys.executable, str(script), str(checkout), backend, location, str(user), profile, key],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    recorded = {}
+    try:
+        for action in actions:
+            process.stdin.write(action + "\n")
+            process.stdin.flush()
+            assert process.stdout.readline(), process.stderr.read()
+            walls, cpus = [], []
+            for _ in range(3):
+                process.stdin.write(action + "\n")
+                process.stdin.flush()
+                line = process.stdout.readline()
+                assert line, process.stderr.read()
+                result = json.loads(line)
+                walls.append(result["wall"])
+                cpus.append(result["cpu"])
+            recorded[action] = {
+                "samples": 3,
+                "minimum_wall": prelabels_action(measurements["head"][action]["minimum_wall"], min(walls)),
+                "minimum_cpu": prelabels_action(measurements["head"][action]["minimum_cpu"], min(cpus)),
+            }
+        return {"revision": revision, "gated": False, "actions": recorded}
+    finally:
+        _stop_process(process)
 
 
 def paired_budgets(backend, location, user, keys, *, case, source_count, repaired, samples=10, assert_budget=True):
     assert samples >= 10
     repo = Path(__file__).resolve().parents[2]
-    main = os.environ.get("ALICE_READ_MAIN_CHECKOUT")
-    assert main, "round-three budgets require the exact paired main checkout"
+    merge_base = merge_base_checkout()
+    prelabels = prelabels_checkout()
     script = Path(__file__).with_name("round3_budget_probe.py")
     revisions = {name: subprocess.check_output(["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True).strip()
-                 for name, checkout in (("main", main), ("head", repo))}
+                 for name, checkout in (("merge_base", merge_base), ("head", repo))}
     failures = []
+    # Pack and recall are the merge-base gate. The operator screens are timed only when the absolute
+    # gate is on, which is the maximum-workload smoke job. The required job does not spend its session on them.
+    actions = ("pack", "recall")
+    if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
+        actions = ("pack", "recall", "workspace", "dogfooding")
     for profile, key in keys.items():
         processes = [subprocess.Popen([sys.executable, str(script), str(checkout), backend, location, str(user), profile, key],
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                     for checkout in (main, repo)]
+                     for checkout in (merge_base, repo)]
         try:
-            measurements = {revision: {} for revision in ("main", "head")}
-            for action in ("pack", "recall", "workspace", "dogfooding") if backend == "postgres" else ("pack", "recall"):
+            measurements = {revision: {} for revision in ("merge_base", "head")}
+            for action in actions:
                 for process in processes:
                     process.stdin.write(action + "\n")
                     process.stdin.flush()
@@ -274,35 +331,34 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
                             arrays[index][clock].append(result[clock])
                         if "memories" in result:
                             arrays[index]["returned_memories"].append(result["memories"])
-                for index, revision in enumerate(("main", "head")):
+                for index, revision in enumerate(("merge_base", "head")):
                     measurements[revision][action] = {**arrays[index], "minimum_wall": min(arrays[index]["wall"]),
                                                      "minimum_cpu": min(arrays[index]["cpu"])}
+            report = _prelabels_report(script, prelabels, backend, location, user, profile, key, actions, measurements)
             row = {"store": backend, "case": case, "source_count": source_count, "repaired": repaired,
                    "profile": profile, "revisions": revisions, "samples": samples, "seed": 20261007,
                    "memories": 5000, "visible_originals": VISIBLE_ORIGINALS,
                    "mix": ({"source_copy": 5000} if case == "identical-copies" else {"source_copy": 1500, "stamped_report": 1250, "consolidation": 1250, "weekly": 1000}),
                    "artifacts": 500 if backend == "postgres" and case == "extra-rows" else 0,
-                   "derived_loops": 400 if case == "extra-rows" else 0, "real_repair_zero_check": repaired, **measurements}
-            encoded_row = json.dumps(row)
-            print(encoded_row, flush=True)
-            evidence_path = os.environ.get("ALICE_READ_BUDGET_EVIDENCE")
-            if evidence_path:
-                evidence = Path(evidence_path)
-                evidence.parent.mkdir(parents=True, exist_ok=True)
-                with evidence.open("a") as output:
-                    output.write(encoded_row + "\n")
+                   "derived_loops": 400 if case == "extra-rows" else 0, "real_repair_zero_check": repaired,
+                   "gate": "merge_base", **measurements}
+            if report is not None:
+                row["prelabels_report"] = report
+                row["revisions"] = {**revisions, "prelabels": report["revision"]}
+            print(json.dumps(row), flush=True)
+            append_evidence(row)
             for action in ("pack", "recall"):
                 for clock in ("minimum_wall", "minimum_cpu"):
-                    if measurements["head"][action][clock] > 2 * measurements["main"][action][clock] + .1:
+                    if over_merge_base(measurements["head"][action][clock], measurements["merge_base"][action][clock]):
                         failures.append((profile, action, clock, row))
                 if not returned_memories_ok(profile, action, case, measurements):
                     failures.append((profile, action, "returned_memories", row))
             # The wall gate for the operator screens is an absolute number (one
             # second unless ALICE_READ_ABSOLUTE_LIMIT_SECONDS says otherwise), so it
             # holds only on a known machine: the reference run and the separate
-            # maximum-workload smoke job set ALICE_READ_ABSOLUTE_GATE. Shared CI
-            # runners differ in speed, so the required jobs keep the gates measured
-            # against main on the same runner and the returned counts.
+            # maximum-workload smoke job set ALICE_READ_ABSOLUTE_GATE. Those are the
+            # runs that time the screens. Shared CI runners differ in speed, so the
+            # required jobs keep the merge-base gate and the returned counts.
             if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
                 limit = absolute_limit_seconds()
                 for action in ("workspace", "dogfooding"):
@@ -315,7 +371,7 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
                     process.stdin.flush()
                 process.communicate(timeout=30)
     profile_failures = capture_read_profiles(backend, location, user, keys, case=case, source_count=source_count,
-                                            repaired=repaired, revisions=revisions, main=main, repo=repo, script=script)
+                                            repaired=repaired, revisions=revisions, merge_base=merge_base, repo=repo, script=script)
     if assert_budget:
         assert not failures, failures
     assert not profile_failures, profile_failures

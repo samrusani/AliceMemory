@@ -22,7 +22,8 @@ and project state built from it, and five commits that quote it (two confirmed i
 * ``test_the_dashboard_and_the_source_trace_withhold_the_quote`` runs the two routes whose rows carry a commit's metadata, and the
   events of the trace.
 * ``test_every_spelling_of_a_memory_ref_is_withheld_...`` sends every wording of a memory ref through the commit route.
-* ``test_the_update_candidate_of_a_contained_project_is_contained`` records a gap found while building the sweep.
+* ``test_the_update_candidate_of_a_contained_project_is_contained`` records a gap found while building the sweep. The scan names every sensitivity, so it reaches the contained project.
+* ``test_the_default_levels_scan_skips_a_contained_project`` records that the default levels do not reach it.
 
 Why the sweep is a file of its own and not a case of ``test_operator_routes_limits_postgres.py``: that file builds the plain
 vault once per route and counts its rows, and the family is a second vault with a redacted memory, five more commits and
@@ -41,6 +42,7 @@ import pytest
 
 from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext, MCPToolError, MCPToolNotFoundError
+from alicebot_api.vnext_agent_control import DEFAULT_AGENT_SENSITIVITY
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 from tests.integration.operator_route_probes import ALL_SENSITIVITY, PROBES, Call
 from tests.integration.operator_route_runner import carried, run_call
@@ -675,19 +677,49 @@ def test_every_spelling_of_a_memory_ref_is_withheld_at_the_audit_the_recent_comm
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "the project update scan takes the newest active project and writes an update candidate whose title and body name it; "
-        "the candidate records the project's sources and memories as its inputs and not the project, so a project that is "
-        "itself contained (derived from a redacted memory) gives a candidate that is not contained, and an unbound trusted key "
-        "reads the project's name in the artifact list; the security note lists it, and the day a candidate inherits the "
-        "containment of its project this test fails and the entry is deleted"
+        "a project update scan that names every sensitivity reaches a contained project and writes an update candidate whose "
+        "title and body name it; the candidate records the project's sources and memories as its inputs and not the project, so "
+        "the candidate is not contained, and an unbound trusted key reads the project's name in the artifact list; the security "
+        "note lists it, and the day a candidate inherits the containment of its project this test fails and the entry is deleted"
     ),
 )
 def test_the_update_candidate_of_a_contained_project_is_contained(label_harness):
-    """The scheduler runs a project update scan as the admin after the vault is built. With ``contained_project_scanned=True`` the
-    project derived from the redacted memory exists when the scan runs, so the scan writes its update candidate, and the candidate
-    is public and readable. The unbound trusted key is shown the name of the contained project in the artifact list.
+    """The scheduler runs a project update scan as the unbound admin after the vault is built. With ``contained_project_scanned=True``
+    the project derived from the redacted memory exists when the scan runs. The scan names every sensitivity, so it reaches that
+    project and writes its update candidate, and the candidate is readable. The unbound trusted key is shown the name of the
+    contained project in the artifact list.
+
+    Mutation: ask for the default levels instead. The scan skips the project, no candidate names it, and this expected failure passes.
     """
 
-    vault = Vault(label_harness, "p", redacted_family=True, contained_project_scanned=True).build()
+    vault = Vault(
+        label_harness,
+        "p",
+        redacted_family=True,
+        contained_project_scanned=True,
+        project_update_scan_sensitivity=tuple(ALL_SENSITIVITY),
+    ).build()
     status, text = _get(vault, "/v0/vnext/artifacts", vault.keys["trusted"])
     assert status == 200 and vault.text("project_of_redacted-name") not in text
+
+
+def test_the_default_levels_scan_skips_a_contained_project(label_harness):
+    """The same vault, with the project update scan asking for the default levels.
+
+    Those levels leave out the effective label of a project copied from a redacted memory, so the scan does not write a
+    candidate that names it. The owner and the unbound admin would still be shown that name if a candidate had been written,
+    contained or not, so its absence from the admin's artifact list is the skip.
+    """
+
+    vault = Vault(
+        label_harness,
+        "p",
+        redacted_family=True,
+        contained_project_scanned=True,
+        project_update_scan_sensitivity=DEFAULT_AGENT_SENSITIVITY,
+    ).build()
+    name = vault.text("project_of_redacted-name")
+    status, text = _get(vault, "/v0/vnext/artifacts", vault.keys["trusted"])
+    assert status == 200 and name not in text
+    status, text = _get(vault, "/v0/vnext/artifacts", vault.keys["admin"])
+    assert status == 200 and name not in text

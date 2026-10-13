@@ -10,7 +10,7 @@ Unreleased (on main, not in v0.20.0). Three statements are pinned here, each on 
 * after a memory is redacted the owner and an unbound admin key read the rows it contained by id, in the artifact and project
   lists, in recent commits and in the dashboard, but not through recall, the context pack or the default context tree, and a
   request naming every sensitivity lists them, in recall as in the pack (the same three pages);
-* the update candidate the project update scan writes for a project that is itself contained is not contained (the security note).
+* the update candidate the project update scan writes for a project that is itself contained is not contained when the scan names every sensitivity; the default scan does not reach that project (the security note).
 
 Mutations, each one alone: delete the saved-quote sentence from the security note, the tool reference or the changelog; restore the
 sentence that said the name of a field is kept as written; delete the sentence about the names of the fields from any of the three
@@ -185,8 +185,9 @@ EVENTS_NOTE = (
 )
 PROJECT_CANDIDATE = (
     "the update candidate that the project update scan writes for a project that is itself contained is not contained. a project "
-    "is contained when its state was copied from a memory that is then redacted. the scan takes the newest active project, and "
-    "the candidate it writes records the sources and memories of the project as its inputs and not the project"
+    "is contained when its state was copied from a memory that is then redacted. the scan that asks for the default levels "
+    "(`public`, `internal`, `private` and `unknown`) no longer reaches a contained project. a scan that names every sensitivity, "
+    "run by the owner or an unbound admin key, still reaches it"
 )
 LOOP_SENTENCE = (
     "an open loop made with `post /v0/vnext/open-loops` over a memory keeps the title and description its caller typed, so words "

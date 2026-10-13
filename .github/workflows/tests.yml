@@ -2318,12 +2318,28 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Paired read-budget baseline (main at the round-three handoff)
-        if: matrix.integration_check != 'Default surface integration smoke (Postgres)'
+        with:
+          # Full history so the merge base with main is in this checkout.
+          fetch-depth: 0
+      - name: Paired read-budget baseline (pre-labels report, not a gate)
+        if: matrix.integration_check == 'Read-budget maximum workload smoke (Postgres)'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: 48873b038013f4cf548099fcc4610a150972eedd
           path: .read-budget-baseline
+      - name: Merge base with main for the read-budget gate
+        if: matrix.integration_check != 'Default surface integration smoke (Postgres)'
+        run: |
+          git fetch --no-tags origin main
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "read-budget comparison: push to main, first parent"
+            base=$(sh ./scripts/select_read_budget_base.sh push)
+          else
+            echo "read-budget comparison: pull request, merge base with main"
+            base=$(sh ./scripts/select_read_budget_base.sh pull_request)
+          fi
+          echo "read-budget base $base"
+          git worktree add --detach .read-budget-merge-base "$base"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -2349,19 +2365,21 @@ jobs:
         env:
           DATABASE_URL: postgresql://alicebot_app:ci@localhost:5432/alicebot
           DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot
-          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
+          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base
           ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
         # --timeout=180 names one test that runs that long. The cancelled
         # jobs were slow database setup, not a gap near 180s. The round-three
         # grid includes 30 paired fixtures with ten interleaved samples per
-        # action and profile. Session bounds allow that grid to finish while
-        # each measured request retains its unchanged acceptance gate.
+        # action and profile. This step measures the head and the merge base
+        # only. The pre-labels checkout is recorded by the maximum-workload
+        # smoke job, which is not required. Session bounds allow that grid to
+        # finish while each measured request retains its unchanged acceptance gate.
         run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest tests/integration -q -p no:cacheprovider --durations=20 --timeout=180 --session-timeout=4200
 
-      - name: SQLite random mixed-parent and keyless read budgets against the same baseline
+      - name: SQLite random mixed-parent and keyless read budgets against the merge base
         if: matrix.integration_check == 'Integration tests (Postgres + pgvector, role separation)'
         env:
-          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
+          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base
           ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-sqlite-read-budgets.jsonl
         run: ./.venv/bin/python -m pytest tests/performance/test_resume_hidden_rows_budget.py tests/performance/test_label_round3_read_budget.py tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py -q --timeout=180 --session-timeout=1800
 
@@ -2371,13 +2389,14 @@ jobs:
           DATABASE_URL: postgresql://alicebot_app:ci@localhost:5432/alicebot
           DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot
           ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline
+          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base
           ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
           ALICE_READ_PROFILE: ${{ runner.temp }}/round3-read-profiles
           ALICE_READ_ABSOLUTE_GATE: "1"
           # One second is the target on the reference machine, where this fixture
           # reads in 0.41 to 0.68 s. Shared runners are about twice as slow on CPU
-          # and read it in about 1.0 s, so the limit is 1.5 here. The gates against
-          # main on the same runner run in the required job.
+          # and read it in about 1.0 s, so the limit is 1.5 here. The merge-base
+          # gate runs in the required job. This job keeps the absolute limit.
           ALICE_READ_ABSOLUTE_LIMIT_SECONDS: "1.5"
         run: >-
           ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest -q -s --timeout=180
