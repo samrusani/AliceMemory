@@ -404,6 +404,21 @@ def test_a_head_that_returns_too_little_fails_whatever_its_speed(monkeypatch, tm
     assert failed == {(profile, action, "returned_memories") for profile in KEYS for action in ("pack", "recall")}
 
 
+@pytest.mark.parametrize("action_count", [0, 1, READ_LIMIT - 1])
+def test_the_floor_fails_when_the_head_and_the_merge_base_return_the_same_too_small_count(
+    monkeypatch, tmp_path, action_count
+):
+    """Both revisions can return too little, which is what a regression already on main looks like.
+
+    The counts match, so the equality check passes and only the floor fails the read.
+    Mutation: delete ``min(head) < min(READ_LIMIT, VISIBLE_ORIGINALS)``.
+    """
+
+    same = lambda revision, profile, action: action_count
+    failed = measured_failures(monkeypatch, tmp_path, returned=same)
+    assert failed == {(profile, action, "returned_memories") for profile in KEYS for action in ("pack", "recall")}
+
+
 def test_the_returned_count_floor_is_the_default_limit_and_applies_to_each_action(monkeypatch, tmp_path):
     assert measured_failures(monkeypatch, tmp_path, returned=returning(READ_LIMIT)) == set()
     only_recall = lambda revision, profile, action: 0 if revision == "head" and action == "recall" else READ_LIMIT

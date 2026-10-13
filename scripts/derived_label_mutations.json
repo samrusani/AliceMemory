@@ -4139,9 +4139,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_round3_budget_profile_protocol.py::test_a_head_that_returns_too_little_fails_whatever_its_speed"
+        "tests/unit/test_round3_budget_profile_protocol.py::test_the_floor_fails_when_the_head_and_the_merge_base_return_the_same_too_small_count"
       ],
-      "expected_failure": "test_a_head_that_returns_too_little_fails_whatever_its_speed"
+      "expected_failure": "test_the_floor_fails_when_the_head_and_the_merge_base_return_the_same_too_small_count"
     },
     {
       "name": "budget-returned-count-equals-main-without-hidden-input",
