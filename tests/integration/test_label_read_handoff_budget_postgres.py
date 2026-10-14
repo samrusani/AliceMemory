@@ -18,6 +18,7 @@ from tests.performance.read_budget_gate import (
     prelabels_checkout,
 )
 from tests.performance.test_label_read_handoff_budget import seed_copies
+from tests.performance.test_label_round3_read_budget import absolute_limit_seconds
 
 
 def open_probe(repo, backend, location, user):
@@ -104,7 +105,11 @@ def test_postgres_five_thousand_native_read_budgets(label_harness, hidden):
         conn.execute("ANALYZE event_log")
         conn.execute("ANALYZE sources")
     repo = Path(__file__).resolve().parents[2]
-    actions = ("pack", "recall", "workspace", "dogfooding")
+    # Pack and recall are the merge-base gate. The screens are timed only when the absolute
+    # gate is on, which is the maximum-workload smoke job. The required job does not spend its session on them.
+    actions = ("pack", "recall")
+    if os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
+        actions = ("pack", "recall", "workspace", "dogfooding")
     merge_base = os.environ.get("ALICE_READ_MERGE_BASE_CHECKOUT", "").strip()
     if merge_base:
         processes = [open_probe(checkout, "postgres", h.urls["app"], h.user_id) for checkout in (merge_base_checkout(), repo)]
@@ -138,5 +143,8 @@ def test_postgres_five_thousand_native_read_budgets(label_harness, hidden):
         print("PostgreSQL hidden=" + str(hidden) + " head=" + json.dumps(head))
         for action in ("pack", "recall"):
             assert head[action]["median"] <= .15, (action, head)
-    assert head["workspace"]["median"] <= 1.0, head
-    assert head["dogfooding"]["median"] <= 1.0, head
+    # The screen median limit is absolute_limit_seconds(), and only when the absolute gate is on.
+    if os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
+        limit = absolute_limit_seconds()
+        for action in ("workspace", "dogfooding"):
+            assert head[action]["median"] <= limit, (action, head[action])

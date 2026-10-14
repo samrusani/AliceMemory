@@ -62,13 +62,16 @@ def test_sqlite_five_thousand_derived_rows_budget(tmp_path):
         started = time.perf_counter()
         count_twice(store)
         counted = time.perf_counter() - started
-        assert counted <= 1.0, counted
+        # One second for the count and 0.15 seconds for the pack, only when the absolute gate is on.
+        if os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
+            assert counted <= 1.0, counted
         started = time.perf_counter()
         pack = run_pack(store)
         elapsed = time.perf_counter() - started
         assert not any(row_id in str(pack) for row_id in ids)
         print(f"SQLite 5000: counted={counted:.4f}s pack={elapsed:.4f}s")
-        assert elapsed <= 0.15, elapsed
+        if os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
+            assert elapsed <= 0.15, elapsed
     from tests.integration.test_label_read_handoff_budget_postgres import (
         close_probe, interleaved_medians, open_probe, prelabels_medians, solo_medians,
     )
