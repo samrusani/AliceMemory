@@ -463,9 +463,9 @@ jobs:
               f"{mcp_handler_code_path}"
           )
           assert mcp_tools_module.call_mcp_tool is mcp_registry.call_mcp_tool
-          assert len(mcp_registry._CORE_TOOL_DEFINITIONS) == 11
+          assert len(mcp_registry._CORE_TOOL_DEFINITIONS) == 12
           assert len(mcp_registry._LEGACY_TOOL_DEFINITIONS) == 65
-          assert len(mcp_registry._TOOL_HANDLERS) == 76
+          assert len(mcp_registry._TOOL_HANDLERS) == 77
           assert not carrier_path.is_relative_to(repository_path), (
               f"legacy store carrier resolved to checkout source instead of the installed wheel: {carrier_path}"
           )
