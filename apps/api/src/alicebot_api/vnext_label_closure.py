@@ -5,7 +5,26 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from alicebot_api.vnext_derived_labels import canon_kind, dependencies_of, identifier, is_derived, soft_refs
+from alicebot_api.vnext_derived_labels import (
+    canon_kind,
+    dependencies_of,
+    identifier,
+    is_derived,
+    soft_refs,
+    weekly_candidate_memory,
+)
+
+
+def load_weekly_parent_artifacts(store: Any, memory_id: str) -> list[dict[str, object]]:
+    """Reports that name ``memory_id`` in ``candidate_memory_ids``, or none.
+
+    A store with no artifact table, and a store that does not offer the lookup, names no report.
+    """
+
+    reader = getattr(store, "read_artifacts_naming_candidates", None)
+    if not memory_id or not callable(reader):
+        return []
+    return [dict(row) for row in reader([memory_id]) if isinstance(row, Mapping)]
 
 
 def collect_label_rows(
@@ -50,6 +69,25 @@ def collect_label_rows(
         refs = [*dependencies_of(kind, row), *soft_refs(kind, row)] if is_derived(kind, row) else []
         if kind == "belief" and row.get("memory_id"):
             refs.append(("memory", identifier(row["memory_id"])))
+        # A weekly candidate's inputs live on the report that names it. The forward walk never
+        # reaches that report, so load it here and keep walking from its own inputs.
+        if weekly_candidate_memory(kind, row):
+            parents = load_weekly_parent_artifacts(store, str(row.get("id") or ""))
+        else:
+            parents = []
+        for found in parents:
+            copied = dict(found)
+            art_id = identifier(copied.get("id"))
+            if not art_id:
+                continue
+            art_key = ("artifact", art_id)
+            if art_key in requested:
+                continue
+            requested.add(art_key)
+            bucket = loaded.setdefault(art_key, [])
+            if not any(identifier(item.get("id")) == art_id for item in bucket):
+                bucket.append(copied)
+            pending.append(("artifact", copied, depth + 1))
         grouped: dict[str, list[str]] = {}
         for ref_kind, ref_id in refs:
             name, canonical_id = canon_kind(ref_kind), identifier(ref_id)

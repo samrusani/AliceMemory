@@ -1316,6 +1316,21 @@ def has_implicit_weekly_inputs(kind: str, row: Mapping[str, object]) -> bool:
     return canon_kind(kind) == "artifact" and bool(_metadata(row).get("candidate_memory_ids"))
 
 
+def weekly_candidate_memory(kind: object, row: Mapping[str, object]) -> bool:
+    """A memory written by weekly synthesis, judged with the report that names it.
+
+    v0.20.0 stored the inputs on the report and not on the memory. The report names the memory in
+    ``candidate_memory_ids``. A memory written on main also carries its own record. Either way the
+    memory's label is at least the label of that report's inputs.
+    """
+
+    return (
+        canon_kind(kind) == "memory"
+        and is_derived(kind, row)
+        and _metadata(row).get("discovered_by") == "vnext_weekly_synthesis"
+    )
+
+
 def _copy_scope(stored: tuple[str, ...], parents: Sequence[SettledLabel]) -> tuple[str, ...]:
     live = [item for item in parents if item.carries_scope]
     if not parents:

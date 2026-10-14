@@ -36,6 +36,7 @@ from alicebot_api.vnext_derived_labels import (
     identifier,
     has_implicit_weekly_inputs,
     is_derived,
+    weekly_candidate_memory,
     is_redacted_row,
     input_admitted,
     settle_labels,
@@ -489,7 +490,7 @@ class LabelGuard:
         template = self._signature(kind, row, key=key)
         refs, problem = template[1:3]
         candidates, unreadable = template[-2], template[-1]
-        if problem or has_implicit_weekly_inputs(kind, row):
+        if problem or has_implicit_weekly_inputs(kind, row) or weekly_candidate_memory(kind, row):
             return None
         reader = getattr(self.store, "read_label_rows", None)
         if (refs or candidates or unreadable) and not callable(reader):
@@ -767,6 +768,10 @@ class LabelGuard:
         result = settle_labels(nodes, on_cycle="unverified", max_hops=HOP_BOUND, max_nodes=NODE_BOUND)
         settled = {label.key: label for label in result.rows}
         for row in rows:
+            # A weekly candidate is settled with the report that names it. This batch did not load
+            # that report, so its label here is not the one a read may cache.
+            if weekly_candidate_memory(kind, row):
+                continue
             label = settled.get((canon_kind(kind), _GUARD_USER, identifier(row["id"])))
             if label is not None and not label.unverified:
                 state.labels[self._key(kind, row)] = label
