@@ -574,17 +574,39 @@ def validate(notes: tuple[Note, ...] | list[Note]) -> list[str]:
             if path not in by_path:
                 problems.append(f"anchor path {path} is missing")
     for absent in ABSENT:
-        found = [path for path, text in texts.items() if absent in text]
-        if found:
-            problems.append(f"{absent!r} appears in {found[0]}")
+        absent_paths = [path for path, text in texts.items() if absent in text]
+        if absent_paths:
+            problems.append(f"{absent!r} appears in {absent_paths[0]}")
     return problems
 
 
+# The generator writes this file when it owns the folder. A folder that already
+# holds files and lacks the marker is left untouched.
+OWNER_MARKER = ".showcase_company_owner"
+OWNER_MANIFEST = ".showcase_company_files"
+OWNER_TEXT = "showcase company generator owns this folder\n"
+
+
 def write_notes(notes: tuple[Note, ...] | list[Note], directory: Path) -> None:
-    """Write one Markdown file per note under ``directory``."""
+    """Write one Markdown file per note under ``directory``.
+
+    An empty folder is taken over and marked. A folder that already holds files
+    is refused unless it carries the ownership marker. Files the generator did
+    not write are left in place. A file listed in the previous manifest and
+    absent from this run is removed, because the generator wrote it.
+    """
 
     root = directory
     root.mkdir(parents=True, exist_ok=True)
+    marker = root / OWNER_MARKER
+    manifest_path = root / OWNER_MANIFEST
+    owned = marker.is_file()
+    # Refuse a folder the generator does not own when it already holds files.
+    if any(root.iterdir()) and not owned:
+        raise ValueError("refusing to write: the folder is not empty and has no generator ownership marker")
+    previous: set[str] = set()
+    if manifest_path.is_file():
+        previous = {line.strip() for line in manifest_path.read_text(encoding="utf-8").splitlines() if line.strip()}
     expected = {note.relative_path for note in notes}
     for note in notes:
         path = root / note.relative_path
@@ -592,7 +614,9 @@ def write_notes(notes: tuple[Note, ...] | list[Note], directory: Path) -> None:
             raise ValueError("a note path leaves the output directory")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(note.markdown(), encoding="utf-8")
-    for path in root.rglob("*.md"):
-        relative = path.relative_to(root).as_posix()
-        if relative not in expected:
+    for relative in sorted(previous - expected):
+        path = (root / relative).resolve()
+        if path.is_file() and path.is_relative_to(root.resolve()):
             path.unlink()
+    marker.write_text(OWNER_TEXT, encoding="utf-8")
+    manifest_path.write_text("\n".join(sorted(expected)) + "\n", encoding="utf-8")

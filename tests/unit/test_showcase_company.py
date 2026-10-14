@@ -124,6 +124,50 @@ def test_planted_facts_cover_every_bench_task_and_abstentions_are_absent() -> No
     assert "cold-start failures" not in texts["product/decisions/operating-floor.md"]
 
 
+def test_a_folder_the_generator_does_not_own_is_refused(tmp_path: Path) -> None:
+    """A hand-written note in a folder with no ownership marker is left alone.
+
+    Mutation: change the refuse check ``if any(root.iterdir()) and not owned``
+    so it does not refuse.
+    """
+
+    folder = tmp_path / "foreign"
+    folder.mkdir()
+    handwritten = folder / "handwritten.md"
+    handwritten.write_text("keep this note\n", encoding="utf-8")
+    try:
+        write_notes([], folder)
+    except ValueError as exc:
+        assert "no generator ownership marker" in str(exc)
+    else:
+        raise AssertionError("a foreign folder was overwritten")
+    assert handwritten.read_text(encoding="utf-8") == "keep this note\n"
+    assert not (folder / ".showcase_company_owner").exists()
+    assert list(folder.rglob("*.md")) == [handwritten]
+
+
+def test_a_handwritten_note_in_an_owned_folder_is_kept(tmp_path: Path) -> None:
+    folder = tmp_path / "owned"
+    notes = [note for note in generate(1000) if note.relative_path == "sales/accounts/span-open.md"]
+    write_notes(notes, folder)
+    handwritten = folder / "handwritten.md"
+    handwritten.write_text("keep this note\n", encoding="utf-8")
+    write_notes(notes, folder)
+    assert handwritten.read_text(encoding="utf-8") == "keep this note\n"
+    assert (folder / "sales" / "accounts" / "span-open.md").is_file()
+    assert (folder / ".showcase_company_owner").read_text(encoding="utf-8").startswith("showcase company generator owns")
+
+
+def test_a_note_the_generator_wrote_and_no_longer_produces_is_removed(tmp_path: Path) -> None:
+    folder = tmp_path / "owned"
+    first = [note for note in generate(1000) if note.relative_path == "sales/accounts/span-open.md"]
+    second_source = next(note for note in generate(1000) if note.relative_path == "product/meetings/span-close.md")
+    write_notes(first, folder)
+    write_notes([second_source], folder)
+    assert not (folder / "sales" / "accounts" / "span-open.md").exists()
+    assert (folder / "product" / "meetings" / "span-close.md").is_file()
+
+
 def test_the_script_writes_the_folder_the_library_builds(tmp_path: Path) -> None:
     completed = subprocess.run(
         [sys.executable, str(SCRIPT), "--size", "1000", "--out", str(tmp_path / "company")],
