@@ -1033,6 +1033,7 @@ def add_showcase_commands(sub: argparse._SubParsersAction, commands: dict[str, A
     record.add_argument("--tokens", type=int, default=0)
     record.add_argument("--seconds", type=float, default=0.0)
     record.add_argument("--calls", type=int, default=0)
+    record.add_argument("--retrieved", default=None, choices=("yes", "no"))
 
     packet = sub.add_parser("showcase-packet", help="Write a grading packet that does not name the arm.")
     packet.add_argument("--questions", required=True)
@@ -1145,20 +1146,42 @@ def _cmd_search(args: argparse.Namespace) -> int:
     return bench.EXIT_OK
 
 
+def recall_note_retrieved(snapshot: Path, question: Mapping[str, Any], tool_text: str) -> bool | None:
+    """Whether a recall search returned each needed note.
+
+    Other tasks return None. A needed note counts as retrieved when its last
+    body line is in the tool text.
+    """
+
+    if question.get("task") != "recall":
+        return None
+    paths = [str(item) for item in question.get("needed_paths") or []]
+    if not paths:
+        return None
+    folded = tool_text.casefold()
+    for relative in paths:
+        note = (snapshot / relative).read_text(encoding="utf-8")
+        body = note.split("---", 2)[-1]
+        lines = [line.strip() for line in body.splitlines() if line.strip() and not line.startswith("#")]
+        if not lines or lines[-1].casefold() not in folded:
+            return False
+    return True
+
+
 def _cmd_record(args: argparse.Namespace) -> int:
     path = bench.require_run_dir(Path(args.run_dir)) / "answers.jsonl"
-    wrote = record_answer(
-        path,
-        {
-            "id": args.id,
-            "arm": args.arm,
-            "team": args.team,
-            "answer": args.answer,
-            "tokens": args.tokens,
-            "seconds": args.seconds,
-            "calls": args.calls,
-        },
-    )
+    row: dict[str, Any] = {
+        "id": args.id,
+        "arm": args.arm,
+        "team": args.team,
+        "answer": args.answer,
+        "tokens": args.tokens,
+        "seconds": args.seconds,
+        "calls": args.calls,
+    }
+    if args.retrieved is not None:
+        row["retrieved"] = args.retrieved == "yes"
+    wrote = record_answer(path, row)
     print("recorded" if wrote else "kept")
     return bench.EXIT_OK
 

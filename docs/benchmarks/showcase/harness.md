@@ -48,6 +48,12 @@ Grep and the note-folder arm search the whole shared folder. That is what a shar
 
 The questions file records who may know each planted fact. HR pay is for leadership only. A pricing draft is for sales and leadership. Any other note is for every team. Leak scores use that table. They do not ask Alice who may read a note.
 
+## Demo setup
+
+The search arms do not create a project. A product key with no project cannot commit a memory. The demo that records decisions calls `prepare_demo_product` in `scripts/showcase_demo.py`. That creates one product project and binds the product key to it. The search benchmark does not call it.
+
+For a recall question, `recall_note_retrieved` reports whether the search text contains each needed note. `showcase-record --retrieved yes` stores that on the answer.
+
 ## Commands
 
 ```

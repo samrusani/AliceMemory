@@ -448,6 +448,57 @@ def test_the_team_table_in_the_harness_matches_a_live_run(tmp_path: Path) -> Non
     assert "memory.commit" in table
 
 
+def test_a_recall_search_records_whether_the_needed_note_came_back(tmp_path: Path) -> None:
+    snapshot = tmp_path / "snapshot"
+    relative = "sales/accounts/larkspur-contract.md"
+    note = snapshot / relative
+    note.parent.mkdir(parents=True)
+    note.write_text(
+        "---\nteam: sales\ndate: 2025-02-11\nsensitivity: internal\ndomain: professional\nkind: account_note\n---\n\n"
+        "The service contract is QF-C-2041.\n",
+        encoding="utf-8",
+    )
+    question = {"task": "recall", "needed_paths": [relative]}
+    assert showcase.recall_note_retrieved(snapshot, question, "The service contract is QF-C-2041.") is True
+    assert showcase.recall_note_retrieved(snapshot, question, "nothing about a contract") is False
+    assert showcase.recall_note_retrieved(snapshot, {"task": "change", "needed_paths": [relative]}, "QF-C-2041") is None
+
+
+def test_the_demo_binds_the_product_key_to_the_product_project(tmp_path: Path) -> None:
+    """The search arms leave the product key unbound. The demo setup binds it.
+
+    Mutation: demo_product_binding returns None. The product key stays unbound and this test fails.
+    """
+
+    import sqlite3
+
+    from alicebot_api.vnext_agent_control import evaluate_agent_policy
+
+    import scripts.showcase_demo as demo
+
+    corpus = tmp_path / "notes"
+    _note(corpus, "a.md", "sales", "internal", "professional", "a public product note")
+    run = tmp_path / "run"
+    db_path = showcase.import_corpus(run, corpus)
+    keys = showcase._create_keys(db_path)
+    unbound = showcase._identity(db_path, keys["product"])
+    assert unbound.project_scope == ()
+    project_id = demo.prepare_demo_product(db_path)
+    again = demo.prepare_demo_product(db_path)
+    assert again == project_id
+    bound = showcase._identity(db_path, keys["product"])
+    assert bound.project_scope == (project_id,)
+    sales = showcase._identity(db_path, keys["sales"])
+    assert sales.project_scope == ()
+    with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
+        slug = conn.execute("SELECT slug FROM projects").fetchone()[0]
+    assert count == 1
+    assert slug == demo.PRODUCT_PROJECT_SLUG
+    decision = evaluate_agent_policy(identity=bound, action="memory.commit")
+    assert decision.decision != "blocked"
+
+
 def test_showcase_live_refuses_a_host_that_is_not_loopback(tmp_path: Path) -> None:
     code = bench.main(
         ["showcase-live", "--run-dir", str(tmp_path / "run"), "--notes", "20", "--endpoint", "https://example.com"]
