@@ -178,7 +178,10 @@ def _source_steps(
 ) -> list[dict[str, object]]:
     cited: list[str] = []
     for step in memory_steps:
-        for source in step["sources"]:
+        raw_sources = step.get("sources")
+        if not isinstance(raw_sources, list):
+            continue
+        for source in raw_sources:
             if isinstance(source, Mapping):
                 source_id = str(source.get("source_id") or "")
                 if source_id and source_id not in cited:

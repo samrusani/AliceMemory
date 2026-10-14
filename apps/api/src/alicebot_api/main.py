@@ -1484,9 +1484,6 @@ app.include_router(vnext_retrieval.context_router)
 app.include_router(vnext_memories.memory_router)
 
 
-app.include_router(vnext_changes.changes_router)
-
-
 app.include_router(vnext_review.review_router)
 
 
@@ -1528,6 +1525,9 @@ def _apply_legacy_surface_mount_policy() -> None:
             continue
         retained_routes.append(route)
     app.router.routes[:] = retained_routes
+
+
+app.include_router(vnext_changes.changes_router)
 
 
 _apply_legacy_surface_mount_policy()

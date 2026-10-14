@@ -9,9 +9,10 @@ from alicebot_api.vnext_what_changed import what_changed
 
 from .runtime import _open_vnext_store
 from .shared import MCPRuntimeContext, _agent_identity_from_arguments, _json_object, _parse_required_text
+from .types import JsonObject
 
 
-def _handle_alice_what_changed(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> dict[str, object]:
+def _handle_alice_what_changed(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     topic = _parse_required_text(arguments, "topic")
     identity = _agent_identity_from_arguments(context, arguments)
     with _open_vnext_store(context) as store:

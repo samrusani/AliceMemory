@@ -4246,7 +4246,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py -q",
           "after": "tests/performance/test_label_read_handoff_budget.py -q",
-          "sha256": "9289911857af69600241c5e789ebeb275979f458d9854f8cb6b253d4b677825c",
+          "sha256": "8efc536a98bd9e1b7015ab42a93d6290ad15a37559fef037b37f523b14035546",
           "line": 2384
         }
       ],
@@ -6694,7 +6694,7 @@
           "line": 763,
           "before": "        (\"GET\", \"/v0/vnext/memories/recent-commits\"),\n",
           "after": "",
-          "sha256": "0282613b30ad4dda4b0389c4ea56437855c746032ae53bfcefd2928ccedf7bd6"
+          "sha256": "9bfab23bf1e28b544c769f37f00ad34f80acd5ba5ef84a972b3105bc38fd3471"
         }
       ],
       "pytest": [
@@ -6710,7 +6710,7 @@
           "line": 1346,
           "before": "    if settings.app_env not in {\"development\", \"test\"} and not is_vnext_path:",
           "after": "    if False and not is_vnext_path:",
-          "sha256": "0282613b30ad4dda4b0389c4ea56437855c746032ae53bfcefd2928ccedf7bd6"
+          "sha256": "9bfab23bf1e28b544c769f37f00ad34f80acd5ba5ef84a972b3105bc38fd3471"
         }
       ],
       "pytest": [
@@ -12487,7 +12487,7 @@
           "line": 2400,
           "before": "          ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"\n",
           "after": "",
-          "sha256": "9289911857af69600241c5e789ebeb275979f458d9854f8cb6b253d4b677825c"
+          "sha256": "8efc536a98bd9e1b7015ab42a93d6290ad15a37559fef037b37f523b14035546"
         }
       ],
       "pytest": [
@@ -15305,7 +15305,7 @@
           "line": 1394,
           "before": "app.add_middleware(RetryDeepRowMiddleware)\n",
           "after": "pass\n",
-          "sha256": "0282613b30ad4dda4b0389c4ea56437855c746032ae53bfcefd2928ccedf7bd6"
+          "sha256": "9bfab23bf1e28b544c769f37f00ad34f80acd5ba5ef84a972b3105bc38fd3471"
         }
       ],
       "pytest": [
@@ -17599,7 +17599,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
           "after": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
-          "sha256": "9289911857af69600241c5e789ebeb275979f458d9854f8cb6b253d4b677825c",
+          "sha256": "8efc536a98bd9e1b7015ab42a93d6290ad15a37559fef037b37f523b14035546",
           "line": 2367
         }
       ],
@@ -17871,7 +17871,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
           "after": "          ALICE_READ_ABSOLUTE_GATE: \"1\"\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
-          "sha256": "9289911857af69600241c5e789ebeb275979f458d9854f8cb6b253d4b677825c",
+          "sha256": "8efc536a98bd9e1b7015ab42a93d6290ad15a37559fef037b37f523b14035546",
           "line": 2368
         }
       ],
@@ -17887,7 +17887,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_round2_read_budget_postgres.py::test_postgres_round2_read_budgets[one-hidden]'\n",
           "after": "",
-          "sha256": "9289911857af69600241c5e789ebeb275979f458d9854f8cb6b253d4b677825c",
+          "sha256": "8efc536a98bd9e1b7015ab42a93d6290ad15a37559fef037b37f523b14035546",
           "line": 2405
         }
       ],
@@ -17903,7 +17903,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_read_handoff_budget_postgres.py::test_postgres_five_thousand_native_read_budgets[False]'\n",
           "after": "",
-          "sha256": "9289911857af69600241c5e789ebeb275979f458d9854f8cb6b253d4b677825c",
+          "sha256": "8efc536a98bd9e1b7015ab42a93d6290ad15a37559fef037b37f523b14035546",
           "line": 2406
         }
       ],
@@ -17968,7 +17968,7 @@
           "line": 52,
           "before": "    \"\"\"Whether this caller may read this stored step.\"\"\"\n\n    return not outside_caller_limits(store, identity, kind, row)\n",
           "after": "    \"\"\"Whether this caller may read this stored step.\"\"\"\n\n    return True\n",
-          "sha256": "cfef7506f19c7f0abb669416a53bca0c06f69f6e8d63d4b3aa80ed767fefe4c9"
+          "sha256": "6780b7422f7f94d0e183a4a58cb520f84237c524f6a5837e4b20e32f910f4090"
         }
       ],
       "pytest": [
