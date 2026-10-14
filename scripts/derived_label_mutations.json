@@ -17968,7 +17968,7 @@
           "line": 52,
           "before": "    \"\"\"Whether this caller may read this stored step.\"\"\"\n\n    return not outside_caller_limits(store, identity, kind, row)\n",
           "after": "    \"\"\"Whether this caller may read this stored step.\"\"\"\n\n    return True\n",
-          "sha256": "6780b7422f7f94d0e183a4a58cb520f84237c524f6a5837e4b20e32f910f4090"
+          "sha256": "fa11865662e72e3c570edf67132fc9e4730d3408328582bf4080028c4b14c80b"
         }
       ],
       "pytest": [

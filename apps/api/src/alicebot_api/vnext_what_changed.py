@@ -485,7 +485,18 @@ def _load_memories(store: Any, user_id: object) -> list[Mapping[str, object]]:
     return _fetch(store, _MEMORY_SQL, (str(user_id),))
 
 
+def _is_uuid(value: str) -> bool:
+    from uuid import UUID
+
+    try:
+        UUID(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def _load_sources(store: Any, user_id: object, source_ids: Sequence[str]) -> dict[str, Mapping[str, object]]:
+    source_ids = [source_id for source_id in source_ids if _is_uuid(source_id)]
     if not source_ids:
         return {}
     marks = ", ".join("?" for _ in source_ids)
@@ -494,6 +505,15 @@ def _load_sources(store: Any, user_id: object, source_ids: Sequence[str]) -> dic
 
 
 def _fetch(store: Any, query: str, params: tuple[object, ...]) -> list[Mapping[str, object]]:
+    # Every placeholder in these reads is a uuid column. Postgres will not
+    # compare uuid to text, and it returns those columns as UUID objects.
     if type(store).__name__ == "PostgresVNextStore":
-        query = query.replace("?", "%s")
-    return [row for row in store._fetch_all(query, params) if isinstance(row, Mapping)]
+        query = query.replace("?", "%s::uuid")
+    rows: list[Mapping[str, object]] = []
+    for row in store._fetch_all(query, params):
+        if isinstance(row, Mapping):
+            plain: dict[str, object] = {
+                str(key): str(value) if type(value).__name__ == "UUID" else value for key, value in row.items()
+            }
+            rows.append(plain)
+    return rows
