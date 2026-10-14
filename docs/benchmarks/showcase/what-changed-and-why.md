@@ -6,47 +6,52 @@ An agent or a person asks about one topic: an account, a price, a feature, a pol
 
 ## Response shape
 
-The current step is first. The history follows, oldest to newest, and it includes that same current step so the chronology that was found is whole. The answer is the history found among the most relevant records. It is not a promise of a complete history.
+The answer is a list of chains, ordered by the recall rank of their starts. Each chain has its own `current`, `upcoming`, `disputed` and `history`. Inside a chain, the current step is first in that chain's object, and `history` follows, oldest to newest, including that same current step so the chronology that was found is whole. The answer is the history found among the most relevant records. It is not a promise of a complete history. One `current` is not shared across chains: the newest step of one chain is not the answer for another.
 
-Every answer, including an empty one, carries this sentence in these words: "This covers the recorded decisions the caller may read. It is not a company-wide statement."
+Every answer, including an empty one, carries this sentence in these words: "This covers the recorded decisions the caller may read. It is not a company-wide statement." That notice, and the sentence "No recorded decision history was found" when it applies, stay at the top level. They are not repeated inside each chain.
 
 ```json
 {
   "notice": "This covers the recorded decisions the caller may read. It is not a company-wide statement.",
   "topic": "Keel sensor kit price",
-  "current": {
-    "id": "memory id of the November decision",
-    "kind": "memory",
-    "chain": "memory id of the recall match that started this chain",
-    "date": "2025-11-18",
-    "change": "the list price was cut to 520 ledger units",
-    "reason": {
-      "text": "the June price was too high for the renewal",
-      "source_id": "source id of the note the decision cites"
-    },
-    "replaced": "memory id of the June decision",
-    "disagrees_with": null,
-    "sources": [
-      {
-        "source_id": "source id",
-        "title": "Keel sensor kit list price cut",
-        "date": "2025-11-18"
-      }
-    ],
-    "author": "showcase-sales",
-    "review_state": "active"
-  },
-  "upcoming": [],
-  "disputed": [],
-  "history": []
+  "chains": [
+    {
+      "start": "memory id of the recall match that started this chain",
+      "current": {
+        "id": "memory id of the November decision",
+        "kind": "memory",
+        "chain": "memory id of the recall match that started this chain",
+        "date": "2025-11-18",
+        "change": "the list price was cut to 520 ledger units",
+        "reason": {
+          "text": "the June price was too high for the renewal",
+          "source_id": "source id recorded on the decision's provenance"
+        },
+        "replaced": "memory id of the June decision",
+        "disagrees_with": null,
+        "sources": [
+          {
+            "source_id": "source id",
+            "title": "Keel sensor kit list price cut",
+            "date": "2025-11-18"
+          }
+        ],
+        "author": "showcase-sales",
+        "review_state": "active"
+      },
+      "upcoming": [],
+      "disputed": [],
+      "history": []
+    }
+  ]
 }
 ```
 
-`current` is the newest step the caller may read that is settled as of today. It is never filled from a step that is not settled. A step whose `valid_from` is after today goes in `upcoming`, not in `current`. Two readable steps joined by an unresolved contradiction record give `current: null` and `disputed` set to their ids. `upcoming` and `disputed` are ids of steps that also appear in `history`.
+For each chain, `current` is the newest settled step in that chain that the caller may read, as of today. It is never filled from a step that is not settled, and it is never a step whose review state is `needs_review`. A step whose `valid_from` is after today goes in that chain's `upcoming`, not in its `current`. `current` is null for a disagreement only when the newest settled candidate of that chain is part of an unresolved disagreement. An older disputed pair that a newer settled step replaced does not clear `current`. `upcoming` and `disputed` are ids of steps that also appear in that chain's `history`.
 
-`history` is every step the caller may read, oldest first. Each step carries `id` and `kind` (`memory` or `source`), and `chain`, the id of the recall match that started its chain. `replaced` is the `id` of a step that appears in this caller's `history`, or null. It is never a description of a step the caller may not read, so a visible step that replaced a hidden one shows null. `disagrees_with` is the same kind of reference. `reason` is the recorded reason, or null. `sources` are ids, titles and dates. `author` is the agent or person the record already names. `review_state` is the status the review and promotion rules already store.
+`history` is every step of that chain the caller may read, oldest first, including a step under review. Each step carries `id` and `kind` (`memory` or `source`), and `chain`, the id of the recall match that started its chain. `replaced` is the `id` of a step that appears in this caller's `history` for that chain, or null. It is never a description of a step the caller may not read, so a visible step that replaced a hidden one shows null. `disagrees_with` is the same kind of reference. `reason` is the recorded reason, or null. `sources` are ids, titles and dates. `author` is the agent or person the record already names. `review_state` is the status the review and promotion rules already store.
 
-A topic with no visible step returns `current: null`, `upcoming: []`, `disputed: []`, `history: []`, the notice above, and the sentence "No recorded decision history was found", and it names `alice_recall` as the ordinary search. Those words are the same when no record matched and when every match is hidden.
+A topic with no visible step returns `chains: []`, the notice above, and the sentence "No recorded decision history was found", and it names `alice_recall` as the ordinary search. Those words are the same when no record matched and when every match is hidden.
 
 ## How a step belongs to the topic
 
@@ -73,7 +78,7 @@ No new table and no new column.
 
 ## What changed and why
 
-`reason` is the reason stated in the decision record (`rationale`, or `confirmation_rationale` when that is the stored reason), or the reason stated in a source the decision cites when the caller may read that source. The quote is stored with that source's id. `reason` is null when no reason is stated. A model does not write it.
+`reason` is the reason stated in the decision record (`rationale`, or `confirmation_rationale` when that is the stored reason), or a quote already recorded with the decision's provenance (the `quote` of a `source_refs` or `provenance` entry). That quote is shown with the source's id, and only when the caller may read that source. The saved-quote rules already apply to it. The read never searches the note text for a reason. `reason` is null when no reason is recorded. A model does not write it.
 
 ## Citations, evidence, author and review
 
@@ -83,19 +88,19 @@ Every step also carries its source references, its author (the recording agent o
 
 ## What current means
 
-`current` is the settled answer as of today among the steps the caller may read. It is the newest of those settled steps. It is never filled from a step that is not settled.
+Each chain has its own `current`. It is the settled answer as of today among the steps of that chain the caller may read. It is the newest of those settled steps. It is never filled from a step that is not settled, and a step under review (`needs_review`) appears in that chain's `history` with its review state and is never `current`.
 
-A step is settled when its review state is an accepted one (`active`, or confirmation `confirmed`), its `valid_from` is today or earlier or is unset, and it is not one of two readable steps joined by an unresolved contradiction. A contradiction record is unresolved when its review has not accepted or dismissed it (`candidate` or `needs_review`, rather than `reinforce`, `challenge`, `supersede` or `retire`).
+A step is settled when its review state is an accepted one (`active`, or confirmation `confirmed`), its `valid_from` is today or earlier or is unset, and it is not the newest settled candidate of a chain that is part of an unresolved disagreement. A contradiction record is unresolved when its review has not accepted or dismissed it (`candidate` or `needs_review`, rather than `reinforce`, `challenge`, `supersede` or `retire`).
 
-A step that takes effect later (its `valid_from` is after today) goes in `upcoming`, not `current`. Two readable steps joined by an unresolved contradiction record give `current: null` and `disputed: [ids]`. The newer of those two is later in `history`.
+A step that takes effect later (its `valid_from` is after today) goes in that chain's `upcoming`, not its `current`. `current` is null for a disagreement only when the newest settled candidate of that chain is part of an unresolved disagreement, and `disputed` lists those ids. An older disputed pair that a newer settled step replaced does not clear `current`. The newer of a disputed pair is later in that chain's `history`.
 
-None of these rules may depend on a step the caller may not read. A hidden newer step, or a hidden contradiction partner, changes nothing in the caller's answer: `current` is not cleared, `disputed` does not gain an id, and `replaced` and `disagrees_with` stay null rather than naming the hidden step.
+None of these rules may depend on a step the caller may not read. A hidden newer step, or a hidden contradiction partner, changes nothing in the caller's answer: `current` is not cleared, `disputed` does not gain an id, and `replaced` and `disagrees_with` stay null rather than naming the hidden step. That sameness holds while the hidden candidates stay below the 128 cap. Hidden candidates ahead of the visible ones can use up the cap, so past that bound the set of chains can differ. The answer still gives no count and no gap marker.
 
 ## Permissions
 
 The read uses the label guard recall uses: effective labels raised by inputs, domains, project binding, and unverified rows. That check applies to each step, to each cited source, and to each `replaced` and `disagrees_with` reference. A step, a source or a reference the caller may not read is left out. The history has no gap marker and no count of what was left out. `history` length is the number of steps returned.
 
-`current` is the newest step the caller may read that is settled as of today.
+For each chain, `current` is the newest step of that chain the caller may read that is settled as of today. A `needs_review` step is never that chain's `current`.
 
 A support key does not see an HR note or a pricing draft, and does not see a decision whose inputs raise it above that key. A sales key sees a pricing draft and a decision it may read, and does not see an HR note. A leadership key sees both. The owner and an unbound admin key see every step their own request admits. A key bound to one project, including a bound `admin_agent` key, sees only the steps in that project.
 
@@ -122,9 +127,9 @@ When the read is built, its time is measured on the 10,000-note company next to 
 ## Tests, when this is built
 
 - The planted histories come back in order with their sources, after the setup script has recorded them through the tools below. Each team key sees only its own share.
-- A key with limits gets the same answer, byte for byte, with and without hidden steps present.
+- A key with limits gets the same answer, byte for byte, with and without hidden steps present, while the hidden candidates stay below the 128 cap.
 - A `superseded_by` cycle, and a chain longer than 64, stop as this note says.
-- An answer at the 128 cap.
+- An answer at the 128 cap gives no count and no gap marker.
 - A small set of notes written by hand in plain wording that the generator does not produce. Their recorded decisions come back as well as the planted ones.
 - The budget test of 10,000 hidden candidates.
 
