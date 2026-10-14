@@ -2402,6 +2402,8 @@ jobs:
           ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest -q -s --timeout=180
           'tests/integration/test_label_round3_read_budget_postgres.py::test_postgres_round3_random_read_budgets[False-3000-all-visible]'
           'tests/integration/test_label_round3_read_budget_postgres.py::test_postgres_round3_random_read_budgets[True-3000-extra-rows]'
+          'tests/integration/test_label_round2_read_budget_postgres.py::test_postgres_round2_read_budgets[one-hidden]'
+          'tests/integration/test_label_read_handoff_budget_postgres.py::test_postgres_five_thousand_native_read_budgets[False]'
 
       - name: Retain paired read-budget samples, including failed runs
         if: always() && matrix.integration_check != 'Default surface integration smoke (Postgres)'
