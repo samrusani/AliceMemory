@@ -71,6 +71,6 @@ def post_vnext_changes(
         return _vnext_agent_auth_error_response(exc)
     except AgentPolicyBlockedError as exc:
         return _vnext_permission_response(exc.decision)
-    except SourceSearchQueryTooLarge as exc:
-        return _vnext_public_error_response(status_code=400, detail=exc.public_message)
+    except SourceSearchQueryTooLarge:
+        return _vnext_public_error_response(status_code=400, detail="The topic is too long")
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))

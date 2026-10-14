@@ -513,30 +513,6 @@ _TABLE_STATEMENTS: tuple[str, ...] = (
     )
     """,
     f"""
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      description TEXT NULL,
-      current_state TEXT NULL,
-      domain TEXT NOT NULL DEFAULT 'project',
-      sensitivity TEXT NOT NULL DEFAULT 'private',
-      created_at TEXT NOT NULL DEFAULT {_NOW_UTC_ISO_SQL},
-      updated_at TEXT NOT NULL DEFAULT {_NOW_UTC_ISO_SQL},
-      metadata_json TEXT NOT NULL DEFAULT '{{}}',
-      UNIQUE (id, user_id),
-      UNIQUE (user_id, slug),
-      CONSTRAINT projects_domain_check
-        CHECK (domain IN ({_DOMAINS_SQL})),
-      CONSTRAINT projects_sensitivity_check
-        CHECK (sensitivity IN ({_SENSITIVITY_SQL})),
-      CONSTRAINT projects_metadata_json_object_check
-        CHECK (json_type(metadata_json) = 'object')
-    )
-    """,
-    f"""
     CREATE TABLE IF NOT EXISTS open_loops (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

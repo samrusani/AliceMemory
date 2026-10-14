@@ -9,7 +9,7 @@ binds the product key to it.
 from __future__ import annotations
 
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import scripts.alice_bench as bench
 
@@ -65,18 +65,19 @@ def prepare_demo_product(db_path: Path) -> str:
 
 
 def _ensure_product_project(store) -> str:
+    """The project id stored on the product key.
+
+    SQLite has no projects table. The binding is the project scope on the key,
+    which is how a project-scoped key is limited.
+    """
+
     found = store.conn.execute(
-        "SELECT id FROM projects WHERE user_id = ? AND slug = ?",
-        (store.user_id, PRODUCT_PROJECT_SLUG),
+        """
+        SELECT project_scope FROM agent_api_keys
+        WHERE user_id = ? AND agent_id = ? AND revoked_at IS NULL
+        """,
+        (store.user_id, PRODUCT_AGENT_ID),
     ).fetchone()
-    if found is not None:
-        return str(found["id"])
-    row = store.create_project(
-        {
-            "name": PRODUCT_PROJECT_NAME,
-            "slug": PRODUCT_PROJECT_SLUG,
-            "domain": "project",
-            "sensitivity": "private",
-        }
-    )
-    return str(row["id"])
+    if found is not None and found["project_scope"]:
+        return str(found["project_scope"])
+    return str(uuid4())
