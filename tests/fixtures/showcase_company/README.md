@@ -24,10 +24,11 @@ financial and sensitivity private. `financial` is a restricted domain too. A
 published price stays internal and professional, because a support key may
 read an internal note and must still be refused a draft price.
 
-The generator writes `.showcase_company_owner` in a folder it owns. It refuses
-a folder that already holds files and lacks that marker. It does not delete a
-file it did not write. A file it wrote on an earlier run and that this run
-does not produce is removed.
+The generator writes `.showcase_company_owner` in a folder it owns, and
+`.showcase_company_files` lists the paths it wrote. It refuses a folder that
+already holds files and lacks the ownership marker. It does not delete a file
+it did not write. A file it wrote on an earlier run and that this run does
+not produce is removed.
 
 The planted notes hold one fact for each bench task: a fact stated once, a
 decision that is later reversed, a customer whose status changes, two notes
