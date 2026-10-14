@@ -27,6 +27,7 @@ from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.migrations import make_alembic_config
 from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_agent_keys import create_agent_key, resolve_agent_identity
+from alicebot_api.vnext_label_closure import load_weekly_parent_artifacts
 from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
 from alicebot_api.vnext_label_writes import without_insert_floor
 from alicebot_api.vnext_store import PostgresVNextStore
@@ -259,10 +260,10 @@ def test_an_approved_v020_weekly_candidate_survives_the_upgrade_on_postgres(data
         missing = []
         for _ in range(40):
             started = time.perf_counter()
-            found = store.read_artifacts_naming_candidates([str(weekly["id"])])
+            found = load_weekly_parent_artifacts(store, str(weekly["id"]))
             named.append(time.perf_counter() - started)
             started = time.perf_counter()
-            absent = store.read_artifacts_naming_candidates([str(uuid4())])
+            absent = load_weekly_parent_artifacts(store, str(uuid4()))
             missing.append(time.perf_counter() - started)
         assert any(str(row["id"]) for row in found)
         assert absent == []

@@ -569,12 +569,6 @@ class SQLiteVNextStore:
             (self.user_id, *wanted, *canonical),
         )
 
-    def read_artifacts_naming_candidates(self, memory_ids: Sequence[str]) -> list[VNextRow]:
-        """No weekly report is stored here. The local schema has no generated-artifact table."""
-
-        del memory_ids
-        return []
-
     def count_original_label_statuses(self, kind: str, *, domains=(), sensitivity_allowed=()) -> dict[str, int]:
         """Count the definitely-original, unscoped partition using stored labels."""
         from alicebot_api.vnext_label_sql import original_label_sql

@@ -557,40 +557,7 @@ class PostgresVNextStore:
                 SELECT id, user_id, domain, sensitivity, metadata_json{extra}
                 FROM {table}
                 WHERE id = ANY(%s::uuid[])
-            """,
-            (wanted,),
-        )
-
-    def read_artifacts_naming_candidates(self, memory_ids: Sequence[str]) -> list[VNextRow]:
-        """Artifacts whose ``candidate_memory_ids`` name one of these memories. Label columns only.
-
-        The match is the stored spelling and the canonical id. A memory no artifact names returns
-        nothing. The lookup scans ``generated_artifacts``; it runs only for a weekly candidate.
-        """
-
-        from alicebot_api.vnext_derived_labels import identifier
-
-        wanted: list[str] = []
-        seen: set[str] = set()
-        for item in memory_ids:
-            text = str(item).strip()
-            if not text or text in seen:
-                continue
-            seen.add(text)
-            wanted.append(text)
-            canonical = identifier(text)
-            if canonical not in seen:
-                seen.add(canonical)
-                wanted.append(canonical)
-        if not wanted:
-            return []
-        return self._fetch_all(
-            """
-                SELECT id, user_id, domain, sensitivity, metadata_json, artifact_type
-                FROM generated_artifacts
-                WHERE jsonb_typeof(metadata_json -> 'candidate_memory_ids') = 'array'
-                  AND metadata_json -> 'candidate_memory_ids' ?| %s::text[]
-            """,
+                """,
             (wanted,),
         )
 

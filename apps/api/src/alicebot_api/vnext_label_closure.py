@@ -18,13 +18,41 @@ from alicebot_api.vnext_derived_labels import (
 def load_weekly_parent_artifacts(store: Any, memory_id: str) -> list[dict[str, object]]:
     """Reports that name ``memory_id`` in ``candidate_memory_ids``, or none.
 
-    A store with no artifact table, and a store that does not offer the lookup, names no report.
+    A store may offer ``read_artifacts_naming_candidates``. Otherwise a PostgreSQL connection is
+    scanned and a SQLite connection returns nothing: the local schema has no generated-artifact table.
     """
 
-    reader = getattr(store, "read_artifacts_naming_candidates", None)
-    if not memory_id or not callable(reader):
+    if not memory_id:
         return []
-    return [dict(row) for row in reader([memory_id]) if isinstance(row, Mapping)]
+    reader = getattr(store, "read_artifacts_naming_candidates", None)
+    if callable(reader):
+        return [dict(row) for row in reader([memory_id]) if isinstance(row, Mapping)]
+    return _postgres_weekly_parents(store, memory_id)
+
+
+def _postgres_weekly_parents(store: Any, memory_id: str) -> list[dict[str, object]]:
+    conn = getattr(store, "conn", None)
+    if conn is None or "psycopg" not in type(conn).__module__:
+        return []
+    wanted: list[str] = []
+    seen: set[str] = set()
+    for item in (memory_id, identifier(memory_id)):
+        text = str(item).strip()
+        if text and text not in seen:
+            seen.add(text)
+            wanted.append(text)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, user_id, domain, sensitivity, metadata_json, artifact_type
+            FROM generated_artifacts
+            WHERE jsonb_typeof(metadata_json -> 'candidate_memory_ids') = 'array'
+              AND metadata_json -> 'candidate_memory_ids' ?| %s::text[]
+            """,
+            (wanted,),
+        )
+        rows = cur.fetchall()
+    return [dict(row) for row in rows]
 
 
 def collect_label_rows(

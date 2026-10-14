@@ -18,6 +18,7 @@ from uuid import uuid4
 
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
 from alicebot_api.vnext_derived_labels import identifier, settle_labels, weekly_candidate_memory, with_derived_from
+from alicebot_api.vnext_label_closure import load_weekly_parent_artifacts
 from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
 from alicebot_api.vnext_label_repair import classify_stored_labels, format_label_check
 from alicebot_api.vnext_label_repair import _load_tables
@@ -254,7 +255,7 @@ def test_sqlite_has_no_report_table_so_an_unparented_weekly_candidate_stays_unve
     with sqlite_user_connection(path, user_id, repair_labels=False) as conn:
         ensure_sqlite_user(conn, user_id, "owner@example.invalid", "Owner")
         store = SQLiteVNextStore(conn, user_id)
-        assert store.read_artifacts_naming_candidates(["missing"]) == []
+        assert load_weekly_parent_artifacts(store, "missing") == []
         with without_insert_floor():
             candidate = store.create_memory(
                 {
@@ -355,7 +356,7 @@ def test_sqlite_read_uses_a_parent_the_store_returns(tmp_path, monkeypatch) -> N
         del self
         return [parent] if str(candidate["id"]) in {str(item) for item in memory_ids} else []
 
-    monkeypatch.setattr(SQLiteVNextStore, "read_artifacts_naming_candidates", supply)
+    monkeypatch.setattr(SQLiteVNextStore, "read_artifacts_naming_candidates", supply, raising=False)
     from alicebot_api.mcp.registry import call_mcp_tool
     from alicebot_api.mcp.types import MCPRuntimeContext
 
