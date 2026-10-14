@@ -309,8 +309,9 @@ def create_vnext_context_pack(
                 None if identity is None else identity.agent_id,
             )
 
-            def compile_pack() -> dict[str, object]:
-                return VNextRetrievalService(store).compile_context_pack(
+            compiled = committed_once(
+                pack_key,
+                lambda: VNextRetrievalService(store).compile_context_pack(
                     VNextRetrievalRequest(
                         query=retrieval_request.query,
                         domains=decision.effective_domains,
@@ -334,9 +335,9 @@ def create_vnext_context_pack(
                     # The caller's read fence over sources, so the full rows of this pack and its supporting evidence
                     # carry no quote of a source this caller may not read now.
                     source_fence=SourceReadFence.for_identity(identity),
-                )
-
-            compiled = committed_once(pack_key, compile_pack, replay=cut_deep_value)
+                ),
+                replay=cut_deep_value,
+            )
             # The pack's open loops are whole rows. The loop is the caller's to read, the source and memory it points
             # at are checked against the caller's own read fence.
             payload = annotate_http_context_pack(

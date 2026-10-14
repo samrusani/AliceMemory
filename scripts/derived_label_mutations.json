@@ -1439,7 +1439,7 @@
           "line": 122,
           "before": "\"scheduler_run_id\": metadata.get(\"scheduler_run_id\"),\n            \"agent_run_id\": metadata.get(\"agent_run_id\"),\n        },",
           "after": "\"scheduler_run_id\": metadata.get(\"scheduler_run_id\"),\n            \"agent_run_id\": metadata.get(\"agent_run_id\"),\n            \"related_ids\": metadata.get(\"candidate_memory_ids\"),\n        },",
-          "sha256": "48b01af9b472dbd6d9ddb16894f5b03f3ad3c5ca685d74df63ea31aea169f2f9"
+          "sha256": "6229f35453d50dc78feff14df75da56e4ebcffaf4cf0e5d4bb3ac1af8ed017dd"
         }
       ],
       "pytest": [
@@ -6531,10 +6531,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_retrieval.py",
-          "line": 391,
+          "line": 392,
           "before": "                    sensitivity_allowed=tree_sensitivity,",
           "after": "                    sensitivity_allowed=tuple(sensitivity_allowed or (\"public\", \"internal\", \"private\", \"unknown\")),",
-          "sha256": "48b01af9b472dbd6d9ddb16894f5b03f3ad3c5ca685d74df63ea31aea169f2f9"
+          "sha256": "6229f35453d50dc78feff14df75da56e4ebcffaf4cf0e5d4bb3ac1af8ed017dd"
         }
       ],
       "pytest": [
@@ -8379,10 +8379,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_retrieval.py",
-          "line": 395,
+          "line": 396,
           "before": "                    caller_limited=SourceReadFence.for_identity(identity).entity_read_fenced,",
           "after": "                    caller_limited=False,",
-          "sha256": "48b01af9b472dbd6d9ddb16894f5b03f3ad3c5ca685d74df63ea31aea169f2f9"
+          "sha256": "6229f35453d50dc78feff14df75da56e4ebcffaf4cf0e5d4bb3ac1af8ed017dd"
         }
       ],
       "pytest": [
@@ -8395,10 +8395,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_retrieval.py",
-          "line": 395,
+          "line": 396,
           "before": "                    caller_limited=SourceReadFence.for_identity(identity).entity_read_fenced,",
           "after": "                    caller_limited=True,",
-          "sha256": "48b01af9b472dbd6d9ddb16894f5b03f3ad3c5ca685d74df63ea31aea169f2f9"
+          "sha256": "6229f35453d50dc78feff14df75da56e4ebcffaf4cf0e5d4bb3ac1af8ed017dd"
         }
       ],
       "pytest": [
@@ -8459,10 +8459,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_retrieval.py",
-          "line": 394,
+          "line": 395,
           "before": "                    generated_by=\"user\",\n                    caller_limited=SourceReadFence.for_identity(identity).entity_read_fenced,\n",
           "after": "                    generated_by=\"user\",\n",
-          "sha256": "48b01af9b472dbd6d9ddb16894f5b03f3ad3c5ca685d74df63ea31aea169f2f9"
+          "sha256": "6229f35453d50dc78feff14df75da56e4ebcffaf4cf0e5d4bb3ac1af8ed017dd"
         }
       ],
       "pytest": [
@@ -11686,7 +11686,7 @@
           "line": 215,
           "before": "                sources=_vnext_sources_for_caller(store, identity, authorized_sources),\n",
           "after": "                sources=authorized_sources,\n",
-          "sha256": "48b01af9b472dbd6d9ddb16894f5b03f3ad3c5ca685d74df63ea31aea169f2f9"
+          "sha256": "6229f35453d50dc78feff14df75da56e4ebcffaf4cf0e5d4bb3ac1af8ed017dd"
         }
       ],
       "pytest": [
@@ -11702,7 +11702,7 @@
           "line": 216,
           "before": "                quality_evals=_vnext_ratings_for_caller(\n                    store, identity, store.list_artifact_quality_ratings(artifact_id=str(artifact_id), limit=100)\n                ),\n",
           "after": "                quality_evals=store.list_artifact_quality_ratings(artifact_id=str(artifact_id), limit=100),\n",
-          "sha256": "48b01af9b472dbd6d9ddb16894f5b03f3ad3c5ca685d74df63ea31aea169f2f9"
+          "sha256": "6229f35453d50dc78feff14df75da56e4ebcffaf4cf0e5d4bb3ac1af8ed017dd"
         }
       ],
       "pytest": [
