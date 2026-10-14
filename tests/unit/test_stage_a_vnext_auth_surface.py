@@ -40,6 +40,8 @@ _LOCAL_POLICY_ENFORCEMENT_FAMILIES = {
         ("POST", "/v0/vnext/queue/tasks"),
         ("POST", "/v0/vnext/projects/update-candidates"),
         ("POST", "/v0/vnext/open-loops"),
+    },
+    "caller_label_fence": {
         ("POST", "/v0/vnext/changes"),
     },
     "persisted_memory_scope": {

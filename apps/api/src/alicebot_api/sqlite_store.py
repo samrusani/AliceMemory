@@ -1915,6 +1915,57 @@ class SQLiteVNextStore:
             )
         return self._get_row("touch_agent_api_key", "agent_api_keys", AGENT_API_KEY_COLUMNS, str(key_id))
 
+    def create_project(self, project: Mapping[str, object], *, actor_type: str = "system") -> VNextRow:
+        """Insert one project the way the Postgres store does, on the SQLite schema."""
+
+        from uuid import uuid4
+
+        project_id = str(project.get("id") or uuid4())
+        now = _utc_now_iso()
+        metadata = project.get("metadata_json")
+        if not isinstance(metadata, Mapping):
+            metadata = {}
+        self._execute(
+            """
+                INSERT INTO projects (
+                  id, user_id, name, slug, status, description, current_state,
+                  domain, sensitivity, metadata_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            (
+                project_id,
+                self.user_id,
+                str(project["name"]),
+                str(project["slug"]),
+                str(project.get("status") or "active"),
+                project.get("description"),
+                project.get("current_state"),
+                str(project.get("domain") or "project"),
+                str(project.get("sensitivity") or "private"),
+                json.dumps(dict(metadata)),
+                now,
+                now,
+            ),
+        )
+        row = self._fetch_one(
+            "create_project",
+            """
+                SELECT id, user_id, name, slug, status, description, current_state,
+                       domain, sensitivity, created_at, updated_at, metadata_json
+                FROM projects
+                WHERE id = ? AND user_id = ?
+                """,
+            (project_id, self.user_id),
+        )
+        self._append_mutation_event(
+            event_type="project.created",
+            actor_type=actor_type,
+            target_type="project",
+            target_id=row["id"],
+            payload={"operation": "create", "slug": str(row["slug"])},
+        )
+        return row
+
     def count_active_agent_api_keys(self) -> int:
         row = self._fetch_one(
             "count_active_agent_api_keys",

@@ -90,7 +90,7 @@ Every step also carries its source references, its author (the recording agent o
 
 Each chain has its own `current`. It is the settled answer as of today among the steps of that chain the caller may read. It is the newest of those settled steps. It is never filled from a step that is not settled, and a step under review (`needs_review`) appears in that chain's `history` with its review state and is never `current`.
 
-A step is settled when its review state is an accepted one (`active`, or confirmation `confirmed`), its `valid_from` is today or earlier or is unset, and it is not the newest settled candidate of a chain that is part of an unresolved disagreement. A contradiction record is unresolved when its review has not accepted or dismissed it (`candidate` or `needs_review`, rather than `reinforce`, `challenge`, `supersede` or `retire`).
+A step is settled when its status is `active`, its `valid_from` is today or earlier or is unset, and its `valid_to` is unset or today or later. A step past `valid_to` is not current, including one whose status is still `active`. A forgotten, undone, superseded or expired step is not current. A step that a later settled step replaced is not current, whatever its dates. A `needs_review` step is not current. A contradiction record is unresolved when its review state is `candidate` or `needs_review`. A reviewed edge stores `reviewed`, `accepted` or `rejected`. `rejected` also sets `valid_to`, and that edge no longer clears `current`.
 
 A step that takes effect later (its `valid_from` is after today) goes in that chain's `upcoming`, not its `current`. `current` is null for a disagreement only when the newest settled candidate of that chain is part of an unresolved disagreement, and `disputed` lists those ids. An older disputed pair that a newer settled step replaced does not clear `current`. The newer of a disputed pair is later in that chain's `history`.
 
@@ -122,7 +122,7 @@ Each new door is registered in the operator route inventory and its probe table,
 
 The read does not walk every note. It uses the existing recall index, judges at most 128 candidates, then follows `superseded_by` for at most 64 hops. When 128 candidates have been judged, the answer is the history found among them. It does not report how many further records matched, and it does not report a count or a gap caused by permissions.
 
-Measured on a SQLite vault of 10,000 hidden decision candidates and one readable decision, the same vault as the budget test: the what-changed read took 0.08 seconds and a full-text search of the same topic (`search_memories_fts`, limit 20) took 0.017 seconds. The full-text search returns rows before the label check. The synthetic company generator is a separate branch and is not in this build, so this pair is the budget vault, not that generator's files. v0.20.0 has no such measurement. A budget test with 10,000 hidden candidates shows the 128 cap holds.
+The read uses the same full-text search `alice_recall` uses (`search_memories_fts`), limited to decision memories and to 128 candidates. A topic that search cannot take is refused by the same limit. The synthetic company generator is a separate branch and is not in this build, so the measured vault is 10,000 decision rows on that index, not that generator's files. The budget test asserts the what-changed read and the recall search of that vault each finish in under 1.5 seconds, and that the 128 cap still hides the older readable row when newer hidden rows fill the window. v0.20.0 has no such measurement.
 
 ## Tests, when this is built
 
@@ -137,7 +137,7 @@ Measured on a SQLite vault of 10,000 hidden decision candidates and one readable
 
 Recorded decisions, not extraction, are what this feature and the demo use.
 
-The company's agents record decisions through the existing tools: commit a decision memory, and supersede it through correction (`alice_memory_correct`). The setup script for the synthetic company makes those calls with each team's key, through the normal APIs and permission checks. `scripts/showcase_decisions.py` records the planted Keel prices through commit, confirm and undo. The demo, the docs and the case study describe this setup as scripted. It shows that Alice stores, retrieves, explains and protects recorded decisions. It does not show that agents recognise decisions on their own.
+The company's agents record decisions through the existing tools: `alice_memory_commit` and `alice_memory_correct`, with each team's key, under the normal permission checks. `scripts/showcase_decisions.py` makes those calls. The demo, the docs and the case study describe this setup as scripted. It shows that Alice stores, retrieves, explains and protects recorded decisions. It does not show that agents recognise decisions on their own.
 
 Extraction from imported notes with a local model is a later unit of its own. It is not started in this sprint. Before it may be claimed, it is measured on notes prepared independently of the build team, which the team does not see. The measurement covers missed decisions, invented decisions, wrong replacement links, disagreements and source attribution. Extracted decisions stay proposals until accepted under the review policy.
 

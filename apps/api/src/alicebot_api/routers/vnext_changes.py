@@ -11,17 +11,21 @@ from pydantic import BaseModel
 
 from alicebot_api.config import get_settings
 from alicebot_api.db import user_connection
-from alicebot_api.vnext_agent_control import AgentPolicyBlockedError
+from alicebot_api.source_search_limits import SourceSearchQueryTooLarge
+from alicebot_api.vnext_agent_control import (
+    AgentPolicyBlockedError,
+    append_policy_events,
+    evaluate_agent_policy,
+)
 from alicebot_api.vnext_agent_keys import (
     AgentKeyAuthenticationError,
     agent_key_from_authorization,
     resolve_protected_agent_identity,
 )
-from alicebot_api.vnext_label_guard import label_read_scope
 from alicebot_api.vnext_store import PostgresVNextStore
 from alicebot_api.vnext_what_changed import what_changed
 
-from ._vnext_shared import _vnext_agent_auth_error_response, _vnext_permission_response
+from ._vnext_shared import _vnext_agent_auth_error_response, _vnext_permission_response, _vnext_public_error_response
 
 changes_router = APIRouter()
 
@@ -52,10 +56,21 @@ def post_vnext_changes(
                 raw_key=agent_key_from_authorization(authorization),
                 payload={},
             )
-            with label_read_scope(store):
-                payload = what_changed(store, user_id=user_id, identity=identity, topic=body.topic)
+            decision = evaluate_agent_policy(identity=identity, action="recent_decisions.lookup")
+            append_policy_events(
+                store,
+                identity=identity,
+                decision=decision,
+                target_type="http_route",
+                target_id="/v0/vnext/changes",
+            )
+            if decision.decision == "blocked":
+                raise AgentPolicyBlockedError(decision)
+            payload = what_changed(store, user_id=user_id, identity=identity, topic=body.topic)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
     except AgentPolicyBlockedError as exc:
         return _vnext_permission_response(exc.decision)
+    except SourceSearchQueryTooLarge as exc:
+        return _vnext_public_error_response(status_code=400, detail=exc.public_message)
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))

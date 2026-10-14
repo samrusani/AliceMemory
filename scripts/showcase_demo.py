@@ -9,7 +9,7 @@ binds the product key to it.
 from __future__ import annotations
 
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import scripts.alice_bench as bench
 
@@ -37,9 +37,9 @@ def prepare_demo_product(db_path: Path) -> str:
 
     with sqlite_user_connection(db_path, user_id) as conn:
         ensure_sqlite_user(conn, user_id, "showcase@example.com", "Showcase")
-        project_id = _ensure_product_project(conn)
-        scope = demo_product_binding(project_id)
         store = SQLiteVNextStore(conn, user_id)
+        project_id = _ensure_product_project(store)
+        scope = demo_product_binding(project_id)
         row = conn.execute(
             """
             SELECT id FROM agent_api_keys
@@ -64,25 +64,19 @@ def prepare_demo_product(db_path: Path) -> str:
     return project_id
 
 
-def _ensure_product_project(conn) -> str:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS projects (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          slug TEXT NOT NULL UNIQUE
-        )
-        """
-    )
-    found = conn.execute(
-        "SELECT id FROM projects WHERE slug = ?",
-        (PRODUCT_PROJECT_SLUG,),
+def _ensure_product_project(store) -> str:
+    found = store.conn.execute(
+        "SELECT id FROM projects WHERE user_id = ? AND slug = ?",
+        (store.user_id, PRODUCT_PROJECT_SLUG),
     ).fetchone()
     if found is not None:
         return str(found["id"])
-    project_id = str(uuid4())
-    conn.execute(
-        "INSERT INTO projects (id, name, slug) VALUES (?, ?, ?)",
-        (project_id, PRODUCT_PROJECT_NAME, PRODUCT_PROJECT_SLUG),
+    row = store.create_project(
+        {
+            "name": PRODUCT_PROJECT_NAME,
+            "slug": PRODUCT_PROJECT_SLUG,
+            "domain": "project",
+            "sensitivity": "private",
+        }
     )
-    return project_id
+    return str(row["id"])

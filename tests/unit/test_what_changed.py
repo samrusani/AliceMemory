@@ -9,10 +9,11 @@ from uuid import uuid4
 
 import pytest
 
+from alicebot_api.recall_framing import quote_session_brief_text
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user
 from alicebot_api.vnext_agent_control import AgentIdentity
-from alicebot_api.vnext_what_changed import HOP_CAP, NOTICE, NOT_FOUND, SEARCH, what_changed
+from alicebot_api.vnext_what_changed import NOTICE, NOT_FOUND, SEARCH, what_changed
 
 TODAY = "2026-10-14"
 
@@ -122,7 +123,7 @@ def test_a_chain_comes_back_oldest_first_with_its_source_and_a_stored_quote() ->
     assert chain["current"]["id"] == str(newer["id"])
     assert chain["current"]["replaced"] == str(older["id"])
     assert chain["current"]["reason"] == {
-        "text": "the June price was too high for the renewal",
+        "text": quote_session_brief_text("the June price was too high for the renewal"),
         "source_id": str(source["id"]),
     }
     assert chain["current"]["sources"] == [
@@ -132,6 +133,83 @@ def test_a_chain_comes_back_oldest_first_with_its_source_and_a_stored_quote() ->
     dumped = json.dumps(answer)
     assert "count" not in dumped
     assert "gap" not in dumped
+
+
+def test_the_read_takes_the_label_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _store()
+    calls: list[bool] = []
+
+    def lock(*, exclusive: bool = False) -> None:
+        del exclusive
+        calls.append(True)
+
+    monkeypatch.setattr(store, "lock_label_writes", lock)
+    _memory(store, title="lantern policy", canonical_text="the lantern stays lit")
+    calls.clear()
+    _ask(store, "lantern")
+    assert calls == [True]
+
+
+def test_a_quote_that_names_a_hidden_input_is_not_a_reason() -> None:
+    store = _store()
+    public = store.create_source(
+        {
+            "source_type": "note",
+            "title": "public price note",
+            "content_hash": f"sha256:{uuid4()}",
+            "domain": "project",
+            "sensitivity": "public",
+        }
+    )
+    hidden = store.create_source(
+        {
+            "source_type": "note",
+            "title": "confidential price note",
+            "content_hash": f"sha256:{uuid4()}",
+            "domain": "legal",
+            "sensitivity": "confidential",
+        }
+    )
+    secret = "the hidden ledger quote"
+    _memory(
+        store,
+        title="keel price",
+        canonical_text="the list price changed",
+        metadata_json={
+            "agentic_memory": {
+                "source_refs": [
+                    {
+                        "source_id": str(public["id"]),
+                        "source_ids": [str(public["id"]), str(hidden["id"])],
+                        "quote": secret,
+                    }
+                ]
+            }
+        },
+    )
+    only_ids = "a quote stored with source ids"
+    _memory(
+        store,
+        title="keel stock",
+        canonical_text="the stock count changed",
+        metadata_json={
+            "agentic_memory": {
+                "source_refs": [{"source_ids": [str(public["id"])], "quote": only_ids}]
+            }
+        },
+    )
+    sales = AgentIdentity(agent_id="showcase-sales", permission_profile="trusted_local_agent")
+    answer = _ask(store, "keel", sales)
+    dumped = json.dumps(answer)
+    assert secret not in dumped
+    assert "confidential price note" not in dumped
+    reasons = [
+        step["reason"]["text"]
+        for chain in answer["chains"]
+        for step in chain["history"]
+        if isinstance(step.get("reason"), dict)
+    ]
+    assert quote_session_brief_text(only_ids) in reasons
 
 
 def test_a_reason_is_not_taken_from_the_note_text() -> None:
@@ -172,7 +250,7 @@ def test_needs_review_is_history_and_a_later_date_is_upcoming() -> None:
         title="lantern policy",
         canonical_text="the lantern may be dimmed",
         status="needs_review",
-        confirmation_status="unconfirmed",
+        confirmation_status="confirmed",
         valid_from="2026-02-01T00:00:00Z",
         created_at="2026-02-01T00:00:00Z",
         supersedes=str(current["id"]),
@@ -307,7 +385,7 @@ def test_a_cycle_and_a_chain_longer_than_64_stop() -> None:
             created_at=f"2020-01-{(index % 28) + 1:02d}T00:00:{index:02d}Z",
             valid_from=f"2020-{(index // 28) + 1:02d}-01T00:00:00Z",
         )
-        for index in range(HOP_CAP + 6)
+        for index in range(70)
     ]
     for index, row in enumerate(rows[:-1]):
         long_store.update_memory(
@@ -316,7 +394,7 @@ def test_a_cycle_and_a_chain_longer_than_64_stop() -> None:
         )
         long_store.update_memory(memory_id=str(rows[index + 1]["id"]), patch={"supersedes": str(row["id"])})
     history = _ask(long_store, "lantern")["chains"][0]["history"]
-    assert len(history) == HOP_CAP + 1
+    assert len(history) == 65
     assert str(rows[-1]["id"]) not in [step["id"] for step in history]
     assert len(history) == len({step["id"] for step in history})
 
@@ -510,9 +588,15 @@ def test_the_budget_of_10000_hidden_candidates_stops_at_128(capsys: pytest.Captu
     assert "count" not in dumped
     assert "gap" not in dumped
     assert visible not in dumped
+    assert elapsed < 1.5
+    recall_started = time.perf_counter()
+    store.search_memories_fts(query="lantern", memory_types=("decision",), limit=20)
+    recall_elapsed = time.perf_counter() - recall_started
     print(f"what_changed_10000_seconds={elapsed:.4f}")
+    print(f"recall_10000_seconds={recall_elapsed:.4f}")
     captured = capsys.readouterr()
     assert "what_changed_10000_seconds=" in captured.out
+    assert recall_elapsed < 1.5
 
 
 def test_a_handwritten_decision_comes_back() -> None:
@@ -567,17 +651,24 @@ def test_a_source_replacement_the_importer_recorded_is_a_step() -> None:
     assert replacement["replaced"] == str(older["id"])
 
 
-def test_the_setup_script_records_the_planted_prices_through_commit() -> None:
+def test_the_setup_script_records_the_planted_prices_through_commit(tmp_path: Path) -> None:
     from scripts.showcase_decisions import record_planted_prices
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    import scripts.alice_bench as bench
+    from uuid import UUID
 
-    store = _store()
+    db_path = tmp_path / "decisions.sqlite"
+    older, newer = record_planted_prices(db_path)
     sales = AgentIdentity(agent_id="showcase-sales", permission_profile="trusted_local_agent")
-    older, newer = record_planted_prices(store, sales)
-    chain = _ask(store, "Keel sensor kit price", sales)["chains"][0]
+    with sqlite_user_connection(db_path, UUID(bench.DEFAULT_USER_ID)) as conn:
+        store = SQLiteVNextStore(conn, bench.DEFAULT_USER_ID)
+        chain = _ask(store, "Keel sensor kit price", sales)["chains"][0]
     assert [step["id"] for step in chain["history"]] == [older, newer]
     assert chain["current"]["id"] == newer
     assert chain["current"]["replaced"] == older
-    assert chain["current"]["reason"]["text"] == "the June price was too high for the renewal"
+    assert chain["current"]["reason"]["text"] == quote_session_brief_text(
+        "the June price was too high for the renewal"
+    )
 
 
 def test_the_demo_binds_the_product_key_to_the_product_project(tmp_path: Path) -> None:

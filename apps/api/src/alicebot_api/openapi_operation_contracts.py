@@ -2441,6 +2441,88 @@ _OPENAPI_EXPLICIT_PROPERTY_SCHEMAS.update(
 )
 
 
+_WHAT_CHANGED_STEP = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "id",
+        "kind",
+        "chain",
+        "date",
+        "change",
+        "reason",
+        "replaced",
+        "disagrees_with",
+        "sources",
+        "author",
+        "review_state",
+        "writer",
+    ],
+    "properties": {
+        "id": {"type": "string"},
+        "kind": {"type": "string"},
+        "chain": {"type": "string"},
+        "date": {"type": "string"},
+        "change": {"type": "string"},
+        "reason": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["text", "source_id"],
+                    "properties": {
+                        "text": {"type": "string"},
+                        "source_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                    },
+                },
+                {"type": "null"},
+            ]
+        },
+        "replaced": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "disagrees_with": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "sources": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["source_id", "title", "date"],
+                "properties": {
+                    "source_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "date": {"type": "string"},
+                },
+            },
+        },
+        "author": {"type": "string"},
+        "review_state": {"type": "string"},
+        "writer": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["id", "established"],
+            "properties": {
+                "id": {"type": "string"},
+                "established": {"type": "string"},
+            },
+        },
+    },
+}
+_OPENAPI_EXPLICIT_PROPERTY_SCHEMAS[("POST", "/v0/vnext/changes")]["chains"] = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["start", "current", "upcoming", "disputed", "history"],
+        "properties": {
+            "start": {"type": "string"},
+            "current": {"anyOf": [_WHAT_CHANGED_STEP, {"type": "null"}]},
+            "upcoming": {"type": "array", "items": {"type": "string"}},
+            "disputed": {"type": "array", "items": {"type": "string"}},
+            "history": {"type": "array", "items": _WHAT_CHANGED_STEP},
+        },
+    },
+}
+
+
 for _operation_key, _property_schemas in _OPENAPI_EXPLICIT_PROPERTY_SCHEMAS.items():
     if _operation_key not in OPENAPI_OPERATION_RESPONSE_SCHEMAS:
         raise RuntimeError(f"OpenAPI typed property registry has unknown operation {_operation_key!r}")
