@@ -790,9 +790,18 @@ def test_a_nested_record_past_the_read_bound_is_unverified(shape: str, monkeypat
     assert spy.reads == reads_at_the_bound, shape
 
 
-def test_a_list_of_the_same_string_past_the_bound_is_unverified_too() -> None:
+def test_a_list_of_the_same_string_past_the_bound_is_unverified_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"n": 0}
+    original = vnext_derived_labels.cited_source_ids
+
+    def counted(value):
+        calls["n"] += 1
+        return original(value)
+
+    monkeypatch.setattr(vnext_derived_labels, "cited_source_ids", counted)
     settled = _settled(_held("artifact", [json.dumps({"memory_id": MEMORY})] * (MAX_READ_STRINGS + 1)))
     assert (settled.unverified, settled.reason) == (True, "too_many_citations")
+    assert calls["n"] == 0, "the list past the bound went to the reader"
 
 
 def test_any_number_of_the_strings_every_producer_writes_is_not_a_record_past_the_bound() -> None:
