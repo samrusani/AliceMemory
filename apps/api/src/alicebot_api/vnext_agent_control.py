@@ -774,6 +774,20 @@ def append_policy_events(
 ) -> None:
     if identity is None:
         return
+    # An HTTP read that is run again after a reader overflowed already committed this event. Writing it again would
+    # leave two allowed decisions for one request. A first attempt that rolled back left nothing to replay.
+    from alicebot_api.json_bounds import is_remembered, remember_durable, replay_durable
+
+    remembered = (
+        "policy-event",
+        identity.agent_id,
+        decision.action,
+        target_type,
+        None if target_id is None else str(target_id),
+        decision.decision,
+    )
+    if is_remembered(replay_durable(remembered)):
+        return
     payload: JsonObject = {
         "agent_identity": identity.to_record(),
         "policy_decision": decision.to_record(),
@@ -813,6 +827,7 @@ def append_policy_events(
             run_id=identity.agent_run_id,
             payload=payload,
         )
+    remember_durable(remembered, True)
 
 
 def append_promotion_event(

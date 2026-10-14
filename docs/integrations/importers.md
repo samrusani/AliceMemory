@@ -417,6 +417,8 @@ of the edge, whatever the edge type and whatever the type written for the end
 (`from_type` and `to_type`), in any spelling the saved-quote reader names:
 capitals, no hyphens, braces, `urn:uuid:` or a `source:` prefix. Such an edge is
 closed, and its explanation and metadata are blanked. An edge that names the
+source or one of its chunks only in `from_type`, `to_type` or `created_by` is
+closed and blanked the same way. An edge that names the
 source or one of its chunks only in its explanation or metadata is blanked and
 keeps its link. The same applies to an edge that has a redacted candidate memory
 at an end, or an open loop that the command dismisses and blanks. The preview

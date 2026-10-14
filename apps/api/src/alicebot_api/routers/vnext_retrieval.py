@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import Field
 
 from alicebot_api.http_json_types import BoundedJsonObject
+from alicebot_api.json_bounds import committed_once, cut_deep_value
 from alicebot_api.db import user_connection
 from alicebot_api.recall_framing import annotate_http_context_pack
 from alicebot_api.config import get_settings
@@ -291,31 +292,51 @@ def create_vnext_context_pack(
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
             actor_type, actor_id = _vnext_agent_actor(identity, fallback="system")
-            compiled = VNextRetrievalService(store).compile_context_pack(
-                VNextRetrievalRequest(
-                    query=retrieval_request.query,
-                    domains=decision.effective_domains,
-                    projects=decision.effective_project_scope,
-                    people=retrieval_request.people,
-                    time_window=retrieval_request.time_window,
-                    sensitivity_allowed=decision.effective_sensitivity_allowed,
-                    include_sources=retrieval_request.include_sources,
-                    include_contradictions=retrieval_request.include_contradictions,
-                    context_depth=retrieval_request.context_depth,
-                    budget_strategy=retrieval_request.budget_strategy,
-                    max_items=retrieval_request.max_items,
-                    max_tokens=retrieval_request.max_tokens,
-                    actor_type=actor_type,
-                    actor_id=actor_id,
-                    agent_identity=identity.to_record() if identity is not None else None,
-                    policy_decision=decision.to_record(),
-                    trace_id=request.trace_id or decision.trace_id,
-                    run_id=identity.agent_run_id if identity is not None else None,
-                ),
-                # The caller's read fence over sources, so the full rows of this pack and its supporting evidence
-                # carry no quote of a source this caller may not read now.
-                source_fence=SourceReadFence.for_identity(identity),
+            pack_key = (
+                "http-context-pack",
+                str(request.user_id),
+                request.query,
+                requested_domains,
+                requested_sensitivity,
+                tuple(request.project_scope),
+                retrieval_request.time_window,
+                retrieval_request.include_sources,
+                retrieval_request.include_contradictions,
+                retrieval_request.max_items,
+                retrieval_request.max_tokens,
+                retrieval_request.context_depth,
+                retrieval_request.budget_strategy,
+                None if identity is None else identity.agent_id,
             )
+
+            def compile_pack() -> dict[str, object]:
+                return VNextRetrievalService(store).compile_context_pack(
+                    VNextRetrievalRequest(
+                        query=retrieval_request.query,
+                        domains=decision.effective_domains,
+                        projects=decision.effective_project_scope,
+                        people=retrieval_request.people,
+                        time_window=retrieval_request.time_window,
+                        sensitivity_allowed=decision.effective_sensitivity_allowed,
+                        include_sources=retrieval_request.include_sources,
+                        include_contradictions=retrieval_request.include_contradictions,
+                        context_depth=retrieval_request.context_depth,
+                        budget_strategy=retrieval_request.budget_strategy,
+                        max_items=retrieval_request.max_items,
+                        max_tokens=retrieval_request.max_tokens,
+                        actor_type=actor_type,
+                        actor_id=actor_id,
+                        agent_identity=identity.to_record() if identity is not None else None,
+                        policy_decision=decision.to_record(),
+                        trace_id=request.trace_id or decision.trace_id,
+                        run_id=identity.agent_run_id if identity is not None else None,
+                    ),
+                    # The caller's read fence over sources, so the full rows of this pack and its supporting evidence
+                    # carry no quote of a source this caller may not read now.
+                    source_fence=SourceReadFence.for_identity(identity),
+                )
+
+            compiled = committed_once(pack_key, compile_pack, replay=cut_deep_value)
             # The pack's open loops are whole rows. The loop is the caller's to read, the source and memory it points
             # at are checked against the caller's own read fence.
             payload = annotate_http_context_pack(

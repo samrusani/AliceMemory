@@ -359,21 +359,27 @@ def citing_memories(self, source_id):
 
 # -- finding the graph edges that name a source -------------------------------------------------------------------------
 #
-# An edge names a source in two ways. An END of the edge (``from_id`` or ``to_id``, whatever ``from_type`` and
+# An edge names a source in three ways. An END of the edge (``from_id`` or ``to_id``, whatever ``from_type`` and
 # ``to_type`` say) is the source or one of its chunks, in any spelling ``cited_source_ids`` names: capitals, no hyphens,
-# braces, ``urn:uuid:``, a ``source:`` prefix. Or its ``explanation`` or ``metadata_json`` names the source or one of its
-# chunks, as a connection edge does in ``metadata_json.connection.source_item``, while neither end does. The product's own
-# SQLite writers make only mention edges, but ``alice-memory import`` restores an edge of any type and shape (the edges of
-# a PostgreSQL vault included), so retirement cannot look at mention edges from a ``source`` end alone.
+# braces, ``urn:uuid:``, a ``source:`` prefix. Or ``from_type``, ``to_type`` or ``created_by`` holds that id, which an
+# imported edge can do while both ends are unrelated rows. Or its ``explanation`` or ``metadata_json`` names the source or
+# one of its chunks, as a connection edge does in ``metadata_json.connection.source_item``, while neither end does. The
+# product's own SQLite writers make only mention edges, but ``alice-memory import`` restores an edge of any type and shape
+# (the edges of a PostgreSQL vault included), so retirement cannot look at mention edges from a ``source`` end alone.
 #
 # A command that retires a source also takes away the text of what it owns, and an edge that has one of those at an end is
 # closed with it: a candidate memory it redacts and an open loop it dismisses and blanks.
 #
 # One pass over the user's edges answers for every source of the command, and for the candidates and loops of them. It
-# reads only the five columns it needs, keeps the edges whose text could hold one of the ids (the same digit rule the
+# reads every text column of an edge, keeps the edges whose text could hold one of the ids (the same digit rule the
 # memory pass uses, which may keep an edge the reader rejects and never drops one the reader accepts, and which costs the
 # length of the text and not the number of ids), and the reader decides on those.
-_SCAN_FOR_EDGES = "SELECT id, from_id, to_id, explanation, metadata_json FROM graph_edges WHERE user_id = ?"
+_SCAN_FOR_EDGES = (
+    "SELECT id, from_id, to_id, from_type, to_type, created_by, explanation, metadata_json "
+    "FROM graph_edges WHERE user_id = ?"
+)
+# A source id in one of these columns closes the edge, the same as an id at an end. Import restores the text as it was.
+_TYPE_COLUMNS = ("from_type", "to_type", "created_by")
 _EDGES_BY_ID = "SELECT * FROM graph_edges WHERE user_id = ? AND id IN (SELECT value FROM json_each(?)) ORDER BY id"
 _CHUNKS_OF_SOURCES = (
     "SELECT id, source_id FROM source_chunks WHERE user_id = ? AND source_id IN (SELECT value FROM json_each(?))"
@@ -437,11 +443,17 @@ def _edge_names(row, wanted, wanted_ends, chunk_owner):
         value = row.get(field)
         if value is not None:
             at_end |= cited_source_ids(str(value)).every
+    typed = set()
+    for field in _TYPE_COLUMNS:
+        value = row.get(field)
+        if isinstance(value, str) and value:
+            typed |= cited_source_ids(value).every
     ends = set(at_end)
-    for canonical in at_end:
+    for canonical in at_end | typed:
         owner = chunk_owner.get(canonical)
         if owner is not None:
             ends.add(owner)
+    ends |= typed
     named = set(cited_source_ids(row.get("metadata_json")).every)
     explanation = row.get("explanation")
     if isinstance(explanation, str) and explanation:
@@ -462,8 +474,9 @@ def _edge_candidates(self, probes):
     try:
         # Plain tuples: the pass reads every edge of the user.
         cursor.row_factory = None
-        for edge_id, from_id, to_id, explanation, metadata_json in cursor:
-            parts = (_text_of(from_id), _text_of(to_id), _text_of(explanation), _text_of(metadata_json))
+        for row in cursor:
+            edge_id = row[0]
+            parts = tuple(_text_of(value) for value in row[1:])
             hits = set()
             _add_text_hits("\n".join(parts).lower(), probes, hits)
             if hits:
@@ -530,9 +543,10 @@ def _edges_named(self, source_ids, end_ids):
 def retirement_edges(self, source_ids, *, candidates=None, loop_ids=None):
     """``{source id: EdgeHits}``: the edges a command retires for each source, from one pass over the user's edges.
 
-    Every edge that names the source, of any edge type, at either end or in its text, in any spelling
-    ``cited_source_ids`` names (a chunk of the source counts for the source). ``candidates`` maps a source to the ids of
-    the memories the command redacts (``pending_candidate_ids``): every edge that has one at an end goes with its text.
+    Every edge that names the source, of any edge type, at either end, in ``from_type``, ``to_type`` or ``created_by``, or
+    in its text, in any spelling ``cited_source_ids`` names (a chunk of the source counts for the source). ``candidates``
+    maps a source to the ids of the memories the command redacts (``pending_candidate_ids``): every edge that has one at
+    an end goes with its text.
     ``loop_ids`` maps a source to the loops the command dismisses and blanks: the edges that have one at an end go too.
     """
 
