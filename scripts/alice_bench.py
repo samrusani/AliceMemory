@@ -52,7 +52,10 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from alicebot_api.vnext_agent_control import AgentIdentity
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_GATES_PATH = REPO_ROOT / "gates.json"
@@ -1543,7 +1546,7 @@ class McpSession:
     here is the text a host would put in front of the model.
     """
 
-    def __init__(self, db_path: Path, *, user_id: str = DEFAULT_USER_ID, agent_identity: object | None = None) -> None:
+    def __init__(self, db_path: Path, *, user_id: str = DEFAULT_USER_ID, agent_identity: AgentIdentity | None = None) -> None:
         from uuid import UUID
 
         from alicebot_api import onramp
@@ -1886,7 +1889,7 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(commands: dict[str, Callable[[argparse.Namespace], int]] | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="alice_bench", description=__doc__.split("\n\n", 1)[0] if __doc__ else None)
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -1942,9 +1945,16 @@ def build_parser() -> argparse.ArgumentParser:
     finger = sub.add_parser("fingerprint", help="Print the fingerprint of a run.")
     _add_run_arguments(finger)
     finger.add_argument("--questions", default=None)
+    # ``python scripts/alice_bench.py`` puts the scripts directory on the path, not the
+    # repository root, so the showcase module would not import. The handlers must be
+    # registered on this module's command table: importing the module again under
+    # ``scripts.alice_bench`` is a different module when this file is the program.
+    repo = str(REPO_ROOT)
+    if repo not in sys.path:
+        sys.path.insert(0, repo)
     from scripts.showcase_bench import add_showcase_commands
 
-    add_showcase_commands(sub)
+    add_showcase_commands(sub, _COMMANDS if commands is None else commands)
     return parser
 
 
