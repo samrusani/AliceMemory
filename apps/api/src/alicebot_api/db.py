@@ -13,7 +13,7 @@ from psycopg_pool import ConnectionPool
 from psycopg.rows import Row, dict_row
 from psycopg.types.json import set_json_loads
 
-from alicebot_api.json_bounds import loads_stored
+from alicebot_api.json_bounds import durable_unit, loads_stored
 
 # Every json and jsonb value a connection reads goes through ``loads_stored``: ``json.loads`` for the common case, and the
 # decoder that cuts the part below 256 levels when the text is too deep for the decoder or when the request is running again
@@ -149,9 +149,12 @@ def pooled_user_connection(pool: ConnectionPoolLike, user_id: UUID) -> Iterator[
     returned to the pool, so tenant identity cannot leak to its next borrower.
     """
     with pool.connection() as conn:
-        with conn.transaction():
-            set_current_user(conn, user_id)
-            yield conn
+        # Outside the transaction, so a result is remembered only after the transaction commits. A request that is run
+        # again after a reader overflowed replays those results and does not write them twice.
+        with durable_unit():
+            with conn.transaction():
+                set_current_user(conn, user_id)
+                yield conn
 
 
 __all__ = [

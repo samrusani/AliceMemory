@@ -33,7 +33,15 @@ from alicebot_api.vnext_project_scope import (
     resolve_project_scope,
     source_project_scope,
 )
-from alicebot_api.vnext_citations import BATCH_STRINGS, MAX_READ_STRINGS, NO_CITATIONS, Citations, read_reference, scan_citations
+from alicebot_api.vnext_citations import (
+    BATCH_STRINGS,
+    MAX_READ_STRINGS,
+    NO_CITATIONS,
+    Citations,
+    read_reference,
+    reader_string_count,
+    scan_citations,
+)
 from alicebot_api.vnext_source_fence import cited_source_ids
 
 # Public 1, internal 2, unknown 2, private 3, confidential 4,
@@ -683,6 +691,8 @@ def _source_refs_strings(
     objects: set[tuple[str, str]] = set()
     problem = ""
     others: list[str] = []
+    nested: list[object] = []
+    nested_strings = 0
     for item in items:
         if isinstance(item, str):
             if _PRODUCER_REF.fullmatch(item):
@@ -693,6 +703,12 @@ def _source_refs_strings(
             elif len(item) >= 32:  # shorter holds no id in any spelling
                 others.append(item)
         else:
+            nested.append(item)
+            nested_strings += reader_string_count(item)
+    if len(others) + nested_strings > MAX_READ_STRINGS:
+        problem = problem or TOO_MANY_CITATIONS
+    else:
+        for item in nested:
             item_problem, item_ids = _source_ids_from(item)
             problem = problem or item_problem
             objects |= {("source", row_id) for row_id in item_ids}
