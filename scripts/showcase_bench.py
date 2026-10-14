@@ -938,7 +938,7 @@ def observe_team_limits(directory: Path) -> str:
         if commit_decision == "blocked":
             reason_text = ", ".join(reasons) if reasons else "none"
             lines.append(
-                f"The {team} key memory.commit decision was {decision}. The reasons were {reason_text}. "
+                f"The {team} key memory.commit decision was {commit_decision}. The reasons were {reason_text}. "
                 "The harness does not create a project or change the profile to hide that."
             )
     return "\n".join(lines) + "\n"
