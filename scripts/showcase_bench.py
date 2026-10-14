@@ -919,10 +919,10 @@ def observe_team_limits(directory: Path) -> str:
         "| team | profile | project binding | public | internal | private | confidential | legal | financial | memory.commit |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
-    for team, seen, decision, _reasons in rows:
+    for team, seen, commit_decision, _reasons in rows:
         lines.append(
             f"| {team} | {TEAM_PROFILES[team]} | none | {seen['public']} | {seen['internal']} | "
-            f"{seen['private']} | {seen['confidential']} | {seen['legal']} | {seen['financial']} | {decision} |"
+            f"{seen['private']} | {seen['confidential']} | {seen['legal']} | {seen['financial']} | {commit_decision} |"
         )
     support = next(seen for team, seen, _decision, _reasons in rows if team == "support")
     product = next(seen for team, seen, _decision, _reasons in rows if team == "product")
@@ -934,8 +934,8 @@ def observe_team_limits(directory: Path) -> str:
             "The permission model cannot give product a different read set without that binding. "
             "The harness does not add a filter of its own."
         )
-    for team, _seen, decision, reasons in rows:
-        if decision == "blocked":
+    for team, _seen, commit_decision, reasons in rows:
+        if commit_decision == "blocked":
             reason_text = ", ".join(reasons) if reasons else "none"
             lines.append(
                 f"The {team} key memory.commit decision was {decision}. The reasons were {reason_text}. "

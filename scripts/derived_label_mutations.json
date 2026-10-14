@@ -17663,7 +17663,7 @@
           "file": "scripts/showcase_bench.py",
           "before": "SUPPORT_PROFILE = \"memory_proposal_agent\"",
           "after": "SUPPORT_PROFILE = \"admin_agent\"",
-          "sha256": "cf000a7de7dc2fff7879cadf98437c13b84d3180e7d1ca5eeb15c561fe643220",
+          "sha256": "3b6ab3352a00dd55090d89654a23570403cf543a357eab4304a6dd034ae756ac",
           "line": 46
         }
       ],
