@@ -193,6 +193,11 @@ def _(v):
     ]
 
 
+@probe("POST", "/v0/vnext/changes")
+def _(v):
+    return [Call("topic", body={"topic": "keel price"}, statuses=(200,))]
+
+
 @probe("POST", "/v0/vnext/memories/commit")
 def _(v):
     return [

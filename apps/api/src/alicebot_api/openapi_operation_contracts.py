@@ -1192,6 +1192,15 @@ OPENAPI_OPERATION_RESPONSE_SCHEMAS: dict[tuple[str, str], tuple[str, dict[str, o
             ),
         ),
     ),
+    ("POST", "/v0/vnext/changes"): (
+        "PostVnextChangesSuccessResponse",
+        _operation_schema(
+            "PostVnextChangesSuccessResponse",
+            ("notice", "topic", "chains", "message", "search"),
+            required=("notice", "topic", "chains"),
+            closed=True,
+        ),
+    ),
     ("GET", "/v0/vnext/context-tree"): (
         "GetVnextContextTreeSuccessResponse",
         _operation_schema(
@@ -2307,6 +2316,11 @@ _OPENAPI_EXPLICIT_PROPERTY_SCHEMAS.update(
         ),
         ("DELETE", "/v0/vnext/sources/{source_id}"): _typed_properties(strings=("status", "source_id")),
         ("POST", "/v0/vnext/context-packs"): _typed_properties(objects=("context_pack",), strings=("status",)),
+        ("POST", "/v0/vnext/changes"): _typed_properties(
+            strings=("notice", "topic"),
+            nullable_strings=("message", "search"),
+            object_arrays=("chains",),
+        ),
         ("GET", "/v0/vnext/context-tree"): _typed_properties(objects=("summary",), object_arrays=("items",)),
         ("POST", "/v0/vnext/memories/commit"): _typed_properties(objects=("memory",), strings=("status",)),
         ("POST", "/v0/vnext/memories/confirm"): _typed_properties(objects=("memory",), strings=("status",)),

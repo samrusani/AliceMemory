@@ -10,7 +10,7 @@ no MCP SDK, no HTTP server, no Postgres.
 
 The default advertised surface is remember, recall, continue:
 ``alice_memory_commit``, ``alice_recall``, ``alice_resume``. Capture and
-the other eight core tools stay defined and become callable when
+the other nine core tools stay defined and become callable when
 ``ALICE_MCP_FULL_TOOLS=1``. Import is a source. Commit is a fact.
 
 The subprocess launched here::

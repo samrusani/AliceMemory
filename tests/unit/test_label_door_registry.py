@@ -53,7 +53,8 @@ GUARD_CALLS = {
     "admit_edges",
     "admit_events", "admit_related_rows", "readable_status_counts", "readable_event_count",
     "guard_for_caller", "newest_admitted_rows", "readable_own_label_rows",
-    "project_in_view", "project_readable", "project_readable_to_record",
+    "project_in_view",     "project_readable", "project_readable_to_record",
+    "outside_caller_limits",
 }
 
 # function -> helper that holds the guard call, or None when the function calls it
@@ -138,6 +139,8 @@ DOORS = {
     "vnext_context_tree.py:_tree_event_visible": None,
     "routers/vnext_retrieval.py:get_vnext_source_trace": "routers/_vnext_shared.py:_vnext_load_source_trace",
     "routers/vnext_retrieval.py:get_vnext_artifact_trace": "routers/_vnext_shared.py:_vnext_authorized_artifact",
+    "vnext_what_changed.py:what_changed": "_step_is_readable",
+    "vnext_what_changed.py:_step_is_readable": None,
 }
 
 NOT_A_DOOR = {
@@ -216,6 +219,7 @@ SCAN_MODULES = tuple(sorted({
     "alicebot_api/vnext_brain.py", "alicebot_api/vnext_connections.py", "alicebot_api/vnext_contradictions.py",
     "alicebot_api/vnext_consolidation.py", "alicebot_api/vnext_rollups.py", "alicebot_api/vnext_scheduler.py",
     "alicebot_api/vnext_connectors.py", "alicebot_api/vnext_artifact_review.py",
+    "alicebot_api/vnext_what_changed.py",
     *(str(path.relative_to(SRC)) for directory in ("routers", "mcp") for path in (SRC / "alicebot_api" / directory).glob("*.py")),
 }))
 

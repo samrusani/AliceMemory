@@ -43,6 +43,7 @@ from alicebot_api.routers import (
     continuity,
     legacy_gated,
     memories_legacy,
+    vnext_changes,
     vnext_memories,
     vnext_projects,
     vnext_retrieval,
@@ -739,6 +740,7 @@ _VNEXT_ROUTE_LOCAL_POLICY = frozenset(
         ("POST", "/v0/vnext/scheduler/pause"),
         ("POST", "/v0/vnext/scheduler/resume"),
         ("POST", "/v0/vnext/open-loops/{loop_id}/review"),
+        ("POST", "/v0/vnext/changes"),
     }
 )
 
@@ -1480,6 +1482,9 @@ app.include_router(vnext_retrieval.context_router)
 
 
 app.include_router(vnext_memories.memory_router)
+
+
+app.include_router(vnext_changes.changes_router)
 
 
 app.include_router(vnext_review.review_router)

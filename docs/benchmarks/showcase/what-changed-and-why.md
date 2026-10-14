@@ -1,6 +1,6 @@
 # What changed and why
 
-Unreleased (on main, not in v0.20.0): this page is a design. The tool, the route and the view are not built. v0.20.0 has no what-changed answer, and it has no measurement of one.
+Unreleased (on main, not in v0.20.0): `alice_what_changed`, `POST /v0/vnext/changes` and the continuity page view are built. They are not in v0.20.0. v0.20.0 has no what-changed answer, and it has no measurement of one.
 
 An agent or a person asks about one topic: an account, a price, a feature, a policy. The answer is the history of recorded decisions and changes on that topic. The read builds every step from records. It does not read note text to decide that a note is a decision, and it does not take `replaced` from a sentence in a later note.
 
@@ -110,7 +110,7 @@ When nothing is found, or nothing visible is found, the answer says "No recorded
 
 ## Doors
 
-The same answer on three doors, when this is built:
+The same answer on three doors:
 
 - an MCP tool, `alice_what_changed`, taking the topic;
 - an HTTP route, `POST /v0/vnext/changes`, taking the topic;
@@ -122,7 +122,7 @@ Each new door is registered in the operator route inventory and its probe table,
 
 The read does not walk every note. It uses the existing recall index, judges at most 128 candidates, then follows `superseded_by` for at most 64 hops. When 128 candidates have been judged, the answer is the history found among them. It does not report how many further records matched, and it does not report a count or a gap caused by permissions.
 
-When the read is built, its time is measured on the 10,000-note company next to recall's time on the same vault, and that pair of times is written here. This page does not yet have those times, because the read is not built. v0.20.0 has no such measurement. A budget test with 10,000 hidden candidates shows the 128 cap holds.
+Measured on a SQLite vault of 10,000 hidden decision candidates and one readable decision, the same vault as the budget test: the what-changed read took 0.08 seconds and a full-text search of the same topic (`search_memories_fts`, limit 20) took 0.017 seconds. The full-text search returns rows before the label check. The synthetic company generator is a separate branch and is not in this build, so this pair is the budget vault, not that generator's files. v0.20.0 has no such measurement. A budget test with 10,000 hidden candidates shows the 128 cap holds.
 
 ## Tests, when this is built
 
@@ -137,7 +137,7 @@ When the read is built, its time is measured on the 10,000-note company next to 
 
 Recorded decisions, not extraction, are what this feature and the demo use.
 
-The company's agents record decisions through the existing tools: commit a decision memory, and supersede it through correction (`alice_memory_correct`). The setup script for the synthetic company makes those calls with each team's key, through the normal APIs and permission checks. The demo, the docs and the case study describe this setup as scripted. It shows that Alice stores, retrieves, explains and protects recorded decisions. It does not show that agents recognise decisions on their own. This note does not add that script.
+The company's agents record decisions through the existing tools: commit a decision memory, and supersede it through correction (`alice_memory_correct`). The setup script for the synthetic company makes those calls with each team's key, through the normal APIs and permission checks. `scripts/showcase_decisions.py` records the planted Keel prices through commit, confirm and undo. The demo, the docs and the case study describe this setup as scripted. It shows that Alice stores, retrieves, explains and protects recorded decisions. It does not show that agents recognise decisions on their own.
 
 Extraction from imported notes with a local model is a later unit of its own. It is not started in this sprint. Before it may be claimed, it is measured on notes prepared independently of the build team, which the team does not see. The measurement covers missed decisions, invented decisions, wrong replacement links, disagreements and source attribution. Extracted decisions stay proposals until accepted under the review policy.
 
