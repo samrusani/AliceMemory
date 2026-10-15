@@ -63,6 +63,7 @@ CORE_TOOL_NAMES = [
     "alice_memory_correct",
     "alice_memory_manage",
     "alice_explain",
+    "alice_what_changed",
 ]
 
 TRUSTED_AGENT = {

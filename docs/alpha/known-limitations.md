@@ -35,7 +35,7 @@ This alpha is intentionally limited. This page lists what is limited now, in sho
 
 SQLite mode (`alice-memory install`, `alice-memory mcp`) is the default single-user path and carries extra boundaries:
 
-- the default three MCP tools, or all eleven core tools with
+- the default three MCP tools, or all twelve core tools with
   `ALICE_MCP_FULL_TOOLS=1`; optional long-tail memory tools need
   `ALICE_MCP_LEGACY_TOOLS=1`, and most of them fail or refuse on SQLite: the
   ones that read the continuity store (for example `alice_brief` and
