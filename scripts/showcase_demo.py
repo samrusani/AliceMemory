@@ -29,6 +29,8 @@ def prepare_demo_product(db_path: Path) -> str:
     """Create one product project and bind the product key to it.
 
     A second call keeps the same project. The search arms do not call this.
+    The project row lives only in this demo database. The product schema is
+    unchanged, and SQLite still has no projects table of its own.
     """
 
     user_id = UUID(bench.DEFAULT_USER_ID)
@@ -38,7 +40,7 @@ def prepare_demo_product(db_path: Path) -> str:
     with sqlite_user_connection(db_path, user_id) as conn:
         ensure_sqlite_user(conn, user_id, "showcase@example.com", "Showcase")
         store = SQLiteVNextStore(conn, user_id)
-        project_id = _ensure_product_project(store)
+        project_id = _ensure_product_project(conn)
         scope = demo_product_binding(project_id)
         row = conn.execute(
             """
@@ -64,20 +66,27 @@ def prepare_demo_product(db_path: Path) -> str:
     return project_id
 
 
-def _ensure_product_project(store) -> str:
-    """The project id stored on the product key.
+def _ensure_product_project(conn) -> str:
+    """One product project in the demo database, found again by its slug."""
 
-    SQLite has no projects table. The binding is the project scope on the key,
-    which is how a project-scoped key is limited.
-    """
-
-    found = store.conn.execute(
+    conn.execute(
         """
-        SELECT project_scope FROM agent_api_keys
-        WHERE user_id = ? AND agent_id = ? AND revoked_at IS NULL
-        """,
-        (store.user_id, PRODUCT_AGENT_ID),
+        CREATE TABLE IF NOT EXISTS projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          slug TEXT NOT NULL UNIQUE
+        )
+        """
+    )
+    found = conn.execute(
+        "SELECT id FROM projects WHERE slug = ?",
+        (PRODUCT_PROJECT_SLUG,),
     ).fetchone()
-    if found is not None and found["project_scope"]:
-        return str(found["project_scope"])
-    return str(uuid4())
+    if found is not None:
+        return str(found["id"])
+    project_id = str(uuid4())
+    conn.execute(
+        "INSERT INTO projects (id, name, slug) VALUES (?, ?, ?)",
+        (project_id, PRODUCT_PROJECT_NAME, PRODUCT_PROJECT_SLUG),
+    )
+    return project_id
