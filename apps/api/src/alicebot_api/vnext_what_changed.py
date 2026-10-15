@@ -102,6 +102,9 @@ def _assemble(
     claimed: set[str] = set()
     built: list[tuple[str, list[str]]] = []
     for row in judged:
+        # Full-text search returns uuid columns as UUID objects. The walk
+        # reads superseded_by and supersedes as text, the same as _fetch.
+        row = _plain_row(row)
         by_id[str(row["id"])] = row
         if not _step_is_readable(store, identity, "memory", row):
             continue
@@ -805,16 +808,23 @@ def _load_sources(store: Any, user_id: object, source_ids: Sequence[str]) -> dic
     return kept
 
 
+def _plain_row(row: Mapping[str, object]) -> dict[str, object]:
+    """Copy one store row and turn UUID objects into text.
+
+    PostgreSQL returns ``id``, ``superseded_by`` and ``supersedes`` as UUID
+    objects. The walk and the chain only follow those links when they are
+    text. SQLite already returns text, and this copy leaves that text as it is.
+    """
+
+    return {
+        str(key): str(value) if type(value).__name__ == "UUID" else value
+        for key, value in row.items()
+    }
+
+
 def _fetch(store: Any, query: str, params: tuple[object, ...]) -> list[Mapping[str, object]]:
     # Every placeholder in these reads is a uuid column. Postgres will not
     # compare uuid to text, and it returns those columns as UUID objects.
     if type(store).__name__ == "PostgresVNextStore":
         query = query.replace("?", "%s::uuid")
-    rows: list[Mapping[str, object]] = []
-    for row in store._fetch_all(query, params):
-        if isinstance(row, Mapping):
-            plain: dict[str, object] = {
-                str(key): str(value) if type(value).__name__ == "UUID" else value for key, value in row.items()
-            }
-            rows.append(plain)
-    return rows
+    return [_plain_row(row) for row in store._fetch_all(query, params) if isinstance(row, Mapping)]

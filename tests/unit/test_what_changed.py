@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -225,6 +225,66 @@ def test_a_reason_is_not_taken_from_the_note_text() -> None:
     assert step["id"] == str(memory["id"])
     assert step["reason"] is None
     assert step["sources"] == []
+
+
+def test_uuid_links_on_a_search_row_stay_one_chain() -> None:
+    """PostgreSQL full-text rows carry UUID objects. The walk still follows them.
+
+    The oldest row is the first search hit. Dropping ``_plain_row`` leaves
+    ``superseded_by`` unread, so the later steps become extra chains and the
+    December step is not upcoming on the first chain.
+    """
+
+    store = _store()
+    older = _memory(
+        store,
+        title="quillon keel price",
+        canonical_text="the quillon keel price was 640 ledger units",
+        valid_from="2026-01-15T00:00:00Z",
+        created_at="2026-01-15T00:00:00Z",
+    )
+    current = _memory(
+        store,
+        title="quillon keel price",
+        canonical_text="the quillon keel price was cut to 520 ledger units",
+        valid_from="2026-06-02T00:00:00Z",
+        created_at="2026-06-02T00:00:00Z",
+        supersedes=str(older["id"]),
+    )
+    later = _memory(
+        store,
+        title="quillon keel price",
+        canonical_text="the quillon keel price becomes 480 ledger units in December",
+        valid_from="2026-12-01T00:00:00Z",
+        created_at="2026-07-01T00:00:00Z",
+        supersedes=str(current["id"]),
+    )
+    store.update_memory(memory_id=str(older["id"]), patch={"superseded_by": str(current["id"])})
+    store.update_memory(memory_id=str(current["id"]), patch={"superseded_by": str(later["id"])})
+
+    def search(**_kwargs: object) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        for memory_id in (str(older["id"]), str(current["id"]), str(later["id"])):
+            row = dict(store.get_memory(memory_id))
+            for key in ("id", "superseded_by", "supersedes"):
+                if row.get(key):
+                    row[key] = UUID(str(row[key]))
+            rows.append(row)
+        return rows
+
+    store.search_memories_fts = search  # type: ignore[method-assign]
+    chains = _ask(store, "quillon keel")["chains"]
+    assert isinstance(chains, list)
+    assert len(chains) == 1
+    chain = chains[0]
+    assert isinstance(chain, dict)
+    assert chain["current"]["id"] == str(current["id"])
+    assert chain["upcoming"] == [str(later["id"])]
+    assert [step["id"] for step in chain["history"]] == [
+        str(older["id"]),
+        str(current["id"]),
+        str(later["id"]),
+    ]
 
 
 def test_two_unrelated_decisions_stay_two_chains() -> None:
