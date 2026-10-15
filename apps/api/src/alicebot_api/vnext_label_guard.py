@@ -45,7 +45,11 @@ from alicebot_api.vnext_derived_labels import (
     soft_refs,
     _mark_dependency_bounds,
 )
-from alicebot_api.vnext_label_closure import collect_label_rows
+from alicebot_api.vnext_label_closure import (
+    bind_weekly_parent_cache,
+    collect_label_rows,
+    reset_weekly_parent_cache,
+)
 from alicebot_api.vnext_label_sql import (
     EVENT_CHILD_TARGETS,
     EVENT_EDGE_TARGET,
@@ -258,10 +262,12 @@ def label_read_scope(store):
         return
     state = _RequestLabels()
     token = _REQUEST_LABELS.set((store, state))
+    parent_token = bind_weekly_parent_cache(store)
     try:
         with label_metadata_cache(state.normalized_metadata):
             yield
     finally:
+        reset_weekly_parent_cache(parent_token)
         _REQUEST_LABELS.reset(token)
 
 

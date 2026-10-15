@@ -380,6 +380,9 @@ _SCAN_FOR_EDGES = (
 )
 # A source id in one of these columns closes the edge, the same as an id at an end. Import restores the text as it was.
 _TYPE_COLUMNS = ("from_type", "to_type", "created_by")
+# Closed because the source is named here. The column is NOT NULL, so the replacement is this fixed text,
+# which holds nothing the source said. Legacy graph reads and an export still accept it.
+_SCRUBBED_TYPE_COLUMNS = ("from_type", "to_type", "created_by")
 _EDGES_BY_ID = "SELECT * FROM graph_edges WHERE user_id = ? AND id IN (SELECT value FROM json_each(?)) ORDER BY id"
 _CHUNKS_OF_SOURCES = (
     "SELECT id, source_id FROM source_chunks WHERE user_id = ? AND source_id IN (SELECT value FROM json_each(?))"
@@ -581,6 +584,41 @@ def _blank_edge_text(self, edges):
                       (edge["id"], self.user_id))
 
 
+def _linked_source_ids(self, source_ids):
+    """Canonical ids of the sources and of their chunks. A type column that holds one of them is source-linked text."""
+
+    found = set()
+    for source_id in source_ids:
+        canonical = _canonical_or_none(source_id)
+        if canonical is not None:
+            found.add(canonical)
+    if source_ids:
+        for chunk in self._fetch_all(_CHUNKS_OF_SOURCES, (self.user_id, json.dumps([str(item) for item in source_ids]))):
+            canonical = _canonical_or_none(chunk["id"])
+            if canonical is not None:
+                found.add(canonical)
+    return found
+
+
+def _replace_source_linked_columns(self, edge, linked_ids):
+    """Replace source-linked text in the type columns with ``REMOVAL_MARKER``. Other text in those columns stays."""
+
+    if not linked_ids:
+        return
+    columns = []
+    for column in _SCRUBBED_TYPE_COLUMNS:
+        value = edge.get(column)
+        if isinstance(value, str) and value and cited_source_ids(value).every & linked_ids:
+            columns.append(column)
+    if not columns:
+        return
+    assignments = ", ".join(f"{column} = ?" for column in columns)
+    self._execute(
+        f"UPDATE graph_edges SET {assignments} WHERE id = ? AND user_id = ?",  # nosec B608
+        (*([REMOVAL_MARKER] * len(columns)), edge["id"], self.user_id),
+    )
+
+
 def _retire_entity_if_unused(self, entity_id, now):
     """Replace the name of a linker-made entity that no live edge reaches any more."""
 
@@ -595,10 +633,15 @@ def _retire_entity_if_unused(self, entity_id, now):
         (REMOVAL_MARKER, now, now, entity_id, self.user_id))
 
 
-def _close_edges(self, edges, now):
-    """Close and blank each edge, count the entity mention it ends and retire an entity it was the last live edge of."""
+def _close_edges(self, edges, now, *, linked_ids=()):
+    """Close and blank each edge, count the entity mention it ends and retire an entity it was the last live edge of.
+
+    ``linked_ids`` are the canonical ids of a source and its chunks. A type column that names one of them is replaced
+    with ``REMOVAL_MARKER``, so a quote written beside the id does not stay in the closed edge.
+    """
 
     for edge in edges:
+        _replace_source_linked_columns(self, edge, linked_ids)
         # Clear both surface and normalized aliases, even on an already closed edge.
         self._execute(
             "UPDATE graph_edges SET valid_to = COALESCE(valid_to, MAX(?, COALESCE(valid_from, ?))), "
@@ -615,15 +658,16 @@ def _close_edges(self, edges, now):
     return len(edges)
 
 
-def retire_edges(self, hits, now, closed=()):
+def retire_edges(self, hits, now, closed=(), *, linked_ids=()):
     """Retire the edges of one ``EdgeHits``: close and blank the edges with the source at an end, blank the text of the
     ones that name it only in their text. Rows are read as they are stored now, so an edge that an earlier retirement of
     the same command closed is blanked again and counted once. ``closed`` are the rows an earlier step of this retirement
-    closed (the mention edges of a candidate it rejected); they are counted with the rest. Returns ``(graph edges, mention
-    edges)``."""
+    closed (the mention edges of a candidate it rejected); they are counted with the rest. ``linked_ids`` scrub
+    source-linked text from ``from_type``, ``to_type`` and ``created_by`` of the edges that are closed. Returns
+    ``(graph edges, mention edges)``."""
 
     ended = _edges_by_id(self, hits.ends)
-    _close_edges(self, ended, now)
+    _close_edges(self, ended, now, linked_ids=linked_ids)
     _blank_edge_text(self, _edges_by_id(self, hits.notes))
     rows = {str(edge['id']): edge for edge in (*closed, *ended)}
     mentions = sum(1 for edge in rows.values() if edge['edge_type'] == ENTITY_MENTION_EDGE_TYPE and edge['to_type'] == 'entity')
@@ -758,7 +802,8 @@ def retire_dependents(self, source_id, *, now, scrub_candidates=False, citing_id
             ends = {*edge_hits.ends, *(str(edge['id']) for rows in at_end.values() for edge in rows)}
             edge_hits = EdgeHits(tuple(sorted(ends)), tuple(sorted(set(edge_hits.notes) - ends)),
                                  edge_hits.candidates, edge_hits.loops)
-    graph_edges, mention_edges = retire_edges(self, edge_hits, now, closed=closed)
+    graph_edges, mention_edges = retire_edges(
+        self, edge_hits, now, closed=closed, linked_ids=_linked_source_ids(self, [source_id]))
     loops = blank_open_loops(self, source_id, now=now, loop_ids=loop_ids)
     return {'candidate_memories': len(pending), 'mention_edges': mention_edges, 'graph_edges': graph_edges,
             'open_loops': loops, 'memories_citing_replaced': retained}

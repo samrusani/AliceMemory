@@ -18,7 +18,7 @@ from uuid import uuid4
 
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
 from alicebot_api.vnext_derived_labels import identifier, settle_labels, weekly_candidate_memory, with_derived_from
-from alicebot_api.vnext_label_closure import load_weekly_parent_artifacts
+from alicebot_api.vnext_label_closure import load_weekly_parent_artifacts, weekly_parent_query_count
 from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
 from alicebot_api.vnext_label_repair import classify_stored_labels, format_label_check
 from alicebot_api.vnext_label_repair import _load_tables
@@ -61,16 +61,21 @@ class Vault:
             if row["kind"] == kind and identifier(row["id"]) in wanted
         ]
 
-    def read_artifacts_naming_candidates(self, memory_ids: list[str]) -> list[dict[str, object]]:
+    def read_artifacts_naming_candidates(self, memory_ids: list[str] | None) -> list[dict[str, object]]:
+        """Every artifact that carries ``candidate_memory_ids``. ``None`` asks for all of them.
+
+        The read indexes the lists itself, with the classifier's spelling rules, so this returns the rows
+        and does not match ids.
+        """
+
+        del memory_ids
         self.parent_reads += 1
-        wanted = {identifier(item) for item in memory_ids}
         found = []
         for row in self.rows:
             if row["kind"] != "artifact":
                 continue
             meta = row["metadata_json"]
-            named = meta.get("candidate_memory_ids") if isinstance(meta, dict) else None
-            if isinstance(named, list) and any(identifier(item) in wanted for item in named):
+            if isinstance(meta, dict) and "candidate_memory_ids" in meta:
                 found.append(dict(row))
         return found
 
@@ -163,17 +168,62 @@ def mixed_vault() -> tuple[Vault, dict[str, str]]:
             "input_summary": _summary(["source-public"]),
         },
     )
+    spelled_rows, spelled_kinds = _spelled_weeklies()
     rows = [
         public, secret, member, original, consolidated, copied, weekly, weekly_secret, weekly_alone,
-        recorded, inner, outer, weekly_report, secret_report, recorded_report,
+        recorded, inner, outer, weekly_report, secret_report, recorded_report, *spelled_rows,
     ]
     kinds = {
         "weekly": "weekly",
         "consolidation": "consolidated",
         "copy": "copied",
         "report_of_report": "outer-report",
+        **spelled_kinds,
     }
     return Vault(rows), kinds
+
+
+def _spelled_weeklies() -> tuple[list[dict[str, object]], dict[str, str]]:
+    """The id spellings and list shapes the classifier accepts, each naming one weekly memory."""
+
+    rows: list[dict[str, object]] = []
+    kinds: dict[str, str] = {}
+    samples = {name: str(uuid4()) for name in ("uppercase", "compact", "urn", "braces", "scalar", "nested")}
+    named: dict[str, object] = {
+        "uppercase": [samples["uppercase"].upper()],
+        "compact": [samples["compact"].replace("-", "")],
+        "urn": ["urn:uuid:" + samples["urn"]],
+        "braces": ["{" + samples["braces"] + "}"],
+        "scalar": samples["scalar"],
+        "nested": [[samples["nested"]]],
+    }
+    for name, memory_id in samples.items():
+        rows.append(
+            _row(
+                "memory",
+                memory_id,
+                metadata_json={
+                    "candidate": True,
+                    "discovered_by": "vnext_weekly_synthesis",
+                    "project_scope": [],
+                    "workflow_digest": name,
+                },
+            )
+        )
+        rows.append(
+            _row(
+                "artifact",
+                name + "-report",
+                artifact_type="weekly_synthesis",
+                metadata_json={
+                    "workflow": "weekly_synthesis",
+                    "candidate_memory_ids": named[name],
+                    "input_summary": _summary(["source-public"]),
+                },
+            )
+        )
+        kinds[name] = memory_id
+    return rows, kinds
 
 
 def _classifier(vault: Vault) -> dict[str, tuple[str, str, bool]]:
@@ -218,6 +268,8 @@ def test_read_and_classifier_agree_for_every_row() -> None:
     assert read["weekly-alone"][2] is True
     assert read["weekly-recorded"] == ("project", "public", False)
     assert read["original"] == ("project", "public", False)
+    for name in ("uppercase", "compact", "urn", "braces", "scalar", "nested"):
+        assert read[kinds[name]] == ("project", "public", False), name
 
 
 def test_a_key_with_limits_cannot_read_a_candidate_whose_parent_inputs_are_confidential() -> None:
@@ -243,6 +295,49 @@ def test_a_memory_that_is_not_a_weekly_candidate_does_not_look_up_a_parent() -> 
     with label_read_scope(vault):
         guard = LabelGuard.for_filters(vault, (), DEFAULT_SENSITIVITY, ())
         guard.effective_row("memory", weekly)
+    assert vault.parent_reads == 1
+
+
+def test_one_request_loads_every_weekly_parent_in_one_lookup() -> None:
+    """The number of parent lookups does not grow with the number of weekly memories."""
+
+    source = _row("source", "source-public", sensitivity="public")
+    weeklies = []
+    rows: list[dict[str, object]] = [source]
+    for index in range(40):
+        memory_id = str(uuid4())
+        weeklies.append(
+            _row(
+                "memory",
+                memory_id,
+                metadata_json={
+                    "candidate": True,
+                    "discovered_by": "vnext_weekly_synthesis",
+                    "project_scope": [],
+                    "workflow_digest": f"digest-{index}",
+                },
+            )
+        )
+        rows.append(
+            _row(
+                "artifact",
+                str(uuid4()),
+                artifact_type="weekly_synthesis",
+                metadata_json={
+                    "workflow": "weekly_synthesis",
+                    "candidate_memory_ids": [memory_id],
+                    "input_summary": _summary(["source-public"]),
+                    "workflow_digest": f"report-{index}",
+                },
+            )
+        )
+    rows.extend(weeklies)
+    vault = Vault(rows)
+    with label_read_scope(vault):
+        guard = LabelGuard.for_filters(vault, (), DEFAULT_SENSITIVITY, ())
+        admitted = guard.admit_rows("memory", weeklies)
+        assert weekly_parent_query_count() == 1
+    assert [row["id"] for row in admitted] == [row["id"] for row in weeklies]
     assert vault.parent_reads == 1
 
 
@@ -354,6 +449,8 @@ def test_sqlite_read_uses_a_parent_the_store_returns(tmp_path, monkeypatch) -> N
 
     def supply(self, memory_ids):
         del self
+        if memory_ids is None:
+            return [parent]
         return [parent] if str(candidate["id"]) in {str(item) for item in memory_ids} else []
 
     monkeypatch.setattr(SQLiteVNextStore, "read_artifacts_naming_candidates", supply, raising=False)
