@@ -887,6 +887,104 @@ describe("ContinuityPage", () => {
     });
     render(await ContinuityPage({ searchParams: Promise.resolve({ what_changed: "Keel price" }) }));
     expect(postWhatChangedMock).toHaveBeenCalledWith("https://api.example.com", "user-1", "Keel price");
-    expect(screen.getByText("the list price was cut to 520")).toBeInTheDocument();
+    expect(screen.getAllByText(/the list price was cut to 520/).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Topic")).toHaveValue("Keel price");
+  });
+
+  it("shows reasons, sources, upcoming, and disputed from the route", async () => {
+    getApiConfigMock.mockReturnValue({
+      apiBaseUrl: "https://api.example.com",
+      userId: "user-1",
+      defaultThreadId: "",
+      defaultToolId: "",
+    });
+    hasLiveApiConfigMock.mockReturnValue(true);
+    for (const mock of [
+      listContinuityCapturesMock,
+      queryContinuityRecallMock,
+      getContinuityResumptionBriefMock,
+      getContinuityOpenLoopDashboardMock,
+      getContinuityDailyBriefMock,
+      getContinuityWeeklyReviewMock,
+      getThreadHealthDashboardMock,
+      listContinuityReviewQueueMock,
+    ]) {
+      mock.mockRejectedValue(new Error("offline"));
+    }
+    postWhatChangedMock.mockResolvedValue({
+      notice: "This covers the recorded decisions the caller may read. It is not a company-wide statement.",
+      topic: "lantern policy",
+      chains: [
+        {
+          start: "memory-now",
+          current: {
+            id: "memory-now",
+            kind: "memory",
+            chain: "memory-now",
+            date: "2026-03-01",
+            change: "the lantern stays lit",
+            reason: { text: "the recorded reason", source_id: "source-1" },
+            replaced: "memory-old",
+            disagrees_with: null,
+            sources: [{ source_id: "source-1", title: "November price note", date: "2026-03-01" }],
+            author: "showcase-sales",
+            review_state: "active",
+          },
+          upcoming: ["memory-later"],
+          disputed: ["memory-dispute"],
+          history: [
+            {
+              id: "memory-now",
+              kind: "memory",
+              chain: "memory-now",
+              date: "2026-03-01",
+              change: "the lantern stays lit",
+              reason: { text: "the recorded reason", source_id: "source-1" },
+              replaced: null,
+              disagrees_with: null,
+              sources: [{ source_id: "source-1", title: "November price note", date: "2026-03-01" }],
+              author: "showcase-sales",
+              review_state: "active",
+            },
+            {
+              id: "memory-later",
+              kind: "memory",
+              chain: "memory-now",
+              date: "2026-11-01",
+              change: "the later lantern rule",
+              reason: null,
+              replaced: null,
+              disagrees_with: null,
+              sources: [],
+              author: "showcase-sales",
+              review_state: "active",
+            },
+            {
+              id: "memory-dispute",
+              kind: "memory",
+              chain: "memory-now",
+              date: "2026-02-01",
+              change: "the disputed lantern rule",
+              reason: null,
+              replaced: null,
+              disagrees_with: "memory-now",
+              sources: [],
+              author: "showcase-sales",
+              review_state: "active",
+            },
+          ],
+        },
+      ],
+    });
+    render(await ContinuityPage({ searchParams: Promise.resolve({ what_changed: "lantern policy" }) }));
+    expect(screen.getAllByText("Reason: the recorded reason").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Source: November price note 2026-03-01").length).toBeGreaterThan(0);
+    const upcoming = screen.getByRole("heading", { name: "Upcoming" }).closest("section");
+    const disputed = screen.getByRole("heading", { name: "Disputed" }).closest("section");
+    expect(upcoming).not.toBeNull();
+    expect(disputed).not.toBeNull();
+    expect(upcoming).toHaveTextContent("the later lantern rule");
+    expect(disputed).toHaveTextContent("the disputed lantern rule");
+    expect(screen.queryByText(/gap/i)).not.toBeInTheDocument();
   });
 });
