@@ -158,7 +158,7 @@ Use this split to avoid overlapping integrations:
 | Integration | Best for | Runtime shape |
 |---|---|---|
 | Alice memory provider | always-on continuity prefetch + memory tools inside Hermes memory stack | one external memory provider + built-in `MEMORY.md`/`USER.md` |
-| Alice MCP server | Alice tool surface in Hermes: default three tools (`alice_memory_commit`, `alice_recall`, `alice_resume`). The other eight core tools are behind `ALICE_MCP_FULL_TOOLS=1`. Legacy tools can be enabled only for deliberately keyless same-host compatibility; a server bound with `ALICE_AGENT_API_KEY` hides and rejects them. | MCP server attached under `mcp_servers` |
+| Alice MCP server | Alice tool surface in Hermes: default three tools (`alice_memory_commit`, `alice_recall`, `alice_resume`). The other nine core tools are behind `ALICE_MCP_FULL_TOOLS=1`. Legacy tools can be enabled only for deliberately keyless same-host compatibility; a server bound with `ALICE_AGENT_API_KEY` hides and rejects them. | MCP server attached under `mcp_servers` |
 | Hermes Alice skill pack | policy and prompting guidance on when/how to call Alice tools | skill instructions layered on top of provider or MCP |
 
 Practical default:

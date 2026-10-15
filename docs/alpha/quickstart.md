@@ -40,7 +40,7 @@ What install does not do:
 - It does not import a vault or create the database.
 - It does not start the MCP server or any host.
 - It does not write Hermes unless you pass `--host hermes`.
-- It does not turn on the full tool surface. The server lists three tools by default: `alice_memory_commit`, `alice_recall` and `alice_resume`. Set `ALICE_MCP_FULL_TOOLS=1` in the entry's `env` for all eleven core tools.
+- It does not turn on the full tool surface. The server lists three tools by default: `alice_memory_commit`, `alice_recall` and `alice_resume`. Set `ALICE_MCP_FULL_TOOLS=1` in the entry's `env` for all twelve core tools.
 
 Launcher selection, hook limits on Windows and on pinned entries, and the other install edge cases as of v0.17.0 are in the [v0.17.0 release notes](../release/v0.17.0-release-notes.md#install-and-host-config). That page is a dated record: where this page or a later CHANGELOG section says otherwise, they are current.
 

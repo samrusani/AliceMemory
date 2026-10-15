@@ -37,6 +37,7 @@ EXPECTED_MODULES = {
     "shared.py",
     "synthesis.py",
     "types.py",
+    "what_changed.py",
 }
 EXPECTED_PUBLIC_EXPORTS = [
     "MCP_FULL_TOOLS_ENV",
@@ -125,7 +126,7 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     legacy_definitions = mcp_registry._LEGACY_TOOL_DEFINITIONS
     handlers = mcp_registry._TOOL_HANDLERS
 
-    assert (len(core_definitions), len(legacy_definitions), len(handlers)) == (11, 65, 76)
+    assert (len(core_definitions), len(legacy_definitions), len(handlers)) == (12, 65, 77)
     # Moved 2026-08-17 (D7). The tool COUNT is unchanged and asserted above.
     # What moved is two optional properties, domains and sensitivity_allowed,
     # on alice_resume and alice_recent_decisions. Those arguments already
@@ -181,10 +182,10 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # reproduces the previous core digest. No tool added, removed, or renamed,
     # and no schema, annotation, or default changed. Legacy definitions are
     # unchanged.
-    assert _digest(core_definitions) == "4979dd00c126ed7e06dfeba6237af9404d1a4d9699b63e95e36bdfcdf434fc3c"
+    assert _digest(core_definitions) == "ecea565098e9cec0331dd748075f9ebf8fb4e2cbd524ce7d2f52f1bbabb156b2"
     assert _digest(legacy_definitions) == "6b302f61e48d4f6196af8a7d2c8882130d565d84134f51bba38648f84c09089e"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
-    assert _digest(ordered_handler_map) == "d864c98bb914bbc6ace464fa8020b3ed264f17f2061a6101aae677d801032ae5"
+    assert _digest(ordered_handler_map) == "fb200cfbecef6249b7cf80b17b0737d3b44cfdd04cda8c701d491ed4ac401798"
     for first, second in EXPECTED_ALIAS_PAIRS:
         assert handlers[first] is handlers[second]
         assert (
@@ -204,17 +205,17 @@ def test_mcp_gates_remain_dynamic_and_agent_keys_suppress_legacy(monkeypatch) ->
     assert _tool_names() == ["alice_memory_commit", "alice_recall", "alice_resume"]
 
     monkeypatch.setenv(mcp_tools.MCP_FULL_TOOLS_ENV, "1")
-    assert len(_tool_names()) == 11
+    assert len(_tool_names()) == 12
 
     monkeypatch.setenv(mcp_tools.MCP_LEGACY_TOOLS_ENV, "1")
-    assert len(_tool_names()) == 73
+    assert len(_tool_names()) == 74
     monkeypatch.setenv(mcp_tools.LEGACY_SURFACES_ENV, "1")
-    assert len(_tool_names()) == 76
+    assert len(_tool_names()) == 77
     monkeypatch.delenv(mcp_tools.MCP_LEGACY_TOOLS_ENV)
-    assert len(_tool_names()) == 11
+    assert len(_tool_names()) == 12
     monkeypatch.setenv(mcp_tools.MCP_LEGACY_TOOLS_ENV, "1")
     monkeypatch.setenv(mcp_tools.AGENT_API_KEY_ENV, " configured ")
-    assert len(_tool_names()) == 11
+    assert len(_tool_names()) == 12
 
     monkeypatch.delenv(mcp_tools.MCP_FULL_TOOLS_ENV)
     assert _tool_names() == ["alice_memory_commit", "alice_recall", "alice_resume"]

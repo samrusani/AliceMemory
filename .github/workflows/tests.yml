@@ -178,7 +178,7 @@ jobs:
           python -m coverage report --fail-under=50
           python -m coverage xml
           python -m coverage json -o /tmp/alicebot-python-coverage.json
-          python scripts/check_python_coverage.py --coverage-json /tmp/alicebot-python-coverage.json --path apps/api/src/alicebot_api/main.py --path apps/api/src/alicebot_api/routers/_api_shared.py --path apps/api/src/alicebot_api/routers/_vnext_automation.py --path apps/api/src/alicebot_api/routers/_vnext_embeddings.py --path apps/api/src/alicebot_api/routers/_vnext_shared.py --path apps/api/src/alicebot_api/routers/continuity.py --path apps/api/src/alicebot_api/routers/legacy_gated.py --path apps/api/src/alicebot_api/routers/memories_legacy.py --path apps/api/src/alicebot_api/routers/providers.py --path apps/api/src/alicebot_api/routers/vnext_memories.py --path apps/api/src/alicebot_api/routers/vnext_projects.py --path apps/api/src/alicebot_api/routers/vnext_retrieval.py --path apps/api/src/alicebot_api/routers/vnext_review.py --path apps/api/src/alicebot_api/routers/workspaces.py --min-percent 45
+          python scripts/check_python_coverage.py --coverage-json /tmp/alicebot-python-coverage.json --path apps/api/src/alicebot_api/main.py --path apps/api/src/alicebot_api/routers/_api_shared.py --path apps/api/src/alicebot_api/routers/_vnext_automation.py --path apps/api/src/alicebot_api/routers/_vnext_embeddings.py --path apps/api/src/alicebot_api/routers/_vnext_shared.py --path apps/api/src/alicebot_api/routers/continuity.py --path apps/api/src/alicebot_api/routers/legacy_gated.py --path apps/api/src/alicebot_api/routers/memories_legacy.py --path apps/api/src/alicebot_api/routers/providers.py --path apps/api/src/alicebot_api/routers/vnext_memories.py --path apps/api/src/alicebot_api/routers/vnext_projects.py --path apps/api/src/alicebot_api/routers/vnext_retrieval.py --path apps/api/src/alicebot_api/routers/vnext_changes.py --path apps/api/src/alicebot_api/routers/vnext_review.py --path apps/api/src/alicebot_api/routers/workspaces.py --min-percent 45
 
   python-unit:
     # This exact name is a required status check of the main ruleset and of the
@@ -463,9 +463,9 @@ jobs:
               f"{mcp_handler_code_path}"
           )
           assert mcp_tools_module.call_mcp_tool is mcp_registry.call_mcp_tool
-          assert len(mcp_registry._CORE_TOOL_DEFINITIONS) == 11
+          assert len(mcp_registry._CORE_TOOL_DEFINITIONS) == 12
           assert len(mcp_registry._LEGACY_TOOL_DEFINITIONS) == 65
-          assert len(mcp_registry._TOOL_HANDLERS) == 76
+          assert len(mcp_registry._TOOL_HANDLERS) == 77
           assert not carrier_path.is_relative_to(repository_path), (
               f"legacy store carrier resolved to checkout source instead of the installed wheel: {carrier_path}"
           )

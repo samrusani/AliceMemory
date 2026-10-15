@@ -1,7 +1,7 @@
 # MCP Tools
 
 Alice advertises three MCP tools by default: `alice_memory_commit`,
-`alice_recall`, and `alice_resume`. The other eight core tools stay defined
+`alice_recall`, and `alice_resume`. The other nine core tools stay defined
 and become callable when `ALICE_MCP_FULL_TOOLS=1`. Every parameter carries a
 description, so MCP-capable agents can use the surface without reading this
 page. This page exists for humans wiring things up. For the full verb
@@ -249,7 +249,7 @@ the answer verifier (`render_pack_context_block`) does the same.
 
 ## The full core surface
 
-`ALICE_MCP_FULL_TOOLS=1` advertises all eleven core tools, in the current
+`ALICE_MCP_FULL_TOOLS=1` advertises all twelve core tools, in the current
 definition order. Capture and the pack are on this surface. Vault import
 is a CLI verb, not a fourth always-on agent tool.
 
@@ -335,6 +335,12 @@ is a CLI verb, not a fourth always-on agent tool.
 - `alice_open_loops` — list open loops, or close/snooze/edit/reopen one.
 - `alice_explain` — where a memory came from and why it can be trusted:
   sources, revisions, corroboration, contradiction signals.
+- `alice_what_changed` — the recorded decision history for one topic that this
+  caller may read. Each chain has its own current step, upcoming ids, disputed
+  ids and history. A reason is the stored rationale or a quote already saved
+  with the decision's provenance. The answer gives no count and no gap marker.
+  A vault of plain notes, with no recorded decision, answers "No recorded
+  decision history was found".
 
 Exact input schemas (types, enums, defaults) are in the `tools/list`
 response; they are the source of truth.
@@ -348,7 +354,7 @@ on-ramp mode, leave `ALICE_AGENT_API_KEY` unset; payload identity is
 honored and audited as `unauthenticated_local`.
 
 A key-bound MCP server exposes only the enabled core set: the default three,
-or all eleven when `ALICE_MCP_FULL_TOOLS=1`. The legacy flag is deliberately
+or all twelve when `ALICE_MCP_FULL_TOOLS=1`. The legacy flag is deliberately
 ignored while `ALICE_AGENT_API_KEY` is set, and direct legacy calls fail
 closed instead of attempting partial authorization. Hidden core tools are
 rejected the same way.
@@ -611,13 +617,13 @@ for the full verb contract see the
 
 Earlier releases exposed a much larger surface. The retained long tail has 62
 memory tools. `ALICE_MCP_LEGACY_TOOLS=1` appends that tail to whatever core
-set is enabled. It does not imply the eight extra core tools.
+set is enabled. It does not imply the nine extra core tools.
 
 ```bash
 ALICE_MCP_LEGACY_TOOLS=1
 # default three plus the long tail (65), or 68 with ALICE_LEGACY_SURFACES=1
 ALICE_MCP_FULL_TOOLS=1 ALICE_MCP_LEGACY_TOOLS=1
-# eleven plus the long tail (73), or 76 with ALICE_LEGACY_SURFACES=1
+# 12 plus the long tail (74), or 77 with ALICE_LEGACY_SURFACES=1
 ```
 
 Exactly three task-brief tools are added only when the separate mount-time
@@ -1196,4 +1202,4 @@ Unreleased (on main, not in v0.20.0): after a memory is redacted the owner and a
 
 Unreleased (on main, not in v0.20.0): a graph edge has no label and keeps the explanation it was made with, which can hold the title of a memory redacted since, so `GET /v0/vnext/graph/neighborhood/{target_id}` lists and `POST /v0/vnext/graph/edges/{edge_id}/review` changes an edge for a key with limits only when that key may read every labelled row the edge joins and none of them is redacted; any other edge answers as a missing edge does (the review answers 404), and a refused review changes nothing. A project end that names the project by a name or by an id that finds no project row hides nothing, as an entity end hides nothing; a project row that exists and is not readable still hides the edge. The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. The owner and an unbound admin key are not limited: they list and review every edge, and read the explanations that kept the words, because this is containment and not removal. An end that is an entity or a chunk of a source carries no label and hides nothing by itself. `POST /v0/vnext/beliefs/{belief_id}/review` is refused to a key that may not read the belief, with the answer of a missing belief, and a refused review changes nothing. The owner and an unbound admin key review any belief.
 
-The legacy tools `alice_graph_neighborhood`, `alice_graph_edge_review`, `alice_belief_review` and `alice_belief_state` are the MCP twins of these routes. They are on the legacy MCP surface, which the server turns off whenever an agent key is configured, because its handlers do not all enforce a key's limits, so a key cannot call them. The only tools a key can call are the core tools: `alice_recall`, `alice_context_pack`, `alice_resume`, `alice_recent_decisions`, `alice_open_loops`, `alice_explain`, `alice_memory_review`, `alice_capture`, `alice_memory_commit`, `alice_memory_correct` and `alice_memory_manage`. The containment tests call the ones among them that return a report or a memory, and check that every legacy tool is refused under each key profile.
+The legacy tools `alice_graph_neighborhood`, `alice_graph_edge_review`, `alice_belief_review` and `alice_belief_state` are the MCP twins of these routes. They are on the legacy MCP surface, which the server turns off whenever an agent key is configured, because its handlers do not all enforce a key's limits, so a key cannot call them. The only tools a key can call are the core tools: `alice_recall`, `alice_context_pack`, `alice_resume`, `alice_recent_decisions`, `alice_open_loops`, `alice_explain`, `alice_memory_review`, `alice_capture`, `alice_memory_commit`, `alice_memory_correct`, `alice_memory_manage` and `alice_what_changed`. The containment tests call the ones among them that return a report or a memory, and check that every legacy tool is refused under each key profile.

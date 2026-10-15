@@ -31,7 +31,7 @@ Both implement the same core memory contracts.
 ```text
 external agent / operator
         |
-        +-- MCP (3 default tools, 11 with ALICE_MCP_FULL_TOOLS=1)
+        +-- MCP (3 default tools, 12 with ALICE_MCP_FULL_TOOLS=1)
         +-- HTTP (agent-key authenticated core routes)
         +-- CLI (core memory and continuity commands)
         |
@@ -57,10 +57,10 @@ PostgreSQL + pgvector  |  SQLite
 
 - The default MCP handshake exposes three tools: `alice_memory_commit`,
   `alice_recall`, and `alice_resume`. Set `ALICE_MCP_FULL_TOOLS=1` to expose
-  all eleven core tools. The other eight are `alice_capture`,
+  all twelve core tools. The other nine are `alice_capture`,
   `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`,
-  `alice_memory_review`, `alice_memory_correct`, `alice_explain`, and
-  `alice_memory_manage`.
+  `alice_memory_review`, `alice_memory_correct`, `alice_explain`,
+  `alice_memory_manage`, and `alice_what_changed`.
 - `alice-memory` is the SQLite on-ramp. It serves MCP, and
   `alice-memory install` writes the host MCP config and a session-start hook
   for Claude Code and Cursor, and for Codex when `--host codex` is passed.

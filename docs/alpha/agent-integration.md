@@ -228,7 +228,7 @@ Rules:
 - Fresh local installs keep working without keys: while a user has no active keys, keyless local human and agent calls remain available; self-asserted agents are audited with `auth: "unauthenticated_local"`.
 - The moment at least one active key exists, every protected `/v0/vnext` request requires `Authorization: Bearer alice_sk_...`, including requests that omit agent identity fields. Bare keys are rejected.
 - Manage keys with `alicebot agent keys list` (prefixes only, never hashes) and `alicebot agent keys revoke <key-prefix-or-id>`.
-- MCP servers bind a key by setting `ALICE_AGENT_API_KEY` in the server env. Key-bound MCP runs fail closed to the enabled core set (three by default, eleven with `ALICE_MCP_FULL_TOOLS=1`): legacy tools are neither listed nor callable, even if `ALICE_MCP_LEGACY_TOOLS=1` is also set.
+- MCP servers bind a key by setting `ALICE_AGENT_API_KEY` in the server env. Key-bound MCP runs fail closed to the enabled core set (three by default, twelve with `ALICE_MCP_FULL_TOOLS=1`): legacy tools are neither listed nor callable, even if `ALICE_MCP_LEGACY_TOOLS=1` is also set.
 
 ### HTTP error contract
 

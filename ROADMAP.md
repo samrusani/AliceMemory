@@ -98,7 +98,7 @@ restore, recorded security disposition) shipped in Phases 4 and 5.
   invocation.
 - A consumer knowledge-management product.
 - OCR or transcription execution; Alice accepts text extracted elsewhere.
-- Growing the core MCP surface past eleven tools. The default handshake stays
+- Growing the core MCP surface past twelve tools. The default handshake stays
   at three.
 
 `v0.20.0` is the latest published release and remains the install, checksum,

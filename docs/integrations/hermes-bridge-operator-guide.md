@@ -28,7 +28,7 @@ Use MCP-only as a fallback when provider install is temporarily blocked.
 - Fallback mode: `docs/integrations/examples/hermes-config.mcp-only.yaml`
 
 Both example files set `ALICE_MCP_FULL_TOOLS=1`, so the server offers the full
-eleven-tool core surface. Each lists in `tools.include` the tools Hermes may
+twelve-tool core surface. Each lists in `tools.include` the tools Hermes may
 call, and both use the canonical `alice_memory_review` /
 `alice_memory_correct` review flow. For a key-bound
 Hermes server, set `ALICE_AGENT_API_KEY` to an issued key; do not enable the
