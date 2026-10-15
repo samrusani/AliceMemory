@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import re
-import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -49,21 +48,14 @@ def test_the_notes_are_published_with_the_exact_title_state_and_a_checksums_reco
     assert (REPO_ROOT / "docs/release/v0.20.0-checksums.txt").is_file()
 
 
-def test_every_version_site_names_0200_and_the_marketplace_pins_the_published_release() -> None:
-    """Mutations, each one alone: set one version site or one plugin pin back to 0.19.2; move the marketplace pin.
+def test_the_marketplace_pins_the_published_release_and_the_notes_carry_its_install_lines() -> None:
+    """Mutations, each one alone: move the marketplace pin; change an install line of the notes.
 
     The post-publication change moved the marketplace file to the v0.20.0 tag and the commit
-    that tag points at.
+    that tag points at. The version sites of the tree now name the next release, and
+    ``test_v0201_release_notes.py`` pins them.
     """
 
-    pyproject = tomllib.loads(_text("pyproject.toml"))["project"]["version"]
-    assert pyproject == "0.20.0"
-    assert json.loads(_text("apps/web/package.json"))["version"] == pyproject
-    assert json.loads(_text("packaging/mcpb/manifest.json"))["version"] == pyproject
-    assert json.loads(_text("plugins/alice-memory/.claude-plugin/plugin.json"))["version"] == pyproject
-    for name in ("plugins/alice-memory/.mcp.json", "plugins/alice-memory/hooks/hooks.json"):
-        assert f"alice-memory=={pyproject}" in _text(name), name
-        assert "alice-memory==0.19.2" not in _text(name), name
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
     assert marketplace["ref"] == "v0.20.0"
     assert marketplace["sha"] == "10034879439f583514cf23f373e998656ff80cac"
@@ -73,12 +65,12 @@ def test_every_version_site_names_0200_and_the_marketplace_pins_the_published_re
     assert "uvx alice-memory@0.20.0 --version" in notes
 
 
-def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section() -> None:
+def test_the_changelog_has_the_dated_heading_right_after_the_v0201_section() -> None:
     """Mutations, each one alone: drop the heading; change its date form; put another section between
-    Unreleased and v0.20.0; remove the blank line between the last Unreleased entry and the v0.20.0 heading.
+    v0.20.1 and v0.20.0; remove the blank line between the last v0.20.1 entry and the v0.20.0 heading.
 
     The Unreleased section was empty on the release commit. It may hold entries now that main has
-    moved on, so this test no longer asks for it to be empty. It still asks that the v0.20.0 and
+    moved on, so this test no longer asks for it to be empty. It still asks that the v0.20.1, v0.20.0 and
     v0.19.2 sections follow it in that order, one heading each.
     """
 
@@ -86,8 +78,9 @@ def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section(
     sections = changelog.split("\n## ")
     assert sections[1].startswith("Unreleased\n")
     assert sections[1].endswith("\n")
-    assert sections[2].startswith("v0.20.0 \u2014 2026-10-02\n")
-    assert sections[3].startswith("v0.19.2 \u2014 2026-10-01\n")
+    assert sections[2].startswith("v0.20.1 \u2014 2026-10-16\n")
+    assert sections[3].startswith("v0.20.0 \u2014 2026-10-02\n")
+    assert sections[4].startswith("v0.19.2 \u2014 2026-10-01\n")
     assert changelog.count(HEADING) == 1
     assert "Unreleased (on main" not in changelog.split(HEADING)[1].split("\n## v0.19.2")[0]
 

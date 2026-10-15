@@ -1,6 +1,6 @@
 """Every copy of a saved quote is withheld with the quote, and every source a memory cites is judged.
 
-Unreleased (on main, not in v0.20.0). The reader of saved quotes (``SavedProvenanceReader``) withheld the quote of a
+New in v0.20.1. The reader of saved quotes (``SavedProvenanceReader``) withheld the quote of a
 link whose source the caller may not read, the memory's own copies of it, and the quote on another link of the same
 memory when that link said the same text as a link that was left out. An outside review found the case that rule
 did not reach: a commit with ``{"source_ids": [A, B]}`` makes a link to A only, and saves the one excerpt both as the

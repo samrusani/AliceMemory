@@ -145,15 +145,15 @@ sent to the embeddings endpoint, on the same terms as the seven keys above. In
 v0.19.2 that key does not exist, and an entry that carries it is refused like
 any other key install did not write.
 
-Unreleased (on main, not in v0.20.0): install also keeps `ALICE_PROJECT_DIR`
+From v0.20.1, install also keeps `ALICE_PROJECT_DIR`
 and `ALICE_PROJECT_SCOPING` (see [Projects](../alpha/projects.md)) on the same
 terms as the keys above. `alice-memory project`, `alice-memory brief`,
 `alice-memory sleep-proposals`, the SessionStart hook and `alice_resume` read
-them. While scoping is off, the default on main, they change nothing. In
+them. While scoping is off, the default in v0.20.1, they change nothing. In
 v0.20.0 an entry that holds either one is refused like any other key install
 did not write.
 
-Unreleased (on main, not in v0.20.0): install also keeps `ALICE_MCP_COMMIT_RESULT`
+From v0.20.1, install also keeps `ALICE_MCP_COMMIT_RESULT`
 (`compact` or `full`, see [The commit result](../alpha/mcp-tools.md#the-commit-result))
 on the same terms as the keys above. In v0.20.0 an entry that holds it is refused
 like any other key install did not write.

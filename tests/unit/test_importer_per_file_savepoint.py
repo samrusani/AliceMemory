@@ -791,7 +791,7 @@ def test_the_postgres_savepoint_rolls_back_then_releases_on_an_interrupt_and_on_
 # The words that say what changed, on the one docs page and in the CHANGELOG.
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-_DOCS_LEAD = "Unreleased (on main, not in v0.20.0): each file of a Markdown import"
+_DOCS_LEAD = "From v0.20.1, each file of a Markdown import"
 _CHANGELOG_LEAD = "- A file that fails part way through `alice-memory import-markdown`"
 
 
@@ -804,15 +804,15 @@ def _docs_paragraph() -> str:
 
 def _changelog_entry() -> str:
     text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = text.split("\n## ", 2)[1]
-    assert unreleased.startswith("Unreleased")
-    matching = [line for line in unreleased.splitlines() if line.startswith(_CHANGELOG_LEAD)]
+    released = text.split("\n## ", 3)[2]
+    assert released.startswith("v0.20.1")
+    matching = [line for line in released.splitlines() if line.startswith(_CHANGELOG_LEAD)]
     assert len(matching) == 1
     return matching[0]
 
 
 def test_the_importers_page_marks_the_new_failure_rule_and_says_what_v0200_did() -> None:
-    """The paragraph is marked as main only, counted inside its own paragraph.
+    """The paragraph is marked as new in v0.20.1, counted inside its own paragraph.
 
     Fails if the marker is deleted from the paragraph (the lead no longer
     matches), if the paragraph stops saying what v0.20.0 did with a failed file,
@@ -822,7 +822,7 @@ def test_the_importers_page_marks_the_new_failure_rule_and_says_what_v0200_did()
     """
 
     paragraph = _docs_paragraph()
-    assert paragraph.count("Unreleased (on main, not in v0.20.0)") == 1
+    assert paragraph.count("From v0.20.1,") == 1
     assert "In v0.20.0 on SQLite the failed file stayed live with the chunks written before the failure" in paragraph
     assert "On Postgres, a failure at the SQL level went differently in v0.20.0" in paragraph
     assert "read from the code, not run against a live server" in paragraph
@@ -834,13 +834,13 @@ def test_the_importers_page_marks_the_new_failure_rule_and_says_what_v0200_did()
 
 
 def test_the_changelog_entry_states_the_v0200_behaviour_and_what_stays() -> None:
-    """The entry sits in Unreleased and compares the new rule with v0.20.0.
+    """The entry sits in the v0.20.1 section and compares the new rule with v0.20.0.
 
     Fails if the entry stops saying what v0.20.0 did (stayed live, reported a
     duplicate, wrote two failure events), if those sentences lose their scope to
     SQLite or the Postgres sentence stops saying it was read from the code and
     not run, if the no-switch sentence stops being a statement about this change
-    alone (other Unreleased entries, and sibling changes of the same work such as
+    alone (other v0.20.1 entries, and sibling changes of the same work such as
     the typed MCP error codes, also change behaviour with no switch, so any claim
     that this is "the one change" of its kind is false), or if an old half-built
     source is not said to stay as it is.

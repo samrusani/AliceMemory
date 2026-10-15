@@ -1,6 +1,6 @@
 """The grounding of the context pack and the brief of ``alice_resume`` do not depend on rows the caller may not read.
 
-Unreleased (on main, not in v0.20.0). Two readers answered a key with limits from a read that cut first and checked the
+New in v0.20.1. Two readers answered a key with limits from a read that cut first and checked the
 caller's labels afterwards, or that asked the store for stored labels only:
 
 * The grounding block of the context pack lists the names of the query that no memory, source or entity supports. Its

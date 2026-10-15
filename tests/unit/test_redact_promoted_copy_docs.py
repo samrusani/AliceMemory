@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.1,"
 
 
 def flat(text: str) -> str:
@@ -31,8 +31,8 @@ def test_the_protocol_page_says_what_redact_leaves_of_a_promoted_copy() -> None:
 
 def test_the_changelog_says_redact_completes_for_a_promoted_copy_and_what_it_leaves() -> None:
     changelog = flat((ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
-    entry = changelog[changelog.index(MARK + " redacting a memory that a promotion made now completes.") :][:2600]
+    entry = changelog[changelog.index("- Redacting a memory that a promotion made now completes.") :][:2600]
 
-    assert "In v0.19.2, in v0.20.0 and on main until now" in entry
+    assert "In v0.19.2 and in v0.20.0" in entry
     assert "No migration is required. The append-only trigger is unchanged." in entry
     assert "An artifact event that holds anything more still stops the redaction, so no text is left behind." in entry

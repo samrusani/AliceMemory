@@ -16,7 +16,7 @@ from pathlib import Path
 from alicebot_api import vnext_derived_domain_backfill as repair
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.1,"
 LIMITATIONS = ROOT / "docs/alpha/known-limitations.md"
 MCP_TOOLS = ROOT / "docs/alpha/mcp-tools.md"
 BACKUP = ROOT / "docs/alpha/backup-and-restore.md"
@@ -100,7 +100,7 @@ def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_
     """
 
     section = _section(MCP_TOOLS, HEADING)
-    paragraphs = re.split(r" (?=Unreleased \(on main, not in v0\.20\.0\): )", section)
+    paragraphs = re.split(r" (?=From v0\.20\.1, )", section)
     assert len(paragraphs) == 5 and all(item.startswith(MARK) for item in paragraphs), len(paragraphs)
     label, stored, where, readers, scope = paragraphs
 
@@ -167,7 +167,7 @@ def test_the_backup_guide_states_when_the_repair_runs_and_what_it_cannot_repair(
     the code a refused import prints is the one the import test checks.
 
     Mutations, each one alone: in the restore paragraph, delete ``in the complete staged copy``, ``whether the
-    destination is new or was already upgraded``, ``one audit event``, ``still refuses any other field that
+    destination is new or was already upgraded``, ``one `memory.labels_raised` event``, ``still refuses any other field that
     differs``, ``is unverified``, ``stop the import with `restore_failed` before
     publication`` or the link; in the PostgreSQL paragraph, delete ``Run it before serving requests``, ``not
     repaired by a migration``, one table name, ``NOSUPERUSER NOBYPASSRLS``, ``rolls the relabels, their audit events and the
@@ -180,7 +180,7 @@ def test_the_backup_guide_states_when_the_repair_runs_and_what_it_cannot_repair(
     assert "whether the destination is new or was already upgraded" in restore
     assert "takes the most frequent restricted label among them" in restore
     assert "the highest sensitivity and every project" in restore
-    assert "one audit event with its old and new labels" in restore
+    assert "one `memory.labels_raised` event (`open_loop.labels_raised` for an open loop) with its old and new labels and the cause `repair_v4`" in restore
     assert "still refuses any other field that differs" in restore
     assert "project scope or project floor" in restore
     assert "A vault that is upgraded without a restore gets the same repair once, the next time it opens" in restore

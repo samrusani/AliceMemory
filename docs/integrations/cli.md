@@ -181,7 +181,7 @@ See tests:
 
 ## SQLite Markdown replacement
 
-Unreleased (on main, not in v0.20.0):
+New in v0.20.1:
 
 ```bash
 alice-memory import-markdown --from PATH [--supersede | --no-supersede] [--dry-run] [--allow-looser-classification]
@@ -199,7 +199,7 @@ These flags are absent from the Postgres `alice vnext sources` commands.
 
 ## SQLite source inventory and removal
 
-Unreleased (on main, not in v0.20.0):
+New in v0.20.1:
 
 ```bash
 alice-memory sources list [--query TEXT] [--superseded | --all] [--limit N]

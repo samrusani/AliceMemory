@@ -1,6 +1,6 @@
 """Live PostgreSQL checks of the read-side rule for open loop references.
 
-Unreleased (on main, not in v0.20.0). The unit tests run the rule over a real SQLite vault and over stubs of the
+New in v0.20.1. The unit tests run the rule over a real SQLite vault and over stubs of the
 Postgres store. Three things only a live database shows:
 
 * the two bulk lookups the rule makes (``get_sources_by_ids`` and ``get_memories_by_ids``, each ``id = ANY(%s::uuid[])``)

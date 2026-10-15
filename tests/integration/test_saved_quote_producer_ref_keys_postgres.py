@@ -1,6 +1,6 @@
 """The producers that need PostgreSQL store strings in ``source_refs`` too, so the list of field names a withheld entry keeps is complete.
 
-Unreleased (on main, not in v0.20.0). ``PRODUCT_REF_KEYS`` (``vnext_source_fence.py``) is the set of field names the reader of
+New in v0.20.1. ``PRODUCT_REF_KEYS`` (``vnext_source_fence.py``) is the set of field names the reader of
 saved quotes keeps in an entry that names a memory the caller may not read; any other name is dropped with its value because a
 writer can type words as a name. The SQLite twin, ``tests/unit/test_saved_quote_producer_ref_keys.py``, runs the doors that work
 on SQLite. This test runs the rest on PostgreSQL: it builds the vault of the operator route sweep (sources, memories, a commit

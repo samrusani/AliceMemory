@@ -24,7 +24,7 @@ from pathlib import Path
 from alicebot_api.vnext_label_guard import ROW_FEED_SCAN_LIMIT
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.1,"
 
 #: The routes this change closes, as the pages name them.
 ROUTES = (
@@ -98,7 +98,7 @@ def test_the_saved_quotes_list_no_longer_says_the_recent_commits_tool_has_no_fen
 
 def test_the_changelog_has_one_entry_for_the_operator_routes() -> None:
     entries = [line.removeprefix("- ") for line in _text("CHANGELOG.md").splitlines() if line.startswith("- ")]
-    matches = [entry for entry in entries if entry.startswith(f"{MARK} thirteen operator routes and one legacy tool apply")]
+    matches = [entry for entry in entries if entry.startswith("Thirteen operator routes and one legacy tool apply")]
     assert len(matches) == 1
     entry = matches[0]
     assert "v0.19.2" in entry and "v0.20.0" in entry
@@ -111,7 +111,7 @@ def test_the_changelog_has_one_entry_for_the_operator_routes() -> None:
     assert "and writes nothing" not in entry
     assert "the read of the stored charter and the save run under one lock" in entry
     assert "the same cursors were in the answer of `POST /v0/vnext/connectors/{connector_name}/sync`" in entry
-    assert "On main 13 of the 72 routes answered with a sentinel or changed a hidden row" in entry
+    assert "Before this change 13 of the 72 routes answered with a sentinel or changed a hidden row" in entry
     assert "`--limit` must be at least 1" in entry
     assert "skipped_count" in entry and "browser-clipper" not in entry
     assert "in the event feed of `GET /v0/vnext/workspace` (`recent_events`, and the traceability items built from it)" in entry
@@ -171,11 +171,11 @@ def test_the_pages_say_that_extraction_judges_a_loop_found_again_by_its_digest()
     assert "the answer is the same as for a loop that does not exist" in row
 
     entries = [line.removeprefix("- ") for line in _text("CHANGELOG.md").splitlines() if line.startswith("- ")]
-    opening = f"{MARK} {_EXTRACT_ROUTE} now judges every loop it returns on the caller's limits, a loop found again by its digest included."
+    opening = f"{_EXTRACT_ROUTE} now judges every loop it returns on the caller's limits, a loop found again by its digest included."
     matches = [entry for entry in entries if entry.startswith(opening)]
     assert len(matches) == 1
     entry = matches[0]
-    assert "In v0.19.2, in v0.20.0 and on main until now" in entry
+    assert "In v0.19.2 and in v0.20.0 a loop that was already stored under the digest of a candidate was returned as it stood" in entry
     assert "while `POST /v0/vnext/open-loops/{id}/review` answered HTTP 404 for the same loop" in entry
     assert "The row that the insert returns when it meets the unique digest was returned the same way" in entry
     assert "left out of `open_loops`, out of `created_count` and out of the `created_count` of the `open_loop.extraction_completed` event" in entry
@@ -254,13 +254,13 @@ def test_the_pages_say_that_the_answer_of_a_run_is_judged_like_the_read_of_its_r
     assert "the answer leaves `artifact_id` empty when the caller may not read the result" in queue
 
     entries = [line.removeprefix("- ") for line in _text("CHANGELOG.md").splitlines() if line.startswith("- ")]
-    matches = [entry for entry in entries if entry.startswith(f"{MARK} {_RUN_OPENING}, as the read of the report is.")]
+    matches = [entry for entry in entries if entry.startswith(_RUN_OPENING[:1].upper() + _RUN_OPENING[1:] + ", as the read of the report is.")]
     assert len(matches) == 1
     entry = matches[0]
     _check_run_paragraph(entry)
     assert "while `GET /v0/vnext/artifacts/{id}` answered HTTP 404 for the same report" in entry
     assert "In v0.20.0 that case was not a difference between two doors" in entry
-    assert "while the read answered HTTP 403 in v0.20.0 and HTTP 404 on main" in entry
+    assert "while the read answered HTTP 403." in entry
     assert "A report the caller may not read is left out as a missing report is." in entry
     assert "`POST /v0/vnext/queue/process-next` stops returning the `artifact_id` of a result report the caller may not read" in entry
     assert "The owner and an unbound `admin_agent` key are answered as before, and nothing is read for them." in entry
@@ -271,14 +271,14 @@ def test_the_pages_say_that_the_answer_of_a_run_is_judged_like_the_read_of_its_r
     assert len(paragraphs) == 1
     paragraph = paragraphs[0]
     _check_run_paragraph(paragraph)
-    assert "in v0.20.0 as well as on main" in paragraph
+    assert "in v0.20.0 (where the read answered HTTP 403 for it)" in paragraph
     assert "`POST /v0/vnext/queue/process-next` no longer returns the `artifact_id` of a result the caller may not read" in paragraph
     assert "What is not withheld: the owner, an unbound `admin_agent` key and an unbound `trusted_local_agent` key can still read the id of such a report" in paragraph
 
 
 def test_the_pages_list_the_run_records_and_task_rows_that_still_name_a_report_the_answer_left_out() -> None:
     for page, opening in (
-        ("CHANGELOG.md", f"- {MARK} rows a key can read may list in their metadata the ids of rows it cannot read"),
+        ("CHANGELOG.md", "- Rows a key can read may list in their metadata the ids of rows it cannot read"),
         ("docs/alpha/mcp-tools.md", f"{MARK} a row a key can read may list in its metadata the id of a row the key cannot read."),
         ("docs/release/derived-labels-security-note-draft.md", f"{MARK} rows a key can read may list in their metadata the ids of rows it cannot read"),
     ):

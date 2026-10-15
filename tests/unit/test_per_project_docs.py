@@ -1,8 +1,8 @@
-"""The per-project docs mark what only main does, and name the one input that differs with scoping off.
+"""The per-project docs mark what is new in v0.20.1, and name the one input that differs with scoping off.
 
 v0.20.0 is released, so what it did stays as it was. Text that describes the project brief, ``alice_resume``
-following the project and the ``~global`` refusal is true of main and not of v0.20.0, so each paragraph that says it
-carries ``Unreleased (on main, not in v0.20.0)`` until the release PR converts the markers. A marker nothing pins
+following the project and the ``~global`` refusal is true of v0.20.1 and not of v0.20.0, so each paragraph that says it
+carries ``From v0.20.1``. A marker nothing pins
 can be deleted with every test still green, and then the page says v0.20.0 already does it.
 
 Each test names the edit that makes it fail.
@@ -13,8 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0)"
-ENTRY_START = "- Per-project memory can be tried on main, **off by default**."
+MARK = "From v0.20.1"
+ENTRY_START = "- Per-project memory can be tried from v0.20.1, **off by default**."
 DOCS = ("docs/alpha/projects.md", "docs/alpha/mcp-tools.md")
 
 
@@ -26,19 +26,19 @@ def _read(name: str) -> str:
     return (ROOT / name).read_text(encoding="utf-8")
 
 
-def _unreleased() -> str:
+def _released() -> str:
     changelog = _read("CHANGELOG.md")
-    return changelog[changelog.index("## Unreleased") : changelog.index("## v0.20.0")]
+    return changelog[changelog.index("## v0.20.1") : changelog.index("## v0.20.0")]
 
 
 def _entry() -> str:
-    entries = [item for item in _unreleased().split("\n- ") if ("- " + item).startswith(ENTRY_START)]
+    entries = [item for item in _released().split("\n- ") if ("- " + item).startswith(ENTRY_START)]
     assert len(entries) == 1
     return _flat(entries[0])
 
 
 def test_the_projects_page_marks_its_opening_paragraph_and_the_sentence_that_covers_the_rest() -> None:
-    """Mutation: delete the marker from the first paragraph of ``docs/alpha/projects.md``, or from the sentence
+    """Mutation: delete the marker from the first paragraph of ``docs/alpha/projects.md``, or ``new in v0.20.1`` from the sentence
     that begins ``Every statement below``.
 
     The first paragraph says the brief and ``alice_resume`` follow the project, which v0.20.0 does not do. The
@@ -47,9 +47,9 @@ def test_the_projects_page_marks_its_opening_paragraph_and_the_sentence_that_cov
 
     text = _read("docs/alpha/projects.md")
     opening = text.split("\n\n")[1]
-    assert opening.startswith(MARK + ": Alice can work out which git repository a folder belongs to"), opening[:120]
+    assert opening.startswith(MARK + ", Alice can work out which git repository a folder belongs to"), opening[:120]
     assert (
-        "Every statement below about the project commands, the switch and the project brief is " + MARK + "."
+        "Every statement below about the project commands, the switch and the project brief is new in v0.20.1."
         in _flat(text)
     )
 
@@ -66,7 +66,7 @@ def test_the_resume_bullet_of_the_tools_page_marks_the_per_project_paragraph() -
     text = _read("docs/alpha/mcp-tools.md")
     start = text.index("- `alice_resume`")
     bullet = _flat(text[start : text.index("\n\n", start)])
-    assert MARK + ": with per-project scoping on, on the SQLite server, a call that names no project reads" in bullet
+    assert MARK + ", with per-project scoping on, on the SQLite server, a call that names no project reads" in bullet
     assert bullet.count(MARK) == 1
 
 
@@ -91,7 +91,7 @@ def test_the_docs_and_the_changelog_name_the_one_input_that_differs_with_scoping
     assert "except that `~global` is now a reserved name that every call refuses as a project" in tools
 
 
-def test_the_changelog_entry_is_one_unreleased_bullet_with_the_held_back_sentences() -> None:
+def test_the_changelog_entry_is_one_v0201_bullet_with_the_held_back_sentences() -> None:
     """Mutation: move the entry under the v0.20.0 heading, add a second entry that starts the same way, or delete
     the three sentences about held-back global material.
 
@@ -100,7 +100,7 @@ def test_the_changelog_entry_is_one_unreleased_bullet_with_the_held_back_sentenc
     """
 
     assert _read("CHANGELOG.md").count(ENTRY_START) == 1
-    assert ENTRY_START in _unreleased()
+    assert ENTRY_START in _released()
     entry = _entry()
     for needle in (
         "Project briefs no longer automatically include global family, health, spiritual, legal or financial material.",

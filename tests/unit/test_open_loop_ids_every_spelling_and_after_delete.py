@@ -1,6 +1,6 @@
 """An open loop shows no withheld id in any spelling, and deleting a source does not bring its id back.
 
-Unreleased (on main, not in v0.20.0). The read-side rule of ``vnext_open_loop_references`` (the sibling file
+New in v0.20.1. The read-side rule of ``vnext_open_loop_references`` (the sibling file
 ``test_open_loop_references_read_fence.py``) withholds from a loop the ids of sources and memories its reader may not
 read. An outside review of that change reproduced two gaps, both identifier exposures with no source content:
 
@@ -1332,7 +1332,7 @@ def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -
         "and so is an id the reader may read that has a hyphen and more hex digits after it (`<id>-20261003`).",
         "One layout of glued digits is cut under a reference key:",
         "An id without hyphens inside a URL or a sentence is withheld like the hyphenated one.",
-        "a second source-only pass now withholds irregular, split and encoded source ids inside longer text.",
+        "A second source-only pass now withholds irregular, split and encoded source ids inside longer text.",
         "Irregular or non-ASCII MEMORY-prefixed ids and unnamed SOURCE whitespace forms can remain;",
         "Not changed here: the free-text columns of a loop (`title`, `description`, `resolution_note`), which are returned as stored and are not scanned for ids.",
         "It now writes `a source with no title`.",
@@ -1340,7 +1340,7 @@ def test_the_docs_state_the_spellings_the_per_response_rule_and_the_residual() -
     ):
         assert changelog.count(sentence) == 1, sentence
     for sentence in (
-        "The rule for ids inside `metadata_json`.",
+        "the rule for ids inside `metadata_json` is this.",
         "The withheld ids are collected over every loop of one response",
         "A run of 32 hex digits is an id only when no hex digit stands next to it",
         "and so is an id the reader may read that has a hyphen and more hex digits after it.",

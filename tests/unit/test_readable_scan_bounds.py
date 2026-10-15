@@ -1,6 +1,6 @@
 """A caller with limits reads past the rows it may not read, and a cap bounds how many rows a read judges.
 
-Unreleased (on main, not in v0.20.0). ``alice_resume`` and the grounding probe read again, past the rows a caller's limits
+New in v0.20.1. ``alice_resume`` and the grounding probe read again, past the rows a caller's limits
 hide by the labels of their inputs, until they hold enough rows the caller may read. Without a bound that costs time in
 proportion to the hidden rows newer than the first readable one, and a caller who chooses the query could make it so on
 purpose. The read judges at most ``READABLE_SCAN_CAP`` rows, per list and per partition of the project view: the read it

@@ -65,7 +65,7 @@ readback:
      --repo OWNER/REPOSITORY --sha RELEASE_SHA --check-rulesets
    ```
 
-   Unreleased (on main, not in v0.20.0): The required check named
+   The required check named
    `Unit tests + live eval battery (SQLite)` is the summary job of the unit
    tests in `tests.yml`. The unit tests run as four shard jobs, the model-free
    eval battery runs in its own job, and a coverage job combines the shard data
@@ -485,3 +485,5 @@ macOS with `shasum -a 256 -c SHA256SUMS`.
 
 `v0.20.0` is the latest published release and remains the install, checksum,
 and baseline reference.
+
+`v0.20.1` is the current release candidate. It is not published.
