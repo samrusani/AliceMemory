@@ -512,7 +512,7 @@ def _cited_memories(store: Any, memories: Sequence[Mapping[str, object]]) -> dic
 def _ref_entries(row: Mapping[str, object]) -> list[object]:
     found: list[object] = []
     for container in (_meta(row), _agentic(row)):
-        for key in ("source_refs", "provenance"):
+        for key in ("source_refs", "provenance", "replacement_provenance"):
             value = container.get(key)
             if isinstance(value, list):
                 found.extend(value)
@@ -682,6 +682,11 @@ def _review_state(row: Mapping[str, object]) -> str:
     lifecycle = _text(_agentic(row).get("lifecycle_status"))
     if lifecycle in _LIFECYCLE_STATES:
         return lifecycle
+    validity = _meta(row).get("validity")
+    if isinstance(validity, Mapping):
+        recorded = _text(validity.get("state"))
+        if recorded in _LIFECYCLE_STATES:
+            return recorded
     status = str(row.get("status") or "")
     if status:
         return status

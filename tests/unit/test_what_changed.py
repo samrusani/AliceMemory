@@ -669,6 +669,10 @@ def test_the_setup_script_records_the_planted_prices_through_commit(tmp_path: Pa
     assert chain["current"]["reason"]["text"] == quote_session_brief_text(
         "the June price was too high for the renewal"
     )
+    assert chain["current"]["change"] == quote_session_brief_text(
+        "the list price was cut to 520 ledger units"
+    )
+    assert "decision_text" not in str(chain["current"]["change"])
 
 
 def test_the_demo_binds_the_product_key_to_the_product_project(tmp_path: Path) -> None:

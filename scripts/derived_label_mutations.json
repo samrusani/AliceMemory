@@ -17968,7 +17968,7 @@
           "line": 65,
           "before": "    \"\"\"Whether this caller may read this stored step.\"\"\"\n\n    return not outside_caller_limits(store, identity, kind, row)\n",
           "after": "    \"\"\"Whether this caller may read this stored step.\"\"\"\n\n    return True\n",
-          "sha256": "847626f1fcf13b0b79adf4386d66ce8d306854ffb0dd9bcd8ab597dcf66a5c98"
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
         }
       ],
       "pytest": [
@@ -18000,7 +18000,7 @@
           "line": 548,
           "before": "    cited_sources = cited_source_ids(entry)\n",
           "after": "    return True\n    cited_sources = cited_source_ids(entry)\n",
-          "sha256": "847626f1fcf13b0b79adf4386d66ce8d306854ffb0dd9bcd8ab597dcf66a5c98"
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
         }
       ],
       "pytest": [
@@ -18016,7 +18016,7 @@
           "line": 27,
           "before": "HOP_CAP = 64\n",
           "after": "HOP_CAP = 1000\n",
-          "sha256": "847626f1fcf13b0b79adf4386d66ce8d306854ffb0dd9bcd8ab597dcf66a5c98"
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
         }
       ],
       "pytest": [
@@ -18032,11 +18032,12 @@
           "line": 651,
           "before": "    status = str(row.get(\"status\") or \"\")\n    if status == \"needs_review\":\n        return False\n    return status == \"active\"\n",
           "after": "    status = str(row.get(\"status\") or \"\")\n    return status == \"active\" or str(row.get(\"confirmation_status\") or \"\") == \"confirmed\"\n",
-          "sha256": "847626f1fcf13b0b79adf4386d66ce8d306854ffb0dd9bcd8ab597dcf66a5c98"
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
         }
       ],
       "pytest": [
-        "tests/unit/test_what_changed.py::test_needs_review_is_history_and_a_later_date_is_upcoming"
+        "tests/unit/test_what_changed.py::test_needs_review_is_history_and_a_later_date_is_upcoming",
+        "tests/unit/test_what_changed_review.py::test_forgotten_undone_expired_and_a_later_replaced_step_are_not_current"
       ],
       "expected_failure": "test_needs_review_is_history_and_a_later_date_is_upcoming"
     },
@@ -18048,13 +18049,324 @@
           "line": 83,
           "before": "    lock = getattr(store, \"lock_label_writes\", None)\n    if callable(lock):\n        lock()\n",
           "after": "    lock = getattr(store, \"lock_label_writes\", None)\n    if callable(lock):\n        pass\n",
-          "sha256": "847626f1fcf13b0b79adf4386d66ce8d306854ffb0dd9bcd8ab597dcf66a5c98"
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
         }
       ],
       "pytest": [
         "tests/unit/test_what_changed.py::test_the_read_takes_the_label_lock"
       ],
       "expected_failure": "test_the_read_takes_the_label_lock"
+    },
+    {
+      "name": "what-changed-route-runs-as-the-caller",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_changes.py",
+          "line": 69,
+          "before": "            payload = what_changed(store, user_id=user_id, identity=identity, topic=body.topic)\n",
+          "after": "            payload = what_changed(store, user_id=user_id, identity=None, topic=body.topic)\n",
+          "sha256": "3518d5e1a4fb16c724532addaf779cbbcb4ca60743a1591fb663a2d322aa1e47"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_the_route_runs_as_the_caller"
+      ],
+      "expected_failure": "test_the_route_runs_as_the_caller"
+    },
+    {
+      "name": "what-changed-tool-runs-as-the-caller",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/what_changed.py",
+          "line": 26,
+          "before": "    identity = _agent_identity_from_arguments(context, arguments)\n",
+          "after": "    identity = None\n",
+          "sha256": "8c8fa21e5ca0c38b2c3e568cdf25cbf5714bd9d1c3303f76561809217e5f34fb"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_the_tool_runs_as_the_caller"
+      ],
+      "expected_failure": "test_the_tool_runs_as_the_caller"
+    },
+    {
+      "name": "what-changed-judges-the-derived-label",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 67,
+          "before": "    return not outside_caller_limits(store, identity, kind, row)\n",
+          "after": "    return str(row.get(\"sensitivity\") or \"\") not in {\"confidential\", \"highly_sensitive\", \"sacred\", \"regulated\"}\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_the_read_judges_the_derived_label"
+      ],
+      "expected_failure": "test_the_read_judges_the_derived_label"
+    },
+    {
+      "name": "what-changed-binds-a-source-to-its-project",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 67,
+          "before": "    return not outside_caller_limits(store, identity, kind, row)\n",
+          "after": "    if kind == \"source\":\n        return True\n    return not outside_caller_limits(store, identity, kind, row)\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_a_bound_key_does_not_see_another_projects_source"
+      ],
+      "expected_failure": "test_a_bound_key_does_not_see_another_projects_source"
+    },
+    {
+      "name": "what-changed-checks-the-cited-source",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 551,
+          "before": "        if source is None or not _step_is_readable(store, identity, \"source\", source):\n            return False\n",
+          "after": "        if source is None:\n            return False\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        },
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 447,
+          "before": "        if source_id is None and cited_source_ids(entry).named:\n            continue\n",
+          "after": "        if False and source_id is None and cited_source_ids(entry).named:\n            continue\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_a_cited_source_the_caller_cannot_read_is_left_out"
+      ],
+      "expected_failure": "test_a_cited_source_the_caller_cannot_read_is_left_out"
+    },
+    {
+      "name": "what-changed-checks-a-source-step",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 286,
+          "before": "            and _step_is_readable(store, identity, \"source\", successor)\n",
+          "after": "            and True\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_a_hidden_successor_source_is_not_a_step"
+      ],
+      "expected_failure": "test_a_hidden_successor_source_is_not_a_step"
+    },
+    {
+      "name": "what-changed-replaced-ignores-a-hidden-predecessor",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 747,
+          "before": "    named = step.get(\"replaced\")\n    if isinstance(named, str) and named in visible:\n        return named\n",
+          "after": "    named = step.get(\"replaced\")\n    priors = step.get(\"_priors\")\n    if isinstance(priors, list):\n        for prior in priors:\n            if isinstance(prior, str) and prior not in visible:\n                return prior\n    if isinstance(named, str) and named in visible:\n        return named\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_a_hidden_predecessor_does_not_change_replaced"
+      ],
+      "expected_failure": "test_a_hidden_predecessor_does_not_change_replaced"
+    },
+    {
+      "name": "what-changed-counts-only-readable-hops",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 363,
+          "before": "            seen.add(neighbor)\n            neighbor_row = _load_decision(store, user_id, neighbor, by_id)\n            if neighbor_row is None or not _step_is_readable(store, identity, \"memory\", neighbor_row):\n                continue\n            hops += 1\n",
+          "after": "            seen.add(neighbor)\n            hops += 1\n            neighbor_row = _load_decision(store, user_id, neighbor, by_id)\n            if neighbor_row is None or not _step_is_readable(store, identity, \"memory\", neighbor_row):\n                continue\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_hidden_neighbours_do_not_spend_a_hop"
+      ],
+      "expected_failure": "test_hidden_neighbours_do_not_spend_a_hop"
+    },
+    {
+      "name": "what-changed-starts-from-recall-search",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 158,
+          "before": "    search = getattr(store, \"search_memories_fts\", None)\n    if not callable(search):\n        search = store.search_memories\n",
+          "after": "    search = None\n    if not callable(search):\n        search = store.search_memories\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_a_stemmed_topic_uses_recall_and_a_long_topic_is_refused"
+      ],
+      "expected_failure": "test_a_stemmed_topic_uses_recall_and_a_long_topic_is_refused"
+    },
+    {
+      "name": "what-changed-bounds-the-topic-length",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 153,
+          "before": "    check = getattr(store, \"check_source_search_query\", None)\n    if callable(check):\n        check(text)\n    else:\n        require_source_search_query(text)\n",
+          "after": "    check = getattr(store, \"check_source_search_query\", None)\n    if False and callable(check):\n        check(text)\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_a_stemmed_topic_uses_recall_and_a_long_topic_is_refused"
+      ],
+      "expected_failure": "test_a_stemmed_topic_uses_recall_and_a_long_topic_is_refused"
+    },
+    {
+      "name": "what-changed-past-valid-to-is-not-current",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 677,
+          "before": "    valid_to = _day(row.get(\"valid_to\"))\n    return valid_to is None or valid_to >= today_text\n",
+          "after": "    valid_to = _day(row.get(\"valid_to\"))\n    return True\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_forgotten_undone_expired_and_a_later_replaced_step_are_not_current"
+      ],
+      "expected_failure": "test_forgotten_undone_expired_and_a_later_replaced_step_are_not_current"
+    },
+    {
+      "name": "what-changed-a-replaced-step-is-not-current",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 229,
+          "before": "        if step.get(\"_settled\") and step.get(\"_successor\") not in settled_ids\n",
+          "after": "        if step.get(\"_settled\")\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_forgotten_undone_expired_and_a_later_replaced_step_are_not_current"
+      ],
+      "expected_failure": "test_forgotten_undone_expired_and_a_later_replaced_step_are_not_current"
+    },
+    {
+      "name": "what-changed-reads-an-importer-replacement",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 802,
+          "before": "        if row.get(\"deleted_at\") and not _text(_meta(row).get(\"superseded_by\")):\n            continue\n",
+          "after": "        if row.get(\"deleted_at\"):\n            continue\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_the_importer_replacement_is_a_step"
+      ],
+      "expected_failure": "test_the_importer_replacement_is_a_step"
+    },
+    {
+      "name": "what-changed-reads-a-belief-contradiction",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 641,
+          "before": "    if kind == \"belief\":\n        return beliefs.get(end)\n",
+          "after": "    if kind == \"belief\":\n        return None\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_what_changed_contradictions_postgres.py::test_the_finder_and_the_edge_review_decide_current"
+      ],
+      "expected_failure": "test_the_finder_and_the_edge_review_decide_current"
+    },
+    {
+      "name": "what-changed-frames-the-tool-answer",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/what_changed.py",
+          "line": 32,
+          "before": "    return _json_object(with_result_framing(payload))\n",
+          "after": "    return _json_object(payload)\n",
+          "sha256": "8c8fa21e5ca0c38b2c3e568cdf25cbf5714bd9d1c3303f76561809217e5f34fb"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_the_tool_frames_stored_text_and_names_the_writer"
+      ],
+      "expected_failure": "test_the_tool_frames_stored_text_and_names_the_writer"
+    },
+    {
+      "name": "what-changed-quotes-stored-text",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 769,
+          "before": "        step[\"change\"] = quote_session_brief_text(change)\n",
+          "after": "        step[\"change\"] = change\n",
+          "sha256": "1f06c5d10940f73e1677a1d373d817141e2bb73d3f8488941fc0f2dbde98eed8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_the_tool_frames_stored_text_and_names_the_writer"
+      ],
+      "expected_failure": "test_the_tool_frames_stored_text_and_names_the_writer"
+    },
+    {
+      "name": "what-changed-stores-decision-text",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/review.py",
+          "line": 283,
+          "before": "    \"text\",\n    \"decision_text\",\n",
+          "after": "    \"text\",\n",
+          "sha256": "1b1b46063b3057facaaa5d603548470847561a8ecbb9a042484d4096a49a2353"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed.py::test_the_setup_script_records_the_planted_prices_through_commit"
+      ],
+      "expected_failure": "test_the_setup_script_records_the_planted_prices_through_commit"
+    },
+    {
+      "name": "what-changed-route-records-a-policy-decision",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_changes.py",
+          "line": 60,
+          "before": "            append_policy_events(\n                store,\n                identity=identity,\n                decision=decision,\n                target_type=\"http_route\",\n                target_id=\"/v0/vnext/changes\",\n            )\n",
+          "after": "            if False:\n                append_policy_events(\n                    store,\n                    identity=identity,\n                    decision=decision,\n                    target_type=\"http_route\",\n                    target_id=\"/v0/vnext/changes\",\n                )\n",
+          "sha256": "3518d5e1a4fb16c724532addaf779cbbcb4ca60743a1591fb663a2d322aa1e47"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_the_route_and_the_tool_record_a_policy_decision"
+      ],
+      "expected_failure": "test_the_route_and_the_tool_record_a_policy_decision"
+    },
+    {
+      "name": "what-changed-tool-records-a-policy-decision",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/what_changed.py",
+          "line": 20,
+          "before": "    _mcp_agent_policy_preflight(\n        context,\n        arguments,\n        action=\"recent_decisions.lookup\",\n        project_view=ProjectView.unscoped(),\n    )\n",
+          "after": "    if False:\n        _mcp_agent_policy_preflight(\n            context,\n            arguments,\n            action=\"recent_decisions.lookup\",\n            project_view=ProjectView.unscoped(),\n        )\n",
+          "sha256": "8c8fa21e5ca0c38b2c3e568cdf25cbf5714bd9d1c3303f76561809217e5f34fb"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed_review.py::test_the_route_and_the_tool_record_a_policy_decision"
+      ],
+      "expected_failure": "test_the_route_and_the_tool_record_a_policy_decision"
     }
   ]
 }
