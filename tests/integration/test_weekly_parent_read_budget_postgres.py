@@ -29,14 +29,17 @@ SAMPLES = 3
 ACTIONS = ("workspace", "recall", "pack", "count")
 
 
-def _base_checkout() -> Path:
+def _base_checkout(dest: Path) -> Path:
     repo = Path(__file__).resolve().parents[2]
-    dest = Path(os.environ.get("ALICE_WEEKLY_PARENT_BASE", "/tmp/alice-base-7c77c778"))
+    override = os.environ.get("ALICE_WEEKLY_PARENT_BASE", "").strip()
+    if override:
+        dest = Path(override)
     if dest.exists():
         rev = subprocess.check_output(["git", "-C", str(dest), "rev-parse", "HEAD"], text=True).strip()
         if rev == BASE:
             return dest
         subprocess.check_call(["git", "-C", str(repo), "worktree", "remove", "--force", str(dest)])
+    dest.parent.mkdir(parents=True, exist_ok=True)
     subprocess.check_call(["git", "-C", str(repo), "worktree", "add", "--detach", str(dest), BASE])
     rev = subprocess.check_output(["git", "-C", str(dest), "rev-parse", "HEAD"], text=True).strip()
     assert rev == BASE
@@ -112,12 +115,13 @@ def _ask(process: subprocess.Popen, action: str) -> dict:
     return json.loads(line)
 
 
-def test_weekly_parent_reads_stay_within_the_pre_lookup_gate(database_urls) -> None:
+def test_weekly_parent_reads_stay_within_the_pre_lookup_gate(database_urls, tmp_path) -> None:
     command.upgrade(make_alembic_config(database_urls["admin"]), "head")
     user_id = uuid4()
     key = _seed(database_urls["app"], user_id)
-    base = _base_checkout()
-    head = Path(__file__).resolve().parents[2]
+    repo = Path(__file__).resolve().parents[2]
+    base = _base_checkout(tmp_path / "base")
+    head = repo
     processes = [_open(checkout, database_urls["app"], user_id, key) for checkout in (base, head)]
     try:
         for action in ACTIONS:
@@ -147,3 +151,4 @@ def test_weekly_parent_reads_stay_within_the_pre_lookup_gate(database_urls) -> N
                 process.stdin.write("stop\n")
                 process.stdin.flush()
             process.communicate(timeout=30)
+        subprocess.call(["git", "-C", str(repo), "worktree", "remove", "--force", str(base)])
