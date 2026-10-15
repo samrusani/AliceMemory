@@ -53,7 +53,7 @@ reproduced this split.
 
 - The default registry exposes three core MCP tools: `alice_memory_commit`,
   `alice_recall`, and `alice_resume`. `ALICE_MCP_FULL_TOOLS=1` exposes all
-  eleven.
+  twelve.
 - A key-bound server uses `ALICE_AGENT_API_KEY`; payload identity cannot replace
   that key's actor or widen its profile/project scope.
 - Legacy MCP handlers do not all have the same persisted-target authorization

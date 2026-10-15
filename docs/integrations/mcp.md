@@ -1,7 +1,7 @@
 # MCP Integration
 
 Alice's MCP server exposes three tools by default (`alice_memory_commit`,
-`alice_recall`, `alice_resume`). The other eight core tools become listed
+`alice_recall`, `alice_resume`). The other nine core tools become listed
 and callable when `ALICE_MCP_FULL_TOOLS=1`. The legacy long-tail surface
 is available behind a separate environment flag.
 
@@ -56,8 +56,8 @@ Optional:
   server reads it on every call. Set it in the `env` map of the host's `alice`
   entry; the Claude Code plugin's entry has no `env` map, so a plugin user cannot
   set it. See [The commit result](../alpha/mcp-tools.md#the-commit-result)
-- `ALICE_MCP_FULL_TOOLS=1` — advertise all eleven core tools and accept
-  calls to the eight that are hidden by default
+- `ALICE_MCP_FULL_TOOLS=1` — advertise all twelve core tools and accept
+  calls to the nine that are hidden by default
 - `ALICE_MCP_LEGACY_TOOLS=1` — append 62 retained long-tail memory tools to
   whatever core set is enabled, only for an unbound local-operator server;
   ignored when `ALICE_AGENT_API_KEY` is set
@@ -77,7 +77,8 @@ Optional:
 
 `ALICE_MCP_FULL_TOOLS=1` also advertises `alice_capture`, `alice_context_pack`,
 `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`,
-`alice_memory_correct`, `alice_memory_manage`, and `alice_explain`.
+`alice_memory_correct`, `alice_memory_manage`, `alice_explain`, and
+`alice_what_changed`.
 
 Full schemas with per-parameter descriptions come from `tools/list`.
 Details and examples: [docs/alpha/mcp-tools.md](../alpha/mcp-tools.md).
@@ -85,9 +86,9 @@ Details and examples: [docs/alpha/mcp-tools.md](../alpha/mcp-tools.md).
 ## Legacy Tool Surface
 
 With `ALICE_MCP_LEGACY_TOOLS=1`, 62 retained legacy memory tools are listed
-alongside whatever core set is enabled (65 with the default three, 73 with
-the full eleven). With the task-brief flag as well, the counts are 68 and
-76. On the SQLite backend most legacy tools are listed but their calls fail:
+alongside whatever core set is enabled (65 with the default three, 74 with
+the full 12). With the task-brief flag as well, the counts are 68 and
+77. On the SQLite backend most legacy tools are listed but their calls fail:
 the ones that read the continuity store (for example `alice_brief`,
 `alice_timeline`, `alice_state_at` and the task-brief tools) and most of the
 `alice_vnext_*` tools, because the SQLite store implements only part of what

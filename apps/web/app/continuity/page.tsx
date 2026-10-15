@@ -27,6 +27,7 @@ import type {
   ContinuityResumptionBrief,
   ContinuityWeeklyReview,
   ThreadHealthDashboardSummary,
+  WhatChangedAnswer,
 } from "../../lib/api";
 import {
   getContinuityReviewDetail,
@@ -42,6 +43,7 @@ import {
   listContinuityReviewQueue,
   listContinuityCaptures,
   pageModeLabel,
+  postWhatChanged,
   queryContinuityRecall,
 } from "../../lib/api";
 
@@ -53,6 +55,128 @@ function settleRead<T>(promise: Promise<T>): Promise<SettledRead<T>> {
   return promise.then(
     (value) => ({ ok: true, value }),
     (error: unknown) => ({ ok: false, error }),
+  );
+}
+
+function WhatChangedPanel({
+  topic,
+  answer,
+  error,
+}: {
+  topic: string;
+  answer: WhatChangedAnswer | null;
+  error?: string;
+}) {
+  return (
+    <SectionCard title="What changed" eyebrow={topic || "Recorded decisions"}>
+      <form method="get" action="/continuity" className="detail-stack">
+        <div className="form-field">
+          <label htmlFor="what-changed-topic">Topic</label>
+          <input
+            id="what-changed-topic"
+            name="what_changed"
+            defaultValue={topic}
+            maxLength={4000}
+          />
+        </div>
+        <button type="submit">Show what changed</button>
+      </form>
+      {topic && answer ? <WhatChangedAnswerView answer={answer} /> : null}
+      {topic && !answer ? (
+        <p>
+          {error ?? "This view calls POST /v0/vnext/changes. The API is not configured."}
+        </p>
+      ) : null}
+    </SectionCard>
+  );
+}
+
+function WhatChangedAnswerView({ answer }: { answer: WhatChangedAnswer }) {
+  return (
+    <div className="stack">
+      <p>{answer.notice}</p>
+      {answer.message ? (
+        <p>
+          {answer.message} Search with {answer.search}.
+        </p>
+      ) : null}
+      {answer.chains.map((chain) => (
+        <WhatChangedChain key={chain.start} chain={chain} />
+      ))}
+    </div>
+  );
+}
+
+function WhatChangedChain({ chain }: { chain: WhatChangedAnswer["chains"][number] }) {
+  return (
+    <div className="stack">
+      <section>
+        <h3>Current</h3>
+        {chain.current ? <WhatChangedStepView step={chain.current} /> : <p>No settled step.</p>}
+      </section>
+      <section>
+        <h3>Upcoming</h3>
+        <WhatChangedIdList chain={chain} ids={chain.upcoming} empty="No upcoming step." />
+      </section>
+      <section>
+        <h3>Disputed</h3>
+        <WhatChangedIdList chain={chain} ids={chain.disputed} empty="No disputed step." />
+      </section>
+      <section>
+        <h3>History</h3>
+        <ol>
+          {chain.history.map((step) => (
+            <li key={step.id}>
+              <WhatChangedStepView step={step} />
+            </li>
+          ))}
+        </ol>
+      </section>
+    </div>
+  );
+}
+
+function WhatChangedIdList({
+  chain,
+  ids,
+  empty,
+}: {
+  chain: WhatChangedAnswer["chains"][number];
+  ids: string[];
+  empty: string;
+}) {
+  if (ids.length === 0) {
+    return <p>{empty}</p>;
+  }
+  return (
+    <ul>
+      {ids.map((id) => {
+        const step = chain.history.find((item) => item.id === id);
+        return (
+          <li key={id}>{step ? <WhatChangedStepView step={step} /> : id}</li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function WhatChangedStepView({ step }: { step: WhatChangedAnswer["chains"][number]["history"][number] }) {
+  return (
+    <div>
+      <p>
+        {step.date} {step.change}
+      </p>
+      {step.reason ? <p>Reason: {step.reason.text}</p> : null}
+      {step.sources.length > 0 ? (
+        <ul>
+          {step.sources.map((source) => (
+            <li key={source.source_id}>
+              Source: {source.title} {source.date}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -757,6 +881,7 @@ export default async function ContinuityPage({
   >;
 
   const requestedCaptureId = normalizeParam(params.capture);
+  const changedTopic = normalizeParam(params.what_changed);
   const requestedReviewObjectId = normalizeParam(params.review_object);
   const recallQuery = normalizeParam(params.recall_query);
   const recallThreadId = normalizeParam(params.recall_thread);
@@ -776,6 +901,16 @@ export default async function ContinuityPage({
 
   const apiConfig = getApiConfig();
   const liveModeReady = hasLiveApiConfig(apiConfig);
+  let whatChanged: WhatChangedAnswer | null = null;
+  let whatChangedError: string | undefined;
+  if (liveModeReady && changedTopic) {
+    try {
+      whatChanged = await postWhatChanged(apiConfig.apiBaseUrl, apiConfig.userId, changedTopic);
+    } catch (error) {
+      whatChangedError =
+        error instanceof Error ? error.message : "What changed could not be loaded.";
+    }
+  }
 
   // Launch independent continuity reads together. Each result still degrades
   // separately below, while the detail reads remain correctly dependent on
@@ -1091,6 +1226,8 @@ export default async function ContinuityPage({
         description="Capture quickly, query continuity with provenance-backed recall, and compile deterministic resumption sections."
         meta={<StatusBadge status={pageMode} label={pageModeLabel(pageMode)} />}
       />
+
+      <WhatChangedPanel topic={changedTopic} answer={whatChanged} error={whatChangedError} />
 
       <ContinuityCaptureForm
         apiBaseUrl={apiConfig.apiBaseUrl}
