@@ -3,9 +3,12 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping, Sequence
+from contextvars import ContextVar, Token
 from typing import Any
 
 from alicebot_api.vnext_derived_labels import (
+    _metadata,
+    _strings,
     canon_kind,
     dependencies_of,
     identifier,
@@ -14,45 +17,96 @@ from alicebot_api.vnext_derived_labels import (
     weekly_candidate_memory,
 )
 
+# One request shares the parent index. ``index`` is None until the first weekly memory asks.
+_WEEKLY_PARENTS: ContextVar[dict[str, Any] | None] = ContextVar("weekly_parent_index", default=None)
+
+
+def bind_weekly_parent_cache(store: Any) -> Token:
+    """Start the parent index for one read. A nested read of the same store keeps the outer index."""
+
+    return _WEEKLY_PARENTS.set({"store": store, "index": None, "queries": 0})
+
+
+def reset_weekly_parent_cache(token: Token) -> None:
+    _WEEKLY_PARENTS.reset(token)
+
+
+def weekly_parent_query_count() -> int:
+    """How many parent lookups this request has run. Zero outside a read scope."""
+
+    current = _WEEKLY_PARENTS.get()
+    if current is None:
+        return 0
+    return int(current["queries"])
+
 
 def load_weekly_parent_artifacts(store: Any, memory_id: str) -> list[dict[str, object]]:
     """Reports that name ``memory_id`` in ``candidate_memory_ids``, or none.
 
-    A store may offer ``read_artifacts_naming_candidates``. Otherwise a PostgreSQL connection is
-    scanned and a SQLite connection returns nothing: the local schema has no generated-artifact table.
+    One request loads every candidate list once and matches it with the same normalisation the
+    stored-row classifier uses. A later weekly memory in that request does not run another query.
+    A store may offer ``read_artifacts_naming_candidates`` (called with ``None`` for every list).
+    Otherwise a PostgreSQL connection is scanned and a SQLite connection returns nothing: the local
+    schema has no generated-artifact table.
     """
 
     if not memory_id:
         return []
+    return [dict(row) for row in _parent_index(store).get(identifier(memory_id), ())]
+
+
+def _parent_index(store: Any) -> dict[str, list[dict[str, object]]]:
+    current = _WEEKLY_PARENTS.get()
+    if current is not None and current["store"] is store and current["index"] is not None:
+        return current["index"]
+    index = _load_parent_index(store)
+    if current is not None and current["store"] is store:
+        current["index"] = index
+    return index
+
+
+def _load_parent_index(store: Any) -> dict[str, list[dict[str, object]]]:
+    current = _WEEKLY_PARENTS.get()
+    if current is not None and current["store"] is store:
+        current["queries"] += 1
     reader = getattr(store, "read_artifacts_naming_candidates", None)
     if callable(reader):
-        return [dict(row) for row in reader([memory_id]) if isinstance(row, Mapping)]
-    return _postgres_weekly_parents(store, memory_id)
+        rows = reader(None)
+    else:
+        rows = _postgres_candidate_artifacts(store)
+    return _index_candidate_rows(rows)
 
 
-def _postgres_weekly_parents(store: Any, memory_id: str) -> list[dict[str, object]]:
+def _postgres_candidate_artifacts(store: Any) -> list[dict[str, object]]:
     conn = getattr(store, "conn", None)
     if conn is None or "psycopg" not in type(conn).__module__:
         return []
-    wanted: list[str] = []
-    seen: set[str] = set()
-    for item in (memory_id, identifier(memory_id)):
-        text = str(item).strip()
-        if text and text not in seen:
-            seen.add(text)
-            wanted.append(text)
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT id, user_id, domain, sensitivity, metadata_json, artifact_type
             FROM generated_artifacts
-            WHERE jsonb_typeof(metadata_json -> 'candidate_memory_ids') = 'array'
-              AND metadata_json -> 'candidate_memory_ids' ?| %s::text[]
-            """,
-            (wanted,),
+            WHERE metadata_json ? 'candidate_memory_ids'
+            """
         )
         rows = cur.fetchall()
     return [dict(row) for row in rows]
+
+
+def _index_candidate_rows(rows: object) -> dict[str, list[dict[str, object]]]:
+    """Map each candidate id, in the classifier's spelling, to the reports that name it."""
+
+    index: dict[str, list[dict[str, object]]] = {}
+    if isinstance(rows, (str, bytes)) or not isinstance(rows, Sequence):
+        return index
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        copied = dict(row)
+        for candidate in _strings(_metadata(copied).get("candidate_memory_ids")):
+            if candidate:
+                index.setdefault(candidate, []).append(copied)
+    return index
 
 
 def collect_label_rows(

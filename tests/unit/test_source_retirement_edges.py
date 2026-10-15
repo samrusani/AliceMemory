@@ -858,10 +858,11 @@ def test_an_imported_edge_that_names_the_source_only_in_a_type_column_is_closed(
         )["id"])
         chunk = str(store.list_source_chunks(sid)[0]["id"])
     fields = {"from_type": "memory", "from_id": left, "to_type": "memory", "to_id": right, "created_by": "importer"}
+    quoted = "amberquilltext"
     if place == "chunk":
-        fields["from_type"] = chunk
+        fields["from_type"] = f"{chunk} {quoted}"
     else:
-        fields[place] = f"source:{sid}"
+        fields[place] = f"source:{sid} {quoted}"
     edge_id = str(uuid4())
     row = {
         "id": edge_id, "user_id": USER_ID, **fields, "edge_type": "supports", "confidence": 0.9,
@@ -887,11 +888,28 @@ def test_an_imported_edge_that_names_the_source_only_in_a_type_column_is_closed(
         capsys.readouterr()
         receipt = json.loads(_rows(restored, "SELECT payload_json FROM event_log WHERE event_type = 'source.superseded' "
                                         "ORDER BY rowid DESC")[0][0])
-    assert receipt["graph_edges"] >= 1, receipt
-    stored = _rows(restored, "SELECT explanation, metadata_json, valid_to IS NULL FROM graph_edges WHERE id = ?", (edge_id,))[0]
-    assert stored == ("", "{}", 0), (place, operation, stored)
+    # Prune follows the replacement, which already closed the edge and replaced the source-linked column.
+    # The id is gone, so prune does not count that edge again. Delete and import --supersede count it.
+    if operation == "prune":
+        assert receipt["graph_edges"] == 0, receipt
+    else:
+        assert receipt["graph_edges"] >= 1, receipt
+    stored = _rows(
+        restored,
+        "SELECT from_type, to_type, created_by, explanation, metadata_json, valid_to IS NULL "
+        "FROM graph_edges WHERE id = ?",
+        (edge_id,),
+    )[0]
+    column = "from_type" if place == "chunk" else place
+    positions = {"from_type": 0, "to_type": 1, "created_by": 2}
+    assert stored[positions[column]] == MARKER, (place, operation, stored)
+    assert stored[3:] == ("", "{}", 0), (place, operation, stored)
     for target in (left, right):
         for edge in _neighbours(restored, target):
-            assert SENTINEL not in json.dumps(edge), (place, operation)
-    assert SENTINEL not in _export_text(restored)
-    assert SENTINEL not in _whole_database(restored)
+            dumped = json.dumps(edge)
+            assert SENTINEL not in dumped, (place, operation)
+            assert quoted not in dumped, (place, operation)
+    export = _export_text(restored)
+    database = _whole_database(restored)
+    assert SENTINEL not in export and quoted not in export
+    assert SENTINEL not in database and quoted not in database

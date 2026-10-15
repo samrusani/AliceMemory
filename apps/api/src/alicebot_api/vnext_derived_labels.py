@@ -693,6 +693,9 @@ def _source_refs_strings(
     others: list[str] = []
     nested: list[object] = []
     nested_strings = 0
+    # A string entry that decodes as an object or a list counts as the strings inside it, the same as a plain
+    # nested object. The strings every producer writes are not part of this count.
+    examined_strings = 0
     for item in items:
         if isinstance(item, str):
             if _PRODUCER_REF.fullmatch(item):
@@ -702,10 +705,11 @@ def _source_refs_strings(
                     ids.add(item[-36:])
             elif len(item) >= 32:  # shorter holds no id in any spelling
                 others.append(item)
+                examined_strings += reader_string_count(item)
         else:
             nested.append(item)
             nested_strings += reader_string_count(item)
-    if len(others) + nested_strings > MAX_READ_STRINGS:
+    if examined_strings + nested_strings > MAX_READ_STRINGS:
         problem = problem or TOO_MANY_CITATIONS
     else:
         for item in nested:
@@ -713,14 +717,12 @@ def _source_refs_strings(
             problem = problem or item_problem
             objects |= {("source", row_id) for row_id in item_ids}
             objects |= _typed_refs(item)
-    if len(others) > MAX_READ_STRINGS:
-        problem = problem or TOO_MANY_CITATIONS
-    elif len(others) > BATCH_STRINGS:
-        # A list this long is read in one call, as the scan reads it, and does not go through the kept readings.
-        ids |= {identifier(named) for named in cited_source_ids(others).named}
-    else:
-        for item in others:
-            ids |= {identifier(named) for named in read_reference(item).named_sources}
+        if len(others) > BATCH_STRINGS:
+            # A list this long is read in one call, as the scan reads it, and does not go through the kept readings.
+            ids |= {identifier(named) for named in cited_source_ids(others).named}
+        else:
+            for item in others:
+                ids |= {identifier(named) for named in read_reference(item).named_sources}
     for item in others:
         refs |= _typed_refs(item)
     return problem, ids, refs, objects
