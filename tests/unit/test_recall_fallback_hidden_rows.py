@@ -1,6 +1,6 @@
 """Recall's OR fallback is decided on the rows the caller may read.
 
-New in v0.20.1. The full-text stage of ``alice_recall`` and of the context pack runs a strict pass
+New in v0.20.2. The full-text stage of ``alice_recall`` and of the context pack runs a strict pass
 (every word of the query must match) and, when a query has two or more words and the strict pass finds nothing, one OR
 pass (any word). On main before this change the strict pass counted rows the caller may not read: a row hidden by its
 effective label (its inputs are above the key's limits, so the SQL filter cannot reject it by its own stored label) that

@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "From v0.20.1,"
+MARK = "From v0.20.2,"
 NOTE_TRACE = f"{MARK} the source trace follows the rows its events name."
 NOTE_CONTINUITY = f"{MARK} the policy event of an explain of a continuity object is not shown to a caller with limits."
 LOG_TRACE = "The source trace follows the rows its events name."

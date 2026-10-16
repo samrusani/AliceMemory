@@ -11,9 +11,10 @@
   reference integrations**, and `v0.12.0` shipped the Phase 3 structural
   refactor as **Structure only. Zero behavior change.** Records for both remain
   under `docs/release/`.
-- Five tags exist that were never published: `v0.9.3`, a withdrawn security
+- Six tags exist that were never published: `v0.9.3`, a withdrawn security
   candidate; `v0.10.0`, which failed its release gate; `v0.13.0`, superseded by
-  `v0.13.1`; `v0.15.0`; and `v0.19.1`, superseded by `v0.19.2`. None has a PyPI
+  `v0.13.1`; `v0.15.0`; `v0.19.1`, superseded by `v0.19.2`; and `v0.20.1`,
+  superseded by `v0.20.2`. None has a PyPI
   artifact or a published GitHub Release. `v0.10.1` has a GitHub Release with no
   files and no PyPI artifact, because its publish failed; `v0.10.2` superseded
   it.
@@ -96,17 +97,19 @@ Every earlier release remains published and immutable, with its own
 `v0.13.1`, `v0.12.0` and `v0.11.1`, which are referenced elsewhere in this
 document.
 
-Five tags exist that were never published and never will be, because stable
+Six tags exist that were never published and never will be, because stable
 tags are immutable and the numbers are retired rather than reused: `v0.9.3`, a
 withdrawn security candidate; `v0.10.0`, whose protected release gate failed;
 `v0.13.0`, superseded by `v0.13.1`; `v0.15.0`, whose commit carried a
-release-gate step that could not run on a CI runner; and `v0.19.1`, whose publish run failed at the
+release-gate step that could not run on a CI runner; `v0.19.1`, whose publish run failed at the
 draft readback because a release script imported the package in a job that does
-not install it, so it has no PyPI artifact and no published GitHub Release.
+not install it; and `v0.20.1`, whose publish run reached its first job's time
+limit while it reran the unit suite, before anything was built. Neither of the
+last two has a PyPI artifact or a published GitHub Release.
 
-## What `v0.20.1` Targets
+## What `v0.20.2` Targets
 
-`v0.20.1` is the current release candidate. It is not published.
+`v0.20.2` is the current release candidate. It is not published.
 
 It takes the fixes and additions on `main` since `v0.20.0`. Most are security
 fixes: a derived summary, report or copy follows the labels of its inputs, and
@@ -120,9 +123,9 @@ the compact commit result are off by default. PostgreSQL migrations
 `20261004_0095`, `20261005_0096` and `20261011_0097` repair stored labels, and a
 SQLite vault is repaired on its next open.
 
-- [v0.20.1 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.20.1-release-notes.md)
+- [v0.20.2 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.20.2-release-notes.md)
 
-`v0.20.1` has these changes. `v0.20.0` does not.
+`v0.20.2` has these changes. `v0.20.0` does not.
 
 - A derived row is stored at least as strict as its inputs and follows them when
   they are relabelled. `alice-memory labels check` and `alicebot vnext labels

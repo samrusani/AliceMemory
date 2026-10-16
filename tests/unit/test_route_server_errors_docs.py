@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "From v0.20.1,"
+MARK = "From v0.20.2,"
 PAGES = ("CHANGELOG.md", "docs/release/derived-labels-security-note-draft.md", "docs/alpha/mcp-tools.md")
 
 

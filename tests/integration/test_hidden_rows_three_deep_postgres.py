@@ -1,6 +1,6 @@
 """A row three memories below a source is judged by its effective domain and level, on PostgreSQL.
 
-New in v0.20.1. The scenarios of ``tests/unit/test_hidden_rows_three_deep.py`` on a real PostgreSQL
+New in v0.20.2. The scenarios of ``tests/unit/test_hidden_rows_three_deep.py`` on a real PostgreSQL
 store, through the MCP tool registry and a minted key: a hidden decision, a hidden open loop (in the brief and in the pack)
 and a hidden mention (in the grounding block) three memories below a source the key may not read, and, for a key bound to a
 project, a decision and a loop derived from a source of another project.

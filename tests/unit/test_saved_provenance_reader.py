@@ -1,6 +1,6 @@
 """``SavedProvenanceReader`` and the places that must use it.
 
-New in v0.20.1. ``tests/unit/test_saved_quotes_follow_the_source_fence.py`` runs the lifecycle on a
+New in v0.20.2. ``tests/unit/test_saved_quotes_follow_the_source_fence.py`` runs the lifecycle on a
 real vault. These tests hold the reader itself, with a stub store whose reads are counted, and pin the places that must
 go through it: every context pack call names its fence, every memory verb that hands a row back is held to the
 caller's fence, review by id reads provenance only through the reader, and every writer of a saved quote is on a list a

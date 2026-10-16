@@ -1,6 +1,6 @@
 """The grounding of the context pack and the brief of ``alice_resume`` do not depend on rows the caller may not read, on PostgreSQL.
 
-New in v0.20.1. The same checks as ``tests/unit/test_hidden_rows_resume_and_grounding.py`` on a real
+New in v0.20.2. The same checks as ``tests/unit/test_hidden_rows_resume_and_grounding.py`` on a real
 PostgreSQL store, through the MCP tool registry and a minted key. The probe of the grounding block asks the store's
 ``search_memories_fts`` (with ``offset``) and the brief asks ``list_memories`` and the two event readers; the checks that
 decide which rows a caller may read are the shared ones.

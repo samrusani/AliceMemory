@@ -243,7 +243,7 @@ identity and a key bound to another project are refused. The project scope
 check binds a key-bound scope; a keyless server trusts whatever
 `project_scope` the caller declares. Neither route can tell whether the user
 was asked; the tool description tells the agent to ask. Confirming a row that
-is not pending is refused and writes nothing. From v0.20.1, the caller's project scope, permission profile and ceiling are
+is not pending is refused and writes nothing. From v0.20.2, the caller's project scope, permission profile and ceiling are
 checked before the pending check too, so a caller refused for any of them is
 never told whether the row is pending, answered or expired. In v0.20.0 only
 the check of who may resolve the write came first.
@@ -290,7 +290,7 @@ refusal and a ceiling refusal record the reason on the policy events
 (`policy.decision` and `agent.policy_blocked`). HTTP returns 403 with
 that policy decision for those two refusals. A credential refusal on
 confirm leaves the row pending and does not keep a policy event for that
-refusal. From v0.20.1, over stdio an author refusal
+refusal. From v0.20.2, over stdio an author refusal
 and a ceiling refusal come back as `not_permitted`, an unknown confirmation
 id as `not_found` and a confirmation that is not pending as
 `precondition_failed`; a credential refusal stays `tool_request_failed`.
@@ -369,7 +369,7 @@ temporal exclusion, not a lifecycle judgment: the row's status stays
 
 In v0.20.0, `alice_resume`, `alice_recent_decisions` and the session brief still
 listed an expired memory, and consolidation and the roll-up semantic tier could send
-its text to the embeddings endpoint. From v0.20.1, all of
+its text to the embeddings endpoint. From v0.20.2, all of
 them leave it out, with the test recall uses.
 
 - MCP: `alice_memory_manage` with `action: "expire"` (optional `valid_to`
@@ -449,13 +449,13 @@ and backups also need their own erasure policy.
 Redact does not rewrite the reports and derived rows
 made from the memory before. A daily brief, weekly synthesis,
 project update, connection report or roll-up card keeps the words it copied, and
-a belief keeps its claim. Redacting the memory restricts those rows, from v0.20.1, to the
+a belief keeps its claim. Redacting the memory restricts those rows, from v0.20.2, to the
 owner and an unbound admin key until they are regenerated without it. This is
 temporary access containment, not removal: the text stays in those rows, and
 full removal is planned for v0.21.0. Archiving a memory restricts nothing. See
 [Redacted memories](alpha/mcp-tools.md#redacted-memories).
 
-From v0.20.1, redact asks the policy before it reads the
+From v0.20.2, redact asks the policy before it reads the
 state of the row, as forget, undo, correct and confirm do. A caller the policy
 refuses (its project scope, its profile, its ceiling) is told the refusal,
 never that the row is a pending project update, has an open project-update
@@ -468,7 +468,7 @@ redacted row records nothing, as a redact of an id the vault never held records
 nothing, because a key reads its policy events and its agent record back in its
 own telemetry.
 
-From v0.20.1, redact completes for a memory made by
+From v0.20.2, redact completes for a memory made by
 promoting a generated artifact, whether or not the memory was forgotten or undone
 first. In v0.20.0 it failed with a server error and scrubbed nothing. The
 `artifact.promoted_to_memory` event that the promotion appended is retained as it

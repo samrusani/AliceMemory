@@ -53,7 +53,7 @@ def test_the_marketplace_pins_the_published_release_and_the_notes_carry_its_inst
 
     The post-publication change moved the marketplace file to the v0.20.0 tag and the commit
     that tag points at. The version sites of the tree now name the next release, and
-    ``test_v0201_release_notes.py`` pins them.
+    ``test_v0202_release_notes.py`` pins them.
     """
 
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
@@ -65,12 +65,12 @@ def test_the_marketplace_pins_the_published_release_and_the_notes_carry_its_inst
     assert "uvx alice-memory@0.20.0 --version" in notes
 
 
-def test_the_changelog_has_the_dated_heading_right_after_the_v0201_section() -> None:
+def test_the_changelog_has_the_dated_heading_right_after_the_v0202_section() -> None:
     """Mutations, each one alone: drop the heading; change its date form; put another section between
-    v0.20.1 and v0.20.0; remove the blank line between the last v0.20.1 entry and the v0.20.0 heading.
+    v0.20.2 and v0.20.0; remove the blank line between the last v0.20.2 entry and the v0.20.0 heading.
 
     The Unreleased section was empty on the release commit. It may hold entries now that main has
-    moved on, so this test no longer asks for it to be empty. It still asks that the v0.20.1, v0.20.0 and
+    moved on, so this test no longer asks for it to be empty. It still asks that the v0.20.2, v0.20.0 and
     v0.19.2 sections follow it in that order, one heading each.
     """
 
@@ -78,7 +78,7 @@ def test_the_changelog_has_the_dated_heading_right_after_the_v0201_section() -> 
     sections = changelog.split("\n## ")
     assert sections[1].startswith("Unreleased\n")
     assert sections[1].endswith("\n")
-    assert sections[2].startswith("v0.20.1 \u2014 2026-10-16\n")
+    assert sections[2].startswith("v0.20.2 \u2014 2026-10-17\n")
     assert sections[3].startswith("v0.20.0 \u2014 2026-10-02\n")
     assert sections[4].startswith("v0.19.2 \u2014 2026-10-01\n")
     assert changelog.count(HEADING) == 1

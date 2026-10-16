@@ -241,7 +241,7 @@ def test_the_builder_is_the_only_door_the_tool_and_the_http_route_use() -> None:
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "From v0.20.1,"
+MARK = "From v0.20.2,"
 
 
 def _flat(text: str) -> str:
@@ -254,7 +254,7 @@ def test_the_known_limitations_bullet_keeps_the_v0200_text_and_marks_the_limit_a
     v0.20.0 is released and README-level docs describe it, so the refusal is main-only until the release PR
     converts the marker. Without the marker the page says v0.20.0 already refuses the text, which is false.
 
-    Mutations, each one alone, in ``docs/alpha/known-limitations.md``: delete ``From v0.20.1,`` from this bullet; delete the v0.20.0 clause before the marker (``has no length limit``); delete the
+    Mutations, each one alone, in ``docs/alpha/known-limitations.md``: delete ``From v0.20.2,`` from this bullet; delete the v0.20.0 clause before the marker (``has no length limit``); delete the
     clause after it that says the text is refused; add a second marker to the bullet. Each fails this test. The
     three expiry-bullet checks in ``test_expired_memories_docs.py`` do not see this bullet.
     """
@@ -275,7 +275,7 @@ def test_the_known_limitations_bullet_keeps_the_v0200_text_and_marks_the_limit_a
 def test_the_mcp_tools_page_keeps_the_v0200_text_and_marks_the_limit_as_main_only() -> None:
     """The paragraph on ``canonical_text`` says the number, then, after one marker, that main refuses a longer text.
 
-    Mutations, each one alone, in ``docs/alpha/mcp-tools.md``: delete ``From v0.20.1,``
+    Mutations, each one alone, in ``docs/alpha/mcp-tools.md``: delete ``From v0.20.2,``
     from the paragraph; delete the sentence after the marker that says v0.20.0 had no limit on SQLite; delete the
     refusal clause after the marker; move the refusal clause before the marker. Each fails this test.
     """

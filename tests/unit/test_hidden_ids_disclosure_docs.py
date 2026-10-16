@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "From v0.20.1,"
+MARK = "From v0.20.2,"
 IDS = f"{MARK} rows a key can read may list in their metadata the ids of rows it cannot read"
 KEPT = f"{MARK} a report keeps the words it was made with"
 VECTOR = f"{MARK} the vector stage of recall and of the context pack does not yet refill after hiding rows"

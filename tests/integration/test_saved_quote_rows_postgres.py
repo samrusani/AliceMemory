@@ -1,6 +1,6 @@
 """The rows that keep refs a writer chose hold them to the caller's fence at every door of the mounted application.
 
-New in v0.20.1. The saved-quote reader withholds the words of a memory or a source the caller may not read
+New in v0.20.2. The saved-quote reader withholds the words of a memory or a source the caller may not read
 from the ref that cites it. Four kinds of row keep a structure their writer chose, and each is reached by a caller with limits
 after the memory it cites is redacted, so each is held to the same rule:
 

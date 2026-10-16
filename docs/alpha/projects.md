@@ -1,8 +1,8 @@
 # Projects
 
-From v0.20.1, Alice can work out which git repository a folder belongs to, `alice-memory project` shows what it found, and, with per-project scoping switched on, the session brief and `alice_resume` follow the project. Scoping is **off by default**, so with nothing set every output is what v0.20.0 printed, byte for byte, with one exception: the name `~global` is reserved now and every tool refuses it as a project name even with scoping off, where v0.20.0 read it as an ordinary name. This is the first part of per-project memory. Writes do not change yet: a note is saved the same way in every folder, as in v0.20.0, and `alice_recall` and `alice_context_pack` read the whole vault as before. In v0.20.0 `alice-memory project` is not a command: `alice-memory project show` is read as arguments to `alice-memory mcp` and fails with `invalid_request`.
+From v0.20.2, Alice can work out which git repository a folder belongs to, `alice-memory project` shows what it found, and, with per-project scoping switched on, the session brief and `alice_resume` follow the project. Scoping is **off by default**, so with nothing set every output is what v0.20.0 printed, byte for byte, with one exception: the name `~global` is reserved now and every tool refuses it as a project name even with scoping off, where v0.20.0 read it as an ordinary name. This is the first part of per-project memory. Writes do not change yet: a note is saved the same way in every folder, as in v0.20.0, and `alice_recall` and `alice_context_pack` read the whole vault as before. In v0.20.0 `alice-memory project` is not a command: `alice-memory project show` is read as arguments to `alice-memory mcp` and fails with `invalid_request`.
 
-Every statement below about the project commands, the switch and the project brief is new in v0.20.1.
+Every statement below about the project commands, the switch and the project brief is new in v0.20.2.
 
 ## Try it
 
@@ -137,7 +137,7 @@ The effective switch is, strongest first:
 
 1. `ALICE_PROJECT_SCOPING`, `on` or `off`, in the environment. Any other value is ignored.
 2. The vault's `project_scoping` setting, written by `project scoping on|off`.
-3. The release default. In v0.20.1 it is off, until a release turns per-project memory on. The default prints no status line anywhere; only an owner's choice to switch it off does.
+3. The release default. In v0.20.2 it is off, until a release turns per-project memory on. The default prints no status line anywhere; only an owner's choice to switch it off does.
 
 Most hosts cannot be given an environment variable per entry, so the setting is saved in the vault. The brief, the SessionStart hook, `alice-memory sleep-proposals` and `alice_resume` read the switch when they start; see [the project brief](#the-project-brief). Nothing else reads it yet.
 

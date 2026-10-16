@@ -109,7 +109,7 @@ def test_the_brief_reads_the_constant_on_every_call(tmp_path: Path, monkeypatch:
 
 def _released_section() -> str:
     text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    start = text.index("## v0.20.1")
+    start = text.index("## v0.20.2")
     end = text.index("\n## v", start)
     return text[start:end]
 

@@ -800,7 +800,7 @@ def test_the_changelog_sentences_about_the_filter_order_hold_on_the_vaults_they_
     The first vault holds four older public loop events and four newer private memory events, a public-only request
     at four places: the old read held no events and the rule gives four. The second holds four project events and
     four newer private global events: the old read held three. No release had the old read, because per-project
-    scoping is new in v0.20.1, so the CHANGELOG bullet states the rule and none of those numbers. Both vaults are
+    scoping is new in v0.20.2, so the CHANGELOG bullet states the rule and none of those numbers. Both vaults are
     rebuilt from the fixtures, the old numbers from ``_before_the_fix`` and the new ones from ``alice_resume``. The
     assertions on ``before`` check that each vault is one where the old read went wrong.
     """

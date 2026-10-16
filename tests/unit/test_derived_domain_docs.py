@@ -16,7 +16,7 @@ from pathlib import Path
 from alicebot_api import vnext_derived_domain_backfill as repair
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "From v0.20.1,"
+MARK = "From v0.20.2,"
 LIMITATIONS = ROOT / "docs/alpha/known-limitations.md"
 MCP_TOOLS = ROOT / "docs/alpha/mcp-tools.md"
 BACKUP = ROOT / "docs/alpha/backup-and-restore.md"
@@ -100,7 +100,7 @@ def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_
     """
 
     section = _section(MCP_TOOLS, HEADING)
-    paragraphs = re.split(r" (?=From v0\.20\.1, )", section)
+    paragraphs = re.split(r" (?=From v0\.20\.2, )", section)
     assert len(paragraphs) == 5 and all(item.startswith(MARK) for item in paragraphs), len(paragraphs)
     label, stored, where, readers, scope = paragraphs
 

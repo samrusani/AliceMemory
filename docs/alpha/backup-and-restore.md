@@ -19,7 +19,7 @@ unknown application table fails before any JSONL is published. This prevents
 an older Alice exporter from silently dropping user-owned state introduced by
 a newer schema.
 
-From v0.20.1, an interrupted command, such as one killed with SIGKILL, can leave its private snapshot in the temporary directory. That snapshot is a copy of the vault, or, for `alice-memory import`, a copy of the file being imported. The next `alice-memory` command that makes a snapshot removes it once the process that made it is gone.
+From v0.20.2, an interrupted command, such as one killed with SIGKILL, can leave its private snapshot in the temporary directory. That snapshot is a copy of the vault, or, for `alice-memory import`, a copy of the file being imported. The next `alice-memory` command that makes a snapshot removes it once the process that made it is gone.
 
 The versioned JSONL is written through a `0600` sibling temporary file,
 `fsync`, and atomic replacement:
@@ -80,7 +80,7 @@ publication committed but a post-commit condition or reporting step failed.
 The records are present: inspect stderr and the target path, and do not
 blindly retry.
 
-From v0.20.1, the per-project scoping switch that
+From v0.20.2, the per-project scoping switch that
 `alice-memory project scoping on|off` sets is saved in the vault's
 `alice_schema_state` table, which an export does not carry. Each change also
 appends a `scoping.changed` event, and the event is exported. When
@@ -290,7 +290,7 @@ the file gives with a value is compared as before, so a row that really differs 
 still refused, and `--mode fail` still stops on any existing id. In v0.19.2 the
 second `--mode skip` import of such a file stopped with `restore_failed`.
 
-From v0.20.1, before it publishes the restored database,
+From v0.20.2, before it publishes the restored database,
 import also repairs the labels of derived memories and open loops in the complete staged copy,
 whether the destination is new or was already upgraded. A derived row whose
 recorded inputs include a restricted domain takes the most frequent restricted
@@ -313,7 +313,7 @@ within a bounded number of changes, or a relabel that changes no row, stop the
 import with `restore_failed` before publication, and nothing is written. What
 counts as a recorded input is under [Derived row domains](mcp-tools.md#derived-row-domains).
 
-From v0.20.1, `alice-memory labels check` prints how many
+From v0.20.2, `alice-memory labels check` prints how many
 derived rows are below their inputs or unverified, and `alice-memory labels repair`
 raises the rows that are below their inputs. Check reads a private snapshot and
 does not upgrade the live vault. Explicit repair checks every time, including
@@ -456,7 +456,7 @@ the fresh target. Table, sequence, and non-public schema ACL entries remain in
 the restore list. Do not replace it with `--no-acl`; that would discard the
 migration-defined application privileges the restored service needs.
 
-From v0.20.1, migration `20261004_0095` repairs the
+From v0.20.2, migration `20261004_0095` repairs the
 labels of derived memories and artifacts, including promoted copies and an
 alternate spelling of a recorded UUID. Migration `20261005_0096` raises domain,
 sensitivity, project scope and project floor. Run it before serving requests.

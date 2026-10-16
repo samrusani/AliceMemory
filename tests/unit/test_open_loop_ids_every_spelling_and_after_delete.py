@@ -1,6 +1,6 @@
 """An open loop shows no withheld id in any spelling, and deleting a source does not bring its id back.
 
-New in v0.20.1. The read-side rule of ``vnext_open_loop_references`` (the sibling file
+New in v0.20.2. The read-side rule of ``vnext_open_loop_references`` (the sibling file
 ``test_open_loop_references_read_fence.py``) withholds from a loop the ids of sources and memories its reader may not
 read. An outside review of that change reproduced two gaps, both identifier exposures with no source content:
 

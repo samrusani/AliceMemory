@@ -1,6 +1,6 @@
 """A request that names no domain is held to the profile's domains, in the policy engine.
 
-New in v0.20.1. In v0.20.0 ``_filtered_domains`` removed the held-back domains (family, health,
+New in v0.20.2. In v0.20.0 ``_filtered_domains`` removed the held-back domains (family, health,
 spiritual, legal, financial) from the domains a caller listed, and left a request that listed none as an empty
 ``effective_domains``. Every reader reads an empty tuple as "no domain filter", so a key that was refused when it asked for
 ``health`` read health notes when it asked for nothing. The engine now writes the profile's permitted domains out when

@@ -1,4 +1,4 @@
-"""A blocked MCP replay keeps its policy rows. From v0.20.1 it answers not_permitted.
+"""A blocked MCP replay keeps its policy rows. From v0.20.2 it answers not_permitted.
 
 v0.20.0 answered tool_request_failed for a replay the read-only agent may not make. A replay whose key is bound to a
 different request is a conflict, not a refusal, and still answers tool_request_failed.

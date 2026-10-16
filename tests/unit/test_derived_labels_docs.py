@@ -17,7 +17,7 @@ import importlib.util
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "From v0.20.1,"
+MARK = "From v0.20.2,"
 MIGRATION = ROOT / "apps/api/alembic/versions/20261005_0096_derived_label_floor.py"
 
 
@@ -87,7 +87,7 @@ def test_the_pages_name_the_v4_repair_and_the_seven_table_migration() -> None:
     notes = _text("docs/release/v0.20.0-release-notes.md")
     assert "> **Correction (2026-10-05):**" in notes
     assert "listed under known limitations" in notes
-    assert "From v0.20.1," in _text("docs/runbooks/disaster-recovery.md")
+    assert "From v0.20.2," in _text("docs/runbooks/disaster-recovery.md")
 
     changelog = _text("CHANGELOG.md")
     assert "keeps such a row at its old label until a restore" not in changelog

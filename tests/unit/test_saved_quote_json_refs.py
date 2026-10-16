@@ -1,6 +1,6 @@
 """A ref that is JSON text is read as the value it decodes to, so the quote inside it is not a citation.
 
-New in v0.20.1. An outside review of the saved-quote reader found that ``cited_source_ids`` scanned
+New in v0.20.2. An outside review of the saved-quote reader found that ``cited_source_ids`` scanned
 the raw text of a ref that is a JSON string before it decoded it. An id in the ``quote`` field of such a ref was then read as
 a citation: ``'{"source_id": "<A>", "quote": "Log line: source:<an id that names no source> is a literal marker"}'`` named a
 source that does not exist, and a named id that names no stored source counts as missing, so the quote the memory saved

@@ -1,6 +1,6 @@
 """The reader of saved quotes withholds the quote of a memory the caller may not read, with a stub store.
 
-New in v0.20.1. A commit can cite a memory, as ``{"memory_id": "<id>", "quote": "..."}`` or as the two
+New in v0.20.2. A commit can cite a memory, as ``{"memory_id": "<id>", "quote": "..."}`` or as the two
 entries ``"memory:<id>"`` and ``{"quote": "..."}``, and the quote holds words of that memory. The reader
 (``SavedProvenanceReader``) already withheld the quote of a source the caller may not read. These tests hold the same
 reader to the same rule for a memory, with a stub store whose reads are counted:

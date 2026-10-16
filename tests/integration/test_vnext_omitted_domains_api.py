@@ -1,6 +1,6 @@
 """``POST /v0/vnext/context-packs`` holds a restricted key to its permitted domains when the request names none.
 
-New in v0.20.1. On v0.20.0 a ``project_scoped_agent`` key that was refused when it asked for
+New in v0.20.2. On v0.20.0 a ``project_scoped_agent`` key that was refused when it asked for
 ``domains: ["health"]`` read the health notes and sources of its own project when it sent no ``domains``, because the
 policy engine left ``effective_domains`` empty and the Postgres readers read an empty list as "no domain filter".
 

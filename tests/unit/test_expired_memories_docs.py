@@ -1,8 +1,8 @@
-"""The docs say what v0.20.1 does about the four expiry and embedding gaps, with v0.20.0 as the comparison.
+"""The docs say what v0.20.2 does about the four expiry and embedding gaps, with v0.20.0 as the comparison.
 
 v0.20.0 is released, so its notes stay as they are. The documents that describe the release mark
-what v0.20.1 changes with ``From v0.20.1,``, and the changelog has one entry under
-``## v0.20.1`` that states the v0.20.0 behaviour beside each change.
+what v0.20.2 changes with ``From v0.20.2,``, and the changelog has one entry under
+``## v0.20.2`` that states the v0.20.0 behaviour beside each change.
 
 Every test names the edit that must fail it.
 """
@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "From v0.20.1,"
+MARK = "From v0.20.2,"
 ENTRY_START = "The four expiry and embedding gaps that the v0.20.0 notes list as known limitations are closed."
 NOTES = "docs/release/v0.20.0-release-notes.md"
 
@@ -31,7 +31,7 @@ def _changelog() -> str:
 
 def _released() -> str:
     changelog = _changelog()
-    return changelog[changelog.index("## v0.20.1") : changelog.index("## v0.20.0")]
+    return changelog[changelog.index("## v0.20.2") : changelog.index("## v0.20.0")]
 
 
 def _entry() -> str:
@@ -40,8 +40,8 @@ def _entry() -> str:
     return _flat(entries[0])
 
 
-def test_the_changelog_has_one_entry_under_v0201_and_none_in_an_older_release() -> None:
-    """One entry, in the v0.20.1 section.
+def test_the_changelog_has_one_entry_under_v0202_and_none_in_an_older_release() -> None:
+    """One entry, in the v0.20.2 section.
 
     Mutations, each one alone: move the entry under the v0.20.0 heading, or add a second entry that starts
     the same way.
@@ -79,7 +79,7 @@ def test_the_entry_states_the_v0200_behaviour_beside_each_change() -> None:
     assert "\u2014" not in entry and "\u2013" not in entry
 
 
-def test_the_known_limitations_list_what_stays_open_and_name_what_v0201_closed() -> None:
+def test_the_known_limitations_list_what_stays_open_and_name_what_v0202_closed() -> None:
     """The open list keeps what stays open, and the closing paragraph names the four closed gaps, with v0.19.2 as the comparison.
 
     The three bullets that listed the gaps as open are gone from the open list: the gaps are fixed. One bullet
@@ -91,14 +91,14 @@ def test_the_known_limitations_list_what_stays_open_and_name_what_v0201_closed()
     """
 
     limitations = _read("docs/alpha/known-limitations.md")
-    section = limitations[limitations.index("Open in v0.20.1, with the detail") :]
+    section = limitations[limitations.index("Open in v0.20.2, with the detail") :]
     assert "- the session brief, `alice_resume` and `alice_recent_decisions` list memories by status" not in section
     assert "- consolidation and the roll-up semantic tier embed, for clustering" not in section
     assert "- promoting a reviewed artifact into a memory does not embed the new memory" not in section
     bullet = section[section.index("- `alice_context_pack` is not changed by the expiry fix") : section.index("- the `max_tokens` budget")]
     assert "its `recent_changes` still names the id of an expired memory through its creation and expire events" in bullet
     assert "text that v0.20.0 and earlier sent to an embeddings endpoint" in bullet.lower()
-    closing = limitations[limitations.index("What v0.20.0 listed as open and v0.20.1 closed") :]
+    closing = limitations[limitations.index("What v0.20.0 listed as open and v0.20.2 closed") :]
     for gap in (
         "the session brief, `alice_resume`, `alice_recent_decisions` and the SessionStart hook showing a memory whose `valid_to` has passed",
         "while recall and the context pack do not return it, as in v0.19.2",
@@ -127,7 +127,7 @@ def test_the_v0200_notes_are_unchanged_and_carry_no_main_only_marker() -> None:
         assert heading in notes, heading
 
 
-def test_the_control_documents_and_the_protocol_say_what_v0201_changes() -> None:
+def test_the_control_documents_and_the_protocol_say_what_v0202_changes() -> None:
     """``CURRENT_STATE.md`` carries the line, and the protocol doc says which doors leave an expired memory out.
 
     Mutations, each one alone: delete the line from ``CURRENT_STATE.md``, or delete the sentence from the

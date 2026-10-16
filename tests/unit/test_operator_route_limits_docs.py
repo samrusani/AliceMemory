@@ -24,7 +24,7 @@ from pathlib import Path
 from alicebot_api.vnext_label_guard import ROW_FEED_SCAN_LIMIT
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "From v0.20.1,"
+MARK = "From v0.20.2,"
 
 #: The routes this change closes, as the pages name them.
 ROUTES = (
