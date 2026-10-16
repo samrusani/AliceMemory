@@ -72,7 +72,7 @@ def set_current_user_account(conn: psycopg.Connection[Row], user_account_id: UUI
 def direct_user_connection(database_url: str, user_id: UUID) -> Iterator[UserConnection]:
     """Unpooled path retained for health checks, migrations, and test tools."""
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
-        # label state: none, no store uses this connection yet, so the request has no label state to clear.
+        # label state: none, a store and its request label state end inside this transaction, before it can roll back.
         with conn.transaction():
             set_current_user(conn, user_id)
             yield conn

@@ -2028,7 +2028,9 @@ def _relabel_derived_labels(conn: sqlite3.Connection) -> None:
     try:
         relabel_labels_sqlite(conn)
     except Exception as exc:
+        # label state: none, this rolls back the savepoint opened above, before any store exists.
         conn.execute("ROLLBACK TO SAVEPOINT alice_derived_labels_v4")
+        # label state: none, this ends the savepoint above and rolls nothing back.
         conn.execute("RELEASE SAVEPOINT alice_derived_labels_v4")
         left = getattr(exc, "left", "an unknown number of")
         logging.getLogger(__name__).warning(
@@ -2036,6 +2038,7 @@ def _relabel_derived_labels(conn: sqlite3.Connection) -> None:
             left,
         )
         return
+    # label state: none, this ends the savepoint above and rolls nothing back.
     conn.execute("RELEASE SAVEPOINT alice_derived_labels_v4")
 
 

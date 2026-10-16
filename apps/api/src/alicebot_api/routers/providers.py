@@ -1179,6 +1179,7 @@ def _update_workspace_provider_durable(
     provider_persisted = False
     try:
         with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+            # label state: none, provider tables carry no label and this connection has no vNext store.
             with conn.transaction():
                 _assert_provider_write_context(
                     conn=conn,
@@ -2089,6 +2090,7 @@ def test_v1_provider(request: Request, body: TestProviderRequest) -> JSONRespons
                 )
 
         with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+            # label state: none, provider tables carry no label and this connection has no vNext store.
             with conn.transaction():
                 persisted_context = get_local_workspace(conn, user_account_id=user_account_id)
                 if persisted_context is None or persisted_context["workspace"]["id"] != workspace_id:
