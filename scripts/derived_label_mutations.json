@@ -18258,6 +18258,22 @@
         "tests/unit/test_weekly_parent_index_invalidation.py::test_dropping_the_index_of_another_store_keeps_the_index_of_the_scope"
       ],
       "expected_failure": "test_dropping_the_index_of_another_store_keeps_the_index_of_the_scope"
+    },
+    {
+      "name": "rollback-site-comment-deleted",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/db.py",
+          "before": "        # label state: none, this transaction only reads.\n",
+          "after": "",
+          "line": 89,
+          "sha256": "04e2bc7db074a18280b5903f26db6c7e02145305d3cabe3a11bc4c2447828caa"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_rollback_sites_state_what_happens_to_label_state.py"
+      ],
+      "expected_failure": "test_every_block_that_can_roll_back_says_what_happens_to_the_label_state"
     }
   ]
 }
