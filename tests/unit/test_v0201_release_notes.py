@@ -98,7 +98,11 @@ def test_every_version_site_names_0201_and_the_marketplace_still_pins_the_publis
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.20.1 && alice-memory install" in notes
     assert "pip install -U alice-memory==0.20.1" in notes
-    assert "uvx alice-memory@0.20.1 --version" in notes
+    assert "uv tool upgrade alice-memory" in notes
+    assert "uvx alice-memory@latest --version" in notes
+    assert "`uvx alice-memory --version` (or `alice-memory --version` for pip) must print 0.20.1" in notes
+    # A pinned uvx check does not show what the hosts' plain `uvx alice-memory` runs.
+    assert "it prints the version the hosts get" not in notes
     assert "pins `alice-memory==0.20.0` and carries none of the fixes in this release" in notes
 
 
@@ -165,7 +169,8 @@ def test_the_upgrade_steps_name_every_action_an_existing_user_takes_in_order() -
     assert numbers == list(range(1, 13))
     for needle in (
         "`pip install -U alice-memory==0.20.1`",
-        "`uvx alice-memory@0.20.1 --version`",
+        "`uv tool upgrade alice-memory`",
+        "`uvx alice-memory@latest --version`",
         "A v0.20.0 database is at revision `20260721_0094`",
         "`20261004_0095`, `20261005_0096` and `20261011_0097`, in that order",
         "A database that goes from 0094 to the head is repaired by 0096 and finds nothing to change in 0097",
