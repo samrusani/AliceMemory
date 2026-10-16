@@ -258,6 +258,17 @@ def request_row_cache(store: Any, namespace: str) -> dict | None:
     return current[1].row_sets.setdefault(namespace, {})
 
 
+# The SQLite store keeps, for each kind of label row, every stored id under its canonical spelling (``request_row_cache``).
+SQLITE_LABEL_ID_MAP = "sqlite-label-id-map"
+
+
+def drop_request_row_cache(store: Any, namespace: str) -> None:
+    """Forget one namespace of the rows this store's request has cached, and leave the rest of the request alone."""
+    current = _REQUEST_LABELS.get()
+    if current is not None and current[0] is store:
+        current[1].row_sets.pop(namespace, None)
+
+
 @contextmanager
 def label_read_scope(store):
     current = _REQUEST_LABELS.get()

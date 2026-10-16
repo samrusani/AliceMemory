@@ -1,9 +1,14 @@
-"""A write or a savepoint rollback in a request drops that request's weekly-parent index.
+"""A write or a rollback in a request drops that request's weekly-parent index and the labels cached with it.
 
 One request reads the reports that name each weekly-synthesis candidate once and judges every candidate
 from that index. A write to a report, or a rollback of a savepoint that created one, makes the index
 wrong for the rest of the request, so the next read in the same scope must load it again and judge the
 candidate as a read in a fresh scope does. Each test here compares the two.
+
+A rollback that does not go through ``store.savepoint()`` is the same case. The product has blocks that open
+their own transaction or savepoint (the capture loop, the optional embedding write), and a read inside one
+caches labels that the block's writes produced. When the block rolls back, those labels describe rows that
+no longer exist.
 
 Everything goes through the production store and a guard with a ``public`` ceiling. SQLite cannot store
 the report, so ``tests/unit/test_weekly_parent_index_invalidation.py`` covers the same drops with a store
@@ -13,16 +18,19 @@ that offers the reports.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from uuid import uuid4
 
+import pytest
 from alembic import command
 
 from alicebot_api.db import user_connection
 from alicebot_api.migrations import make_alembic_config
 from alicebot_api.store import ContinuityStore
-from alicebot_api.vnext_label_closure import weekly_parent_query_count
+from alicebot_api.vnext_label_closure import load_weekly_parent_artifacts, weekly_parent_query_count
+from alicebot_api.vnext_embeddings import _embedding_write_savepoint
 from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
-from alicebot_api.vnext_label_writes import without_insert_floor
+from alicebot_api.vnext_label_writes import capture_label_inputs, without_insert_floor
 from alicebot_api.vnext_store import PostgresVNextStore
 from tests.integration.conftest import database_urls  # noqa: F401
 
@@ -273,3 +281,100 @@ def test_the_parent_query_runs_once_a_request_and_once_more_after_each_write(dat
             for memory_id in ids:
                 _judged(store, memory_id)
             assert weekly_parent_query_count() == 3
+
+
+@contextmanager
+def _the_stores_savepoint(store: PostgresVNextStore, source_id: str):
+    with store.savepoint():
+        yield
+
+
+@contextmanager
+def _the_capture_loops_transaction(store: PostgresVNextStore, source_id: str):
+    with capture_label_inputs(store, source_id):
+        yield
+
+
+@contextmanager
+def _the_embedding_writes_transaction(store: PostgresVNextStore, source_id: str):
+    with _embedding_write_savepoint(store):
+        yield
+
+
+@pytest.mark.parametrize(
+    "block",
+    [_the_stores_savepoint, _the_capture_loops_transaction, _the_embedding_writes_transaction],
+    ids=["store-savepoint", "capture-loop", "embedding-write"],
+)
+def test_a_rollback_of_any_block_that_wrote_a_report_leaves_no_label_cached_in_the_same_scope(
+    database_urls, block
+) -> None:
+    """A second weekly memory gains a parent inside the block and loses it again when the block rolls back."""
+
+    command.upgrade(make_alembic_config(database_urls["admin"]), "head")
+    user_id = uuid4()
+    with user_connection(database_urls["app"], user_id) as conn:
+        ContinuityStore(conn).create_user(user_id, f"owner-{user_id.hex[:8]}@example.invalid", "Owner")
+        store = PostgresVNextStore(conn)
+        public_id = _source(store, "Public note", "public")
+        named_id = _weekly_memory(store, "rollbacknamedtoken")
+        renamed_id = _weekly_memory(store, "rollbackrenamedtoken")
+        with without_insert_floor():
+            report = store.create_artifact(_report(public_id, named_id), actor_type="system")
+        with label_read_scope(store):
+            before = _judged(store, renamed_id)
+            try:
+                with block(store, public_id):
+                    store.update_artifact_status(
+                        artifact_id=str(report["id"]),
+                        status="needs_review",
+                        expected_status="needs_review",
+                        metadata_json={"candidate_memory_ids": [renamed_id]},
+                        actor_type="system",
+                    )
+                    inside = _judged(store, renamed_id)
+                    raise _RollBack
+            except _RollBack:
+                pass
+            in_the_same_scope = _judged(store, renamed_id)
+        in_a_fresh_scope = _judged_in_a_fresh_scope(store, renamed_id)
+    assert before[1] is True, "no report names this memory yet, so it has no parent"
+    assert inside == ("public", False), "inside the block the renamed report names it"
+    assert in_a_fresh_scope == before
+    assert in_the_same_scope == in_a_fresh_scope
+
+
+def test_a_lookup_for_another_user_inside_a_scope_is_answered_from_that_users_own_reports(database_urls) -> None:
+    """The scope belongs to one store. Another store's lookup neither reads its index nor leaves its own in it."""
+
+    command.upgrade(make_alembic_config(database_urls["admin"]), "head")
+    first_user, second_user = uuid4(), uuid4()
+    with user_connection(database_urls["app"], first_user) as first_conn:
+        ContinuityStore(first_conn).create_user(first_user, f"owner-{first_user.hex[:8]}@example.invalid", "Owner")
+        first = PostgresVNextStore(first_conn)
+        first_source = _source(first, "First note", "public")
+        first_memory = _weekly_memory(first, "firstusertoken")
+        with without_insert_floor():
+            first_report = first.create_artifact(_report(first_source, first_memory), actor_type="system")
+        with user_connection(database_urls["app"], second_user) as second_conn:
+            ContinuityStore(second_conn).create_user(second_user, f"owner-{second_user.hex[:8]}@example.invalid", "Owner")
+            second = PostgresVNextStore(second_conn)
+            second_source = _source(second, "Second note", "public")
+            second_memory = _weekly_memory(second, "secondusertoken")
+            with without_insert_floor():
+                second_report = second.create_artifact(_report(second_source, second_memory), actor_type="system")
+            with label_read_scope(first):
+                # The second user's lookup comes first, so a leftover of it would be the first user's index.
+                second_first = [row["id"] for row in load_weekly_parent_artifacts(second, second_memory)]
+                assert weekly_parent_query_count() == 0
+                first_own = [row["id"] for row in load_weekly_parent_artifacts(first, first_memory)]
+                assert weekly_parent_query_count() == 1
+                # The first user's index is loaded now, so a read of it would answer the second user's lookup.
+                second_again = [row["id"] for row in load_weekly_parent_artifacts(second, second_memory)]
+                assert weekly_parent_query_count() == 1
+                first_again = [row["id"] for row in load_weekly_parent_artifacts(first, first_memory)]
+                assert weekly_parent_query_count() == 1
+    assert second_first == [second_report["id"]]
+    assert second_again == [second_report["id"]]
+    assert first_own == [first_report["id"]]
+    assert first_again == [first_report["id"]]

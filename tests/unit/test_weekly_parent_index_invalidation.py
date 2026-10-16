@@ -6,13 +6,18 @@ must load them again. These tests use a store that offers the reports (``read_ar
 because SQLite has no generated-artifact table; ``tests/integration/test_weekly_parent_index_invalidation_postgres.py``
 does the same against the production store.
 
+A lookup through a store other than the one the scope belongs to is that store's own: it neither reads nor fills the
+scope's index, and it does not count as one of the scope's queries.
+
 Mutations: leave the index out of ``_RequestLabels.clear``; empty the index on every lookup; leave out the drop
-that ``takes_label_lock`` makes after a write.
+that ``takes_label_lock`` makes after a write; read the scope's index for a lookup through another store; store another
+store's index in the scope; count another store's lookup as one of the scope's.
 """
 
 from __future__ import annotations
 
 import inspect
+from contextlib import contextmanager
 from uuid import uuid4
 
 import pytest
@@ -25,6 +30,7 @@ from alicebot_api.vnext_label_closure import (
     load_weekly_parent_artifacts,
     weekly_parent_query_count,
 )
+from alicebot_api.vnext_embeddings import _embedding_write_savepoint
 from alicebot_api.vnext_label_guard import LabelGuard, invalidate_read_labels, label_read_scope
 from alicebot_api.vnext_label_writes import takes_label_lock
 
@@ -256,7 +262,24 @@ def test_a_lookup_outside_a_scope_reads_the_reports_every_time() -> None:
     assert weekly_parent_query_count() == 0
 
 
-def test_a_rolled_back_sqlite_savepoint_drops_the_index(tmp_path) -> None:
+@contextmanager
+def _the_stores_savepoint(store):
+    with store.savepoint():
+        yield
+
+
+@contextmanager
+def _the_embedding_writes_savepoint(store):
+    with _embedding_write_savepoint(store):
+        yield
+
+
+@pytest.mark.parametrize(
+    "block",
+    [_the_stores_savepoint, _the_embedding_writes_savepoint],
+    ids=["store-savepoint", "embedding-write"],
+)
+def test_a_rolled_back_sqlite_savepoint_drops_the_index(tmp_path, block) -> None:
     user_id = uuid4()
     with sqlite_user_connection(tmp_path / "vault.db", user_id, repair_labels=False) as conn:
         ensure_sqlite_user(conn, user_id, "owner@example.invalid", "Owner")
@@ -275,7 +298,7 @@ def test_a_rolled_back_sqlite_savepoint_drops_the_index(tmp_path) -> None:
             assert load_weekly_parent_artifacts(store, "weekly") == []
             assert weekly_parent_query_count() == 1
             with pytest.raises(RuntimeError):
-                with store.savepoint():
+                with block(store):
                     reports.append(_report("weekly", "source-public"))
                     invalidate_read_labels(store)  # what the write that stored the report does first
                     assert load_weekly_parent_artifacts(store, "weekly") == [reports[0]]
@@ -284,3 +307,56 @@ def test_a_rolled_back_sqlite_savepoint_drops_the_index(tmp_path) -> None:
             assert load_weekly_parent_artifacts(store, "weekly") == []
             assert weekly_parent_query_count() == 3
             assert reads == [0, 1, 0]
+
+
+def _other_vault() -> Vault:
+    """A second store whose weekly memory has a parent of its own, that cites a confidential source."""
+
+    return Vault(
+        [
+            _row("source", "source-public"),
+            _row("source", "source-secret", sensitivity="confidential"),
+            _weekly("other-weekly"),
+            _report("other-weekly", "source-secret"),
+        ]
+    )
+
+
+def _ids(reports: list[dict[str, object]]) -> list[object]:
+    return [report["id"] for report in reports]
+
+
+def test_a_lookup_through_another_store_does_not_read_the_index_of_the_scope() -> None:
+    mine, other = _vault(), _other_vault()
+    with label_read_scope(mine):
+        assert _judged(mine) == ("public", False)
+        assert weekly_parent_query_count() == 1
+        assert _ids(load_weekly_parent_artifacts(other, "other-weekly")) == ["report-other-weekly"]
+        assert other.parent_reads == 1
+        assert _judged(other, "other-weekly") == ("confidential", False)
+        assert mine.parent_reads == 1
+        assert weekly_parent_query_count() == 1
+
+
+def test_a_lookup_through_another_store_does_not_fill_the_index_of_the_scope() -> None:
+    mine, other = _vault(), _other_vault()
+    with label_read_scope(mine):
+        assert _ids(load_weekly_parent_artifacts(other, "other-weekly")) == ["report-other-weekly"]
+        assert other.parent_reads == 1
+        assert mine.parent_reads == 0
+        # Nothing of this scope's was loaded yet, so the next lookup through its own store is its first.
+        assert _ids(load_weekly_parent_artifacts(mine, "weekly")) == ["report-weekly"]
+        assert mine.parent_reads == 1
+        assert _judged(mine) == ("public", False)
+        assert weekly_parent_query_count() == 1
+
+
+def test_a_lookup_through_another_store_is_not_counted_as_a_query_of_the_scope() -> None:
+    mine, other = _vault(), _other_vault()
+    with label_read_scope(mine):
+        for _ in range(3):
+            load_weekly_parent_artifacts(other, "other-weekly")
+        assert other.parent_reads == 3
+        assert weekly_parent_query_count() == 0
+        load_weekly_parent_artifacts(mine, "weekly")
+        assert weekly_parent_query_count() == 1

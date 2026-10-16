@@ -323,6 +323,7 @@ def _persist_discovered_provider_capability(
     """Persist discovery only if the exact provider configuration is current."""
 
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+        # label state: none, provider tables carry no label and this connection has no vNext store.
         with conn.transaction():
             context = get_local_workspace(conn, user_account_id=user_account_id)
             if context is None or context["workspace"]["id"] != workspace_id:
@@ -494,6 +495,7 @@ def _retire_provider_secret_if_unreferenced(
     # credential.
     try:
         with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+            # label state: none, provider tables carry no label and this connection has no vNext store.
             with conn.transaction():
                 _assert_provider_write_context(
                     conn=conn,
@@ -600,6 +602,7 @@ def _create_workspace_provider_durable(
     provider_persisted = False
     try:
         with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+            # label state: none, provider tables carry no label and this connection has no vNext store.
             with conn.transaction():
                 _assert_provider_write_context(
                     conn=conn,
@@ -898,6 +901,7 @@ def _create_workspace_azure_provider_durable(
     provider_persisted = False
     try:
         with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+            # label state: none, provider tables carry no label and this connection has no vNext store.
             with conn.transaction():
                 _assert_provider_write_context(
                     conn=conn,
@@ -1113,6 +1117,7 @@ def _update_workspace_provider_durable(
         user_account_id=authenticated_user_id,
     )
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+        # label state: none, provider tables carry no label and this connection has no vNext store.
         with conn.transaction():
             _assert_provider_write_context(
                 conn=conn,
@@ -1248,6 +1253,7 @@ def _seed_workspace_provider_configs(
     if resolved_workspace_id != workspace_id:
         raise ProviderConfigurationChangedError("workspace selection changed before provider bootstrap")
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+        # label state: none, provider tables carry no label and this connection has no vNext store.
         with conn.transaction():
             _assert_provider_write_context(
                 conn=conn,
@@ -1530,6 +1536,7 @@ def _require_local_provider_workspace(
     user_account_id: UUID,
 ) -> tuple[UUID, UUID]:
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+        # label state: none, provider tables carry no label and this connection has no vNext store.
         with conn.transaction():
             context = get_local_workspace(conn, user_account_id=user_account_id)
     if context is None:
@@ -1882,6 +1889,7 @@ def list_v1_providers(request: Request) -> JSONResponse:
             user_account_id=user_account_id,
         )
         with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+            # label state: none, provider tables carry no label and this connection has no vNext store.
             with conn.transaction():
                 context = get_local_workspace(conn, user_account_id=user_account_id)
                 if context is None or context["workspace"]["id"] != workspace_id:
@@ -1919,6 +1927,7 @@ def get_v1_provider(provider_id: UUID, request: Request) -> JSONResponse:
             user_account_id=user_account_id,
         )
         with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+            # label state: none, provider tables carry no label and this connection has no vNext store.
             with conn.transaction():
                 context = get_local_workspace(conn, user_account_id=user_account_id)
                 if context is None or context["workspace"]["id"] != workspace_id:
@@ -2032,6 +2041,7 @@ def test_v1_provider(request: Request, body: TestProviderRequest) -> JSONRespons
             user_account_id=user_account_id,
         )
         with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+            # label state: none, provider tables carry no label and this connection has no vNext store.
             with conn.transaction():
                 context = get_local_workspace(conn, user_account_id=user_account_id)
                 if context is None or context["workspace"]["id"] != workspace_id:

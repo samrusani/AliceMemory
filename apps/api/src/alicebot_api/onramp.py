@@ -3664,6 +3664,7 @@ class _BackfillProbe:
             return None
         finally:
             if scratch.in_transaction:
+                # label state: none, this is a scratch database that no store reads.
                 scratch.execute("ROLLBACK")
         return tuple(row) if row is not None else None
 

@@ -386,6 +386,7 @@ def sqlite_user_connection(path: str | Path, user_id: UUID | str, *, repair_labe
         yield conn
         conn.commit()
     except BaseException:
+        # label state: none, a request's label state ends with its store, inside this block, and the connection closes next.
         conn.rollback()
         raise
     finally:
@@ -529,10 +530,10 @@ class SQLiteVNextStore:
             extra = ", value, project_id, source_event_ids, deleted_at, status"
         elif table == "open_loops":
             extra = ", project_id, source_id, memory_id"
-        from alicebot_api.vnext_label_guard import request_row_cache
+        from alicebot_api.vnext_label_guard import SQLITE_LABEL_ID_MAP, request_row_cache
         from alicebot_api.vnext_derived_labels import identifier
 
-        cache = request_row_cache(self, "sqlite-label-id-map")
+        cache = request_row_cache(self, SQLITE_LABEL_ID_MAP)
         if cache is not None:
             if kind not in cache:
                 aliases: dict[str, list[str]] = {}
