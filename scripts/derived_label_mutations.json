@@ -18242,6 +18242,22 @@
         "tests/unit/test_weekly_parent_index_invalidation.py::test_a_lookup_through_another_store_is_not_counted_as_a_query_of_the_scope"
       ],
       "expected_failure": "test_a_lookup_through_another_store_is_not_counted_as_a_query_of_the_scope"
+    },
+    {
+      "name": "weekly-parent-index-dropped-for-another-store",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_closure.py",
+          "before": "    if current is not None and current[\"store\"] is store:\n        current[\"cache\"].clear()\n",
+          "after": "    if current is not None:\n        current[\"cache\"].clear()\n",
+          "line": 48,
+          "sha256": "a32ab4ba38a1fd0a49ec7bf060f77cf2cdcd4d09dbdf68c33ced0e7d0d1827cd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_weekly_parent_index_invalidation.py::test_dropping_the_index_of_another_store_keeps_the_index_of_the_scope"
+      ],
+      "expected_failure": "test_dropping_the_index_of_another_store_keeps_the_index_of_the_scope"
     }
   ]
 }

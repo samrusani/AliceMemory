@@ -11,7 +11,8 @@ scope's index, and it does not count as one of the scope's queries.
 
 Mutations: leave the index out of ``_RequestLabels.clear``; empty the index on every lookup; leave out the drop
 that ``takes_label_lock`` makes after a write; read the scope's index for a lookup through another store; store another
-store's index in the scope; count another store's lookup as one of the scope's.
+store's index in the scope; count another store's lookup as one of the scope's; empty the scope's index when another
+store drops its own.
 """
 
 from __future__ import annotations
@@ -360,3 +361,19 @@ def test_a_lookup_through_another_store_is_not_counted_as_a_query_of_the_scope()
         assert weekly_parent_query_count() == 0
         load_weekly_parent_artifacts(mine, "weekly")
         assert weekly_parent_query_count() == 1
+
+
+def test_dropping_the_index_of_another_store_keeps_the_index_of_the_scope() -> None:
+    """Read the scope's index back with a lookup, since a judged row caches its own label and hides a dropped index."""
+
+    mine, other = _vault(), _other_vault()
+    with label_read_scope(mine):
+        assert _ids(load_weekly_parent_artifacts(mine, "weekly")) == ["report-weekly"]
+        assert mine.parent_reads == 1
+        drop_weekly_parent_index(other)
+        assert _ids(load_weekly_parent_artifacts(mine, "weekly")) == ["report-weekly"]
+        assert mine.parent_reads == 1
+        # The scope's own drop still empties it.
+        drop_weekly_parent_index(mine)
+        assert _ids(load_weekly_parent_artifacts(mine, "weekly")) == ["report-weekly"]
+        assert mine.parent_reads == 2
