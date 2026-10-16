@@ -212,6 +212,9 @@ class _RequestLabels:
     rank_rows: dict = field(default_factory=dict)
     rank_origins: dict = field(default_factory=dict)
     rank_admission: dict = field(default_factory=dict)
+    # The reports that name each weekly candidate (``vnext_label_closure``). Emptied with everything else, so a write
+    # or a rollback never leaves the request a parent list that is not the one stored.
+    weekly_parents: dict = field(default_factory=dict)
 
     def clear(self):
         self.nodes.clear()
@@ -235,6 +238,7 @@ class _RequestLabels:
         self.rank_rows.clear()
         self.rank_origins.clear()
         self.rank_admission.clear()
+        self.weekly_parents.clear()
 
 
 _REQUEST_LABELS: ContextVar[tuple[Any, _RequestLabels] | None] = ContextVar("request_labels", default=None)
@@ -254,6 +258,17 @@ def request_row_cache(store: Any, namespace: str) -> dict | None:
     return current[1].row_sets.setdefault(namespace, {})
 
 
+# The SQLite store keeps, for each kind of label row, every stored id under its canonical spelling (``request_row_cache``).
+SQLITE_LABEL_ID_MAP = "sqlite-label-id-map"
+
+
+def drop_request_row_cache(store: Any, namespace: str) -> None:
+    """Forget one namespace of the rows this store's request has cached, and leave the rest of the request alone."""
+    current = _REQUEST_LABELS.get()
+    if current is not None and current[0] is store:
+        current[1].row_sets.pop(namespace, None)
+
+
 @contextmanager
 def label_read_scope(store):
     current = _REQUEST_LABELS.get()
@@ -262,7 +277,7 @@ def label_read_scope(store):
         return
     state = _RequestLabels()
     token = _REQUEST_LABELS.set((store, state))
-    parent_token = bind_weekly_parent_cache(store)
+    parent_token = bind_weekly_parent_cache(store, state.weekly_parents)
     try:
         with label_metadata_cache(state.normalized_metadata):
             yield

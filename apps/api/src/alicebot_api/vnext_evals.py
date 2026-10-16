@@ -1107,6 +1107,7 @@ def _ephemeral_eval_store(database_url: str) -> Iterator[PostgresVNextStore]:
     """Live store scoped to a forced-rollback transaction: no data persists."""
     user_id = _eval_user_id()
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        # label state: none, the store lives only inside this block and is discarded with the rollback.
         with conn.transaction(force_rollback=True):
             set_current_user(conn, user_id)
             with conn.cursor() as cur:
@@ -1144,6 +1145,7 @@ def _ephemeral_sqlite_eval_store(database_url: str) -> Iterator[SQLiteVNextStore
         ensure_sqlite_user(conn, user_id, f"vnext-eval+{user_id}@example.invalid", "vNext Eval")
         yield SQLiteVNextStore(conn, user_id)
     finally:
+        # label state: none, the store lives only inside this block and is discarded with the rollback.
         conn.rollback()
         conn.close()
 

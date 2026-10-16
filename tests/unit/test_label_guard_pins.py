@@ -24,6 +24,7 @@ from alicebot_api.vnext_derived_labels import HOP_BOUND, identifier, settle_labe
 from alicebot_api.vnext_label_guard import (
     LabelGuard,
     _RequestLabels,
+    drop_request_row_cache,
     invalidate_read_labels,
     label_read_scope,
     request_row_cache,
@@ -335,6 +336,25 @@ def test_request_row_cache_belongs_to_the_store_that_opened_the_scope():
         assert request_row_cache(second, "namespace") is None
         assert request_row_cache(first, "namespace") is cache
     assert request_row_cache(first, "namespace") is None
+
+
+def test_dropping_a_row_cache_through_another_store_leaves_the_cache_of_the_scope_alone():
+    first, second, _first_rows, _second_rows = twin_stores()
+    with label_read_scope(first):
+        kept = request_row_cache(first, "namespace")
+        kept["row"] = "tenant one"
+        untouched = request_row_cache(first, "other-namespace")
+        untouched["row"] = "tenant one"
+        drop_request_row_cache(second, "namespace")
+        assert request_row_cache(first, "namespace") is kept
+        assert kept == {"row": "tenant one"}
+        # The store that opened the scope drops the namespace it names and no other.
+        drop_request_row_cache(first, "namespace")
+        assert request_row_cache(first, "namespace") == {}
+        assert request_row_cache(first, "namespace") is not kept
+        assert request_row_cache(first, "other-namespace") is untouched
+    # Outside a scope there is nothing to drop, and nothing fails.
+    drop_request_row_cache(first, "namespace")
 
 
 def test_guard_state_belongs_to_the_store_that_opened_the_scope():
