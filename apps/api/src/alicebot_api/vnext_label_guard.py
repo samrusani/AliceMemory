@@ -212,6 +212,9 @@ class _RequestLabels:
     rank_rows: dict = field(default_factory=dict)
     rank_origins: dict = field(default_factory=dict)
     rank_admission: dict = field(default_factory=dict)
+    # The reports that name each weekly candidate (``vnext_label_closure``). Emptied with everything else, so a write
+    # or a rollback never leaves the request a parent list that is not the one stored.
+    weekly_parents: dict = field(default_factory=dict)
 
     def clear(self):
         self.nodes.clear()
@@ -235,6 +238,7 @@ class _RequestLabels:
         self.rank_rows.clear()
         self.rank_origins.clear()
         self.rank_admission.clear()
+        self.weekly_parents.clear()
 
 
 _REQUEST_LABELS: ContextVar[tuple[Any, _RequestLabels] | None] = ContextVar("request_labels", default=None)
@@ -262,7 +266,7 @@ def label_read_scope(store):
         return
     state = _RequestLabels()
     token = _REQUEST_LABELS.set((store, state))
-    parent_token = bind_weekly_parent_cache(store)
+    parent_token = bind_weekly_parent_cache(store, state.weekly_parents)
     try:
         with label_metadata_cache(state.normalized_metadata):
             yield

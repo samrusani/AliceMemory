@@ -33,7 +33,7 @@ from alicebot_api.vnext_derived_labels import (
     stored_scope,
     union_floor,
 )
-from alicebot_api.vnext_label_closure import collect_label_rows
+from alicebot_api.vnext_label_closure import collect_label_rows, drop_weekly_parent_index
 from alicebot_api.vnext_event_log import build_event_log_record, integrity_hash_for_event
 from alicebot_api.vnext_project_scope import project_floor_shape, project_scope_identity, resolve_project_scope, source_project_scope
 from alicebot_api.vnext_repositories import JsonObject
@@ -145,7 +145,12 @@ def takes_label_lock(fn: Any) -> Any:
         lock = getattr(self, "lock_label_writes", None)
         if callable(lock):
             lock(exclusive=False)
-        return fn(self, *args, **kwargs)
+        try:
+            return fn(self, *args, **kwargs)
+        finally:
+            # The write may have read the reports that name a weekly candidate (the insert floor does) before it stored
+            # its own row, so what it loaded is not what is stored now, whether the write finished or failed.
+            drop_weekly_parent_index(self)
 
     wrapper.__takes_label_lock__ = True  # type: ignore[attr-defined]
     return wrapper
