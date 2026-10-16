@@ -15081,7 +15081,7 @@
           "line": 22,
           "before": "set_json_loads(loads_stored)\n",
           "after": "pass\n",
-          "sha256": "04e2bc7db074a18280b5903f26db6c7e02145305d3cabe3a11bc4c2447828caa"
+          "sha256": "e45b183adc25c9e666c7fb890155cdd429dfd31cd44cf3d6bf1955df976796b5"
         }
       ],
       "pytest": [
@@ -18267,13 +18267,159 @@
           "before": "        # label state: none, this transaction only reads.\n",
           "after": "",
           "line": 89,
-          "sha256": "04e2bc7db074a18280b5903f26db6c7e02145305d3cabe3a11bc4c2447828caa"
+          "sha256": "e45b183adc25c9e666c7fb890155cdd429dfd31cd44cf3d6bf1955df976796b5"
         }
       ],
       "pytest": [
         "tests/unit/test_rollback_sites_state_what_happens_to_label_state.py"
       ],
       "expected_failure": "test_every_block_that_can_roll_back_says_what_happens_to_the_label_state"
+    },
+    {
+      "name": "sqlite-id-map-read-through-another-store",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 256,
+          "before": "    if current is None or current[0] is not store:\n        return None\n    return current[1].row_sets",
+          "after": "    if current is None:\n        return None\n    return current[1].row_sets",
+          "sha256": "ba823106c6bc223e8abe371df70141dcfb53b65b3929a938dd9d358040da7364"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_sqlite_label_id_map_after_create.py::test_a_lookup_through_another_store_is_answered_from_that_stores_own_ids",
+        "tests/unit/test_sqlite_label_id_map_after_create.py::test_a_lookup_through_another_store_does_not_fill_the_map_of_the_scope"
+      ],
+      "expected_failure": "test_a_lookup_through_another_store_is_answered_from_that_stores_own_ids"
+    },
+    {
+      "name": "request-row-cache-dropped-for-another-store",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_label_guard.py",
+          "line": 268,
+          "before": "    if current is not None and current[0] is store:\n        current[1].row_sets.pop(namespace, None)",
+          "after": "    if current is not None:\n        current[1].row_sets.pop(namespace, None)",
+          "sha256": "ba823106c6bc223e8abe371df70141dcfb53b65b3929a938dd9d358040da7364"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_guard_pins.py::test_dropping_a_row_cache_through_another_store_leaves_the_cache_of_the_scope_alone",
+        "tests/unit/test_sqlite_label_id_map_after_create.py::test_a_write_through_another_store_leaves_the_map_of_the_scope_alone"
+      ],
+      "expected_failure": "test_dropping_a_row_cache_through_another_store_leaves_the_cache_of_the_scope_alone"
+    },
+    {
+      "name": "rollback-site-comment-deleted-beside-a-block-that-has-one",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/providers.py",
+          "line": 1182,
+          "before": "            # label state: none, provider tables carry no label and this connection has no vNext store.\n            with conn.transaction():\n                _assert_provider_write_context(\n                    conn=conn,\n                    expected_workspace_id=workspace_id,\n                    expected_user_account_id=user_account_id,\n                )\n                store = ContinuityStore(conn)\n                current_provider = store.get_model_provider_for_workspace_optional(\n",
+          "after": "            with conn.transaction():\n                _assert_provider_write_context(\n                    conn=conn,\n                    expected_workspace_id=workspace_id,\n                    expected_user_account_id=user_account_id,\n                )\n                store = ContinuityStore(conn)\n                current_provider = store.get_model_provider_for_workspace_optional(\n",
+          "sha256": "0a1410b959178d428f8405f09124d1c827efc6cbea02f6b46da17bfa7bec1f58"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_rollback_sites_state_what_happens_to_label_state.py"
+      ],
+      "expected_failure": "test_every_block_that_can_roll_back_says_what_happens_to_the_label_state"
+    },
+    {
+      "name": "rollback-site-comment-deleted-from-a-second-transaction-of-one-function",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/providers.py",
+          "line": 2093,
+          "before": "            # label state: none, provider tables carry no label and this connection has no vNext store.\n            with conn.transaction():\n                persisted_context = get_local_workspace(conn, user_account_id=user_account_id)\n",
+          "after": "            with conn.transaction():\n                persisted_context = get_local_workspace(conn, user_account_id=user_account_id)\n",
+          "sha256": "0a1410b959178d428f8405f09124d1c827efc6cbea02f6b46da17bfa7bec1f58"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_rollback_sites_state_what_happens_to_label_state.py"
+      ],
+      "expected_failure": "test_every_block_that_can_roll_back_says_what_happens_to_the_label_state"
+    },
+    {
+      "name": "savepoint-release-comment-deleted-beside-a-statement-that-has-one",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/sqlite_schema.py",
+          "line": 2041,
+          "before": "    # label state: none, this ends the savepoint above and rolls nothing back.\n    conn.execute(\"RELEASE SAVEPOINT alice_derived_labels_v4\")\n",
+          "after": "    conn.execute(\"RELEASE SAVEPOINT alice_derived_labels_v4\")\n",
+          "sha256": "366a6a959c3eeee8e18041c7ede5ec326b86bf144ec749f3e4c2b6223035f0fd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_rollback_sites_state_what_happens_to_label_state.py"
+      ],
+      "expected_failure": "test_every_block_that_can_roll_back_says_what_happens_to_the_label_state"
+    },
+    {
+      "name": "rollback-scan-counts-a-comment-anywhere-in-the-function",
+      "edits": [
+        {
+          "file": "tests/unit/test_rollback_sites_state_what_happens_to_label_state.py",
+          "line": 294,
+          "before": "            _has_comment(lines, node.lineno)\n",
+          "after": "            MARKER in \"\\n\".join(lines[getattr(holder, \"lineno\", 1) - 1 : getattr(holder, \"end_lineno\", len(lines))])\n",
+          "sha256": "50408c1130e417fc61f38322c1bbaa46c101247a1ea1ed1282e2bbac5c51f2e2"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_rollback_sites_state_what_happens_to_label_state.py"
+      ],
+      "expected_failure": "test_a_second_bare_block_in_a_function_with_a_comment_fails"
+    },
+    {
+      "name": "rollback-scan-counts-a-helper-called-anywhere-in-the-function",
+      "edits": [
+        {
+          "file": "tests/unit/test_rollback_sites_state_what_happens_to_label_state.py",
+          "line": 296,
+          "before": "            or _wrapped(node, parents)\n",
+          "after": "            or bool(_names_called_in(holder) & EMPTIES_THE_STATE)\n",
+          "sha256": "50408c1130e417fc61f38322c1bbaa46c101247a1ea1ed1282e2bbac5c51f2e2"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_rollback_sites_state_what_happens_to_label_state.py"
+      ],
+      "expected_failure": "test_a_second_bare_block_in_a_function_with_a_wrapper_fails"
+    },
+    {
+      "name": "rollback-scan-does-not-follow-an-alias",
+      "edits": [
+        {
+          "file": "tests/unit/test_rollback_sites_state_what_happens_to_label_state.py",
+          "line": 181,
+          "before": "        return {func.id} | bindings.alias_names(func.id, call)\n",
+          "after": "        return {func.id}\n",
+          "sha256": "50408c1130e417fc61f38322c1bbaa46c101247a1ea1ed1282e2bbac5c51f2e2"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_rollback_sites_state_what_happens_to_label_state.py"
+      ],
+      "expected_failure": "test_an_aliased_transaction_fails"
+    },
+    {
+      "name": "rollback-scan-does-not-read-a-name-that-holds-sql",
+      "edits": [
+        {
+          "file": "tests/unit/test_rollback_sites_state_what_happens_to_label_state.py",
+          "line": 167,
+          "before": "            elif isinstance(child, ast.Name):\n                scope = self._binding_scope(child.id, node)\n",
+          "after": "            elif False:\n                scope = self._binding_scope(child.id, node)\n",
+          "sha256": "50408c1130e417fc61f38322c1bbaa46c101247a1ea1ed1282e2bbac5c51f2e2"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_rollback_sites_state_what_happens_to_label_state.py"
+      ],
+      "expected_failure": "test_sql_held_in_a_variable_fails"
     }
   ]
 }
