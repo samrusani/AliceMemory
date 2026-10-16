@@ -368,7 +368,7 @@ def test_blocked_mcp_replay_on_postgres_keeps_policy_rows(migrated_database_urls
             },
         )
     except Exception as exc:
-        # Unreleased (on main, not in v0.20.0): a policy refusal is MCPNotPermittedError, which the server sends as
+        # From v0.20.1, a policy refusal is MCPNotPermittedError, which the server sends as
         # not_permitted. v0.20.0 raised a plain MCPToolError and answered tool_request_failed.
         assert type(exc) is MCPNotPermittedError
     else:

@@ -228,6 +228,7 @@ Known issue with this number. In the LongMemEval_s data, the id of every session
 and release-note baseline (the `v0.9.3`, `v0.10.0`, `v0.13.0`, `v0.15.0` and
 `v0.19.1` tags were never published). Its tag, release record, and published
 artifacts are immutable. `v0.19.2` is the immediately prior published release.
+`v0.20.1` is the current release candidate. It is not published.
 `v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
 Alice is a public-alpha, pre-1.0 project.
 What that means in practice:

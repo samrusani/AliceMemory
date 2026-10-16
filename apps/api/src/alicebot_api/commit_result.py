@@ -1,6 +1,6 @@
 """The compact ``alice_memory_commit`` result.
 
-Unreleased (on main, not in v0.20.0). Search-quality spec, section 7.
+New in v0.20.1. Search-quality spec, section 7.
 
 ``alice_memory_commit`` returns the whole stored memory row and the policy
 decision three times, about 3.7 KB for a one-sentence fact. An agent that saves

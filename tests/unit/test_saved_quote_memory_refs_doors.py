@@ -1,6 +1,6 @@
 """The doors that return a memory row apply the reader of saved quotes, and a limited caller is the only one it is applied for.
 
-Unreleased (on main, not in v0.20.0). ``SavedProvenanceReader`` withholds the quote of a source or a memory the caller may not
+New in v0.20.1. ``SavedProvenanceReader`` withholds the quote of a source or a memory the caller may not
 read. It does so only where a door asks it. The doors that matter most are PostgreSQL routes (the workspace, the project
 dashboard, the source trace routes, the memory audit route), which a SQLite test cannot call whole, so this file pins the place
 each one asks the reader, by reading the source of the function with ``ast``, and the condition under which it asks. The behaviour

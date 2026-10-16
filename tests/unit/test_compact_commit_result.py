@@ -1,6 +1,6 @@
 """The compact ``alice_memory_commit`` result (search-quality spec section 7, tests TC1 to TC8).
 
-Unreleased (on main, not in v0.20.0). A saved one-sentence fact came back as about 3.7 KB:
+New in v0.20.1. A saved one-sentence fact came back as about 3.7 KB:
 the whole stored row and the policy decision three times. With ``ALICE_MCP_COMMIT_RESULT=compact``
 the tool answers with the id, the outcome, the receipt, why the write was held, the
 confirmation id and the proposed text, and the scope it was saved under. Until the release that
@@ -660,10 +660,10 @@ def _doc(name: str) -> str:
 
 
 def _changelog_bullet() -> str:
-    """The one Unreleased bullet about the compact commit result, on one line."""
+    """The one v0.20.1 bullet about the compact commit result, on one line."""
 
     changelog = _doc("CHANGELOG.md")
-    section = changelog[changelog.index("## Unreleased") : changelog.index("\n## v0.20.0")]
+    section = changelog[changelog.index("## v0.20.1") : changelog.index("\n## v0.20.0")]
     bullets = [item for item in section.split("\n- ")[1:] if item.startswith("`alice_memory_commit` can answer")]
     assert len(bullets) == 1
     return _flat(bullets[0])
@@ -959,7 +959,7 @@ def test_install_never_writes_the_variable_into_a_host_config(tmp_path: Path, ca
 def test_the_mcp_guide_lists_the_variable_with_its_values_and_the_marker() -> None:
     """The Runtime Scope list of ``docs/integrations/mcp.md`` names the variable, both values and the marker.
 
-    Mutation, each one alone: delete the bullet; delete ``Unreleased (on main, not in v0.20.0):`` from it;
+    Mutation, each one alone: delete the bullet; delete ``(from v0.20.1)`` from it;
     delete the word ``full`` or the word ``compact`` from it; move it out of the Runtime Scope section.
     """
 
@@ -970,7 +970,7 @@ def test_the_mcp_guide_lists_the_variable_with_its_values_and_the_marker() -> No
     items = [_flat(item) for item in scope.split("\n- ")[1:] if item.startswith(f"`{COMMIT_RESULT_ENV}`")]
     assert len(items) == 1
     item = items[0]
-    assert "Unreleased (on main, not in v0.20.0):" in item
+    assert "(from v0.20.1)" in item
     assert "`compact`" in item and "`full`" in item
     assert "mcp-tools.md#the-commit-result" in item
     assert "cannot set it" in item
@@ -1030,10 +1030,10 @@ def test_the_docs_name_the_build_default_the_code_has() -> None:
     from alicebot_api.commit_result import BUILD_DEFAULT_COMMIT_RESULT
 
     guide = _flat(_doc("docs/alpha/mcp-tools.md"))
-    says_full = "On main that is still what an unset variable returns, until the release that turns the compact result on." in guide
+    says_full = "In v0.20.1 that is still what an unset variable returns, until a release turns the compact result on." in guide
     assert says_full == (BUILD_DEFAULT_COMMIT_RESULT == "full")
     bullet = _changelog_bullet()
-    assert ("an unset variable and `ALICE_MCP_COMMIT_RESULT=full` return the v0.20.0 result byte for byte" in bullet) == (
+    assert ("in v0.20.1 an unset variable and `ALICE_MCP_COMMIT_RESULT=full` return the v0.20.0 result byte for byte" in bullet) == (
         BUILD_DEFAULT_COMMIT_RESULT == "full"
     )
 

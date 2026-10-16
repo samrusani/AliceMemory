@@ -1,6 +1,6 @@
 """Two facts about a redacted memory that the pages state: a loop its caller wrote stays readable, and what the owner reads.
 
-Unreleased (on main, not in v0.20.0). Redacting a memory contains the reports and derived rows built from it (the owner and an
+New in v0.20.1. Redacting a memory contains the reports and derived rows built from it (the owner and an
 unbound admin key read them; every other key is refused them). Two cases at the edge of that rule are pinned here, on a real
 SQLite vault with real keys, because the security note, the known limitations page and the tool reference say them in words:
 

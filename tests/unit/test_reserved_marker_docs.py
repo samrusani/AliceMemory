@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.1,"
 
 
 def _text(path: str) -> str:
@@ -13,7 +13,7 @@ def _text(path: str) -> str:
 
 def _entry(prefix: str) -> str:
     entries = [line.removeprefix("- ") for line in _text("CHANGELOG.md").splitlines() if line.startswith("- ")]
-    matches = [entry for entry in entries if entry.startswith(f"{MARK} {prefix}")]
+    matches = [entry for entry in entries if entry.startswith(prefix[:1].upper() + prefix[1:])]
     assert len(matches) == 1, prefix
     return matches[0]
 
@@ -23,7 +23,8 @@ def test_the_changelog_has_one_entry_for_the_reserved_project_name_in_a_key_bind
 
     entry = _entry("a key cannot be bound to the project name `~global`")
     assert "`alicebot agent keys create --project-scope '~global'` stored such a key" in entry
-    assert "In v0.20.0 the name was an ordinary one" in entry and "no release had it" in entry
+    assert "In v0.20.0 the name was an ordinary one, a key bound to it read only the rows stored under the name `~global`" in entry
+    assert "regression of main" not in entry and "On main until now" not in entry
     assert "no HTTP route and no MCP tool creates one" in entry
     assert "HTTP 403 on every `/v0/vnext` route and a not_permitted error on every tool" in entry
     assert "Each surface answers with its standard refusal and none of them names the reason" in entry

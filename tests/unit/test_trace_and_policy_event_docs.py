@@ -11,11 +11,11 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.1,"
 NOTE_TRACE = f"{MARK} the source trace follows the rows its events name."
 NOTE_CONTINUITY = f"{MARK} the policy event of an explain of a continuity object is not shown to a caller with limits."
-LOG_TRACE = f"{MARK} the source trace follows the rows its events name."
-LOG_CONTINUITY = f"{MARK} the event feeds do not show a key with limits the policy event of an explain of a continuity object."
+LOG_TRACE = "The source trace follows the rows its events name."
+LOG_CONTINUITY = "The event feeds do not show a key with limits the policy event of an explain of a continuity object."
 
 
 def _text(path: str) -> str:
@@ -72,7 +72,7 @@ def test_the_changelog_has_one_entry_for_each() -> None:
     entries = [line.removeprefix("- ") for line in _text("CHANGELOG.md").splitlines() if line.startswith("- ")]
     for start, phrases in (
         (LOG_TRACE.removeprefix("- "), (
-            "the correction of a memory (`memory.reviewed`) named the memory that replaced it in `payload_json.replacement_memory_id` even after that memory was made confidential",
+            "In v0.20.0 they were kept for an unbound `trusted_local_agent` key without a look at the ids in their payloads, so the correction of a memory (`memory.reviewed`) named the memory that replaced it in `payload_json.replacement_memory_id` even after that memory was made confidential",
             "only when the key may read every labelled row the event names",
             "The filter on the target stays",
             "The owner and an unbound admin key are unchanged and keep every event of the source",

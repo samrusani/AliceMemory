@@ -1,6 +1,6 @@
 """The entry beside a refused ref, a quote that carries an id, an escaped surrogate, and the rows that keep refs a writer chose.
 
-Unreleased (on main, not in v0.20.0). The reader of saved quotes (``SavedProvenanceReader``) withholds the words of a
+New in v0.20.1. The reader of saved quotes (``SavedProvenanceReader``) withholds the words of a
 memory or a source the caller may not read from the ref that cites it. These tests hold it to five rules, with a stub store
 whose reads are counted:
 

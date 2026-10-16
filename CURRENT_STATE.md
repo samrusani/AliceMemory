@@ -104,6 +104,63 @@ release-gate step that could not run on a CI runner; and `v0.19.1`, whose publis
 draft readback because a release script imported the package in a job that does
 not install it, so it has no PyPI artifact and no published GitHub Release.
 
+## What `v0.20.1` Targets
+
+`v0.20.1` is the current release candidate. It is not published.
+
+It takes the fixes and additions on `main` since `v0.20.0`. Most are security
+fixes: a derived summary, report or copy follows the labels of its inputs, and
+the operator routes, the event feeds, the doors that act on one row by id and
+the readers of saved quotes and of open-loop ids apply the caller's limits. It
+adds no MCP tool. It adds commands (`alice-memory project`, `alice-memory
+labels`, `alicebot vnext labels`, the SQLite `sources` commands and
+`import-markdown --supersede`) and three settings, `ALICE_PROJECT_DIR`,
+`ALICE_PROJECT_SCOPING` and `ALICE_MCP_COMMIT_RESULT`. Per-project scoping and
+the compact commit result are off by default. PostgreSQL migrations
+`20261004_0095`, `20261005_0096` and `20261011_0097` repair stored labels, and a
+SQLite vault is repaired on its next open.
+
+- [v0.20.1 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.20.1-release-notes.md)
+
+`v0.20.1` has these changes. `v0.20.0` does not.
+
+- A derived row is stored at least as strict as its inputs and follows them when
+  they are relabelled. `alice-memory labels check` and `alicebot vnext labels
+  check` list the rows that are below their inputs or unverified, and `labels
+  repair` raises them. After the upgrade, a derived row whose inputs are
+  confidential is labelled confidential and a derived row with no record is
+  unverified. Either one leaves the owner's default recall, pack and resume, as
+  any confidential row did in `v0.20.0`.
+- Thirteen operator routes, source review and delete, belief and graph edge
+  review, open-loop filing and extraction, the project update candidate, the
+  daily brief, the answer of a run that makes a report and the doors that act on
+  one row by id apply the caller's limits. A row above the key's limits answers
+  as a row that does not exist. The workspace and source trace event feeds,
+  saved quotes and the ids an open loop keeps follow the rows they name.
+- Redacting a memory restricts the reports and derived rows built from it to the
+  owner and an unbound admin key until they are regenerated without it. This is
+  containment, not removal.
+- A refusal over the MCP tools says what kind it was: `not_permitted`,
+  `not_found` or `precondition_failed`. A request that names no domain is held to
+  the caller's profile. A key cannot be bound to the project name `~global`.
+- `POST /v0/vnext/projects` answers HTTP 409 for a slug in use,
+  `POST /v0/vnext/queue/process-next` works on PostgreSQL, and redacting a
+  memory made by promoting a report completes.
+- SQLite gains `sources list`, `sources delete`, `sources prune --superseded` and
+  `import-markdown --supersede`, and a Markdown or ChatGPT import that fails part
+  way leaves no half-built source.
+- The brief, `alice_resume` and `alice_recent_decisions` leave out an expired
+  memory, consolidation and roll-ups neither send its text nor group it, an
+  expired roll-up card is not the accepted card for its topic, and artifact
+  promotion embeds the memory it makes.
+- `alice_memory_commit` refuses a memory over 20,000 characters, and JSON a
+  caller hands a write door nests at most 64 levels and holds no number that is
+  not finite.
+- Still open, listed in the release notes: the `max_tokens` budget prices the
+  full stored row, a vector made from a cut text represents only its head,
+  removal of redacted text from reports is planned for `v0.21.0`, and the
+  vector stage of recall does not refill after hiding rows.
+
 ## What `v0.20.0` Shipped
 
 `v0.20.0` is the latest published release and remains the install, checksum,
@@ -159,12 +216,6 @@ no schema. It adds the `--max-file-mib` option and four settings:
   memory, consolidation and roll-ups can embed one, artifact promotion leaves a
   memory without a vector until reindex, and the `max_tokens` budget prices the
   full stored row.
-- Unreleased (on main, not in v0.20.0): the brief, `alice_resume` and
-  `alice_recent_decisions` leave out an expired memory, consolidation and
-  roll-ups neither send its text nor group it, an expired roll-up card is not the
-  accepted card for its topic, and artifact promotion embeds the memory it makes.
-  The `max_tokens` budget still prices the full stored row. The rest of what is
-  on main since `v0.20.0` is listed under Unreleased in `CHANGELOG.md`.
 
 ## What `v0.19.2` Shipped
 

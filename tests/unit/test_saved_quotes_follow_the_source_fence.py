@@ -1,6 +1,6 @@
 """A quote saved from a source is shown only to a caller who may read that source now.
 
-Unreleased (on main, not in v0.20.0). A link from a memory to a source stores the quote it was made with, and the
+New in v0.20.1. A link from a memory to a source stores the quote it was made with, and the
 memory keeps copies of that quote in its own metadata (``metadata_json.provenance``, ``replacement_provenance`` and
 ``agentic_memory.conversation_excerpt``). The write fence checks the caller's permission on the source once, when the
 link is made. A source can be reclassified after that (sensitivity raised, domain changed, project moved) or archived,

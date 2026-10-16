@@ -28,7 +28,7 @@ from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES
 from alicebot_api.source_search_limits import SOURCE_SEARCH_QUERY_MAX_BYTES, SOURCE_SEARCH_QUERY_MAX_PATTERNS
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.1,"
 
 
 def _flat(text: str) -> str:

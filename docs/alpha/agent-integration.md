@@ -192,8 +192,7 @@ Permission profiles:
 - `admin_agent`: scheduler and administrative actions
 
 Every profile except `trusted_local_agent` and `admin_agent` is held back from the
-family, health, spiritual, legal and financial domains. Unreleased (on main, not in
-v0.20.0): that holds when a request names no domain too, not only when it names one.
+family, health, spiritual, legal and financial domains. From v0.20.1, that holds when a request names no domain too, not only when it names one.
 See [MCP tools](mcp-tools.md#domains-a-profile-may-read).
 
 ## Authentication
@@ -316,7 +315,7 @@ project set. Violations are blocked and audited with
 `project_scope_binding_violation`. Keys issued without `--project-scope` keep
 the prior behavior: the payload's explicit project scope is honored.
 
-Unreleased (on main, not in v0.20.0): the name `~global` is reserved by Alice and
+From v0.20.1, the name `~global` is reserved by Alice and
 cannot be a key's project scope. `alicebot agent keys create --project-scope
 '~global'` is refused and stores no key: its public answer is the standard
 `invalid_request` error, and the reason is printed on stderr as a warning line
@@ -331,7 +330,7 @@ that find and revoke the key are written to the server log at warning level;
 the line names no key, which `alicebot agent keys list` shows with its
 `project_scope`.
 
-Unreleased (on main, not in v0.20.0): a derived row (a report, summary or copy)
+From v0.20.1, a derived row (a report, summary or copy)
 carries every project of every row it was made from, so a bound key reads it
 only when all of them are inside its binding. See
 [Derived row domains](mcp-tools.md#derived-row-domains).

@@ -864,6 +864,6 @@ def test_the_docs_say_an_interrupted_command_can_leave_a_snapshot_and_the_next_o
     ``alice-memory import`` out of it."""
     text = (ROOT / "docs/alpha/backup-and-restore.md").read_text(encoding="utf-8")
     sentence = next((line for line in text.split("\n\n") if "interrupted" in line and "snapshot" in line), "")
-    assert sentence.startswith("Unreleased (on main, not in v0.20.0):"), sentence
+    assert sentence.startswith("From v0.20.1,"), sentence
     assert "removes" in sentence and "next" in sentence
     assert "alice-memory import" in sentence, "the import file copy is swept too"
