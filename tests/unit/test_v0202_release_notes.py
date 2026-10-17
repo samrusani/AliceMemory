@@ -7,6 +7,10 @@ statements about hidden events, the repair event and the weekly-synthesis memory
 integrator sees, and the lists of what is still open and what this release closed. The names the notes give for the
 repair (the state key, the cause, the migrations) are read from the code, so a change of the code that leaves the
 notes behind fails here. Each test names the mutation that must fail it.
+
+The notes are published and the post-publication change recorded the digests, moved the marketplace file to the
+tag and added the dated 2026-10-17 updates. The tagged lines of the notes and of the changelog section are held by
+``test_published_release_notes_stay_immutable.py``.
 """
 
 from __future__ import annotations
@@ -23,6 +27,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 NOTES_PATH = "docs/release/v0.20.2-release-notes.md"
 HEADING = "## v0.20.2 \u2014 2026-10-17"
 NOTE_PATH = "docs/release/derived-labels-security-note-draft.md"
+CHECKSUMS_PATH = "docs/release/v0.20.2-checksums.txt"
+TAG_COMMIT = "8d5606153fa4900b0cbbc8ce60a65e342f7fe640"
+WHEEL_SHA256 = "efc4da0e7512faa8e357a0eaec83bb6e5bdf5f7333a3809fd15a118f9e90c0c2"
+SDIST_SHA256 = "31da21f7a84f1dde61f2d871cece6f33538a234cd8559a5036ada4519a62332a"
 
 OWNER_SENTENCE = (
     "After the upgrade, a derived row whose inputs are confidential is labelled confidential, and a derived row with no "
@@ -62,26 +70,50 @@ def _changelog_section() -> str:
     return changelog.split(HEADING)[1].split("\n## v0.20.0")[0]
 
 
-def test_the_notes_are_a_pending_candidate_with_the_exact_title_and_state() -> None:
-    """Mutations, each one alone: change the title, move the state comment, set either status to published or
-    recorded, add a checksums file.
+def test_the_notes_are_published_with_the_exact_title_state_and_a_checksums_record() -> None:
+    """Mutations, each one alone: change the title, move the state comment, set either status back to pending,
+    delete the checksums file.
     """
 
     lines = _text(NOTES_PATH).splitlines()
     assert lines[0] == "# Alice v0.20.2 Release Notes"
     assert lines[1] == (
         '<!-- alice-release-state: {"schema_version":"alice_release_document_state_v1","version":"0.20.2",'
-        '"publication_status":"pending","checksums_status":"pending"} -->'
+        '"publication_status":"published","checksums_status":"recorded"} -->'
     )
     assert sum("alice-release-state" in line for line in lines) == 1
-    assert not (REPO_ROOT / "docs/release/v0.20.2-checksums.txt").exists()
+    assert (REPO_ROOT / CHECKSUMS_PATH).is_file()
 
 
-def test_every_version_site_names_0201_and_the_marketplace_still_pins_the_published_release() -> None:
-    """Mutations, each one alone: set one version site or one plugin pin back to 0.20.0; move the marketplace pin.
+def test_the_checksums_file_records_the_two_published_digests_in_the_format_of_the_last_release() -> None:
+    """Mutations, each one alone: change one hex digit of either digest; swap the two file names; add a third
+    line; write another version into the header or into the verify commands; delete a header line.
 
-    The marketplace file is the post-publication change's to move, so it still names the latest
-    published release and its tag commit.
+    The digests are the ones PyPI serves for 0.20.2 and the GitHub Release lists for its assets, read on
+    2026-10-17 (wheel 1,891,233 bytes, source distribution 1,664,365 bytes). The header and the layout are
+    the v0.20.0 file's with the version replaced, so the two files stay in one format. Nothing offline compares
+    the digests with PyPI: ``release_check.py --tag v0.20.2 --verify-pypi-artifacts`` does, with the two files
+    downloaded.
+    """
+
+    old = _text("docs/release/v0.20.0-checksums.txt").splitlines()
+    new = _text(CHECKSUMS_PATH).splitlines()
+    assert len(old) == len(new) == 19
+    assert [line.replace("0.20.0", "0.20.2") for line in old[:17]] == new[:17]
+    assert new[0] == "# Alice v0.20.2: published artifact SHA-256 digests"
+    assert new[17:] == [
+        f"{WHEEL_SHA256}  alice_memory-0.20.2-py3-none-any.whl",
+        f"{SDIST_SHA256}  alice_memory-0.20.2.tar.gz",
+    ]
+    assert _text(CHECKSUMS_PATH).endswith(".tar.gz\n")
+
+
+def test_every_version_site_names_0202_and_the_marketplace_pins_the_published_release() -> None:
+    """Mutations, each one alone: set one version site or one plugin pin back to 0.20.0; set the marketplace
+    ``ref`` back to v0.20.0; change one hex digit of the marketplace ``sha``.
+
+    The post-publication change moved the marketplace file to the v0.20.2 tag and the commit that tag
+    points at, so it names the latest published release.
     """
 
     pyproject = tomllib.loads(_text("pyproject.toml"))["project"]["version"]
@@ -93,8 +125,8 @@ def test_every_version_site_names_0201_and_the_marketplace_still_pins_the_publis
         assert f"alice-memory=={pyproject}" in _text(name), name
         assert "alice-memory==0.20.0" not in _text(name), name
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.20.0"
-    assert marketplace["sha"] == "10034879439f583514cf23f373e998656ff80cac"
+    assert marketplace["ref"] == "v0.20.2"
+    assert marketplace["sha"] == TAG_COMMIT
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.20.2 && alice-memory install" in notes
     assert "pip install -U alice-memory==0.20.2" in notes
@@ -419,3 +451,60 @@ def test_the_retired_v0201_number_is_recorded_in_the_current_state() -> None:
     assert "`v0.19.1`, superseded by `v0.19.2`; and `v0.20.1`, superseded by `v0.20.2`." in state
     assert state.count("Six tags exist that were never published") == 2
     assert "Five tags exist" not in state
+
+
+PIN_UPDATE = (
+    "**Update (2026-10-17):** v0.20.2 is published, and the marketplace file on `main` now pins the v0.20.2 tag "
+    "commit, so the marketplace install runs v0.20.2. The copy inside the v0.20.2 tag still pins v0.20.0, so add "
+    "the marketplace from the repository, not from a checkout of the tag."
+)
+
+
+def _blocks(path: str) -> list[str]:
+    """Paragraphs of a file with quote markers and indentation removed, each joined onto one line."""
+
+    blocks: list[list[str]] = [[]]
+    for line in _text(path).splitlines():
+        stripped = re.sub(r"^[\s>]+", "", line)
+        if stripped:
+            blocks[-1].append(stripped)
+        else:
+            blocks.append([])
+    return [" ".join(block) for block in blocks if block]
+
+
+def test_the_notes_say_main_now_pins_v0202_beside_each_marketplace_statement() -> None:
+    """Mutations, each one alone: delete one of the three updates; name v0.20.0 as what ``main`` pins in one of
+    them; move one away from its statement; reword the tagged marketplace sentence it follows.
+
+    The three statements that the marketplace file pins v0.20.0 until a later change (upgrade step 12, the
+    plugin section and the known limitation) stay as they were tagged. Each is followed by a dated update that
+    says ``main`` pins the v0.20.2 tag commit and that the copy inside the tag does not, so a reader of the notes
+    does not take the tagged sentence for current.
+    """
+
+    blocks = _blocks(NOTES_PATH)
+    positions = [index for index, block in enumerate(blocks) if block == PIN_UPDATE]
+    assert len(positions) == 3, positions
+    assert sum("Update (2026-10-17)" in block for block in blocks) == 3
+    step, plugin, limitation = (blocks[index - 1] for index in positions)
+    assert step.endswith(
+        '12. **Claude Code plugin:** the marketplace file pins the v0.20.0 tag commit until a change after this '
+        'release moves it, so the marketplace install runs v0.20.0 code and carries none of these fixes. '
+        'See "Claude Code plugin".'
+    )
+    assert plugin.startswith("- **The marketplace file pins v0.20.0.**")
+    assert plugin.endswith(
+        "installs plugin 0.20.0, which pins `alice-memory==0.20.0` and carries none of the fixes in this release."
+    )
+    assert limitation.endswith(
+        "- **The marketplace install runs v0.20.0.** Until a change after this release moves the pin in "
+        "`.claude-plugin/marketplace.json`, `claude plugin install alice-memory@alicememory` installs plugin 0.20.0, "
+        "which pins `alice-memory==0.20.0` and carries none of the fixes in this release."
+    )
+    # Each update ends the statement's own list item or bullet: the next block is what followed it as tagged.
+    assert blocks[positions[0] + 1] == "## Derived rows follow their inputs"
+    assert blocks[positions[1] + 1].startswith(
+        "- Use the plugin or `alice-memory install --host claude-code`, not both, as in v0.20.0."
+    )
+    assert blocks[positions[2] + 1].startswith("- **The commit routes trust the role a client sends.**")

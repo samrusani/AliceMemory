@@ -1587,7 +1587,8 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     of those four files; change the README's pin sentence or its add-from-main
     sentence; put the tag-by-tag history (the v0.19.0 tag has no marketplace
     file, the v0.19.2 tag still pins v0.19.0, the v0.20.0 tag still pins
-    v0.19.2) back into the README or the plugin README; drop it from the plugin
+    v0.19.2, the v0.20.2 tag still pins v0.20.0) back into the README or the
+    plugin README; drop it from the plugin
     page, which is the one place that keeps it; drop the link to the plugin page
     from the README or the plugin README.
     """
@@ -1665,7 +1666,7 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         "claude plugin marketplace add samrusani/AliceMemory\n"
         "claude plugin install alice-memory@alicememory\n"
         "```\n\n"
-        "The marketplace file is on `main` and pins the plugin to the v0.20.0 tag commit. "
+        "The marketplace file is on `main` and pins the plugin to the v0.20.2 tag commit. "
         "Add the marketplace from `main`, not from a checkout of a tag: a tag's file is "
         "missing or pins an earlier release."
     ) in readme
@@ -1674,7 +1675,7 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
 
     plugin_readme_text = " ".join((ROOT / "plugins" / "alice-memory" / "README.md").read_text(encoding="utf-8").split())
     assert (
-        "The file pins this plugin to the v0.20.0 tag commit. Add the marketplace from `main`, "
+        "The file pins this plugin to the v0.20.2 tag commit. Add the marketplace from `main`, "
         "not from a checkout of a tag: a tag's file is missing or pins an earlier release, "
         f"and the [Claude Code plugin guide]({guide_url}) lists what each tag pins."
     ) in plugin_readme_text
@@ -1691,6 +1692,7 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         "The v0.19.0 tag has no marketplace file either.",
         "The v0.19.2 tag carries the file too, and it still pins the v0.19.0 tag commit.",
         "The v0.20.0 tag carries it, still pinned to the v0.19.2 tag commit.",
+        "The v0.20.2 tag carries it, still pinned to the v0.20.0 tag commit.",
     ):
         assert history in page_flat, history
 

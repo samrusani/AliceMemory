@@ -8,6 +8,9 @@ v0.17.0, v0.18.0 and v0.19.0 and the v0.18.0 section of ``CHANGELOG.md`` gained
 "is in v0.19.2" update lines under corrections that said a fix was still on main.
 On 2026-10-02 the notes and the changelog sections of v0.19.2 and v0.20.0 joined the
 list once both were published. Their dated 2026-10-02 updates are pinned in
+``test_v0200_release_notes.py``. On 2026-10-17 the notes and the changelog section of v0.20.2
+joined the list once it was published. Its dated 2026-10-17 updates are pinned in
+``test_v0202_release_notes.py``, and the 2026-10-17 updates in the v0.20.0 notes are pinned in
 ``test_v0200_release_notes.py``.
 
 Three things are pinned here, by reading the tag with ``git show`` and not by
@@ -54,7 +57,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHANGELOG = "CHANGELOG.md"
 # Changelog sections of published releases, unchanged since their tags except for dated lines.
-PUBLISHED_CHANGELOG_SECTIONS = ("v0.17.0", "v0.18.0", "v0.19.0", "v0.19.2", "v0.20.0")
+PUBLISHED_CHANGELOG_SECTIONS = ("v0.17.0", "v0.18.0", "v0.19.0", "v0.19.2", "v0.20.0", "v0.20.2")
 
 PUBLISHED_NOTES = (
     ("v0.17.0", "docs/release/v0.17.0-release-notes.md"),
@@ -62,6 +65,7 @@ PUBLISHED_NOTES = (
     ("v0.19.0", "docs/release/v0.19.0-release-notes.md"),
     ("v0.19.2", "docs/release/v0.19.2-release-notes.md"),
     ("v0.20.0", "docs/release/v0.20.0-release-notes.md"),
+    ("v0.20.2", "docs/release/v0.20.2-release-notes.md"),
 )
 
 # The dated 2026-10-01 update paragraphs, in file order, as read after quote
