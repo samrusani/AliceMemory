@@ -96,10 +96,12 @@ readback:
    two. When one job gets slow, rebalance the file patterns from the
    `--durations=20` lines of its log, as the comment above the matrix says.
    Before the split one job ran the integration tests (2,468 s on a pull
-   request run) and then the budget files (1,265 s), 3,777 s in all. The
-   longest job of the split is expected at about 12 minutes on a pull request
-   runner, and the first run after the split is recorded in the pull request
-   that made it.
+   request run) and then the budget files (1,265 s), 3,777 s in all. In the
+   first pull request run after the split the five shards took 509, 611, 570,
+   296 and 472 s, the three budget parts 571, 445 and 125 s, and the summary
+   4 s, so the longest new job was 611 s. The run took 18 minutes 33 seconds in
+   all, set by the unit shards (the longest, 1,051 s). Runner speed varies by
+   about half, so allow the longest shard up to 15 minutes before rebalancing.
 
    If that readback reports drift in `MainProtect`, an authorized repository
    administrator can prepare and inspect an update that preserves every
