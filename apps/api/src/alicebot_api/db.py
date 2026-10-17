@@ -13,7 +13,7 @@ from psycopg_pool import ConnectionPool
 from psycopg.rows import Row, dict_row
 from psycopg.types.json import set_json_loads
 
-from alicebot_api.json_bounds import loads_stored
+from alicebot_api.json_bounds import durable_unit, loads_stored
 
 # Every json and jsonb value a connection reads goes through ``loads_stored``: ``json.loads`` for the common case, and the
 # decoder that cuts the part below 256 levels when the text is too deep for the decoder or when the request is running again
@@ -72,6 +72,7 @@ def set_current_user_account(conn: psycopg.Connection[Row], user_account_id: UUI
 def direct_user_connection(database_url: str, user_id: UUID) -> Iterator[UserConnection]:
     """Unpooled path retained for health checks, migrations, and test tools."""
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        # label state: none, a store and its request label state end inside this transaction, before it can roll back.
         with conn.transaction():
             set_current_user(conn, user_id)
             yield conn
@@ -85,6 +86,7 @@ def user_read_snapshot_connection(database_url: str, user_id: UUID) -> Iterator[
     query, and clear that identity when the transaction ends.
     """
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        # label state: none, this transaction only reads.
         with conn.transaction():
             conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             set_current_user(conn, user_id)
@@ -149,9 +151,13 @@ def pooled_user_connection(pool: ConnectionPoolLike, user_id: UUID) -> Iterator[
     returned to the pool, so tenant identity cannot leak to its next borrower.
     """
     with pool.connection() as conn:
-        with conn.transaction():
-            set_current_user(conn, user_id)
-            yield conn
+        # Outside the transaction, so a result is remembered only after the transaction commits. A request that is run
+        # again after a reader overflowed replays those results and does not write them twice.
+        with durable_unit():
+            # label state: none, a store and its request label state end inside this transaction, before it can roll back.
+            with conn.transaction():
+                set_current_user(conn, user_id)
+                yield conn
 
 
 __all__ = [

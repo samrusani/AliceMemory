@@ -1,6 +1,6 @@
 """The pages say what a saved quote of a memory does, what a loop its caller wrote does, and what the owner reads after a redaction.
 
-Unreleased (on main, not in v0.20.0). Three statements are pinned here, each on the pages that carry it:
+New in v0.20.2. Three statements are pinned here, each on the pages that carry it:
 
 * the quote a commit saved of a memory is withheld from a caller who may not read that memory (the security note, the tool
   reference and the changelog), with the refs it is read in, the ids no marker covers, the doors and feeds of events that apply it,
@@ -36,7 +36,7 @@ PAGES = {
     "changelog": "CHANGELOG.md",
     "importers": "docs/integrations/importers.md",
 }
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 
 
 def _flat(name: str) -> str:
@@ -111,7 +111,7 @@ ROWS_DERIVED = (
 )
 ROWS_CLI = (
     "`alicebot vnext memories audit` with an agent key now authorizes the memory and its replacement chain as the audit route does "
-    "and holds the result to the reader; until now it returned the audit as stored to a key that reached it"
+    "and holds the result to the reader; in v0.20.0 it returned the audit as stored to a key that reached it"
 )
 CHANGELOG_ROWS = (
     "an entry beside such a ref that names nothing the caller may read is held to the same rule (a bare string and a `text` field go "
@@ -246,6 +246,10 @@ def test_the_pages_say_the_quote_follows_the_memory_in_an_unreleased_paragraph()
             item for item in re.split(r"\n\s*\n|\n(?=- )", text) if QUOTE_SENTENCE[name] in " ".join(item.split()).lower()
         ]
         assert len(paragraphs) == 1, name
+        if name == "changelog":
+            # A changelog entry carries no marker: it stands under the v0.20.2 heading and in no older section.
+            assert QUOTE_SENTENCE[name] in " ".join(text[text.index("## v0.20.2") : text.index("## v0.20.0")].split()).lower(), name
+            continue
         assert MARK in " ".join(paragraphs[0].split()), name
 
 

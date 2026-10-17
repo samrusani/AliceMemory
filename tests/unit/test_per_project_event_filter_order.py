@@ -794,15 +794,15 @@ def _events(count: int) -> str:
 def test_the_changelog_sentences_about_the_filter_order_hold_on_the_vaults_they_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Mutation: change one number in the CHANGELOG sentences that begin "A request for public notes only" and "With
-    the newer private events on the global side" (for example "no events" to "one event"), or change the size of one
-    of the vaults below.
+    """Mutation: change the size of one of the vaults below, or put one of the two sentences about the old read back
+    into the CHANGELOG bullet.
 
-    The first sentence names four older public loop events and four newer private memory events, a public-only request
-    at four places: the old read held no events and the rule gives four. The second names four project events and
-    four newer private global events: the old read held three. Both are rebuilt from the fixtures in the CHANGELOG's
-    own words, the old numbers from ``_before_the_fix`` and the new ones from ``alice_resume``. The assertions on
-    ``before`` check that each vault is one where the old read went wrong.
+    The first vault holds four older public loop events and four newer private memory events, a public-only request
+    at four places: the old read held no events and the rule gives four. The second holds four project events and
+    four newer private global events: the old read held three. No release had the old read, because per-project
+    scoping is new in v0.20.2, so the CHANGELOG bullet states the rule and none of those numbers. Both vaults are
+    rebuilt from the fixtures, the old numbers from ``_before_the_fix`` and the new ones from ``alice_resume``. The
+    assertions on ``before`` check that each vault is one where the old read went wrong.
     """
 
     bullet = _changelog_bullet()
@@ -832,7 +832,8 @@ def test_the_changelog_sentences_about_the_filter_order_hold_on_the_vaults_they_
         assert len(before) < 4, before
         sentences.append(wording.format(before=_events(len(before)), rule=_NUMBER_WORDS[len(now)]))
     for sentence in sentences:
-        assert sentence in bullet, sentence
+        assert sentence not in bullet, sentence
+    assert "apply them in the query before the limit when scoping is on and a project is found" in bullet
     # The numbers are the ones the change measured: none and three, against four.
     assert "held no events at four places where the rule gives four." in sentences[0]
     assert "it held three events at four places where the rule gives four." in sentences[1]

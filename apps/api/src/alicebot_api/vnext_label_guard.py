@@ -36,6 +36,7 @@ from alicebot_api.vnext_derived_labels import (
     identifier,
     has_implicit_weekly_inputs,
     is_derived,
+    weekly_candidate_memory,
     is_redacted_row,
     input_admitted,
     settle_labels,
@@ -44,7 +45,11 @@ from alicebot_api.vnext_derived_labels import (
     soft_refs,
     _mark_dependency_bounds,
 )
-from alicebot_api.vnext_label_closure import collect_label_rows
+from alicebot_api.vnext_label_closure import (
+    bind_weekly_parent_cache,
+    collect_label_rows,
+    reset_weekly_parent_cache,
+)
 from alicebot_api.vnext_label_sql import (
     EVENT_CHILD_TARGETS,
     EVENT_EDGE_TARGET,
@@ -207,6 +212,9 @@ class _RequestLabels:
     rank_rows: dict = field(default_factory=dict)
     rank_origins: dict = field(default_factory=dict)
     rank_admission: dict = field(default_factory=dict)
+    # The reports that name each weekly candidate (``vnext_label_closure``). Emptied with everything else, so a write
+    # or a rollback never leaves the request a parent list that is not the one stored.
+    weekly_parents: dict = field(default_factory=dict)
 
     def clear(self):
         self.nodes.clear()
@@ -230,6 +238,7 @@ class _RequestLabels:
         self.rank_rows.clear()
         self.rank_origins.clear()
         self.rank_admission.clear()
+        self.weekly_parents.clear()
 
 
 _REQUEST_LABELS: ContextVar[tuple[Any, _RequestLabels] | None] = ContextVar("request_labels", default=None)
@@ -249,6 +258,17 @@ def request_row_cache(store: Any, namespace: str) -> dict | None:
     return current[1].row_sets.setdefault(namespace, {})
 
 
+# The SQLite store keeps, for each kind of label row, every stored id under its canonical spelling (``request_row_cache``).
+SQLITE_LABEL_ID_MAP = "sqlite-label-id-map"
+
+
+def drop_request_row_cache(store: Any, namespace: str) -> None:
+    """Forget one namespace of the rows this store's request has cached, and leave the rest of the request alone."""
+    current = _REQUEST_LABELS.get()
+    if current is not None and current[0] is store:
+        current[1].row_sets.pop(namespace, None)
+
+
 @contextmanager
 def label_read_scope(store):
     current = _REQUEST_LABELS.get()
@@ -257,10 +277,12 @@ def label_read_scope(store):
         return
     state = _RequestLabels()
     token = _REQUEST_LABELS.set((store, state))
+    parent_token = bind_weekly_parent_cache(store, state.weekly_parents)
     try:
         with label_metadata_cache(state.normalized_metadata):
             yield
     finally:
+        reset_weekly_parent_cache(parent_token)
         _REQUEST_LABELS.reset(token)
 
 
@@ -489,7 +511,7 @@ class LabelGuard:
         template = self._signature(kind, row, key=key)
         refs, problem = template[1:3]
         candidates, unreadable = template[-2], template[-1]
-        if problem or has_implicit_weekly_inputs(kind, row):
+        if problem or has_implicit_weekly_inputs(kind, row) or weekly_candidate_memory(kind, row):
             return None
         reader = getattr(self.store, "read_label_rows", None)
         if (refs or candidates or unreadable) and not callable(reader):
@@ -767,6 +789,10 @@ class LabelGuard:
         result = settle_labels(nodes, on_cycle="unverified", max_hops=HOP_BOUND, max_nodes=NODE_BOUND)
         settled = {label.key: label for label in result.rows}
         for row in rows:
+            # A weekly candidate is settled with the report that names it. This batch did not load
+            # that report, so its label here is not the one a read may cache.
+            if weekly_candidate_memory(kind, row):
+                continue
             label = settled.get((canon_kind(kind), _GUARD_USER, identifier(row["id"])))
             if label is not None and not label.unverified:
                 state.labels[self._key(kind, row)] = label

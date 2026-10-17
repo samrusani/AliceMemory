@@ -1,6 +1,6 @@
 """Live PostgreSQL checks of the follow-up to the typed MCP error codes (PR 528).
 
-Unreleased (on main, not in v0.20.0). Three things the unit tests can only stub on a database that is not there:
+New in v0.20.2. Three things the unit tests can only stub on a database that is not there:
 
 * a caller the project scope refuses hears the refusal, not the state of the row, on the HTTP routes and over MCP, on
   rows the real Postgres store reads (``FOR UPDATE``), including a row ``redact`` reads after it was redacted;

@@ -1,6 +1,6 @@
 """A saved quote of a memory is withheld at every door of the mounted application, and the operator route sweep holds it.
 
-Unreleased (on main, not in v0.20.0). A commit can cite a memory as ``{"memory_id": "<id>", "quote": "..."}`` or as the two
+New in v0.20.2. A commit can cite a memory as ``{"memory_id": "<id>", "quote": "..."}`` or as the two
 entries ``"memory:<id>"`` and ``{"quote": "..."}``, or in a wording no marker covers (``Memory <id>``, ``mem:<id>``, a URL, an id
 under ``origin``). The quote holds words of the memory, the write check reads none of these, and on main until this change every
 reader of the commit returned the words after the memory was redacted. The reader of saved quotes now withholds them from a

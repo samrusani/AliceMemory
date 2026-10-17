@@ -69,6 +69,7 @@ from alicebot_api.vnext_source_fence import (
     _TEXT_KEYS,
     _TOKEN_BREAK,
     MEMORY_REFERENCE_KEYS,
+    _json_container,
     _uuid_text,
     cited_memory_refs,
     cited_source_ids,
@@ -151,6 +152,40 @@ BATCH_STRINGS = 128
 # every string of such a record costs a request seconds, and ignoring the ones past a bound would hide what they cite, so
 # the row is unverified (reason ``too_many_citations``) and read only by the owner and an unbound admin key.
 MAX_READ_STRINGS = 1024
+
+
+def reader_string_count(value: object) -> int:
+    """How many strings the saved-quote reader examines in ``value``, at any depth and in every shape it accepts.
+
+    A string that decodes as an object or a list counts as the strings inside it, which is what the reader walks. The
+    text saved under ``quote`` or ``conversation_excerpt`` is not examined. A string shorter than an id cannot hold one,
+    and the reader returns before it searches, so it is not counted. The count is the cost of one row, whatever shape
+    holds the strings.
+    """
+
+    count = 0
+    pending: list[object] = [value]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, str):
+            nested = _json_container(node)
+            if nested is not None:
+                pending.append(nested)
+                continue
+            if len(node) >= _MIN_ID_CHARS:
+                count += 1
+        elif isinstance(node, Mapping):
+            for key, child in node.items():
+                if isinstance(key, str):
+                    lowered = key if key.islower() else key.lower()
+                    if isinstance(child, str) and lowered in _TEXT_KEYS:
+                        continue
+                    if len(key) >= _MIN_ID_CHARS:
+                        count += 1
+                pending.append(child)
+        elif isinstance(node, (list, tuple)):
+            pending.extend(node)
+    return count
 
 
 def read_reference(text: str) -> Reading:
@@ -307,7 +342,15 @@ def scan_citations(records: Sequence[object], *, prose: frozenset[str] = frozens
                     pending.append((child, cited_by))
     distinct = list(dict.fromkeys(named))
     keyed_distinct = set(keyed)
-    if len(in_references) + len(distinct) + len(keyed_distinct) > MAX_READ_STRINGS:
+    # A string that decodes as an object or a list counts as the strings inside it, at any depth, the same as that
+    # object or list written plainly. Any other string counts as one. A row past the bound is unverified whatever
+    # the encoding.
+    examined = len(keyed_distinct)
+    for _cited_by, text in distinct:
+        examined += reader_string_count(text)
+    for entry in in_references:
+        examined += reader_string_count(entry)
+    if examined > MAX_READ_STRINGS:
         return Citations(frozenset(refs), frozenset(), True)
     if len(in_references) > BATCH_STRINGS:
         batch = list(in_references)
@@ -396,5 +439,6 @@ __all__ = [
     "Reading",
     "clear_reading_cache",
     "read_reference",
+    "reader_string_count",
     "scan_citations",
 ]

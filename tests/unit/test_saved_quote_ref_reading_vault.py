@@ -1,6 +1,6 @@
 """The four defects an outside review found in the way a saved quote's refs are read, on a real vault with real keys.
 
-Unreleased (on main, not in v0.20.0). ``tests/unit/test_saved_quote_ref_reading.py`` holds each case with a stub store. These
+New in v0.20.2. ``tests/unit/test_saved_quote_ref_reading.py`` holds each case with a stub store. These
 tests run them through the shipped doors and readers: refs are stored by the commit route and by the proposal route, a
 source is reclassified, archived or removed with the handlers and statements a vault has, and every kind of key reads the
 memory through ``alice_memory_review``, the MCP pack, the HTTP pack and ``alice_explain``. A unique quote is searched for in

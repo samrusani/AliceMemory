@@ -11,8 +11,8 @@
         "source": "git-subdir",
         "url": "https://github.com/samrusani/AliceMemory.git",
         "path": "plugins/alice-memory",
-        "ref": "v0.20.0",
-        "sha": "10034879439f583514cf23f373e998656ff80cac"
+        "ref": "v0.20.2",
+        "sha": "8d5606153fa4900b0cbbc8ce60a65e342f7fe640"
       }
     }
   ]

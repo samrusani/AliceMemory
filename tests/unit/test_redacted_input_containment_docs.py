@@ -32,7 +32,7 @@ PAGES = {
     "tool reference": "docs/alpha/mcp-tools.md",
     "changelog": "CHANGELOG.md",
 }
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 # The sentences each page must hold, with the words of the page around them.
 RESTRICTS = (
     "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until "
@@ -128,11 +128,17 @@ def test_every_page_says_archiving_keeps_the_historical_content() -> None:
 
 
 def test_each_sentence_stands_in_an_unreleased_paragraph_and_not_beside_a_release_that_has_it() -> None:
-    """The sentences describe main, not v0.20.0, and no release note of a tag says them."""
+    """The sentences describe v0.20.2, not v0.20.0, and no release note of a tag says them."""
     for name, path in PAGES.items():
         text = (ROOT / path).read_text(encoding="utf-8")
         paragraphs = [item for item in re.split(r"\n\s*\n|\n(?=- )", text) if RESTRICTS in " ".join(item.split()).lower()]
         assert paragraphs, name
+        if name == "changelog":
+            # The changelog entries carry no marker: they stand under the v0.20.2 heading and in no older section.
+            current = " ".join(text[text.index("## v0.20.2") : text.index("## v0.20.0")].split()).lower()
+            older = " ".join(text[text.index("## v0.20.0") :].split()).lower()
+            assert RESTRICTS in current and RESTRICTS not in older, name
+            continue
         assert all(MARK in " ".join(item.split()) for item in paragraphs), name
     for release in sorted((ROOT / "docs/release").glob("v*-release-notes.md")):
         assert RESTRICTS not in " ".join(release.read_text(encoding="utf-8").split()).lower(), release.name
@@ -203,7 +209,7 @@ def test_the_pages_say_what_the_graph_routes_do_now() -> None:
 def test_the_older_redact_sections_point_to_the_reports_that_kept_the_words() -> None:
     tools = _flat(PAGES["tool reference"])
     assert "it does not rewrite the reports and cards made from the memory before: they keep the words they copied" in tools
-    assert "(unreleased, see [redacted memories](#redacted-memories))" in tools
+    assert "(from v0.20.2, see [redacted memories](#redacted-memories))" in tools
     protocol = _flat("docs/memory-operations-protocol.md")
     assert "redact does not rewrite the reports and derived rows made from the memory before" in protocol
     assert "temporary access containment, not removal" in protocol and "full removal is planned for v0.21.0" in protocol

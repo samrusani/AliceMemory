@@ -1,6 +1,6 @@
 """Resume and the grounding probe stay within a budget of the baseline when many newer rows are hidden from the caller.
 
-Unreleased (on main, not in v0.20.0). ``alice_resume`` and the grounding probe of the context pack read past the rows a caller's
+New in v0.20.2. ``alice_resume`` and the grounding probe of the context pack read past the rows a caller's
 limits hide by the labels of their inputs. A vault with 10,000 such rows newer than the first row the caller may read must not
 make them slow: a read judges at most ``READABLE_SCAN_CAP`` rows, whatever the vault holds. And a vault with no such row must
 not make them slower than they were: a read that looks past hidden rows pays for it only when there are some.

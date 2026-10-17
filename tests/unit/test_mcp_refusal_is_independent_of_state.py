@@ -1,6 +1,6 @@
 """A caller the policy refuses hears the same refusal whatever state the target is in.
 
-Unreleased (on main, not in v0.20.0). PR 528 gave the MCP tools typed error codes. A state error is
+New in v0.20.2. PR 528 gave the MCP tools typed error codes. A state error is
 ``precondition_failed`` and a refusal is ``not_permitted``. Several lifecycle verbs checked the state of the target
 before they asked the policy, so a caller bound to one project learned from the code that a memory in another project
 was a pending project update, an answered confirmation, or (on redact) a forgotten row. Before 528 every refusal

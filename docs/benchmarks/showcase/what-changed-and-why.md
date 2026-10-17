@@ -1,6 +1,6 @@
 # What changed and why
 
-Unreleased (on main, not in v0.20.0): this page is a design. The tool, the route and the view are not built. v0.20.0 has no what-changed answer, and it has no measurement of one.
+Unreleased (on main, not in v0.20.2): this page is a design. The tool, the route and the view are not built. v0.20.2 has no what-changed answer, and it has no measurement of one.
 
 An agent or a person asks about one topic: an account, a price, a feature, a policy. The answer is the history of recorded decisions and changes on that topic. The read builds every step from records. It does not read note text to decide that a note is a decision, and it does not take `replaced` from a sentence in a later note.
 
@@ -122,7 +122,7 @@ Each new door is registered in the operator route inventory and its probe table,
 
 The read does not walk every note. It uses the existing recall index, judges at most 128 candidates, then follows `superseded_by` for at most 64 hops. When 128 candidates have been judged, the answer is the history found among them. It does not report how many further records matched, and it does not report a count or a gap caused by permissions.
 
-When the read is built, its time is measured on the 10,000-note company next to recall's time on the same vault, and that pair of times is written here. This page does not yet have those times, because the read is not built. v0.20.0 has no such measurement. A budget test with 10,000 hidden candidates shows the 128 cap holds.
+When the read is built, its time is measured on the 10,000-note company next to recall's time on the same vault, and that pair of times is written here. This page does not yet have those times, because the read is not built. v0.20.2 has no such measurement. A budget test with 10,000 hidden candidates shows the 128 cap holds.
 
 ## Tests, when this is built
 
