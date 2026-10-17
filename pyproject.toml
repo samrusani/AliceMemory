@@ -39,6 +39,10 @@ Issues = "https://github.com/samrusani/AliceMemory/issues"
 Changelog = "https://github.com/samrusani/AliceMemory/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
+bench = [
+  # Benchmark only. The product install does not depend on this.
+  "mem0ai>=2.2.1,<3",
+]
 dev = [
   "bandit>=1.8,<2.0",
   "build>=1.3,<2.0",
