@@ -105,10 +105,12 @@ EXPECTED_ROUTE_AST_SHA256 = "7045d27156861c06b2283bb09416e522c59a5064941f40e81c8
 # Re-pin 2026-10-10 (fourth): the payload passes the sources, the metadata of the quality ratings and the allowed sources and scope of
 # the queued tasks through the reader as well, because each keeps a structure its writer chose that can quote a memory or a source.
 # Same definition.
-EXPECTED_SUPPORT_AST_SHA256 = "42407afbff582448dce389500c2173b29c45434dc13865ebcfbe4a2ce657303f"
+# Re-pin 2026-10-17: the payload fills each list after the label drop for a caller with limits, judging at most 128
+# rows. One definition changed, ``_vnext_workspace_payload``, and the router imports ``page_after_label_drop``.
+EXPECTED_SUPPORT_AST_SHA256 = "c2728edcb47be5e1be17c7fe9d096b055f2a1ef3c6aae0f26c24004c3fa0c753"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
-EXPECTED_IMPORT_MANIFEST_SHA256 = "e8c18d6831ca012b55b22f46c9b2151d62575773a2452ef0d0f2e869cabc8abb"
+EXPECTED_IMPORT_MANIFEST_SHA256 = "e47e66aa92793bef538eb870420780ecea8b741b5b632ade82b9d26e61002b97"
 EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e92413391541a7e504da328b"
 # Re-pinned 2026-10-02 (DB-005, legacy /v0 routes). One definition changed,
 # found by a per-definition AST diff against the previous pin:
@@ -163,7 +165,7 @@ EXPECTED_ROUTE_NODE_SHA256 = {
 }
 EXPECTED_SUPPORT_NODE_SHA256 = {
     "_vnext_status_counts": "0bf0ed228a14bd648a9d18fcd5f99ebf8c585bd29f4b5e81e1df17fe0201fd15",
-    "_vnext_workspace_payload": "ddf299ff32173e526ef006d36c6346321103ed68169d733507cd8f97d04e33a2",
+    "_vnext_workspace_payload": "492b17fc9a1b20b911354ab7a099c38b2ed2f7d70a4ec76cac255dc6754686ac",
     "_workspace_rows": "070bdfbd1eae10608bd8208b08367e1c0ea10e2064f03ad5a84121a190ed4cf0",
     "_workspace_event_visible": "8343c060909326a5cb69fa6f671ac62f160630ecf989f04d78e792ea74c0ea90",
 }
@@ -512,7 +514,7 @@ def test_workspace_import_direction_pruning_timing_and_runtime_identities_are_ex
     main_definitions = _top_level_definitions(main_tree)
     router_imports = _import_manifest(router_tree)
 
-    assert len(router_imports) == 39
+    assert len(router_imports) == 40
     assert hashlib.sha256(json.dumps(router_imports, separators=(",", ":")).encode()).hexdigest() == (
         EXPECTED_IMPORT_MANIFEST_SHA256
     )

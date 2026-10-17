@@ -257,6 +257,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
                 domains=domains,
                 sensitivity_allowed=sensitivity_allowed,
                 limit=candidate_limit,
+                label_refill=source_fence.entity_read_fenced,
                 **retrieval_filters,
             )
             graph_rows, graph_stage, matched_entities = service._memory_graph_rows(

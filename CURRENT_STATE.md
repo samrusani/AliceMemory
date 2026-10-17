@@ -162,8 +162,9 @@ SQLite vault is repaired on its next open.
   not finite.
 - Still open, listed in the release notes: the `max_tokens` budget prices the
   full stored row, a vector made from a cut text represents only its head,
-  removal of redacted text from reports is planned for `v0.21.0`, and the
-  vector stage of recall does not refill after hiding rows.
+  removal of redacted text from reports is planned for `v0.21.0`. The vector
+  stage of recall, the time stage of the context pack, the context tree, the
+  workspace and the project list refill after hiding rows, judging at most 128.
 
 ## What `v0.20.0` Shipped
 
