@@ -1,6 +1,6 @@
 """A write that cites a source by id is held to the caller's read fence.
 
-New in v0.20.1. v0.20.0 checked only that a cited source existed for the acting user. A key
+New in v0.20.2. v0.20.0 checked only that a cited source existed for the acting user. A key
 bound to one project could attach a source of another project, a source above its sensitivity ceiling, a source in a
 domain its profile may not read, a global source or a deleted one, through ``alice_memory_commit`` ``source_refs`` and
 through the ``provenance`` of ``alice_memory_correct``, while an id that did not exist failed (``tool_request_failed``

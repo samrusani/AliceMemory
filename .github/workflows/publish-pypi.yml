@@ -34,7 +34,10 @@ jobs:
     name: Verify release identity and exact artifacts
     if: inputs.publication_mode == 'publish'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    # The unit rerun below runs the whole suite in one process. CI splits the same
+    # suite into shards, and tests/unit/test_publish_workflow_time_limit.py fails
+    # when this limit is below the shard count times the shard limit plus a margin.
+    timeout-minutes: 120
     steps:
       - name: Require repository release-control attestation variable
         env:

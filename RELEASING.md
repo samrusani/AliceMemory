@@ -424,6 +424,13 @@ the test file allowlists it with a reason. A step that names a script in a form
 the test cannot read fails it outright. `v0.19.1` was never published because a
 release script imported the package in one of those jobs.
 
+The first job reruns the whole unit suite in one process, while CI runs it as
+shard jobs. Its `timeout-minutes` must cover the shard count times the shard
+limit plus a margin, and `tests/unit/test_publish_workflow_time_limit.py` fails
+when it does not. Raise the publish limit in the same pull request that adds a
+shard or raises the shard limit. `v0.20.1` was never published because this job
+reached its old 35 minute limit while it reran the suite.
+
 ### Recovering finalization after PyPI succeeds
 
 The workflow deliberately stages and verifies a draft before crossing the
@@ -486,4 +493,4 @@ macOS with `shasum -a 256 -c SHA256SUMS`.
 `v0.20.0` is the latest published release and remains the install, checksum,
 and baseline reference.
 
-`v0.20.1` is the current release candidate. It is not published.
+`v0.20.2` is the current release candidate. It is not published.

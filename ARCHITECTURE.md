@@ -10,7 +10,8 @@
   tagged and immutable, published on PyPI with Trusted Publishing provenance;
   artifact digests are in `docs/release/v0.19.2-checksums.txt`. Every earlier
   published release remains published and immutable with its own records
-  under `docs/release/`. `v0.19.1` was tagged and never published.
+  under `docs/release/`. `v0.19.1` and `v0.20.1` were tagged and never
+  published.
 - **Shipped boundary:** `v0.12.0` shipped the Phase 3 structural refactor
   with **Structure only. Zero behavior change.** It relocates code behind
   stable imports and entrypoints. The default runtime is the
@@ -261,4 +262,4 @@ usage justifies a separately reviewed boundary.
 `v0.20.0` is the latest published release and remains the install, checksum,
 and baseline reference.
 
-`v0.20.1` is the current release candidate. It is not published.
+`v0.20.2` is the current release candidate. It is not published.

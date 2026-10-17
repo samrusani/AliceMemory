@@ -1,6 +1,6 @@
 """A request that names no domain reads only what the caller's permission profile may read, in every reader.
 
-New in v0.20.1. In v0.20.0 a key that was refused when it asked for ``domains: ["health"]`` read
+New in v0.20.2. In v0.20.0 a key that was refused when it asked for ``domains: ["health"]`` read
 health, family, spiritual, legal and financial notes, open loops, decisions and source excerpts when it asked for no
 domains. ``alice_recall``, ``alice_context_pack``, ``alice_resume``, ``alice_open_loops`` and ``alice_recent_decisions``
 all returned them to a ``project_scoped_agent`` key and to a ``read_only_agent`` key. Only ``alice_memory_review`` was

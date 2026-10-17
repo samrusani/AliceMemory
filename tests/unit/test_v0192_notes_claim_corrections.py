@@ -292,10 +292,11 @@ def test_the_retired_v0191_number_is_explained_and_recorded() -> None:
     assert "and v0.19.1 was never published." in _released_changelog()
 
     state = _flat("CURRENT_STATE.md")
-    assert "Five tags exist that were never published: `v0.9.3`, a withdrawn security candidate; `v0.10.0`, which failed its release gate; `v0.13.0`, superseded by `v0.13.1`; `v0.15.0`; and `v0.19.1`, superseded by `v0.19.2`." in state
+    assert "Six tags exist that were never published: `v0.9.3`, a withdrawn security candidate; `v0.10.0`, which failed its release gate; `v0.13.0`, superseded by `v0.13.1`; `v0.15.0`; `v0.19.1`, superseded by `v0.19.2`; and `v0.20.1`, superseded by `v0.20.2`." in state
     assert "None has a PyPI artifact or a published GitHub Release." in state
     assert (
-        "and `v0.19.1`, whose publish run failed at the draft readback because a release script "
-        "imported the package in a job that does not install it, so it has no PyPI artifact and "
-        "no published GitHub Release."
+        "`v0.19.1`, whose publish run failed at the draft readback because a release script "
+        "imported the package in a job that does not install it; and `v0.20.1`, whose publish run "
+        "reached its first job's time limit while it reran the unit suite, before anything was built. "
+        "Neither of the last two has a PyPI artifact or a published GitHub Release."
     ) in state

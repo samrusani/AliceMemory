@@ -1,6 +1,6 @@
 """A row three memories below a source is judged by its effective domain and level, in the reads that look past hidden rows.
 
-New in v0.20.1. The decision and the open loops of ``alice_resume``, the open loops of the context pack
+New in v0.20.2. The decision and the open loops of ``alice_resume``, the open loops of the context pack
 and the grounding check of the pack read past the rows a caller's limits hide, and judge each row they keep with the
 caller's own domains, levels and project scope. The store cannot take such a row out first: its stored labels are inside the
 limits, and a chain of three memories is deeper than any direct input the store looks at. So the final check is the only

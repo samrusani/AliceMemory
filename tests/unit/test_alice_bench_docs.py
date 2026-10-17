@@ -20,7 +20,7 @@ import scripts.alice_bench_gates as gate_sim
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NOTE = REPO_ROOT / "docs" / "benchmarks" / "agent-answer" / "README.md"
-MARKER = "From v0.20.1,"
+MARKER = "From v0.20.2,"
 
 
 def _note() -> str:
@@ -28,7 +28,7 @@ def _note() -> str:
 
 
 def test_the_method_note_carries_its_own_main_only_marker_once() -> None:
-    """The note describes behaviour that is new in v0.20.1 and not in v0.20.0, and says so in its own first paragraph.
+    """The note describes behaviour that is new in v0.20.2 and not in v0.20.0, and says so in its own first paragraph.
 
     Mutation: delete the marker from the note, or add a second one. The count is taken inside this
     file, never over a docs page, because other pull requests add marked bullets to other pages.
@@ -76,7 +76,7 @@ def _added_texts() -> dict[str, str]:
 def _changelog_entry() -> str:
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     released = changelog.split("\n## ", 3)[2]
-    assert released.startswith("v0.20.1")
+    assert released.startswith("v0.20.2")
     entries = [entry for entry in released.split("\n- ") if "scripts/alice_bench.py" in entry]
     assert len(entries) == 1
     return entries[0]
@@ -209,7 +209,7 @@ def test_the_note_names_the_files_a_reader_needs() -> None:
 
 
 def test_the_changelog_entry_states_the_v0200_behaviour() -> None:
-    """One v0.20.1 entry says what the harness is and what v0.20.0 had instead, and says it truthfully.
+    """One v0.20.2 entry says what the harness is and what v0.20.0 had instead, and says it truthfully.
 
     v0.20.0 has no agent-answer harness and no agent-answer score, but it does publish the LongMemEval
     receipt and ships a ``retrieval_quality`` eval suite, so the entry names both rather than claim that

@@ -1,6 +1,6 @@
 """The pages say what a saved quote of a memory does, what a loop its caller wrote does, and what the owner reads after a redaction.
 
-New in v0.20.1. Three statements are pinned here, each on the pages that carry it:
+New in v0.20.2. Three statements are pinned here, each on the pages that carry it:
 
 * the quote a commit saved of a memory is withheld from a caller who may not read that memory (the security note, the tool
   reference and the changelog), with the refs it is read in, the ids no marker covers, the doors and feeds of events that apply it,
@@ -36,7 +36,7 @@ PAGES = {
     "changelog": "CHANGELOG.md",
     "importers": "docs/integrations/importers.md",
 }
-MARK = "From v0.20.1,"
+MARK = "From v0.20.2,"
 
 
 def _flat(name: str) -> str:
@@ -247,8 +247,8 @@ def test_the_pages_say_the_quote_follows_the_memory_in_an_unreleased_paragraph()
         ]
         assert len(paragraphs) == 1, name
         if name == "changelog":
-            # A changelog entry carries no marker: it stands under the v0.20.1 heading and in no older section.
-            assert QUOTE_SENTENCE[name] in " ".join(text[text.index("## v0.20.1") : text.index("## v0.20.0")].split()).lower(), name
+            # A changelog entry carries no marker: it stands under the v0.20.2 heading and in no older section.
+            assert QUOTE_SENTENCE[name] in " ".join(text[text.index("## v0.20.2") : text.index("## v0.20.0")].split()).lower(), name
             continue
         assert MARK in " ".join(paragraphs[0].split()), name
 

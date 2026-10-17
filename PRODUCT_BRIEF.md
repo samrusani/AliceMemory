@@ -17,7 +17,8 @@ Agent developers — people building or operating AI agents who need durable, ex
 ## Current Posture
 - `v0.20.0` is the latest published release and immutable baseline. The
   default loop is on the wheel. `v0.19.2` is the immediately prior
-  published release, and `v0.19.1` was tagged and never published. The PyPI
+  published release, and `v0.19.1` and `v0.20.1` were tagged and never
+  published. The PyPI
   wheel and source distribution have Trusted Publishing provenance, with
   exact digests in `docs/release/v0.20.0-checksums.txt`.
 - `v0.11.0` shipped the Phase 1 periphery cut. It removes the Telegram,
@@ -72,4 +73,4 @@ Agent developers — people building or operating AI agents who need durable, ex
 `v0.20.0` is the latest published release and remains the install, checksum,
 and baseline reference.
 
-`v0.20.1` is the current release candidate. It is not published.
+`v0.20.2` is the current release candidate. It is not published.

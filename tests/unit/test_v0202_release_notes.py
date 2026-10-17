@@ -1,4 +1,4 @@
-"""The v0.20.1 release notes carry the upgrade steps, the security wording and the open limitations.
+"""The v0.20.2 release notes carry the upgrade steps, the security wording and the open limitations.
 
 Every claim in the notes comes from an entry of the changelog. These tests pin the parts a later edit could quietly
 weaken: the release identity, the security wording, the steps an upgrading user must act on (the PostgreSQL
@@ -20,8 +20,8 @@ from alicebot_api.vnext_label_repair import REPAIR_CAUSE, REPAIR_STATE_KEY
 from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-NOTES_PATH = "docs/release/v0.20.1-release-notes.md"
-HEADING = "## v0.20.1 \u2014 2026-10-16"
+NOTES_PATH = "docs/release/v0.20.2-release-notes.md"
+HEADING = "## v0.20.2 \u2014 2026-10-17"
 NOTE_PATH = "docs/release/derived-labels-security-note-draft.md"
 
 OWNER_SENTENCE = (
@@ -68,13 +68,13 @@ def test_the_notes_are_a_pending_candidate_with_the_exact_title_and_state() -> N
     """
 
     lines = _text(NOTES_PATH).splitlines()
-    assert lines[0] == "# Alice v0.20.1 Release Notes"
+    assert lines[0] == "# Alice v0.20.2 Release Notes"
     assert lines[1] == (
-        '<!-- alice-release-state: {"schema_version":"alice_release_document_state_v1","version":"0.20.1",'
+        '<!-- alice-release-state: {"schema_version":"alice_release_document_state_v1","version":"0.20.2",'
         '"publication_status":"pending","checksums_status":"pending"} -->'
     )
     assert sum("alice-release-state" in line for line in lines) == 1
-    assert not (REPO_ROOT / "docs/release/v0.20.1-checksums.txt").exists()
+    assert not (REPO_ROOT / "docs/release/v0.20.2-checksums.txt").exists()
 
 
 def test_every_version_site_names_0201_and_the_marketplace_still_pins_the_published_release() -> None:
@@ -85,7 +85,7 @@ def test_every_version_site_names_0201_and_the_marketplace_still_pins_the_publis
     """
 
     pyproject = tomllib.loads(_text("pyproject.toml"))["project"]["version"]
-    assert pyproject == "0.20.1"
+    assert pyproject == "0.20.2"
     assert json.loads(_text("apps/web/package.json"))["version"] == pyproject
     assert json.loads(_text("packaging/mcpb/manifest.json"))["version"] == pyproject
     assert json.loads(_text("plugins/alice-memory/.claude-plugin/plugin.json"))["version"] == pyproject
@@ -96,11 +96,11 @@ def test_every_version_site_names_0201_and_the_marketplace_still_pins_the_publis
     assert marketplace["ref"] == "v0.20.0"
     assert marketplace["sha"] == "10034879439f583514cf23f373e998656ff80cac"
     notes = _flat(NOTES_PATH)
-    assert "pip install alice-memory==0.20.1 && alice-memory install" in notes
-    assert "pip install -U alice-memory==0.20.1" in notes
+    assert "pip install alice-memory==0.20.2 && alice-memory install" in notes
+    assert "pip install -U alice-memory==0.20.2" in notes
     assert "uv tool upgrade alice-memory" in notes
     assert "uvx alice-memory@latest --version" in notes
-    assert "`uvx alice-memory --version` (or `alice-memory --version` for pip) must print 0.20.1" in notes
+    assert "`uvx alice-memory --version` (or `alice-memory --version` for pip) must print 0.20.2" in notes
     # A pinned uvx check does not show what the hosts' plain `uvx alice-memory` runs.
     assert "it prints the version the hosts get" not in notes
     assert "pins `alice-memory==0.20.0` and carries none of the fixes in this release" in notes
@@ -108,13 +108,13 @@ def test_every_version_site_names_0201_and_the_marketplace_still_pins_the_publis
 
 def test_the_changelog_has_the_dated_heading_and_an_empty_unreleased_section() -> None:
     """Mutations, each one alone: put an entry under Unreleased; drop the heading; change its date form; put
-    another section between v0.20.1 and v0.20.0.
+    another section between v0.20.2 and v0.20.0.
     """
 
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
     assert sections[1] == "Unreleased\n"
-    assert sections[2].startswith("v0.20.1 \u2014 2026-10-16\n")
+    assert sections[2].startswith("v0.20.2 \u2014 2026-10-17\n")
     assert sections[3].startswith("v0.20.0 \u2014 2026-10-02\n")
     assert changelog.count(HEADING) == 1
 
@@ -129,7 +129,10 @@ def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_or_the_code
     """
 
     pattern = re.compile(r"Unreleased\s*\(\s*on\s+main\s*,\s*not\s+in\s+v0\.20\.0")
-    paths = [REPO_ROOT / name for name in ("README.md", "SECURITY.md", "CURRENT_STATE.md", "CHANGELOG.md", "ROADMAP.md", "RELEASING.md")]
+    paths = [
+        REPO_ROOT / name
+        for name in ("README.md", "SECURITY.md", "CURRENT_STATE.md", "CHANGELOG.md", "ROADMAP.md", "RELEASING.md")
+    ]
     for root in ("docs", "plugins", "agent-skills", "eval"):
         paths.extend(path for path in (REPO_ROOT / root).rglob("*.md"))
     for root in ("apps/api/src", "tests", "scripts"):
@@ -168,7 +171,7 @@ def test_the_upgrade_steps_name_every_action_an_existing_user_takes_in_order() -
     numbers = [int(number) for number in re.findall(r"(?:^| )(\d{1,2})\. \*\*", steps)]
     assert numbers == list(range(1, 13))
     for needle in (
-        "`pip install -U alice-memory==0.20.1`",
+        "`pip install -U alice-memory==0.20.2`",
         "`uv tool upgrade alice-memory`",
         "`uvx alice-memory@latest --version`",
         "A v0.20.0 database is at revision `20260721_0094`",
@@ -216,8 +219,14 @@ def test_the_owner_facing_sentence_and_the_three_additions_are_in_the_notes_the_
     note = _flat(NOTE_PATH)
     assert OWNER_SENTENCE in notes
     assert OWNER_SENTENCE in note
-    assert "After the upgrade, a derived row whose inputs are confidential is labelled confidential, and a derived row with no record is unverified." in changelog
-    assert "Either one leaves the owner's default recall, pack and resume, like any confidential row did in v0.20.0." in changelog
+    assert (
+        "After the upgrade, a derived row whose inputs are confidential is labelled confidential, and a derived row with no record is unverified."
+        in changelog
+    )
+    assert (
+        "Either one leaves the owner's default recall, pack and resume, like any confidential row did in v0.20.0."
+        in changelog
+    )
     for name, text in (("notes", notes), ("changelog", changelog), ("security note", note)):
         assert HIDDEN_EVENTS_SENTENCE in text, name
         assert WEEKLY_SQLITE_SENTENCE in text, name
@@ -251,7 +260,11 @@ def test_the_names_the_notes_give_for_the_repair_are_the_ones_the_code_has() -> 
         "20261005_0096_derived_label_floor.py",
         "20261011_0097_derived_label_citations.py",
     ]
-    for old, new in (("20260721_0094", "20261004_0095"), ("20261004_0095", "20261005_0096"), ("20261005_0096", "20261011_0097")):
+    for old, new in (
+        ("20260721_0094", "20261004_0095"),
+        ("20261004_0095", "20261005_0096"),
+        ("20261005_0096", "20261011_0097"),
+    ):
         migration = next(path for path in versions.glob(f"{new}_*.py"))
         assert f'down_revision = "{old}"' in migration.read_text(encoding="utf-8"), new
 
@@ -333,7 +346,10 @@ def test_the_known_limitations_list_what_is_still_open() -> None:
     assert "removing it is planned for v0.21.0" in limitations
     assert "withholding them is tracked for v0.21.0" in limitations
     assert "This is a known exception, not a way of meeting the requirement to filter hidden ids" in limitations
-    assert "The legacy `/v0` routes that stay mounted list rows whatever their label while `APP_ENV` is `development` or `test`" in limitations
+    assert (
+        "The legacy `/v0` routes that stay mounted list rows whatever their label while `APP_ENV` is `development` or `test`"
+        in limitations
+    )
 
 
 def test_the_known_limitations_drop_what_this_release_fixes() -> None:
@@ -381,3 +397,25 @@ def test_the_changelog_entries_of_this_release_do_not_describe_the_unreleased_co
         assert phrase not in section, phrase
     assert "Unreleased (on" not in section
     assert "pinned main 48873b03" in section
+
+
+def test_notes_say_why_the_number_is_0_20_2_and_that_nothing_was_published_as_0_20_1() -> None:
+    """Mutation: drop the section, or say v0.20.1 reached PyPI, and this fails."""
+
+    notes = (REPO_ROOT / NOTES_PATH).read_text(encoding="utf-8")
+    sections = re.split(r"(?m)^## ", notes)
+    why = [section for section in sections if section.startswith("Why 0.20.2 and not 0.20.1\n")]
+    assert len(why) == 1
+    text = " ".join(why[0].split())
+    assert "Nothing was published under it: no PyPI artifact and no GitHub Release." in text
+    assert "raises that job's limit to 120 minutes" in text
+    assert notes.index("## Why 0.20.2 and not 0.20.1") < notes.index("## Install")
+
+
+def test_the_retired_v0201_number_is_recorded_in_the_current_state() -> None:
+    """Mutation: drop `v0.20.1` from the never-published list, or keep the count at five, and this fails."""
+
+    state = " ".join((REPO_ROOT / "CURRENT_STATE.md").read_text(encoding="utf-8").split())
+    assert "`v0.19.1`, superseded by `v0.19.2`; and `v0.20.1`, superseded by `v0.20.2`." in state
+    assert state.count("Six tags exist that were never published") == 2
+    assert "Five tags exist" not in state

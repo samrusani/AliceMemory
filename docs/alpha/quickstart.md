@@ -71,7 +71,7 @@ This is the same SQLite path, for one user: three MCP tools by default (`alice_m
 
 `alice-memory doctor` prints a `sleep proposals: <n>` line. Both commands take `--data-dir` and `--db`.
 
-From v0.20.1, `alice-memory sleep-proposals` also takes `--scope` and `--project-dir`; see [Projects](projects.md).
+From v0.20.2, `alice-memory sleep-proposals` also takes `--scope` and `--project-dir`; see [Projects](projects.md).
 
 ## Requirements
 

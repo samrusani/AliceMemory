@@ -75,14 +75,14 @@ In v0.19.2 that name is not carried, so an entry that holds it is refused on
 this path. A strict `opencode.json` kept every key that install did not write in
 both versions.
 
-From v0.20.1, `ALICE_PROJECT_DIR` and
+From v0.20.2, `ALICE_PROJECT_DIR` and
 `ALICE_PROJECT_SCOPING` (see [Projects](../alpha/projects.md)) are also
 documented host env keys, carried on the same terms. `alice-memory project`,
 `alice-memory brief`, `alice-memory sleep-proposals`, the SessionStart hook and
-`alice_resume` read them. While scoping is off, the default in v0.20.1, they change
+`alice_resume` read them. While scoping is off, the default in v0.20.2, they change
 nothing. In v0.20.0 an entry that holds either one is refused on this path.
 
-From v0.20.1, `ALICE_MCP_COMMIT_RESULT` (`compact` or
+From v0.20.2, `ALICE_MCP_COMMIT_RESULT` (`compact` or
 `full`, see [The commit result](../alpha/mcp-tools.md#the-commit-result)) is also
 a documented host env key, carried on the same terms. In v0.20.0 an entry that
 holds it is refused on this path.

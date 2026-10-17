@@ -1,6 +1,6 @@
 """Every copy of a saved quote is withheld with the quote, on a real vault, with real keys.
 
-New in v0.20.1. ``tests/unit/test_saved_quotes_follow_the_source_fence.py`` runs the lifecycle of a
+New in v0.20.2. ``tests/unit/test_saved_quotes_follow_the_source_fence.py`` runs the lifecycle of a
 quote saved from one source. An outside review found the case it left open: a commit with ``{"source_ids": [A, B]}`` makes
 a provenance link to A only, and saves the one excerpt as the quote of that link and as the memory's own
 ``agentic_memory.conversation_excerpt``, which names both sources. After B was made confidential or archived the memory's

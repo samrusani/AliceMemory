@@ -1,6 +1,6 @@
 """How the saved-quote reader reads a ref: what it costs, which ids it names, which it judges, and what a revision holds.
 
-New in v0.20.1. An outside review of ``SavedProvenanceReader`` found four defects in the way it reads
+New in v0.20.2. An outside review of ``SavedProvenanceReader`` found four defects in the way it reads
 the refs a memory was stored with, and these tests hold each of them with a stub store. ``tests/unit/test_saved_quote_ref_reading_vault.py``
 runs the same cases on a real vault with real keys.
 

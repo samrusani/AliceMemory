@@ -290,7 +290,7 @@ def _words(number: int) -> str:
 
 
 def _changelog_bullet() -> str:
-    """The one v0.20.1 bullet about this change, with runs of whitespace collapsed."""
+    """The one v0.20.2 bullet about this change, with runs of whitespace collapsed."""
 
     bullets = [
         line
@@ -385,7 +385,7 @@ def test_the_changelog_sentences_about_one_kind_of_event_hold_on_the_vaults_they
 
     The first vault holds four memory events for the project, none of the other kind, and four newer loop events for
     global, at four places. The second holds eight of each at eight places. No release had the old fill, because
-    per-project scoping is new in v0.20.1, so the CHANGELOG bullet states the rule and none of the old numbers. Both
+    per-project scoping is new in v0.20.2, so the CHANGELOG bullet states the rule and none of the old numbers. Both
     vaults are rebuilt here from the fixtures, and the sentences the bullet used to carry are checked to be absent.
     The numbers before the change come from ``_per_kind_fill_changes``, the numbers now from ``alice_resume``, and the
     rule from ``fill_counts``. An earlier draft gave the eight-place numbers on the four-event vault, where the old

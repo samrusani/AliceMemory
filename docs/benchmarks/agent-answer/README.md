@@ -1,6 +1,6 @@
 # Agent-answer check: method note
 
-From v0.20.1, this page describes a measurement harness. v0.20.0 has no harness for it and no agent-answer number. The first release that states one will carry the numbers and a receipt in this folder, and until then nothing here is a claim about how well Alice searches.
+From v0.20.2, this page describes a measurement harness. v0.20.0 has no harness for it and no agent-answer number. The first release that states one will carry the numbers and a receipt in this folder, and until then nothing here is a claim about how well Alice searches.
 
 ## What it measures
 

@@ -1,6 +1,6 @@
 """The product writes strings into ``source_refs``, never an object, so the list of field names a withheld entry keeps has no producer in it.
 
-New in v0.20.1. The reader of saved quotes keeps a field of an entry that names a memory the caller may not
+New in v0.20.2. The reader of saved quotes keeps a field of an entry that names a memory the caller may not
 read only when its name is one the product writes (``PRODUCT_REF_KEYS`` in ``vnext_source_fence.py``), because a writer can type
 words as the name of a field. The list is the reader's own vocabularies. These tests are the check that no producer needs a name
 of its own in it: they run the doors that write ``source_refs`` on a SQLite vault (the commit service, the MCP commit tool, a
