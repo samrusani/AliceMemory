@@ -75,6 +75,32 @@ readback:
    jobs one by one: a skipped required check counts as passing, and the shard
    check runs are not in the ruleset or in the exact-SHA check by design.
 
+   The required check named
+   `Integration tests (Postgres + pgvector, role separation)` is the summary
+   job of the PostgreSQL integration tests in `tests.yml`. The integration
+   tests run as five shard jobs, each a set of file patterns over
+   `tests/integration` with its own PostgreSQL service, and the four SQLite
+   read-budget files of `tests/performance` run as three budget jobs. The
+   round-three read-budget file of each suite is split by case name between
+   two jobs, because one file alone took more than 14 minutes on a pull
+   request runner. The summary needs all of them, runs whatever they did, and
+   fails unless each one succeeded. Keep its name and its `if: always()`, and
+   do not require the shard or budget jobs one by one: a skipped required
+   check counts as passing, and the shard and budget check runs are not in the
+   ruleset or in the exact-SHA check by design.
+   `Default surface integration smoke (Postgres)` and
+   `Read-budget maximum workload smoke (Postgres)` stay in the
+   `python-integration` job under their own names and are not part of that
+   verdict. `tests/unit/test_ci_integration_job_split.py` fails when a test
+   file under `tests/integration` or `tests/performance` is in no job or in
+   two. When one job gets slow, rebalance the file patterns from the
+   `--durations=20` lines of its log, as the comment above the matrix says.
+   Before the split one job ran the integration tests (2,468 s on a pull
+   request run) and then the budget files (1,265 s), 3,777 s in all. The
+   longest job of the split is expected at about 12 minutes on a pull request
+   runner, and the first run after the split is recorded in the pull request
+   that made it.
+
    If that readback reports drift in `MainProtect`, an authorized repository
    administrator can prepare and inspect an update that preserves every
    current condition, bypass actor, and non-status rule while replacing only

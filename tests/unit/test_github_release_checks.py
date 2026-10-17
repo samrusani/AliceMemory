@@ -95,10 +95,14 @@ def test_exact_sha_check_gate_uses_latest_rerun_only() -> None:
 def test_required_checks_match_actual_workflow_job_display_names() -> None:
     tests_path = REPO_ROOT / ".github/workflows/tests.yml"
     summary = "Unit tests + live eval battery (SQLite)"
-    # The unit shards, the eval job and the coverage job are not required one by one.
+    integration_summary = "Integration tests (Postgres + pgvector, role separation)"
+    # The unit shards, the eval job and the coverage job are not required one by one, and
+    # neither are the integration shards and the SQLite read-budget parts.
     # The summary that keeps the required name needs each of them and fails unless
     # every one succeeded, so the required name stands for all of them.
-    covered_by_summary = _jobs_the_required_summary_covers(tests_path, summary)
+    covered_by_summary = _jobs_the_required_summary_covers(
+        tests_path, summary
+    ) | _jobs_the_required_summary_covers(tests_path, integration_summary)
     tests_jobs = _workflow_job_display_names(tests_path, skip_job_ids=covered_by_summary)
     semantic_jobs = _workflow_job_display_names(
         REPO_ROOT / ".github/workflows/semantic-release-gate.yml"
@@ -110,6 +114,7 @@ def test_required_checks_match_actual_workflow_job_display_names() -> None:
     }
 
     assert summary in tests_jobs
+    assert integration_summary in tests_jobs
     assert set(release_checks.REQUIRED_CHECKS) == (
         tests_jobs | semantic_jobs | externally_managed_jobs
     )

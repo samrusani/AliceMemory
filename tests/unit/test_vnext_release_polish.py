@@ -525,7 +525,10 @@ def test_ci_action_dependency_carrier_uses_exact_atomic_pins() -> None:
         workflows,
     )
 
-    # 29 since round-two read budgets add one pinned baseline checkout.
+    # 31 since the integration shards (one job, five matrix legs) and the SQLite
+    # read-budget parts (one job, three matrix legs) each check out once, where
+    # the single integration job checked out once for itself.
+    # Previously 29 since round-two read budgets add one pinned baseline checkout.
     # Previously 28 since real-host-ci.yml checks out once for the pinned job, once
     # for the weekly canary, once for the dispatch-only hook trial, once
     # for the dispatch-only plugin hook trial, once for the
@@ -540,7 +543,7 @@ def test_ci_action_dependency_carrier_uses_exact_atomic_pins() -> None:
     # rather than absorbed.
     assert checkout_refs == [
         "3d3c42e5aac5ba805825da76410c181273ba90b1"
-    ] * 29
+    ] * 31
     assert codeql_refs == [
         "ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd"
     ] * 3
