@@ -442,3 +442,90 @@ def test_a_retried_mcp_read_tool_writes_the_events_of_an_ordinary_call_on_postgr
     retried = _new_events(before, _event_counts(app))
     assert attempts == [False, True], (name, attempts)
     assert retried == ordinary, (name, retried, ordinary)
+
+
+def _policy_counts(app) -> dict[tuple[str, str], int]:
+    with psycopg.connect(app.admin_url) as conn:
+        return {
+            (row[0], row[1]): row[2]
+            for row in conn.execute(
+                "SELECT target_type, target_id, count(*) FROM event_log WHERE event_type = 'policy.decision' GROUP BY 1, 2"
+            )
+        }
+
+
+def test_an_http_read_that_is_retried_writes_each_policy_event_once(app) -> None:
+    """A stored row nested about 1,000 levels makes a read run again after its transaction has committed. The retry
+    remembers the policy decisions and the context-pack compile of the first attempt, so each is written once."""
+
+    from alicebot_api.vnext_capture import SourceCaptureInput, VNextCaptureService
+
+    deep = "[" * 1000 + '"x"' + "]" * 1000
+    with user_connection(app.url, app.user_id) as conn:
+        store = PostgresVNextStore(conn)
+        captured = VNextCaptureService(store).capture_source(SourceCaptureInput(
+            source_type="note", title="deep source", raw_text=TEXT, connector_name="manual", external_id="deep-source",
+            domain="project", sensitivity="internal",
+        ))
+        source_id = str(captured.source_id)
+        artifact = store.create_artifact({
+            "artifact_type": "daily_brief", "title": "brief", "content_markdown": TEXT, "status": "draft",
+            "domain": "project", "sensitivity": "internal",
+            "metadata_json": {"source_refs": [f"source:{source_id}"], "source_ids": [source_id]},
+        })
+        artifact_id = str(artifact["id"])
+        memory_id = _store_a_deep_row(app, 10, key="audit-deep")
+        _record, admin = create_agent_key(
+            store, user_id=app.user_id, agent_id="admin-reader", permission_profile="admin_agent",
+        )
+        _record, trusted = create_agent_key(
+            store, user_id=app.user_id, agent_id="trusted-reader", permission_profile="trusted_local_agent",
+        )
+    with psycopg.connect(app.admin_url, autocommit=True) as conn:
+        conn.execute(
+            "UPDATE sources SET metadata_json = jsonb_set(coalesce(metadata_json, '{}'::jsonb), '{note}', %s::jsonb) WHERE id = %s",
+            (deep, source_id),
+        )
+        conn.execute(
+            "UPDATE generated_artifacts SET metadata_json = jsonb_set(metadata_json, '{note}', %s::jsonb) WHERE id = %s",
+            (deep, artifact_id),
+        )
+        conn.execute(
+            "UPDATE memories SET metadata_json = jsonb_set(metadata_json, '{note}', %s::jsonb) WHERE id = %s",
+            (deep, memory_id),
+        )
+
+    def once(method: str, path: str, *, body: dict[str, Any] | None = None, authorization: str) -> int:
+        before = _policy_counts(app)
+        compiles = _event_counts(app).get("retrieval.context_pack_compiled", 0)
+        if body is None:
+            status, _answer = _call(method, path, query={"user_id": app.user}, authorization=authorization)
+        else:
+            status, _answer = _post(path, body, authorization=authorization)
+        assert status in {200, 201}, (method, path, status)
+        after = _policy_counts(app)
+        added = {key: after.get(key, 0) - before.get(key, 0) for key in after}
+        added = {key: count for key, count in added.items() if count}
+        assert added and all(count == 1 for count in added.values()), (method, path, added)
+        assert _event_counts(app).get("retrieval.context_pack_compiled", 0) - compiles in {0, 1}
+        return _event_counts(app).get("retrieval.context_pack_compiled", 0) - compiles
+
+    admin_header = f"Bearer {admin}"
+    once("GET", f"/v0/vnext/traces/artifacts/{artifact_id}", authorization=admin_header)
+    once("GET", f"/v0/vnext/artifacts/{artifact_id}", authorization=admin_header)
+    once("GET", f"/v0/vnext/memories/{memory_id}/audit", authorization=admin_header)
+    compiled = once(
+        "POST", "/v0/vnext/context-packs",
+        body={"user_id": app.user, "query": "cobalt door", "options": {"include_sources": True}},
+        authorization=admin_header,
+    )
+    assert compiled == 1
+    # A key with limits still gets one event: its first attempt rolls back inside the label walk, and the retry writes.
+    before = _policy_counts(app)
+    status, _answer = _call(
+        "GET", f"/v0/vnext/traces/artifacts/{artifact_id}", query={"user_id": app.user}, authorization=f"Bearer {trusted}",
+    )
+    assert status == 200
+    after = _policy_counts(app)
+    added = {key: after.get(key, 0) - before.get(key, 0) for key in after if after.get(key, 0) != before.get(key, 0)}
+    assert added and all(count == 1 for count in added.values()), added

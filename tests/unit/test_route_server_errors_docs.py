@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 PAGES = ("CHANGELOG.md", "docs/release/derived-labels-security-note-draft.md", "docs/alpha/mcp-tools.md")
 
 
@@ -30,10 +30,10 @@ def _entry(prefix: str) -> str:
 
 
 def test_the_changelog_says_what_a_project_slug_in_use_is_answered() -> None:
-    entry = _entry(f"{MARK} `POST /v0/vnext/projects` answers HTTP 409")
+    entry = _entry("`POST /v0/vnext/projects` answers HTTP 409")
     assert '{"detail": "vNext project slug is already in use"}' in entry
     assert "whether the slug was sent or made from the name" in entry
-    assert "In v0.19.2, in v0.20.0 and on main until now it answered HTTP 500" in entry
+    assert "In v0.19.2 and in v0.20.0 it answered HTTP 500" in entry
     assert "to the owner, to an unbound `admin_agent` key and to an unbound `trusted_local_agent` key" in entry
     assert "The answer is the same for every caller and for every holder of the slug, readable or not" in entry
     assert "It names no project, and a refused create writes no project row and no event" in entry
@@ -44,8 +44,8 @@ def test_the_changelog_says_what_a_project_slug_in_use_is_answered() -> None:
 
 
 def test_the_changelog_says_what_process_next_does_now_and_for_a_key_with_a_ceiling() -> None:
-    entry = _entry(f"{MARK} `POST /v0/vnext/queue/process-next` works on PostgreSQL")
-    assert "In v0.19.2, in v0.20.0 and on main until now its claim statement named `id` twice" in entry
+    entry = _entry("`POST /v0/vnext/queue/process-next` works on PostgreSQL")
+    assert "In v0.19.2 and in v0.20.0 its claim statement named `id` twice" in entry
     assert "the route answered HTTP 500 to every caller, whatever the queue held" in entry
     assert "The CTE now names the picked id `next_id`" in entry
     assert "An empty queue answers `idle`" in entry
@@ -63,7 +63,7 @@ def test_the_changelog_says_what_process_next_does_now_and_for_a_key_with_a_ceil
 
 def test_the_security_note_says_what_the_409_still_tells_a_key_with_a_ceiling() -> None:
     note = _text("docs/release/derived-labels-security-note-draft.md")
-    paragraph = note.split(f"{MARK} two operator routes that answered HTTP 500 now answer.", 1)[1].split("\n", 1)[0]
+    paragraph = note.split(f"{MARK} two operator routes that answered HTTP 500 in v0.19.2 and v0.20.0 answer with a status that says what happened.", 1)[1].split("\n", 1)[0]
     assert "The answer is the same for the owner, an admin key and a key with limits" in paragraph
     assert "so it carries no id, name, label or status of that project" in paragraph
     assert "It still tells a key with a ceiling that some project it may not read has the slug" in paragraph

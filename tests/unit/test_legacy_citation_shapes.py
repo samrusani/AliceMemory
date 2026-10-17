@@ -757,9 +757,91 @@ def test_a_record_past_the_read_bound_in_any_place_is_unverified(place: str) -> 
     assert dependency_record("artifact", row)[1] == "too_many_citations"
 
 
-def test_a_list_of_the_same_string_past_the_bound_is_unverified_too() -> None:
+def _nested_shapes(count: int, real: str | None = None) -> dict[str, object]:
+    """The nested shapes the reader accepts, each holding ``count`` strings and ``real`` among them when given."""
+
+    strings = _many(count, real=real)
+    return {
+        "object in a list": [{"bundle": {f"k{index}": text for index, text in enumerate(strings)}}],
+        "list in an object": {"items": strings},
+        "deeper nesting": [{"wrap": {"inner": strings}}],
+    }
+
+
+@pytest.mark.parametrize("shape", ("object in a list", "list in an object", "deeper nesting"))
+def test_a_nested_record_past_the_read_bound_is_unverified(shape: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One nested object is one entry of the list. Every string inside it counts, at any depth the reader accepts."""
+
+    spy = _Spy(monkeypatch)
+    readable = _nested_shapes(MAX_READ_STRINGS, real=MEMORY)[shape]
+    row = _held("artifact", [])
+    row["metadata_json"] = {**row["metadata_json"], "source_refs": readable}  # type: ignore[arg-type]
+    settled = _settled(row)
+    assert (settled.unverified, settled.sensitivity) == (False, "confidential"), shape
+    assert MEMORY in _ids(scan_citations(({"source_refs": readable},)))
+    reads_at_the_bound = spy.reads
+    assert reads_at_the_bound > 0
+    past = _nested_shapes(MAX_READ_STRINGS + 1, real=MEMORY)[shape]
+    row = _held("artifact", [])
+    row["metadata_json"] = {**row["metadata_json"], "source_refs": past}  # type: ignore[arg-type]
+    settled = _settled(row)
+    assert (settled.unverified, settled.reason) == (True, "too_many_citations"), shape
+    assert scan_citations(({"source_refs": past},)).too_many
+    assert spy.reads == reads_at_the_bound, shape
+
+
+def _encoded_containers(count: int) -> dict[str, object]:
+    """One string that holds ``count`` citation strings, in the shapes a client can store."""
+
+    strings = _many(count, real=MEMORY)
+    plain = {"bundle": {f"k{index}": text for index, text in enumerate(strings)}}
+    encoded_object = json.dumps(plain)
+    return {
+        "encoded object": [encoded_object],
+        "encoded list": [json.dumps(strings)],
+        "encoded inside a plain container": [{"wrap": encoded_object}],
+    }
+
+
+@pytest.mark.parametrize("shape", ("encoded object", "encoded list", "encoded inside a plain container"))
+def test_an_encoded_container_past_the_read_bound_is_unverified(shape: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A string that decodes as an object or a list counts as the strings inside it, in the scan and the recorded inputs.
+
+    1,024 stays readable. 1,025 is unverified, including when the encoded container sits inside a plain object.
+    """
+
+    spy = _Spy(monkeypatch)
+    readable = _encoded_containers(MAX_READ_STRINGS)[shape]
+    row = _held("artifact", [])
+    row["metadata_json"] = {**row["metadata_json"], "source_refs": readable}  # type: ignore[arg-type]
+    settled = _settled(row)
+    assert (settled.unverified, settled.sensitivity) == (False, "confidential"), shape
+    assert scan_citations(({"source_refs": readable},)).too_many is False
+    assert dependency_record("artifact", row)[1] == ""
+    reads_at_the_bound = spy.reads
+    assert reads_at_the_bound > 0
+    past = _encoded_containers(MAX_READ_STRINGS + 1)[shape]
+    row = _held("artifact", [])
+    row["metadata_json"] = {**row["metadata_json"], "source_refs": past}  # type: ignore[arg-type]
+    settled = _settled(row)
+    assert (settled.unverified, settled.reason) == (True, "too_many_citations"), shape
+    assert scan_citations(({"source_refs": past},)).too_many
+    assert dependency_record("artifact", row)[1] == "too_many_citations"
+    assert spy.reads == reads_at_the_bound, shape
+
+
+def test_a_list_of_the_same_string_past_the_bound_is_unverified_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"n": 0}
+    original = vnext_derived_labels.cited_source_ids
+
+    def counted(value):
+        calls["n"] += 1
+        return original(value)
+
+    monkeypatch.setattr(vnext_derived_labels, "cited_source_ids", counted)
     settled = _settled(_held("artifact", [json.dumps({"memory_id": MEMORY})] * (MAX_READ_STRINGS + 1)))
     assert (settled.unverified, settled.reason) == (True, "too_many_citations")
+    assert calls["n"] == 0, "the list past the bound went to the reader"
 
 
 def test_any_number_of_the_strings_every_producer_writes_is_not_a_record_past_the_bound() -> None:

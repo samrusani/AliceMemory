@@ -572,6 +572,7 @@ def supersede_execution_budget_record(
     replacement_budget_id = uuid4()
     lifecycle_error: ExecutionBudgetLifecycleError | None = None
     try:
+        # label state: none, execution budgets carry no label and this is not a vNext store.
         with store.conn.transaction():
             superseded = store.supersede_execution_budget_optional(
                 execution_budget_id=request.execution_budget_id,

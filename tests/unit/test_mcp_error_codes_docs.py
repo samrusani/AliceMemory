@@ -1,8 +1,7 @@
 """The error codes the docs list are the codes the server sends, and main-only text says it is main-only.
 
-Unreleased (on main, not in v0.20.0). v0.20.0 is released and these pages describe it, so the three new codes and the
-wider use of ``invalid_request`` carry ``Unreleased (on main, not in v0.20.0):`` until the release PR converts the
-markers. The CHANGELOG entry states the v0.20.0 answer for each case, as the release rule for behaviour changes asks.
+New in v0.20.2. v0.20.0 is released and these pages describe it, so the three new codes and the
+wider use of ``invalid_request`` carry ``From v0.20.2,``. The CHANGELOG entry states the v0.20.0 answer for each case, as the release rule for behaviour changes asks.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ from pathlib import Path
 from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 # The codes that existed before this change and are still sent.
 OLD_CODES = frozenset({"tool_request_failed", "tool_execution_failed", "tool_not_found"})
 
@@ -287,7 +286,7 @@ def test_the_pages_that_describe_the_old_answer_carry_the_marker_in_the_right_pl
 
 
 def test_the_changelog_has_one_unreleased_entry_that_states_the_v0200_code() -> None:
-    """One Unreleased entry names the new codes and says v0.20.0 answered ``tool_request_failed`` for each case.
+    """One v0.20.2 entry names the new codes and says v0.20.0 answered ``tool_request_failed`` for each case.
 
     The entry also carries the follow-up fixes, so the one entry stays the whole story of the feature: the policy is
     asked before the state of the row, a missing entity is ``not_found``, and a PostgreSQL foreign key failure is
@@ -303,9 +302,9 @@ def test_the_changelog_has_one_unreleased_entry_that_states_the_v0200_code() -> 
     """
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = changelog.split("\n## ")[1]
-    assert unreleased.startswith("Unreleased")
-    entries = [entry for entry in unreleased.split("\n- ") if "`not_permitted`" in entry]
+    released = changelog.split("\n## ")[2]
+    assert released.startswith("v0.20.2")
+    entries = [entry for entry in released.split("\n- ") if "`not_permitted`" in entry]
 
     assert len(entries) == 1
     entry = _flat(entries[0])

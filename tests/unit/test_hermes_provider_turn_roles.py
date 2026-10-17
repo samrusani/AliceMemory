@@ -591,9 +591,10 @@ def test_the_docs_say_what_v0192_changed_and_what_v0190_still_does() -> None:
     """
 
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    # Unreleased and the v0.20.0 section may hold entries for changes made after v0.19.2.
+    # Unreleased, the v0.20.2 section and the v0.20.0 section may hold entries for changes made after v0.19.2.
     newer = changelog[changelog.index("## Unreleased") : changelog.index("## v0.19.2")]
     assert newer.startswith("## Unreleased")
+    assert "## v0.20.2 \u2014 2026-10-17" in newer
     assert "## v0.20.0 \u2014 2026-10-02" in newer
     assert "Hermes provider 0.5.2" not in newer
     released_now = changelog[changelog.index("## v0.19.2") : changelog.index("## v0.19.0")]

@@ -370,6 +370,7 @@ def bootstrap_v1_workspace(request: Request) -> JSONResponse:
     try:
         user_account_id = _resolve_authenticated_v1_user_id(settings, request)
         with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+            # label state: none, workspace tables carry no label and this connection has no vNext store.
             with conn.transaction():
                 context = ensure_local_workspace(conn, user_account_id=user_account_id)
         workspace_id = context["workspace"]["id"]
@@ -418,6 +419,7 @@ def get_v1_workspace_bootstrap_status(request: Request) -> JSONResponse:
     try:
         user_account_id = _resolve_authenticated_v1_user_id(settings, request)
         with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+            # label state: none, workspace tables carry no label and this connection has no vNext store.
             with conn.transaction():
                 context = get_local_workspace(conn, user_account_id=user_account_id)
     except ValueError as exc:

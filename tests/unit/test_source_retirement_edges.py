@@ -832,3 +832,84 @@ def test_an_alias_a_shared_entity_learned_from_the_source_stays_while_another_ed
     capsys.readouterr()
     assert _rows(db, "SELECT name, aliases, mention_count, deleted_at IS NULL FROM vnext_entities") == [
         ("Alice Marlow", '["dr alice marlow"]', 1, 1)]
+
+
+@pytest.mark.parametrize("operation", ("delete", "prune", "replace"))
+@pytest.mark.parametrize("place", ("from_type", "to_type", "created_by", "chunk"))
+def test_an_imported_edge_that_names_the_source_only_in_a_type_column_is_closed(tmp_path, capsys, operation, place):
+    """Import restores ``from_type``, ``to_type`` and ``created_by`` as text. An edge whose only mention of the source is
+    one of those columns, with unrelated ends, is closed and blanked, counted on the receipt, and absent from the legacy
+    graph tool and from a later export."""
+
+    root = tmp_path / "origin"
+    root.mkdir()
+    db = _vault(root)
+    folder = _folder(root, note="The lantern sits on the shelf.")
+    sid = run_import(db, folder).source_ids[0]
+    with sqlite_user_connection(db, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        left = str(store.create_memory(
+            {"memory_key": "left", "value": {"text": "left"}, "memory_type": "project_fact", "status": "active",
+             "title": "left", "canonical_text": "left", "source_event_ids": []}
+        )["id"])
+        right = str(store.create_memory(
+            {"memory_key": "right", "value": {"text": "right"}, "memory_type": "project_fact", "status": "active",
+             "title": "right", "canonical_text": "right", "source_event_ids": []}
+        )["id"])
+        chunk = str(store.list_source_chunks(sid)[0]["id"])
+    fields = {"from_type": "memory", "from_id": left, "to_type": "memory", "to_id": right, "created_by": "importer"}
+    quoted = "amberquilltext"
+    if place == "chunk":
+        fields["from_type"] = f"{chunk} {quoted}"
+    else:
+        fields[place] = f"source:{sid} {quoted}"
+    edge_id = str(uuid4())
+    row = {
+        "id": edge_id, "user_id": USER_ID, **fields, "edge_type": "supports", "confidence": 0.9,
+        "explanation": f"{SENTINEL} explanation", "created_at": "2030-01-01T00:00:00Z",
+        "observed_at": "2030-01-01T00:00:00Z", "valid_from": "2030-01-01T00:00:00Z", "valid_to": None,
+        "metadata_json": {"why": f"{SENTINEL} metadata"},
+    }
+    restored = _spliced_restore(tmp_path, db, [row])
+    if operation == "delete":
+        assert command(restored, "delete", sid, "--yes") == 0
+        receipt = json.loads(capsys.readouterr().out)["deleted"][0]
+    elif operation == "prune":
+        raw = Path(_rows(restored, "SELECT raw_path FROM sources WHERE id = ?", (sid,))[0][0])
+        raw.write_text("The copper lantern is upstairs.")
+        run_import(restored, raw, supersede=True)
+        capsys.readouterr()
+        assert command(restored, "prune", "--superseded", "--yes") == 0
+        receipt = json.loads(capsys.readouterr().out)["deleted"][0]
+    else:
+        raw = Path(_rows(restored, "SELECT raw_path FROM sources WHERE id = ?", (sid,))[0][0])
+        raw.write_text("The copper lantern is upstairs.")
+        run_import(restored, raw, supersede=True)
+        capsys.readouterr()
+        receipt = json.loads(_rows(restored, "SELECT payload_json FROM event_log WHERE event_type = 'source.superseded' "
+                                        "ORDER BY rowid DESC")[0][0])
+    # Prune follows the replacement, which already closed the edge and replaced the source-linked column.
+    # The id is gone, so prune does not count that edge again. Delete and import --supersede count it.
+    if operation == "prune":
+        assert receipt["graph_edges"] == 0, receipt
+    else:
+        assert receipt["graph_edges"] >= 1, receipt
+    stored = _rows(
+        restored,
+        "SELECT from_type, to_type, created_by, explanation, metadata_json, valid_to IS NULL "
+        "FROM graph_edges WHERE id = ?",
+        (edge_id,),
+    )[0]
+    column = "from_type" if place == "chunk" else place
+    positions = {"from_type": 0, "to_type": 1, "created_by": 2}
+    assert stored[positions[column]] == MARKER, (place, operation, stored)
+    assert stored[3:] == ("", "{}", 0), (place, operation, stored)
+    for target in (left, right):
+        for edge in _neighbours(restored, target):
+            dumped = json.dumps(edge)
+            assert SENTINEL not in dumped, (place, operation)
+            assert quoted not in dumped, (place, operation)
+    export = _export_text(restored)
+    database = _whole_database(restored)
+    assert SENTINEL not in export and quoted not in export
+    assert SENTINEL not in database and quoted not in database

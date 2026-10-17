@@ -365,6 +365,42 @@ def remember_durable(key: Hashable, value: Any) -> None:
         unit.append((key, value))
 
 
+def open_read_retry() -> tuple[_Scope, Any]:
+    """The scope of one HTTP read, shared by its first attempt and the retry. Returns ``(scope, token)``."""
+
+    scope = _Scope()
+    return scope, _SCOPE.set(scope)
+
+
+def close_read_retry(token: Any) -> None:
+    _SCOPE.reset(token)
+
+
+def promote_committed(scope: _Scope) -> None:
+    """Hand the first attempt's committed results to the retry, in the order they were made."""
+
+    scope.retried = True
+    scope.replay = {}
+    for key, value in scope.durable:
+        scope.replay.setdefault(key, deque()).append(value)
+    scope.durable = []
+
+
+def committed_once(key: Hashable, compute: Callable[[], _Result], *, replay: Callable[[Any], Any] | None = None) -> _Result:
+    """``compute()``, or on the retry of an HTTP read whose first attempt committed it, that result.
+
+    The result is kept only when ``compute`` runs inside a ``durable_unit`` that then commits, which is the transaction
+    of the request. A first attempt that rolled back left nothing, and the retry runs ``compute`` again.
+    """
+
+    done = replay_durable(key)
+    if is_remembered(done):
+        return done if replay is None else replay(done)
+    result = compute()
+    remember_durable(key, result)
+    return result
+
+
 def durable_once(key: Hashable, compute: Callable[[], _Result], *, replay: Callable[[Any], Any] | None = None) -> _Result:
     """``compute()``, or on the second attempt of a tool call that already finished it, the result of the first attempt
     (through ``replay`` when given). ``compute`` commits its own transactions: that it returned is the proof, so a result
@@ -467,11 +503,15 @@ __all__ = [
     "MAX_STORED_JSON_DEPTH",
     "NOT_FINITE",
     "TOO_DEEP",
+    "close_read_retry",
+    "committed_once",
     "cut_deep_json",
     "cut_deep_value",
     "cutting_deep_json",
     "durable_once",
     "durable_unit",
+    "open_read_retry",
+    "promote_committed",
     "first_json_problem",
     "is_remembered",
     "loads_bounded",

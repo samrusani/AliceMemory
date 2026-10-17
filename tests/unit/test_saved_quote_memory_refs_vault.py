@@ -1,6 +1,6 @@
 """A saved quote of a memory is withheld from a caller who may not read that memory, on a real vault with real keys.
 
-Unreleased (on main, not in v0.20.0). A commit can cite a memory in ``source_refs`` as ``{"memory_id": "<id>", "quote":
+New in v0.20.2. A commit can cite a memory in ``source_refs`` as ``{"memory_id": "<id>", "quote":
 "..."}`` or as two entries, ``"memory:<id>"`` and ``{"quote": "..."}``, and the quote holds the words of that memory. The
 write fence reads neither shape, so the commit keeps the quote as sent in ``metadata_json.agentic_memory.source_refs`` and in
 ``value.source_refs``. On main until this change every reader of the commit returned those words after the memory was

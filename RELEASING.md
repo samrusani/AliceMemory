@@ -2,7 +2,7 @@
 
 
 
-`v0.20.0` is the latest published release and remains the checksum/install
+`v0.20.2` is the latest published release and remains the checksum/install
 baseline.
 Preparing candidate documents does not authorize a tag, PyPI upload, or GitHub
 Release.
@@ -65,7 +65,7 @@ readback:
      --repo OWNER/REPOSITORY --sha RELEASE_SHA --check-rulesets
    ```
 
-   Unreleased (on main, not in v0.20.0): The required check named
+   The required check named
    `Unit tests + live eval battery (SQLite)` is the summary job of the unit
    tests in `tests.yml`. The unit tests run as four shard jobs, the model-free
    eval battery runs in its own job, and a coverage job combines the shard data
@@ -424,6 +424,13 @@ the test file allowlists it with a reason. A step that names a script in a form
 the test cannot read fails it outright. `v0.19.1` was never published because a
 release script imported the package in one of those jobs.
 
+The first job reruns the whole unit suite in one process, while CI runs it as
+shard jobs. Its `timeout-minutes` must cover the shard count times the shard
+limit plus a margin, and `tests/unit/test_publish_workflow_time_limit.py` fails
+when it does not. Raise the publish limit in the same pull request that adds a
+shard or raises the shard limit. `v0.20.1` was never published because this job
+reached its old 35 minute limit while it reran the suite.
+
 ### Recovering finalization after PyPI succeeds
 
 The workflow deliberately stages and verifies a draft before crossing the
@@ -483,5 +490,5 @@ the tag and must not have claimed publication early.
 Verify checksum files on Linux with `sha256sum -c SHA256SUMS` and on stock
 macOS with `shasum -a 256 -c SHA256SUMS`.
 
-`v0.20.0` is the latest published release and remains the install, checksum,
+`v0.20.2` is the latest published release and remains the install, checksum,
 and baseline reference.

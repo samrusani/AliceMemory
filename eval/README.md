@@ -386,7 +386,7 @@ retrieval path — labels are used for reporting only.
 
 ## Search-quality harness (`scripts/alice_bench.py`)
 
-Unreleased (on main, not in v0.20.0): `scripts/alice_bench.py` builds a fresh vault from a folder of Markdown files, runs `alice_recall` the way an MCP host does, scores what came back against anchors, and runs a `grep` arm over the same files for comparison. v0.20.0 has no such harness and states no agent-answer number. The method is in [Agent-answer check: method note](../docs/benchmarks/agent-answer/README.md).
+From v0.20.2, `scripts/alice_bench.py` builds a fresh vault from a folder of Markdown files, runs `alice_recall` the way an MCP host does, scores what came back against anchors, and runs a `grep` arm over the same files for comparison. v0.20.0 has no such harness and states no agent-answer number. The method is in [Agent-answer check: method note](../docs/benchmarks/agent-answer/README.md).
 
 ## Legacy baselines in `eval/baselines/` — read with caution
 

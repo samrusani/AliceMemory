@@ -66,7 +66,7 @@ claude plugin marketplace add samrusani/AliceMemory
 claude plugin install alice-memory@alicememory
 ```
 
-The marketplace file is on `main` and pins the plugin to the v0.20.0 tag commit. Add the marketplace from `main`, not from a checkout of a tag: a tag's file is missing or pins an earlier release. If git on your machine is set to use SSH for GitHub and you have no key there, add `https://github.com/samrusani/AliceMemory.git` instead. If you already have a clone, `claude plugin marketplace add <path to the clone>` works too. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md), which lists what each tag pins.
+The marketplace file is on `main` and pins the plugin to the v0.20.2 tag commit. Add the marketplace from `main`, not from a checkout of a tag: a tag's file is missing or pins an earlier release. If git on your machine is set to use SSH for GitHub and you have no key there, add `https://github.com/samrusani/AliceMemory.git` instead. If you already have a clone, `claude plugin marketplace add <path to the clone>` works too. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md), which lists what each tag pins.
 
 OpenClaw can also add the server in one line, which probes before saving:
 
@@ -127,7 +127,7 @@ For Postgres with pgvector, the web review console, and the core memory
 scheduler workflows, run from a repo checkout. Requirements: Python 3.12+,
 Node 20+, pnpm, Docker, Git.
 
-The clone checks out `main`, which can be ahead of the latest release. To run v0.20.0, run `git checkout v0.20.0` before `make setup`.
+The clone checks out `main`, which can be ahead of the latest release. To run v0.20.2, run `git checkout v0.20.2` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git
@@ -224,10 +224,10 @@ Known issue with this number. In the LongMemEval_s data, the id of every session
 
 ## Status
 
-`v0.20.0` is the latest published release and remains the install, checksum,
-and release-note baseline (the `v0.9.3`, `v0.10.0`, `v0.13.0`, `v0.15.0` and
-`v0.19.1` tags were never published). Its tag, release record, and published
-artifacts are immutable. `v0.19.2` is the immediately prior published release.
+`v0.20.2` is the latest published release and remains the install, checksum,
+and release-note baseline (the `v0.9.3`, `v0.10.0`, `v0.13.0`, `v0.15.0`,
+`v0.19.1` and `v0.20.1` tags were never published). Its tag, release record, and published
+artifacts are immutable. `v0.20.0` is the immediately prior published release.
 `v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
 Alice is a public-alpha, pre-1.0 project.
 What that means in practice:
@@ -259,7 +259,7 @@ What that means in practice:
 - [Health and monitoring](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/health-and-monitoring.md)
 - [Upgrade v0.12.0 to current](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/upgrade-v0.12-to-current.md)
 - [Security and privacy](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/security-and-privacy.md)
-- [v0.20.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.20.0-release-notes.md)
+- [v0.20.2 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.20.2-release-notes.md)
 - [All release notes](https://github.com/samrusani/AliceMemory/releases)
 - [Release procedure](https://github.com/samrusani/AliceMemory/blob/main/RELEASING.md)
 - [Architecture](https://github.com/samrusani/AliceMemory/blob/main/ARCHITECTURE.md)

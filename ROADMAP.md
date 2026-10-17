@@ -2,11 +2,11 @@
 
 ## Baseline (Not Roadmap Work)
 
-- `v0.20.0` is the latest published release. Its immutable release record is
-  `docs/release/v0.20.0-release-notes.md`, with artifact digests in
-  `docs/release/v0.20.0-checksums.txt`. `v0.19.2` is the immediately prior
-  published release. (The `v0.9.3`, `v0.10.0`, `v0.13.0`, `v0.15.0` and
-  `v0.19.1` tags were never published.)
+- `v0.20.2` is the latest published release. Its immutable release record is
+  `docs/release/v0.20.2-release-notes.md`, with artifact digests in
+  `docs/release/v0.20.2-checksums.txt`. `v0.20.0` is the immediately prior
+  published release. (The `v0.9.3`, `v0.10.0`, `v0.13.0`, `v0.15.0`,
+  `v0.19.1` and `v0.20.1` tags were never published.)
 - `v0.11.0` shipped the Phase 1 periphery cut; `v0.11.1` shipped the Phase 2
   debt sweep. Their records are unchanged.
 - `v0.12.0` shipped the Phase 3 structural refactor with **Structure only.
@@ -35,7 +35,7 @@ OpenCode is an opt-in `alice-memory install` host, and from `v0.19.0` Codex is
 one too. The Claude Code plugin directory ships in `v0.19.0`. Host coverage is
 done, and the skill pack revisions are in design. Next is search quality: the
 next release is planned as a search-quality release, ahead of new features.
-Unreleased (on main, not in v0.20.0): a daily brief that discovers an open loop
+From v0.20.2, a daily brief that discovers an open loop
 writes `open_loops.project_id` only when that single project is a UUID. A
 free-form name stays in `metadata_json.project_scope`. In v0.20.0 the name was
 written into the UUID column and the brief failed on Postgres.
@@ -101,5 +101,5 @@ restore, recorded security disposition) shipped in Phases 4 and 5.
 - Growing the core MCP surface past eleven tools. The default handshake stays
   at three.
 
-`v0.20.0` is the latest published release and remains the install, checksum,
+`v0.20.2` is the latest published release and remains the install, checksum,
 and baseline reference.

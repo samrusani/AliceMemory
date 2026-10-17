@@ -33,7 +33,15 @@ from alicebot_api.vnext_project_scope import (
     resolve_project_scope,
     source_project_scope,
 )
-from alicebot_api.vnext_citations import BATCH_STRINGS, MAX_READ_STRINGS, NO_CITATIONS, Citations, read_reference, scan_citations
+from alicebot_api.vnext_citations import (
+    BATCH_STRINGS,
+    MAX_READ_STRINGS,
+    NO_CITATIONS,
+    Citations,
+    read_reference,
+    reader_string_count,
+    scan_citations,
+)
 from alicebot_api.vnext_source_fence import cited_source_ids
 
 # Public 1, internal 2, unknown 2, private 3, confidential 4,
@@ -683,6 +691,11 @@ def _source_refs_strings(
     objects: set[tuple[str, str]] = set()
     problem = ""
     others: list[str] = []
+    nested: list[object] = []
+    nested_strings = 0
+    # A string entry that decodes as an object or a list counts as the strings inside it, the same as a plain
+    # nested object. The strings every producer writes are not part of this count.
+    examined_strings = 0
     for item in items:
         if isinstance(item, str):
             if _PRODUCER_REF.fullmatch(item):
@@ -692,19 +705,24 @@ def _source_refs_strings(
                     ids.add(item[-36:])
             elif len(item) >= 32:  # shorter holds no id in any spelling
                 others.append(item)
+                examined_strings += reader_string_count(item)
         else:
+            nested.append(item)
+            nested_strings += reader_string_count(item)
+    if examined_strings + nested_strings > MAX_READ_STRINGS:
+        problem = problem or TOO_MANY_CITATIONS
+    else:
+        for item in nested:
             item_problem, item_ids = _source_ids_from(item)
             problem = problem or item_problem
             objects |= {("source", row_id) for row_id in item_ids}
             objects |= _typed_refs(item)
-    if len(others) > MAX_READ_STRINGS:
-        problem = problem or TOO_MANY_CITATIONS
-    elif len(others) > BATCH_STRINGS:
-        # A list this long is read in one call, as the scan reads it, and does not go through the kept readings.
-        ids |= {identifier(named) for named in cited_source_ids(others).named}
-    else:
-        for item in others:
-            ids |= {identifier(named) for named in read_reference(item).named_sources}
+        if len(others) > BATCH_STRINGS:
+            # A list this long is read in one call, as the scan reads it, and does not go through the kept readings.
+            ids |= {identifier(named) for named in cited_source_ids(others).named}
+        else:
+            for item in others:
+                ids |= {identifier(named) for named in read_reference(item).named_sources}
     for item in others:
         refs |= _typed_refs(item)
     return problem, ids, refs, objects
@@ -1298,6 +1316,21 @@ def dependency_label_signature(kind: str, row: Mapping[str, object]) -> tuple:
 def has_implicit_weekly_inputs(kind: str, row: Mapping[str, object]) -> bool:
     """Recognize implicit candidate ancestry through canonical metadata decoding."""
     return canon_kind(kind) == "artifact" and bool(_metadata(row).get("candidate_memory_ids"))
+
+
+def weekly_candidate_memory(kind: object, row: Mapping[str, object]) -> bool:
+    """A memory written by weekly synthesis, judged with the report that names it.
+
+    v0.20.0 stored the inputs on the report and not on the memory. The report names the memory in
+    ``candidate_memory_ids``. A memory written on main also carries its own record. Either way the
+    memory's label is at least the label of that report's inputs.
+    """
+
+    return (
+        canon_kind(kind) == "memory"
+        and is_derived(kind, row)
+        and _metadata(row).get("discovered_by") == "vnext_weekly_synthesis"
+    )
 
 
 def _copy_scope(stored: tuple[str, ...], parents: Sequence[SettledLabel]) -> tuple[str, ...]:

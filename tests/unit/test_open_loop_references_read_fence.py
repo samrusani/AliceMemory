@@ -1,6 +1,6 @@
 """A reader of an open loop is shown only the sources and memories its own read fence admits.
 
-Unreleased (on main, not in v0.20.0). An open loop keeps the ``source_id`` and ``memory_id`` it was made with in columns
+New in v0.20.2. An open loop keeps the ``source_id`` and ``memory_id`` it was made with in columns
 of its own, and its ``metadata_json`` can name sources and memories too. The readers of a loop filtered the loop by the
 caller's domain, ceiling and project, then returned the row whole, so a key that could read a loop was handed the id of
 a source or memory it could not read: a confidential source an ``admin_agent`` key had linked, or the id of another
@@ -1570,7 +1570,7 @@ def test_the_docs_say_what_the_readers_do_and_name_the_two_limits_that_remain() 
     assert changelog.count("- An open loop no longer shows its reader the id of a source or memory the reader may not read.") == 1
     assert (
         tools.count(
-            "Unreleased (on main, not in v0.20.0): the readers of an open loop hold the loop's references to the "
+            "From v0.20.2, the readers of an open loop hold the loop's references to the "
             "reader's own fence"
         )
         == 1
