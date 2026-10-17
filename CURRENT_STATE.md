@@ -2,18 +2,19 @@
 
 ## Snapshot
 
-- `v0.20.0` is the latest published release. It is available from PyPI and
+- `v0.20.2` is the latest published release. It is available from PyPI and
   GitHub, its record is immutable, and exact artifact digests are in
-  `docs/release/v0.20.0-checksums.txt`. `v0.19.2` is the immediately prior
+  `docs/release/v0.20.2-checksums.txt`. `v0.20.0` is the immediately prior
   published release.
 - Earlier releases whose headlines still get referenced: `v0.13.1` shipped the
   Phase 4 core-roadmap work as **Replicated benchmark, faster SQLite at scale,
   reference integrations**, and `v0.12.0` shipped the Phase 3 structural
   refactor as **Structure only. Zero behavior change.** Records for both remain
   under `docs/release/`.
-- Five tags exist that were never published: `v0.9.3`, a withdrawn security
+- Six tags exist that were never published: `v0.9.3`, a withdrawn security
   candidate; `v0.10.0`, which failed its release gate; `v0.13.0`, superseded by
-  `v0.13.1`; `v0.15.0`; and `v0.19.1`, superseded by `v0.19.2`. None has a PyPI
+  `v0.13.1`; `v0.15.0`; `v0.19.1`, superseded by `v0.19.2`; and `v0.20.1`,
+  superseded by `v0.20.2`. None has a PyPI
   artifact or a published GitHub Release. `v0.10.1` has a GitHub Release with no
   files and no PyPI artifact, because its publish failed; `v0.10.2` superseded
   it.
@@ -85,31 +86,90 @@ authoritative description; Phase 3 does not rewrite that history.
 
 ## Release Boundary
 
-`v0.20.0` is tagged, published, and immutable. Its authoritative records are:
+`v0.20.2` is tagged, published, and immutable. Its authoritative records are:
 
-- `docs/release/v0.20.0-release-notes.md`
-- `docs/release/v0.20.0-checksums.txt`
+- `docs/release/v0.20.2-release-notes.md`
+- `docs/release/v0.20.2-checksums.txt`
 
-`v0.19.2` is the immediately prior published release; its records are
-`docs/release/v0.19.2-release-notes.md` and `docs/release/v0.19.2-checksums.txt`.
+`v0.20.0` is the immediately prior published release; its records are
+`docs/release/v0.20.0-release-notes.md` and `docs/release/v0.20.0-checksums.txt`.
 
 Every earlier release remains published and immutable, with its own
 `docs/release/vX.Y.Z-release-notes.md` and `vX.Y.Z-checksums.txt`. That includes
 `v0.13.1`, `v0.12.0` and `v0.11.1`, which are referenced elsewhere in this
 document.
 
-Five tags exist that were never published and never will be, because stable
+Six tags exist that were never published and never will be, because stable
 tags are immutable and the numbers are retired rather than reused: `v0.9.3`, a
 withdrawn security candidate; `v0.10.0`, whose protected release gate failed;
 `v0.13.0`, superseded by `v0.13.1`; `v0.15.0`, whose commit carried a
-release-gate step that could not run on a CI runner; and `v0.19.1`, whose publish run failed at the
+release-gate step that could not run on a CI runner; `v0.19.1`, whose publish run failed at the
 draft readback because a release script imported the package in a job that does
-not install it, so it has no PyPI artifact and no published GitHub Release.
+not install it; and `v0.20.1`, whose publish run reached its first job's time
+limit while it reran the unit suite, before anything was built. Neither of the
+last two has a PyPI artifact or a published GitHub Release.
+
+## What `v0.20.2` Shipped
+
+`v0.20.2` is the latest published release and remains the install, checksum,
+and baseline reference.
+
+It shipped the fixes and additions on `main` after `v0.20.0`. Most are security
+fixes: a derived summary, report or copy follows the labels of its inputs, and
+the operator routes, the event feeds, the doors that act on one row by id and
+the readers of saved quotes and of open-loop ids apply the caller's limits. It
+adds no MCP tool. It adds commands (`alice-memory project`, `alice-memory
+labels`, `alicebot vnext labels`, the SQLite `sources` commands and
+`import-markdown --supersede`) and three settings, `ALICE_PROJECT_DIR`,
+`ALICE_PROJECT_SCOPING` and `ALICE_MCP_COMMIT_RESULT`. Per-project scoping and
+the compact commit result are off by default. PostgreSQL migrations
+`20261004_0095`, `20261005_0096` and `20261011_0097` repair stored labels, and a
+SQLite vault is repaired on its next open.
+
+- [v0.20.2 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.20.2-release-notes.md)
+
+`v0.20.2` has these changes. `v0.20.0` does not.
+
+- A derived row is stored at least as strict as its inputs and follows them when
+  they are relabelled. `alice-memory labels check` and `alicebot vnext labels
+  check` list the rows that are below their inputs or unverified, and `labels
+  repair` raises them. After the upgrade, a derived row whose inputs are
+  confidential is labelled confidential and a derived row with no record is
+  unverified. Either one leaves the owner's default recall, pack and resume, as
+  any confidential row did in `v0.20.0`.
+- Thirteen operator routes, source review and delete, belief and graph edge
+  review, open-loop filing and extraction, the project update candidate, the
+  daily brief, the answer of a run that makes a report and the doors that act on
+  one row by id apply the caller's limits. A row above the key's limits answers
+  as a row that does not exist. The workspace and source trace event feeds,
+  saved quotes and the ids an open loop keeps follow the rows they name.
+- Redacting a memory restricts the reports and derived rows built from it to the
+  owner and an unbound admin key until they are regenerated without it. This is
+  containment, not removal.
+- A refusal over the MCP tools says what kind it was: `not_permitted`,
+  `not_found` or `precondition_failed`. A request that names no domain is held to
+  the caller's profile. A key cannot be bound to the project name `~global`.
+- `POST /v0/vnext/projects` answers HTTP 409 for a slug in use,
+  `POST /v0/vnext/queue/process-next` works on PostgreSQL, and redacting a
+  memory made by promoting a report completes.
+- SQLite gains `sources list`, `sources delete`, `sources prune --superseded` and
+  `import-markdown --supersede`, and a Markdown or ChatGPT import that fails part
+  way leaves no half-built source.
+- The brief, `alice_resume` and `alice_recent_decisions` leave out an expired
+  memory, consolidation and roll-ups neither send its text nor group it, an
+  expired roll-up card is not the accepted card for its topic, and artifact
+  promotion embeds the memory it makes.
+- `alice_memory_commit` refuses a memory over 20,000 characters, and JSON a
+  caller hands a write door nests at most 64 levels and holds no number that is
+  not finite.
+- Still open, listed in the release notes: the `max_tokens` budget prices the
+  full stored row, a vector made from a cut text represents only its head,
+  removal of redacted text from reports is planned for `v0.21.0`, and the
+  vector stage of recall does not refill after hiding rows.
 
 ## What `v0.20.0` Shipped
 
-`v0.20.0` is the latest published release and remains the install, checksum,
-and baseline reference.
+`v0.20.0` is the immediately prior published release.
 
 It shipped the fixes on `main` after `v0.19.2`. Most come from the internal
 security review of `v0.19.0`, whose findings DB-005, DB-006, DB-008, DB-009,
@@ -161,16 +221,10 @@ no schema. It adds the `--max-file-mib` option and four settings:
   memory, consolidation and roll-ups can embed one, artifact promotion leaves a
   memory without a vector until reindex, and the `max_tokens` budget prices the
   full stored row.
-- Unreleased (on main, not in v0.20.0): the brief, `alice_resume` and
-  `alice_recent_decisions` leave out an expired memory, consolidation and
-  roll-ups neither send its text nor group it, an expired roll-up card is not the
-  accepted card for its topic, and artifact promotion embeds the memory it makes.
-  The `max_tokens` budget still prices the full stored row. The rest of what is
-  on main since `v0.20.0` is listed under Unreleased in `CHANGELOG.md`.
 
 ## What `v0.19.2` Shipped
 
-`v0.19.2` is the immediately prior published release.
+`v0.19.2` is an earlier published release.
 
 It shipped the fixes on `main` after `v0.19.0`. Most come from an internal
 security review of `v0.19.0`. It adds no tool or command and changes no schema. The
@@ -254,10 +308,11 @@ relative or empty `--data-dir` is refused. There is no schema change.
   enabled and install has not written Claude Code entries, and refuses when
   both exist. The `v0.19.0` tag has no marketplace file. `main` has
   `.claude-plugin/marketplace.json`, named `alicememory`, which pins the plugin
-  to the `v0.20.0` tag commit, so the plugin installs from that marketplace.
+  to the `v0.20.2` tag commit, so the plugin installs from that marketplace.
   The `v0.19.2` tag has the file too, still pinned to the `v0.19.0` tag
-  commit, and the `v0.20.0` tag has it still pinned to the `v0.19.2` tag
-  commit. `v0.18.0` has no plugin.
+  commit, the `v0.20.0` tag has it still pinned to the `v0.19.2` tag commit,
+  and the `v0.20.2` tag has it still pinned to the `v0.20.0` tag commit.
+  `v0.18.0` has no plugin.
 - The session brief cuts a long note to at most 1,500 characters, stays under
   9,500 characters, and leaves out a superseded fact and a source line whose
   captured sentence was corrected later. A long newest fact, open loop,

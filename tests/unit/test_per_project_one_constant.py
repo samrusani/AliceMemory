@@ -107,9 +107,9 @@ def test_the_brief_reads_the_constant_on_every_call(tmp_path: Path, monkeypatch:
         assert sensitive_global_exclusion(view) == frozenset()
 
 
-def _unreleased_section() -> str:
+def _released_section() -> str:
     text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    start = text.index("## Unreleased")
+    start = text.index("## v0.20.2")
     end = text.index("\n## v", start)
     return text[start:end]
 
@@ -121,10 +121,10 @@ def test_the_changelog_carries_the_release_note_sentence_word_for_word_and_the_d
     keyed to a detected project and the first sentence alone would say more than the rule does.
     """
 
-    unreleased = _unreleased_section()
-    assert unreleased.count(RELEASE_NOTE_SENTENCE) == 1
-    index = unreleased.index(RELEASE_NOTE_SENTENCE)
-    following = unreleased[index + len(RELEASE_NOTE_SENTENCE) :]
+    released = _released_section()
+    assert released.count(RELEASE_NOTE_SENTENCE) == 1
+    index = released.index(RELEASE_NOTE_SENTENCE)
+    following = released[index + len(RELEASE_NOTE_SENTENCE) :]
     assert following.startswith(" " + DETECTION_SENTENCE)
 
 

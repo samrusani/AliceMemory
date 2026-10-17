@@ -75,8 +75,7 @@ refuses a keyless request from another peer, or with a foreign Host or Origin,
 before it reads the body, as the `/v1` gate already did, and the identity layer
 skips its body rewrite for such a request. A JSON body nested more than 256 levels
 deep is refused with HTTP 422 before any layer decodes it, with a validation
-error of type `json_too_deep` and nothing from the body in it. Unreleased (on
-main, not in v0.20.0): a body that holds `NaN`, `Infinity`, `-Infinity` or a
+error of type `json_too_deep` and nothing from the body in it. From v0.20.2, a body that holds `NaN`, `Infinity`, `-Infinity` or a
 number too large for a float is refused the same way, with an error of type
 `finite_number`, and JSON stored from a caller is held to 64 levels where the
 product stores it (see the size bounds in `docs/alpha/mcp-tools.md`). In v0.19.2 the
@@ -284,7 +283,7 @@ active-key or RLS bypass remains in scope.
   `validity.superseded: true`, with no id, for a memory whose `superseded_by`
   pointer names a memory the caller cannot read, where v0.19.2 gave that memory
   no `validity` in the pack and recall kept `superseded: true`.
-  Unreleased (on main, not in v0.20.0): the `source_id` and `memory_id` an open
+  From v0.20.2, the `source_id` and `memory_id` an open
   loop stores, and the source and memory ids in its `metadata_json`, are
   withheld from a reader who may not read that source or memory, in the
   spellings the link writer reads and also when the row was deleted. In v0.20.0

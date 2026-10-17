@@ -850,13 +850,16 @@ def test_the_cli_commands_and_http_routes_a_legacy_page_names_exist_and_are_gate
 def test_ci_keeps_each_legacy_surface_working() -> None:
     """The workflow runs the integration tests on Postgres with the legacy flag, and each page's tests exist.
 
-    Mutations: drop the legacy flag from the integration step; remove the Postgres service;
+    Mutations: drop the legacy flag from the integration step of the shards; remove the Postgres service;
     delete one of the named test files.
     """
 
     workflow = _text(".github/workflows/tests.yml")
     assert "pgvector/pgvector" in workflow
-    assert f"run: {LEGACY_SURFACES_ENV}=1 ./.venv/bin/python -m pytest tests/integration" in workflow
+    # The integration step runs a shard's selection of tests/integration (the shards are pinned by
+    # tests/unit/test_ci_integration_job_split.py), with the flag on.
+    assert f"run: {LEGACY_SURFACES_ENV}=1 ./.venv/bin/python -m pytest ${{{{ matrix.selection }}}} -q" in workflow
+    assert re.search(r'^ +selection: >?-?"?\s*tests/integration/test_', workflow, flags=re.MULTILINE)
     assert "run: pnpm test" in [line.strip() for line in workflow.splitlines()]
     for page, tests in KEPT_WORKING_BY.items():
         for name in tests:

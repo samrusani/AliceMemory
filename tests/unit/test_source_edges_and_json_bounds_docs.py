@@ -1,7 +1,8 @@
-"""The changelog and the pages say what source deletion does to graph edges and what a write door accepts, as main-only.
+"""The changelog and the pages say what source deletion does to graph edges and what a write door accepts, as new in v0.20.2.
 
-Both changes are on main and not in v0.20.0, so every sentence that states them carries the marker
-``Unreleased (on main, not in v0.20.0):`` once, and the page keeps its v0.20.0 reading around it.
+Both changes are in v0.20.2 and not in v0.20.0, so every page paragraph that states them carries the marker
+``From v0.20.2,`` once, and the page keeps its v0.20.0 reading around it. The changelog entries stand under the
+v0.20.2 heading and carry no marker.
 
 Mutations, each one alone: delete the marker from an entry or a paragraph; delete the clause that names the edges the
 command left open (``left every other edge open``); delete the clause that says no key reads an edge on SQLite; delete the
@@ -17,7 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 
 
 def _flat(path: str) -> str:
@@ -26,14 +27,14 @@ def _flat(path: str) -> str:
 
 def _entries(starts: str) -> list[str]:
     lines = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8").splitlines()
-    return [" ".join(line.split()) for line in lines if line.startswith(f"- {MARK} {starts}")]
+    return [" ".join(line.split()) for line in lines if line.startswith("- " + starts[:1].upper() + starts[1:])]
 
 
 def test_the_changelog_entry_for_source_edges_names_the_old_behaviour_and_the_keys() -> None:
     entries = _entries("on SQLite, `sources delete`, `sources prune --superseded` and `import-markdown --supersede` close and blank every graph edge")
     assert len(entries) == 1
     entry = entries[0]
-    assert entry.count(MARK) == 1
+    assert MARK not in entry
     for clause in (
         "at either end, whatever the edge type and the type written for the end",
         "`urn:uuid:`",
@@ -42,8 +43,7 @@ def test_the_changelog_entry_for_source_edges_names_the_old_behaviour_and_the_ke
         "each edge once",
         "`graph_edges`",
         "A folder import makes the pass when its first file is replaced, so a folder that replaces nothing reads no edge.",
-        "These commands are new on main, so v0.20.0 has no deletion to correct",
-        "left every other edge open with its explanation and metadata",
+        "These commands are new in v0.20.2, so v0.20.0 has no deletion to correct.",
         "`alice-memory import` restores an edge of any type and shape",
         "No key can read one on SQLite",
         "which a configured `ALICE_AGENT_API_KEY` removes",
@@ -51,20 +51,22 @@ def test_the_changelog_entry_for_source_edges_names_the_old_behaviour_and_the_ke
         "An alias that an entity learned from the source",
     ):
         assert clause in entry, clause
+    # No release had the earlier behaviour of the new commands, so the entry does not describe it.
+    assert "left every other edge open" not in entry and "on main" not in entry
 
 
 def test_the_changelog_entry_for_the_write_limits_names_the_limits_and_what_was_wrong() -> None:
     entries = _entries("JSON that a caller hands a write door to be stored nests at most 64 levels")
     assert len(entries) == 1
     entry = entries[0]
-    assert entry.count(MARK) == 1
+    assert MARK not in entry
     for clause in (
         "holds no `NaN`, `Infinity`, `-Infinity` or number too large for a float (`1e999`)",
         "A memory commit measured the serialized size",
-        "A direct call of the commit service stored an entry nested about 950 levels deep (in v0.19.2, in v0.20.0 and on main until now)",
+        "A direct call of the commit service stored an entry nested about 950 levels deep (in v0.19.2 and in v0.20.0)",
         "v0.19.2 stored an entry nested up to about 200 levels and answered a server error from about 255 on",
         "the MCP commit tool takes strings only",
-        "in v0.20.0 and on main until now a stored value nested near the interpreter's recursion limit",
+        "in v0.20.0 a stored value nested near the interpreter's recursion limit",
         "`GET /v0/vnext/memories/{id}/audit`",
         "stored it as `null` without a word",
         "type `json_too_deep`",
@@ -90,14 +92,15 @@ def test_the_importers_page_states_the_edge_rule_as_main_only() -> None:
     page = _flat("docs/integrations/importers.md")
     start = page.index("An edge names the source when the source, or one of its chunks, is at either end")
     paragraph = page[start : page.index("Each scrub enables SQLite secure deletion")]
-    assert paragraph.count(MARK) == 1
-    before, after = paragraph.split(MARK)
+    assert MARK not in paragraph
+    before, marker, after = paragraph.partition("This command is new in v0.20.2, so v0.20.0 has no deletion to correct.")
+    assert marker
     assert "closed, and its explanation and metadata are blanked" in before
     assert "keeps its link" in before
     assert "`graph_edges`" in before and "`mention_edges` counts the mention edges among them" in before
     assert "or an open loop that the command dismisses and blanks" in before
     assert "makes that pass when its first file is replaced, so a folder that replaces nothing reads no edge" in before
-    assert "earlier builds of this command, which is new on main" in after
+    assert "earlier builds of this command" not in page
     assert "A key cannot read an edge on SQLite" in after
     assert "`entity_relationship_events` is append-only" in after
     assert "the alias `dr alice marlow` for `Alice Marlow`, stays on the entity" in page
@@ -113,7 +116,7 @@ def test_the_mcp_tools_page_states_the_write_limits_as_main_only() -> None:
         "A tool answers `invalid_request` before it runs",
         "answers HTTP 422 on every route",
         "it nests past 256 levels is an invalid request, and the server goes on",
-        "direct call of the commit service stored a ref nested about 950 levels deep (in v0.19.2, in v0.20.0 and on main until now)",
+        "direct call of the commit service stored a ref nested about 950 levels deep (in v0.19.2 and in v0.20.0)",
         "and the MCP commit tool takes strings only",
         "is run once more with every stored column cut to 256 levels",
         "The second attempt does not write those audit events again",

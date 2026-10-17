@@ -1,8 +1,8 @@
 """Demo setup for a product agent that records a decision.
 
 The search benchmark does not call this module. Its product key stays unbound,
-which is a project_scoped_agent with no project. The demo that records
-decisions calls prepare_demo_product. That creates one product project and
+which is a ``project_scoped_agent`` with no project. The demo that records
+decisions calls ``prepare_demo_product``. That creates one product project and
 binds the product key to it.
 """
 
@@ -12,11 +12,11 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import scripts.alice_bench as bench
+import scripts.showcase_bench as showcase
 
 PRODUCT_PROJECT_NAME = "Quenby product"
 PRODUCT_PROJECT_SLUG = "quenby-product"
 PRODUCT_AGENT_ID = "showcase-product"
-PRODUCT_PROFILE = "project_scoped_agent"
 
 
 def demo_product_binding(project_id: str) -> str | None:
@@ -52,7 +52,7 @@ def prepare_demo_product(db_path: Path) -> str:
                 store,
                 user_id=user_id,
                 agent_id=PRODUCT_AGENT_ID,
-                permission_profile=PRODUCT_PROFILE,
+                permission_profile=showcase.TEAM_PROFILES["product"],
                 label="product",
                 project_scope=scope,
             )

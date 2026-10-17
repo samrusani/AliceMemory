@@ -1035,11 +1035,11 @@ def test_a_server_that_stops_on_an_error_after_the_probe_ended_is_not_a_problem(
     assert evidence._server_problems(record, "") == []
 
 
-def test_the_changelog_entry_states_what_this_check_now_fails_that_main_passed() -> None:
-    """The entry says plainly where the check differs from main, in the three places a reader could miss.
+def test_the_changelog_entry_states_what_this_check_now_fails_that_it_passed_before() -> None:
+    """The entry says plainly where the check differs from the check before this change, in the three places a reader could miss.
 
-    A client that declared roots and answered with an error passed on main and now fails. An answer
-    sent before the stub asked was taken as the probe's answer on main and no longer is. An error
+    A client that declared roots and answered with an error passed before this change and now fails. An answer
+    sent before the stub asked was taken as the probe's answer before this change and no longer is. An error
     after the probe ended stays a pass, on purpose. Mutation: delete or reword any of the three
     sentences in the CHANGELOG entry. This test fails.
     """
@@ -1049,8 +1049,8 @@ def test_the_changelog_entry_states_what_this_check_now_fails_that_main_passed()
     assert len(entries) == 1
     entry = entries[0]
     for sentence in (
-        "now fails the run; on main that run passed with no problem",
-        "on main it was recorded as `answered`, finished the probe and released the host",
+        "now fails the run; before this change that run passed with no problem",
+        "before this change it was recorded as `answered`, finished the probe and released the host",
         "is not a problem, on purpose, because the check is about the probe and not the process",
     ):
         assert entry.count(sentence) == 1, sentence

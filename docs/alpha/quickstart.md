@@ -71,7 +71,7 @@ This is the same SQLite path, for one user: three MCP tools by default (`alice_m
 
 `alice-memory doctor` prints a `sleep proposals: <n>` line. Both commands take `--data-dir` and `--db`.
 
-Unreleased (on main, not in v0.20.0): `alice-memory sleep-proposals` also takes `--scope` and `--project-dir`; see [Projects](projects.md).
+From v0.20.2, `alice-memory sleep-proposals` also takes `--scope` and `--project-dir`; see [Projects](projects.md).
 
 ## Requirements
 
@@ -85,7 +85,7 @@ The rest of this page sets up the Postgres stack. It needs:
 
 ## Setup
 
-The clone checks out `main`, which can be ahead of the latest release. To run v0.20.0, run `git checkout v0.20.0` before `make setup`.
+The clone checks out `main`, which can be ahead of the latest release. To run v0.20.2, run `git checkout v0.20.2` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git

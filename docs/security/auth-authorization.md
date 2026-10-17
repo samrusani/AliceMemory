@@ -28,7 +28,7 @@ other operation.
   local profile is not automatically an admin review identity.
 - Persisted memory, artifact, source, and project scope is authoritative for
   target reads and mutations. Caller metadata cannot relabel a persisted target
-  into scope. Unreleased (on main, not in v0.20.0): the persisted labels of a
+  into scope. From v0.20.2, the persisted labels of a
   derived row are held at or above those of its inputs.
 - Authentication failures use 401; authenticated but unauthorized actions use
   403 and stable public response families.

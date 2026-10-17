@@ -815,27 +815,34 @@ def _log_embedding_failure(
 
 @contextmanager
 def _embedding_write_savepoint(store: object) -> Iterator[None]:
-    """Isolate one optional vector/event write from its caller transaction."""
-    conn = getattr(store, "conn", None)
-    transaction = getattr(conn, "transaction", None)
-    if callable(transaction):
-        with transaction():
-            yield
-        return
-    execute = getattr(conn, "execute", None)
-    if callable(execute):
-        name = "alice_embedding_write"
-        execute(f"SAVEPOINT {name}")
-        try:
-            yield
-        except Exception:
-            execute(f"ROLLBACK TO SAVEPOINT {name}")
-            execute(f"RELEASE SAVEPOINT {name}")
-            raise
-        else:
-            execute(f"RELEASE SAVEPOINT {name}")
-        return
-    yield
+    """Isolate one optional vector/event write from its caller transaction.
+
+    The store's own savepoint is not used here, so a rollback of this block empties the request's label state
+    itself. The vector write takes the label lock like any other write to a memory row.
+    """
+    from alicebot_api.vnext_label_writes import drop_label_state_on_rollback
+
+    with drop_label_state_on_rollback(store):
+        conn = getattr(store, "conn", None)
+        transaction = getattr(conn, "transaction", None)
+        if callable(transaction):
+            with transaction():
+                yield
+            return
+        execute = getattr(conn, "execute", None)
+        if callable(execute):
+            name = "alice_embedding_write"
+            execute(f"SAVEPOINT {name}")
+            try:
+                yield
+            except Exception:
+                execute(f"ROLLBACK TO SAVEPOINT {name}")
+                execute(f"RELEASE SAVEPOINT {name}")
+                raise
+            else:
+                execute(f"RELEASE SAVEPOINT {name}")
+            return
+        yield
 
 
 @dataclass(frozen=True, slots=True)

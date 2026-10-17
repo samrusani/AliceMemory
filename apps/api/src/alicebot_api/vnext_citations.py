@@ -342,11 +342,14 @@ def scan_citations(records: Sequence[object], *, prose: frozenset[str] = frozens
                     pending.append((child, cited_by))
     distinct = list(dict.fromkeys(named))
     keyed_distinct = set(keyed)
-    # A string entry is one string. A nested entry counts every string the reader examines inside it, so one object
-    # that holds more than the bound is unverified the same way a flat list of that many strings is.
-    examined = len(distinct) + len(keyed_distinct)
+    # A string that decodes as an object or a list counts as the strings inside it, at any depth, the same as that
+    # object or list written plainly. Any other string counts as one. A row past the bound is unverified whatever
+    # the encoding.
+    examined = len(keyed_distinct)
+    for _cited_by, text in distinct:
+        examined += reader_string_count(text)
     for entry in in_references:
-        examined += 1 if type(entry) is str else reader_string_count(entry)
+        examined += reader_string_count(entry)
     if examined > MAX_READ_STRINGS:
         return Citations(frozenset(refs), frozenset(), True)
     if len(in_references) > BATCH_STRINGS:

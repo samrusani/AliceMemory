@@ -416,7 +416,7 @@ def test_mcp_review_provenance_is_validated_atomically_on_postgres(
 
     client = start_mcp_client(database_url=migrated_database_urls["app"], user_id=user_id)
     try:
-        # Unreleased (on main, not in v0.20.0): a rejected argument answers invalid_request and a source or chunk
+        # From v0.20.2, a rejected argument answers invalid_request and a source or chunk
         # that is not there answers not_found. v0.20.0 answered tool_request_failed for all of them. The message
         # is the same fixed sentence in every case, so no case shows which value was wrong.
         expected_tool_error = (

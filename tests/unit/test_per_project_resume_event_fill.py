@@ -290,7 +290,7 @@ def _words(number: int) -> str:
 
 
 def _changelog_bullet() -> str:
-    """The one Unreleased bullet about this change, with runs of whitespace collapsed."""
+    """The one v0.20.2 bullet about this change, with runs of whitespace collapsed."""
 
     bullets = [
         line
@@ -380,17 +380,17 @@ def _one_kind_only_vault_numbers(
 def test_the_changelog_sentences_about_one_kind_of_event_hold_on_the_vaults_they_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Mutation: change one number in either sentence of the CHANGELOG bullet that begins "With the project
-    holding" and "With eight memory events for the project" (for example "six and two" to "five and three", or
-    "eight global ones" to "seven global ones"), or put the eight-place numbers back on the four-event vault, or
-    change the size of one of the two vaults below.
+    """Mutation: put the eight-place numbers back on the four-event vault, change the size of one of the two vaults
+    below, or put one of the two sentences about the old fill back into the CHANGELOG bullet.
 
-    The first sentence names a vault of four memory events for the project, none of the other kind, and four newer
-    loop events for global, at four places. The second names eight of each at eight places. Both are rebuilt here
-    from the fixtures, in the CHANGELOG's own words, and compared with the bullet. The numbers before the change
-    come from ``_per_kind_fill_changes``, the numbers now from ``alice_resume``, and the rule from ``fill_counts``.
-    An earlier draft gave the eight-place numbers on the four-event vault, where the old fill and the rule agree
-    (four and four), so the last assertion also checks that each vault is one where the old fill went wrong.
+    The first vault holds four memory events for the project, none of the other kind, and four newer loop events for
+    global, at four places. The second holds eight of each at eight places. No release had the old fill, because
+    per-project scoping is new in v0.20.2, so the CHANGELOG bullet states the rule and none of the old numbers. Both
+    vaults are rebuilt here from the fixtures, and the sentences the bullet used to carry are checked to be absent.
+    The numbers before the change come from ``_per_kind_fill_changes``, the numbers now from ``alice_resume``, and the
+    rule from ``fill_counts``. An earlier draft gave the eight-place numbers on the four-event vault, where the old
+    fill and the rule agree (four and four), so the last assertion also checks that each vault is one where the old
+    fill went wrong.
     """
 
     bullet = _changelog_bullet()
@@ -415,7 +415,8 @@ def test_the_changelog_sentences_about_one_kind_of_event_hold_on_the_vaults_they
             f"where the rule gives {_words(rule_project)} and {_words(rule_global)}."
         )
     for sentence in expected:
-        assert sentence in bullet, sentence
+        assert sentence not in bullet, sentence
+    assert "At most a quarter of the places (`max_recent_changes // 4`, rounded down) is held for global ones" in bullet
     # The numbers are the ones the PR measured: three and one at four places, six and two at eight.
     assert "where the rule gives three and one." in expected[0]
     assert "where the rule gives six and two." in expected[1]
