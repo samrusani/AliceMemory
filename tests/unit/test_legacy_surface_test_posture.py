@@ -14,9 +14,16 @@ def _read(relative_path: str) -> str:
 
 
 def test_integration_runners_enable_legacy_surfaces_without_changing_unit_posture() -> None:
+    """The integration shards run with the legacy flag; the unit family never sets it.
+
+    Mutation: drop ``ALICE_LEGACY_SURFACES=1`` from the shard command, or add the flag to a
+    unit job or to the ``make test-python`` unit command.
+    """
+
     workflow = _read(".github/workflows/tests.yml")
-    integration_job = workflow.split("  python-integration:", 1)[1].split(
-        "\n  web:", 1
+    # The shards run tests/integration; the smoke job that precedes them is checked below.
+    integration_job = workflow.split("  python-integration-shards:", 1)[1].split(
+        "\n  python-sqlite-read-budgets:", 1
     )[0]
     # The unit family: the shards, the eval job, the coverage job and the summary.
     unit_job = workflow.split("  python-unit-shards:", 1)[1].split(
@@ -27,17 +34,17 @@ def test_integration_runners_enable_legacy_surfaces_without_changing_unit_postur
     )[0]
 
     role_separation = integration_job.split(
-        "name: Integration tests", 1
-    )[1].split("name: Default-surface core round-trip", 1)[0]
+        "name: Integration tests of this shard", 1
+    )[1].split("name: Retain paired read-budget samples", 1)[0]
     run_lines = [
         line.strip()
         for line in role_separation.splitlines()
-        if "pytest tests/integration -q -p no:cacheprovider" in line
+        if "-m pytest ${{ matrix.selection }} -q -p no:cacheprovider" in line
     ]
     assert run_lines == [
         "run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest "
-        "tests/integration -q -p no:cacheprovider --durations=20 "
-        "--timeout=180 --session-timeout=4200"
+        "${{ matrix.selection }} -q -p no:cacheprovider --durations=20 "
+        "--timeout=180 --session-timeout=1500"
     ]
     assert (
         "ALICE_LEGACY_SURFACES=1 $(PYTHON) -m pytest tests/integration -q"
@@ -53,21 +60,27 @@ def test_integration_runners_enable_legacy_surfaces_without_changing_unit_postur
 
 
 def test_postgres_matrix_has_a_required_flag_off_default_surface_row() -> None:
+    """The smoke job keeps its two required rows; the full suite moved to the shards.
+
+    The row named "Integration tests (Postgres + pgvector, role separation)" is no longer in this
+    matrix: the summary job at the end of the integration group carries that name (see
+    ``test_ci_integration_job_split.py``).
+
+    Mutation: put a third row back into the matrix, drop the flag-off row, or let the flag-off
+    row run with a legacy flag.
+    """
+
     workflow = _read(".github/workflows/tests.yml")
     integration_job = workflow.split("  python-integration:", 1)[1].split(
-        "\n  web:", 1
+        "\n  python-integration-shards:", 1
     )[0]
 
     assert "name: ${{ matrix.integration_check }}" in integration_job
     assert (
-        'integration_check: ["Integration tests (Postgres + pgvector, role separation)", '
-        '"Default surface integration smoke (Postgres)", '
+        'integration_check: ["Default surface integration smoke (Postgres)", '
         '"Read-budget maximum workload smoke (Postgres)"]'
     ) in integration_job
-    assert (
-        "if: matrix.integration_check == "
-        "'Integration tests (Postgres + pgvector, role separation)'"
-    ) in integration_job
+    assert "tests/integration -q" not in integration_job
     assert (
         "if: matrix.integration_check == "
         "'Default surface integration smoke (Postgres)'"

@@ -24,7 +24,16 @@ Mutations that must fail this file, each alone:
 * remove the ``pytest tests/unit`` rerun from ``publish-pypi.yml``;
 * rename the shard matrix key ``shard`` or drop the shard job's
   ``timeout-minutes``: the test cannot find the CI limit and fails rather
+  than passing on nothing;
+* point one entry of the unit shard job at a path outside ``tests/unit``:
+  the job is then no longer the unit shard job, and the test fails rather
   than passing on nothing.
+
+Mutation that must not fail this file: the integration shard job of
+``tests.yml`` carries the same ``shard`` and ``selection`` keys. It runs
+``tests/integration``, which the publish workflow does not rerun, so its
+limit is not part of the sum. The test finds the unit shard job by its
+``tests/unit`` selections, not by the key alone.
 """
 
 from __future__ import annotations
@@ -60,6 +69,22 @@ def _reruns_whole_unit_suite(job: dict[str, Any]) -> bool:
     return any("pytest tests/unit " in run or run.rstrip().endswith("pytest tests/unit") for run in _runs(job))
 
 
+def _selects_only_unit_tests(include: list[Any]) -> bool:
+    """True when every matrix entry runs files of ``tests/unit`` and nothing else.
+
+    The integration shards of ``tests.yml`` use the same ``shard`` key, so the key alone
+    does not tell the unit suite from the integration suite.
+    """
+
+    for entry in include:
+        selection = entry.get("selection") if isinstance(entry, dict) else None
+        if not isinstance(selection, str) or not selection.split():
+            return False
+        if not all(token.startswith("tests/unit/") for token in selection.split()):
+            return False
+    return True
+
+
 def _ci_unit_suite_minutes() -> tuple[int, int, int]:
     """Shard count, shard limit and their product, from the CI shard job."""
 
@@ -69,6 +94,8 @@ def _ci_unit_suite_minutes() -> tuple[int, int, int]:
         if not isinstance(include, list) or not include:
             continue
         if not all(isinstance(entry, dict) and "shard" in entry for entry in include):
+            continue
+        if not _selects_only_unit_tests(include):
             continue
         if not any("pytest" in run for run in _runs(job)):
             continue

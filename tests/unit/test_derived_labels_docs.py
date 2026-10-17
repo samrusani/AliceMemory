@@ -95,7 +95,7 @@ def test_the_pages_name_the_v4_repair_and_the_seven_table_migration() -> None:
     assert "historical sensitivity is not repaired" not in changelog
     assert "Such a row is unverified." in changelog
     assert "the five operator screens apply the caller's sensitivity ceiling" in changelog
-    assert "No migration is required." in changelog.split("## Unreleased", 1)[1].split("\n- ", 2)[1]
+    assert "No migration is required." in changelog.split("## v0.20.2", 1)[1].split("\n- ", 2)[1]
 
 
 def test_each_derived_label_change_has_one_complete_changelog_entry() -> None:
