@@ -744,11 +744,13 @@ def test_the_three_dated_paragraphs_before_the_lead_each_have_a_v0202_update() -
 
 def test_the_v0200_notes_say_main_now_pins_v0202_beside_each_marketplace_statement() -> None:
     """Mutations, each one alone: delete one of the three follow-ups; name v0.20.0 as what ``main`` pins in one;
-    drop the sentence about the copy inside a tag; move one away from its 2026-10-02 update.
+    drop the sentence about the copy inside a tag; move one away from its 2026-10-02 update; delete one of the
+    four follow-ups in the v0.19.2 notes, or name v0.20.0 in one of them.
 
     Each of the three marketplace statements already has a 2026-10-02 update that says ``main`` pins the
     v0.20.0 tag commit. ``main`` pins the v0.20.2 tag commit now, so a follow-up sits after each of them.
-    The copy inside the v0.20.0 tag pins v0.19.2 and the copy inside the v0.20.2 tag pins v0.20.0.
+    The copy inside the v0.20.0 tag pins v0.19.2 and the copy inside the v0.20.2 tag pins v0.20.0. The v0.19.2
+    notes carry the same 2026-10-02 update in four places, and a follow-up sits after each of those too.
     """
 
     follow_up = (
@@ -767,8 +769,22 @@ def test_the_v0200_notes_say_main_now_pins_v0202_beside_each_marketplace_stateme
     assert len(positions) == 3, positions
     for index in positions:
         assert blocks[index - 1] == earlier, index
-    # The v0.19.2 notes were not part of this change: their updates still stop at v0.20.0.
-    assert not any("Update (2026-10-17)" in block for block in _blocks(V0192_NOTES_PATH))
+    v0192_follow_up = (
+        "**Update (2026-10-17):** v0.20.2 is published, and the marketplace file on `main` now pins the v0.20.2 tag "
+        "commit, so the marketplace install runs v0.20.2. The copy inside the v0.19.2 tag still pins v0.19.0, so add "
+        "the marketplace from the repository, not from a checkout of the tag."
+    )
+    v0192_earlier = (
+        "**Update (2026-10-02):** v0.20.0 is published, and the marketplace file on `main` now pins the v0.20.0 tag "
+        "commit, so the marketplace install runs v0.20.0. The copy inside the v0.19.2 tag still pins v0.19.0, so add "
+        "the marketplace from the repository, not from a checkout of the tag."
+    )
+    v0192_blocks = _blocks(V0192_NOTES_PATH)
+    earlier_positions = [index for index, block in enumerate(v0192_blocks) if block == v0192_earlier]
+    assert len(earlier_positions) == 4, earlier_positions
+    for index in earlier_positions:
+        assert v0192_blocks[index + 1] == v0192_follow_up, index
+    assert sum("Update (2026-10-17)" in block for block in v0192_blocks) == 4
 
 
 def test_every_v0200_limitation_without_an_update_is_still_listed_in_the_v0202_notes() -> None:
