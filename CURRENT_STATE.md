@@ -2,9 +2,9 @@
 
 ## Snapshot
 
-- `v0.20.0` is the latest published release. It is available from PyPI and
+- `v0.20.2` is the latest published release. It is available from PyPI and
   GitHub, its record is immutable, and exact artifact digests are in
-  `docs/release/v0.20.0-checksums.txt`. `v0.19.2` is the immediately prior
+  `docs/release/v0.20.2-checksums.txt`. `v0.20.0` is the immediately prior
   published release.
 - Earlier releases whose headlines still get referenced: `v0.13.1` shipped the
   Phase 4 core-roadmap work as **Replicated benchmark, faster SQLite at scale,
@@ -84,13 +84,13 @@ authoritative description; Phase 3 does not rewrite that history.
 
 ## Release Boundary
 
-`v0.20.0` is tagged, published, and immutable. Its authoritative records are:
+`v0.20.2` is tagged, published, and immutable. Its authoritative records are:
 
-- `docs/release/v0.20.0-release-notes.md`
-- `docs/release/v0.20.0-checksums.txt`
+- `docs/release/v0.20.2-release-notes.md`
+- `docs/release/v0.20.2-checksums.txt`
 
-`v0.19.2` is the immediately prior published release; its records are
-`docs/release/v0.19.2-release-notes.md` and `docs/release/v0.19.2-checksums.txt`.
+`v0.20.0` is the immediately prior published release; its records are
+`docs/release/v0.20.0-release-notes.md` and `docs/release/v0.20.0-checksums.txt`.
 
 Every earlier release remains published and immutable, with its own
 `docs/release/vX.Y.Z-release-notes.md` and `vX.Y.Z-checksums.txt`. That includes
@@ -107,11 +107,12 @@ not install it; and `v0.20.1`, whose publish run reached its first job's time
 limit while it reran the unit suite, before anything was built. Neither of the
 last two has a PyPI artifact or a published GitHub Release.
 
-## What `v0.20.2` Targets
+## What `v0.20.2` Shipped
 
-`v0.20.2` is the current release candidate. It is not published.
+`v0.20.2` is the latest published release and remains the install, checksum,
+and baseline reference.
 
-It takes the fixes and additions on `main` since `v0.20.0`. Most are security
+It shipped the fixes and additions on `main` after `v0.20.0`. Most are security
 fixes: a derived summary, report or copy follows the labels of its inputs, and
 the operator routes, the event feeds, the doors that act on one row by id and
 the readers of saved quotes and of open-loop ids apply the caller's limits. It
@@ -166,8 +167,7 @@ SQLite vault is repaired on its next open.
 
 ## What `v0.20.0` Shipped
 
-`v0.20.0` is the latest published release and remains the install, checksum,
-and baseline reference.
+`v0.20.0` is the immediately prior published release.
 
 It shipped the fixes on `main` after `v0.19.2`. Most come from the internal
 security review of `v0.19.0`, whose findings DB-005, DB-006, DB-008, DB-009,
@@ -222,7 +222,7 @@ no schema. It adds the `--max-file-mib` option and four settings:
 
 ## What `v0.19.2` Shipped
 
-`v0.19.2` is the immediately prior published release.
+`v0.19.2` is an earlier published release.
 
 It shipped the fixes on `main` after `v0.19.0`. Most come from an internal
 security review of `v0.19.0`. It adds no tool or command and changes no schema. The
@@ -306,10 +306,11 @@ relative or empty `--data-dir` is refused. There is no schema change.
   enabled and install has not written Claude Code entries, and refuses when
   both exist. The `v0.19.0` tag has no marketplace file. `main` has
   `.claude-plugin/marketplace.json`, named `alicememory`, which pins the plugin
-  to the `v0.20.0` tag commit, so the plugin installs from that marketplace.
+  to the `v0.20.2` tag commit, so the plugin installs from that marketplace.
   The `v0.19.2` tag has the file too, still pinned to the `v0.19.0` tag
-  commit, and the `v0.20.0` tag has it still pinned to the `v0.19.2` tag
-  commit. `v0.18.0` has no plugin.
+  commit, the `v0.20.0` tag has it still pinned to the `v0.19.2` tag commit,
+  and the `v0.20.2` tag has it still pinned to the `v0.20.0` tag commit.
+  `v0.18.0` has no plugin.
 - The session brief cuts a long note to at most 1,500 characters, stays under
   9,500 characters, and leaves out a superseded fact and a source line whose
   captured sentence was corrected later. A long newest fact, open loop,

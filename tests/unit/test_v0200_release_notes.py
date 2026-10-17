@@ -48,17 +48,18 @@ def test_the_notes_are_published_with_the_exact_title_state_and_a_checksums_reco
     assert (REPO_ROOT / "docs/release/v0.20.0-checksums.txt").is_file()
 
 
-def test_the_marketplace_pins_the_published_release_and_the_notes_carry_its_install_lines() -> None:
-    """Mutations, each one alone: move the marketplace pin; change an install line of the notes.
+def test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_their_install_lines() -> None:
+    """Mutations, each one alone: set the marketplace ``ref`` back to v0.20.0; change one hex digit of ``sha``;
+    change an install line of the notes.
 
-    The post-publication change moved the marketplace file to the v0.20.0 tag and the commit
-    that tag points at. The version sites of the tree now name the next release, and
-    ``test_v0202_release_notes.py`` pins them.
+    The v0.20.0 post-publication change moved the marketplace file to the v0.20.0 tag. The v0.20.2
+    post-publication change moved it on to the v0.20.2 tag and the commit that tag points at, which
+    ``test_v0202_release_notes.py`` also pins with the version sites of the tree.
     """
 
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.20.0"
-    assert marketplace["sha"] == "10034879439f583514cf23f373e998656ff80cac"
+    assert marketplace["ref"] == "v0.20.2"
+    assert marketplace["sha"] == "8d5606153fa4900b0cbbc8ce60a65e342f7fe640"
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.20.0 && alice-memory install" in notes
     assert "pip install -U alice-memory==0.20.0" in notes
@@ -553,6 +554,8 @@ def test_both_notes_say_main_now_pins_v0200_beside_each_marketplace_statement() 
     The marketplace statements in the two published notes stay as they were tagged. Each one is
     followed by a dated update that says `main` pins the v0.20.0 tag commit and that the copy
     inside the tag does not, so a reader of the notes does not take the tagged sentence for current.
+    ``main`` has moved on since: the three 2026-10-17 follow-ups in the v0.20.0 notes are pinned in
+    ``test_the_v0200_notes_say_main_now_pins_v0202_beside_each_marketplace_statement``.
     """
 
     pin = "v0.20.0 is published, and the marketplace file on `main` now pins the v0.20.0 tag commit, so the marketplace install runs v0.20.0."
@@ -584,3 +587,218 @@ def test_both_notes_say_main_now_pins_v0200_beside_each_marketplace_statement() 
                 or "so the marketplace install runs v0.19.0 code" in before
                 or "installs plugin 0.19.0" in before
             ), index
+
+
+_UPDATE_2026_10_17 = re.compile(r"^\*\*Update \(2026-10-17\):\*\* ")
+
+# Each v0.20.0 statement that an item is open or a known limitation, which v0.20.2 fixed (or, for the
+# fifth, changed in part), with text its 2026-10-17 update must carry. The update is the next paragraph.
+V0200_ITEMS_FIXED_IN_V0202: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "- **The session brief, `alice_resume` and `alice_recent_decisions` still show an expired active memory.**",
+        (
+            "Fixed in v0.20.2.",
+            "`action: expire`",
+            "the SessionStart hook",
+            "`last_decision`",
+            "`alice_context_pack` is not changed",
+            "creation and expire events",
+        ),
+    ),
+    (
+        "- **Consolidation and the roll-up semantic tier can send an expired memory's text to the embeddings endpoint.**",
+        ("Fixed in v0.20.2.", "no longer sent to the embeddings endpoint", "cannot be taken back", "retention terms"),
+    ),
+    (
+        "- **The roll-up pass reads accepted roll-up cards without checking `valid_to`.**",
+        ("Fixed in v0.20.2.", "`list_accepted_rollup_cards`", "`expired_card_members_unchanged`", "not as a revision"),
+    ),
+    (
+        "- **Promoting a reviewed artifact into a memory does not embed it.**",
+        ("Fixed in v0.20.2.", "embeds the active memory it creates", "loses the race to another review"),
+    ),
+    (
+        "- **A vector made from a cut text represents only the head of the memory.**",
+        (
+            "The vector limit is unchanged in v0.20.2.",
+            "over 20,000 characters",
+            "`invalid_request`",
+            "where only the HTTP routes had one",
+            "`alice_vnext_propose_memory` still take text of any length on SQLite",
+        ),
+    ),
+    (
+        "- **A refusal reaches an MCP client as `tool_request_failed`,**",
+        (
+            "Fixed in v0.20.2 for the refusals it types.",
+            "`not_permitted`",
+            "`not_found`",
+            "`precondition_failed`",
+            "`The tool request could not be processed`",
+            "stay `tool_request_failed`",
+        ),
+    ),
+    (
+        "- **No command removes a stored source on SQLite.**",
+        (
+            "Fixed in v0.20.2.",
+            "`sources delete`",
+            "`--yes`",
+            "SQLite deletion keeps some data",
+            "VACUUM",
+            "Postgres deletion is not changed",
+        ),
+    ),
+)
+
+# The three dated paragraphs at the top of the v0.20.0 notes that call a fix unreleased, or call two
+# exposures known limitations, with text the 2026-10-17 update that follows each must carry.
+V0200_TOP_PARAGRAPHS_FIXED_IN_V0202: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "**Correction (2026-10-05):**",
+        ("Both are fixed in v0.20.2", "inputs cannot be found is unverified", "inside its binding", "tracks for v0.21.0"),
+    ),
+    (
+        "**Correction (2026-10-06):**",
+        (
+            "The unreleased corrections named above are in v0.20.2",
+            "HTTP 403",
+            "`alice_vnext_review_items`",
+            "HTTP 404",
+            "receives both checks as skipped",
+            "thirteen other operator routes",
+        ),
+    ),
+    (
+        "**Update (2026-10-09):**",
+        ("This is in v0.20.2", "none of them is redacted", "HTTP 404", "entity ends only"),
+    ),
+)
+
+
+def _v0202_limitations_flat() -> str:
+    return _section(_text("docs/release/v0.20.2-release-notes.md"), "Known limitations")
+
+
+def test_the_v0200_notes_say_beside_each_open_item_that_v0202_fixed_it() -> None:
+    """Mutations, each one alone: delete one of the seven updates; change its version; move it away from its
+    item; drop the limit of the fix from it; put an update beside a limitation that v0.20.2 carries over
+    (the long query, the `max_tokens` budget, DB-007).
+
+    The v0.20.0 notes are published, so each statement that an item is open stays as it was tagged and a
+    dated update follows it. Each update names v0.20.2 and the limit of the fix. The context pack still
+    names the id of an expired memory, so the update for the expired-memory item says so.
+    """
+
+    blocks = _blocks(NOTES_PATH)
+    for opening, needles in V0200_ITEMS_FIXED_IN_V0202:
+        # Bullets with no blank line between them are one block, so the item must be the last
+        # bullet of the block it opens or sits in, and the update is the next block.
+        positions = [index for index, block in enumerate(blocks) if opening in block]
+        assert len(positions) == 1, (opening, positions)
+        block = blocks[positions[0]]
+        assert " - **" not in block[block.index(opening) + len(opening) :], opening
+        update = blocks[positions[0] + 1]
+        assert _UPDATE_2026_10_17.match(update), (opening, update[:80])
+        for needle in needles:
+            assert needle in update, (opening, needle)
+        assert "v0.20.2" in update
+        assert "v0.20.1" not in update
+    # v0.20.0 listed `max_tokens`, the long query, DB-007 and the rest as open, and the v0.20.2 notes
+    # still list them, so no update sits beside them.
+    for opening in (
+        "- **The `max_tokens` budget prices the full stored row, and the agent receives a compact row.**",
+        "- **A long query is slower than a short one.**",
+        "- **Text already sent to an embeddings endpoint cannot be taken back.**",
+        "- **Confirming a pending write is not a human gate (DB-007).**",
+        "- **A request inside the body cap still costs memory and time (DB-006).**",
+    ):
+        positions = [index for index, block in enumerate(blocks) if opening in block]
+        assert len(positions) == 1, (opening, positions)
+        block = blocks[positions[0]]
+        if " - **" not in block[block.index(opening) + len(opening) :]:
+            assert not _UPDATE_2026_10_17.match(blocks[positions[0] + 1]), opening
+
+
+def test_the_three_dated_paragraphs_before_the_lead_each_have_a_v0202_update() -> None:
+    """Mutations, each one alone: delete one of the three updates; move it away from its paragraph; change
+    its version; drop the limit of the fix from it.
+
+    The 2026-10-05 correction calls two exposures known limitations, and the 2026-10-06 correction and the
+    2026-10-09 update call the fixes for source GET, the legacy review list and the graph neighborhood
+    unreleased or on main only. v0.20.2 contains all of them, so each paragraph keeps its words and is
+    followed by a dated update.
+    """
+
+    blocks = _blocks(NOTES_PATH)
+    lead = next(index for index, block in enumerate(blocks) if block.startswith("**Take this release if"))
+    for opening, needles in V0200_TOP_PARAGRAPHS_FIXED_IN_V0202:
+        positions = [index for index, block in enumerate(blocks[:lead]) if block.startswith(opening)]
+        assert len(positions) == 1, (opening, positions)
+        update = blocks[positions[0] + 1]
+        assert _UPDATE_2026_10_17.match(update), (opening, update[:80])
+        for needle in needles:
+            assert needle in update, (opening, needle)
+        assert "v0.20.2" in update
+
+
+def test_the_v0200_notes_say_main_now_pins_v0202_beside_each_marketplace_statement() -> None:
+    """Mutations, each one alone: delete one of the three follow-ups; name v0.20.0 as what ``main`` pins in one;
+    drop the sentence about the copy inside a tag; move one away from its 2026-10-02 update.
+
+    Each of the three marketplace statements already has a 2026-10-02 update that says ``main`` pins the
+    v0.20.0 tag commit. ``main`` pins the v0.20.2 tag commit now, so a follow-up sits after each of them.
+    The copy inside the v0.20.0 tag pins v0.19.2 and the copy inside the v0.20.2 tag pins v0.20.0.
+    """
+
+    follow_up = (
+        "**Update (2026-10-17):** v0.20.2 is published, and the marketplace file on `main` now pins the v0.20.2 tag "
+        "commit, so the marketplace install runs v0.20.2. The copy inside the v0.20.0 tag still pins v0.19.2 and the "
+        "copy inside the v0.20.2 tag still pins v0.20.0, so add the marketplace from the repository, not from a "
+        "checkout of a tag."
+    )
+    earlier = (
+        "**Update (2026-10-02):** v0.20.0 is published, and the marketplace file on `main` now pins the v0.20.0 tag "
+        "commit, so the marketplace install runs v0.20.0. The copy inside the v0.20.0 tag still pins v0.19.2, so add "
+        "the marketplace from the repository, not from a checkout of the tag."
+    )
+    blocks = _blocks(NOTES_PATH)
+    positions = [index for index, block in enumerate(blocks) if block == follow_up]
+    assert len(positions) == 3, positions
+    for index in positions:
+        assert blocks[index - 1] == earlier, index
+    # The v0.19.2 notes were not part of this change: their updates still stop at v0.20.0.
+    assert not any("Update (2026-10-17)" in block for block in _blocks(V0192_NOTES_PATH))
+
+
+def test_every_v0200_limitation_without_an_update_is_still_listed_in_the_v0202_notes() -> None:
+    """Mutations, each one alone: add a limitation bullet to the v0.20.0 notes that v0.20.2 neither lists nor
+    fixed; delete a carried-over limitation from the v0.20.2 notes.
+
+    Of the 32 limitations the v0.20.0 notes list, the 8 that v0.20.2 fixed or changed have a dated update
+    (the marketplace install, the three expiry items and the promotion item, the refusal codes, source
+    deletion on SQLite, and the length of a commit). The other 24 are the ones the v0.20.2 notes list again,
+    so none is dropped without a word.
+    """
+
+    old = _section(_text(NOTES_PATH), "Known limitations")
+    new = _v0202_limitations_flat()
+    titles = [title.rstrip(".,:; ") for title in re.findall(r"(?:^|\s)- \*\*(.+?)\*\*", old)]
+    assert len(titles) == 32, len(titles)
+    with_update = {
+        "The session brief, `alice_resume` and `alice_recent_decisions` still show an expired active memory",
+        "Consolidation and the roll-up semantic tier can send an expired memory's text to the embeddings endpoint",
+        "The roll-up pass reads accepted roll-up cards without checking `valid_to`",
+        "Promoting a reviewed artifact into a memory does not embed it",
+        "A vector made from a cut text represents only the head of the memory",
+        "The marketplace install runs v0.19.2",
+        "A refusal reaches an MCP client as `tool_request_failed`",
+        "No command removes a stored source on SQLite",
+    }
+    assert with_update <= set(titles)
+    carried = [title for title in titles if title not in with_update]
+    assert len(carried) == 24, len(carried)
+    for title in carried:
+        assert title in new, title
+    updates = [block for block in _blocks(NOTES_PATH) if _UPDATE_2026_10_17.match(block)]
+    assert len(updates) == len(V0200_ITEMS_FIXED_IN_V0202) + len(V0200_TOP_PARAGRAPHS_FIXED_IN_V0202) + 3, len(updates)
