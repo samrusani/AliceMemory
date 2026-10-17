@@ -139,11 +139,12 @@ def test_every_version_site_names_0202_and_the_marketplace_pins_the_published_re
 
 
 def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section() -> None:
-    """Mutations, each one alone: drop the heading; change its date form; put another section between v0.20.2
-    and v0.20.0; put the Unreleased section anywhere but first.
+    """Mutations, each one alone: drop the heading; change its date form; put another section between
+    v0.20.2 and v0.20.0; put an unreleased marker inside the v0.20.2 section.
 
-    The Unreleased section was empty on the release commit. It may hold entries now that main has moved on, so
-    this test no longer asks for it to be empty, as the v0.20.0 notes test no longer does.
+    The Unreleased section was empty on the release commit. It may hold entries now that main has
+    moved on, so this test no longer asks for it to be empty. It still asks that the v0.20.2 and
+    v0.20.0 sections follow it in that order, one heading each.
     """
 
     changelog = _text("CHANGELOG.md")
@@ -153,6 +154,7 @@ def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section(
     assert sections[2].startswith("v0.20.2 \u2014 2026-10-17\n")
     assert sections[3].startswith("v0.20.0 \u2014 2026-10-02\n")
     assert changelog.count(HEADING) == 1
+    assert "Unreleased (on main" not in sections[2]
 
 
 def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_or_the_code() -> None:
