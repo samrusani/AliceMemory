@@ -2294,6 +2294,11 @@ jobs:
             tests/unit/test_mcp_package_split.py \
             -q
 
+  # The two smoke checks below are separate required checks of their own. The
+  # PostgreSQL integration tests and the SQLite read budgets run in the shard and
+  # budget jobs after this one, and the summary job at the end of that group
+  # keeps the required name "Integration tests (Postgres + pgvector, role
+  # separation)".
   python-integration:
     name: ${{ matrix.integration_check }}
     runs-on: ubuntu-latest
@@ -2301,7 +2306,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        integration_check: ["Integration tests (Postgres + pgvector, role separation)", "Default surface integration smoke (Postgres)", "Read-budget maximum workload smoke (Postgres)"]
+        integration_check: ["Default surface integration smoke (Postgres)", "Read-budget maximum workload smoke (Postgres)"]
     services:
       postgres:
         image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
@@ -2344,7 +2349,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install (repo-local venv — integration tests spawn scripts that require .venv)
+      - name: Install (repo-local venv, integration tests spawn scripts that require .venv)
         run: |
           python -m venv .venv
           ./.venv/bin/python -m pip install -e '.[dev]'
@@ -2360,29 +2365,6 @@ jobs:
             GRANT CONNECT ON DATABASE alicebot TO alicebot_app;
           "
           test "$(psql -h localhost -U alicebot_admin -d alicebot -Atqc "SELECT split_part(extversion, '.', 1)::int > 0 OR (split_part(extversion, '.', 1)::int = 0 AND split_part(extversion, '.', 2)::int >= 8) FROM pg_extension WHERE extname = 'vector'")" = "t"
-      - name: Integration tests
-        if: matrix.integration_check == 'Integration tests (Postgres + pgvector, role separation)'
-        env:
-          DATABASE_URL: postgresql://alicebot_app:ci@localhost:5432/alicebot
-          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot
-          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base
-          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
-        # --timeout=180 names one test that runs that long. The cancelled
-        # jobs were slow database setup, not a gap near 180s. The round-three
-        # grid includes 30 paired fixtures with ten interleaved samples per
-        # action and profile. This step measures the head and the merge base
-        # only. The pre-labels checkout is recorded by the maximum-workload
-        # smoke job, which is not required. Session bounds allow that grid to
-        # finish while each measured request retains its unchanged acceptance gate.
-        run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest tests/integration -q -p no:cacheprovider --durations=20 --timeout=180 --session-timeout=4200
-
-      - name: SQLite random mixed-parent and keyless read budgets against the merge base
-        if: matrix.integration_check == 'Integration tests (Postgres + pgvector, role separation)'
-        env:
-          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base
-          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-sqlite-read-budgets.jsonl
-        run: ./.venv/bin/python -m pytest tests/performance/test_resume_hidden_rows_budget.py tests/performance/test_label_round3_read_budget.py tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py -q --timeout=180 --session-timeout=1800
-
       - name: Maximum-workload read-budget controls
         if: matrix.integration_check == 'Read-budget maximum workload smoke (Postgres)'
         env:
@@ -2409,10 +2391,11 @@ jobs:
         if: always() && matrix.integration_check != 'Default surface integration smoke (Postgres)'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: round3-paired-read-budgets-${{ strategy.job-index }}-attempt-${{ github.run_attempt }}
+          # One name for the one entry that writes samples; the shard and budget
+          # jobs below use names of their own, so no two uploads of a run collide.
+          name: round3-maximum-smoke-read-budgets-attempt-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
-            ${{ runner.temp }}/round3-sqlite-read-budgets.jsonl
             ${{ runner.temp }}/round3-read-profiles/
           if-no-files-found: error
           retention-days: 7
@@ -2428,6 +2411,226 @@ jobs:
             tests/integration/test_default_surface_integration.py \
             tests/integration/test_openai_agents_sdk_tool.py \
             -q -p no:cacheprovider --require-executed-tests
+
+  # The PostgreSQL integration tests run as parallel shards, the SQLite read
+  # budgets run in their own jobs, and the job named at the end of this group
+  # stays the required status check of the main ruleset by failing unless every
+  # one of those jobs succeeded. The two smoke checks above are separate
+  # required checks and are not part of that verdict.
+  python-integration-shards:
+    name: Integration tests, shard ${{ matrix.shard }} of 5 (Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      # Every shard reports, so one failure does not hide another.
+      fail-fast: false
+      matrix:
+        # Each selection is a set of file patterns that bash expands. Together
+        # they cover every file of tests/integration exactly once, and a unit
+        # test (tests/unit/test_ci_integration_job_split.py) fails if a file
+        # matches none or two.
+        #
+        # The shards are balanced by the time their files took in one local run
+        # of the whole suite with per-test durations (1,783 s in all). CI took
+        # 2,463 s for the same suite in one pull request run, 1.4 times as long,
+        # and 1.65 times as long on the read-budget tests, which spend their time
+        # on CPU. Scaled that way, shards 1 to 5 need about 9, 9, 9, 7 and 7
+        # minutes of tests and about a minute of setup each, against the 41
+        # minutes the one job needed.
+        #
+        # The round-three Postgres budget file alone is 30 cases and a control,
+        # about 14 minutes on a pull request runner, so shards 4 and 5 split it
+        # by keyword: the cases whose id holds True (the repaired fixtures) and the
+        # rest. A keyword applies to every test of its command, so each of those
+        # two shards holds that one file and nothing else, and the label patterns
+        # of shard 2 leave that file out.
+        include:
+          - shard: 1
+            selection: "tests/integration/test_[a-js]*.py"
+            read_budget_evidence: false
+          - shard: 2
+            selection: >-
+              tests/integration/test_label_[!r]*.py tests/integration/test_label_re*.py
+              tests/integration/test_label_round[!3]_*.py tests/integration/test_label_round3_[!r]*.py
+              tests/integration/test_l[!a]*.py tests/integration/test_[m-pw]*.py
+            read_budget_evidence: true
+          - shard: 3
+            selection: "tests/integration/test_[rtv]*.py"
+            read_budget_evidence: true
+          - shard: 4
+            selection: tests/integration/test_label_round3_read_budget_postgres.py -k "True"
+            read_budget_evidence: true
+          - shard: 5
+            selection: tests/integration/test_label_round3_read_budget_postgres.py -k "not True"
+            read_budget_evidence: true
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
+        env:
+          POSTGRES_USER: alicebot_admin
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: alicebot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U alicebot_admin -d alicebot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history so the merge base with main is in this checkout.
+          fetch-depth: 0
+      - name: Merge base with main for the read-budget gate
+        run: |
+          git fetch --no-tags origin main
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "read-budget comparison: push to main, first parent"
+            base=$(sh ./scripts/select_read_budget_base.sh push)
+          else
+            echo "read-budget comparison: pull request, merge base with main"
+            base=$(sh ./scripts/select_read_budget_base.sh pull_request)
+          fi
+          echo "read-budget base $base"
+          git worktree add --detach .read-budget-merge-base "$base"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install (repo-local venv, integration tests spawn scripts that require .venv)
+        run: |
+          python -m venv .venv
+          ./.venv/bin/python -m pip install -e '.[dev]'
+      - name: Bootstrap extension and app role
+        # The app role must NOT be a superuser: superusers bypass row-level
+        # security, which silently disables every isolation test.
+        env:
+          PGPASSWORD: ci
+        run: |
+          psql -h localhost -U alicebot_admin -d alicebot -v ON_ERROR_STOP=1 -c "
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE ROLE alicebot_app LOGIN PASSWORD 'ci';
+            GRANT CONNECT ON DATABASE alicebot TO alicebot_app;
+          "
+          test "$(psql -h localhost -U alicebot_admin -d alicebot -Atqc "SELECT split_part(extversion, '.', 1)::int > 0 OR (split_part(extversion, '.', 1)::int = 0 AND split_part(extversion, '.', 2)::int >= 8) FROM pg_extension WHERE extname = 'vector'")" = "t"
+      - name: Integration tests of this shard
+        env:
+          DATABASE_URL: postgresql://alicebot_app:ci@localhost:5432/alicebot
+          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot
+          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base
+          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
+        # --timeout=180 names one test that runs that long. The cancelled
+        # jobs were slow database setup, not a gap near 180s. The round-three
+        # grid includes 30 paired fixtures with ten interleaved samples per
+        # action and profile. This step measures the head and the merge base
+        # only. The pre-labels checkout is recorded by the maximum-workload
+        # smoke job, which is not required. The session bound is per shard:
+        # a shard needs about 10 minutes, and it ends at 25 so a stuck test
+        # leaves time to upload the samples.
+        run: ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest ${{ matrix.selection }} -q -p no:cacheprovider --durations=20 --timeout=180 --session-timeout=1500
+      - name: Retain paired read-budget samples, including failed runs
+        # Only the shards that run a test which writes samples have a file to
+        # upload, and for those a missing file is an error.
+        if: always() && matrix.read_budget_evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: round3-integration-read-budgets-shard-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
+          if-no-files-found: error
+          retention-days: 7
+
+  python-sqlite-read-budgets:
+    name: SQLite read budgets, part ${{ matrix.part }} of 3
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        # The four SQLite read-budget files of tests/performance compare the head
+        # with the merge base and need no database service. The round-three file
+        # is 30 cases and a control, and alone took 1,078 of the 1,160 seconds of
+        # these files in one local run (the step took 1,265 s in CI), so parts 1
+        # and 2 split it by case name: the extra-rows and deeper-ancestry cases
+        # (about 500 s locally) and the rest (about 575 s). A keyword applies to
+        # every file of its command, so each of those parts holds that one file.
+        # Part 3 holds the other three files, about 80 s. A unit test
+        # (tests/unit/test_ci_integration_job_split.py) fails if a file of
+        # tests/performance runs in no part.
+        include:
+          - part: 1
+            selection: tests/performance/test_label_round3_read_budget.py -k "extra-rows or deeper-ancestry"
+          - part: 2
+            selection: tests/performance/test_label_round3_read_budget.py -k "not (extra-rows or deeper-ancestry)"
+          - part: 3
+            selection: "tests/performance/test_resume_hidden_rows_budget.py tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history so the merge base with main is in this checkout.
+          fetch-depth: 0
+      - name: Merge base with main for the read-budget gate
+        run: |
+          git fetch --no-tags origin main
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "read-budget comparison: push to main, first parent"
+            base=$(sh ./scripts/select_read_budget_base.sh push)
+          else
+            echo "read-budget comparison: pull request, merge base with main"
+            base=$(sh ./scripts/select_read_budget_base.sh pull_request)
+          fi
+          echo "read-budget base $base"
+          git worktree add --detach .read-budget-merge-base "$base"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install (repo-local venv, integration tests spawn scripts that require .venv)
+        run: |
+          python -m venv .venv
+          ./.venv/bin/python -m pip install -e '.[dev]'
+      - name: SQLite random mixed-parent and keyless read budgets against the merge base
+        env:
+          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base
+          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-sqlite-read-budgets.jsonl
+        run: ./.venv/bin/python -m pytest ${{ matrix.selection }} -q --timeout=180 --session-timeout=1500
+      - name: Retain paired read-budget samples, including failed runs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: round3-sqlite-read-budgets-part-${{ matrix.part }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/round3-sqlite-read-budgets.jsonl
+          if-no-files-found: error
+          retention-days: 7
+
+  python-integration-summary:
+    # This exact name is a required status check of the main ruleset and of the
+    # exact-SHA release check, so it must not change. The job is the verdict of
+    # the shard and budget jobs above: it runs whatever they did (a skipped
+    # required check would count as passing) and fails unless each of them
+    # succeeded. The two smoke checks are separate required checks.
+    name: Integration tests (Postgres + pgvector, role separation)
+    if: always()
+    needs: [python-integration-shards, python-sqlite-read-budgets]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SHARDS_RESULT: ${{ needs.python-integration-shards.result }}
+      BUDGETS_RESULT: ${{ needs.python-sqlite-read-budgets.result }}
+    steps:
+      - name: Require every integration job to have succeeded
+        run: |
+          status=0
+          for entry in "python-integration-shards=$SHARDS_RESULT" "python-sqlite-read-budgets=$BUDGETS_RESULT"; do
+            job="${entry%%=*}"
+            result="${entry#*=}"
+            echo "$job: ${result:-no result}"
+            if [ "$result" != "success" ]; then
+              echo "::error::$job finished as '${result:-no result}', not 'success'"
+              status=1
+            fi
+          done
+          exit "$status"
 
   web:
     name: Web tests, types, accessibility, and budgets

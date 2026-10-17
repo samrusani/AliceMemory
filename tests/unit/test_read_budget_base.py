@@ -56,13 +56,26 @@ def test_push_uses_the_first_parent_and_a_pull_request_uses_the_merge_base(tmp_p
 
 
 def test_the_job_step_names_which_base_each_event_uses() -> None:
+    """Every job that measures a read budget picks its base the same way.
+
+    The smoke job, the integration shards and the SQLite budget parts each check out the
+    history and add the same merge base worktree.
+
+    Mutation: change the command of the step in any one of the three jobs (drop the push
+    branch, or the pull request branch), or remove the step from one of them.
+    """
+
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/tests.yml").read_text())
-    step = next(
-        item for item in workflow["jobs"]["python-integration"]["steps"]
-        if item.get("name") == "Merge base with main for the read-budget gate"
-    )
-    command = step["run"]
-    assert "read-budget comparison: push to main, first parent" in command
-    assert "read-budget comparison: pull request, merge base with main" in command
-    assert "select_read_budget_base.sh push" in command
-    assert "select_read_budget_base.sh pull_request" in command
+    commands = []
+    for job_id in ("python-integration", "python-integration-shards", "python-sqlite-read-budgets"):
+        step = next(
+            item for item in workflow["jobs"][job_id]["steps"]
+            if item.get("name") == "Merge base with main for the read-budget gate"
+        )
+        command = step["run"]
+        assert "read-budget comparison: push to main, first parent" in command, job_id
+        assert "read-budget comparison: pull request, merge base with main" in command, job_id
+        assert "select_read_budget_base.sh push" in command, job_id
+        assert "select_read_budget_base.sh pull_request" in command, job_id
+        commands.append(command)
+    assert len(set(commands)) == 1

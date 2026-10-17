@@ -261,7 +261,9 @@ def test_ci_profiles_only_the_maximum_smoke_and_retains_attempts():
     assert "${{ github.run_attempt }}" in upload["with"]["name"]
     assert "round3-read-profiles/" in upload["with"]["path"]
     assert "round3-postgres-read-budgets.jsonl" in upload["with"]["path"]
-    assert "round3-sqlite-read-budgets.jsonl" in upload["with"]["path"]
+    # The SQLite samples are written, and uploaded under a name of their own, by the budget parts.
+    assert "round3-sqlite-read-budgets.jsonl" not in upload["with"]["path"]
+    assert "job-index" not in upload["with"]["name"]
 
 
 def test_ci_applies_the_absolute_gate_only_in_the_maximum_smoke_and_with_the_shared_runner_limit():
@@ -555,25 +557,26 @@ def test_postgres_budget_fixtures_analyze_every_table_before_the_first_sample(mo
 
 def test_ci_sqlite_budget_step_runs_the_round_two_complete_count_test():
     """The round-two test asserts complete counts at 5,000 rows and in the one-hidden-source case.
-    It stopped running in CI when the round-three file replaced it. Mutation: drop it from the step."""
+    It stopped running in CI when the round-three file replaced it. Mutation: drop it from the selection of the part that holds it."""
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/tests.yml").read_text())
-    steps = workflow["jobs"]["python-integration"]["steps"]
-    step = next(step for step in steps if step.get("name", "").startswith("SQLite random mixed-parent and keyless read budgets"))
-    command = step["run"].split()
+    job = workflow["jobs"]["python-sqlite-read-budgets"]
+    step = next(step for step in job["steps"] if step.get("name", "").startswith("SQLite random mixed-parent and keyless read budgets"))
+    assert "pytest ${{ matrix.selection }} -q" in step["run"]
+    selections = " ".join(entry["selection"] for entry in job["strategy"]["matrix"]["include"]).split()
     for name in (
         "test_resume_hidden_rows_budget.py",
         "test_label_round3_read_budget.py",
         "test_label_read_handoff_budget.py",
         "test_label_round2_read_budget.py",
     ):
-        assert "tests/performance/" + name in command
+        assert "tests/performance/" + name in selections
     assert "ALICE_READ_MAIN_CHECKOUT" not in step["env"]
     assert step["env"]["ALICE_READ_MERGE_BASE_CHECKOUT"].endswith("/.read-budget-merge-base")
     source = (Path(__file__).resolve().parents[2] / "tests/performance/test_label_round2_read_budget.py").read_text()
     assert 'expected = 5000 if profile == "admin_agent" else 2500 if case == "mixed" else 0' in source
     assert '"one-hidden"' in source and "assert complete_count(store, ceiling) ==" in source
     budget_steps = [
-        step for step in steps
+        step for job in workflow["jobs"].values() for step in job.get("steps", [])
         if "ALICE_READ_BUDGET_EVIDENCE" in step.get("env", {})
     ]
     assert len(budget_steps) == 3
@@ -600,8 +603,12 @@ def test_the_required_jobs_do_not_measure_the_prelabels_checkout():
     steps = workflow["jobs"]["python-integration"]["steps"]
     baseline = next(step for step in steps if str(step.get("name", "")).startswith("Paired read-budget baseline"))
     assert baseline["if"] == "matrix.integration_check == 'Read-budget maximum workload smoke (Postgres)'"
-    integration = next(step for step in steps if step.get("name") == "Integration tests")
-    sqlite = next(step for step in steps if str(step.get("name", "")).startswith("SQLite random mixed-parent"))
+    # The required measurements run in the shards and in the SQLite budget parts, not in the smoke job.
+    integration = next(step for step in workflow["jobs"]["python-integration-shards"]["steps"] if step.get("name") == "Integration tests of this shard")
+    sqlite = next(
+        step for step in workflow["jobs"]["python-sqlite-read-budgets"]["steps"]
+        if str(step.get("name", "")).startswith("SQLite random mixed-parent")
+    )
     smoke = next(step for step in steps if step.get("name") == "Maximum-workload read-budget controls")
     assert "ALICE_READ_MAIN_CHECKOUT" not in integration.get("env", {})
     assert "ALICE_READ_MAIN_CHECKOUT" not in sqlite.get("env", {})
@@ -610,8 +617,8 @@ def test_the_required_jobs_do_not_measure_the_prelabels_checkout():
         assert "ALICE_READ_ABSOLUTE_GATE" not in step.get("env", {})
         assert "ALICE_READ_ABSOLUTE_GATE" not in step.get("run", "")
     assert smoke["env"]["ALICE_READ_ABSOLUTE_GATE"] == "1"
-    assert "--session-timeout=4200" in integration["run"]
-    assert "--session-timeout=1800" in sqlite["run"]
+    assert "--session-timeout=1500" in integration["run"]
+    assert "--session-timeout=1500" in sqlite["run"]
 
 
 def test_the_maximum_smoke_runs_a_round_two_postgres_case_and_a_handoff_postgres_case():
