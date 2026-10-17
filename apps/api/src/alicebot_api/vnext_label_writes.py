@@ -33,7 +33,7 @@ from alicebot_api.vnext_derived_labels import (
     stored_scope,
     union_floor,
 )
-from alicebot_api.vnext_label_closure import collect_label_rows
+from alicebot_api.vnext_label_closure import collect_label_rows, drop_weekly_parent_index
 from alicebot_api.vnext_event_log import build_event_log_record, integrity_hash_for_event
 from alicebot_api.vnext_project_scope import project_floor_shape, project_scope_identity, resolve_project_scope, source_project_scope
 from alicebot_api.vnext_repositories import JsonObject
@@ -94,6 +94,43 @@ def label_savepoint_rolled_back(store: Any) -> None:
     invalidate_capture_label_inputs(store)
 
 
+@contextmanager
+def drop_label_state_on_rollback(store: Any) -> Iterator[None]:
+    """Run a block that opens its own transaction or savepoint, and empty the request's label state if it rolls back.
+
+    ``store.savepoint()`` does this itself. A block that opens a transaction or a savepoint on the connection does
+    not, and a read inside it may have cached labels that the block's own writes produced. Once the block rolls
+    back those labels describe rows that no longer exist, and the rest of the request would read a label that is
+    too permissive. Put this outside the transaction or savepoint, so a rollback that itself fails is covered too.
+    A block that writes no label, or that runs on a connection no store of the request uses, does not need it.
+    """
+
+    try:
+        yield
+    except BaseException:
+        if type(getattr(store, "conn", None)).__module__.startswith("psycopg"):
+            label_savepoint_rolled_back(store)
+        else:
+            from alicebot_api.vnext_label_guard import invalidate_read_labels
+
+            invalidate_read_labels(store)
+        raise
+
+
+def forget_what_a_write_read(store: Any) -> None:
+    """Drop what a label write may have read before its own row was stored, once the write is over.
+
+    A write empties the request's label state before it runs. Its insert floor then reads again, before the row
+    exists, and what it reads stays cached for the rest of the request: the reports that name each weekly candidate,
+    and on SQLite the list of stored ids. Neither holds the new row.
+    """
+
+    from alicebot_api.vnext_label_guard import SQLITE_LABEL_ID_MAP, drop_request_row_cache
+
+    drop_weekly_parent_index(store)
+    drop_request_row_cache(store, SQLITE_LABEL_ID_MAP)
+
+
 def _current_capture_inputs(store: Any) -> _CaptureLabelInputs | None:
     batch = _CAPTURE_LABEL_INPUTS.get()
     if batch is None or batch.conn is not getattr(store, "conn", None) or not _in_transaction(store):
@@ -118,7 +155,7 @@ def capture_label_inputs(store: Any, source_id: str) -> Iterator[None]:
     if conn is None or _sqlite(store) or not callable(getattr(conn, "transaction", None)):
         yield
         return
-    with conn.transaction():
+    with drop_label_state_on_rollback(store), conn.transaction():
         with conn.cursor() as cur:
             cur.execute("SELECT pg_current_xact_id()::text AS transaction_id")
             row = cur.fetchone()
@@ -145,7 +182,13 @@ def takes_label_lock(fn: Any) -> Any:
         lock = getattr(self, "lock_label_writes", None)
         if callable(lock):
             lock(exclusive=False)
-        return fn(self, *args, **kwargs)
+        try:
+            return fn(self, *args, **kwargs)
+        finally:
+            # The write may have read the reports that name a weekly candidate, or on SQLite the list of stored ids (the
+            # insert floor reads both) before it stored its own row, so what it loaded is not what is stored now,
+            # whether the write finished or failed.
+            forget_what_a_write_read(self)
 
     wrapper.__takes_label_lock__ = True  # type: ignore[attr-defined]
     return wrapper

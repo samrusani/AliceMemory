@@ -1,6 +1,6 @@
 """Recall's OR fallback is decided on the rows the caller may read, on PostgreSQL.
 
-Unreleased (on main, not in v0.20.0). The same checks as ``tests/unit/test_recall_fallback_hidden_rows.py`` on a real
+New in v0.20.2. The same checks as ``tests/unit/test_recall_fallback_hidden_rows.py`` on a real
 PostgreSQL store, through the MCP tool registry and a minted key. The strict pass (``websearch_to_tsquery``) and the OR
 pass (``to_tsquery`` over the sanitized words) are the store's own, and the decision between them is the shared stage in
 ``VNextRetrievalService._memory_fts_rows``. A visible public memory matches ``alpha`` only. After the answer of a

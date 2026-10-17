@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 IDS = f"{MARK} rows a key can read may list in their metadata the ids of rows it cannot read"
 KEPT = f"{MARK} a report keeps the words it was made with"
 VECTOR = f"{MARK} the vector stage of recall and of the context pack does not yet refill after hiding rows"
@@ -38,6 +38,13 @@ EVENT_FEED = f"{MARK} the workspace event feed and event count follow the rows a
 
 def _text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
+
+
+def _log_start(start: str) -> str:
+    """The text a changelog entry starts with: the page marker is gone and the first letter is a capital."""
+
+    text = start.removeprefix(f"{MARK} ")
+    return text[:1].upper() + text[1:]
 
 
 def _paragraph(text: str, start: str) -> str:
@@ -192,10 +199,10 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
     assert "which the detail mode of `alice_memory_review`, the memory audit and the event feed of the workspace return" in audit
     assert "the scheduler's run records in the workspace also keep the `artifact_id` of a report made confidential since" in audit
     assert "withholding these is tracked for v0.21.0" in audit
-    assert "(see the [draft security note](../release/derived-labels-security-note-draft.md))" in audit
+    assert "(see the [security note](../release/derived-labels-security-note-draft.md))" in audit
     assert "a known exception, not a way of meeting the requirement to filter hidden ids" in paragraph
     assert "withholding them is tracked for v0.21.0" in paragraph
-    assert "(see the [draft security note](../release/derived-labels-security-note-draft.md))" in paragraph
+    assert "(see the [security note](../release/derived-labels-security-note-draft.md))" in paragraph
 
     kept = _paragraph(page, f"- {KEPT}")
     assert ", so the title, text or quote of a row that was archived after the report was made stays in the report's text" in kept
@@ -203,7 +210,7 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
     assert "the words of a memory redacted after the report was made stay in it too, but then only the owner and an unbound admin key read the report" in kept
     assert "removing them is planned for v0.21.0, with hiding the words of archived rows tracked for v0.21.0" in kept
     assert "redacting a memory does not rewrite the reports that printed it" not in kept
-    assert "(see the [draft security note](../release/derived-labels-security-note-draft.md))" in kept
+    assert "(see the [security note](../release/derived-labels-security-note-draft.md))" in kept
     vector = _paragraph(page, f"- {VECTOR}")
     assert "a restricted caller can get fewer results than exist, down to none" in vector
     assert "tracked for v0.21.0" in vector
@@ -217,14 +224,14 @@ def test_the_changelog_has_one_entry_for_each() -> None:
         (LOOP_PROJECT, ("a database error (HTTP 500)", "vNext project was not found", "write nothing")),
         (EVENT_FEED, ("a `source_chunk.created` event for every chunk of a source above its sensitivity ceiling", "with the id of the source in `payload_json.source_id`", "and counted each one in `event_count`", "a chunk event that names no source is not shown to a key with limits", "the two ends of a graph edge an event is about", "The context tree and the dogfooding view read the same rule", "The owner and an unbound admin key are unchanged", "an event whose payload names an artifact, a belief or a project, or whose edge ends in a belief, is not shown to a key with limits", "are not judged", "`replacement_memory_id` (the memory a correction put in the place of another)", "An id that a client sent and an event repeats (the id of a project in capitals, or with spaces round it) is read as the row it names", "text that is not the id of a stored row cannot be shown to be readable, so it hides the event", "An edge with an end that is not a source, a memory, a belief or an entity, or an end that is not stored, is not shown to a key with limits either", "the `changes` that a `memory.updated` event copies from a row still list the `superseded_by` of a corrected memory, as the row does")),
         (VECTOR, ("fewer results than exist, down to none", "Tracked for v0.21.0")),
-        (BELIEF + " apply the caller's limits", ("In v0.19.2, in v0.20.0 and on main until now", "change the stored row", "where it raised a server error", "an id that is not a well-formed id")),
+        (BELIEF + " apply the caller's limits", ("In v0.19.2 and in v0.20.0", "change the stored row", "where it raised a server error", "an id that is not a well-formed id")),
     ):
-        matches = [entry for entry in entries if entry.startswith(start)]
+        matches = [entry for entry in entries if entry.startswith(_log_start(start))]
         assert len(matches) == 1, start
         for phrase in phrases:
             assert phrase in matches[0], (start, phrase)
         assert matches[0].endswith("No migration is required.")
-    ids_entry = next(entry for entry in entries if entry.startswith(IDS))
+    ids_entry = next(entry for entry in entries if entry.startswith(_log_start(IDS)))
     assert "can repeat its domain, sensitivity and project scope" not in ids_entry
     assert "the memory tools return none" not in ids_entry
     assert "Three answers show a little more" not in ids_entry
@@ -256,7 +263,7 @@ def test_the_tool_reference_states_both() -> None:
     assert "The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only (see [Redacted memories](#redacted-memories))." in ids
     assert "and redacting a memory does not rewrite the reports that printed it" not in ids
     exact = _paragraph(tools, f"{MARK} the doors that act on one row by id answer a row above the key's limits as a row that does not exist.")
-    assert "Until now these doors answered HTTP 403 with the policy decision" in exact
+    assert "In v0.19.2 and v0.20.0 these doors answered HTTP 403 with the policy decision" in exact
     assert "The call now writes what a call on a missing id writes, which is nothing: no policy event and no agent record" in exact
     assert "A row the key may read keeps its refusals." in exact
     assert "An archived or redacted memory is read by no door but redact, and it is outside the limits of every key that has any" in exact

@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 
 
 def _text(path: str) -> str:
@@ -47,7 +47,7 @@ def test_the_tool_reference_says_who_may_change_or_delete_a_source_by_id() -> No
 
 def test_the_changelog_has_one_entry_for_the_source_routes() -> None:
     entries = [line.removeprefix("- ") for line in _text("CHANGELOG.md").splitlines() if line.startswith("- ")]
-    matches = [entry for entry in entries if entry.startswith(f"{MARK} source review and delete apply the caller's limits")]
+    matches = [entry for entry in entries if entry.startswith("Source review and delete apply the caller's limits")]
     assert len(matches) == 1
     entry = matches[0]
     assert "v0.19.2" in entry and "v0.20.0" in entry

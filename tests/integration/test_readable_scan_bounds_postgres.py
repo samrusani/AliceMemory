@@ -1,6 +1,6 @@
 """A caller with limits reads past the rows it may not read, and a cap bounds how many rows a read judges, on PostgreSQL.
 
-Unreleased (on main, not in v0.20.0). The same checks as ``tests/unit/test_readable_scan_bounds.py`` and the loop and
+New in v0.20.2. The same checks as ``tests/unit/test_readable_scan_bounds.py`` and the loop and
 ceiling cases of ``tests/unit/test_hidden_rows_resume_and_grounding.py`` on a real PostgreSQL store, through the MCP tool
 registry and a minted key. The full-text proof reads ``sources`` and ``memories`` with hashed sub-selects, and the event reader
 joins ``event_log`` to ``memories`` on the text of the id, so these are the queries whose plans differ from the SQLite ones.

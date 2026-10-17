@@ -45,7 +45,7 @@ Optional:
   model. Changing it makes `alice-memory
   reindex-embeddings` re-embed only the memories whose embedded text changes.
   In v0.19.2 there is no cap.
-- `ALICE_MCP_COMMIT_RESULT`, Unreleased (on main, not in v0.20.0): `compact`
+- `ALICE_MCP_COMMIT_RESULT` (from v0.20.2): `compact`
   or `full`. With `compact`, `alice_memory_commit` answers with the memory `id`,
   the outcome, the `receipt`, the reasons a write was held, and for a held write
   the `confirmation_id` and the proposed text. It leaves out `policy_decision` and
@@ -170,7 +170,7 @@ One-command bridge demo:
   `alice_context_pack` gets a query the SQLite source search cannot take. Its
   message names the limit and holds only counts, never the query. From v0.20.0,
   `alice_resume` and `alice_recent_decisions` use it for
-  a query over 40,000 UTF-8 bytes. Unreleased (on main, not in v0.20.0): three
+  a query over 40,000 UTF-8 bytes. From v0.20.2, three
   more codes, `not_permitted`, `not_found` and `precondition_failed`, tell a
   refusal from a failure, and `invalid_request` also answers a rejected
   argument, with the same fixed message except for the reserved project name

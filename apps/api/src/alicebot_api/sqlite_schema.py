@@ -1504,6 +1504,7 @@ def _ensure_current_memories_status_constraint(conn: sqlite3.Connection) -> None
         conn.execute("COMMIT")
     except Exception:
         if conn.in_transaction:
+            # label state: none, this schema change runs while the vault opens, before any store exists.
             conn.execute("ROLLBACK")
         raise
     finally:
@@ -2022,11 +2023,14 @@ def _relabel_derived_labels(conn: sqlite3.Connection) -> None:
 
     from alicebot_api.vnext_label_repair import relabel_labels_sqlite
 
+    # label state: none, this repair runs while the vault opens, before any store exists.
     conn.execute("SAVEPOINT alice_derived_labels_v4")
     try:
         relabel_labels_sqlite(conn)
     except Exception as exc:
+        # label state: none, this rolls back the savepoint opened above, before any store exists.
         conn.execute("ROLLBACK TO SAVEPOINT alice_derived_labels_v4")
+        # label state: none, this ends the savepoint above and rolls nothing back.
         conn.execute("RELEASE SAVEPOINT alice_derived_labels_v4")
         left = getattr(exc, "left", "an unknown number of")
         logging.getLogger(__name__).warning(
@@ -2034,6 +2038,7 @@ def _relabel_derived_labels(conn: sqlite3.Connection) -> None:
             left,
         )
         return
+    # label state: none, this ends the savepoint above and rolls nothing back.
     conn.execute("RELEASE SAVEPOINT alice_derived_labels_v4")
 
 
