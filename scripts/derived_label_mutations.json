@@ -291,10 +291,10 @@
       "edits": [
         {
           "file": "docs/release/v0.20.0-release-notes.md",
-          "line": 6,
+          "line": 8,
           "before": "Doctor's derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and the doctor routes omit them for callers with limits.",
           "after": "",
-          "sha256": "12655b7673bdb91df50da3e34128f503d264a153ed6a51d663a19adc80247c35"
+          "sha256": "2755498250a7f7dd3526ca7476f0b0ed122e4595f9fd890ff82d41eecfc47549"
         }
       ],
       "pytest": [
@@ -6211,10 +6211,10 @@
       "edits": [
         {
           "file": "docs/release/v0.20.0-release-notes.md",
-          "line": 7,
+          "line": 11,
           "before": "\n> **Update (2026-10-09):** the correction above says graph neighborhood returns edge explanations in v0.20.0, and that is so. On main, not in v0.20.0, it lists only the edges whose ends the key may read, and the graph edge review route applies the same rule. See the [draft security note](derived-labels-security-note-draft.md).\n",
           "after": "",
-          "sha256": "12655b7673bdb91df50da3e34128f503d264a153ed6a51d663a19adc80247c35"
+          "sha256": "2755498250a7f7dd3526ca7476f0b0ed122e4595f9fd890ff82d41eecfc47549"
         }
       ],
       "pytest": [
