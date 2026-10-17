@@ -802,3 +802,5 @@ def test_every_v0200_limitation_without_an_update_is_still_listed_in_the_v0202_n
         assert title in new, title
     updates = [block for block in _blocks(NOTES_PATH) if _UPDATE_2026_10_17.match(block)]
     assert len(updates) == len(V0200_ITEMS_FIXED_IN_V0202) + len(V0200_TOP_PARAGRAPHS_FIXED_IN_V0202) + 3, len(updates)
+    # An update glued to the end of another paragraph, with no blank line, is no paragraph of its own.
+    assert _text(NOTES_PATH).count("Update (2026-10-17)") == len(updates)
