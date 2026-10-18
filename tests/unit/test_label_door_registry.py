@@ -53,7 +53,8 @@ GUARD_CALLS = {
     "admit_edges",
     "admit_events", "admit_related_rows", "readable_status_counts", "readable_event_count",
     "guard_for_caller", "newest_admitted_rows", "readable_own_label_rows",
-    "project_in_view", "project_readable", "project_readable_to_record",
+    "project_in_view",     "project_readable", "project_readable_to_record",
+    "outside_caller_limits",
 }
 
 # function -> helper that holds the guard call, or None when the function calls it
@@ -138,6 +139,10 @@ DOORS = {
     "vnext_context_tree.py:_tree_event_visible": None,
     "routers/vnext_retrieval.py:get_vnext_source_trace": "routers/_vnext_shared.py:_vnext_load_source_trace",
     "routers/vnext_retrieval.py:get_vnext_artifact_trace": "routers/_vnext_shared.py:_vnext_authorized_artifact",
+    "vnext_what_changed.py:what_changed": "_assemble",
+    "vnext_what_changed.py:_assemble": "_step_is_readable",
+    "vnext_what_changed.py:_search_starts": "_step_is_readable",
+    "vnext_what_changed.py:_step_is_readable": None,
 }
 
 NOT_A_DOOR = {
@@ -147,6 +152,7 @@ NOT_A_DOOR = {
     "vnext_projects.py:stored_project": "loader of one project row by the id a caller sent; every caller judges the row it gets (project_readable, or the readable test project_a_loop_is_filed_under is given)",
     "vnext_projects.py:project_a_loop_is_filed_under": "returns an id and never a row; the callers pass the readability test of the caller (project_in_view for an operator guard, project_readable for an identity)",
     "vnext_projects.py:VNextProjectService.review_open_loop": "write path; the route and the open-loop tool settle the loop first",
+    "vnext_what_changed.py:_cited_memories": "loads memories named by a reference; _entry_is_readable judges each one with _step_is_readable",
     "vnext_memory_commit.py:VNextMemoryCommitService.confirm": "write path; _write_policy_decision settles the row",
     "vnext_memory_commit.py:VNextMemoryCommitService.undo": "write path; _write_policy_decision settles the row",
     "vnext_memory_commit.py:VNextMemoryCommitService.correct": "write path; _write_policy_decision settles the row",
@@ -217,6 +223,7 @@ SCAN_MODULES = tuple(sorted({
     "alicebot_api/vnext_brain.py", "alicebot_api/vnext_connections.py", "alicebot_api/vnext_contradictions.py",
     "alicebot_api/vnext_consolidation.py", "alicebot_api/vnext_rollups.py", "alicebot_api/vnext_scheduler.py",
     "alicebot_api/vnext_connectors.py", "alicebot_api/vnext_artifact_review.py",
+    "alicebot_api/vnext_what_changed.py",
     *(str(path.relative_to(SRC)) for directory in ("routers", "mcp") for path in (SRC / "alicebot_api" / directory).glob("*.py")),
 }))
 

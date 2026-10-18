@@ -34,7 +34,7 @@ should receive:
   `2c372417e1d07d072265d2efdfbdace04f8bfcbb`, explicitly labeled partial and
   historical;
 - instructions to run PostgreSQL and SQLite postures, default and gated HTTP
-  surfaces, the 11-tool core MCP server, browser clipper, scheduler, importers,
+  surfaces, the 12-tool core MCP server, browser clipper, scheduler, importers,
   providers, exports, and redaction; and
 - the private reporting path described in the repository root `SECURITY.md`.
 

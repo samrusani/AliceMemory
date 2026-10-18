@@ -30,6 +30,7 @@ _READ_ONLY = frozenset(
         "alice_recent_decisions",
         "alice_explain",
         "alice_memory_review",
+        "alice_what_changed",
     }
 )
 _ADD_ONLY = frozenset({"alice_memory_commit", "alice_capture"})

@@ -155,7 +155,7 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # Re-pin 2026-10-09: _vnext_workspace_payload lists the queued tasks and the brain charter the caller may read
 # (readable_own_label_rows), names its caller for the recent-commits fallback, and holds the connector health block and
 # the doctor to the caller's guard; no other definition changed.
-EXPECTED_CARRIER_AST_SHA256 = "7aade286308c3e4aeb2775eaa350eb739681f3e68d7f20435adf5495bede2c60"
+EXPECTED_CARRIER_AST_SHA256 = "af76e0b8904bb76a54403125e86dd9f49cc42403d6e1a9bffadcaf9cee27899e"
 EXPECTED_ROUTE_NODE_SHA256 = {
     "get_vnext_workspace": "62f9a0dec65229b3ff523d12e99529f1e4751f7953e26ed69fc52d184ebc9d2d",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",

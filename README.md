@@ -13,7 +13,6 @@ uvx alice-memory demo --vault ~/Notes --data-dir ~/.alice-demo
 
 `alice-memory doctor` prints sources, then candidates.
 
-[![LongMemEval](https://img.shields.io/badge/LongMemEval-v0.12.0%20store__chunks%20receipt-6f42c1)](https://github.com/samrusani/AliceMemory/blob/main/docs/benchmarks/longmemeval/README.md)
 ![Local-first](https://img.shields.io/badge/local--first-core-0A7B61)
 ![MCP](https://img.shields.io/badge/MCP-supported-1f6feb)
 ![Python](https://img.shields.io/badge/python-3.12%2B-3776AB)
@@ -173,7 +172,7 @@ The default MCP surface is three tools:
 - `alice_recall`: search memory (full-text, vector and entity-graph results fused by rank, with vectors only when an embeddings endpoint is set; hard-scopable by thread, task, project, person, time, and memory type). Also returns matching passages from captured documents under `sources`, with an excerpt to read and quote; `results` are facts Alice asserts, `sources` are material the user imported, and the same scope fence applies to both
 - `alice_resume`: resumption brief for a project or thread
 
-The other eight core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. Capture stores a source; candidates stay unsearchable as memories. Import is a source. Commit is a fact.
+The other core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. Unreleased (on main, not in v0.20.2): `alice_what_changed` is one of the other nine core tools, and v0.20.2 does not have it. Capture stores a source; candidates stay unsearchable as memories. Import is a source. Commit is a fact.
 
 From v0.19.0, folder-import receipt items name the file, a withheld ChatGPT title is counted, the Postgres doctor names `DELETE /v0/vnext/sources/{id}`, candidate capture withholds a token and committing that withheld text is refused, a flagged import line, message, or title is withheld and the rest is imported, `alice_capture` refuses a low-entropy AKIA-shaped key and both imports withhold it, an install dry run shows top-level booleans and numbers on Claude Desktop, Claude Code, Cursor, OpenClaw and OpenCode, and Codex is opt-in with `--host codex`. In v0.18.0 those receipt items omit the file, that title is not counted, the doctor says `delete_source`, the candidate response echoes the token, capture stores a low-entropy AKIA-shaped key, a dry run prints a top-level boolean or number, such as OpenCode's `"enabled": false`, as `<hidden>`, and there is no Codex install. `--host codex` also writes a SessionStart hook to `hooks.json`, which Codex skips until you trust it once at "Hooks need review" or with `/hooks`. In v0.18.0 there is no Codex hook. The Claude Code plugin is in `plugins/alice-memory`. v0.18.0 has no Claude Code plugin.
 

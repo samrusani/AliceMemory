@@ -1024,6 +1024,30 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
             },
         },
     },
+    {
+        "name": "alice_what_changed",
+        "description": (
+            "The history of recorded decisions on one topic that this caller may read. "
+            "The answer is a list of chains. Each chain has its own current step, upcoming ids, "
+            "disputed ids and history, oldest to newest. A reason is the rationale stored on the "
+            "decision, or a quote already stored with its provenance, and only when this caller "
+            "may read that source. The read does not search note text for a reason and does not "
+            "report a count or a gap. When nothing visible is found it says no recorded decision "
+            "history was found and names alice_recall."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                **_AGENT_IDENTITY_SCHEMA_PROPERTIES,
+                "topic": {
+                    "type": "string",
+                    "description": "The account, price, feature or policy to explain. Free text.",
+                },
+            },
+            "required": ["topic"],
+        },
+    },
 ]
 
 
@@ -2075,6 +2099,7 @@ _READ_ONLY_HINT_TOOLS = frozenset(
         "alice_recent_decisions",
         "alice_explain",
         "alice_memory_review",
+        "alice_what_changed",
     }
 )
 # The tools that write nothing a caller asked for: they record the audit events of their policy check (the agent identity row
