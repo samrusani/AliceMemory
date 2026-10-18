@@ -94,6 +94,7 @@ Export/import round-trip contract ("you own the memory"):
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 from contextlib import closing, contextmanager, redirect_stderr
 from io import StringIO
@@ -549,12 +550,61 @@ def _remove_sqlite_files(path: Path) -> None:
             pass
 
 
+def _restore_lock_path(working: Path) -> Path:
+    return working.with_name(working.name + ".lock")
+
+
+def acquire_restore_lock(working: Path) -> int:
+    """An exclusive lock held for the life of a restore. The sweep must be able to take the same lock."""
+
+    lock_path = _restore_lock_path(working)
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    fcntl.flock(descriptor, fcntl.LOCK_EX)
+    return descriptor
+
+
+def release_restore_lock(descriptor: int | None, working: Path | None) -> None:
+    if descriptor is None:
+        return
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
+    if working is None:
+        return
+    try:
+        _restore_lock_path(working).unlink()
+    except OSError:
+        pass
+
+
+def _restore_is_owned(working: Path) -> bool:
+    """True when a live restore holds the lock. A lock with no owner is stale."""
+
+    lock_path = _restore_lock_path(working)
+    if not lock_path.is_file():
+        return False
+    try:
+        descriptor = os.open(lock_path, os.O_RDWR)
+    except OSError:
+        return True
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    else:
+        return False
+    finally:
+        os.close(descriptor)
+
+
 def sweep_restore_working_copies(database: Path) -> None:
     """Remove ``.{name}.restore.*.tmp`` working copies left in the data directory.
 
     A killed ``alice-memory import`` leaves the copy, and its ``-wal`` and ``-shm`` files, beside the vault.
-    The next import or open of that vault removes them. A file that is itself a restore copy is left alone,
-    so the import can open the copy it just made. A failed sweep does not fail the command.
+    The next import or open of that vault removes them. A copy whose restore still holds its lock is left
+    alone. A file that is itself a restore copy is left alone, so the import can open the copy it just made.
+    A failed sweep does not fail the command.
     """
 
     try:
@@ -581,8 +631,14 @@ def sweep_restore_working_copies(database: Path) -> None:
                 break
         if base.endswith(".tmp"):
             bases.append(directory / base)
-    for base in dict.fromkeys(bases):
-        _remove_sqlite_files(base)
+    for working in dict.fromkeys(bases):
+        if _restore_is_owned(working):
+            continue
+        _remove_sqlite_files(working)
+        try:
+            _restore_lock_path(working).unlink()
+        except OSError:
+            pass
 
 
 def sentinel_hits(database: Path, needle: str) -> list[str]:
@@ -4243,6 +4299,8 @@ def _run_import_snapshot(
     target_existed = db_path.exists()
     sweep_restore_working_copies(db_path)
     working_path: Path | None = None
+    locked_copy: Path | None = None
+    restore_lock: int | None = None
     credential_reports: tuple[tuple[str, str, str], ...] = ()
     claim_tally: dict[str, int] = {}
     scoping_events: list[dict[str, object]] = []
@@ -4256,6 +4314,8 @@ def _run_import_snapshot(
         )
         os.close(fd)
         working_path = Path(raw_working_path)
+        locked_copy = working_path
+        restore_lock = acquire_restore_lock(working_path)
         if target_existed:
             _copy_sqlite_database(db_path, working_path)
             staged_source = sqlite3.connect(working_path)
@@ -4340,8 +4400,10 @@ def _run_import_snapshot(
         _emit_error("restore_failed")
         return 1
     finally:
-        if working_path is not None and working_path != db_path:
-            _remove_sqlite_files(working_path)
+        staged = working_path if working_path is not None and working_path != db_path else None
+        if staged is not None:
+            _remove_sqlite_files(staged)
+        release_restore_lock(restore_lock, locked_copy)
         _remove_sqlite_files(validated_import.spool_path)
     # A new target is the already-fchmod(0600) staged inode published by
     # hard link, so no fallible post-publication chmod is needed. Existing

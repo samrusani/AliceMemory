@@ -14822,10 +14822,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/onramp.py",
-          "line": 2489,
+          "line": 2545,
           "before": "        payload = loads_finite(text)\n",
           "after": "        payload = json.loads(text)\n",
-          "sha256": "ba1685cdba86f7cf2192ed4b28692c5d5ddc4da178b11e7df41f7fcb75514062"
+          "sha256": "4ed5fda1aaa4b3eb858bb2857cca37433c7cdebcbfde849e400b1716d984b06c"
         }
       ],
       "pytest": [
@@ -18506,10 +18506,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/onramp.py",
-          "line": 564,
+          "line": 614,
           "before": "    if \".restore.\" in name:\n        return\n",
           "after": "    if True:\n        return\n",
-          "sha256": "ba1685cdba86f7cf2192ed4b28692c5d5ddc4da178b11e7df41f7fcb75514062"
+          "sha256": "4ed5fda1aaa4b3eb858bb2857cca37433c7cdebcbfde849e400b1716d984b06c"
         }
       ],
       "pytest": [
