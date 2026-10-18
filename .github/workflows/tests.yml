@@ -35,7 +35,9 @@ jobs:
         # minute limit and the 17 minute split line recorded in gates.json. The
         # saved-quote files are the heaviest family and are split by name over
         # three shards; the vault tests (test_saved_quote_memory_refs_vault.py)
-        # run in shard 2. A new file that no pattern selects fails the split test.
+        # run in shard 2. The what-changed files also run in shard 2: with the
+        # files already in shard 4 they pushed that job past the 20 minute limit.
+        # A new file that no pattern selects fails the split test.
         include:
           - shard: 1
             selection: "tests/unit/test_[bde]*.py"
@@ -43,12 +45,14 @@ jobs:
             selection: >-
               tests/unit/test_c*.py tests/unit/test_[pq]*.py tests/unit/test_saved_[!q]*.py
               tests/unit/test_saved_quote_[m-z]*.py tests/unit/test_saved_quotes_*.py
+              tests/unit/test_what_changed*.py
           - shard: 3
             selection: "tests/unit/test_[0-9a]*.py tests/unit/test_[f-i]*.py tests/unit/test_[no]*.py tests/unit/test_r*.py"
           - shard: 4
             selection: >-
               tests/unit/test_[j-m]*.py tests/unit/test_s[!a]*.py
-              tests/unit/test_saved_quote_[a-l]*.py tests/unit/test_[t-z]*.py
+              tests/unit/test_saved_quote_[a-l]*.py
+              tests/unit/test_[t-vx-z]*.py tests/unit/test_w[!h]*.py
     env:
       COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
