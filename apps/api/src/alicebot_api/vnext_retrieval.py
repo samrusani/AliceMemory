@@ -4079,15 +4079,16 @@ class VNextRetrievalService:
         The steps stay in this order because a row the caller may not read has
         to be gone before it can take a slot, win a duplicate, or fill the cap:
 
-        1. Chunk candidates for the strict query, deepened up to
-           ``SOURCE_PASSAGE_SCAN_MAX_ROWS``. A shortfall records ``scan capped``
-           and keeps that fetch. It does not raise.
-        2. Resolve each parent. A parent that does not come back, or that
-           ``_allowed`` refuses, is dropped here.
-        3. Collapse exact duplicates (whitespace and case). Keep the row whose
+        1. Chunk candidates for the strict query. Resolve each parent and drop one
+           that does not come back or that ``_allowed`` refuses.
+        2. Collapse exact duplicates (whitespace and case). Keep the row whose
            source was captured last, and on a tie the greater source id.
-        4. Drop a passage ``credential_verdict`` flags, and count it.
-        5. Keep at most ``passages_per_source`` rows of each source, in rank order.
+        3. Drop a passage ``credential_verdict`` flags, and count it.
+        4. Keep at most ``passages_per_source`` rows of each source, in rank order.
+           The scan deepens on those usable passages until the result fills, the
+           store returns a short prefix, or ``SOURCE_PASSAGE_SCAN_MAX_ROWS`` is
+           reached. ``scan capped`` is recorded only in that last case. It does
+           not raise.
         6. Take the first ``limit - limit // 4`` passages. Provenance, then
            title/recency, then the temporal list, fused the way
            ``_fused_candidates`` fuses those lists alone, fill the reserve and
@@ -4134,7 +4135,8 @@ class VNextRetrievalService:
 
         depth = max(limit * SOURCE_CHUNK_CANDIDATE_MULTIPLIER, SOURCE_PASSAGE_CANDIDATE_FLOOR)
         incomplete = [False]
-        ranked: list[tuple[JsonObject, JsonObject]] = []
+        capped: list[tuple[JsonObject, JsonObject]] = []
+        credential_dropped = 0
         search_source_chunks = getattr(self.store, "search_source_chunks", None)
         if callable(search_source_chunks) and has_source_resolver:
             chunk_fts_source = str(getattr(self.store, "fts_stage_source", "postgres_fts"))
@@ -4175,56 +4177,59 @@ class VNextRetrievalService:
                     visible.append(row)
                 return visible
 
-            selected, _chunk_source = _fetch_filtered_prefix(
-                _fetch,
-                select_rows=_select,
-                target=depth,
-                initial_limit=depth,
-                max_rows=SOURCE_PASSAGE_SCAN_MAX_ROWS,
-                incomplete=incomplete,
-            )
-            ordered_ids = [str(row.get("source_id")) for row in selected if row.get("source_id") is not None]
-            parents = {
-                str(parent.get("id")): parent
-                for parent in _resolve_sources(list(dict.fromkeys(ordered_ids)))
-            }
-            for row in selected:
-                parent = parents.get(str(row.get("source_id")))
-                if parent is None:
-                    continue
-                ranked.append((parent, row))
+            def _usable(raw_rows: Sequence[JsonObject]) -> tuple[list[tuple[JsonObject, JsonObject]], int]:
+                visible_rows = _select(raw_rows)
+                ordered = [str(row.get("source_id")) for row in visible_rows if row.get("source_id") is not None]
+                resolved = {
+                    str(parent.get("id")): parent
+                    for parent in _resolve_sources(list(dict.fromkeys(ordered)))
+                }
+                pairs: list[tuple[JsonObject, JsonObject]] = []
+                for row in visible_rows:
+                    parent = resolved.get(str(row.get("source_id")))
+                    if parent is not None:
+                        pairs.append((parent, row))
+                collapsed_order: list[str] = []
+                collapsed_rows: dict[str, tuple[JsonObject, JsonObject]] = {}
+                for parent, chunk in pairs:
+                    digest = _passage_text_hash(str(chunk.get("text") or ""))
+                    current = collapsed_rows.get(digest)
+                    if current is None:
+                        collapsed_order.append(digest)
+                        collapsed_rows[digest] = (parent, chunk)
+                    elif _source_captured_later(parent, current[0]):
+                        collapsed_rows[digest] = (parent, chunk)
+                dropped = 0
+                cleared: list[tuple[JsonObject, JsonObject]] = []
+                for digest in collapsed_order:
+                    parent, chunk = collapsed_rows[digest]
+                    text = chunk.get("text")
+                    if isinstance(text, str) and credential_verdict(text) is not None:
+                        dropped += 1
+                        continue
+                    cleared.append((parent, chunk))
+                per_source: dict[str, int] = {}
+                kept: list[tuple[JsonObject, JsonObject]] = []
+                for parent, chunk in cleared:
+                    source_id = str(parent.get("id"))
+                    if per_source.get(source_id, 0) >= ranking.passages_per_source:
+                        continue
+                    per_source[source_id] = per_source.get(source_id, 0) + 1
+                    kept.append((parent, chunk))
+                return kept, dropped
+
+            scan_limit = min(depth, SOURCE_PASSAGE_SCAN_MAX_ROWS)
+            while True:
+                raw_rows, _chunk_source = _fetch(scan_limit)
+                capped, credential_dropped = _usable(raw_rows)
+                if len(capped) >= limit or len(raw_rows) < scan_limit:
+                    break
+                if scan_limit >= SOURCE_PASSAGE_SCAN_MAX_ROWS:
+                    incomplete[0] = True
+                    break
+                scan_limit = min(scan_limit * 2, SOURCE_PASSAGE_SCAN_MAX_ROWS)
         else:
             chunk_fts_source = SOURCE_CHUNK_STAGE_DISABLED_NO_STORE_SUPPORT
-
-        collapsed_order: list[str] = []
-        collapsed_rows: dict[str, tuple[JsonObject, JsonObject]] = {}
-        for parent, chunk in ranked:
-            digest = _passage_text_hash(str(chunk.get("text") or ""))
-            current = collapsed_rows.get(digest)
-            if current is None:
-                collapsed_order.append(digest)
-                collapsed_rows[digest] = (parent, chunk)
-            elif _source_captured_later(parent, current[0]):
-                collapsed_rows[digest] = (parent, chunk)
-        collapsed = [collapsed_rows[digest] for digest in collapsed_order]
-
-        credential_dropped = 0
-        cleared: list[tuple[JsonObject, JsonObject]] = []
-        for parent, chunk in collapsed:
-            text = chunk.get("text")
-            if isinstance(text, str) and credential_verdict(text) is not None:
-                credential_dropped += 1
-                continue
-            cleared.append((parent, chunk))
-
-        per_source: dict[str, int] = {}
-        capped: list[tuple[JsonObject, JsonObject]] = []
-        for parent, chunk in cleared:
-            source_id = str(parent.get("id"))
-            if per_source.get(source_id, 0) >= ranking.passages_per_source:
-                continue
-            per_source[source_id] = per_source.get(source_id, 0) + 1
-            capped.append((parent, chunk))
 
         provenance_sources: list[JsonObject] = []
         if has_source_resolver:

@@ -178,6 +178,7 @@ NOT_A_DOOR = {
     "vnext_retrieval.py:VNextRetrievalService._sources_by_ids": "original-source lookup; SourceReadFence admits before formatting",
     "vnext_retrieval.py:VNextRetrievalService._query_embedding": "store capability discovery only; does not execute a row reader",
     "vnext_retrieval.py:VNextRetrievalService._source_stage_lists": "original-source stage; existing source admission remains",
+    "vnext_retrieval.py:VNextRetrievalService._passage_excerpts": "passage stage; _allowed drops a parent the caller may not read before a passage can take a slot",
     "vnext_retrieval.py:VNextRetrievalService._supersession_context": "pointer metadata is fenced through memory_visibility at output",
     "session_briefing.py:_merge_recent_change_targets": "private loader checks _event_target_honours_fence before adding a target",
     "session_briefing.py:_resolve_excerpt_query": "original source lookup; source fence and withheld event targets constrain excerpts",

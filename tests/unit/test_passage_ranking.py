@@ -28,6 +28,7 @@ from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_retrieval import (
     SOURCE_PASSAGE_CANDIDATE_FLOOR,
     SOURCE_PASSAGE_SCAN_CAPPED,
+    SOURCE_PASSAGE_SCAN_COMPLETE,
     SOURCE_PASSAGE_SCAN_MAX_ROWS,
     VNextRetrievalService,
     VNextRetrievalValidationError,
@@ -572,6 +573,68 @@ def test_the_scan_stops_at_the_ceiling_and_does_not_raise() -> None:
     assert store.limits[0] == max(8 * 4, SOURCE_PASSAGE_CANDIDATE_FLOOR)
     assert store.limits[-1] == SOURCE_PASSAGE_SCAN_MAX_ROWS
     assert SOURCE_PASSAGE_SCAN_MAX_ROWS == 2048
+
+
+def test_the_scan_deepens_past_one_documents_cap() -> None:
+    """Eighty chunks of one document do not finish a request for eight passages.
+
+    Mutation: stop the scan once the raw visible prefix fills, before the per-source cap.
+    """
+
+    class _Store:
+        fts_stage_source = "sqlite_fts"
+
+        def __init__(self) -> None:
+            self.limits: list[int] = []
+
+        def search_source_chunks(self, *, limit: int, **_kwargs: object) -> list[dict[str, object]]:
+            self.limits.append(limit)
+            rows: list[dict[str, object]] = []
+            for index in range(80):
+                rows.append(
+                    {
+                        "id": f"a-{index}",
+                        "source_id": "doc-a",
+                        "chunk_index": index,
+                        "text": f"brass lantern note {index}",
+                        "fts_score": 100 - index,
+                    }
+                )
+            for index in range(6):
+                rows.append(
+                    {
+                        "id": f"other-{index}",
+                        "source_id": f"doc-{index}",
+                        "chunk_index": 0,
+                        "text": f"brass lantern from document {index}",
+                        "fts_score": 10 - index,
+                    }
+                )
+            return rows[:limit]
+
+        def get_sources_by_ids(self, ids: object) -> list[dict[str, object]]:
+            return [
+                {"id": source_id, "title": source_id, "captured_at": "2026-01-01T00:00:00Z", "domain": "project", "sensitivity": "public"}
+                for source_id in ids
+            ]
+
+        def search_sources(self, **_kwargs: object) -> list[dict[str, object]]:
+            return []
+
+    store = _Store()
+    service = VNextRetrievalService(store, embedding_provider=None, reranker_provider=None)  # type: ignore[arg-type]
+    passages, stage = service.search_source_excerpts(
+        query="brass lantern",
+        domains=[],
+        sensitivity_allowed=SENSITIVITY,
+        limit=8,
+        scope=None,
+        ranking=SourceRanking.passage(),
+    )
+    assert len(passages) == 8
+    assert len({row.get("source_id", row.get("id")) for row in passages}) > 1
+    assert stage["chunk_scan"] == SOURCE_PASSAGE_SCAN_COMPLETE
+    assert store.limits[-1] < SOURCE_PASSAGE_SCAN_MAX_ROWS
 
 
 def test_hidden_rows_under_the_ceiling_do_not_change_the_visible_passages(

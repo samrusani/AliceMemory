@@ -1689,7 +1689,16 @@ def fingerprint(
     recall: dict[str, Any] | None = None
     if session is not None:
         if not session.recall_calls:
-            session.recall(FINGERPRINT_PROBE_QUERY)
+            # ``on`` is a harness setting the product recall refuses. The probe
+            # uses a value the product accepts. The fingerprint still records ``on``.
+            held = os.environ.get(SEARCH_QUALITY_ENV)
+            if held == "on":
+                os.environ.pop(SEARCH_QUALITY_ENV, None)
+            try:
+                session.recall(FINGERPRINT_PROBE_QUERY)
+            finally:
+                if held == "on":
+                    os.environ[SEARCH_QUALITY_ENV] = held
         recall = recall_settings(session.recall_calls)
     return {
         "git": identity["git"],
