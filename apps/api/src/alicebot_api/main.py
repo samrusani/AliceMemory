@@ -1393,6 +1393,11 @@ async def enforce_authenticated_user_identity(
 async def _withhold_hidden_ids(request: Request, call_next):  # type: ignore[no-untyped-def]
     """After the route, drop ids of rows a key with limits may not read. The owner is not touched."""
 
+    # Read the body first so the ids the caller sent are known. The stream is cached, and the route reads it again.
+    try:
+        named_body = await request.body()
+    except Exception:
+        named_body = b""
     response = await call_next(request)
     from starlette.responses import Response
 
@@ -1409,7 +1414,7 @@ async def _withhold_hidden_ids(request: Request, call_next):  # type: ignore[no-
     else:
         raw = getattr(response, "body", b"") or b""
     # The name ``get_settings`` on this module is what a test replaces with the database under test.
-    updated = withhold_json_body(request, raw, database_url=get_settings().database_url)
+    updated = withhold_json_body(request, raw, database_url=get_settings().database_url, named_body=named_body)
     content = raw if updated is None else updated
     headers = {key: value for key, value in response.headers.items() if key.lower() != "content-length"}
     return Response(

@@ -643,10 +643,14 @@ def test_the_graph_neighborhood_lists_an_edge_only_when_the_key_may_read_the_row
         assert edge_id not in listed(body), target
         assert renamed not in json.dumps(body), target
         assert body["edge_count"] == len(listed(body))
-    memory_text = json.dumps(neighborhood(memory_id, trusted))
+    memory_body = neighborhood(memory_id, trusted)
+    memory_text = json.dumps(memory_body)
     assert "BELIEF title" not in memory_text and "SOURCE1 Atlas" not in memory_text
-    # The memory is above the key's ceiling, so the neighborhood does not return its id.
-    assert memory_id not in memory_text
+    # The caller named this memory in the path, so the target id is that id. It is not
+    # another row they discovered. The rest of the answer does not repeat it.
+    assert memory_body["target_id"] == memory_id
+    rest = json.dumps({key: value for key, value in memory_body.items() if key != "target_id"})
+    assert memory_id not in rest
     assert neighborhood(memory_id, trusted)["edge_count"] == 0
     # The unbound admin key is not limited. It lists the edge, with the title the memory had and not the new one.
     for target in (memory_id, edge["from_id"]):

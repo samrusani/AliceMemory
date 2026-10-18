@@ -321,7 +321,9 @@ def _strip(value: Any, hidden: set[str], *, field: str | None, depth: int) -> tu
     return value, False
 
 
-def withhold_json_body(request: Any, body: bytes, *, database_url: str | None = None) -> bytes | None:
+def withhold_json_body(
+    request: Any, body: bytes, *, database_url: str | None = None, named_body: bytes = b""
+) -> bytes | None:
     """JSON bytes with hidden ids removed, or ``None`` when the body should be sent unchanged."""
 
     identity = getattr(getattr(request, "state", None), "vnext_agent_identity", None)
@@ -352,7 +354,14 @@ def withhold_json_body(request: Any, body: bytes, *, database_url: str | None = 
         database_url = get_settings().database_url
     if str(database_url).startswith("sqlite"):
         return None
-    keep = _canonical_ids(str(getattr(getattr(request, "url", None), "path", "") or ""))
+    url = getattr(request, "url", None)
+    named = str(getattr(url, "path", "") or "") + "?" + str(getattr(url, "query", "") or "")
+    if named_body:
+        try:
+            named += named_body.decode()
+        except UnicodeDecodeError:
+            pass
+    keep = _canonical_ids(named)
     with user_connection(database_url, user_id) as conn:
         filtered = apply_hidden_id_withholding(PostgresVNextStore(conn), identity, payload, keep=keep)
     if filtered is payload:

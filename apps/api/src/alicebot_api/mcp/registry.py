@@ -671,8 +671,8 @@ def call_mcp_tool(
     identity = getattr(context, "agent_identity", None)
     if identity is not None:
         from alicebot_api.mcp.runtime import _vnext_store_context
-        from alicebot_api.vnext_hidden_ids import apply_hidden_id_withholding
+        from alicebot_api.vnext_hidden_ids import _canonical_ids, apply_hidden_id_withholding
 
         with _vnext_store_context(context) as store:
-            payload = apply_hidden_id_withholding(store, identity, payload)
+            payload = apply_hidden_id_withholding(store, identity, payload, keep=_canonical_ids(arguments))
     return _canonicalize_json(payload)  # type: ignore[return-value]
