@@ -40,19 +40,18 @@ jobs:
         # A new file that no pattern selects fails the split test.
         include:
           - shard: 1
-            selection: "tests/unit/test_[bde]*.py"
+            selection: "tests/unit/test_[bde]*.py tests/unit/test_w[!h]*.py tests/unit/test_what_changed.py tests/unit/test_what_changed_id_spellings.py"
           - shard: 2
             selection: >-
               tests/unit/test_c*.py tests/unit/test_[pq]*.py tests/unit/test_saved_[!q]*.py
               tests/unit/test_saved_quote_[m-z]*.py tests/unit/test_saved_quotes_*.py
-              tests/unit/test_what_changed*.py
           - shard: 3
-            selection: "tests/unit/test_[0-9a]*.py tests/unit/test_[f-i]*.py tests/unit/test_[no]*.py tests/unit/test_r*.py"
+            selection: "tests/unit/test_[0-9a]*.py tests/unit/test_[f-i]*.py tests/unit/test_[no]*.py tests/unit/test_r*.py tests/unit/test_what_changed_review.py tests/unit/test_what_changed_saved_quote_reader.py"
           - shard: 4
             selection: >-
               tests/unit/test_[j-m]*.py tests/unit/test_s[!a]*.py
               tests/unit/test_saved_quote_[a-l]*.py
-              tests/unit/test_[t-vx-z]*.py tests/unit/test_w[!h]*.py
+              tests/unit/test_[t-vx-z]*.py
     env:
       COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
