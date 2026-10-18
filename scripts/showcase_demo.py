@@ -16,6 +16,7 @@ import scripts.showcase_bench as showcase
 
 PRODUCT_PROJECT_NAME = "Quenby product"
 PRODUCT_PROJECT_SLUG = "quenby-product"
+PRODUCT_AGENT_ID = "showcase-product"
 
 
 def demo_product_binding(project_id: str) -> str | None:
@@ -31,25 +32,26 @@ def prepare_demo_product(db_path: Path) -> str:
     """
 
     user_id = UUID(bench.DEFAULT_USER_ID)
-    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
     from alicebot_api.vnext_agent_keys import create_agent_key
 
     with sqlite_user_connection(db_path, user_id) as conn:
-        project_id = _ensure_product_project(conn)
-        scope = demo_product_binding(project_id)
+        ensure_sqlite_user(conn, user_id, "showcase@example.com", "Showcase")
         store = SQLiteVNextStore(conn, user_id)
+        project_id = _ensure_product_project(store)
+        scope = demo_product_binding(project_id)
         row = conn.execute(
             """
             SELECT id FROM agent_api_keys
             WHERE user_id = ? AND agent_id = ? AND revoked_at IS NULL
             """,
-            (str(user_id), "showcase-product"),
+            (str(user_id), PRODUCT_AGENT_ID),
         ).fetchone()
         if row is None:
             create_agent_key(
                 store,
                 user_id=user_id,
-                agent_id="showcase-product",
+                agent_id=PRODUCT_AGENT_ID,
                 permission_profile=showcase.TEAM_PROFILES["product"],
                 label="product",
                 project_scope=scope,
@@ -62,25 +64,20 @@ def prepare_demo_product(db_path: Path) -> str:
     return project_id
 
 
-def _ensure_product_project(conn) -> str:
-    conn.execute(
+def _ensure_product_project(store) -> str:
+    """The project id stored on the product key.
+
+    SQLite has no projects table. The binding is the project scope on the key,
+    which is how a project-scoped key is limited.
+    """
+
+    found = store.conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS projects (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          slug TEXT NOT NULL UNIQUE
-        )
-        """
-    )
-    found = conn.execute(
-        "SELECT id FROM projects WHERE slug = ?",
-        (PRODUCT_PROJECT_SLUG,),
+        SELECT project_scope FROM agent_api_keys
+        WHERE user_id = ? AND agent_id = ? AND revoked_at IS NULL
+        """,
+        (store.user_id, PRODUCT_AGENT_ID),
     ).fetchone()
-    if found is not None:
-        return str(found["id"])
-    project_id = str(uuid4())
-    conn.execute(
-        "INSERT INTO projects (id, name, slug) VALUES (?, ?, ?)",
-        (project_id, PRODUCT_PROJECT_NAME, PRODUCT_PROJECT_SLUG),
-    )
-    return project_id
+    if found is not None and found["project_scope"]:
+        return str(found["project_scope"])
+    return str(uuid4())

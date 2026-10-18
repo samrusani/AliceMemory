@@ -193,6 +193,19 @@ def _(v):
     ]
 
 
+@probe("POST", "/v0/vnext/changes")
+def _(v):
+    return [
+        Call(
+            "topic",
+            body={"topic": "keel price"},
+            statuses=(200,),
+            trusted_sees=("decision_shown-text",),
+            admin_sees=("decision_hidden-text",),
+        )
+    ]
+
+
 @probe("POST", "/v0/vnext/memories/commit")
 def _(v):
     return [

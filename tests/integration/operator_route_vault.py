@@ -161,6 +161,7 @@ class Vault:
         with h.store() as store:
             self._sources(store)
             self._memories(store)
+            self._what_changed_decisions(store)
             self._artifacts(store)
             self._loops_and_projects(store)
             self._graph(store)
@@ -232,6 +233,34 @@ class Vault:
         if hidden:
             self.remember_hidden("memories", row["id"])
         return row
+
+    def _what_changed_decisions(self, store) -> None:
+        """One public decision and one confidential decision on the same words.
+
+        The what-changed probe asks for those words. A key with a ceiling is
+        shown the public decision and not the confidential one.
+        """
+
+        for name, hidden, sensitivity in (
+            ("decision_shown", False, "public"),
+            ("decision_hidden", True, "confidential"),
+        ):
+            text = self._text(f"{name}-text", hidden=hidden)
+            row = store.create_memory(
+                {
+                    "memory_key": f"{self.tag}-{name}",
+                    "title": f"keel price {name}",
+                    "canonical_text": text,
+                    "status": "active",
+                    "memory_type": "decision",
+                    "domain": "project",
+                    "sensitivity": sensitivity,
+                    "metadata_json": {},
+                }
+            )
+            self.ids[name] = str(row["id"])
+            if hidden:
+                self.remember_hidden("memories", row["id"])
 
     def _memories(self, store) -> None:
         commit = {"agentic_memory": {"kind": "agentic_memory_commit"}}
