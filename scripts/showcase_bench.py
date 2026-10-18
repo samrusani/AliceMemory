@@ -556,9 +556,15 @@ def answer_support(answer: str, evidence: Sequence[Mapping[str, Any]]) -> dict[s
 
 
 def _supported_complete(row: Mapping[str, Any]) -> bool:
-    if row.get("unsupported"):
-        return False
-    return bool(row.get("correct"))
+    """A correct answer that cites returned evidence. Missing evidence is empty, so it cites nothing."""
+
+    if "evidence" not in row and "unsupported" in row:
+        return bool(row.get("correct")) and not bool(row.get("unsupported"))
+    evidence = row.get("evidence")
+    if not isinstance(evidence, list):
+        evidence = []
+    unsupported = answer_support(str(row.get("answer") or ""), evidence)["unsupported"]
+    return bool(row.get("correct")) and not unsupported
 
 
 def failure_of(row: Mapping[str, Any]) -> str | None:
@@ -724,13 +730,13 @@ def record_answer(path: Path, row: Mapping[str, Any]) -> bool:
     if "engine" in row:
         check_result_label(str(row["arm"]), str(row["engine"]))
     stored = dict(row)
-    if "evidence" in stored:
-        evidence = stored["evidence"]
-        if not isinstance(evidence, list):
-            raise bench.BenchError("evidence is a list of ids and passages")
-        support = answer_support(str(stored.get("answer") or ""), evidence)
-        stored["cites_evidence"] = support["cites_evidence"]
-        stored["unsupported"] = support["unsupported"]
+    evidence = stored.get("evidence", [])
+    if not isinstance(evidence, list):
+        raise bench.BenchError("evidence is a list of ids and passages")
+    stored["evidence"] = evidence
+    support = answer_support(str(stored.get("answer") or ""), evidence)
+    stored["cites_evidence"] = support["cites_evidence"]
+    stored["unsupported"] = support["unsupported"]
     done = load_done(path)
     if answer_identity(stored) in done:
         return False
@@ -1452,8 +1458,22 @@ def execute_keyed_permission(
         if "sensitivity_allowed" in request["body"]:
             raise bench.BenchError("the keyed path does not pass sensitivity_allowed")
         text = str(poster(request))
-        answers.append({"answer": text, "team": team, "id": question["id"]})
-    scored = visibility.leak_rate(answers)
+        supplied = question.get("policy")
+        if not isinstance(supplied, list):
+            supplied = document.get("policy")
+        answers.append(
+            {
+                "answer": text,
+                "team": team,
+                "id": question["id"],
+                "policy": supplied if isinstance(supplied, list) else None,
+            }
+        )
+    document_policy = document.get("policy")
+    scored = visibility.leak_rate(
+        answers,
+        facts=document_policy if isinstance(document_policy, list) else None,
+    )
     return {"ran": True, "leaks": scored["leaks"], "total": scored["total"], "answers": answers}
 
 
@@ -1713,7 +1733,13 @@ def _cmd_heldout(args: argparse.Namespace) -> int:
 def _cmd_keyed_permission(args: argparse.Namespace) -> int:
     document = json.loads(Path(args.questions).read_text(encoding="utf-8"))
     permission_questions(document)
-    database_url = args.database_url or os.environ.get("ALICE_SHOWCASE_POSTGRES_URL")
+    database_url = (
+        args.database_url
+        or os.environ.get("ALICE_SHOWCASE_POSTGRES_URL")
+        or os.environ.get("DATABASE_URL")
+    )
+    if not args.database_url and os.environ.get("DATABASE_ADMIN_URL") and not database_url:
+        database_url = os.environ.get("DATABASE_ADMIN_URL")
     if not database_url:
         print(keyed_section(None, []))
         return bench.EXIT_OK

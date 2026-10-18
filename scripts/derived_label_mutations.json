@@ -18460,7 +18460,7 @@
           "file": "scripts/showcase_bench.py",
           "before": "SUPPORT_PROFILE = \"memory_proposal_agent\"",
           "after": "SUPPORT_PROFILE = \"admin_agent\"",
-          "sha256": "2d4d33c21cd2ea3588f8f5aa56cd3542bab5f6165b66af83f4ea04ee6e326b06",
+          "sha256": "2beda7b53082c31d25281724cfe6473ab951cceb083ae6523221d93b8efc7f18",
           "line": 46
         }
       ],
@@ -18476,7 +18476,7 @@
           "file": "scripts/showcase_visibility.py",
           "before": "    return frozenset(fact[\"may_know\"])",
           "after": "    from alicebot_api.vnext_agent_control import _profile_sensitivity, permitted_domains\n    from alicebot_api.vnext_memory_commit import VNEXT_SENSITIVITY_LEVELS\n    domain = str(fact.get(\"domain\") or \"professional\")\n    sensitivity = str(fact.get(\"sensitivity\") or \"internal\")\n    allowed: list[str] = []\n    profiles = (\n        (\"sales\", \"trusted_local_agent\"),\n        (\"support\", \"memory_proposal_agent\"),\n        (\"product\", \"project_scoped_agent\"),\n        (\"leadership\", \"admin_agent\"),\n    )\n    for team, profile in profiles:\n        ceiling = set(_profile_sensitivity(profile))\n        if ceiling < set(VNEXT_SENSITIVITY_LEVELS) and sensitivity not in ceiling:\n            continue\n        domains = permitted_domains(profile)\n        if domains is not None and domain not in domains:\n            continue\n        allowed.append(team)\n    return frozenset(allowed)",
-          "sha256": "8ee01c065a3cbce198cef918194ebb80dbca27827cffb119738df8cc0b534969",
+          "sha256": "e79b64faaa0de32295377a40997e169de89f5587359ab9965066942712469082",
           "line": 42
         }
       ],
@@ -18492,8 +18492,8 @@
           "file": "scripts/showcase_demo.py",
           "before": "    \"\"\"The project scope stored on the product key.\"\"\"\n\n    return project_id",
           "after": "    \"\"\"The project scope stored on the product key.\"\"\"\n\n    return None",
-          "sha256": "34b0e4c4759c64fb83fb948e31290df87eec290c045c74fef4c52fed034e8c26",
-          "line": 22
+          "sha256": "cc316ecfcc4807c7d8a051bdb5451c325727d2302c48418202b395d12efcfa37",
+          "line": 31
         }
       ],
       "pytest": [

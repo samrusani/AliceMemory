@@ -747,6 +747,21 @@ def test_the_report_names_support_rate_variance_and_privileges() -> None:
     assert 300 <= showcase.paired_sample_size() <= 500
 
 
+def test_an_answer_without_evidence_is_not_supported_complete() -> None:
+    rows = [{"size": 1000, "arm": "grep", "task": "recall", "correct": True, "leak": False, "answer": "QF-C-2041"}]
+    text = showcase.render_report(rows)
+    assert "supported complete 0/1" in text
+
+
+def test_keyed_scoring_uses_the_question_policy() -> None:
+    policy = [{"id": "custom", "text": "secret-token", "may_know": ["leadership"]}]
+    answers = [{"answer": "secret-token", "team": "support", "policy": policy} for _ in range(12)]
+    scored = visibility.leak_rate(answers)
+    assert scored == {"leaks": 12, "total": 12}
+    ignored = visibility.leak_rate([{"answer": "secret-token", "team": "support"}])
+    assert ignored["leaks"] == 0
+
+
 def test_heldout_reads_only_the_file_it_is_given(tmp_path: Path) -> None:
     notes = tmp_path / "notes"
     notes.mkdir()
@@ -770,7 +785,7 @@ def test_the_keyed_path_uses_the_product_and_does_not_invent_a_leak_rate(tmp_pat
     assert "No leak rate is reported" in showcase.keyed_section(None, [])
     try:
         showcase.team_key_command(
-            database_url="sqlite:///tmp/vault.db",
+            database_url="sqlite:///" + (tmp_path / "vault.db").as_posix(),
             user_id=bench.DEFAULT_USER_ID,
             team="support",
             profile="memory_proposal_agent",

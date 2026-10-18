@@ -66,7 +66,7 @@ The report lists three calls a user of the same store cannot make, and an Alice 
 
 `showcase-keyed-permission` runs the permission task for every team once against a PostgreSQL vault. Each note is imported with `alicebot vnext sources capture-file` and that note's own domain and sensitivity. Keys are created with `alicebot agent keys create`. Questions are asked with `POST /v0/vnext/context-packs` and the key in the `Authorization` header. That request does not send `sensitivity_allowed`. The report prints that leak rate beside the SQLite harness leak rate.
 
-The database is the disposable local PostgreSQL the tower names, in `--database-url` or `ALICE_SHOWCASE_POSTGRES_URL`. The command does not pull a Docker image. When that database is not named, the report says the path was not run and it does not print a leak rate for it.
+The database is the disposable local PostgreSQL the tower names, in `--database-url`, `ALICE_SHOWCASE_POSTGRES_URL`, `DATABASE_URL`, or `DATABASE_ADMIN_URL` when the others are unset. The command does not pull a Docker image. When that database is not named, the report says the path was not run and it does not print a leak rate for it.
 
 ## Arms
 
