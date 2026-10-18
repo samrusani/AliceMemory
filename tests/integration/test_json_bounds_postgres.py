@@ -167,9 +167,8 @@ def test_the_commit_route_answers_a_number_that_is_not_finite_with_a_422_and_wri
     )
     status, answer = _call("POST", "/v0/vnext/memories/commit", body=body)
     assert status == 422, answer
-    assert answer["detail"][0]["type"] == "string_type"
-    assert answer["detail"][0]["loc"][0] == location[0]
-    assert answer["detail"][0]["loc"] == ["body", "source_refs", 0]
+    # A number that is not finite is refused by the body scan before the string model runs.
+    assert answer == {"detail": [{"type": "finite_number", "loc": location, "msg": "Input should be a finite number"}]}
     assert _counts(app) == before
 
 
@@ -197,7 +196,7 @@ def test_the_proposal_route_names_the_limit(app) -> None:
     assert status == 422, answer
     assert answer["detail"][0]["type"] == "string_type"
     status, answer = _call("POST", "/v0/vnext/memory-proposals", body=json.dumps(body).replace(json.dumps(_nested(LIMIT + 1)), "[NaN]").encode())
-    assert status == 422 and answer["detail"][0]["type"] == "string_type"
+    assert status == 422 and answer["detail"][0]["type"] == "finite_number"
     ok = {**body, "source_refs": ["source:cobalt-door"]}
     status, answer = _post("/v0/vnext/memory-proposals", ok)
     assert status == 201, answer
