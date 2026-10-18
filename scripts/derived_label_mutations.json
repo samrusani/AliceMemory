@@ -6694,7 +6694,7 @@
           "line": 763,
           "before": "        (\"GET\", \"/v0/vnext/memories/recent-commits\"),\n",
           "after": "",
-          "sha256": "95c9ddb51d21f45340fc79a105bf7ef0a976f4a0cb7460a536b816de93fa98e4"
+          "sha256": "0e5a38efaafdeb267d172a590ced6ce4a649b0f3782f7b49eae1bdb89ed54cd1"
         }
       ],
       "pytest": [
@@ -6707,10 +6707,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/main.py",
-          "line": 1346,
+          "line": 1349,
           "before": "    if settings.app_env not in {\"development\", \"test\"} and not is_vnext_path:",
           "after": "    if False and not is_vnext_path:",
-          "sha256": "95c9ddb51d21f45340fc79a105bf7ef0a976f4a0cb7460a536b816de93fa98e4"
+          "sha256": "0e5a38efaafdeb267d172a590ced6ce4a649b0f3782f7b49eae1bdb89ed54cd1"
         }
       ],
       "pytest": [
@@ -15302,10 +15302,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/main.py",
-          "line": 1430,
+          "line": 1432,
           "before": "app.add_middleware(RetryDeepRowMiddleware)\n",
           "after": "pass\n",
-          "sha256": "95c9ddb51d21f45340fc79a105bf7ef0a976f4a0cb7460a536b816de93fa98e4"
+          "sha256": "0e5a38efaafdeb267d172a590ced6ce4a649b0f3782f7b49eae1bdb89ed54cd1"
         }
       ],
       "pytest": [
