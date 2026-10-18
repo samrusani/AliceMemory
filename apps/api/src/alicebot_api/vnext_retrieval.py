@@ -3229,8 +3229,9 @@ class VNextRetrievalService:
             query_vector, query_embedding_status = self._query_embedding(query)
         if query_embedding_status != VECTOR_STAGE_ENABLED or query_vector is None:
             return [], query_embedding_status
-        assert self.embedding_provider is not None
-        assert callable(search_memories_vector)
+        provider = self.embedding_provider
+        if provider is None or not callable(search_memories_vector):
+            return [], VECTOR_STAGE_DISABLED_NO_PROVIDER
         try:
             search_kwargs: dict[str, object] = {
                 "query_vector": query_vector,
@@ -3268,10 +3269,10 @@ class VNextRetrievalService:
                     return list(
                         search_memories_vector(
                             **page_kwargs,
-                            embedding_provider=self.embedding_provider.provider,
-                            embedding_model=self.embedding_provider.model,
+                            embedding_provider=provider.provider,
+                            embedding_model=provider.model,
                             embedding_endpoint=endpoint_fingerprint(
-                                getattr(self.embedding_provider, "base_url", "")
+                                getattr(provider, "base_url", "")
                             ),
                             embedding_signature_version=EMBEDDING_SIGNATURE_VERSION,
                         )
