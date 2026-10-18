@@ -549,6 +549,76 @@ def _remove_sqlite_files(path: Path) -> None:
             pass
 
 
+def sweep_restore_working_copies(database: Path) -> None:
+    """Remove ``.{name}.restore.*.tmp`` working copies left in the data directory.
+
+    A killed ``alice-memory import`` leaves the copy, and its ``-wal`` and ``-shm`` files, beside the vault.
+    The next import or open of that vault removes them. A file that is itself a restore copy is left alone,
+    so the import can open the copy it just made. A failed sweep does not fail the command.
+    """
+
+    try:
+        name = database.name
+    except (OSError, ValueError):
+        return
+    if ".restore." in name:
+        return
+    directory = database.parent
+    prefix = f".{name}.restore."
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return
+    bases: list[Path] = []
+    for path in entries:
+        entry = path.name
+        if not entry.startswith(prefix):
+            continue
+        base = entry
+        for suffix in ("-wal", "-shm", "-journal"):
+            if base.endswith(".tmp" + suffix):
+                base = base[: -len(suffix)]
+                break
+        if base.endswith(".tmp"):
+            bases.append(directory / base)
+    for base in dict.fromkeys(bases):
+        _remove_sqlite_files(base)
+
+
+def sentinel_hits(database: Path, needle: str) -> list[str]:
+    """Paths under the vault's directory, and the vault file, whose bytes hold ``needle``.
+
+    The search reads each file. It does not follow a directory. A restore working copy is included, so a
+    sentinel left in a killed import is a hit until the next open removes the copy.
+    """
+
+    if not needle:
+        return []
+    raw = needle.encode("utf-8")
+    found: list[str] = []
+    directory = database.parent
+
+    def _read(path: Path) -> None:
+        try:
+            if not path.is_file():
+                return
+            if raw in path.read_bytes():
+                found.append(path.name)
+        except OSError:
+            return
+
+    _read(database)
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return found
+    for path in entries:
+        if path == database:
+            continue
+        _read(path)
+    return sorted(found)
+
+
 class _BackupError(Exception):
     """A safe, user-facing SQLite snapshot or restore error."""
 
@@ -4171,6 +4241,7 @@ def _run_import_snapshot(
             return 1
 
     target_existed = db_path.exists()
+    sweep_restore_working_copies(db_path)
     working_path: Path | None = None
     credential_reports: tuple[tuple[str, str, str], ...] = ()
     claim_tally: dict[str, int] = {}

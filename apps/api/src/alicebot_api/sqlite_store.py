@@ -375,6 +375,9 @@ def sqlite_user_connection(path: str | Path, user_id: UUID | str, *, repair_labe
     """
     if str(user_id).strip() == "":
         raise ContinuityStoreInvariantError("sqlite_user_connection requires a non-empty user_id")
+    from alicebot_api.onramp import sweep_restore_working_copies
+
+    sweep_restore_working_copies(Path(path))
     conn = sqlite3.connect(str(path))
     conn.row_factory = _dict_row_factory
     try:
