@@ -27,6 +27,7 @@ import type {
   ContinuityResumptionBrief,
   ContinuityWeeklyReview,
   ThreadHealthDashboardSummary,
+  WhatChangedAnswer,
 } from "../../lib/api";
 import {
   getContinuityReviewDetail,
@@ -42,6 +43,7 @@ import {
   listContinuityReviewQueue,
   listContinuityCaptures,
   pageModeLabel,
+  postWhatChanged,
   queryContinuityRecall,
 } from "../../lib/api";
 
@@ -757,6 +759,7 @@ export default async function ContinuityPage({
   >;
 
   const requestedCaptureId = normalizeParam(params.capture);
+  const changedTopic = normalizeParam(params.what_changed);
   const requestedReviewObjectId = normalizeParam(params.review_object);
   const recallQuery = normalizeParam(params.recall_query);
   const recallThreadId = normalizeParam(params.recall_thread);
@@ -776,6 +779,16 @@ export default async function ContinuityPage({
 
   const apiConfig = getApiConfig();
   const liveModeReady = hasLiveApiConfig(apiConfig);
+  let whatChanged: WhatChangedAnswer | null = null;
+  let whatChangedError: string | undefined;
+  if (liveModeReady && changedTopic) {
+    try {
+      whatChanged = await postWhatChanged(apiConfig.apiBaseUrl, apiConfig.userId, changedTopic);
+    } catch (error) {
+      whatChangedError =
+        error instanceof Error ? error.message : "What changed could not be loaded.";
+    }
+  }
 
   // Launch independent continuity reads together. Each result still degrades
   // separately below, while the detail reads remain correctly dependent on
@@ -1091,6 +1104,38 @@ export default async function ContinuityPage({
         description="Capture quickly, query continuity with provenance-backed recall, and compile deterministic resumption sections."
         meta={<StatusBadge status={pageMode} label={pageModeLabel(pageMode)} />}
       />
+
+      {changedTopic ? (
+        <SectionCard title="What changed" eyebrow={changedTopic}>
+          {whatChanged ? (
+            <div className="stack">
+              <p>{whatChanged.notice}</p>
+              {whatChanged.message ? (
+                <p>
+                  {whatChanged.message} Search with {whatChanged.search}.
+                </p>
+              ) : null}
+              {whatChanged.chains.map((chain) => (
+                <div key={chain.start}>
+                  <p>{chain.current ? chain.current.change : "No settled step."}</p>
+                  <ol>
+                    {chain.history.map((step) => (
+                      <li key={step.id}>
+                        {step.date} {step.change}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p>
+              {whatChangedError ??
+                "This view calls POST /v0/vnext/changes. The API is not configured."}
+            </p>
+          )}
+        </SectionCard>
+      ) : null}
 
       <ContinuityCaptureForm
         apiBaseUrl={apiConfig.apiBaseUrl}

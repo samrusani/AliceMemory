@@ -146,7 +146,7 @@ def smoke_artifact(artifact: Path, *, expected_version: str) -> None:
         assert payload["cli_public_aliases_match"] == [True, True]
         assert payload["mcp_registry_inside_venv"] is True
         assert payload["mcp_handler_inside_venv"] is True
-        assert payload["mcp_registry_counts"] == [11, 65, 76]
+        assert payload["mcp_registry_counts"] == [12, 65, 77]
         assert payload["alembic_head"]
         assert payload["alembic_path_exists"] is True
         assert payload["public_eval_schema"] == "public_eval_fixture_v1"
