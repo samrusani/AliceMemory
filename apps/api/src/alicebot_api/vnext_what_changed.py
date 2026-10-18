@@ -1,10 +1,25 @@
 """The what-changed read: recorded decision chains a caller may see.
 
 The topic is free text. Starts come from the same full-text search recall uses,
-at most ``READABLE_SCAN_CAP`` of them. ``superseded_by`` is followed for at most
-64 hops, the bound ``supersession_would_cycle`` already uses, and only a step
-the caller may read counts as a hop. A step the caller may not read is left
-out. The answer has no count and no gap marker.
+at most ``READABLE_SCAN_CAP`` of them. The pointers between decisions
+(``superseded_by`` and ``supersedes``, and the rows that name a decision in
+either) are followed for at most 64 hops, the bound
+``supersession_would_cycle`` already uses, and only a step the caller may read
+counts as a hop. Two starts that the pointers join are one chain. A step the
+caller may not read is left out. The answer has no count and no gap marker.
+
+Every id this module loads from a row is read in the spelling the label
+classifier uses (``identifier``): a ``UUID`` object, which PostgreSQL returns for
+a ``uuid`` column, and the text a writer stored, in any spelling ``uuid.UUID``
+takes. A pointer that is read as a string only is dropped on PostgreSQL, and a
+decision that a later one replaced is then reported as the current one.
+
+A saved quote is shown as a reason only when the saved-quote reader that the
+context pack and ``alice_explain`` use (``SavedProvenanceReader``) leaves it in
+the row for this caller. The reader judges a row by every reference it holds,
+the entries beside the one that carries the words, every spelling of an id, and
+the memories that are archived or redacted. This module does not judge an entry
+alone.
 """
 
 from __future__ import annotations
@@ -17,9 +32,15 @@ from typing import Any
 
 from alicebot_api.recall_framing import memory_writer, quote_session_brief_text, writer_attribution
 from alicebot_api.source_search_limits import require_source_search_query
+from alicebot_api.vnext_derived_labels import identifier
 from alicebot_api.vnext_label_guard import label_read_scope, outside_caller_limits
 from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
-from alicebot_api.vnext_source_fence import cited_memory_refs, cited_source_ids
+from alicebot_api.vnext_source_fence import (
+    SavedProvenanceReader,
+    SourceReadFence,
+    cited_memory_refs,
+    cited_source_ids,
+)
 
 NOTICE = "This covers the recorded decisions the caller may read. It is not a company-wide statement."
 NOT_FOUND = "No recorded decision history was found"
@@ -31,8 +52,8 @@ _LIFECYCLE_STATES = frozenset({"forgotten", "undone", "expired"})
 _DECISION_SQL = """
 SELECT id, title, canonical_text, summary, domain, sensitivity, status,
        confirmation_status, valid_from, valid_to, superseded_by, supersedes,
-       metadata_json, created_by_agent_id, project_id, created_at, memory_type,
-       deleted_at
+       metadata_json, value, created_by_agent_id, project_id, created_at,
+       memory_type, deleted_at
 FROM memories
 WHERE user_id = ? AND id = ? AND memory_type = 'decision'
 """
@@ -40,6 +61,13 @@ WHERE user_id = ? AND id = ? AND memory_type = 'decision'
 _PREDECESSOR_SQL = """
 SELECT id FROM memories
 WHERE user_id = ? AND superseded_by = ? AND memory_type = 'decision' AND deleted_at IS NULL
+"""
+
+# ``supersedes`` has no index, so the decisions that name another in it are read once for the whole read and not once for
+# each decision the walk visits.
+_SUCCESSOR_SQL = """
+SELECT id, supersedes FROM memories
+WHERE user_id = ? AND memory_type = 'decision' AND deleted_at IS NULL AND supersedes IS NOT NULL
 """
 
 _SOURCE_SQL = """
@@ -96,24 +124,27 @@ def _assemble(
     today: str | None,
 ) -> dict[str, object]:
     today_text = today or datetime.now(UTC).date().isoformat()
+    saved = SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity))
     judged = _search_starts(store, identity, topic)
-    by_id: dict[str, Mapping[str, object]] = {}
-    predecessors: dict[str, list[str]] = defaultdict(list)
+    # Every start is loaded before any walk, so a walk from one start sees the others and the pointers of their rows.
+    by_id: dict[str, Mapping[str, object]] = {str(row["id"]): row for row in judged}
+    links = _Links()
     claimed: set[str] = set()
     built: list[tuple[str, list[str]]] = []
     for row in judged:
-        by_id[str(row["id"])] = row
         if not _step_is_readable(store, identity, "memory", row):
             continue
         start = str(row["id"])
         if start in claimed:
             continue
-        member_ids = _walk(store, user_id, start, by_id, predecessors, identity)
+        member_ids = _walk(store, user_id, start, by_id, links, identity)
         for member_id in member_ids:
             claimed.add(member_id)
         built.append((start, member_ids))
 
     memories = [by_id[member] for _start, members in built for member in members if member in by_id]
+    # One read of the links and of every cited row for all of the steps, so the per-step calls below find them judged.
+    saved.memories(list({str(row["id"]): row for row in memories}.values()))
     sources = _sources_for(store, user_id, memories)
     cited_memories = _cited_memories(store, memories)
     edges = _contradictions(store, user_id)
@@ -124,7 +155,8 @@ def _assemble(
             start,
             member_ids,
             by_id,
-            predecessors,
+            links,
+            saved,
             sources,
             cited_memories,
             edges,
@@ -139,7 +171,7 @@ def _assemble(
     return answer
 
 
-def _search_starts(store: Any, identity: Any, topic: str) -> list[Mapping[str, object]]:
+def _search_starts(store: Any, identity: Any, topic: str) -> list[dict[str, object]]:
     """The decision memories recall's full-text search would rank first.
 
     Hidden rows are included, so they can use up the 128 places before a
@@ -164,14 +196,14 @@ def _search_starts(store: Any, identity: Any, topic: str) -> list[Mapping[str, o
         "limit": READABLE_SCAN_CAP,
         "include_expired": True,
     }
-    rows = [row for row in search(**options) if isinstance(row, Mapping)]
+    rows = [_memory_row(row) for row in search(**options) if isinstance(row, Mapping)]
     if any(_step_is_readable(store, identity, "memory", row) for row in rows):
         return rows
     try:
         relaxed = search(**options, match_any=True)
     except TypeError:
         return rows
-    return [row for row in relaxed if isinstance(row, Mapping)]
+    return [_memory_row(row) for row in relaxed if isinstance(row, Mapping)]
 
 
 def _chain(
@@ -180,7 +212,8 @@ def _chain(
     start: str,
     member_ids: Sequence[str],
     by_id: Mapping[str, Mapping[str, object]],
-    predecessors: Mapping[str, Sequence[str]],
+    links: _Links,
+    saved: SavedProvenanceReader,
     sources: Mapping[str, Mapping[str, object]],
     cited_memories: Mapping[str, Mapping[str, object]],
     edges: Sequence[tuple[str, str, bool]],
@@ -193,8 +226,8 @@ def _chain(
         if row is None:
             continue
         rows_for_steps[member_id] = row
-        named = _text(row.get("supersedes"))
-        priors = [prior for prior in predecessors.get(member_id, ()) if prior != named]
+        named = _pointer(row, "supersedes")
+        priors = [prior for prior in _priors_of(member_id, member_ids, by_id, links) if prior != named]
         steps.append(
             {
                 "id": member_id,
@@ -202,7 +235,7 @@ def _chain(
                 "chain": start,
                 "date": _decision_day(row),
                 "change": str(row.get("canonical_text") or ""),
-                "reason": _reason(store, identity, row, sources, cited_memories),
+                "reason": _reason(store, identity, row, saved=saved, sources=sources),
                 "replaced": named,
                 "disagrees_with": None,
                 "sources": _citations(store, identity, row, sources, cited_memories),
@@ -211,7 +244,7 @@ def _chain(
                 "_created_at": str(row.get("created_at") or ""),
                 "_future": _is_future(row, today_text),
                 "_settled": _in_force(row, today_text),
-                "_successor": _text(row.get("superseded_by")),
+                "_successor": _pointer(row, "superseded_by"),
                 "_priors": priors,
             }
         )
@@ -273,7 +306,7 @@ def _source_steps(
         row = sources.get(source_id)
         if row is None or not _step_is_readable(store, identity, "source", row):
             continue
-        replacement = _text(_meta(row).get("superseded_by"))
+        replacement = _source_pointer(row)
         if not replacement:
             continue
         if source_id not in seen:
@@ -288,7 +321,7 @@ def _source_steps(
             chosen.append(successor)
             seen.add(replacement)
     forward = {
-        str(row["id"]): _text(_meta(row).get("superseded_by"))
+        str(row["id"]): _source_pointer(row)
         for row in chosen
     }
     built: list[dict[str, object]] = []
@@ -339,12 +372,24 @@ def _mark_disagreements(
     return unresolved
 
 
+class _Links:
+    """The decisions that name a decision in a pointer, found by the stored rows of the vault.
+
+    ``predecessors[x]`` are the rows whose ``superseded_by`` is ``x``, asked once for each decision the walk visits (the column
+    is indexed). ``successors[x]`` are the rows whose ``supersedes`` is ``x``, read once for the whole read.
+    """
+
+    def __init__(self) -> None:
+        self.predecessors: dict[str, list[str]] = {}
+        self.successors: dict[str, list[str]] | None = None
+
+
 def _walk(
     store: Any,
     user_id: object,
     start: str,
     by_id: dict[str, Mapping[str, object]],
-    predecessors: dict[str, list[str]],
+    links: _Links,
     identity: Any,
 ) -> list[str]:
     found = [start]
@@ -356,8 +401,8 @@ def _walk(
         row = by_id.get(current)
         if row is None:
             continue
-        _remember_predecessors(store, user_id, current, predecessors)
-        for neighbor in _neighbors(row, predecessors):
+        _remember_links(store, user_id, current, links)
+        for neighbor in _neighbors(current, by_id, links):
             if neighbor in seen or hops >= HOP_CAP:
                 continue
             seen.add(neighbor)
@@ -370,20 +415,29 @@ def _walk(
     return found
 
 
-def _remember_predecessors(
-    store: Any,
-    user_id: object,
-    memory_id: str,
-    predecessors: dict[str, list[str]],
-) -> None:
-    if memory_id in predecessors:
+def _remember_links(store: Any, user_id: object, memory_id: str, links: _Links) -> None:
+    if links.successors is None:
+        links.successors = _read_successors(store, user_id)
+    if memory_id in links.predecessors:
         return
     found: list[str] = []
     for row in _fetch(store, _PREDECESSOR_SQL, (str(user_id), memory_id)):
-        prior = _text(row.get("id")) or str(row.get("id") or "")
-        if prior and prior not in found:
+        prior = _ident(row.get("id"))
+        if prior and prior != memory_id and prior not in found:
             found.append(prior)
-    predecessors[memory_id] = found
+    links.predecessors[memory_id] = found
+
+
+def _read_successors(store: Any, user_id: object) -> dict[str, list[str]]:
+    """Every decision that names another as the one it replaced, keyed by the id of the one it names."""
+
+    found: dict[str, list[str]] = defaultdict(list)
+    for row in _fetch(store, _SUCCESSOR_SQL, (str(user_id),)):
+        later = _ident(row.get("id"))
+        earlier = _ident(row.get("supersedes"))
+        if later and earlier and later != earlier and later not in found[earlier]:
+            found[earlier].append(later)
+    return dict(found)
 
 
 def _load_decision(
@@ -398,22 +452,52 @@ def _load_decision(
     rows = _fetch(store, _DECISION_SQL, (str(user_id), memory_id))
     if not rows:
         return None
-    row = rows[0]
+    row = _memory_row(rows[0])
     if row.get("deleted_at"):
         return None
     by_id[str(row["id"])] = row
     return row
 
 
-def _neighbors(row: Mapping[str, object], predecessors: Mapping[str, Sequence[str]]) -> list[str]:
+def _neighbors(current: str, by_id: Mapping[str, Mapping[str, object]], links: _Links) -> list[str]:
+    """The decisions one pointer away from ``current``, in either direction.
+
+    Its own two pointers; the rows the vault holds that name it in either pointer; and the rows already loaded that do.
+    The last set finds a row whose ``superseded_by`` is stored in a spelling that the comparison in the query does not match.
+    """
+
     found: list[str] = []
-    for key in ("superseded_by", "supersedes"):
-        value = _text(row.get(key))
-        if value and value not in found:
+
+    def add(value: object) -> None:
+        if isinstance(value, str) and value and value != current and value not in found:
             found.append(value)
-    for prior in predecessors.get(str(row["id"]), ()):
-        if prior not in found:
-            found.append(prior)
+
+    row = by_id.get(current) or {}
+    add(row.get("superseded_by"))
+    add(row.get("supersedes"))
+    for prior in links.predecessors.get(current, ()):
+        add(prior)
+    for later in (links.successors or {}).get(current, ()):
+        add(later)
+    for other_id, other in by_id.items():
+        if current in (other.get("superseded_by"), other.get("supersedes")):
+            add(other_id)
+    return found
+
+
+def _priors_of(
+    member_id: str,
+    member_ids: Sequence[str],
+    by_id: Mapping[str, Mapping[str, object]],
+    links: _Links,
+) -> list[str]:
+    """The decisions that name ``member_id`` as the one that replaced them: from the vault, and from the members of the chain."""
+
+    found = list(links.predecessors.get(member_id, ()))
+    for other in member_ids:
+        row = by_id.get(other)
+        if row is not None and row.get("superseded_by") == member_id and other not in found:
+            found.append(other)
     return found
 
 
@@ -421,8 +505,9 @@ def _reason(
     store: Any,
     identity: Any,
     row: Mapping[str, object],
+    *,
+    saved: SavedProvenanceReader,
     sources: Mapping[str, Mapping[str, object]],
-    cited_memories: Mapping[str, Mapping[str, object]],
 ) -> dict[str, object] | None:
     correction = _correction_reason(row)
     if correction is not None:
@@ -439,14 +524,13 @@ def _reason(
             confirmation = nested_reason if isinstance(nested_reason, str) else None
     if isinstance(confirmation, str) and confirmation.strip():
         return {"text": confirmation.strip(), "source_id": None}
-    for entry in _ref_entries(row):
+    # The saved quote is the first one the reader leaves in the complete row. The reader judges the row by every reference
+    # it holds, so an entry that carries only words is held back when an entry beside it names something the caller may not
+    # read. This function does not judge an entry alone.
+    for entry in _ref_entries(saved.memory(row)):
         quote = _quote_text(entry)
-        if quote is None or not _entry_is_readable(store, identity, entry, sources, cited_memories):
-            continue
-        source_id = _shown_source_id(entry, sources, store, identity)
-        if source_id is None and cited_source_ids(entry).named:
-            continue
-        return {"text": quote, "source_id": source_id}
+        if quote is not None:
+            return {"text": quote, "source_id": _shown_source_id(entry, sources, store, identity)}
     return None
 
 
@@ -457,6 +541,13 @@ def _citations(
     sources: Mapping[str, Mapping[str, object]],
     cited_memories: Mapping[str, Mapping[str, object]],
 ) -> list[dict[str, str]]:
+    """The sources a decision cites that the caller may read: an id, a title and a date, never a quote.
+
+    An entry is cited only when every input it names is readable. A source that was archived after a newer import replaced it
+    is read by a caller with no limits and is a step of the history, so the entries are judged here and not by the saved-quote
+    reader, which refuses an archived source to every caller that has an identity.
+    """
+
     found: list[dict[str, str]] = []
     seen: set[str] = set()
     for entry in _ref_entries(row):
@@ -484,7 +575,7 @@ def _sources_for(store: Any, user_id: object, memories: Sequence[Mapping[str, ob
     extra = [
         replacement
         for row in loaded.values()
-        if (replacement := _text(_meta(row).get("superseded_by"))) and _is_uuid(replacement) and replacement not in loaded
+        if (replacement := _source_pointer(row)) and _is_uuid(replacement) and replacement not in loaded
     ]
     if extra:
         loaded.update(_load_sources(store, user_id, extra))
@@ -505,14 +596,24 @@ def _cited_memories(store: Any, memories: Sequence[Mapping[str, object]]) -> dic
     for memory_id in wanted:
         row = get_memory(memory_id)
         if isinstance(row, Mapping):
-            found[str(row.get("id") or memory_id)] = row
+            found[_ident(row.get("id")) or memory_id] = row
     return found
 
 
 def _ref_entries(row: Mapping[str, object]) -> list[object]:
+    """The entries of the references a saved-quote reader judges: where the product writes a quote.
+
+    ``source_refs`` of the metadata and of ``agentic_memory`` (a commit), and ``provenance`` and ``replacement_provenance`` of
+    the metadata (the two reviews). The reader leaves no other place a judgment, so none is read here.
+    """
+
+    metadata = _meta(row)
     found: list[object] = []
-    for container in (_meta(row), _agentic(row)):
-        for key in ("source_refs", "provenance", "replacement_provenance"):
+    for container, keys in (
+        (metadata, ("source_refs", "provenance", "replacement_provenance")),
+        (_agentic(row), ("source_refs",)),
+    ):
+        for key in keys:
             value = container.get(key)
             if isinstance(value, list):
                 found.extend(value)
@@ -537,12 +638,11 @@ def _entry_is_readable(
     sources: Mapping[str, Mapping[str, object]],
     cited_memories: Mapping[str, Mapping[str, object]],
 ) -> bool:
-    """A saved quote is shown only when every input the entry names is readable.
+    """A source is cited from an entry only when every input the entry names is readable.
 
-    Named ids that are not stored are refused. An incidental id is refused
-    only when it names a stored row the caller may not read. This is the
-    saved-quote reader's rule, including a ``source_ids`` list with no single
-    ``source_id``.
+    Named ids that are not stored are refused. An incidental id is refused only when it names a stored row the caller may not
+    read. This decides a citation (an id, a title, a date). It never decides whether a quote is shown: ``_reason`` asks the
+    saved-quote reader for that.
     """
 
     cited_sources = cited_source_ids(entry)
@@ -596,7 +696,7 @@ def _correction_reason(row: Mapping[str, object]) -> str | None:
 
 
 def _contradictions(store: Any, user_id: object) -> list[tuple[str, str, bool]]:
-    rows = _fetch(store, _EDGE_SQL, (str(user_id),))
+    rows = [_edge_row(row) for row in _fetch(store, _EDGE_SQL, (str(user_id),))]
     beliefs = _belief_memories(store, user_id, rows)
     found: list[tuple[str, str, bool]] = []
     for row in rows:
@@ -611,12 +711,22 @@ def _contradictions(store: Any, user_id: object) -> list[tuple[str, str, bool]]:
     return found
 
 
+def _edge_row(raw: Mapping[str, object]) -> dict[str, object]:
+    """A contradiction edge with both ends in the classifier's spelling. The ends are ``text`` columns on PostgreSQL."""
+
+    row = dict(raw)
+    row["from_id"] = _ident(raw.get("from_id"))
+    row["to_id"] = _ident(raw.get("to_id"))
+    return row
+
+
 def _belief_memories(store: Any, user_id: object, edges: Sequence[Mapping[str, object]]) -> dict[str, str]:
-    wanted = [
-        str(row.get("to_id"))
-        for row in edges
-        if str(row.get("to_type") or "") == "belief" and row.get("to_id")
-    ]
+    wanted: list[str] = []
+    for row in edges:
+        for side in ("from", "to"):
+            end = row.get(f"{side}_id")
+            if str(row.get(f"{side}_type") or "") == "belief" and isinstance(end, str) and _is_uuid(end) and end not in wanted:
+                wanted.append(end)
     if not wanted:
         return {}
     marks = ", ".join("?" for _ in wanted)
@@ -626,8 +736,8 @@ def _belief_memories(store: Any, user_id: object, edges: Sequence[Mapping[str, o
         return {}
     found: dict[str, str] = {}
     for row in loaded:
-        belief_id = str(row.get("id") or "")
-        memory_id = _text(row.get("memory_id")) or str(row.get("memory_id") or "")
+        belief_id = _ident(row.get("id"))
+        memory_id = _ident(row.get("memory_id"))
         if belief_id and memory_id:
             found[belief_id] = memory_id
     return found
@@ -635,8 +745,8 @@ def _belief_memories(store: Any, user_id: object, edges: Sequence[Mapping[str, o
 
 def _edge_end(row: Mapping[str, object], side: str, beliefs: Mapping[str, str]) -> str | None:
     kind = str(row.get(f"{side}_type") or "")
-    end = _text(row.get(f"{side}_id")) or str(row.get(f"{side}_id") or "")
-    if not end:
+    end = row.get(f"{side}_id")
+    if not isinstance(end, str) or not end:
         return None
     if kind == "belief":
         return beliefs.get(end)
@@ -715,6 +825,58 @@ def _text(value: object) -> str | None:
         return None
     text = value.strip()
     return text or None
+
+
+def _ident(value: object) -> str | None:
+    """An id in the spelling the label classifier uses (``identifier``), or None when the field holds nothing.
+
+    PostgreSQL returns a ``uuid`` column as a ``UUID`` object and a ``text`` column as written. A string-only reader drops
+    the object, and a string in another case, with braces, without hyphens or as a URN does not match the row it names.
+    """
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+    return identifier(value)
+
+
+def _pointer(row: Mapping[str, object], key: str) -> str | None:
+    """A pointer of a row that ``_memory_row`` has read (``superseded_by`` or ``supersedes``): already in the classifier's
+    spelling, or None."""
+
+    value = row.get(key)
+    return value if isinstance(value, str) and value else None
+
+
+def _source_pointer(row: Mapping[str, object]) -> str | None:
+    """The source a source was replaced by, as the importer recorded it in the metadata: in the classifier's spelling."""
+
+    return _ident(_meta(row).get("superseded_by"))
+
+
+def _memory_row(raw: Mapping[str, object]) -> dict[str, object]:
+    """A decision row with its ids in the classifier's spelling and its JSON columns decoded.
+
+    The id and both pointers are read here and nowhere else. The decoded ``metadata_json`` and ``value`` are the form the
+    saved-quote reader reads, so it judges the row it would judge in the pack.
+    """
+
+    row = dict(raw)
+    row["id"] = _ident(raw.get("id")) or ""
+    row["superseded_by"] = _ident(raw.get("superseded_by"))
+    row["supersedes"] = _ident(raw.get("supersedes"))
+    row["metadata_json"] = _meta(raw)
+    value = raw.get("value")
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            pass
+    row["value"] = value
+    return row
 
 
 def _meta(row: Mapping[str, object]) -> dict[str, object]:
@@ -799,8 +961,9 @@ def _load_sources(store: Any, user_id: object, source_ids: Sequence[str]) -> dic
     rows = _fetch(store, _SOURCE_SQL.format(marks=marks), (str(user_id), *source_ids))
     kept: dict[str, Mapping[str, object]] = {}
     for row in rows:
-        if row.get("deleted_at") and not _text(_meta(row).get("superseded_by")):
+        if row.get("deleted_at") and not _source_pointer(row):
             continue
+        row = {**row, "id": _ident(row.get("id")) or ""}
         kept[str(row["id"])] = row
     return kept
 
