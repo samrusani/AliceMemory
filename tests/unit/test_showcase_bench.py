@@ -852,3 +852,44 @@ def test_the_keyed_path_uses_the_product_and_does_not_invent_a_leak_rate(tmp_pat
     assert any(argv[5:8] == ["agent", "keys", "create"] for argv in seen)
     section = showcase.keyed_section(result, [])
     assert f"leaks {result['leaks']}/{result['total']}" in section
+
+
+def test_keyed_permission_scores_the_question_file_policy(tmp_path: Path) -> None:
+    """The keyed path scores the policy in the question file, not the built-in table.
+
+    Mutation: in ``execute_keyed_permission``, store ``policy`` as ``None`` on each answer and pass
+    ``facts=None`` to ``leak_rate``. This test then sees zero leaks.
+    """
+
+    custom = [{"id": "custom", "text": "secret-token", "may_know": ["leadership"]}]
+    document = showcase.questions_for(1000)
+    document["policy"] = custom
+    for item in document["questions"]:
+        item["policy"] = custom
+    corpus = tmp_path / "notes"
+    _note(corpus, "sales/public.md", "sales", "internal", "professional", "A public note about the kiln.")
+
+    def runner(argv: list[str]) -> str:
+        if argv[5:8] == ["agent", "keys", "create"]:
+            agent = argv[argv.index("--agent-id") + 1]
+            return json.dumps({"raw_key": "minted-" + agent})
+        return "{}"
+
+    def poster(_payload: dict) -> str:
+        return "secret-token"
+
+    result = showcase.execute_keyed_permission(
+        database_url="postgresql://local/showcase",
+        base_url="http://127.0.0.1:9",
+        user_id=bench.DEFAULT_USER_ID,
+        corpus=corpus,
+        document=document,
+        runner=runner,
+        poster=poster,
+    )
+    assert result["total"] == 15
+    assert result["leaks"] == 12
+    bare = visibility.leak_rate(
+        [{"answer": row["answer"], "team": row["team"]} for row in result["answers"]]
+    )
+    assert bare["leaks"] == 0
