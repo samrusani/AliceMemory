@@ -66,6 +66,9 @@ _SCALAR_FIELDS = frozenset(
         "output_artifact_id",
         "source_id",
         "memory_id",
+        "target_id",
+        "source_item",
+        "connected_item",
     }
 )
 
@@ -87,6 +90,19 @@ def _names(text: str, hidden: set[str]) -> bool:
     return any(item in text for item in hidden)
 
 
+def _caller_is_limited(identity: Any) -> bool:
+    """True when this caller has a read ceiling. An unbound admin keeps every id.
+
+    A request may name a project without binding the key. That selection is not a limit.
+    """
+
+    if identity is None:
+        return False
+    if getattr(identity, "permission_profile", None) == "admin_agent" and not getattr(identity, "project_scope_locked", False):
+        return False
+    return SourceReadFence.for_identity(identity).entity_read_fenced
+
+
 def unreadable_ids(store: Any, identity: Any, payload: object) -> set[str]:
     """Ids of memories, sources, artifacts and open loops in ``payload`` that ``identity`` may not read.
 
@@ -94,7 +110,7 @@ def unreadable_ids(store: Any, identity: Any, payload: object) -> set[str]:
     An id that names no stored row is left out of the set: nothing has shown it to be a row.
     """
 
-    if not SourceReadFence.for_identity(identity).entity_read_fenced:
+    if not _caller_is_limited(identity):
         return set()
     candidates = _uuids(payload)
     if not candidates:
@@ -102,15 +118,54 @@ def unreadable_ids(store: Any, identity: Any, payload: object) -> set[str]:
     reader = getattr(store, "read_label_rows", None)
     if not callable(reader):
         return set()
+    from alicebot_api.vnext_agent_control import AgentPolicyBlockedError
     from alicebot_api.vnext_label_guard import guard_for_caller
 
-    guard = guard_for_caller(store, identity)
+    # memory.recall is a read. http.operator.access refuses a read-only key and a bound key, which would
+    # raise here and skip the withholding on the tools those keys can still call.
+    try:
+        guard = guard_for_caller(store, identity, action="memory.recall")
+    except AgentPolicyBlockedError:
+        guard = None
     hidden: set[str] = set()
     for kind in _KINDS:
         rows = [row for row in reader(kind, sorted(candidates)) if isinstance(row, Mapping) and row.get("id") is not None]
+        if guard is None:
+            hidden.update(str(row.get("id")) for row in rows)
+            continue
         admitted = {str(row.get("id")) for row in guard.admit_rows(kind, rows)}
-        hidden.update(str(row.get("id")) for row in rows if str(row.get("id")) not in admitted)
+        for row in rows:
+            row_id = str(row.get("id"))
+            if row_id not in admitted or _row_is_gone(row):
+                hidden.add(row_id)
+        if kind == "source":
+            hidden.update(_deleted_source_ids(store, [str(row.get("id")) for row in rows]))
     return hidden
+
+
+def _row_is_gone(row: Mapping[str, Any]) -> bool:
+    """An archived or deleted row is not readable. A forgotten memory still shows in history."""
+
+    if row.get("deleted_at") is not None:
+        return True
+    return str(row.get("status") or "") == "archived"
+
+
+def _deleted_source_ids(store: Any, ids: list[str]) -> set[str]:
+    """Source label rows omit deleted_at. A deleted source is still a row the caller may not read."""
+
+    getter = getattr(store, "get_sources_by_ids", None)
+    if not ids or not callable(getter):
+        return set()
+    try:
+        found = getter(ids, include_deleted=True)
+    except TypeError:
+        return set()
+    return {
+        str(row.get("id"))
+        for row in found
+        if isinstance(row, Mapping) and row.get("deleted_at") is not None and row.get("id") is not None
+    }
 
 
 def _drop_text(value: str, hidden: set[str]) -> str | None:
@@ -181,44 +236,54 @@ def _strip(value: Any, hidden: set[str], *, field: str | None) -> tuple[Any, boo
     return value, False
 
 
-def filter_http_response(request: Any, response: Any) -> Any:
-    """A `/v0/vnext` JSON response with hidden ids removed, or ``response`` itself when there is nothing to remove."""
+def withhold_json_body(request: Any, body: bytes, *, database_url: str | None = None) -> bytes | None:
+    """JSON bytes with hidden ids removed, or ``None`` when the body should be sent unchanged."""
 
     identity = getattr(getattr(request, "state", None), "vnext_agent_identity", None)
     path = getattr(getattr(request, "url", None), "path", "")
-    if identity is None or not str(path).startswith("/v0/vnext"):
-        return response
-    if not SourceReadFence.for_identity(identity).entity_read_fenced:
-        return response
-    body = getattr(response, "body", b"") or b""
-    if not body:
-        return response
+    if identity is None or not str(path).startswith("/v0/vnext") or not body:
+        return None
+    if not _caller_is_limited(identity):
+        return None
     try:
         payload = json.loads(body)
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return response
+        return None
     raw_user = request.query_params.get("user_id")
     if not raw_user:
-        return response
+        return None
     from uuid import UUID
 
-    from alicebot_api.config import get_settings
     from alicebot_api.db import user_connection
     from alicebot_api.vnext_store import PostgresVNextStore
-    from fastapi.responses import JSONResponse
 
     try:
         user_id = UUID(str(raw_user))
     except ValueError:
-        return response
-    settings = get_settings()
-    if str(settings.database_url).startswith("sqlite"):
-        return response
-    with user_connection(settings.database_url, user_id) as conn:
+        return None
+    if database_url is None:
+        from alicebot_api.config import get_settings
+
+        database_url = get_settings().database_url
+    if str(database_url).startswith("sqlite"):
+        return None
+    with user_connection(database_url, user_id) as conn:
         filtered = apply_hidden_id_withholding(PostgresVNextStore(conn), identity, payload)
     if filtered is payload:
+        return None
+    return json.dumps(filtered).encode("utf-8")
+
+
+def filter_http_response(request: Any, response: Any, *, database_url: str | None = None) -> Any:
+    """A `/v0/vnext` JSON response with hidden ids removed, or ``response`` itself when there is nothing to remove."""
+
+    from fastapi.responses import JSONResponse
+
+    body = getattr(response, "body", b"") or b""
+    updated = withhold_json_body(request, body, database_url=database_url)
+    if updated is None:
         return response
-    return JSONResponse(status_code=response.status_code, content=filtered)
+    return JSONResponse(status_code=response.status_code, content=json.loads(updated))
 
 
 def apply_hidden_id_withholding(store: Any, identity: Any, payload: Any) -> Any:

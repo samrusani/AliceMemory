@@ -1392,9 +1392,30 @@ async def _withhold_hidden_ids(request: Request, call_next):  # type: ignore[no-
     """After the route, drop ids of rows a key with limits may not read. The owner is not touched."""
 
     response = await call_next(request)
-    from alicebot_api.vnext_hidden_ids import filter_http_response
+    from starlette.responses import Response
 
-    return filter_http_response(request, response)
+    from alicebot_api.vnext_hidden_ids import withhold_json_body
+
+    # BaseHTTPMiddleware hands back a stream. ``response.body`` is empty until that stream is read.
+    chunks: list[bytes] = []
+    iterator = getattr(response, "body_iterator", None)
+    if iterator is not None:
+        async for chunk in iterator:
+            if isinstance(chunk, (bytes, bytearray)):
+                chunks.append(bytes(chunk))
+        raw = b"".join(chunks)
+    else:
+        raw = getattr(response, "body", b"") or b""
+    # The name ``get_settings`` on this module is what a test replaces with the database under test.
+    updated = withhold_json_body(request, raw, database_url=get_settings().database_url)
+    content = raw if updated is None else updated
+    headers = {key: value for key, value in response.headers.items() if key.lower() != "content-length"}
+    return Response(
+        content=content,
+        status_code=response.status_code,
+        headers=headers,
+        background=getattr(response, "background", None),
+    )
 
 
 # Registered just before the body limit, so it wraps every layer that reads a body and sits inside the limit: a request

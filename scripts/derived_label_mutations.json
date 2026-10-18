@@ -6694,7 +6694,7 @@
           "line": 761,
           "before": "        (\"GET\", \"/v0/vnext/memories/recent-commits\"),\n",
           "after": "",
-          "sha256": "f8d0028e45b097299e86fdc8c39d34fc066f95e33eda3a32144fc282257aa39f"
+          "sha256": "c9dcab8d7a32afa1804b82f9db0911e681395fcc1808e1049cafb789ae72c545"
         }
       ],
       "pytest": [
@@ -6710,7 +6710,7 @@
           "line": 1344,
           "before": "    if settings.app_env not in {\"development\", \"test\"} and not is_vnext_path:",
           "after": "    if False and not is_vnext_path:",
-          "sha256": "f8d0028e45b097299e86fdc8c39d34fc066f95e33eda3a32144fc282257aa39f"
+          "sha256": "c9dcab8d7a32afa1804b82f9db0911e681395fcc1808e1049cafb789ae72c545"
         }
       ],
       "pytest": [
@@ -15302,10 +15302,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/main.py",
-          "line": 1402,
+          "line": 1423,
           "before": "app.add_middleware(RetryDeepRowMiddleware)\n",
           "after": "pass\n",
-          "sha256": "f8d0028e45b097299e86fdc8c39d34fc066f95e33eda3a32144fc282257aa39f"
+          "sha256": "c9dcab8d7a32afa1804b82f9db0911e681395fcc1808e1049cafb789ae72c545"
         }
       ],
       "pytest": [
@@ -18506,10 +18506,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
-          "line": 132,
+          "line": 187,
           "before": "    if not hidden:\n        return value\n    stripped, _changed = _strip(value, hidden, field=None)\n",
           "after": "    if True:\n        return value\n    stripped, _changed = _strip(value, hidden, field=None)\n",
-          "sha256": "dac2912ac495eccb5c23ecfcdfe5eb70c780ce5d4d4541abacf0ed7a90eab0b4"
+          "sha256": "fe551066926999e7a1f38ce6e829cd724cfc892b5e5c6284136254adf62a16a2"
         }
       ],
       "pytest": [

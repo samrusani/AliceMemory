@@ -63,6 +63,26 @@ def test_listing_fields_lose_a_hidden_id_and_the_count_matches() -> None:
     assert payload["count"] == 1
 
 
+def test_an_archived_row_is_withheld_and_a_forgotten_row_stays() -> None:
+    archived = "66666666-6666-4666-8666-666666666666"
+    forgotten = "77777777-7777-4777-8777-777777777777"
+    deleted = "88888888-8888-4888-8888-888888888888"
+    store = _Store()
+    store.rows["memory"].extend(
+        [
+            {"id": archived, "domain": "project", "sensitivity": "public", "status": "archived"},
+            {"id": forgotten, "domain": "project", "sensitivity": "public", "status": "forgotten"},
+        ]
+    )
+    store.rows["source"].append(
+        {"id": deleted, "domain": "project", "sensitivity": "public", "deleted_at": "2026-01-01T00:00:00Z"}
+    )
+    payload = {"memory_ids": [archived, forgotten, VISIBLE], "source_id": deleted}
+    limited = apply_hidden_id_withholding(store, _identity("read_only_agent"), payload)
+    assert limited["memory_ids"] == [forgotten, VISIBLE]
+    assert limited["source_id"] is None
+
+
 def test_a_limited_key_loses_every_id_kind_and_the_owner_keeps_them() -> None:
     store = _Store()
     limited = apply_hidden_id_withholding(store, _identity("trusted_local_agent"), _payload())
