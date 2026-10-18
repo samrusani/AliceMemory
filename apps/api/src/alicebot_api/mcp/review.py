@@ -279,10 +279,25 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
     )
 
 
+_BODY_TEXT_KEYS = (
+    "text",
+    "decision_text",
+    "fact_text",
+    "body",
+    "commitment_text",
+    "waiting_for_text",
+    "blocking_reason",
+    "action_text",
+    "raw_content",
+    "explicit_signal",
+)
+
+
 def _canonical_text_from_body(body: Mapping[str, object]) -> str:
-    text = body.get("text")
-    if isinstance(text, str) and text.strip() != "":
-        return text.strip()
+    for key in _BODY_TEXT_KEYS:
+        text = body.get(key)
+        if isinstance(text, str) and text.strip() != "":
+            return text.strip()
     return _canonical_json_dumps(body)
 
 

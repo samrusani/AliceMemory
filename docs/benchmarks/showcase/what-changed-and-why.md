@@ -1,6 +1,6 @@
 # What changed and why
 
-Unreleased (on main, not in v0.20.2): this page is a design. The tool, the route and the view are not built. v0.20.2 has no what-changed answer, and it has no measurement of one.
+Unreleased (on main, not in v0.20.2): `alice_what_changed`, `POST /v0/vnext/changes` and the continuity page view are built. They are not in v0.20.2. v0.20.2 has no what-changed answer, and it has no measurement of one.
 
 An agent or a person asks about one topic: an account, a price, a feature, a policy. The answer is the history of recorded decisions and changes on that topic. The read builds every step from records. It does not read note text to decide that a note is a decision, and it does not take `replaced` from a sentence in a later note.
 
@@ -90,7 +90,7 @@ Every step also carries its source references, its author (the recording agent o
 
 Each chain has its own `current`. It is the settled answer as of today among the steps of that chain the caller may read. It is the newest of those settled steps. It is never filled from a step that is not settled, and a step under review (`needs_review`) appears in that chain's `history` with its review state and is never `current`.
 
-A step is settled when its review state is an accepted one (`active`, or confirmation `confirmed`), its `valid_from` is today or earlier or is unset, and it is not the newest settled candidate of a chain that is part of an unresolved disagreement. A contradiction record is unresolved when its review has not accepted or dismissed it (`candidate` or `needs_review`, rather than `reinforce`, `challenge`, `supersede` or `retire`).
+A step is settled when its status is `active`, its `valid_from` is today or earlier or is unset, and its `valid_to` is unset or today or later. A step past `valid_to` is not current, including one whose status is still `active`. A forgotten, undone, superseded or expired step is not current. A step that a later settled step replaced is not current, whatever its dates. A `needs_review` step is not current. A contradiction record is unresolved when its review state is `candidate` or `needs_review`. A reviewed edge stores `reviewed`, `accepted` or `rejected`. `rejected` also sets `valid_to`, and that edge no longer clears `current`.
 
 A step that takes effect later (its `valid_from` is after today) goes in that chain's `upcoming`, not its `current`. `current` is null for a disagreement only when the newest settled candidate of that chain is part of an unresolved disagreement, and `disputed` lists those ids. An older disputed pair that a newer settled step replaced does not clear `current`. The newer of a disputed pair is later in that chain's `history`.
 
@@ -110,7 +110,7 @@ When nothing is found, or nothing visible is found, the answer says "No recorded
 
 ## Doors
 
-The same answer on three doors, when this is built:
+The same answer on three doors:
 
 - an MCP tool, `alice_what_changed`, taking the topic;
 - an HTTP route, `POST /v0/vnext/changes`, taking the topic;
@@ -122,7 +122,7 @@ Each new door is registered in the operator route inventory and its probe table,
 
 The read does not walk every note. It uses the existing recall index, judges at most 128 candidates, then follows `superseded_by` for at most 64 hops. When 128 candidates have been judged, the answer is the history found among them. It does not report how many further records matched, and it does not report a count or a gap caused by permissions.
 
-When the read is built, its time is measured on the 10,000-note company next to recall's time on the same vault, and that pair of times is written here. This page does not yet have those times, because the read is not built. v0.20.2 has no such measurement. A budget test with 10,000 hidden candidates shows the 128 cap holds.
+The read uses the same full-text search `alice_recall` uses (`search_memories_fts`), limited to decision memories and to 128 candidates. A topic that search cannot take is refused by the same limit. The measured vault is 10,000 decision rows on that index, not the synthetic company's notes; the synthetic company generator is now on main, and measuring this read next to recall on the 10,000-note company is still to do. The budget test asserts the what-changed read and the recall search of that vault each finish in under 1.5 seconds, and that the 128 cap still hides the older readable row when newer hidden rows fill the window. v0.20.2 has no such measurement.
 
 ## Tests, when this is built
 
@@ -137,7 +137,7 @@ When the read is built, its time is measured on the 10,000-note company next to 
 
 Recorded decisions, not extraction, are what this feature and the demo use.
 
-The company's agents record decisions through the existing tools: commit a decision memory, and supersede it through correction (`alice_memory_correct`). The setup script for the synthetic company makes those calls with each team's key, through the normal APIs and permission checks. The demo, the docs and the case study describe this setup as scripted. It shows that Alice stores, retrieves, explains and protects recorded decisions. It does not show that agents recognise decisions on their own. This note does not add that script.
+The company's agents record decisions through the existing tools: `alice_memory_commit` and `alice_memory_correct`, with each team's key, under the normal permission checks. `scripts/showcase_decisions.py` makes those calls. The demo, the docs and the case study describe this setup as scripted. It shows that Alice stores, retrieves, explains and protects recorded decisions. It does not show that agents recognise decisions on their own.
 
 Extraction from imported notes with a local model is a later unit of its own. It is not started in this sprint. Before it may be claimed, it is measured on notes prepared independently of the build team, which the team does not see. The measurement covers missed decisions, invented decisions, wrong replacement links, disagreements and source attribution. Extracted decisions stay proposals until accepted under the review policy.
 

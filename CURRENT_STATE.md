@@ -25,6 +25,8 @@
   unmeasured, so the number may be overstated by an unknown amount. See the
   README Benchmark section.
 - Alice remains public-alpha, pre-1.0, local-first, single-user, and self-hosted.
+- The MCP registry on main is 12-core/65-legacy/77-total. The default handshake
+  stays at three tools. `ALICE_MCP_FULL_TOOLS=1` exposes all twelve core tools.
 
 ## What `v0.11.1` Shipped
 
@@ -486,8 +488,8 @@ sleep proposals. There is no schema change.
 
 The default loop is on the wheel: `alice-memory install`, `demo --vault`,
 `doctor`, `brief`, write receipts, and a three-tool MCP handshake
-(`alice_memory_commit`, `alice_recall`, `alice_resume`). The other
-eight core tools need `ALICE_MCP_FULL_TOOLS=1`.
+(`alice_memory_commit`, `alice_recall`, `alice_resume`). The tools
+outside that handshake need `ALICE_MCP_FULL_TOOLS=1`.
 
 Present-tense recall prefers the current fact. Recall hops once
 through provenance. The pack picks a loops / facts / sources view

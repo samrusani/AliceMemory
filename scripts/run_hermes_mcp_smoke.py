@@ -184,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # This smoke exercises the legacy capture/review flows alongside a
     # full-surface core tool (alice_open_loops). LEGACY does not imply the
-    # eight extra core tools, so both flags must be set for in-process listing.
+    # nine extra core tools, so both flags must be set for in-process listing.
     os.environ.setdefault("ALICE_MCP_LEGACY_TOOLS", "1")
     os.environ.setdefault("ALICE_MCP_FULL_TOOLS", "1")
 

@@ -4,6 +4,11 @@
 paragraph used to present it as the product path. The named mutation is
 restoring the old ``LongMemEval_s-81.2% (3-run mean)`` badge as the lead
 claim. That change must fail this test.
+
+The README carries no LongMemEval badge at all until the product path has a
+published score: the receipt is described in the benchmark section with its
+known issue, not advertised above the fold. Restoring any LongMemEval badge in
+the lead must fail ``test_readme_lead_has_no_longmemeval_badge``.
 """
 
 from __future__ import annotations
@@ -63,3 +68,11 @@ def test_readme_does_not_lead_with_privileged_lme_as_product_path() -> None:
             "first LongMemEval paragraph presents 81.2% as the current-release "
             "product path without naming store_chunks / v0.12.0"
         )
+
+
+def test_readme_lead_has_no_longmemeval_badge() -> None:
+    """Mutation: put any LongMemEval badge back above the first section heading."""
+
+    lead = _lead(README_PATH.read_text(encoding="utf-8"))
+    assert _lme_badge_lines(lead) == []
+    assert "img.shields.io/badge/LongMemEval" not in lead

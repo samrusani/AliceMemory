@@ -17,6 +17,7 @@ const {
   listContinuityReviewQueueMock,
   listContinuityCapturesMock,
   queryContinuityRecallMock,
+  postWhatChangedMock,
   refreshMock,
 } = vi.hoisted(() => ({
   getApiConfigMock: vi.fn(),
@@ -31,6 +32,7 @@ const {
   listContinuityReviewQueueMock: vi.fn(),
   listContinuityCapturesMock: vi.fn(),
   queryContinuityRecallMock: vi.fn(),
+  postWhatChangedMock: vi.fn(),
   refreshMock: vi.fn(),
 }));
 
@@ -74,6 +76,7 @@ vi.mock("../../lib/api", async () => {
     listContinuityReviewQueue: listContinuityReviewQueueMock,
     listContinuityCaptures: listContinuityCapturesMock,
     queryContinuityRecall: queryContinuityRecallMock,
+    postWhatChanged: postWhatChangedMock,
   };
 });
 
@@ -91,6 +94,7 @@ describe("ContinuityPage", () => {
     listContinuityReviewQueueMock.mockReset();
     listContinuityCapturesMock.mockReset();
     queryContinuityRecallMock.mockReset();
+    postWhatChangedMock.mockReset();
     refreshMock.mockReset();
 
     getApiConfigMock.mockReturnValue({
@@ -806,5 +810,83 @@ describe("ContinuityPage", () => {
     // its parent queue promise rather than waiting behind that unrelated read.
     releaseCaptures();
     await pagePromise;
+  });
+
+  it("shows what changed from the route when the page is asked", async () => {
+    getApiConfigMock.mockReturnValue({
+      apiBaseUrl: "",
+      userId: "",
+      defaultThreadId: "",
+      defaultToolId: "",
+    });
+    hasLiveApiConfigMock.mockReturnValue(false);
+    render(await ContinuityPage({ searchParams: Promise.resolve({ what_changed: "Keel price" }) }));
+    expect(screen.getByText("What changed")).toBeInTheDocument();
+    expect(screen.getByText("This view calls POST /v0/vnext/changes. The API is not configured.")).toBeInTheDocument();
+    expect(postWhatChangedMock).not.toHaveBeenCalled();
+  });
+
+  it("renders the route answer and does not keep a second history", async () => {
+    getApiConfigMock.mockReturnValue({
+      apiBaseUrl: "https://api.example.com",
+      userId: "user-1",
+      defaultThreadId: "",
+      defaultToolId: "",
+    });
+    hasLiveApiConfigMock.mockReturnValue(true);
+    for (const mock of [
+      listContinuityCapturesMock,
+      queryContinuityRecallMock,
+      getContinuityResumptionBriefMock,
+      getContinuityOpenLoopDashboardMock,
+      getContinuityDailyBriefMock,
+      getContinuityWeeklyReviewMock,
+      getThreadHealthDashboardMock,
+      listContinuityReviewQueueMock,
+    ]) {
+      mock.mockRejectedValue(new Error("offline"));
+    }
+    postWhatChangedMock.mockResolvedValue({
+      notice: "This covers the recorded decisions the caller may read. It is not a company-wide statement.",
+      topic: "Keel price",
+      chains: [
+        {
+          start: "memory-1",
+          current: {
+            id: "memory-1",
+            kind: "memory",
+            chain: "memory-1",
+            date: "2025-11-18",
+            change: "the list price was cut to 520",
+            reason: null,
+            replaced: null,
+            disagrees_with: null,
+            sources: [],
+            author: "showcase-sales",
+            review_state: "active",
+          },
+          upcoming: [],
+          disputed: [],
+          history: [
+            {
+              id: "memory-1",
+              kind: "memory",
+              chain: "memory-1",
+              date: "2025-11-18",
+              change: "the list price was cut to 520",
+              reason: null,
+              replaced: null,
+              disagrees_with: null,
+              sources: [],
+              author: "showcase-sales",
+              review_state: "active",
+            },
+          ],
+        },
+      ],
+    });
+    render(await ContinuityPage({ searchParams: Promise.resolve({ what_changed: "Keel price" }) }));
+    expect(postWhatChangedMock).toHaveBeenCalledWith("https://api.example.com", "user-1", "Keel price");
+    expect(screen.getByText("the list price was cut to 520")).toBeInTheDocument();
   });
 });

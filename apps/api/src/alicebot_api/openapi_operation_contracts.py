@@ -1192,6 +1192,15 @@ OPENAPI_OPERATION_RESPONSE_SCHEMAS: dict[tuple[str, str], tuple[str, dict[str, o
             ),
         ),
     ),
+    ("POST", "/v0/vnext/changes"): (
+        "PostVnextChangesSuccessResponse",
+        _operation_schema(
+            "PostVnextChangesSuccessResponse",
+            ("notice", "topic", "chains", "message", "search"),
+            required=("notice", "topic", "chains"),
+            closed=True,
+        ),
+    ),
     ("GET", "/v0/vnext/context-tree"): (
         "GetVnextContextTreeSuccessResponse",
         _operation_schema(
@@ -2307,6 +2316,11 @@ _OPENAPI_EXPLICIT_PROPERTY_SCHEMAS.update(
         ),
         ("DELETE", "/v0/vnext/sources/{source_id}"): _typed_properties(strings=("status", "source_id")),
         ("POST", "/v0/vnext/context-packs"): _typed_properties(objects=("context_pack",), strings=("status",)),
+        ("POST", "/v0/vnext/changes"): _typed_properties(
+            strings=("notice", "topic"),
+            nullable_strings=("message", "search"),
+            object_arrays=("chains",),
+        ),
         ("GET", "/v0/vnext/context-tree"): _typed_properties(objects=("summary",), object_arrays=("items",)),
         ("POST", "/v0/vnext/memories/commit"): _typed_properties(objects=("memory",), strings=("status",)),
         ("POST", "/v0/vnext/memories/confirm"): _typed_properties(objects=("memory",), strings=("status",)),
@@ -2425,6 +2439,88 @@ _OPENAPI_EXPLICIT_PROPERTY_SCHEMAS.update(
         ("GET", "/v0/entities/{entity_id}"): _typed_properties(objects=("entity",), strings=("status",)),
     }
 )
+
+
+_WHAT_CHANGED_STEP = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "id",
+        "kind",
+        "chain",
+        "date",
+        "change",
+        "reason",
+        "replaced",
+        "disagrees_with",
+        "sources",
+        "author",
+        "review_state",
+        "writer",
+    ],
+    "properties": {
+        "id": {"type": "string"},
+        "kind": {"type": "string"},
+        "chain": {"type": "string"},
+        "date": {"type": "string"},
+        "change": {"type": "string"},
+        "reason": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["text", "source_id"],
+                    "properties": {
+                        "text": {"type": "string"},
+                        "source_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                    },
+                },
+                {"type": "null"},
+            ]
+        },
+        "replaced": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "disagrees_with": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "sources": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["source_id", "title", "date"],
+                "properties": {
+                    "source_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "date": {"type": "string"},
+                },
+            },
+        },
+        "author": {"type": "string"},
+        "review_state": {"type": "string"},
+        "writer": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["id", "established"],
+            "properties": {
+                "id": {"type": "string"},
+                "established": {"type": "string"},
+            },
+        },
+    },
+}
+_OPENAPI_EXPLICIT_PROPERTY_SCHEMAS[("POST", "/v0/vnext/changes")]["chains"] = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["start", "current", "upcoming", "disputed", "history"],
+        "properties": {
+            "start": {"type": "string"},
+            "current": {"anyOf": [_WHAT_CHANGED_STEP, {"type": "null"}]},
+            "upcoming": {"type": "array", "items": {"type": "string"}},
+            "disputed": {"type": "array", "items": {"type": "string"}},
+            "history": {"type": "array", "items": _WHAT_CHANGED_STEP},
+        },
+    },
+}
 
 
 for _operation_key, _property_schemas in _OPENAPI_EXPLICIT_PROPERTY_SCHEMAS.items():
