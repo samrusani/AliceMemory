@@ -350,16 +350,19 @@ def test_the_reason_is_what_the_saved_quote_reader_leaves_in_the_refs(migrated_d
 # --- pointers that PostgreSQL returns as UUID objects ----------------------------------------------------------------------
 
 
-def test_a_replaced_decision_is_not_current_when_only_the_old_one_matches_the_topic(migrated_database_urls, monkeypatch):
+@pytest.mark.parametrize("pointers", ["forward only", "both"])
+def test_a_replaced_decision_is_not_current_when_only_the_old_one_matches_the_topic(migrated_database_urls, monkeypatch, pointers):
     """``superseded_by`` is a ``UUID`` object. The read once dropped it, so the topic that matched only the old decision gave a
-    one-step history with the old decision as current.
+    one-step history with the old decision as current. With only the forward pointer set, nothing else names the new decision.
 
-    Mutations: read ``superseded_by`` as a string only; read the ``id`` of a start row as a string only."""
+    Mutations: read ``superseded_by`` as a string only (the forward only case fails); read the ``id`` of a start row as a string
+    only."""
 
-    vault = Vault(migrated_database_urls, monkeypatch, "forward")
+    vault = Vault(migrated_database_urls, monkeypatch, f"forward-{pointers.replace(' ', '-')}")
     with vault.store() as store:
         old = _memory(store, "price policy", "price policy is 600", valid_from="2026-01-01T00:00:00Z")
-        new = _memory(store, "renewal tariff", "renewal tariff is 520", valid_from="2026-02-01T00:00:00Z", supersedes=str(old["id"]))
+        extra = {"supersedes": str(old["id"])} if pointers == "both" else {}
+        new = _memory(store, "renewal tariff", "renewal tariff is 520", valid_from="2026-02-01T00:00:00Z", **extra)
         store.update_memory(memory_id=str(old["id"]), patch={"superseded_by": str(new["id"])})
         starts = store.search_memories_fts(query="price policy", memory_types=("decision",), limit=5)
         assert type(starts[0]["superseded_by"]) is UUID and type(starts[0]["id"]) is UUID
