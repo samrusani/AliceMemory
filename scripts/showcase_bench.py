@@ -68,9 +68,30 @@ TASKS = (
     "permission",
 )
 QUESTIONS_PER_TASK = 15
+QUESTION_KINDS = ("demonstration", "development", "hidden")
+PHASE0_SIZE = 1000
 SHOWCASE_SCHEMA = "showcase-run/1"
 GRADE_SCHEMA = "showcase-grade-packet/1"
 LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1"})
+KEYED_RECALL_PATH = "/v0/vnext/context-packs"
+FAILURE_CLASSES = (
+    "needed note not captured",
+    "needed note not returned",
+    "needed note returned and misused",
+)
+# Normal approximation: 95 percent two-sided, 80 percent power, variance 0.5 for a paired 0/1 difference.
+PAIRED_Z = 1.96 + 0.8416212335729143
+HARNESS_PRIVILEGE_SECTION = (
+    "Harness privileges. The harness does three things a user of the same store cannot do. "
+    "It creates team keys on a SQLite vault. The shipped SQLite product cannot create a key "
+    "(alicebot agent keys create requires Postgres) and a configured key is refused. "
+    "It resolves identities in process and hands them to the MCP session. "
+    "It passes sensitivity_allowed from the team profile into alice_recall. "
+    "An Alice answer, and a leak rate from those answers, depends on these privileges."
+)
+ALICE_PRIVILEGE_NOTE = (
+    "depends on harness privileges: sqlite team key, in-process identity, sensitivity_allowed"
+)
 
 _RECALL = (
     "Which service contract did Larkspur Metals sign for the Keel sensor kit?",
@@ -250,8 +271,20 @@ class FakeMemory:
         return hits[:8]
 
 
+def permission_team(index: int) -> str:
+    """Every team is asked. The first permission question stays support."""
+
+    if index == 1:
+        return "support"
+    return TEAMS[(index - 2) % len(TEAMS)]
+
+
 def questions_for(size: int) -> dict[str, Any]:
-    """15 questions for each task, for one corpus size. About 105, and 210 across both sizes."""
+    """15 questions for each task, for one corpus size. About 105, and 210 across both sizes.
+
+    The 210 questions are the development set. The 10,000-note file stays in that set.
+    Phase 0 builds and reports the 1,000-note company only.
+    """
 
     if size not in SIZES:
         raise bench.BenchError("size must be 1000 or 10000")
@@ -282,11 +315,13 @@ def questions_for(size: int) -> dict[str, Any]:
     for task in TASKS:
         rows, rubric = stems[task]
         for index, text in enumerate(rows, start=1):
+            team = permission_team(index) if task == "permission" else rubric.get("team", "sales")
             item = {
                 "id": f"{size}-{task}-{index:02d}",
                 "size": size,
                 "task": task,
-                "team": rubric.get("team", "sales"),
+                "team": team,
+                "kind": "development",
                 "question": text,
                 "must_include": list(rubric.get("must_include", [])),
                 "must_not_include": list(rubric.get("must_not_include", [])),
@@ -301,9 +336,113 @@ def questions_for(size: int) -> dict[str, Any]:
         "company": COMPANY_NAME,
         "size": size,
         "role": "development",
+        "kind": "development",
         "policy": visibility.policy_for_questions(),
         "questions": questions,
     }
+
+
+def demonstration_question_document() -> dict[str, Any]:
+    """The demo's own small set. It is not the 210 development questions."""
+
+    policy = visibility.policy_for_questions()
+    questions = [
+        {
+            "id": "demo-recall-01",
+            "size": PHASE0_SIZE,
+            "task": "recall",
+            "team": "sales",
+            "kind": "demonstration",
+            "question": "Which service contract did the demo account sign?",
+            "must_include": ["QF-C-2041"],
+            "must_not_include": [],
+            "leak_strings": [],
+            "abstain": False,
+            "needed_paths": ["sales/accounts/larkspur-contract.md"],
+            "policy": policy,
+        },
+        {
+            "id": "demo-permission-01",
+            "size": PHASE0_SIZE,
+            "task": "permission",
+            "team": "support",
+            "kind": "demonstration",
+            "question": "What pay figure does the demo file record?",
+            "must_include": [],
+            "must_not_include": [],
+            "leak_strings": ["128400", "910 ledger"],
+            "abstain": True,
+            "needed_paths": [],
+            "policy": policy,
+        },
+        {
+            "id": "demo-abstain-01",
+            "size": PHASE0_SIZE,
+            "task": "abstention",
+            "team": "product",
+            "kind": "demonstration",
+            "question": "On what date was the company's opening picnic?",
+            "must_include": [],
+            "must_not_include": list(ABSENT),
+            "leak_strings": [],
+            "abstain": True,
+            "needed_paths": [],
+            "policy": policy,
+        },
+    ]
+    return {
+        "schema": "showcase-questions/1",
+        "company": COMPANY_NAME,
+        "size": PHASE0_SIZE,
+        "role": "demonstration",
+        "kind": "demonstration",
+        "policy": policy,
+        "questions": questions,
+    }
+
+
+def question_kind(row: Mapping[str, Any]) -> str:
+    """A questions file states demonstration, development or hidden. A grade row may omit it."""
+
+    if "kind" in row:
+        raw = row.get("kind")
+    elif "role" in row:
+        raw = row.get("role")
+    else:
+        raw = "development"
+    text = str(raw)
+    if text not in QUESTION_KINDS:
+        raise bench.BenchError("a questions file must state its kind: demonstration, development or hidden")
+    return text
+
+
+def require_question_kind(document: Mapping[str, Any]) -> str:
+    if "kind" not in document and "role" not in document:
+        raise bench.BenchError("a questions file must state its kind: demonstration, development or hidden")
+    kind = question_kind(document)
+    for item in document.get("questions") or []:
+        if question_kind(item) != kind:
+            raise bench.BenchError("the report refuses to combine question kinds")
+    return kind
+
+
+def assert_phase0_build_size(size: int) -> None:
+    if size != PHASE0_SIZE:
+        raise bench.BenchError(
+            "Phase 0 builds the 1,000-note company only. "
+            "The 10,000-note size waits until the 1,000-note results separate the arms."
+        )
+
+
+def assert_phase0_report_size(rows: Sequence[Mapping[str, Any]]) -> None:
+    for row in rows:
+        if "size" not in row:
+            continue
+        if row.get("size") not in (PHASE0_SIZE, str(PHASE0_SIZE)):
+            raise bench.BenchError(
+                "Phase 0 reports the 1,000-note company only. "
+                "The 10,000-note size waits until the 1,000-note results separate the arms."
+            )
 
 
 def score_answer(question: Mapping[str, Any], answer: str) -> dict[str, Any]:
@@ -377,56 +516,187 @@ def intervals_overlap(left: tuple[float, float], right: tuple[float, float]) -> 
     return left[0] <= right[1] and right[0] <= left[1]
 
 
-def render_report(rows: Sequence[Mapping[str, Any]], *, heldout: bool = False) -> str:
+def question_variance(flags: Sequence[bool]) -> float:
+    """Sample variance of per-question outcomes. Fewer than two questions is zero."""
+
+    if len(flags) < 2:
+        return 0.0
+    values = [1.0 if flag else 0.0 for flag in flags]
+    mean = sum(values) / len(values)
+    return sum((value - mean) ** 2 for value in values) / (len(values) - 1)
+
+
+def paired_sample_size(*, delta: float = 0.10, variance: float = 0.5) -> int:
+    """Pairs needed to detect a paired difference of ``delta`` at the stated variance."""
+
+    if delta <= 0:
+        raise bench.BenchError("the paired difference must be positive")
+    return math.ceil(PAIRED_Z * PAIRED_Z * variance / (delta * delta))
+
+
+def cites_returned(answer: str, evidence: Sequence[Mapping[str, Any]]) -> bool:
+    """True when the answer quotes a returned id, or a returned passage of 8 characters or more."""
+
+    folded = answer.casefold()
+    for item in evidence:
+        identifier = str(item.get("id") or "").strip()
+        passage = str(item.get("passage") or "").strip()
+        if identifier and identifier.casefold() in folded:
+            return True
+        if len(passage) >= 8 and passage.casefold() in folded:
+            return True
+    return False
+
+
+def answer_support(answer: str, evidence: Sequence[Mapping[str, Any]]) -> dict[str, bool]:
+    """An answer that cites nothing the arm returned is unsupported."""
+
+    cited = cites_returned(answer, evidence)
+    return {"cites_evidence": cited, "unsupported": not cited}
+
+
+def _supported_complete(row: Mapping[str, Any]) -> bool:
+    if row.get("unsupported"):
+        return False
+    return bool(row.get("correct"))
+
+
+def failure_of(row: Mapping[str, Any]) -> str | None:
+    """Why a wrong answer missed: the note was not captured, not returned, or returned and misused."""
+
+    if _supported_complete(row):
+        return None
+    named = row.get("failure")
+    if named in FAILURE_CLASSES:
+        return str(named)
+    if row.get("captured") is False:
+        return FAILURE_CLASSES[0]
+    if row.get("returned") is False:
+        return FAILURE_CLASSES[1]
+    if row.get("returned") is True:
+        return FAILURE_CLASSES[2]
+    return None
+
+
+def compare_arms(rows: Sequence[Mapping[str, Any]]) -> str:
+    """One comparison of arms. Two models, or two question kinds, are refused."""
+
+    models = {str(row.get("model") or "") for row in rows}
+    if len(models) > 1:
+        raise bench.BenchError("the report refuses to compare arms across models")
+    kinds = {question_kind(row) for row in rows}
+    if len(kinds) > 1:
+        raise bench.BenchError("the report refuses to combine question kinds")
+    return render_report(rows)
+
+
+def _group_prefix(size: Any, model: str, arm: str, task: str) -> str:
+    if model:
+        return f"size {size} model {model} arm {arm} task {task}"
+    return f"size {size} arm {arm} task {task}"
+
+
+def render_report(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    heldout: bool = False,
+    keyed: Mapping[str, Any] | None = None,
+) -> str:
     """Accuracy and leak rate per arm and task, and where the sample cannot separate two arms.
 
     The questions from ``questions_for`` are a development set. A report of them
     says so. ``heldout`` is for a question set run through showcase-heldout.
+    Kinds are not combined. Arms are compared within one model.
+    mem0 rows stay out of the numbers.
     """
 
     for row in rows:
         engine = str(row.get("engine") or "")
         if engine:
             check_result_label(str(row["arm"]), engine)
-    groups: dict[tuple[Any, str, str], list[Mapping[str, Any]]] = {}
-    for row in rows:
-        groups.setdefault((row["size"], str(row["arm"]), str(row["task"])), []).append(row)
-    lines = []
-    by_size: dict[Any, list[tuple[str, str, tuple[float, float]]]] = {}
-    for (size, arm, task), items in sorted(groups.items(), key=lambda item: (str(item[0][0]), item[0][2], item[0][1])):
+    kinds = {question_kind(row) for row in rows}
+    if len(kinds) > 1:
+        raise bench.BenchError("the report refuses to combine question kinds")
+    assert_phase0_report_size(rows)
+    reported = [row for row in rows if not str(row.get("arm") or "").startswith("mem0")]
+    mem0_present = len(reported) != len(list(rows))
+    groups: dict[tuple[Any, str, str, str], list[Mapping[str, Any]]] = {}
+    for row in reported:
+        key = (row["size"], str(row.get("model") or ""), str(row["arm"]), str(row["task"]))
+        groups.setdefault(key, []).append(row)
+    lines: list[str] = []
+    by_model: dict[tuple[Any, str], list[tuple[str, str, tuple[float, float]]]] = {}
+    ordered = sorted(groups.items(), key=lambda item: (str(item[0][0]), item[0][1], item[0][3], item[0][2]))
+    for (size, model, arm, task), items in ordered:
         correct = sum(1 for item in items if item["correct"])
         leaks = sum(1 for item in items if item["leak"])
         low, high = wilson_interval(correct, len(items))
+        prefix = _group_prefix(size, model, arm, task)
+        line = f"{prefix}: {correct}/{len(items)} interval {low:.2f} to {high:.2f}; leaks {leaks}/{len(items)}"
+        if arm == "alice":
+            line = f"{line} ({ALICE_PRIVILEGE_NOTE})"
+        lines.append(line)
+        supported = sum(1 for item in items if _supported_complete(item))
+        slow, shigh = wilson_interval(supported, len(items))
+        tokens = sum(int(item.get("tokens") or 0) for item in items)
+        seconds = sum(float(item.get("seconds") or 0.0) for item in items)
         lines.append(
-            f"size {size} arm {arm} task {task}: {correct}/{len(items)} "
-            f"interval {low:.2f} to {high:.2f}; leaks {leaks}/{len(items)}"
+            f"{prefix} supported complete {supported}/{len(items)} "
+            f"interval {slow:.2f} to {shigh:.2f}; tokens {tokens}; seconds {seconds:.3f}"
         )
-        by_size.setdefault(size, []).append((arm, task, (low, high)))
-    for size, entries in by_size.items():
+        variance = question_variance([bool(item.get("correct")) for item in items])
+        lines.append(f"{prefix} variance between questions {variance:.4f}")
+        failures = {name: 0 for name in FAILURE_CLASSES}
+        for item in items:
+            label = failure_of(item)
+            if label is not None:
+                failures[label] += 1
+        lines.append(
+            f"{prefix} failures: "
+            + ", ".join(f"{name} {failures[name]}" for name in FAILURE_CLASSES)
+        )
+        teams = sorted({str(item.get("team")) for item in items if item.get("team")})
+        for team in teams:
+            subset = [item for item in items if str(item.get("team")) == team]
+            team_supported = sum(1 for item in subset if _supported_complete(item))
+            team_leaks = sum(1 for item in subset if item["leak"])
+            team_low, team_high = wilson_interval(team_supported, len(subset))
+            team_tokens = sum(int(item.get("tokens") or 0) for item in subset)
+            team_seconds = sum(float(item.get("seconds") or 0.0) for item in subset)
+            lines.append(
+                f"{prefix} team {team}: supported complete {team_supported}/{len(subset)} "
+                f"interval {team_low:.2f} to {team_high:.2f}; leaks {team_leaks}/{len(subset)}; "
+                f"tokens {team_tokens}; seconds {team_seconds:.3f}"
+            )
+        by_model.setdefault((size, model), []).append((arm, task, (low, high)))
+    for (size, model), entries in by_model.items():
         for index, (arm, task, interval) in enumerate(entries):
             for other_arm, other_task, other in entries[index + 1 :]:
                 if task == other_task and arm != other_arm and intervals_overlap(interval, other):
+                    model_bit = f"model {model} " if model else ""
                     lines.append(
-                        f"size {size} task {task}: {arm} and {other_arm} overlap, "
+                        f"size {size} {model_bit}task {task}: {arm} and {other_arm} overlap, "
                         "so this sample cannot separate them"
                     )
-    arms = {str(row["arm"]) for row in rows}
-    if "mem0-separated" in arms:
-        lines.append(MEM0_SEPARATED_LINE)
-    if "mem0-shared" in arms:
-        lines.append(MEM0_SHARED_LINE)
+    if mem0_present:
+        lines.append("mem0 arms are not reported in Phase 0.")
+    lines.append(f"sample size for a 10-point paired difference: {paired_sample_size()}")
+    lines.append(HARNESS_PRIVILEGE_SECTION)
+    lines.append(keyed_section(keyed, reported))
     body = "\n".join(lines) + ("\n" if lines else "")
     if heldout:
         return body
     return DEVELOPMENT_HEADER + body
 
 
-def answer_identity(row: Mapping[str, Any]) -> tuple[str, str, str]:
-    """An answer is one question, one arm and one team."""
+def answer_identity(row: Mapping[str, Any]) -> tuple[str, str, str, str]:
+    """An answer is one question, one arm, one team and one answering model."""
 
     if "arm" not in row or "team" not in row:
         raise bench.BenchError("an answer needs an arm and a team")
-    return (str(row["id"]), str(row["arm"]), str(row["team"]))
+    if str(row["arm"]) == "alice" and str(row["team"]) not in TEAMS:
+        raise bench.BenchError("an Alice answer is asked through a team key")
+    return (str(row["id"]), str(row["arm"]), str(row["team"]), str(row.get("model") or ""))
 
 
 def check_result_label(arm: str, engine: str) -> None:
@@ -436,10 +706,10 @@ def check_result_label(arm: str, engine: str) -> None:
         raise bench.BenchError("a fake memory result cannot be labeled mem0")
 
 
-def load_done(path: Path) -> dict[tuple[str, str, str], dict[str, Any]]:
+def load_done(path: Path) -> dict[tuple[str, str, str, str], dict[str, Any]]:
     if not path.is_file():
         return {}
-    done: dict[tuple[str, str, str], dict[str, Any]] = {}
+    done: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
@@ -449,16 +719,24 @@ def load_done(path: Path) -> dict[tuple[str, str, str], dict[str, Any]]:
 
 
 def record_answer(path: Path, row: Mapping[str, Any]) -> bool:
-    """Append one answer. A second write of the same question, arm and team stays the first."""
+    """Append one answer. A second write of the same question, arm, team and model stays the first."""
 
     if "engine" in row:
         check_result_label(str(row["arm"]), str(row["engine"]))
+    stored = dict(row)
+    if "evidence" in stored:
+        evidence = stored["evidence"]
+        if not isinstance(evidence, list):
+            raise bench.BenchError("evidence is a list of ids and passages")
+        support = answer_support(str(stored.get("answer") or ""), evidence)
+        stored["cites_evidence"] = support["cites_evidence"]
+        stored["unsupported"] = support["unsupported"]
     done = load_done(path)
-    if answer_identity(row) in done:
+    if answer_identity(stored) in done:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(dict(row), sort_keys=True) + "\n")
+        handle.write(json.dumps(stored, sort_keys=True) + "\n")
     return True
 
 
@@ -469,8 +747,9 @@ def pending(
     *,
     arm: str,
     team: str,
+    model: str = "",
 ) -> list[Mapping[str, Any]]:
-    waiting = [question for question in questions if (question["id"], arm, team) not in done]
+    waiting = [question for question in questions if (question["id"], arm, team, model) not in done]
     return waiting[:limit]
 
 
@@ -511,9 +790,12 @@ def build_company(
 ) -> dict[str, Any]:
     """Import the company with each note's own labels and make one key per team."""
 
+    assert_phase0_build_size(size)
     local = require_local_endpoint(endpoint)
     if chat_model not in CHAT_MODELS:
         raise bench.BenchError("the chat model must be qwen2.5:7b, llama3.2, or gemma4")
+    if extractor == "mem0":
+        raise bench.BenchError("Phase 0 does not run the mem0 arms. They stay in the code and are not reported.")
     notes = generate(size, seed=seed)
     prepared = bench.prepare_run_dir(run_dir, create=True)
     corpus = prepared / "corpus"
@@ -527,6 +809,8 @@ def build_company(
     embed = embedding_settings(local, embed_model) if embeddings else None
     db_path = import_corpus(prepared, corpus, embeddings=embed)
     keys = _create_keys(db_path)
+    capture_path = prepared / "capture.json"
+    capture = json.loads(capture_path.read_text(encoding="utf-8")) if capture_path.is_file() else {}
     (prepared / "keys.json").write_text(json.dumps(keys, indent=1) + "\n", encoding="utf-8")
     memory = _index_memory(notes, extractor=extractor, chat_model=chat_model, embed_model=embed_model, endpoint=local, store_path=prepared / "mem0")
     (prepared / "memory.json").write_text(json.dumps(memory, indent=1) + "\n", encoding="utf-8")
@@ -541,6 +825,7 @@ def build_company(
         "embeddings": "on" if embeddings else "off",
         "extractor": extractor,
         "teams": dict(TEAM_PROFILES),
+        "capture": capture,
     }
     (prepared / "showcase.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
     return manifest
@@ -613,19 +898,82 @@ def import_corpus(run_dir: Path, corpus: Path, *, embeddings: Mapping[str, str] 
     if not files:
         raise bench.BenchError("the notes folder has no markdown files")
     texts: list[str] = []
+    failed: list[dict[str, str]] = []
     for path in files:
-        raw = path.read_text(encoding="utf-8")
+        relative = path.relative_to(corpus).as_posix()
+        try:
+            raw = path.read_text(encoding="utf-8")
+            meta, _lines = _parse_frontmatter(raw)
+            bench._import_one(
+                db_path,
+                path,
+                domain=meta.get("domain", "professional"),
+                sensitivity=meta.get("sensitivity", "internal"),
+            )
+        except Exception as exc:
+            failed.append({"path": relative, "error": str(exc)})
+            continue
         texts.append(raw)
-        meta, _lines = _parse_frontmatter(raw)
-        bench._import_one(
-            db_path,
-            path,
-            domain=meta.get("domain", "professional"),
-            sensitivity=meta.get("sensitivity", "internal"),
+    indexed = _indexed_notes(db_path)
+    report = capture_report(discovered=len(files), captured=len(texts), failed=failed, indexed=indexed)
+    (prepared / "capture.json").write_text(json.dumps(report, indent=1) + "\n", encoding="utf-8")
+    if failed:
+        listed = "; ".join(f"{item['path']}: {item['error']}" for item in failed)
+        raise bench.BenchError("a failed import is listed: " + listed)
+    if not report["complete"]:
+        raise bench.BenchError(
+            "capture is short of the notes discovered: "
+            f"discovered {report['discovered']}, captured {report['captured']}, indexed {report['indexed']}"
         )
     if embeddings is not None:
         embed_note_texts(texts, embeddings)
     return db_path
+
+
+def capture_report(
+    *,
+    discovered: int,
+    captured: int,
+    failed: Sequence[Mapping[str, str]],
+    indexed: int,
+) -> dict[str, Any]:
+    """Notes discovered, captured, failed and indexed. Every failure is named."""
+
+    items = [{"path": str(item["path"]), "error": str(item["error"])} for item in failed]
+    return {
+        "discovered": discovered,
+        "captured": captured,
+        "failed": items,
+        "indexed": indexed,
+        "complete": discovered == captured == indexed and not items,
+    }
+
+
+def format_capture(report: Mapping[str, Any]) -> str:
+    lines = [
+        f"notes discovered {report['discovered']}",
+        f"notes captured {report['captured']}",
+        f"notes failed {len(report['failed'])}",
+        f"notes indexed {report['indexed']}",
+    ]
+    for item in report["failed"]:
+        lines.append(f"failed {item['path']}: {item['error']}")
+    if not report["complete"]:
+        lines.append("capture is short of the notes discovered")
+    return "\n".join(lines)
+
+
+def _indexed_notes(db_path: Path) -> int:
+    import sqlite3
+
+    if not db_path.is_file():
+        return 0
+    with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "sources" not in tables:
+            return 0
+        row = conn.execute("SELECT COUNT(*) FROM sources WHERE deleted_at IS NULL").fetchone()
+    return int(row[0]) if row else 0
 
 
 def _create_keys(db_path: Path) -> dict[str, str]:
@@ -850,7 +1198,9 @@ def heldout_manifest(notes: Path, questions: Path) -> dict[str, str]:
         raise bench.BenchError("the notes folder is missing")
     if not questions.is_file():
         raise bench.BenchError("the questions file is missing")
-    return {"notes": str(notes.resolve()), "questions": str(questions.resolve())}
+    document = json.loads(questions.read_text(encoding="utf-8"))
+    kind = require_question_kind(document)
+    return {"notes": str(notes.resolve()), "questions": str(questions.resolve()), "kind": kind}
 
 
 def observe_team_limits(directory: Path) -> str:
@@ -945,52 +1295,166 @@ def observe_team_limits(directory: Path) -> str:
 
 
 def showcase_live(run_dir: Path, *, notes: int, endpoint: str) -> str:
-    """Build a small company, the real mem0 arm and the Alice arm, then search once each.
+    """Phase 0 does not run mem0. The endpoint is still checked, and a cloud host is refused.
 
-    The endpoint has to be loopback. This is the command to run on a machine
-    that already has Ollama. Tests do not download a model.
+    The mem0 search functions stay in this module. Tests do not download a model.
     """
 
-    local = require_local_endpoint(endpoint)
+    require_local_endpoint(endpoint)
     if notes < 1 or notes > 100:
         raise bench.BenchError("notes must be from 1 to 100")
-    selected = list(generate(1000)[:notes])
-    prepared = bench.prepare_run_dir(run_dir, create=True)
-    corpus = prepared / "corpus"
-    if corpus.exists():
-        shutil.rmtree(corpus)
-    write_notes(tuple(selected), corpus)
-    snapshot = prepared / bench.SNAPSHOT_DIRNAME
-    if snapshot.exists():
-        shutil.rmtree(snapshot)
-    shutil.copytree(corpus, snapshot)
-    settings = embedding_settings(local, DEFAULT_EMBED_MODEL)
-    db_path = import_corpus(prepared, corpus, embeddings=settings)
-    keys = _create_keys(db_path)
-    (prepared / "keys.json").write_text(json.dumps(keys) + "\n", encoding="utf-8")
-    memory = _index_memory(
-        selected,
-        extractor="mem0",
-        chat_model=DEFAULT_CHAT_MODEL,
-        embed_model=DEFAULT_EMBED_MODEL,
-        endpoint=local,
-        store_path=prepared / "mem0",
-    )
-    (prepared / "memory.json").write_text(json.dumps(memory) + "\n", encoding="utf-8")
-    manifest = {
-        "schema": SHOWCASE_SCHEMA,
-        "embeddings": "on",
-        "embedding_env": settings,
-        "notes": len(selected),
-        "extractor": "mem0",
-        "teams": dict(TEAM_PROFILES),
+    if not isinstance(run_dir, Path):
+        raise bench.BenchError("run-dir must be a path")
+    raise bench.BenchError("Phase 0 does not run the mem0 arms. They stay in the code and are not reported.")
+
+
+def assert_postgres_store(database_url: str) -> None:
+    """The shipped SQLite product cannot create a key and refuses a configured one."""
+
+    if database_url.startswith("sqlite"):
+        raise bench.BenchError("the shipped SQLite product cannot create a key and refuses a configured one")
+
+
+def team_key_command(*, database_url: str, user_id: str, team: str, profile: str) -> list[str]:
+    """``alicebot agent keys create`` for one team. The raw key is printed once by that command."""
+
+    assert_postgres_store(database_url)
+    return [
+        "alicebot",
+        "--database-url",
+        database_url,
+        "--user-id",
+        user_id,
+        "agent",
+        "keys",
+        "create",
+        "--agent-id",
+        f"showcase-{team}",
+        "--profile",
+        profile,
+        "--label",
+        team,
+    ]
+
+
+def note_import_command(
+    *,
+    database_url: str,
+    user_id: str,
+    path: str,
+    domain: str,
+    sensitivity: str,
+) -> list[str]:
+    """One note through the product's Postgres import, with that note's own labels."""
+
+    assert_postgres_store(database_url)
+    return [
+        "alicebot",
+        "--database-url",
+        database_url,
+        "--user-id",
+        user_id,
+        "vnext",
+        "sources",
+        "capture-file",
+        path,
+        "--domain",
+        domain,
+        "--sensitivity",
+        sensitivity,
+    ]
+
+
+def http_recall_request(*, base_url: str, token: str, user_id: str, query: str) -> dict[str, Any]:
+    """POST /v0/vnext/context-packs. The key is the Authorization header. sensitivity_allowed is not sent."""
+
+    return {
+        "url": base_url.rstrip("/") + KEYED_RECALL_PATH,
+        "headers": {"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+        "body": {"user_id": user_id, "query": query},
     }
-    (prepared / "showcase.json").write_text(json.dumps(manifest) + "\n", encoding="utf-8")
-    words = [word for word in selected[0].body.split() if len(word) > 4]
-    query = words[0] if words else "note"
-    alice_text = alice_search(prepared, team="leadership", query=query)
-    mem0_text = mem0_search(prepared, team="leadership", query=query, setup="separated")
-    return f"alice\n{alice_text}\nmem0-separated\n{mem0_text}\n"
+
+
+def permission_questions(document: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    require_question_kind(document)
+    assert_phase0_report_size([document])
+    rows = [item for item in document.get("questions") or [] if item.get("task") == "permission"]
+    teams = {str(item.get("team")) for item in rows}
+    if set(TEAMS) - teams:
+        raise bench.BenchError("the permission task must cover every team")
+    return rows
+
+
+def keyed_section(keyed: Mapping[str, Any] | None, rows: Sequence[Mapping[str, Any]]) -> str:
+    """The PostgreSQL leak rate beside the SQLite harness, or a statement that the path was not run."""
+
+    sqlite_rows = [row for row in rows if str(row.get("arm")) == "alice" and str(row.get("task")) == "permission"]
+    sqlite_leaks = sum(1 for row in sqlite_rows if row.get("leak"))
+    sqlite_bit = ""
+    if sqlite_rows:
+        sqlite_bit = f" SQLite harness permission leaks {sqlite_leaks}/{len(sqlite_rows)}."
+    if not keyed or not keyed.get("ran"):
+        reason = str((keyed or {}).get("reason") or "")
+        if not reason:
+            reason = (
+                "The tower names the disposable local PostgreSQL. "
+                "None is configured, and no Docker image was pulled."
+            )
+        return "Keyed PostgreSQL permission path: not run. " + reason + " No leak rate is reported for that path." + sqlite_bit
+    return (
+        f"Keyed PostgreSQL permission path: leaks {keyed['leaks']}/{keyed['total']}."
+        + sqlite_bit
+    )
+
+
+def execute_keyed_permission(
+    *,
+    database_url: str,
+    base_url: str,
+    user_id: str,
+    corpus: Path,
+    document: Mapping[str, Any],
+    runner: Any,
+    poster: Any,
+) -> dict[str, Any]:
+    """Import each note, create keys with alicebot, and ask the permission task over HTTP.
+
+    ``runner`` and ``poster`` perform the process and the HTTP call. Tests pass fakes.
+    No Docker image is pulled.
+    """
+
+    assert_postgres_store(database_url)
+    questions = permission_questions(document)
+    from alicebot_api.markdown_import import _parse_frontmatter
+
+    files = sorted(path for path in corpus.rglob("*.md") if path.is_file())
+    if not files:
+        raise bench.BenchError("the notes folder has no markdown files")
+    for path in files:
+        raw = path.read_text(encoding="utf-8")
+        meta, _lines = _parse_frontmatter(raw)
+        command = note_import_command(
+            database_url=database_url,
+            user_id=user_id,
+            path=str(path),
+            domain=str(meta.get("domain") or "professional"),
+            sensitivity=str(meta.get("sensitivity") or "internal"),
+        )
+        runner(command)
+    keys: dict[str, str] = {}
+    for team, profile in TEAM_PROFILES.items():
+        command = team_key_command(database_url=database_url, user_id=user_id, team=team, profile=profile)
+        keys[team] = _raw_key_from_command_output(str(runner(command)))
+    answers = []
+    for question in questions:
+        team = str(question["team"])
+        request = http_recall_request(base_url=base_url, token=keys[team], user_id=user_id, query=str(question["question"]))
+        if "sensitivity_allowed" in request["body"]:
+            raise bench.BenchError("the keyed path does not pass sensitivity_allowed")
+        text = str(poster(request))
+        answers.append({"answer": text, "team": team, "id": question["id"]})
+    scored = visibility.leak_rate(answers)
+    return {"ran": True, "leaks": scored["leaks"], "total": scored["total"], "answers": answers}
 
 
 def add_showcase_commands(sub: argparse._SubParsersAction, commands: dict[str, Any]) -> None:
@@ -1023,13 +1487,15 @@ def add_showcase_commands(sub: argparse._SubParsersAction, commands: dict[str, A
 
     record = sub.add_parser(
         "showcase-record",
-        help="Record one answer. A repeat of the same question, arm and team is kept as the first.",
+        help="Record one answer. A repeat of the same question, arm, team and model is kept as the first.",
     )
     record.add_argument("--run-dir", required=True)
     record.add_argument("--id", required=True)
     record.add_argument("--arm", required=True)
     record.add_argument("--team", required=True)
     record.add_argument("--answer", required=True)
+    record.add_argument("--model", default=None)
+    record.add_argument("--evidence", default=None, help="JSON list of objects with id and passage.")
     record.add_argument("--tokens", type=int, default=0)
     record.add_argument("--seconds", type=float, default=0.0)
     record.add_argument("--calls", type=int, default=0)
@@ -1054,7 +1520,20 @@ def add_showcase_commands(sub: argparse._SubParsersAction, commands: dict[str, A
     held.add_argument("--notes", required=True)
     held.add_argument("--questions", required=True)
 
-    live = sub.add_parser("showcase-live", help="Build 20 notes through loopback Ollama and search once with Alice and mem0.")
+    keyed = sub.add_parser(
+        "showcase-keyed-permission",
+        help="Permission questions on PostgreSQL, with alicebot keys and HTTP recall.",
+    )
+    keyed.add_argument("--questions", required=True)
+    keyed.add_argument("--database-url", default=None)
+    keyed.add_argument("--base-url", default="http://127.0.0.1:8000")
+    keyed.add_argument("--user-id", default=bench.DEFAULT_USER_ID)
+    keyed.add_argument("--corpus", default=None)
+
+    live = sub.add_parser(
+        "showcase-live",
+        help="Refuse a cloud host. Phase 0 does not run the mem0 arms.",
+    )
     live.add_argument("--run-dir", required=True)
     live.add_argument("--notes", type=int, default=20)
     live.add_argument("--endpoint", default=DEFAULT_OLLAMA_BASE)
@@ -1068,6 +1547,7 @@ def add_showcase_commands(sub: argparse._SubParsersAction, commands: dict[str, A
             "showcase-packet": _cmd_packet,
             "showcase-report": _cmd_report,
             "showcase-heldout": _cmd_heldout,
+            "showcase-keyed-permission": _cmd_keyed_permission,
             "showcase-live": _cmd_live,
         }
     )
@@ -1085,6 +1565,9 @@ def _cmd_build(args: argparse.Namespace) -> int:
         embeddings=args.embeddings == "on",
     )
     print(f"built {manifest['notes']} notes, chat model {manifest['models']['chat']}, extractor {manifest['extractor']}")
+    capture = manifest.get("capture")
+    if isinstance(capture, dict) and capture:
+        print(format_capture(capture))
     return bench.EXIT_OK
 
 
@@ -1096,6 +1579,8 @@ def _cmd_questions(args: argparse.Namespace) -> int:
 
 
 def _cmd_search(args: argparse.Namespace) -> int:
+    if str(args.arm).startswith("mem0"):
+        raise bench.BenchError("Phase 0 does not run the mem0 arms. They stay in the code and are not reported.")
     if args.arm == "none":
         none_search()
     run_dir = bench.require_run_dir(Path(args.run_dir))
@@ -1168,17 +1653,35 @@ def recall_note_retrieved(snapshot: Path, question: Mapping[str, Any], tool_text
     return True
 
 
+def _answer_model(run_dir: Path, explicit: str | None) -> str:
+    if explicit is not None:
+        return explicit
+    manifest_path = run_dir / "showcase.json"
+    if not manifest_path.is_file():
+        return ""
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    models = manifest.get("models") or {}
+    return str(models.get("chat") or "")
+
+
 def _cmd_record(args: argparse.Namespace) -> int:
-    path = bench.require_run_dir(Path(args.run_dir)) / "answers.jsonl"
+    run_dir = bench.require_run_dir(Path(args.run_dir))
+    path = run_dir / "answers.jsonl"
     row: dict[str, Any] = {
         "id": args.id,
         "arm": args.arm,
         "team": args.team,
+        "model": _answer_model(run_dir, args.model),
         "answer": args.answer,
         "tokens": args.tokens,
         "seconds": args.seconds,
         "calls": args.calls,
     }
+    if args.evidence is not None:
+        parsed = json.loads(args.evidence)
+        if not isinstance(parsed, list):
+            raise bench.BenchError("evidence is a list of ids and passages")
+        row["evidence"] = parsed
     if args.retrieved is not None:
         row["retrieved"] = args.retrieved == "yes"
     wrote = record_answer(path, row)
@@ -1205,6 +1708,68 @@ def _cmd_report(args: argparse.Namespace) -> int:
 def _cmd_heldout(args: argparse.Namespace) -> int:
     print(json.dumps(heldout_manifest(Path(args.notes), Path(args.questions)), sort_keys=True))
     return bench.EXIT_OK
+
+
+def _cmd_keyed_permission(args: argparse.Namespace) -> int:
+    document = json.loads(Path(args.questions).read_text(encoding="utf-8"))
+    permission_questions(document)
+    database_url = args.database_url or os.environ.get("ALICE_SHOWCASE_POSTGRES_URL")
+    if not database_url:
+        print(keyed_section(None, []))
+        return bench.EXIT_OK
+    if args.corpus is None:
+        print(
+            keyed_section(
+                {
+                    "ran": False,
+                    "reason": "A corpus folder was not given. No Docker image was pulled.",
+                },
+                [],
+            )
+        )
+        return bench.EXIT_OK
+    result = execute_keyed_permission(
+        database_url=database_url,
+        base_url=args.base_url,
+        user_id=args.user_id,
+        corpus=Path(args.corpus),
+        document=document,
+        runner=_run_checked,
+        poster=_post_recall,
+    )
+    print(keyed_section(result, []))
+    return bench.EXIT_OK
+
+
+def _raw_key_from_command_output(text: str) -> str:
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return text.strip()
+    if isinstance(parsed, dict) and parsed.get("raw_key"):
+        return str(parsed["raw_key"])
+    return text.strip()
+
+
+def _run_checked(command: Sequence[str]) -> str:
+    import subprocess
+
+    completed = subprocess.run(list(command), capture_output=True, text=True, check=False)
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise bench.BenchError("the product command failed: " + detail[:400])
+    return completed.stdout
+
+
+def _post_recall(request: Mapping[str, Any]) -> str:
+    from urllib.request import Request, urlopen
+
+    payload = json.dumps(request["body"]).encode("utf-8")
+    headers = {str(key): str(value) for key, value in request["headers"].items()}
+    outgoing = Request(str(request["url"]), data=payload, headers=headers, method="POST")
+    with urlopen(outgoing, timeout=60) as response:  # noqa: S310
+        raw = response.read()
+    return raw.decode("utf-8", errors="replace")
 
 
 def _cmd_live(args: argparse.Namespace) -> int:

@@ -16,7 +16,11 @@ A test run uses `--extractor fake` and does not call Ollama.
 
 ## Questions
 
-The 210 questions written for the two company sizes are a development set written with the company. They check that the harness works. The report of that set says so. Published results come only from question sets run through `showcase-heldout`. `showcase-report --heldout` leaves the development-set sentence out.
+Every questions file states its kind: `demonstration`, `development` or `hidden`.
+
+The 210 questions written for the two company sizes are the development set. They check that the harness works. The report of that set says so. The demonstration set is the small set in `scripts/showcase_demo.py`, and the demo uses only that set. A hidden set is run through `showcase-heldout`, which takes the notes folder and the questions file it is given and does not look for any other set. The report refuses to combine kinds in one table, and it refuses to compare arms across models. `showcase-report --heldout` leaves the development-set sentence out.
+
+Phase 0 builds and reports the 1,000-note company only. The 10,000-note questions stay in the development set. The 10,000-note build waits until the 1,000-note results separate the arms.
 
 ## Team keys
 
@@ -34,14 +38,44 @@ The product key memory.commit decision was blocked. The reasons were project_sco
 
 Support can commit a memory, so a support agent can record a decision, and it can read a private note. It does not read a legal note or a financial note. HR notes are stored as domain legal and sensitivity confidential, and pricing drafts are stored as domain financial and sensitivity private, so those notes stay out of the support key. Sales reads legal and financial notes through private, and not a confidential note. Leadership reads every one of these notes. Product reads the same notes as support, and its key cannot commit a memory until it has a project scope. This vault has no project row, and the imported notes are not on a project.
 
+## Models on an answer
+
+Each answer records the answering model as well as the arm, the team and the question. A resumed batch skips a row that already has that same four. The local chat model is the `models.chat` setting in the run manifest, and the endpoint has to be loopback. The harness does not download a model. The report compares arms inside one model. mem0 arms stay in the code and are not run or reported in Phase 0.
+
+## Capture
+
+`showcase-build` writes how many notes were discovered, captured, failed and indexed. Each failed path is listed. A failed import is not silent: the command stops and the list is in `capture.json`.
+
+## What an answer records
+
+`showcase-record` stores the evidence the arm returned (ids and passages), whether the answer cites that evidence, the tool call count, and the tokens and time the agent reports. An answer that cites nothing returned is marked unsupported.
+
+## Report
+
+For each arm, task, team and model the report gives the supported complete answer rate with a 95 percent interval, the leak rate, and tokens and time, plus the total across teams. It also gives the variance between questions, the sample size for a 10-point paired difference (a normal approximation, 95 percent two-sided, 80 percent power, variance 0.5), and a failure count for each wrong answer: the needed note was not captured, was not returned, or was returned and misused.
+
+## Harness privileges
+
+The report lists three calls a user of the same store cannot make, and an Alice number says that it depends on them.
+
+- Team keys are created on the SQLite vault inside the harness. The shipped SQLite product cannot create a key (`alicebot agent keys create` requires Postgres) and a configured key is refused.
+- Identities are resolved in process and handed to the MCP session.
+- `alice_recall` is called with `sensitivity_allowed` taken from the team profile.
+
+## Keyed permission path
+
+`showcase-keyed-permission` runs the permission task for every team once against a PostgreSQL vault. Each note is imported with `alicebot vnext sources capture-file` and that note's own domain and sensitivity. Keys are created with `alicebot agent keys create`. Questions are asked with `POST /v0/vnext/context-packs` and the key in the `Authorization` header. That request does not send `sensitivity_allowed`. The report prints that leak rate beside the SQLite harness leak rate.
+
+The database is the disposable local PostgreSQL the tower names, in `--database-url` or `ALICE_SHOWCASE_POSTGRES_URL`. The command does not pull a Docker image. When that database is not named, the report says the path was not run and it does not print a leak rate for it.
+
 ## Arms
 
 - `alice`: one key per team (sales, support, product, leadership). The search uses that key.
 - `grep`: the capped grep the bench already has, over the whole snapshot.
 - `notes`: `list`, `read`, and `search` on the plain note folder. A path that leaves the folder is refused. The search covers the whole folder.
 - `fake-separated`: a keyword stand-in with one scope per team. The scopes are filled from the policy in the questions file. A result from this arm is not mem0.
-- `mem0-separated`: the open-source library, one scope per team, optional. The harness fills each scope from that same policy. mem0 enforced nothing. Install with `pip install -e '.[bench]'`. It is not a product dependency. Each search reopens the saved configuration.
-- `mem0-shared`: the same library with one scope that holds every note. Nothing separated the teams. This is what an operator gets without building their own separation.
+- `mem0-separated`: the open-source library, one scope per team, optional. The harness fills each scope from that same policy. mem0 enforced nothing. Install with `pip install -e '.[bench]'`. It is not a product dependency. Each search reopens the saved configuration. Phase 0 does not run or report this arm.
+- `mem0-shared`: the same library with one scope that holds every note. Nothing separated the teams. This is what an operator gets without building their own separation. Phase 0 does not run or report this arm.
 - `none`: no search tool.
 
 Grep and the note-folder arm search the whole shared folder. That is what a shared note vault gives.
@@ -65,13 +99,14 @@ python scripts/alice_bench.py showcase-record --run-dir RUN --id ID --arm alice 
 python scripts/alice_bench.py showcase-packet --questions questions.json --answers answers.json --out packet.json --key-out key.json
 python scripts/alice_bench.py showcase-report --grades grades.json
 python scripts/alice_bench.py showcase-heldout --notes DIR --questions FILE
+python scripts/alice_bench.py showcase-keyed-permission --questions questions.json
 ```
 
-`showcase-record` keeps the first answer for a question, an arm and a team, so a batch can stop and resume. `showcase-heldout` takes the notes folder and the questions file it is given and does not look for any other question set. Each size has 15 questions for each of the seven tasks, 210 in all. Those 210 questions are the development set.
+`showcase-record` keeps the first answer for a question, an arm, a team and a model, so a batch can stop and resume. `showcase-heldout` takes the notes folder and the questions file it is given and does not look for any other question set. Each size has 15 questions for each of the seven tasks, 210 in all. Those 210 questions are the development set. Phase 0 builds and reports the 1,000-note company only.
 
 ## A 20 note run on a machine with Ollama
 
-This builds 20 notes from the company, turns embeddings on, builds the real mem0 arm and the Alice arm, and runs one search on each. It refuses an endpoint that is not loopback. Do not download a model for a test run.
+`showcase-live` refuses an endpoint that is not loopback. Phase 0 does not run the mem0 arms, so the command stops after that check. Do not download a model for a test run. The mem0 search code stays in `scripts/showcase_bench.py`.
 
 ```
 python scripts/alice_bench.py showcase-live --run-dir RUN --notes 20 --endpoint http://127.0.0.1:11434
