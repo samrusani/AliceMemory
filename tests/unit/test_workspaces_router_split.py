@@ -156,7 +156,9 @@ EXPECTED_CARRIER_NAMES_SHA256 = "946e9d456afbdc7751df671b251457a432ba444dbbdfad5
 # (readable_own_label_rows), names its caller for the recent-commits fallback, and holds the connector health block and
 # the doctor to the caller's guard; no other definition changed.
 # Re-pin: hidden-id withholding stays on the carrier, and main's what-changed registration is in the same file.
-EXPECTED_CARRIER_AST_SHA256 = "0e0d7436a328ecf53a29d6f31de2ebf0e3ec90e4e379cd902ebabbab3a9564ea"
+# Re-pin: _vnext_protected_http_auth stashes the body it already read, after a keyless refusal returns, and
+# _withhold_hidden_ids keeps ids from that copy. The set of definitions is the same.
+EXPECTED_CARRIER_AST_SHA256 = "f893026a89fbf316ea0b224840ce7767e8f97d5158a4e6c535d3eb07162c1510"
 EXPECTED_ROUTE_NODE_SHA256 = {
     "get_vnext_workspace": "62f9a0dec65229b3ff523d12e99529f1e4751f7953e26ed69fc52d184ebc9d2d",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",
