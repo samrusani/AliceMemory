@@ -4246,8 +4246,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py\"",
           "after": "tests/performance/test_label_read_handoff_budget.py\"",
-          "sha256": "63793eb5a58f302ffe64195b85b7eb420a370c8f81e7446dc43bc4ba80f1936a",
-          "line": 2570
+          "sha256": "84ca3b93f28020c1037d097eee809b5a136063ec48960dcd41f1e7bcbbf0355c",
+          "line": 2575
         }
       ],
       "pytest": [
@@ -12484,10 +12484,10 @@
       "edits": [
         {
           "file": ".github/workflows/tests.yml",
-          "line": 2386,
+          "line": 2391,
           "before": "          ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"\n",
           "after": "",
-          "sha256": "63793eb5a58f302ffe64195b85b7eb420a370c8f81e7446dc43bc4ba80f1936a"
+          "sha256": "84ca3b93f28020c1037d097eee809b5a136063ec48960dcd41f1e7bcbbf0355c"
         }
       ],
       "pytest": [
@@ -17599,8 +17599,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
           "after": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
-          "sha256": "63793eb5a58f302ffe64195b85b7eb420a370c8f81e7446dc43bc4ba80f1936a",
-          "line": 2524
+          "sha256": "84ca3b93f28020c1037d097eee809b5a136063ec48960dcd41f1e7bcbbf0355c",
+          "line": 2529
         }
       ],
       "pytest": [
@@ -17871,8 +17871,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
           "after": "          ALICE_READ_ABSOLUTE_GATE: \"1\"\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
-          "sha256": "63793eb5a58f302ffe64195b85b7eb420a370c8f81e7446dc43bc4ba80f1936a",
-          "line": 2525
+          "sha256": "84ca3b93f28020c1037d097eee809b5a136063ec48960dcd41f1e7bcbbf0355c",
+          "line": 2530
         }
       ],
       "pytest": [
@@ -17887,8 +17887,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_round2_read_budget_postgres.py::test_postgres_round2_read_budgets[one-hidden]'\n",
           "after": "",
-          "sha256": "63793eb5a58f302ffe64195b85b7eb420a370c8f81e7446dc43bc4ba80f1936a",
-          "line": 2391
+          "sha256": "84ca3b93f28020c1037d097eee809b5a136063ec48960dcd41f1e7bcbbf0355c",
+          "line": 2396
         }
       ],
       "pytest": [
@@ -17903,8 +17903,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_read_handoff_budget_postgres.py::test_postgres_five_thousand_native_read_budgets[False]'\n",
           "after": "",
-          "sha256": "63793eb5a58f302ffe64195b85b7eb420a370c8f81e7446dc43bc4ba80f1936a",
-          "line": 2392
+          "sha256": "84ca3b93f28020c1037d097eee809b5a136063ec48960dcd41f1e7bcbbf0355c",
+          "line": 2397
         }
       ],
       "pytest": [

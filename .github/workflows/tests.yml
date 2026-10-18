@@ -34,18 +34,23 @@ jobs:
         # about 11 minutes of tests each, 12 to 13 minutes as jobs, against the 20
         # minute limit and the 17 minute split line recorded in gates.json. The
         # saved-quote files are the heaviest family and are split by name over
-        # three shards; the vault tests (test_saved_quote_memory_refs_vault.py)
-        # run in shard 2. The what-changed files run in shard 1. Shard 4 went
-        # past the 20 minute limit with them and the showcase files, and shard
-        # 2 hit that limit once they moved there. A new file that no pattern
-        # selects fails the split test.
+        # three shards. The what-changed files and the saved-quote memory-ref
+        # vault run in shard 1. Shard 4 went past the 20 minute limit with the
+        # what-changed files and the showcase files. Shard 2 hit that limit
+        # on the vault file. A new file that no pattern selects fails the
+        # split test. The other saved-quote files stay spread across the
+        # remaining shards.
         include:
           - shard: 1
-            selection: "tests/unit/test_[bde]*.py tests/unit/test_what_changed*.py"
+            selection: >-
+              tests/unit/test_[bde]*.py tests/unit/test_what_changed*.py
+              tests/unit/test_saved_quote_memory_refs_vault.py
           - shard: 2
             selection: >-
               tests/unit/test_c*.py tests/unit/test_[pq]*.py tests/unit/test_saved_[!q]*.py
-              tests/unit/test_saved_quote_[m-z]*.py tests/unit/test_saved_quotes_*.py
+              tests/unit/test_saved_quote_memory_refs.py tests/unit/test_saved_quote_memory_refs_d*.py
+              tests/unit/test_saved_quote_p*.py tests/unit/test_saved_quote_ref_reading*.py
+              tests/unit/test_saved_quotes_*.py
           - shard: 3
             selection: "tests/unit/test_[0-9a]*.py tests/unit/test_[f-i]*.py tests/unit/test_[no]*.py tests/unit/test_r*.py"
           - shard: 4
