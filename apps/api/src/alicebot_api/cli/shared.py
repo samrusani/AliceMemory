@@ -106,7 +106,12 @@ def _store_context(ctx: CLIContext) -> Iterator[ContinuityStore]:
 @contextmanager
 def _vnext_store_context(ctx: CLIContext) -> Iterator[PostgresVNextStore]:
     with user_connection(ctx.database_url, ctx.user_id) as conn:
-        yield PostgresVNextStore(conn)
+        store = PostgresVNextStore(conn)
+        # The dump runs after this transaction ends. The withholding step opens a new
+        # connection with these, because the pooled one has lost its user by then.
+        store.database_url = ctx.database_url  # type: ignore[attr-defined]
+        store.user_id = ctx.user_id  # type: ignore[attr-defined]
+        yield store
 
 
 def _parse_maintenance_status_payload(payload: object) -> dict[str, object]:
@@ -216,11 +221,16 @@ def _remember_cli_reader(store: object, identity: object) -> None:
 def _json_dumps(value: object) -> str:
     from alicebot_api.vnext_hidden_ids import reader_for_dump
 
-    store, identity = reader_for_dump()
-    if store is not None:
-        from alicebot_api.vnext_hidden_ids import apply_hidden_id_withholding
+    url, user_id, identity = reader_for_dump()
+    if url and user_id and identity is not None:
+        from uuid import UUID
 
-        value = apply_hidden_id_withholding(store, identity, value)
+        from alicebot_api.db import user_connection
+        from alicebot_api.vnext_hidden_ids import apply_hidden_id_withholding
+        from alicebot_api.vnext_store import PostgresVNextStore
+
+        with user_connection(url, UUID(user_id)) as conn:
+            value = apply_hidden_id_withholding(PostgresVNextStore(conn), identity, value)
     return json.dumps(json_safe(value), indent=2, sort_keys=True)
 
 

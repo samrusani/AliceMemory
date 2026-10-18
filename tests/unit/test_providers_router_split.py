@@ -72,7 +72,7 @@ CARRIER_NAMES = tuple(
     _append_vary_header
     _cors_origin_allowed _resolve_cors_allow_origin_value _apply_cors_headers
     _apply_security_headers apply_http_security_posture
-    enforce_authenticated_user_identity healthcheck _apply_legacy_surface_mount_policy
+    enforce_authenticated_user_identity _withhold_hidden_ids healthcheck _apply_legacy_surface_mount_policy
     """.split()
 )
 
@@ -82,7 +82,7 @@ EXPECTED_ROUTE_AST_SHA256 = "9e5d6c2c79cc1391688b74bb5138ccaa881033546e7b0cfd34a
 # levels, or one that holds NaN or Infinity, is HTTP 422 before the handler runs. One import is added (89 below). The
 # route definitions, their order and the set of definitions are the same, and the published schema is unchanged.
 EXPECTED_SUPPORT_AST_SHA256 = "65593860adda61aea673cec7d9bc345c47ed6ed6d0518e78c284dcbd88a97a79"
-EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e92413391541a7e504da328b"
+EXPECTED_CARRIER_NAMES_SHA256 = "946e9d456afbdc7751df671b251457a432ba444dbbdfad59c1e9b96a28ccc0fe"
 # Re-pinned 2026-10-02 (DB-005, legacy /v0 routes). One definition changed,
 # found by a per-definition AST diff against the previous pin:
 # enforce_authenticated_user_identity runs keyless_edge.keyless_request_refusal
@@ -126,7 +126,7 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # central vNext route policy; the app carrier keeps the same definitions.
 # Round-two re-pin: _VNEXT_ROUTE_LOCAL_POLICY and
 # _VNEXT_CENTRAL_OPERATOR_ROUTES move source GET to its route-local full fence.
-EXPECTED_CARRIER_AST_SHA256 = "7aade286308c3e4aeb2775eaa350eb739681f3e68d7f20435adf5495bede2c60"
+EXPECTED_CARRIER_AST_SHA256 = "fd24edcced0b556c78ffa27c5db8c0046d06940f4e6493f6aff72c9b7ef94110"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "1a438538e16120361f92d30375cc94679d598fe4b78ba5a58a7d8a4dda6af83c"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "8b79ceaf996b8c51b5bb2f3f38a8c19a4e33796955d8b8f7a66e7ac01ea1732d"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "2fbc286e5aeaca8cb8c5ae1d0e1d7ef7816ae2d905542f967c813a047e1f2c29"

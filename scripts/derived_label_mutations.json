@@ -1517,9 +1517,9 @@
         {
           "file": "docs/alpha/known-limitations.md",
           "line": 77,
-          "before": "The id is dropped from the list that carried it",
+          "before": "The id is dropped from the list that carried it, or becomes null where the field holds one id",
           "after": "The id is kept in the list that carried it",
-          "sha256": "f3b03919c8bd8e03dff1521580626b162cb01ff24be6e030d0496c275fc92893"
+          "sha256": "b6517bbe843c3df3b0326b53c937339e6cc23a607433d669e891a19fec02d78e"
         }
       ],
       "pytest": [
@@ -1535,7 +1535,7 @@
           "line": 83,
           "before": "down to none; tracked for v0.21.0",
           "after": "down to none",
-          "sha256": "f3b03919c8bd8e03dff1521580626b162cb01ff24be6e030d0496c275fc92893"
+          "sha256": "b6517bbe843c3df3b0326b53c937339e6cc23a607433d669e891a19fec02d78e"
         }
       ],
       "pytest": [
@@ -3991,7 +3991,7 @@
           "line": 78,
           "before": "the scheduler's run records in the workspace also keep the `artifact_id` of a report made confidential since, and ",
           "after": "",
-          "sha256": "f3b03919c8bd8e03dff1521580626b162cb01ff24be6e030d0496c275fc92893"
+          "sha256": "b6517bbe843c3df3b0326b53c937339e6cc23a607433d669e891a19fec02d78e"
         }
       ],
       "pytest": [
@@ -4717,7 +4717,7 @@
           "line": 76,
           "before": "and doctor omits content checks for keys with limits, and the graph neighborhood lists only the edges whose ends the key may read (see the [security note](../release/derived-labels-security-note-draft.md))",
           "after": "",
-          "sha256": "f3b03919c8bd8e03dff1521580626b162cb01ff24be6e030d0496c275fc92893"
+          "sha256": "b6517bbe843c3df3b0326b53c937339e6cc23a607433d669e891a19fec02d78e"
         }
       ],
       "pytest": [
@@ -4747,9 +4747,9 @@
         {
           "file": "docs/alpha/known-limitations.md",
           "line": 77,
-          "before": "The owner and an unbound admin key keep every id.",
-          "after": "Every key keeps every id.",
-          "sha256": "f3b03919c8bd8e03dff1521580626b162cb01ff24be6e030d0496c275fc92893"
+          "before": "the owner and an unbound admin key keep every id",
+          "after": "every key keeps every id",
+          "sha256": "b6517bbe843c3df3b0326b53c937339e6cc23a607433d669e891a19fec02d78e"
         }
       ],
       "pytest": [
@@ -4781,7 +4781,7 @@
           "line": 79,
           "before": "; the words of a memory redacted after the report was made stay in it too, but then only the owner and an unbound admin key read the report, and removing them is planned for v0.21.0, with hiding the words of archived rows tracked for v0.21.0",
           "after": "",
-          "sha256": "f3b03919c8bd8e03dff1521580626b162cb01ff24be6e030d0496c275fc92893"
+          "sha256": "b6517bbe843c3df3b0326b53c937339e6cc23a607433d669e891a19fec02d78e"
         }
       ],
       "pytest": [
@@ -5244,7 +5244,7 @@
           "line": 80,
           "before": "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "f3b03919c8bd8e03dff1521580626b162cb01ff24be6e030d0496c275fc92893"
+          "sha256": "b6517bbe843c3df3b0326b53c937339e6cc23a607433d669e891a19fec02d78e"
         }
       ],
       "pytest": [
@@ -5276,7 +5276,7 @@
           "line": 80,
           "before": "full removal of redacted text from reports is planned for v0.21.0",
           "after": "full removal of redacted text from reports is done",
-          "sha256": "f3b03919c8bd8e03dff1521580626b162cb01ff24be6e030d0496c275fc92893"
+          "sha256": "b6517bbe843c3df3b0326b53c937339e6cc23a607433d669e891a19fec02d78e"
         }
       ],
       "pytest": [
@@ -6086,7 +6086,7 @@
           "line": 79,
           "before": "but then only the owner and an unbound admin key read the report",
           "after": "but then every key that reads the report reads them",
-          "sha256": "f3b03919c8bd8e03dff1521580626b162cb01ff24be6e030d0496c275fc92893"
+          "sha256": "b6517bbe843c3df3b0326b53c937339e6cc23a607433d669e891a19fec02d78e"
         }
       ],
       "pytest": [
@@ -6102,7 +6102,7 @@
           "line": 79,
           "before": "in a roll-up card and as the digest of a consolidation member, and a key that can read the report reads those words;",
           "after": "in a roll-up card and as the digest of a consolidation member;",
-          "sha256": "f3b03919c8bd8e03dff1521580626b162cb01ff24be6e030d0496c275fc92893"
+          "sha256": "b6517bbe843c3df3b0326b53c937339e6cc23a607433d669e891a19fec02d78e"
         }
       ],
       "pytest": [
@@ -6278,7 +6278,7 @@
           "line": 76,
           "before": "and doctor omits content checks for keys with limits, and the graph neighborhood lists only the edges whose ends the key may read",
           "after": "and doctor omits content checks for keys with limits, but graph edge explanations remain outside that ceiling",
-          "sha256": "f3b03919c8bd8e03dff1521580626b162cb01ff24be6e030d0496c275fc92893"
+          "sha256": "b6517bbe843c3df3b0326b53c937339e6cc23a607433d669e891a19fec02d78e"
         }
       ],
       "pytest": [
@@ -9491,7 +9491,7 @@
           "line": 82,
           "before": "keeps the title and description its caller typed, so words of the memory typed there stay readable to every key that reads the loop after the memory is redacted",
           "after": "keeps the title and description its caller typed, so words of the memory typed there are withheld from every key that reads the loop after the memory is redacted",
-          "sha256": "f3b03919c8bd8e03dff1521580626b162cb01ff24be6e030d0496c275fc92893"
+          "sha256": "b6517bbe843c3df3b0326b53c937339e6cc23a607433d669e891a19fec02d78e"
         }
       ],
       "pytest": [
@@ -18506,10 +18506,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
-          "line": 187,
-          "before": "    if not hidden:\n        return value\n    stripped, _changed = _strip(value, hidden, field=None)\n",
-          "after": "    if True:\n        return value\n    stripped, _changed = _strip(value, hidden, field=None)\n",
-          "sha256": "fe551066926999e7a1f38ce6e829cd724cfc892b5e5c6284136254adf62a16a2"
+          "line": 264,
+          "before": "    if not hidden:\n        return value\n    stripped, _changed = _strip(value, hidden, field=None, depth=0)\n",
+          "after": "    if True:\n        return value\n    stripped, _changed = _strip(value, hidden, field=None, depth=0)\n",
+          "sha256": "53dd8844a9ba8aec2075b0c1836dc4cb0fe53642bec9925fd9923c74b039ec2b"
         }
       ],
       "pytest": [

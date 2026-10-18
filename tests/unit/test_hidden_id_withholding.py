@@ -53,7 +53,7 @@ def test_listing_fields_lose_a_hidden_id_and_the_count_matches() -> None:
     hidden = {HIDDEN, SOURCE, LOOP, ARTIFACT}
     payload = strip_hidden_ids(_payload(), hidden)
     assert payload["items"][0]["metadata_json"]["candidate_memory_ids"] == [VISIBLE]
-    assert payload["source_refs"] == [f"memory:{VISIBLE}"]
+    assert payload["source_refs"] == [f"source:{SOURCE}", f"memory:{VISIBLE}"]
     assert payload["artifact_id"] is None
     assert HIDDEN not in payload["content_markdown"]
     assert "stays in words only" in payload["content_markdown"]
@@ -83,11 +83,28 @@ def test_an_archived_row_is_withheld_and_a_forgotten_row_stays() -> None:
     assert limited["source_id"] is None
 
 
+def test_every_spelling_of_a_hidden_id_is_removed() -> None:
+    spellings = [
+        HIDDEN.upper(),
+        HIDDEN.replace("-", ""),
+        "{" + HIDDEN + "}",
+        "urn:uuid:" + HIDDEN,
+    ]
+    payload = {"candidate_memory_ids": spellings, "memory_id": HIDDEN.upper()}
+    shown = apply_hidden_id_withholding(_Store(), _identity("trusted_local_agent"), payload)
+    assert shown["candidate_memory_ids"] == []
+    assert shown["memory_id"] is None
+    kept = apply_hidden_id_withholding(_Store(), _identity("admin_agent"), payload)
+    assert kept["candidate_memory_ids"] == spellings
+
+
 def test_a_limited_key_loses_every_id_kind_and_the_owner_keeps_them() -> None:
     store = _Store()
     limited = apply_hidden_id_withholding(store, _identity("trusted_local_agent"), _payload())
     assert HIDDEN not in limited["items"][0]["metadata_json"]["candidate_memory_ids"]
-    assert SOURCE not in "".join(limited["source_refs"])
+    # A source_refs entry stays. The write door stores a hidden id and a missing id the same way, and
+    # dropping only the hidden one would tell them apart. The quote reader nulls the quote.
+    assert SOURCE in "".join(str(item) for item in limited["source_refs"])
     assert limited["artifact_id"] is None
     assert LOOP not in limited["open_loop_ids"]
     owner = apply_hidden_id_withholding(store, None, _payload())

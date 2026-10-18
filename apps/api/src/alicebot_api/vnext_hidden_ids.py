@@ -14,24 +14,35 @@ from collections.abc import Mapping
 from contextvars import ContextVar
 from typing import Any
 
-_READER: ContextVar[tuple[Any, Any] | None] = ContextVar("hidden_id_reader", default=None)
+_READER: ContextVar[tuple[str | None, str | None, Any] | None] = ContextVar("hidden_id_reader", default=None)
 
 
 def remember_reader(store: Any, identity: Any) -> None:
-    """Remember who a command-line dump is for, until the process ends the command."""
+    """Remember who a command-line dump is for, until the process ends the command.
 
-    _READER.set((store, identity))
+    The store's transaction ends before the dump. What is kept is the database URL and the user id,
+    so the dump can open a fresh authenticated connection.
+    """
+
+    url = getattr(store, "database_url", None)
+    user_id = getattr(store, "user_id", None)
+    _READER.set((str(url) if url else None, str(user_id) if user_id else None, identity))
 
 
-def reader_for_dump() -> tuple[Any, Any]:
+def reader_for_dump() -> tuple[str | None, str | None, Any]:
     current = _READER.get()
     if current is None:
-        return None, None
+        return None, None, None
     return current
 
 from alicebot_api.vnext_source_fence import SourceReadFence
 
-_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_DASHED = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+_BRACED = re.compile(r"{" + _DASHED.pattern + r"}")
+_URN = re.compile(r"urn:uuid:" + _DASHED.pattern, re.IGNORECASE)
+_COMPACT = re.compile(r"(?<![0-9a-fA-F])[0-9a-fA-F]{32}(?![0-9a-fA-F])")
 _KINDS = ("memory", "source", "artifact", "open_loop")
 _LIST_FIELDS = frozenset(
     {
@@ -48,7 +59,6 @@ _LIST_FIELDS = frozenset(
         "open_loop_ids",
         "artifact_ids",
         "belief_ids",
-        "source_refs",
         "stale_marked_memory_ids",
         "provenance",
         "member_ids",
@@ -73,21 +83,55 @@ _SCALAR_FIELDS = frozenset(
 )
 
 
-def _uuids(value: object) -> set[str]:
+def _canonical_ids(value: object, depth: int = 0) -> set[str]:
+    """Every id in ``value``, in the canonical spelling ``identifier`` uses.
+
+    The walk stops at the saved-quote reader's depth. A deeper row is the one the deep-row cut already
+    replaces, and walking it overflows the stack.
+    """
+
+    from alicebot_api.vnext_derived_labels import identifier
+    from alicebot_api.vnext_source_fence import _SCRUB_DEPTH
+
+    if depth > _SCRUB_DEPTH:
+        return set()
     found: set[str] = set()
     if isinstance(value, str):
-        found.update(_UUID.findall(value))
+        pieces = [
+            *_DASHED.findall(value),
+            *[item.strip("{}") for item in _BRACED.findall(value)],
+            *[item.split(":", 2)[-1] for item in _URN.findall(value)],
+            *_COMPACT.findall(value),
+        ]
+        for piece in pieces:
+            canonical = identifier(piece)
+            if _DASHED.fullmatch(canonical):
+                found.add(canonical)
     elif isinstance(value, Mapping):
         for child in value.values():
-            found.update(_uuids(child))
+            found.update(_canonical_ids(child, depth + 1))
     elif isinstance(value, list):
         for child in value:
-            found.update(_uuids(child))
+            found.update(_canonical_ids(child, depth + 1))
     return found
 
 
+def _spellings(canonical: str) -> tuple[str, ...]:
+    compact = canonical.replace("-", "")
+    return (
+        canonical,
+        canonical.upper(),
+        compact,
+        compact.upper(),
+        "{" + canonical + "}",
+        "{" + canonical.upper() + "}",
+        "urn:uuid:" + canonical,
+        "URN:UUID:" + canonical.upper(),
+    )
+
+
 def _names(text: str, hidden: set[str]) -> bool:
-    return any(item in text for item in hidden)
+    return any(spelling in text for item in hidden for spelling in _spellings(item))
 
 
 def _caller_is_limited(identity: Any) -> bool:
@@ -112,21 +156,13 @@ def unreadable_ids(store: Any, identity: Any, payload: object) -> set[str]:
 
     if not _caller_is_limited(identity):
         return set()
-    candidates = _uuids(payload)
+    candidates = _canonical_ids(payload)
     if not candidates:
         return set()
     reader = getattr(store, "read_label_rows", None)
     if not callable(reader):
         return set()
-    from alicebot_api.vnext_agent_control import AgentPolicyBlockedError
-    from alicebot_api.vnext_label_guard import guard_for_caller
-
-    # memory.recall is a read. http.operator.access refuses a read-only key and a bound key, which would
-    # raise here and skip the withholding on the tools those keys can still call.
-    try:
-        guard = guard_for_caller(store, identity, action="memory.recall")
-    except AgentPolicyBlockedError:
-        guard = None
+    guard = _guard_at_full_ceiling(store, identity)
     hidden: set[str] = set()
     for kind in _KINDS:
         rows = [row for row in reader(kind, sorted(candidates)) if isinstance(row, Mapping) and row.get("id") is not None]
@@ -141,6 +177,40 @@ def unreadable_ids(store: Any, identity: Any, payload: object) -> set[str]:
         if kind == "source":
             hidden.update(_deleted_source_ids(store, [str(row.get("id")) for row in rows]))
     return hidden
+
+
+def _guard_at_full_ceiling(store: Any, identity: Any) -> Any:
+    """The caller's whole read ceiling and project binding, not the default recall selection.
+
+    ``guard_for_caller`` asks the policy for ``memory.recall`` with no sensitivity, so the default
+    selection drops confidential. A project-bound admin may read confidential rows inside its project.
+    """
+
+    from alicebot_api.vnext_agent_control import (
+        ALL_SENSITIVITY,
+        VNEXT_DOMAINS,
+        AgentPolicyBlockedError,
+    )
+    from alicebot_api.vnext_label_guard import LabelGuard, clamp_request_filters
+
+    try:
+        domains, sensitivity = clamp_request_filters(
+            identity,
+            domains=VNEXT_DOMAINS,
+            sensitivity_allowed=ALL_SENSITIVITY,
+            action="memory.recall",
+        )
+    except AgentPolicyBlockedError:
+        return None
+    locked = bool(getattr(identity, "project_scope_locked", False))
+    projects = tuple(getattr(identity, "project_scope", ()) or ()) if locked else ()
+    return LabelGuard.for_filters(
+        store,
+        domains,
+        sensitivity,
+        projects,
+        all_of=projects if locked else None,
+    )
 
 
 def _row_is_gone(row: Mapping[str, Any]) -> bool:
@@ -169,11 +239,18 @@ def _deleted_source_ids(store: Any, ids: list[str]) -> set[str]:
 
 
 def _drop_text(value: str, hidden: set[str]) -> str | None:
-    if _names(value, hidden) and (_UUID.fullmatch(value) or any(value.endswith(item) for item in hidden)):
+    spellings = [spelling for item in hidden for spelling in _spellings(item)]
+    if _names(value, hidden) and (
+        _DASHED.fullmatch(value)
+        or _COMPACT.fullmatch(value)
+        or _BRACED.fullmatch(value)
+        or _URN.fullmatch(value)
+        or any(value.endswith(spelling) for spelling in spellings)
+    ):
         return None
     cleaned = value
-    for item in hidden:
-        cleaned = cleaned.replace(item, "")
+    for spelling in spellings:
+        cleaned = cleaned.replace(spelling, "")
     return cleaned
 
 
@@ -186,11 +263,15 @@ def strip_hidden_ids(value: Any, hidden: set[str]) -> Any:
 
     if not hidden:
         return value
-    stripped, _changed = _strip(value, hidden, field=None)
+    stripped, _changed = _strip(value, hidden, field=None, depth=0)
     return stripped
 
 
-def _strip(value: Any, hidden: set[str], *, field: str | None) -> tuple[Any, bool]:
+def _strip(value: Any, hidden: set[str], *, field: str | None, depth: int) -> tuple[Any, bool]:
+    from alicebot_api.vnext_source_fence import _SCRUB_DEPTH
+
+    if depth > _SCRUB_DEPTH:
+        return value, False
     if isinstance(value, str):
         if field in _SCALAR_FIELDS or field in _LIST_FIELDS or field == "content_markdown":
             cleaned = _drop_text(value, hidden)
@@ -208,7 +289,7 @@ def _strip(value: Any, hidden: set[str], *, field: str | None) -> tuple[Any, boo
                 if isinstance(marker, str) and _names(marker, hidden):
                     changed = True
                     continue
-            child, child_changed = _strip(item, hidden, field=field)
+            child, child_changed = _strip(item, hidden, field=field, depth=depth + 1)
             changed = changed or child_changed
             kept.append(child)
         return kept, changed
@@ -227,7 +308,7 @@ def _strip(value: Any, hidden: set[str], *, field: str | None) -> tuple[Any, boo
                 changed = changed or cleaned != child
                 continue
             child_field = key_text if key_text in _LIST_FIELDS or key_text in _SCALAR_FIELDS else field
-            stripped, child_changed = _strip(child, hidden, field=child_field)
+            stripped, child_changed = _strip(child, hidden, field=child_field, depth=depth + 1)
             output[key] = stripped
             changed = changed or child_changed
         if changed and isinstance(output.get("items"), list) and "count" in output:
@@ -287,9 +368,16 @@ def filter_http_response(request: Any, response: Any, *, database_url: str | Non
 
 
 def apply_hidden_id_withholding(store: Any, identity: Any, payload: Any) -> Any:
-    """The payload a caller may be shown. Unchanged, and the same object, when nothing is withheld."""
+    """The payload a caller may be shown. Unchanged, and the same object, when nothing is withheld.
 
-    hidden = unreadable_ids(store, identity, payload)
+    A row nested past the saved-quote depth makes the label walk overflow. That call is the one the
+    deep-row cut runs again. This step leaves that payload as the cut reader returned it.
+    """
+
+    try:
+        hidden = unreadable_ids(store, identity, payload)
+    except RecursionError:
+        return payload
     if not hidden:
         return payload
     return strip_hidden_ids(payload, hidden)

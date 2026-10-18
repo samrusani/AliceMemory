@@ -53,7 +53,7 @@ CARRIER_NAMES = tuple(
     enforce_v1_agent_authentication
     _append_vary_header _cors_origin_allowed
     _resolve_cors_allow_origin_value _apply_cors_headers _apply_security_headers
-    apply_http_security_posture enforce_authenticated_user_identity healthcheck
+    apply_http_security_posture enforce_authenticated_user_identity _withhold_hidden_ids healthcheck
     _apply_legacy_surface_mount_policy
     """.split()
 )
@@ -109,7 +109,7 @@ EXPECTED_SUPPORT_AST_SHA256 = "42407afbff582448dce389500c2173b29c45434dc13865ebc
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "e8c18d6831ca012b55b22f46c9b2151d62575773a2452ef0d0f2e869cabc8abb"
-EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e92413391541a7e504da328b"
+EXPECTED_CARRIER_NAMES_SHA256 = "946e9d456afbdc7751df671b251457a432ba444dbbdfad59c1e9b96a28ccc0fe"
 # Re-pinned 2026-10-02 (DB-005, legacy /v0 routes). One definition changed,
 # found by a per-definition AST diff against the previous pin:
 # enforce_authenticated_user_identity runs keyless_edge.keyless_request_refusal
@@ -155,7 +155,7 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # Re-pin 2026-10-09: _vnext_workspace_payload lists the queued tasks and the brain charter the caller may read
 # (readable_own_label_rows), names its caller for the recent-commits fallback, and holds the connector health block and
 # the doctor to the caller's guard; no other definition changed.
-EXPECTED_CARRIER_AST_SHA256 = "7aade286308c3e4aeb2775eaa350eb739681f3e68d7f20435adf5495bede2c60"
+EXPECTED_CARRIER_AST_SHA256 = "fd24edcced0b556c78ffa27c5db8c0046d06940f4e6493f6aff72c9b7ef94110"
 EXPECTED_ROUTE_NODE_SHA256 = {
     "get_vnext_workspace": "62f9a0dec65229b3ff523d12e99529f1e4751f7953e26ed69fc52d184ebc9d2d",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",

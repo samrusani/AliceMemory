@@ -191,8 +191,8 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
     paragraph = _paragraph(page, "- From v0.20.2, a key with limits is not shown the id of a memory, a source, an artifact or an open loop it may not read.")
     assert "The id is dropped from the list that carried it, or becomes null where the field holds one id" in paragraph
     assert "a count beside the items matches what is shown" in paragraph
-    assert "The owner and an unbound admin key keep every id." in paragraph
-    assert "v0.20.2 returned those ids as stored." in paragraph
+    assert "the owner and an unbound admin key keep every id" in paragraph
+    assert "v0.20.2 returned those ids as stored" in paragraph
     assert "three answers" not in paragraph
     assert "which can repeat the row's labels" not in paragraph
     audit = _paragraph(page, f"- {AUDIT}")
@@ -201,7 +201,7 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
     assert "the scheduler's run records in the workspace also keep the `artifact_id` of a report made confidential since" in audit
     assert "withholding these is tracked for v0.21.0" in audit
     assert "(see the [security note](../release/derived-labels-security-note-draft.md))" in audit
-    assert "The words a report copied from an archived row stay in the report" in paragraph
+    assert "the words a report copied from an archived row stay in the report" in paragraph
     assert "(see the [security note](../release/derived-labels-security-note-draft.md))" in paragraph
 
     kept = _paragraph(page, f"- {KEPT}")
