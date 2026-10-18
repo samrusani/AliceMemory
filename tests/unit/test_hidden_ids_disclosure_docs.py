@@ -188,10 +188,11 @@ def test_the_security_note_covers_belief_and_edge_review() -> None:
 
 def test_the_known_limitations_page_lists_both_limits() -> None:
     page = _text("docs/alpha/known-limitations.md")
-    paragraph = _paragraph(page, f"- {IDS}")
-    assert "such as the candidate memory a report made or a source archived since" in paragraph
-    assert "The ids grant no access and show that the row exists" in paragraph
-    assert "a call that names one is answered as a missing id is answered, except for the two answers the security note lists" in paragraph
+    paragraph = _paragraph(page, "- From v0.20.2, a key with limits is not shown the id of a memory, a source, an artifact or an open loop it may not read.")
+    assert "The id is dropped from the list that carried it, or becomes null where the field holds one id" in paragraph
+    assert "a count beside the items matches what is shown" in paragraph
+    assert "The owner and an unbound admin key keep every id." in paragraph
+    assert "v0.20.2 returned those ids as stored." in paragraph
     assert "three answers" not in paragraph
     assert "which can repeat the row's labels" not in paragraph
     audit = _paragraph(page, f"- {AUDIT}")
@@ -200,8 +201,7 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
     assert "the scheduler's run records in the workspace also keep the `artifact_id` of a report made confidential since" in audit
     assert "withholding these is tracked for v0.21.0" in audit
     assert "(see the [security note](../release/derived-labels-security-note-draft.md))" in audit
-    assert "a known exception, not a way of meeting the requirement to filter hidden ids" in paragraph
-    assert "withholding them is tracked for v0.21.0" in paragraph
+    assert "The words a report copied from an archived row stay in the report" in paragraph
     assert "(see the [security note](../release/derived-labels-security-note-draft.md))" in paragraph
 
     kept = _paragraph(page, f"- {KEPT}")

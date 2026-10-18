@@ -1387,6 +1387,16 @@ async def enforce_authenticated_user_identity(
     return await call_next(request)
 
 
+@app.middleware("http")
+async def _withhold_hidden_ids(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """After the route, drop ids of rows a key with limits may not read. The owner is not touched."""
+
+    response = await call_next(request)
+    from alicebot_api.vnext_hidden_ids import filter_http_response
+
+    return filter_http_response(request, response)
+
+
 # Registered just before the body limit, so it wraps every layer that reads a body and sits inside the limit: a request
 # that overflows a reader on a deep stored row runs once more with the deep part cut (see deep_row_retry).
 app.add_middleware(RetryDeepRowMiddleware)

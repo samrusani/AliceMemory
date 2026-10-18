@@ -207,7 +207,20 @@ def _run_capture(ctx: CLIContext, args: argparse.Namespace) -> str:
     return format_capture_output(payload)
 
 
+def _remember_cli_reader(store: object, identity: object) -> None:
+    from alicebot_api.vnext_hidden_ids import remember_reader
+
+    remember_reader(store, identity)
+
+
 def _json_dumps(value: object) -> str:
+    from alicebot_api.vnext_hidden_ids import reader_for_dump
+
+    store, identity = reader_for_dump()
+    if store is not None:
+        from alicebot_api.vnext_hidden_ids import apply_hidden_id_withholding
+
+        value = apply_hidden_id_withholding(store, identity, value)
     return json.dumps(json_safe(value), indent=2, sort_keys=True)
 
 
@@ -271,9 +284,10 @@ def _vnext_authenticated_agent_identity_from_args(
     claimed = _vnext_agent_identity_from_args(args)
     raw_key = (os.environ.get(_AGENT_API_KEY_ENV) or "").strip() or None
     if raw_key is None or claimed is None:
+        _remember_cli_reader(store, claimed)
         return claimed
     try:
-        return resolve_agent_identity(
+        identity = resolve_agent_identity(
             store,
             user_id=getattr(args, "user_id", None) or getattr(store, "user_id", None),
             raw_key=raw_key,
@@ -281,6 +295,8 @@ def _vnext_authenticated_agent_identity_from_args(
         )
     except AgentKeyAuthenticationError as exc:
         raise ValueError(str(exc)) from exc
+    _remember_cli_reader(store, identity)
+    return identity
 
 
 # Both helpers below import inside the function body and carry leading

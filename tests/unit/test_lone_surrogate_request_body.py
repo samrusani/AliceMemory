@@ -353,6 +353,7 @@ def test_the_guard_is_the_innermost_layer() -> None:
     assert order == [
         "RequestBodyLimitMiddleware",
         "RetryDeepRowMiddleware",
+        "_withhold_hidden_ids",
         "enforce_authenticated_user_identity",
         "apply_http_security_posture",
         "enforce_v1_agent_authentication",

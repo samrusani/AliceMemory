@@ -666,4 +666,11 @@ def call_mcp_tool(
     # handler and is not on this name, so it keeps the full result.
     if name == COMMIT_RESULT_TOOL and commit_result_mode(os.environ) == "compact":
         payload = compact_commit_result(payload)
+    identity = getattr(context, "agent_identity", None)
+    if identity is not None:
+        from alicebot_api.mcp.runtime import _vnext_store_context
+        from alicebot_api.vnext_hidden_ids import apply_hidden_id_withholding
+
+        with _vnext_store_context(context) as store:
+            payload = apply_hidden_id_withholding(store, identity, payload)
     return _canonicalize_json(payload)  # type: ignore[return-value]
