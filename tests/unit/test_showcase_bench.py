@@ -491,10 +491,9 @@ def test_the_demo_binds_the_product_key_to_the_product_project(tmp_path: Path) -
     sales = showcase._identity(db_path, keys["sales"])
     assert sales.project_scope == ()
     with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
-        slug = conn.execute("SELECT slug FROM projects").fetchone()[0]
-    assert count == 1
-    assert slug == demo.PRODUCT_PROJECT_SLUG
+        tables = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projects'").fetchall()
+    # The SQLite schema has no projects table, and the demo adds none: the binding is the key's project scope.
+    assert tables == []
     decision = evaluate_agent_policy(identity=bound, action="memory.commit")
     assert decision.decision != "blocked"
 
