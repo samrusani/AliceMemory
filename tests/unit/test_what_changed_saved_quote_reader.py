@@ -271,6 +271,60 @@ def test_a_quote_that_names_a_retired_memory_in_an_incidental_place_is_withheld(
     assert MARK not in json.dumps(declared)
 
 
+def test_a_source_is_cited_only_from_an_entry_whose_other_inputs_are_all_readable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A citation is an id, a title and a date, and it comes from one entry of the references. An entry that names a source the
+    caller may read beside a source or a memory it may not read is not cited at all, as the saved-quote reader drops such an
+    entry whole. A caller that may read every input is given the citation, and an entry of readable inputs is cited to all.
+
+    Mutations: ``_entry_is_readable`` returns True; it skips the readability test of a named source."""
+
+    path, user_id = _vault(tmp_path, "citations")
+    with sqlite_user_connection(path, user_id) as conn:
+        store = SQLiteVNextStore(conn, user_id)
+        public = _source(store, title="public price note", metadata_json={"project_scope": [ALPHA]})
+        hidden = _source(store, title="confidential ledger note", domain="legal", sensitivity="confidential",
+                         metadata_json={"project_scope": [ALPHA]})
+        secret = _memory(store, title="confidential handbook", canonical_text="the confidential handbook sentence",
+                         domain="legal", sensitivity="confidential", project_id=ALPHA, metadata_json={"project_scope": [ALPHA]})
+        entries = {
+            "two sources": {"source_ids": [str(public["id"]), str(hidden["id"])], "quote": "TWOSRCKEEL"},
+            "source and memory": {"source_id": str(public["id"]), "memory_id": str(secret["id"]), "quote": "SRCMEMKEEL"},
+            "control": {"source_id": str(public["id"]), "quote": "CONTROLKEEL"},
+        }
+        decisions = {
+            name: str(_memory(store, title=f"citation keel {name}", canonical_text=f"citation keel decision {name}",
+                              project_id=ALPHA,
+                              metadata_json={"project_scope": [ALPHA], "agentic_memory": {"source_refs": [entry]}})["id"])
+            for name, entry in entries.items()
+        }
+    _install_route(monkeypatch, path, user_id)
+    keys = _keys(path, user_id)
+    cited_by = {"public": str(public["id"]), "hidden": str(hidden["id"])}
+
+    def citations(answer: Mapping[str, object]) -> dict[str, set[str]]:
+        found: dict[str, set[str]] = {}
+        for chain in answer["chains"]:  # type: ignore[union-attr]
+            for step in chain["history"]:
+                found[str(step["id"])] = {item["source_id"] for item in step["sources"]}
+        return found
+
+    for who, key in {**keys, "owner": None}.items():
+        answers = [_tool(path, user_id, key, {"topic": "citation keel"}, monkeypatch)]
+        if who != "owner":
+            answers.append(_route(user_id, key, "citation keel"))
+        reads_all = who in READS_CONFIDENTIAL
+        for answer in answers:
+            found = citations(answer)
+            assert found[decisions["control"]] == {cited_by["public"]}, who
+            both = {cited_by["public"], cited_by["hidden"]}
+            assert found[decisions["two sources"]] == (both if reads_all else set()), who
+            assert found[decisions["source and memory"]] == ({cited_by["public"]} if reads_all else set()), who
+            if not reads_all:
+                assert cited_by["hidden"] not in json.dumps(answer), who
+
+
 def test_the_reason_builder_takes_the_reader_as_a_required_argument() -> None:
     """The reason builder has no default for the reader that carries the caller's fence, so a call that forgets it fails at
     the call and does not fall back to the stored row.
