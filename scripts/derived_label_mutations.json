@@ -17631,7 +17631,7 @@
           "file": "tests/integration/test_saved_quote_memory_refs_postgres.py",
           "before": "        contained_project_scanned=True,\n        project_update_scan_sensitivity=tuple(ALL_SENSITIVITY),\n",
           "after": "        contained_project_scanned=True,\n        project_update_scan_sensitivity=DEFAULT_AGENT_SENSITIVITY,\n",
-          "sha256": "59d5b8d646403efb25aa293da583029f6a72fad35986ab3759f471c7d3342a17",
+          "sha256": "7bb24f4a434215a7e35900a92aa116a60c3dee9df5b58742ab8d066cbad1c844",
           "line": 699
         }
       ],
@@ -19156,10 +19156,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
-          "line": 264,
-          "before": "    if not hidden:\n        return value\n    stripped, _changed = _strip(value, hidden, field=None, depth=0)\n",
+          "line": 266,
+          "before": "    if keep:\n        hidden = hidden - keep\n    if not hidden:\n        return value\n    stripped, _changed = _strip(value, hidden, field=None, depth=0)\n",
           "after": "    if True:\n        return value\n    stripped, _changed = _strip(value, hidden, field=None, depth=0)\n",
-          "sha256": "53dd8844a9ba8aec2075b0c1836dc4cb0fe53642bec9925fd9923c74b039ec2b"
+          "sha256": "22b35dc4ae21c1905781e4831c8b6194de7e02c4ab373c66b2f94d9f821435c5"
         }
       ],
       "pytest": [

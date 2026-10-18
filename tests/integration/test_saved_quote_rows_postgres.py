@@ -50,9 +50,10 @@ def _json(text: str):
 
 
 def _expected(cited: str) -> list[object]:
-    """The refs the ingest source was sent, as a caller who may not read the memory is shown them."""
+    """Refs a caller who may not read the cited memory is shown: the id is withheld and the quote is null."""
 
-    return [{"memory_id": cited, "quote": None}, f"memory:{cited}", {"quote": None}]
+    del cited
+    return [{"memory_id": None, "quote": None}, {"quote": None}]
 
 
 def _stored(cited: str, words: str) -> list[object]:
@@ -283,14 +284,14 @@ def test_the_workspace_and_the_rating_routes_hold_a_task_and_a_rating_to_the_rea
         if profile == "trusted":
             assert {"artifact trace", "quality evals", "workspace"} <= set(shown), sorted(shown)
         for door, row in shown.items():
-            assert row["metadata_json"] == {"memory_id": cited, "quote": None}, (profile, door)
+            assert row["metadata_json"] == {"memory_id": None, "quote": None}, (profile, door)
             assert words not in json.dumps(row), (profile, door)
     for door, row in ratings(vault.keys["admin"]).items():
         assert row["metadata_json"]["quote"] == words and row["metadata_json"][words] == 1, door
         assert row["metadata_json"]["artifact_type"] == "daily_brief", door
     status, text = run_call(vault, "GET", "/v0/vnext/workspace", Call("workspace"), keys["trusted"])
     task = next(item for item in json.loads(text)["tasks"] if str(item["id"]) == task_id)
-    assert task["allowed_sources_json"] == [{"memory_id": cited, "quote": None}]
+    assert task["allowed_sources_json"] == [{"memory_id": None, "quote": None}]
     assert task["scope_json"] == {}
     assert task["title"] == vault.text("task_quotes_redacted-title") and words not in json.dumps(task)
     status, text = run_call(vault, "GET", "/v0/vnext/workspace", Call("workspace"), vault.keys["admin"])

@@ -66,16 +66,17 @@ _LIST_FIELDS = frozenset(
         "source_event_ids",
         "member_snapshots",
         "instances",
+        "source_refs",
     }
 )
 _SCALAR_FIELDS = frozenset(
     {
         "candidate_memory_id",
         "belief_memory_id",
+        "memory_id",
         "artifact_id",
         "output_artifact_id",
         "source_id",
-        "memory_id",
         "target_id",
         "source_item",
         "connected_item",
@@ -254,13 +255,16 @@ def _drop_text(value: str, hidden: set[str]) -> str | None:
     return cleaned
 
 
-def strip_hidden_ids(value: Any, hidden: set[str]) -> Any:
+def strip_hidden_ids(value: Any, hidden: set[str], *, keep: set[str] | None = None) -> Any:
     """``value`` with every id in ``hidden`` removed from the lists and fields that carry one.
 
+    ``keep`` holds ids the caller already named, such as the id in the request path. Those stay.
     ``hidden`` empty returns ``value`` unchanged, the same object. A ``count`` beside ``items`` is the length of
     ``items`` after the drop.
     """
 
+    if keep:
+        hidden = hidden - keep
     if not hidden:
         return value
     stripped, _changed = _strip(value, hidden, field=None, depth=0)
@@ -348,8 +352,9 @@ def withhold_json_body(request: Any, body: bytes, *, database_url: str | None = 
         database_url = get_settings().database_url
     if str(database_url).startswith("sqlite"):
         return None
+    keep = _canonical_ids(str(getattr(getattr(request, "url", None), "path", "") or ""))
     with user_connection(database_url, user_id) as conn:
-        filtered = apply_hidden_id_withholding(PostgresVNextStore(conn), identity, payload)
+        filtered = apply_hidden_id_withholding(PostgresVNextStore(conn), identity, payload, keep=keep)
     if filtered is payload:
         return None
     return json.dumps(filtered).encode("utf-8")
@@ -367,11 +372,12 @@ def filter_http_response(request: Any, response: Any, *, database_url: str | Non
     return JSONResponse(status_code=response.status_code, content=json.loads(updated))
 
 
-def apply_hidden_id_withholding(store: Any, identity: Any, payload: Any) -> Any:
+def apply_hidden_id_withholding(store: Any, identity: Any, payload: Any, *, keep: set[str] | None = None) -> Any:
     """The payload a caller may be shown. Unchanged, and the same object, when nothing is withheld.
 
-    A row nested past the saved-quote depth makes the label walk overflow. That call is the one the
-    deep-row cut runs again. This step leaves that payload as the cut reader returned it.
+    ``keep`` holds ids the caller already named. A row nested past the saved-quote depth makes the label
+    walk overflow. That call is the one the deep-row cut runs again. This step leaves that payload as the
+    cut reader returned it.
     """
 
     try:
@@ -380,4 +386,4 @@ def apply_hidden_id_withholding(store: Any, identity: Any, payload: Any) -> Any:
         return payload
     if not hidden:
         return payload
-    return strip_hidden_ids(payload, hidden)
+    return strip_hidden_ids(payload, hidden, keep=keep)

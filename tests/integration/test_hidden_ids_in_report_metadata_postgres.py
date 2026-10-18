@@ -395,7 +395,6 @@ def test_a_limited_key_is_shown_no_id_of_a_row_it_may_not_read(world, label_harn
             named.extend((key_name, label, path) for path, row_id, _text in _paths(body) if row_id in world.capture["ids"])
         for row_id in world.hidden_from(key_name):
             if row_id in text:
-                at = text.find(row_id)
                 leaks.append((key_name, label, row_id))
     assert saw_visible, "a readable memory id never came back, so a withheld id would not be noticed"
     assert not leaks, leaks[:12]

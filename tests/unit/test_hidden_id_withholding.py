@@ -53,7 +53,7 @@ def test_listing_fields_lose_a_hidden_id_and_the_count_matches() -> None:
     hidden = {HIDDEN, SOURCE, LOOP, ARTIFACT}
     payload = strip_hidden_ids(_payload(), hidden)
     assert payload["items"][0]["metadata_json"]["candidate_memory_ids"] == [VISIBLE]
-    assert payload["source_refs"] == [f"source:{SOURCE}", f"memory:{VISIBLE}"]
+    assert payload["source_refs"] == [f"memory:{VISIBLE}"]
     assert payload["artifact_id"] is None
     assert HIDDEN not in payload["content_markdown"]
     assert "stays in words only" in payload["content_markdown"]
@@ -83,6 +83,20 @@ def test_an_archived_row_is_withheld_and_a_forgotten_row_stays() -> None:
     assert limited["source_id"] is None
 
 
+def test_an_id_the_caller_named_stays_and_another_hidden_id_does_not() -> None:
+    """The id in the request is not a row the caller discovered. Another unreadable id still goes."""
+
+    payload = {
+        "target_id": HIDDEN,
+        "source_refs": [f"source:{SOURCE}", f"memory:{HIDDEN}"],
+        "candidate_memory_ids": [HIDDEN, VISIBLE],
+    }
+    shown = strip_hidden_ids(payload, {HIDDEN, SOURCE}, keep={HIDDEN})
+    assert shown["target_id"] == HIDDEN
+    assert shown["source_refs"] == [f"memory:{HIDDEN}"]
+    assert shown["candidate_memory_ids"] == [HIDDEN, VISIBLE]
+
+
 def test_every_spelling_of_a_hidden_id_is_removed() -> None:
     spellings = [
         HIDDEN.upper(),
@@ -102,9 +116,8 @@ def test_a_limited_key_loses_every_id_kind_and_the_owner_keeps_them() -> None:
     store = _Store()
     limited = apply_hidden_id_withholding(store, _identity("trusted_local_agent"), _payload())
     assert HIDDEN not in limited["items"][0]["metadata_json"]["candidate_memory_ids"]
-    # A source_refs entry stays. The write door stores a hidden id and a missing id the same way, and
-    # dropping only the hidden one would tell them apart. The quote reader nulls the quote.
-    assert SOURCE in "".join(str(item) for item in limited["source_refs"])
+    assert SOURCE not in "".join(str(item) for item in limited["source_refs"])
+    assert f"memory:{VISIBLE}" in limited["source_refs"]
     assert limited["artifact_id"] is None
     assert LOOP not in limited["open_loop_ids"]
     owner = apply_hidden_id_withholding(store, None, _payload())

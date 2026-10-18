@@ -216,9 +216,9 @@ def _get(vault: Vault, template: str, key, **path_and_query):
 
 def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch):
     """The doors that returned the quote, one by one, for every restricted profile that reaches them. A key that may read the quoting
-    commit is shown the ref with the id of the memory and a ``null`` quote, in both spellings; none is shown the words. The
-    workspace lists the events of the commit that was confirmed, among its recent events and, for the commit an agent key
-    confirmed, in its agent activity too, and each event holds the ref with its id and no quote.
+    commit is shown a ``null`` quote and is not shown the id of the memory it may not read. The workspace lists the events of
+    the commit that was confirmed, among its recent events and, for the commit an agent key confirmed, in its agent activity
+    too, and each event holds the ref with no quote and without that id.
 
     Mutations: delete the reader call at the recent commits service (``if guard.active`` made false); delete the ``audit`` call
     of the audit route; delete the ``audit`` call of ``alice_explain``; delete the workspace's ``withhold_saved_quotes`` calls;
@@ -235,13 +235,13 @@ def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch
     # The commits that wrote the words as the name of a field (and the two confirmed commits, which wrote the words as a name beside
     # the quote) are shown the id and the quote marker, and no name of the field.
     expected = {
-        plain: [{"memory_id": cited, "quote": None}],
-        typed: [f"memory:{cited}", {"quote": None}],
-        pending: [{"memory_id": cited, "quote": None}],
-        confirmed: [{"memory_id": cited, "quote": None}],
-        by_an_agent: [{"memory_id": cited, "quote": None}],
-        keyed: [{"memory_id": cited}],
-        keyed_typed: [f"memory:{cited}", {}],
+        plain: [{"memory_id": None, "quote": None}],
+        typed: [{"quote": None}],
+        pending: [{"memory_id": None, "quote": None}],
+        confirmed: [{"memory_id": None, "quote": None}],
+        by_an_agent: [{"memory_id": None, "quote": None}],
+        keyed: [{"memory_id": None}],
+        keyed_typed: [{}],
     }
     problems: list[object] = []
 
@@ -299,7 +299,7 @@ def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch
             detail = _tool(monkeypatch, label_harness, profile_key, "alice_memory_review", {"review_item_id": memory_id})
             check(("review detail", profile, memory_id), words not in _all_text(detail))
             if profile in {"trusted", "read_only", "memory_proposal"}:
-                check(("explain reads the commit and keeps the id of the cited memory", profile, memory_id), explained is not None and cited in _all_text(explained))
+                check(("explain withholds the id of the cited memory", profile, memory_id), explained is not None and cited not in _all_text(explained))
     for profile in ("read_only", "trusted", "memory_proposal"):
         permission = RESTRICTED[profile][0]
         for limit in (100, 1):
