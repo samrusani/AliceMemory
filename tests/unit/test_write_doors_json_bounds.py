@@ -121,8 +121,12 @@ def test_the_commit_door_refuses_what_cannot_be_stored(tmp_path) -> None:
     with sqlite_user_connection(db, USER_ID) as conn:
         store = SQLiteVNextStore(conn, USER_ID)
         before = tuple(conn.execute(counts).fetchone())
-        for ref in (_nested(950), {"score": float("nan")}, [json.loads("1e999")]):
-            with pytest.raises(VNextMemoryCommitValidationError):
+        for ref, pattern in (
+            (_nested(950), r"each source_ref must nest at most 64 levels"),
+            ({"score": float("nan")}, r"each source_ref must not hold NaN, Infinity"),
+            ([json.loads("1e999")], r"each source_ref must not hold NaN, Infinity"),
+        ):
+            with pytest.raises(VNextMemoryCommitValidationError, match=pattern):
                 request = memory_commit_request_from_payload(_commit_payload(ref), user_id=USER_ID)
                 VNextMemoryCommitService(store).commit(identity=None, request=request)
         assert tuple(conn.execute(counts).fetchone()) == before
