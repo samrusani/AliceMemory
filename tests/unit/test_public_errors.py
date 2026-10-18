@@ -30,6 +30,7 @@ PUBLIC_EXCEPTION_RESPONSE_CALL_MANIFEST = {
     "apps/api/src/alicebot_api/routers/legacy_gated.py": 76,
     "apps/api/src/alicebot_api/routers/memories_legacy.py": 52,
     "apps/api/src/alicebot_api/routers/providers.py": 59,
+    "apps/api/src/alicebot_api/routers/vnext_changes.py": 0,
     "apps/api/src/alicebot_api/routers/vnext_memories.py": 26,
     "apps/api/src/alicebot_api/routers/vnext_projects.py": 11,
     "apps/api/src/alicebot_api/routers/vnext_retrieval.py": 2,

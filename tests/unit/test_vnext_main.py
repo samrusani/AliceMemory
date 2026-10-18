@@ -1251,7 +1251,7 @@ def test_vnext_route_inventory_fails_closed_without_route_local_policy() -> None
     }
     assert not (main_module._VNEXT_ROUTE_LOCAL_POLICY & main_module._VNEXT_CENTRAL_OPERATOR_ROUTES)
     assert (main_module._VNEXT_ROUTE_LOCAL_POLICY | main_module._VNEXT_CENTRAL_OPERATOR_ROUTES) == registered
-    assert len(registered) == 72
+    assert len(registered) == 73
 
     project_bound = main_module.AgentIdentity(
         agent_id="project-reader",

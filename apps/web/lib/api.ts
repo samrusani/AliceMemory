@@ -2295,6 +2295,52 @@ export function getThreadHealthDashboard(apiBaseUrl: string, userId: string) {
   );
 }
 
+export type WhatChangedSource = {
+  source_id: string;
+  title: string;
+  date: string;
+};
+
+export type WhatChangedStep = {
+  id: string;
+  kind: string;
+  chain: string;
+  date: string;
+  change: string;
+  reason: { text: string; source_id: string | null } | null;
+  replaced: string | null;
+  disagrees_with: string | null;
+  sources: WhatChangedSource[];
+  author: string;
+  review_state: string;
+};
+
+export type WhatChangedAnswer = {
+  notice: string;
+  topic: string;
+  chains: {
+    start: string;
+    current: WhatChangedStep | null;
+    upcoming: string[];
+    disputed: string[];
+    history: WhatChangedStep[];
+  }[];
+  message?: string;
+  search?: string;
+};
+
+export function postWhatChanged(apiBaseUrl: string, userId: string, topic: string) {
+  return requestJson<WhatChangedAnswer>(
+    apiBaseUrl,
+    "/v0/vnext/changes",
+    {
+      method: "POST",
+      body: JSON.stringify({ topic }),
+    },
+    { user_id: userId },
+  );
+}
+
 export function queryContinuityRecall(
   apiBaseUrl: string,
   userId: string,
