@@ -13,7 +13,6 @@ uvx alice-memory demo --vault ~/Notes --data-dir ~/.alice-demo
 
 `alice-memory doctor` prints sources, then candidates.
 
-[![LongMemEval](https://img.shields.io/badge/LongMemEval-v0.12.0%20store__chunks%20receipt-6f42c1)](https://github.com/samrusani/AliceMemory/blob/main/docs/benchmarks/longmemeval/README.md)
 ![Local-first](https://img.shields.io/badge/local--first-core-0A7B61)
 ![MCP](https://img.shields.io/badge/MCP-supported-1f6feb)
 ![Python](https://img.shields.io/badge/python-3.12%2B-3776AB)
