@@ -212,7 +212,7 @@ class VNextAgentOutputIngestRequest(VNextAgentRequest):
     output_type: str = Field(default="general", min_length=1, max_length=80)
     domain: VNextDomain = "project"
     sensitivity: VNextSensitivity = "private"
-    source_refs: list[object] = Field(default_factory=list)
+    source_refs: list[str] = Field(default_factory=list)
     rationale: str | None = Field(default=None, min_length=1, max_length=4000)
     propose_memory: bool = False
 
@@ -234,7 +234,7 @@ class VNextMemoryProposalRequest(VNextAgentRequest):
     proposal_type: str = Field(default="candidate_memory", min_length=1, max_length=80)
     title: str = Field(min_length=1, max_length=280)
     canonical_text: str = Field(min_length=1, max_length=20_000)
-    source_refs: list[object] = Field(default_factory=list)
+    source_refs: list[str] = Field(default_factory=list)
     domain: VNextDomain = "unknown"
     sensitivity: VNextSensitivity = "unknown"
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -255,7 +255,7 @@ class VNextMemoryCommitRequest(VNextAgentRequest):
     # The count is advertised here from the service constant; the per-ref
     # length is enforced by the service every surface calls, which answers
     # 400 (owner ruling R4). list[object] cannot express a per-item rule.
-    source_refs: list[object] = Field(default_factory=list, max_length=MAX_COMMIT_SOURCE_REFS)
+    source_refs: list[str] = Field(default_factory=list, max_length=MAX_COMMIT_SOURCE_REFS)
     conversation_excerpt: str | None = Field(default=None, min_length=1, max_length=4000)
     rationale: str | None = Field(default=None, min_length=1, max_length=4000)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)

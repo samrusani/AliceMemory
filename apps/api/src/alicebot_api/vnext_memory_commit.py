@@ -560,6 +560,12 @@ def _object_tuple(value: object) -> tuple[object, ...]:
             refuse_unstorable_json(ref, name="each source_ref")
         except JsonShapeError as exc:
             raise VNextMemoryCommitValidationError(str(exc)) from exc
+        # Producers write a string: ``source:<id>``, ``memory:<id>``, a bare id, or a label such as a URL.
+        # An object, a number, a boolean, null or a nested array is not one of those shapes.
+        if not isinstance(ref, str) or not ref.strip():
+            raise VNextMemoryCommitValidationError(
+                "source_refs entries must be strings: source:<id>, memory:<id>, a bare id, or a label"
+            )
         # A string ref is measured as sent (owner ruling R4): measuring its
         # JSON form counted every quote and newline twice, so a 2,100
         # character ref of quotes was refused. Any other ref is measured by
@@ -1321,6 +1327,7 @@ class VNextMemoryCommitService:
         identity: AgentIdentity | None,
         request: MemoryCommitRequest,
     ) -> JsonObject:
+        _object_tuple(request.source_refs)
         existing = self._idempotent_memory(request.idempotency_key)
         if existing is not None:
             return _with_commit_receipt(self._idempotent_replay(memory=existing, request=request, identity=identity))

@@ -10,7 +10,7 @@
           "line": 956,
           "before": "if operator is not None:",
           "after": "if False:",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -26,7 +26,7 @@
           "line": 906,
           "before": "if source is not None and not SourceReadFence.for_identity(identity).admits(",
           "after": "if False and source is not None and not SourceReadFence.for_identity(identity).admits(",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -323,10 +323,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 103,
+          "line": 104,
           "before": "omit content diagnostics for a caller with limits",
           "after": "show content diagnostics to a caller",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -694,7 +694,7 @@
           "line": 906,
           "before": "if source is not None and not SourceReadFence.for_identity(identity).admits(",
           "after": "if False and source is not None and not SourceReadFence.for_identity(identity).admits(",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -711,7 +711,7 @@
           "line": 1038,
           "before": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                if not SourceReadFence.for_identity(identity).entity_read_fenced:",
           "after": "existing = store.get_source(str(source_id))\n            if existing is None:\n                if not SourceReadFence.for_identity(identity).entity_read_fenced:",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -727,7 +727,7 @@
           "line": 1038,
           "before": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                if not SourceReadFence.for_identity(identity).entity_read_fenced:",
           "after": "existing = store.get_source(str(source_id))\n            if existing is None:\n                if not SourceReadFence.for_identity(identity).entity_read_fenced:",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -743,7 +743,7 @@
           "line": 1170,
           "before": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = _vnext_source_for_caller(store, identity, store.delete_source(",
           "after": "existing = store.get_source(str(source_id))\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = _vnext_source_for_caller(store, identity, store.delete_source(",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -759,7 +759,7 @@
           "line": 1170,
           "before": "existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = _vnext_source_for_caller(store, identity, store.delete_source(",
           "after": "existing = store.get_source(str(source_id))\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = _vnext_source_for_caller(store, identity, store.delete_source(",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -775,7 +775,7 @@
           "line": 1027,
           "before": "identity = _vnext_source_route_identity(\n                store, user_id=request.user_id, authorization=authorization, request=request\n            )",
           "after": "identity = None",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -791,7 +791,7 @@
           "line": 1166,
           "before": "identity = _vnext_source_route_identity(store, user_id=user_id, authorization=authorization)",
           "after": "identity = None",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -807,7 +807,7 @@
           "line": 1028,
           "before": "authorization=authorization, request=request\n            )",
           "after": "authorization=authorization, request=None\n            )",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -823,7 +823,7 @@
           "line": 1135,
           "before": "detail=\"vNext agent identity claims are invalid\"",
           "after": "detail=\"invalid\"",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -839,7 +839,7 @@
           "line": 931,
           "before": "if authorization is not None and not isinstance(authorization, str):",
           "after": "if False:",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -855,7 +855,7 @@
           "line": 1009,
           "before": "trace = _vnext_load_source_trace(store=store, source=source, identity=identity)",
           "after": "trace = _vnext_load_source_trace(store=store, source=source, identity=None)",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -871,7 +871,7 @@
           "line": 1010,
           "before": "return trace if trace is not None else {}",
           "after": "return trace",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -887,7 +887,7 @@
           "line": 1169,
           "before": "store.lock_label_writes()\n            existing = _vnext_readable_source(store, identity, source_id)\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = _vnext_source_for_caller(store, identity, store.delete_source(",
           "after": "existing = store.get_source(str(source_id))\n            if existing is None:\n                return _vnext_source_not_found(source_id)\n            payload = _vnext_source_for_caller(store, identity, store.delete_source(",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -903,7 +903,7 @@
           "line": 984,
           "before": "if identity is not None and (identity.permission_profile != \"admin_agent\" or identity.project_scope_locked",
           "after": "if identity is not None and (False or identity.project_scope_locked",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -919,7 +919,7 @@
           "line": 1044,
           "before": "return _vnext_source_not_found(source_id)\n            if action == \"archive\":",
           "after": "return _vnext_public_error_response(status_code=404, detail=\"vNext source was not found\")\n            if action == \"archive\":",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -935,7 +935,7 @@
           "line": 909,
           "before": "        return None\n    return source\n\n\ndef _vnext_source_not_found",
           "after": "        return None\n    return source if identity is None else None\n\n\ndef _vnext_source_not_found",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -951,7 +951,7 @@
           "line": 909,
           "before": "        return None\n    return source\n\n\ndef _vnext_source_not_found",
           "after": "        return None\n    return source if identity is not None else None\n\n\ndef _vnext_source_not_found",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -996,10 +996,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 37,
+          "line": 38,
           "before": "stays refused to every key but an unbound `admin_agent`",
           "after": "stays refused",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -1048,7 +1048,7 @@
           "line": 1091,
           "before": "[request.project_id], identity=identity)",
           "after": "[request.project_id], identity=None)",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -1114,7 +1114,7 @@
           "line": 1040,
           "before": "if not SourceReadFence.for_identity(identity).entity_read_fenced:",
           "after": "if False:",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -1131,7 +1131,7 @@
           "line": 1040,
           "before": "if not SourceReadFence.for_identity(identity).entity_read_fenced:",
           "after": "if True:",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -1176,10 +1176,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 37,
+          "line": 38,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -1548,10 +1548,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 38,
+          "line": 39,
           "before": "where it raised a server error",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -1567,14 +1567,14 @@
           "line": 1233,
           "before": "decision = apply_unverified_rule(decision, judged, identity)\n            if decision.decision == \"blocked\":\n                return _vnext_permission_response(decision)\n    except AgentIdentityValidationError as exc:\n        return public_exception_response(exc, status_code=400)\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n\n    actor_type, actor_id = _vnext_agent_actor(identity, fallback=\"user\")\n\n    # Consolidation acceptance",
           "after": "decision = apply_unverified_rule(decision, judged, identity)\n    except AgentIdentityValidationError as exc:\n        return public_exception_response(exc, status_code=400)\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n\n    actor_type, actor_id = _vnext_agent_actor(identity, fallback=\"user\")\n\n    # Consolidation acceptance",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         },
         {
           "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
           "line": 1378,
           "before": "locked_decision = apply_unverified_rule(locked_decision, locked_judged, identity)\n            if locked_decision.decision == \"blocked\":\n                return _vnext_permission_response(locked_decision)\n",
           "after": "locked_decision = apply_unverified_rule(locked_decision, locked_judged, identity)\n",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -1587,17 +1587,17 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2703,
+          "line": 2710,
           "before": "memory = effective_row_for_fence(self.store, identity, kind, memory)\n        return self._policy_checked_write(",
           "after": "return self._policy_checked_write(",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2533,
+          "line": 2540,
           "before": "settled = effective_row_for_fence(self.store, identity, kind, memory)\n        domains, sensitivity_allowed, project_scope, project_floor = policy_labels(settled)",
           "after": "settled = memory\n        domains, sensitivity_allowed, project_scope, project_floor = policy_labels(settled)",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -1661,7 +1661,7 @@
           "line": 1214,
           "before": "            if target is None or outside_caller_limits(auth_store, identity, \"memory\", target):",
           "after": "            if target is None:",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -1677,7 +1677,7 @@
           "line": 1322,
           "before": "if preview is None or outside_caller_limits(store, identity, \"memory\", preview):",
           "after": "if preview is None:",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -1693,7 +1693,7 @@
           "line": 1357,
           "before": "if existing is None or outside_caller_limits(store, identity, \"memory\", existing):",
           "after": "if existing is None:",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -1709,7 +1709,7 @@
           "line": 2160,
           "before": "                if outside_caller_limits(store, identity, \"memory\", memory):\n                    raise MemoryNotFoundError(\"memory was not found\")",
           "after": "                if False:\n                    raise MemoryNotFoundError(\"memory was not found\")",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -1819,10 +1819,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2644,
+          "line": 2651,
           "before": "        self._answer_as_missing_if_unreadable(\n            identity=identity, decision=decision, memory=memory, target_type=target_type, answer_as_missing=answer_as_missing\n        )\n        return self._record_write_decision(",
           "after": "        return self._record_write_decision(",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -1835,10 +1835,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2684,
+          "line": 2691,
           "before": "            self._answer_as_missing_if_unreadable(\n                identity=identity, decision=decision, memory=memory, target_type=\"memory\", answer_as_missing=answer_as_missing\n            )\n            self._record_write_decision(identity=identity, decision=decision, memory=memory)",
           "after": "            self._record_write_decision(identity=identity, decision=decision, memory=memory)",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -1851,10 +1851,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2604,
+          "line": 2611,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -1867,10 +1867,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 1775,
+          "line": 1782,
           "before": "if successor is None or outside_caller_limits(self.store, identity, \"memory\", successor):",
           "after": "if successor is None:",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -1883,10 +1883,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 1421,
+          "line": 1428,
           "before": "            answer_as_missing=False,\n        )\n        confirmation_now = _agentic_metadata(memory).get(\"confirmation\")",
           "after": "        )\n        confirmation_now = _agentic_metadata(memory).get(\"confirmation\")",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -1957,7 +1957,7 @@
           "line": 403,
           "before": "        if row is None or not fence.admits(row):\n            raise SourceRefNotFoundError()\n    return AttachableSources(ids=tuple(linked))",
           "after": "        if row is None:\n            raise SourceRefNotFoundError()\n    return AttachableSources(ids=tuple(linked))",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -2050,10 +2050,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 40,
+          "line": 41,
           "before": "and the call writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry.",
           "after": "and the call is recorded.",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -2066,10 +2066,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2604,
+          "line": 2611,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -2082,10 +2082,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2604,
+          "line": 2611,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -2098,10 +2098,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2604,
+          "line": 2611,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -2114,10 +2114,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2604,
+          "line": 2611,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -2130,10 +2130,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2604,
+          "line": 2611,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -2146,10 +2146,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2604,
+          "line": 2611,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing:",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -2165,7 +2165,7 @@
           "line": 300,
           "before": "        if row.get(\"deleted_at\") is not None:\n            return False\n        if self.identity is None:",
           "after": "        if False:\n            return False\n        if self.identity is None:",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -2242,10 +2242,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 86,
+          "line": 87,
           "before": "A refused redact of an archived or redacted row now writes nothing, as a redact of an id the vault never held writes nothing: no policy event and no agent record.",
           "after": "A refused redact of an archived or redacted row is still recorded.",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -2794,7 +2794,7 @@
           "line": 1571,
           "before": "and project_identifier_identity(request.project_id) in project_scope_identity(resolve_project_scope(updated).values)",
           "after": "and True",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -2810,7 +2810,7 @@
           "line": 1571,
           "before": "and project_identifier_identity(request.project_id) in project_scope_identity(resolve_project_scope(updated).values)",
           "after": "and request.project_id in resolve_project_scope(updated).values",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -2826,7 +2826,7 @@
           "line": 944,
           "before": "source_id: Annotated[str, Path(json_schema_extra={\"format\": \"uuid\"})],",
           "after": "source_id: UUID,",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -3157,7 +3157,7 @@
           "line": 859,
           "before": "    )\n    return guard_for_caller(store, identity)\n\n\n@connectors_router.get(\"/v0/vnext/doctor\")",
           "after": "    )\n    return guard_for_caller(store, None)\n\n\n@connectors_router.get(\"/v0/vnext/doctor\")",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -3173,7 +3173,7 @@
           "line": 859,
           "before": "    )\n    return guard_for_caller(store, identity)\n\n\n@connectors_router.get(\"/v0/vnext/doctor\")",
           "after": "    )\n    guard = guard_for_caller(store, identity)\n    guard.active = identity is not None\n    return guard\n\n\n@connectors_router.get(\"/v0/vnext/doctor\")",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -3189,7 +3189,7 @@
           "line": 857,
           "before": "    identity = resolve_protected_agent_identity(\n        store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}\n    )\n    return guard_for_caller(store, identity)\n\n\n@connectors_router.get(\"/v0/vnext/doctor\")",
           "after": "    identity = resolve_protected_agent_identity(\n        store, user_id=user_id, raw_key=None, payload={}\n    )\n    return guard_for_caller(store, identity)\n\n\n@connectors_router.get(\"/v0/vnext/doctor\")",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -3205,7 +3205,7 @@
           "line": 870,
           "before": "payload = VNextDoctorService(store).run(ci=ci, include_content_diagnostics=not guard.active, label_guard=guard)",
           "after": "payload = VNextDoctorService(store).run(ci=ci)",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -3223,7 +3223,7 @@
           "line": 886,
           "before": "                fix_safe=request.fix_safe, ci=request.ci, include_content_diagnostics=not guard.active, label_guard=guard",
           "after": "                fix_safe=request.fix_safe, ci=request.ci",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -3273,7 +3273,7 @@
           "line": 1578,
           "before": "\"to_id\": project_edge_target(request.project_id),",
           "after": "\"to_id\": request.project_id,",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -3289,7 +3289,7 @@
           "line": 1578,
           "before": "\"to_id\": project_edge_target(request.project_id),",
           "after": "\"to_id\": request.project_id,",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -3305,7 +3305,7 @@
           "line": 1111,
           "before": "\"to_id\": source_edge_target,",
           "after": "\"to_id\": request.project_id,",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -3321,7 +3321,7 @@
           "line": 1111,
           "before": "\"to_id\": source_edge_target,",
           "after": "\"to_id\": request.project_id,",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -3337,7 +3337,7 @@
           "line": 1105,
           "before": "if action == \"assign_project\" and source_edge_target:",
           "after": "if action == \"assign_project\":",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -3844,10 +3844,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2969,
+          "line": 2976,
           "before": "            \"events\": self.store.list_events(target_type=\"memory\", target_id=memory_id),",
           "after": "            \"events\": [],",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -3860,10 +3860,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2968,
+          "line": 2975,
           "before": "            \"revisions\": self.store.list_revisions(memory_id),",
           "after": "            \"revisions\": [],",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -4020,10 +4020,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 39,
+          "line": 40,
           "before": "The memory audit route (`GET /v0/vnext/memories/{id}/audit`) returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, so the ids of archived members stand there too (a derived memory that recorded a redacted memory as a member is read by the owner and an unbound admin key only), ",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -4036,10 +4036,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 31,
+          "line": 32,
           "before": "The context tree and the dogfooding view read the same rule. ",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -4698,10 +4698,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 23,
+          "line": 24,
           "before": "An artifact event that holds anything more still stops the redaction, so no text is left behind. ",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -4810,10 +4810,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 39,
+          "line": 40,
           "before": " The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says.",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -5209,10 +5209,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 25,
+          "line": 26,
           "before": "Redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "Redacting a memory leaves reports as they were",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -5257,10 +5257,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 25,
+          "line": 26,
           "before": "This is temporary access containment, not removal",
           "after": "This is removal",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -5321,10 +5321,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 25,
+          "line": 26,
           "before": "say to regenerate or delete the reports built from a redacted memory",
           "after": "say nothing",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -5665,10 +5665,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 25,
+          "line": 26,
           "before": "is refused to a key that may not read the belief, with the answer of a missing belief, and a refused review changes nothing.",
           "after": "is open to every key.",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -6019,10 +6019,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 25,
+          "line": 26,
           "before": "A project end that names the project by a name or by an id that finds no project row hides nothing",
           "after": "A project end hides every edge",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -6147,10 +6147,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 39,
+          "line": 40,
           "before": "but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says",
           "after": "but a report that recorded a redacted memory is read like any other report, as the entry on redacted memories says",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -6179,10 +6179,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 58,
+          "line": 59,
           "before": "The graph neighborhood and the edge review route apply the same ceiling to the rows an edge joins, as the entry on redacted memories and the security note say.",
           "after": "Graph edge explanations remain outside that ceiling, as disclosed in the security note.",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -6259,10 +6259,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 25,
+          "line": 26,
           "before": "The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. ",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -6291,10 +6291,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 39,
+          "line": 40,
           "before": "Two answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; and a memory commit",
           "after": "Three answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; the graph neighborhood route, which returns the edges of any id with their explanations; and a memory commit",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -6467,10 +6467,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2898,
+          "line": 2905,
           "before": "        if guard.active:\n            rows = SavedProvenanceReader(",
           "after": "        if False:\n            rows = SavedProvenanceReader(",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -6486,7 +6486,7 @@
           "line": 2132,
           "before": "payload = VNextMemoryCommitService(store).recent_commits(limit=limit, identity=identity)",
           "after": "payload = VNextMemoryCommitService(store).recent_commits(limit=limit, identity=None)",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -6646,7 +6646,7 @@
           "line": 514,
           "before": "            readable_sources = guard.admit_rows(\"source\", store.list_sources(limit=50))",
           "after": "            readable_sources = store.list_sources(limit=50)",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -6678,7 +6678,7 @@
           "line": 2117,
           "before": "@memory_router.get(\"/v0/vnext/memories/recent-commits\")",
           "after": "@memory_router.get(\"/v0/vnext/memories/recent-commits-feed\")",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -6726,7 +6726,7 @@
           "line": 2132,
           "before": "payload = VNextMemoryCommitService(store).recent_commits(limit=limit, identity=identity)",
           "after": "payload = VNextMemoryCommitService(store).recent_commits(limit=limit, identity=None)",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -6742,7 +6742,7 @@
           "line": 1518,
           "before": "        if guard.active and last_captured_item is not None:\n            if not self._caller_reads_sources(guard, [last_captured_item.get(\"source_id\")]):\n                last_captured_item = None",
           "after": "        if False:\n            if not self._caller_reads_sources(guard, [last_captured_item.get(\"source_id\")]):\n                last_captured_item = None",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -6758,7 +6758,7 @@
           "line": 1587,
           "before": "        if cursor is None or not guard.active:\n            return cursor",
           "after": "        if True:\n            return cursor",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -6774,7 +6774,7 @@
           "line": 1644,
           "before": "        if not carriers or not self._caller_reads_sources(guard, [item.get(\"source_id\") for item in carriers]):\n            return None",
           "after": "        if carriers and not self._caller_reads_sources(guard, [item.get(\"source_id\") for item in carriers]):\n            return None",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -6790,7 +6790,7 @@
           "line": 1643,
           "before": "        carriers = index[field].get(value, [])\n",
           "after": "        carriers = [item for items in index[field].values() for item in items]\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -6806,7 +6806,7 @@
           "line": 1757,
           "before": "            if not isinstance(row, Mapping) or row.get(\"deleted_at\") is not None:\n                return False",
           "after": "            if not isinstance(row, Mapping):\n                return False",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -6822,7 +6822,7 @@
           "line": 1754,
           "before": "            except (ValueError, AttributeError, TypeError):\n                return False\n            row = getter(source_id)",
           "after": "            except (ValueError, AttributeError, TypeError):\n                continue\n            row = getter(source_id)",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -6838,7 +6838,7 @@
           "line": 1796,
           "before": "        grant = (\"result\", guard.active, guard.domains, guard.sensitivity_allowed, guard.projects, guard.all_of)",
           "after": "        grant = \"result\"",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -6854,7 +6854,7 @@
           "line": 1657,
           "before": "        record = result.to_record()\n        if guard.active:",
           "after": "        record = result.to_record()\n        if False:",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -6870,7 +6870,7 @@
           "line": 1695,
           "before": "        if not guard.active:\n            return list(events)\n        # The imports of each connector are indexed once for the whole call, so a failure that lists thousands of ids",
           "after": "        if True:\n            return list(events)\n        # The imports of each connector are indexed once for the whole call, so a failure that lists thousands of ids",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -6886,7 +6886,7 @@
           "line": 527,
           "before": "                \"health\": service.connector_health(connector_name, guard=guard),",
           "after": "                \"health\": service.connector_health(connector_name, guard=guard.unlimited(store)),",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -6902,7 +6902,7 @@
           "line": 521,
           "before": "                    if event.get(\"event_type\") in {\"connector.item_failed\", \"connector.sync_failed\"}\n                ],\n                guard=guard,",
           "after": "                    if event.get(\"event_type\") in {\"connector.item_failed\", \"connector.sync_failed\"}\n                ],\n                guard=guard.unlimited(store),",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -6918,7 +6918,7 @@
           "line": 462,
           "before": "                        \"health\": service.connector_health(definition.name, guard=guard),",
           "after": "                        \"health\": service.connector_health(definition.name, guard=guard.unlimited(store)),",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -6934,7 +6934,7 @@
           "line": 487,
           "before": "            payload = VNextConnectorService(store).connector_health_all(guard=guard_for_caller(store, identity))",
           "after": "            payload = VNextConnectorService(store).connector_health_all(guard=guard_for_caller(store, None))",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -6950,7 +6950,7 @@
           "line": 870,
           "before": "payload = VNextDoctorService(store).run(ci=ci, include_content_diagnostics=not guard.active, label_guard=guard)",
           "after": "payload = VNextDoctorService(store).run(ci=ci, include_content_diagnostics=not guard.active)",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -6966,7 +6966,7 @@
           "line": 886,
           "before": "fix_safe=request.fix_safe, ci=request.ci, include_content_diagnostics=not guard.active, label_guard=guard",
           "after": "fix_safe=request.fix_safe, ci=request.ci, include_content_diagnostics=not guard.active",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -7046,7 +7046,7 @@
           "line": 605,
           "before": "            payload = service.shown_sync_record(result, guard=guard)\n        _persist_vnext_deferred_embeddings(\n            database_url=settings.database_url,\n            user_id=request.user_id,\n            result=result,\n        )\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n    except AgentPolicyBlockedError as exc:\n        return _vnext_permission_response(exc.decision)\n    except VNextConnectorValidationError:\n        return _vnext_public_error_response(status_code=400, detail=\"vNext connector sync request is invalid\")",
           "after": "            payload = result.to_record()\n        _persist_vnext_deferred_embeddings(\n            database_url=settings.database_url,\n            user_id=request.user_id,\n            result=result,\n        )\n    except AgentKeyAuthenticationError as exc:\n        return _vnext_agent_auth_error_response(exc)\n    except AgentPolicyBlockedError as exc:\n        return _vnext_permission_response(exc.decision)\n    except VNextConnectorValidationError:\n        return _vnext_public_error_response(status_code=400, detail=\"vNext connector sync request is invalid\")",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -7062,7 +7062,7 @@
           "line": 576,
           "before": "        store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}\n    )\n    return guard_for_caller(store, identity)\n\n\n@connectors_router.post(\"/v0/vnext/connectors/{connector_name}/sync\")",
           "after": "        store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}\n    )\n    return guard_for_caller(store, None)\n\n\n@connectors_router.post(\"/v0/vnext/connectors/{connector_name}/sync\")",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -7140,10 +7140,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 2897,
+          "line": 2904,
           "before": "rows = newest_admitted_rows(guard, \"memory\", self._newest_commits, want=max(limit, 1))",
           "after": "rows = newest_admitted_rows(guard, \"memory\", self._newest_commits, want=limit)",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -7225,7 +7225,7 @@
           "line": 52,
           "before": "    \"connector.sync_started\": (\"previous_cursor\",),",
           "after": "    \"connector.sync_started\": (),",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -7242,7 +7242,7 @@
           "line": 51,
           "before": "    \"connector.state_updated\": (\"cursor_value\",),",
           "after": "    \"connector.state_updated\": (),",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -7259,7 +7259,7 @@
           "line": 53,
           "before": "    \"connector.sync_completed\": (\"previous_cursor\", \"sync_cursor\"),",
           "after": "    \"connector.sync_completed\": (\"sync_cursor\",),",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -7276,7 +7276,7 @@
           "line": 54,
           "before": "    \"connector.sync_failed\": (\"previous_cursor\", \"sync_cursor\"),",
           "after": "    \"connector.sync_failed\": (),",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -7292,7 +7292,7 @@
           "line": 1723,
           "before": "            cleaned = dict(payload)\n            for field in cursor_fields:",
           "after": "            cleaned = payload\n            for field in cursor_fields:",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -7308,7 +7308,7 @@
           "line": 1704,
           "before": "            if not isinstance(value, str) or not isinstance(name, str):\n                return None",
           "after": "            if not isinstance(name, str):\n                return None",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -7324,7 +7324,7 @@
           "line": 1704,
           "before": "            if not isinstance(value, str) or not isinstance(name, str):\n                return None",
           "after": "            if not isinstance(value, str):\n                return None",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -7356,7 +7356,7 @@
           "line": 1726,
           "before": "                if cursor is None or cursor == \"\":\n                    continue",
           "after": "                if cursor is None:\n                    continue",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -7405,7 +7405,7 @@
           "line": 1760,
           "before": "        return len(guard.admit_rows(\"source\", rows)) == len(rows)",
           "after": "        return len(guard.admit_rows(\"source\", rows)) > 0",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -7640,10 +7640,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 22,
+          "line": 23,
           "before": "The CTE now names the picked id `next_id`. ",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -7880,10 +7880,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 22,
+          "line": 23,
           "before": " A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made. The event guard judges that artifact like the artifact of any other event, so the workspace feed of a key with a ceiling holds neither event, and not the id of the artifact, when the task was above its ceiling, and its event count leaves both out. The claim and the failure of a task name no artifact and hold the id of the task, which the entry on the operator routes lists for the creation events of a queued task.",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -7928,10 +7928,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 27,
+          "line": 28,
           "before": ", and, for a task that a worker has claimed, `task.claimed`, and `task.updated` and `queue.task_failed` when it failed",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -8235,10 +8235,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 28,
+          "line": 29,
           "before": "The filter on the target stays: an event about a row the trace does not list is still left out. ",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -8251,10 +8251,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 29,
+          "line": 30,
           "before": "so no caller left an event that names an object it may not read",
           "after": "so a caller may have left an event",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -8491,10 +8491,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 28,
+          "line": 29,
           "before": "A key with limits is read the newest 2,000 events that the trace asks for, as the event feeds are",
           "after": "A key with limits is read every event that the trace asks for",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -8523,10 +8523,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 29,
+          "line": 30,
           "before": "which by default leaves out the confidential levels, is not a limit: the owner",
           "after": "which by default leaves out the confidential levels, is a limit: the owner",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -8619,10 +8619,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 28,
+          "line": 29,
           "before": "only the events aimed at the source or at a row the trace lists count against that reach",
           "after": "every event of the source counts against that reach",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -8891,10 +8891,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 42,
+          "line": 43,
           "before": "out of the `created_count` of the `open_loop.extraction_completed` event, as a missing row is, and nothing about it is returned",
           "after": "as a missing row is, and nothing about it is returned",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -8974,7 +8974,7 @@
           "line": 2227,
           "before": "            self._memory_admitted[memory_id] = self._fence.admits_memory(effective if isinstance(effective, Mapping) else row)\n",
           "after": "            self._memory_admitted[memory_id] = True\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -8990,7 +8990,7 @@
           "line": 2223,
           "before": "            if row is None:\n                self._memory_admitted[memory_id] = False\n                continue\n",
           "after": "            if row is None:\n                self._memory_admitted[memory_id] = True\n                continue\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9006,7 +9006,7 @@
           "line": 2226,
           "before": "            effective = guard.effective_row(\"memory\", row)\n",
           "after": "            effective = row\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9022,7 +9022,7 @@
           "line": 2210,
           "before": "        if not self._limited():\n            self._memory_admitted.update(dict.fromkeys(unknown, True))",
           "after": "        if False:\n            self._memory_admitted.update(dict.fromkeys(unknown, True))",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9038,7 +9038,7 @@
           "line": 2014,
           "before": "            or bool(refused_memories)\n            or any(_canonical_source_id(link.get(\"source_id\")) is None for link in links)\n",
           "after": "            or any(_canonical_source_id(link.get(\"source_id\")) is None for link in links)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9054,7 +9054,7 @@
           "line": 1275,
           "before": "            if not refused_memories.isdisjoint(memories.every):\n                kept.append(_withhold_entry_text(ref, texts))\n",
           "after": "            if False:\n                kept.append(_withhold_entry_text(ref, texts))\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9070,7 +9070,7 @@
           "line": 1277,
           "before": "            elif refused_here:\n",
           "after": "            elif False:\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9086,7 +9086,7 @@
           "line": 1280,
           "before": "                names_a_readable_row = not readable.isdisjoint(sources.named | memories.named)\n",
           "after": "                names_a_readable_row = not readable.isdisjoint(memories.named)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9102,7 +9102,7 @@
           "line": 836,
           "before": "        \"memory_ids\",\n",
           "after": "",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9118,7 +9118,7 @@
           "line": 987,
           "before": "                if key_text in _TEXT_KEYS:\n                    # The text of a quote or an excerpt names no memory by itself, but a writer can type an id in it\n                    # (``memory:<id> words``), and it then holds the words of that memory. Such an id is incidental: it\n                    # is refused only when it names a stored memory the caller may not read. A quote that is an object or a\n                    # list is a structure and is read like any other, and a key that a JSON text repeats holds one quote for\n                    # each value.\n                    for value in child if isinstance(child, _RepeatedValues) else [child]:\n                        if isinstance(value, (Mapping, list, tuple)):\n                            pending.append((value, at_key))\n                        elif isinstance(value, str):\n                            every |= _every_id_in_text(value)\n                    continue\n",
           "after": "",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9134,7 +9134,7 @@
           "line": 1372,
           "before": "    if not holds:\n        return _NO_CITED_MEMORIES\n",
           "after": "    if False:\n        return _NO_CITED_MEMORIES\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9150,7 +9150,7 @@
           "line": 2218,
           "before": "        for start in range(0, len(unknown), _LOOKUP_BATCH):\n            rows.update(memory_rows_including_deleted(",
           "after": "        for start in range(0, len(unknown), 100000):\n            rows.update(memory_rows_including_deleted(",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9166,7 +9166,7 @@
           "line": 2164,
           "before": "        self._judge_memories(wanted_memories)\n",
           "after": "        pass\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9182,7 +9182,7 @@
           "line": 2029,
           "before": "_without_refused_refs(container[_SOURCE_REFS_KEY], refused, refused_memories, texts, self._readable)",
           "after": "_without_refused_refs(container[_SOURCE_REFS_KEY], refused, refused_memories, None, self._readable)",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9198,7 +9198,7 @@
           "line": 2050,
           "before": "        cited_memories = _memory_ids_named_by_revision(row)\n        self._judge(cited.every)\n",
           "after": "        cited_memories = frozenset()\n        self._judge(cited.every)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9214,7 +9214,7 @@
           "line": 1793,
           "before": "        if isinstance(events, list):\n            known = self._rows.get(memory_id)\n",
           "after": "        if False:\n            known = self._rows.get(memory_id)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9230,7 +9230,7 @@
           "line": 1187,
           "before": "    if isinstance(value, str):\n        nested = _json_container(value)\n        if nested is not None:\n            scrubbed = _withhold_entry_text(nested, texts, depth + 1, names_only=names_only)\n            return value if scrubbed is nested else _json_text(scrubbed)\n",
           "after": "    if isinstance(value, str):\n        nested = None\n        if nested is not None:\n            scrubbed = _withhold_entry_text(nested, texts, depth + 1, names_only=names_only)\n            return value if scrubbed is nested else _json_text(scrubbed)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9246,7 +9246,7 @@
           "line": 1022,
           "before": "_SCRUB_DEPTH = 100\n",
           "after": "_SCRUB_DEPTH = 100000\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9262,7 +9262,7 @@
           "line": 2176,
           "before": "            if quote_fence.entity_read_fenced:\n                payload = SavedProvenanceReader(store, fence=quote_fence).audit(payload)\n",
           "after": "            if False:\n                payload = SavedProvenanceReader(store, fence=quote_fence).audit(payload)\n",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -9279,7 +9279,7 @@
           "line": 2176,
           "before": "            if quote_fence.entity_read_fenced:\n                payload = SavedProvenanceReader(store, fence=quote_fence).audit(payload)\n",
           "after": "            if False:\n                payload = SavedProvenanceReader(store, fence=quote_fence).audit(payload)\n",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -9456,10 +9456,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 24,
+          "line": 25,
           "before": "The quote a commit saved of a memory is withheld from a caller who may not read that memory",
           "after": "The quote a commit saved of a memory is shown to every caller",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -9539,7 +9539,7 @@
           "line": 2176,
           "before": "            if quote_fence.entity_read_fenced:\n                payload = SavedProvenanceReader(store, fence=quote_fence).audit(payload)\n",
           "after": "            if False:\n                payload = SavedProvenanceReader(store, fence=quote_fence).audit(payload)\n",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -9603,7 +9603,7 @@
           "line": 2014,
           "before": "            or bool(refused_memories)\n            or any(_canonical_source_id(link.get(\"source_id\")) is None for link in links)\n",
           "after": "            or any(_canonical_source_id(link.get(\"source_id\")) is None for link in links)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9619,7 +9619,7 @@
           "line": 982,
           "before": "            named |= _memory_ids_in_text(text, at_key=at_key)\n            every |= _every_id_in_text(text)\n",
           "after": "            named |= _memory_ids_in_text(text, at_key=at_key)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9635,7 +9635,7 @@
           "line": 999,
           "before": "                if isinstance(key, str):\n                    every |= _every_id_in_text(key)\n",
           "after": "                if isinstance(key, str):\n                    pass\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9651,7 +9651,7 @@
           "line": 2104,
           "before": "                if self._memory_exists.get(memory_id, False) and not self._memory_admitted.get(memory_id, False)\n",
           "after": "                if False\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9667,7 +9667,7 @@
           "line": 2104,
           "before": "                if self._memory_exists.get(memory_id, False) and not self._memory_admitted.get(memory_id, False)\n",
           "after": "                if not self._memory_admitted.get(memory_id, False)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9683,7 +9683,7 @@
           "line": 502,
           "before": "        rows = bulk(list(memory_ids), include_deleted=True) if _takes_include_deleted(bulk) else bulk(list(memory_ids))\n",
           "after": "        rows = bulk(list(memory_ids))\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9699,7 +9699,7 @@
           "line": 502,
           "before": "        rows = bulk(list(memory_ids), include_deleted=True) if _takes_include_deleted(bulk) else bulk(list(memory_ids))\n",
           "after": "        rows = bulk(list(memory_ids))\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9715,7 +9715,7 @@
           "line": 982,
           "before": "            named |= _memory_ids_in_text(text, at_key=at_key)\n            every |= _every_id_in_text(text)\n",
           "after": "            named |= _memory_ids_in_text(text, at_key=at_key)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9731,7 +9731,7 @@
           "line": 2104,
           "before": "                if self._memory_exists.get(memory_id, False) and not self._memory_admitted.get(memory_id, False)\n",
           "after": "                if not self._memory_admitted.get(memory_id, False)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9748,7 +9748,7 @@
           "line": 2104,
           "before": "                if self._memory_exists.get(memory_id, False) and not self._memory_admitted.get(memory_id, False)\n",
           "after": "                if True\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9764,7 +9764,7 @@
           "line": 1197,
           "before": "        if texts is not None and (text := _quote_text(value)) is not None:\n            texts.add(text)\n        return None\n    return value\n",
           "after": "        return value\n    return value\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9780,7 +9780,7 @@
           "line": 1194,
           "before": "        references = _canonical_references(value)\n        if references is not None:\n            return references\n",
           "after": "        references = _canonical_references(value)\n        if False:\n            return references\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9796,7 +9796,7 @@
           "line": 1126,
           "before": "        head = word.split(\"#\", 1)[0]\n        if not _is_reference_word(head):\n            return None\n",
           "after": "        head = word.split(\"#\", 1)[0]\n        if False:\n            return None\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9812,7 +9812,7 @@
           "line": 1229,
           "before": "            elif _canonical_references(node) != node:\n                return True\n",
           "after": "            elif False:\n                return True\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9828,7 +9828,7 @@
           "line": 1229,
           "before": "            elif _canonical_references(node) != node:\n                return True\n    return False\n",
           "after": "            elif _canonical_references(node) != node:\n                return True\n    return True\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9844,7 +9844,7 @@
           "line": 1188,
           "before": "        nested = _json_container(value)\n        if nested is not None:\n            scrubbed = _withhold_entry_text(nested, texts, depth + 1, names_only=names_only)\n",
           "after": "        nested = None\n        if nested is not None:\n            scrubbed = _withhold_entry_text(nested, texts, depth + 1, names_only=names_only)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9860,7 +9860,7 @@
           "line": 1288,
           "before": "    if refused_memories and not refused_memories.isdisjoint(cited_memory_refs(refs).every):\n        return _withhold_entry_text(refs, texts)\n    return refs\n",
           "after": "    return refs\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9876,7 +9876,7 @@
           "line": 1167,
           "before": "            lowered = _product_key(key)\n            if lowered is None:\n                changed = True\n                _note_dropped(key, child, texts)\n                continue\n            if lowered in _TEXT_KEYS and not names_only:\n                if child is not None:\n                    changed = True\n                    _note_withheld(child, texts)\n                rebuilt[key] = None\n                continue\n            scrubbed = _withhold_entry_text(child, texts, depth + 1, names_only=names_only)\n",
           "after": "            lowered = key if isinstance(key, str) and key in PRODUCT_REF_KEYS else None\n            if lowered is None:\n                changed = True\n                _note_dropped(key, child, texts)\n                continue\n            if lowered in _TEXT_KEYS and not names_only:\n                if child is not None:\n                    changed = True\n                    _note_withheld(child, texts)\n                rebuilt[key] = None\n                continue\n            scrubbed = _withhold_entry_text(child, texts, depth + 1, names_only=names_only)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9892,7 +9892,7 @@
           "line": 2227,
           "before": "            self._memory_admitted[memory_id] = self._fence.admits_memory(effective if isinstance(effective, Mapping) else row)\n",
           "after": "            self._memory_admitted[memory_id] = self._fence.admits(effective if isinstance(effective, Mapping) else row)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9908,7 +9908,7 @@
           "line": 2227,
           "before": "            self._memory_admitted[memory_id] = self._fence.admits_memory(effective if isinstance(effective, Mapping) else row)\n",
           "after": "            self._memory_admitted[memory_id] = self._fence.admits(effective if isinstance(effective, Mapping) else row)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9924,7 +9924,7 @@
           "line": 1826,
           "before": "        return [self._event(event, memory_withholds=False) if isinstance(event, Mapping) else event for event in rows]  # type: ignore[misc]\n",
           "after": "        return list(rows)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -9940,7 +9940,7 @@
           "line": 1824,
           "before": "        self._judge(sources)\n        self._judge_memories(memories)\n        return [self._event(event, memory_withholds=False)",
           "after": "        return [self._event(event, memory_withholds=False)",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10004,7 +10004,7 @@
           "line": 1826,
           "before": "        return [self._event(event, memory_withholds=False) if isinstance(event, Mapping) else event for event in rows]  # type: ignore[misc]\n",
           "after": "        return list(rows)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10052,7 +10052,7 @@
           "line": 2104,
           "before": "                if self._memory_exists.get(memory_id, False) and not self._memory_admitted.get(memory_id, False)\n",
           "after": "                if False\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10068,7 +10068,7 @@
           "line": 502,
           "before": "        rows = bulk(list(memory_ids), include_deleted=True) if _takes_include_deleted(bulk) else bulk(list(memory_ids))\n",
           "after": "        rows = bulk(list(memory_ids))\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10177,10 +10177,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 24,
+          "line": 25,
           "before": "and the recent events and the agent activity of the workspace and the events of a source trace hold the payload of a confirmed commit to the same rule.",
           "after": "and nothing else holds a confirmed commit to it.",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -10277,7 +10277,7 @@
           "line": 1826,
           "before": "        return [self._event(event, memory_withholds=False) if isinstance(event, Mapping) else event for event in rows]  # type: ignore[misc]\n",
           "after": "        return list(rows)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10294,7 +10294,7 @@
           "line": 1129,
           "before": "        pieces[index] = head\n",
           "after": "        pieces[index] = word\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10310,7 +10310,7 @@
           "line": 1229,
           "before": "            elif _canonical_references(node) != node:\n                return True\n",
           "after": "            elif _canonical_references(node) is None:\n                return True\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10326,7 +10326,7 @@
           "line": 1178,
           "before": "            scrubbed = _withhold_entry_text(child, texts, depth + 1, names_only=names_only)\n            changed = changed or scrubbed is not child\n",
           "after": "            scrubbed = child if lowered in (\"memory_id\", \"source_id\", \"id\", \"ref\") else _withhold_entry_text(child, texts, depth + 1)\n            changed = changed or scrubbed is not child\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10342,7 +10342,7 @@
           "line": 1221,
           "before": "                else:\n                    pending.append(child)\n",
           "after": "                elif lowered not in (\"memory_id\", \"source_id\", \"id\", \"ref\"):\n                    pending.append(child)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10358,7 +10358,7 @@
           "line": 1129,
           "before": "        pieces[index] = head\n",
           "after": "        pieces[index] = word\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10374,7 +10374,7 @@
           "line": 1178,
           "before": "            scrubbed = _withhold_entry_text(child, texts, depth + 1, names_only=names_only)\n            changed = changed or scrubbed is not child\n",
           "after": "            scrubbed = child if lowered in (\"memory_id\", \"source_id\", \"id\", \"ref\") else _withhold_entry_text(child, texts, depth + 1)\n            changed = changed or scrubbed is not child\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10390,7 +10390,7 @@
           "line": 1129,
           "before": "        pieces[index] = head\n",
           "after": "        pieces[index] = word\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10406,7 +10406,7 @@
           "line": 2057,
           "before": "        withhold_quotes = bool(refused) or bool(refused_memories) or memory_withholds\n        texts: set[str] = set()",
           "after": "        withhold_quotes = bool(refused) or memory_withholds\n        texts: set[str] = set()",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10422,7 +10422,7 @@
           "line": 1388,
           "before": "    cited = _memory_ids_named_by_memory_copies({\"metadata_json\": row.get(\"metadata_json\")})\n    for key in _REVISION_VALUE_KEYS:\n        value = row.get(key)\n        if isinstance(value, Mapping):\n            cited |= _memory_ids_named_by_memory_copies",
           "after": "    cited = _NO_CITED_MEMORIES\n    for key in _REVISION_VALUE_KEYS:\n        value = row.get(key)\n        if isinstance(value, Mapping):\n            cited |= _memory_ids_named_by_memory_copies",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10467,10 +10467,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 24,
+          "line": 25,
           "before": "the recent events and the agent activity of the workspace and the events of a source trace hold the payload",
           "after": "the recent events of the workspace and the events of a source trace hold the payload",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -10515,10 +10515,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 24,
+          "line": 25,
           "before": "(a `#` fragment after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`, and a field that holds an id and more than an id reads `null`)",
           "after": "(a `#` fragment after a reference is kept)",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -10598,7 +10598,7 @@
           "line": 1052,
           "before": "    if isinstance(key, str):\n        lowered = key.lower()\n        if lowered in PRODUCT_REF_KEYS:\n            return lowered\n    return None\n",
           "after": "    if isinstance(key, str):\n        return key.lower()\n    return None\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10614,7 +10614,7 @@
           "line": 1052,
           "before": "    if isinstance(key, str):\n        lowered = key.lower()\n        if lowered in PRODUCT_REF_KEYS:\n            return lowered\n    return None\n",
           "after": "    if isinstance(key, str):\n        return key.lower()\n    return None\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10630,7 +10630,7 @@
           "line": 1052,
           "before": "    if isinstance(key, str):\n        lowered = key.lower()\n        if lowered in PRODUCT_REF_KEYS:\n            return lowered\n    return None\n",
           "after": "    if isinstance(key, str):\n        return key.lower()\n    return None\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10646,7 +10646,7 @@
           "line": 1052,
           "before": "    if isinstance(key, str):\n        lowered = key.lower()\n        if lowered in PRODUCT_REF_KEYS:\n            return lowered\n    return None\n",
           "after": "    if isinstance(key, str):\n        return key.lower()\n    return None\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10662,7 +10662,7 @@
           "line": 1052,
           "before": "    if isinstance(key, str):\n        lowered = key.lower()\n        if lowered in PRODUCT_REF_KEYS:\n            return lowered\n    return None\n",
           "after": "    if not isinstance(key, str):\n        return \"\"\n    lowered = key.lower()\n    if lowered in PRODUCT_REF_KEYS:\n        return lowered\n    return None\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10678,7 +10678,7 @@
           "line": 1053,
           "before": "        lowered = key.lower()\n        if lowered in PRODUCT_REF_KEYS:\n            return lowered\n",
           "after": "        lowered = key\n        if lowered in PRODUCT_REF_KEYS:\n            return lowered\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10694,7 +10694,7 @@
           "line": 1167,
           "before": "            lowered = _product_key(key)\n            if lowered is None:\n                changed = True\n                _note_dropped(key, child, texts)\n                continue\n            if lowered in _TEXT_KEYS and not names_only:\n                if child is not None:\n                    changed = True\n                    _note_withheld(child, texts)\n                rebuilt[key] = None\n                continue\n            scrubbed = _withhold_entry_text(child, texts, depth + 1, names_only=names_only)\n",
           "after": "            lowered = key.lower() if isinstance(key, str) else \"\"\n            if lowered in _TEXT_KEYS and not names_only:\n                if child is not None:\n                    changed = True\n                    _note_withheld(child, texts)\n                rebuilt[key] = None\n                continue\n            scrubbed = _withhold_entry_text(child, texts, depth + 1, names_only=names_only)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10710,7 +10710,7 @@
           "line": 1167,
           "before": "            lowered = _product_key(key)\n            if lowered is None:\n                changed = True\n                _note_dropped(key, child, texts)\n                continue\n            if lowered in _TEXT_KEYS and not names_only:\n                if child is not None:\n                    changed = True\n                    _note_withheld(child, texts)\n                rebuilt[key] = None\n                continue\n            scrubbed = _withhold_entry_text(child, texts, depth + 1, names_only=names_only)\n",
           "after": "            lowered = key.lower() if isinstance(key, str) else \"\"\n            if lowered in _TEXT_KEYS and not names_only:\n                if child is not None:\n                    changed = True\n                    _note_withheld(child, texts)\n                rebuilt[key] = None\n                continue\n            scrubbed = _withhold_entry_text(child, texts, depth + 1, names_only=names_only)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10726,7 +10726,7 @@
           "line": 1215,
           "before": "                lowered = _product_key(key)\n                if lowered is None:\n                    return True\n                if lowered in _TEXT_KEYS:\n                    if _quote_text(child) is not None:\n",
           "after": "                lowered = _product_key(key) or \"\"\n                if lowered in _TEXT_KEYS:\n                    if _quote_text(child) is not None:\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10742,7 +10742,7 @@
           "line": 1215,
           "before": "                lowered = _product_key(key)\n                if lowered is None:\n                    return True\n                if lowered in _TEXT_KEYS:\n                    if _quote_text(child) is not None:\n",
           "after": "                lowered = _product_key(key) or \"\"\n                if lowered in _TEXT_KEYS:\n                    if _quote_text(child) is not None:\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10758,7 +10758,7 @@
           "line": 1065,
           "before": "    if texts is None:\n        return\n    pending: list[object] = [key, child]\n",
           "after": "    if texts is None or texts is not None:\n        return\n    pending: list[object] = [key, child]\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10774,7 +10774,7 @@
           "line": 1042,
           "before": "PRODUCT_REF_KEYS = frozenset(SOURCE_REFERENCE_KEYS | _REFERENCE_KEYS | MEMORY_REFERENCE_KEYS | _OWN_ID_KEYS | _TEXT_KEYS)\n",
           "after": "PRODUCT_REF_KEYS = frozenset(SOURCE_REFERENCE_KEYS | _REFERENCE_KEYS | MEMORY_REFERENCE_KEYS | _OWN_ID_KEYS | _TEXT_KEYS | {\"evidence\"})\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10790,7 +10790,7 @@
           "line": 1042,
           "before": "PRODUCT_REF_KEYS = frozenset(SOURCE_REFERENCE_KEYS | _REFERENCE_KEYS | MEMORY_REFERENCE_KEYS | _OWN_ID_KEYS | _TEXT_KEYS)\n",
           "after": "PRODUCT_REF_KEYS = frozenset(SOURCE_REFERENCE_KEYS | _REFERENCE_KEYS | MEMORY_REFERENCE_KEYS | _OWN_ID_KEYS)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10806,7 +10806,7 @@
           "line": 1042,
           "before": "PRODUCT_REF_KEYS = frozenset(SOURCE_REFERENCE_KEYS | _REFERENCE_KEYS | MEMORY_REFERENCE_KEYS | _OWN_ID_KEYS | _TEXT_KEYS)\n",
           "after": "PRODUCT_REF_KEYS = frozenset(SOURCE_REFERENCE_KEYS | _REFERENCE_KEYS | _OWN_ID_KEYS | _TEXT_KEYS)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -10819,10 +10819,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 3166,
+          "line": 3173,
           "before": "            \"source_refs\": json_safe(list(request.source_refs)),\n            \"conversation_excerpt\": request.conversation_excerpt,\n",
           "after": "            \"source_refs\": [{\"source_id\": ref, \"label\": \"x\"} for ref in request.source_refs],\n            \"conversation_excerpt\": request.conversation_excerpt,\n",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -10995,10 +10995,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 24,
+          "line": 25,
           "before": "and the names of the fields are withheld with their values: the entry keeps a field only when its name is one the product writes",
           "after": "and the entry keeps every field",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -11014,7 +11014,7 @@
           "line": 1052,
           "before": "    if isinstance(key, str):\n        lowered = key.lower()\n        if lowered in PRODUCT_REF_KEYS:\n            return lowered\n    return None\n",
           "after": "    if isinstance(key, str):\n        return key.lower()\n    return None\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11030,7 +11030,7 @@
           "line": 2227,
           "before": "            self._memory_admitted[memory_id] = self._fence.admits_memory(effective if isinstance(effective, Mapping) else row)\n",
           "after": "            self._memory_admitted[memory_id] = False\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11046,7 +11046,7 @@
           "line": 1280,
           "before": "                names_a_readable_row = not readable.isdisjoint(sources.named | memories.named)\n",
           "after": "                names_a_readable_row = bool(sources.every or memories.every)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11062,7 +11062,7 @@
           "line": 1280,
           "before": "                names_a_readable_row = not readable.isdisjoint(sources.named | memories.named)\n",
           "after": "                names_a_readable_row = not readable.isdisjoint(sources.every | memories.every)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11078,7 +11078,7 @@
           "line": 1277,
           "before": "            elif refused_here:\n",
           "after": "            elif False:\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11094,7 +11094,7 @@
           "line": 1281,
           "before": "                kept.append(_withhold_entry_text(ref, texts, names_only=names_a_readable_row))\n",
           "after": "                kept.append(_withhold_entry_text(ref, texts, names_only=names_a_readable_row) if isinstance(ref, dict) else ref)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11110,7 +11110,7 @@
           "line": 1280,
           "before": "                names_a_readable_row = not readable.isdisjoint(sources.named | memories.named)\n",
           "after": "                names_a_readable_row = bool(sources.every or memories.every)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11126,7 +11126,7 @@
           "line": 1277,
           "before": "            elif refused_here:\n",
           "after": "            elif False:\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11142,7 +11142,7 @@
           "line": 1277,
           "before": "            elif refused_here:\n",
           "after": "            elif False:\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11158,7 +11158,7 @@
           "line": 2193,
           "before": "            if self._admitted[source_id]:\n                self._readable.add(source_id)\n",
           "after": "            if False:\n                self._readable.add(source_id)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11174,7 +11174,7 @@
           "line": 2228,
           "before": "            if self._memory_admitted[memory_id]:\n                self._readable.add(memory_id)\n",
           "after": "            if False:\n                self._readable.add(memory_id)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11190,7 +11190,7 @@
           "line": 2211,
           "before": "            self._memory_admitted.update(dict.fromkeys(unknown, True))\n            self._readable.update(unknown)\n",
           "after": "            self._memory_admitted.update(dict.fromkeys(unknown, True))\n            pass\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11206,7 +11206,7 @@
           "line": 1138,
           "before": "    return json.dumps(value, ensure_ascii=True)\n",
           "after": "    return json.dumps(value, ensure_ascii=False)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11222,7 +11222,7 @@
           "line": 811,
           "before": "                    pending.extend(\n                        (value, _OTHER)\n                        for value in (child if isinstance(child, _RepeatedValues) else [child])\n                        if isinstance(value, (Mapping, list, tuple))\n                    )\n",
           "after": "                    pass\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11238,7 +11238,7 @@
           "line": 811,
           "before": "                    pending.extend(\n                        (value, _OTHER)\n                        for value in (child if isinstance(child, _RepeatedValues) else [child])\n                        if isinstance(value, (Mapping, list, tuple))\n                    )\n",
           "after": "                    pending.extend(\n                        (value, _OTHER)\n                        for value in [child]\n                        if isinstance(value, (Mapping, list, tuple))\n                    )\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11254,7 +11254,7 @@
           "line": 993,
           "before": "                    for value in child if isinstance(child, _RepeatedValues) else [child]:\n",
           "after": "                    for value in [child]:\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11270,7 +11270,7 @@
           "line": 994,
           "before": "                        if isinstance(value, (Mapping, list, tuple)):\n                            pending.append((value, at_key))\n",
           "after": "                        if False:\n                            pending.append((value, at_key))\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11286,7 +11286,7 @@
           "line": 996,
           "before": "                        elif isinstance(value, str):\n                            every |= _every_id_in_text(value)\n",
           "after": "                        elif False:\n                            every |= _every_id_in_text(value)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11302,7 +11302,7 @@
           "line": 996,
           "before": "                        elif isinstance(value, str):\n                            every |= _every_id_in_text(value)\n",
           "after": "                        elif False:\n                            every |= _every_id_in_text(value)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11318,7 +11318,7 @@
           "line": 1381,
           "before": "        cited |= cited_memory_refs({_EXCERPT_KEY: container.get(_EXCERPT_KEY)})\n",
           "after": "        pass\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11334,7 +11334,7 @@
           "line": 1093,
           "before": "    else:\n        _note_dropped(None, quote, texts)\n",
           "after": "    else:\n        pass\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11350,7 +11350,7 @@
           "line": 1923,
           "before": "        if _SOURCE_REFS_KEY in metadata:\n            shown = self._shown_refs(metadata[_SOURCE_REFS_KEY])\n",
           "after": "        if False:\n            shown = self._shown_refs(metadata[_SOURCE_REFS_KEY])\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11366,7 +11366,7 @@
           "line": 1932,
           "before": "        if isinstance(raw, Mapping) and _SOURCE_REFS_KEY in raw:\n",
           "after": "        if False:\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11382,7 +11382,7 @@
           "line": 1567,
           "before": "        if isinstance(raw, Mapping):\n            holders.append(raw)\n    return holders\n",
           "after": "        if False:\n            holders.append(raw)\n    return holders\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11398,7 +11398,7 @@
           "line": 1896,
           "before": "            if _holds_words(refs):\n                memories.extend(cited_memory_refs(refs).every)\n",
           "after": "            if False:\n                memories.extend(cited_memory_refs(refs).every)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11414,7 +11414,7 @@
           "line": 1908,
           "before": "        cited_memories = cited_memory_refs(refs) if _holds_words(refs) else _NO_CITED_MEMORIES\n        self._judge(cited.every)\n",
           "after": "        cited_memories = _NO_CITED_MEMORIES\n        self._judge(cited.every)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11430,7 +11430,7 @@
           "line": 1915,
           "before": "        return _without_refused_refs(refs, refused, refused_memories, None, self._readable)\n",
           "after": "        return _without_refused_refs(refs, refused, frozenset(), None, self._readable)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11446,7 +11446,7 @@
           "line": 1915,
           "before": "        return _without_refused_refs(refs, refused, refused_memories, None, self._readable)\n",
           "after": "        return _without_refused_refs(refs, frozenset(), refused_memories, None, self._readable)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11462,7 +11462,7 @@
           "line": 1944,
           "before": "        return out if out is not None else row  # type: ignore[return-value]\n",
           "after": "        return {**row, \"metadata_json\": dict(metadata)}  # type: ignore[return-value]\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11478,7 +11478,7 @@
           "line": 1848,
           "before": "        if not self.fenced or not self._limited():\n            return list(rows)  # type: ignore[arg-type]\n        self._prefetch_refs(\n            holder.get(",
           "after": "        if not self.fenced:\n            return list(rows)  # type: ignore[arg-type]\n        self._prefetch_refs(\n            holder.get(",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11494,7 +11494,7 @@
           "line": 1861,
           "before": "        if not self.fenced or not self._limited():\n            return list(rows)  # type: ignore[arg-type]\n        self._prefetch_refs(row[key]",
           "after": "        if not self.fenced:\n            return list(rows)  # type: ignore[arg-type]\n        self._prefetch_refs(row[key]",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11510,7 +11510,7 @@
           "line": 1870,
           "before": "                shown = self._shown_refs(row[key])\n                if shown is not row[key]:\n",
           "after": "                shown = self._shown_refs(row[key])\n                if False:\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11526,7 +11526,7 @@
           "line": 1873,
           "before": "                    rebuilt[key] = None if shown is _DROPPED else shown\n",
           "after": "                    rebuilt[key] = shown\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -11542,7 +11542,7 @@
           "line": 960,
           "before": "            if payload is not None:\n                payload = _vnext_source_for_caller(store, identity, payload)\n",
           "after": "            if payload is not None:\n                pass\n",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -11574,7 +11574,7 @@
           "line": 1133,
           "before": "            updated = _vnext_source_for_caller(store, identity, updated)\n",
           "after": "            pass\n",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -11590,7 +11590,7 @@
           "line": 1059,
           "before": "{\"source\": _vnext_source_for_caller(store, identity, archived), \"archived\": True, \"trace\": trace}",
           "after": "{\"source\": archived, \"archived\": True, \"trace\": trace}",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -11606,7 +11606,7 @@
           "line": 1173,
           "before": "payload = _vnext_source_for_caller(store, identity, store.delete_source(source_id=str(source_id)))",
           "after": "payload = store.delete_source(source_id=str(source_id))",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -11622,7 +11622,7 @@
           "line": 516,
           "before": "            sources = _vnext_sources_for_caller(store, identity, sources[:10])\n",
           "after": "            sources = sources[:10]\n",
-          "sha256": "82a05f888e8057335f00777ee866741df4d10027a256855d21606f851da4ea04"
+          "sha256": "4121be031766d2ca91b19bb3951b8cb0d47521c0f05365cf4b8d0c294b4c6171"
         }
       ],
       "pytest": [
@@ -12084,10 +12084,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 24,
+          "line": 25,
           "before": "An entry beside such a ref that names nothing the caller may read is held to the same rule (a bare string and a `text` field go with the `quote`), one that names a stored source or memory the caller may read keeps its text and loses the names the product does not write with their values, and so are the refs a source made by the agent-output ingest keeps (the source routes, the source trace, the artifact trace, the context pack, the workspace and the connector status), the metadata of a quality rating and the allowed sources and scope of a queued task; the report of a consolidation run and the artifact a queue worker makes are derived from the memories their refs and tasks name, and `alicebot vnext memories audit` with an agent key applies the reader. ",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -12103,7 +12103,7 @@
           "line": 1281,
           "before": "                kept.append(_withhold_entry_text(ref, texts, names_only=names_a_readable_row))\n",
           "after": "                kept.append(ref if names_a_readable_row else _withhold_entry_text(ref, texts))\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12119,7 +12119,7 @@
           "line": 1281,
           "before": "                kept.append(_withhold_entry_text(ref, texts, names_only=names_a_readable_row))\n",
           "after": "                kept.append(ref if names_a_readable_row else _withhold_entry_text(ref, texts))\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12135,7 +12135,7 @@
           "line": 1281,
           "before": "                kept.append(_withhold_entry_text(ref, texts, names_only=names_a_readable_row))\n",
           "after": "                kept.append(ref if names_a_readable_row else _withhold_entry_text(ref, texts))\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12151,7 +12151,7 @@
           "line": 1281,
           "before": "                kept.append(_withhold_entry_text(ref, texts, names_only=names_a_readable_row))\n",
           "after": "                kept.append(ref if names_a_readable_row else _withhold_entry_text(ref, texts))\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12167,7 +12167,7 @@
           "line": 1281,
           "before": "                kept.append(_withhold_entry_text(ref, texts, names_only=names_a_readable_row))\n",
           "after": "                kept.append(ref if names_a_readable_row else _withhold_entry_text(ref, texts))\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12183,7 +12183,7 @@
           "line": 1168,
           "before": "            if lowered is None:\n                changed = True\n                _note_dropped(key, child, texts)\n                continue\n            if lowered in _TEXT_KEYS and not names_only:\n",
           "after": "            if lowered is None and not names_only:\n                changed = True\n                _note_dropped(key, child, texts)\n                continue\n            if lowered in _TEXT_KEYS and not names_only:\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12199,7 +12199,7 @@
           "line": 1172,
           "before": "            if lowered in _TEXT_KEYS and not names_only:\n",
           "after": "            if lowered in _TEXT_KEYS:\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12215,7 +12215,7 @@
           "line": 1192,
           "before": "        if names_only:\n            return value\n        references = _canonical_references(value)\n",
           "after": "        if False:\n            return value\n        references = _canonical_references(value)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12231,7 +12231,7 @@
           "line": 1065,
           "before": "    if texts is None:\n        return\n    pending: list[object] = [key, child]\n",
           "after": "    if texts is None or texts is not None:\n        return\n    pending: list[object] = [key, child]\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12247,7 +12247,7 @@
           "line": 1077,
           "before": "            nested = _json_container(node)\n            if nested is not None:\n                pending.append(nested)\n            elif _canonical_references(node) is None and",
           "after": "            nested = None\n            if nested is not None:\n                pending.append(nested)\n            elif _canonical_references(node) is None and",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12263,7 +12263,7 @@
           "line": 1160,
           "before": "    if depth > _SCRUB_DEPTH:\n        _note_dropped(None, value, texts)\n        return None\n",
           "after": "    if depth > _SCRUB_DEPTH:\n        return None\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12279,7 +12279,7 @@
           "line": 811,
           "before": "                    pending.extend(\n                        (value, _OTHER)\n                        for value in (child if isinstance(child, _RepeatedValues) else [child])\n                        if isinstance(value, (Mapping, list, tuple))\n                    )\n                    continue\n",
           "after": "                    continue\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12343,7 +12343,7 @@
           "line": 1226,
           "before": "            nested = _json_container(node)\n            if nested is not None:\n                pending.append(nested)\n            elif _canonical_references(node) != node:\n",
           "after": "            nested = None\n            if nested is not None:\n                pending.append(nested)\n            elif _canonical_references(node) != node:\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12359,7 +12359,7 @@
           "line": 1197,
           "before": "        if texts is not None and (text := _quote_text(value)) is not None:\n            texts.add(text)\n        return None\n",
           "after": "        if False and texts is not None and (text := _quote_text(value)) is not None:\n            texts.add(text)\n        return None\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12375,7 +12375,7 @@
           "line": 1352,
           "before": "    value = row.get(\"value\")\n    if isinstance(value, Mapping):\n        containers.append(value)\n",
           "after": "    value = row.get(\"value\")\n    if False:\n        containers.append(value)\n",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12391,7 +12391,7 @@
           "line": 1072,
           "before": "                pending.append(inner_key)\n",
           "after": "",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -12407,7 +12407,7 @@
           "line": 2029,
           "before": "_without_refused_refs(container[_SOURCE_REFS_KEY], refused, refused_memories, texts, self._readable)",
           "after": "_without_refused_refs(container[_SOURCE_REFS_KEY], refused, refused_memories, texts)",
-          "sha256": "417ebe9a500a60c12e3a70021a3e8d6bb0526c2e039a29d7ad9a34e0132b13f7"
+          "sha256": "1ded706c8427fccbb897ea8d9598c847304837fac2915f1b3df04b7295056134"
         }
       ],
       "pytest": [
@@ -13542,10 +13542,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 16,
+          "line": 17,
           "before": "In v0.20.0 the name was an ordinary one, a key bound to it read only",
           "after": "In v0.20.0 the name was an ordinary one, so this is a regression of main and no release had it. A key bound to it read only",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -13577,7 +13577,7 @@
           "line": 55,
           "before": "    \"connector.item_failed\": (\"sync_cursor\",),\n",
           "after": "",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13593,7 +13593,7 @@
           "line": 62,
           "before": "    \"connector.item_failed\": (\"external_id\",),\n",
           "after": "",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13609,7 +13609,7 @@
           "line": 64,
           "before": "    \"connector.sync_failed\": (\"failed_external_ids\",),\n",
           "after": "",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13625,7 +13625,7 @@
           "line": 63,
           "before": "    \"connector.sync_completed\": (\"failed_external_ids\",),\n",
           "after": "",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13641,7 +13641,7 @@
           "line": 1709,
           "before": "                field = \"sync_cursor\" if kind == \"cursor\" else \"external_id\"\n",
           "after": "                field = \"sync_cursor\"\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13657,7 +13657,7 @@
           "line": 1733,
           "before": "                if isinstance(value, (list, tuple)):\n",
           "after": "                if False:\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13673,7 +13673,7 @@
           "line": 1723,
           "before": "            cleaned = dict(payload)\n",
           "after": "            cleaned = payload\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13689,7 +13689,7 @@
           "line": 1704,
           "before": "            if not isinstance(value, str) or not isinstance(name, str):\n                return None\n",
           "after": "            if not isinstance(value, str) or not isinstance(name, str):\n                return value if isinstance(value, str) else None\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13705,7 +13705,7 @@
           "line": 62,
           "before": "    \"connector.item_failed\": (\"external_id\",),\n",
           "after": "",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13721,7 +13721,7 @@
           "line": 63,
           "before": "    \"connector.sync_completed\": (\"failed_external_ids\",),\n",
           "after": "",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13737,7 +13737,7 @@
           "line": 64,
           "before": "    \"connector.sync_failed\": (\"failed_external_ids\",),\n",
           "after": "",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13753,7 +13753,7 @@
           "line": 62,
           "before": "    \"connector.item_failed\": (\"external_id\",),\n",
           "after": "",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13766,10 +13766,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 17,
+          "line": 18,
           "before": "In v0.19.2 and in v0.20.0 an unbound `trusted_local_agent` key, whose ceiling is `public`, `internal`, `private` and `unknown`, was shown the path of a confidential file",
           "after": "In v0.20.0 an unbound `trusted_local_agent` key, whose ceiling is `public`, `internal`, `private` and `unknown`, was shown the path of a confidential file",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -13817,7 +13817,7 @@
           "line": 1672,
           "before": "            if isinstance(failed, list):\n                record[\"failed_external_ids\"] = [",
           "after": "            if False:\n                record[\"failed_external_ids\"] = [",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13833,7 +13833,7 @@
           "line": 1672,
           "before": "            if isinstance(failed, list):\n                record[\"failed_external_ids\"] = [",
           "after": "            if False:\n                record[\"failed_external_ids\"] = [",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13849,7 +13849,7 @@
           "line": 1672,
           "before": "            if isinstance(failed, list):\n                record[\"failed_external_ids\"] = [",
           "after": "            if False:\n                record[\"failed_external_ids\"] = [",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13865,7 +13865,7 @@
           "line": 1664,
           "before": "                if any(isinstance(value, str) for value in judged)\n",
           "after": "                if True\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13881,7 +13881,7 @@
           "line": 1707,
           "before": "                if name not in indexes:\n",
           "after": "                if True:\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -13897,7 +13897,7 @@
           "line": 1662,
           "before": "            index = (\n                self._import_index(result.connector_name)\n                if any(isinstance(value, str) for value in judged)\n                else {\"sync_cursor\": {}, \"external_id\": {}}\n            )\n",
           "after": "            index = {\"sync_cursor\": {}, \"external_id\": {}}\n            self._import_index(result.connector_name)\n            self._import_index(result.connector_name)\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -14006,10 +14006,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 16,
+          "line": 17,
           "before": "Each surface answers with its standard refusal and none of them names the reason: the HTTP body is the standard forbidden message and the tool error is the standard text of its code. ",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -14022,10 +14022,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 17,
+          "line": 18,
           "before": "One case stays: a key that imports a public item at a path it already knows (it was told the path or guessed it) is then shown a failed import of that same path, so it can confirm that a failed import of a path it can name exists; it learns the path it sent and nothing about the file. ",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -14438,10 +14438,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 46,
+          "line": 47,
           "before": "A report that a relabel during the run raised after the run had read its inputs is judged the same way: it is stored with the current floor, and a caller who may not read it is answered as for a missing artifact. ",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -14649,7 +14649,7 @@
           "line": 560,
           "before": "            refuse_unstorable_json(ref, name=\"each source_ref\")\n",
           "after": "            pass\n",
-          "sha256": "f1f54a7e5c31ab626432f8a08eb0c818d48dee0f9be6fe52d6c6f616a78e41e9"
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
         }
       ],
       "pytest": [
@@ -14665,7 +14665,7 @@
           "line": 86,
           "before": "                refuse_unstorable_json(ref, name=\"source_refs\")\n",
           "after": "                pass\n",
-          "sha256": "1a7f13c0815cd1560129ea024e0d3cb417602e876469a3a21d4fac911a1e69d3"
+          "sha256": "3abcc4fecd99ea0c61f383642f8cdc24e5d0e3e17ed2954ca2696188d5d762cb"
         }
       ],
       "pytest": [
@@ -14681,7 +14681,7 @@
           "line": 983,
           "before": "        loaded = loads_caller_json(payload_path.read_text(encoding=\"utf-8\"), name=\"the connector payload file\")\n",
           "after": "        loaded = json.loads(payload_path.read_text(encoding=\"utf-8\"))\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -14793,7 +14793,7 @@
           "line": 1277,
           "before": "            refuse_unstorable_json(config_json, name=\"config_json\")\n",
           "after": "            pass\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -15450,7 +15450,7 @@
           "line": 944,
           "before": "            refuse_unstorable_json(payload, name=f\"{definition.name} item\")\n",
           "after": "            pass\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -15466,7 +15466,7 @@
           "line": 939,
           "before": "            refuse_unstorable_json({key: value for key, value in payload.items() if key != \"source_refs\"},\n                                   name=f\"{definition.name} item\")\n",
           "after": "            pass\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -15482,7 +15482,7 @@
           "line": 942,
           "before": "                refuse_unstorable_json(ref, name=\"each source_ref\")\n",
           "after": "                pass\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -15498,7 +15498,7 @@
           "line": 938,
           "before": "        if isinstance(refs, list):\n",
           "after": "        if False:\n",
-          "sha256": "74d4aad57a1dd74e6e4ee0c435b1060f5e6154bd1a01206ed5a205243e761eeb"
+          "sha256": "70c90eb19a660bf6838de5c4dc5841d0c99c3f4eab9652fbc6c199716ca4e779"
         }
       ],
       "pytest": [
@@ -15672,10 +15672,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 19,
+          "line": 20,
           "before": "A direct call of the commit service stored an entry nested about 950 levels deep (in v0.19.2 and in v0.20.0)",
           "after": "The HTTP route and the MCP commit tool stored an entry nested about 950 levels deep (in v0.19.2 and in v0.20.0)",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -15688,10 +15688,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 19,
+          "line": 20,
           "before": "A request or tool call that may have written is never run twice, because it may have committed before it failed: ",
           "after": "",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -15704,10 +15704,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 19,
+          "line": 20,
           "before": "so a write that reads it, `forget` and `expire` among them, writes the placeholder back into the row and into the audit event it appends.",
           "after": "so a write that reads it keeps the row whole.",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -15720,10 +15720,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 19,
+          "line": 20,
           "before": "so a retried call leaves the events an ordinary call leaves",
           "after": "so a retried call leaves its events twice",
-          "sha256": "b8cb8c7618bcc3d53ce3d5e31ede3f7068568b9e5fe2a344ee840409ca205a25"
+          "sha256": "41a515e5a738d5f907a3eb88b511afb48c51e9f9fd6f8440fb7abdf34af6af9f"
         }
       ],
       "pytest": [
@@ -18500,6 +18500,22 @@
         "tests/unit/test_showcase_bench.py::test_the_demo_binds_the_product_key_to_the_product_project"
       ],
       "expected_failure": "test_the_demo_binds_the_product_key_to_the_product_project"
+    },
+    {
+      "name": "source-ref-shape-not-checked",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
+          "line": 565,
+          "before": "        if not isinstance(ref, str) or not ref.strip():\n            raise VNextMemoryCommitValidationError(\n                \"source_refs entries must be strings: source:<id>, memory:<id>, a bare id, or a label\"\n            )\n",
+          "after": "        if False and (not isinstance(ref, str) or not ref.strip()):\n            raise VNextMemoryCommitValidationError(\n                \"source_refs entries must be strings: source:<id>, memory:<id>, a bare id, or a label\"\n            )\n",
+          "sha256": "514d325302e61d596cc38549876f68e6001942cde24ae2dd06a24f385bcb8270"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_source_ref_shapes.py::test_the_commit_service_accepts_every_producer_string_and_refuses_the_rest"
+      ],
+      "expected_failure": "test_the_commit_service_accepts_every_producer_string_and_refuses_the_rest"
     }
   ]
 }

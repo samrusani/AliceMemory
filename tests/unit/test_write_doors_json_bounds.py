@@ -88,9 +88,9 @@ NOT_FINITE = (
     pytest.param({"a": {"b": [1, 2, json.loads("1e999")]}}, id="1e999"),
 )
 FINE = (
-    pytest.param(_nested(LIMIT), id="exactly the limit"),
-    pytest.param(_objects(LIMIT), id="objects at the limit"),
-    pytest.param({"score": 0.5, "refs": ["source:x", {"id": 1}], "big": 10**30, "text": "NaN Infinity"}, id="ordinary"),
+    pytest.param("source:" + "a" * 40, id="a source ref"),
+    pytest.param("memory:" + "b" * 40, id="a memory ref"),
+    pytest.param("https://example.test/kiln", id="a label"),
 )
 
 

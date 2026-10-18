@@ -2032,6 +2032,11 @@ class VNextConnectorService:
         *,
         policy_decision: JsonObject | None = None,
     ) -> AgentOutputIngestResult:
+        refs = payload.get("source_refs") or []
+        if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref.strip() for ref in refs):
+            raise VNextConnectorValidationError(
+                "source_refs entries must be strings: source:<id>, memory:<id>, a bare id, or a label"
+            )
         item = normalize_connector_item("agent_output", payload)
         agent_id = str(item.metadata_json.get("agent_id") or item.author or "unknown")
         agent_identity = {

@@ -1036,7 +1036,7 @@ _SCRUB_DEPTH = 100
 # CLI doors, memory proposals, capture, the review edit and supersede, consolidation, the roll-ups, the daily brief, the weekly
 # synthesis, the connection and contradiction reports, the project update scan): every one of them stores strings (``source:<id>``,
 # ``memory:<id>``, a bare id or a label) and none an object, so only a client writes a name there, through the HTTP commit door, the
-# memory proposal or the agent-output ingest, which take any object.
+# memory proposal or the agent-output ingest. Those doors now refuse an object. A row stored earlier can still hold one.
 # ``tests/unit/test_saved_quote_producer_ref_keys.py`` and ``tests/integration/test_saved_quote_producer_ref_keys_postgres.py`` run
 # the producers again and fail on a name outside this set, so a producer that starts writing an object must add its names here.
 PRODUCT_REF_KEYS = frozenset(SOURCE_REFERENCE_KEYS | _REFERENCE_KEYS | MEMORY_REFERENCE_KEYS | _OWN_ID_KEYS | _TEXT_KEYS)

@@ -86,6 +86,10 @@ class MemoryProposal:
                 refuse_unstorable_json(ref, name="source_refs")
             except JsonShapeError as exc:
                 raise MemoryProposalInvalid(str(exc)) from exc
+            if not isinstance(ref, str) or not ref.strip():
+                raise MemoryProposalInvalid(
+                    "source_refs entries must be strings: source:<id>, memory:<id>, a bare id, or a label"
+                )
 
     @property
     def summary(self) -> str:

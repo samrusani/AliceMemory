@@ -10,9 +10,9 @@ stored. The producers that need PostgreSQL (the scheduler's reports, consolidati
 by ``tests/integration/test_saved_quote_producer_ref_keys_postgres.py``.
 
 The doors a client uses to send an object are the HTTP commit route, the memory proposal and the agent-output ingest (their request
-models take any object); the MCP tools take an array of strings and refuse an object, and the CLI flag ``--source-ref`` takes a
-string, which may be JSON text. A client's object is not a producer's, and the test reads a stored client object to show that the
-scan would have seen a producer's.
+models take strings); the MCP tools take an array of strings and refuse an object, and the CLI flag ``--source-ref`` takes a
+string, which may be JSON text. A client's object is refused at the write door. A row stored by an earlier release can still hold
+an object, and the test reads one inserted as a stored row to show that the scan would have seen a producer's.
 
 Mutation: have the commit service write an object entry (``json_safe(list(request.source_refs))`` in ``_base_metadata`` replaced
 with a list of ``{"source_id": ..., "label": ...}`` built from the strings): the producers' test fails on the object and on the name
@@ -181,23 +181,37 @@ def test_the_producers_store_strings_and_no_name_outside_the_list(vault: _Vault)
 
 
 def test_the_scan_sees_the_names_of_an_object_a_client_stored(vault: _Vault) -> None:
-    """A client sends an object through the HTTP commit route (the request model takes any object) and the commit service stores
-    it as sent. The scan of the test above reads it: the field names a client chose are outside the list, so a producer that
-    started to write an object with a name of its own would fail the test above in the same way.
+    """An earlier release stored an object ref. The write door now refuses one. The scan of the test above still reads a
+    stored object: the field names a client chose are outside the list, so a producer that started to write an object
+    with a name of its own would fail the test above in the same way.
 
     Mutation: make ``_stored_entries`` skip the ``event_log`` and ``memories`` tables (this test and the one above fail).
     """
 
     vault.run_the_producers()
     with sqlite_user_connection(vault.path, vault.user) as conn:
-        VNextMemoryCommitService(SQLiteVNextStore(conn, vault.user)).commit(
-            identity=None,
-            request=MemoryCommitRequest(
-                user_id=str(vault.user), title="Kiln photo", canonical_text="The kiln is photographed.", memory_type="semantic",
-                domain="project", sensitivity="internal", confidence=0.95,
-                source_refs=({"memory_id": str(uuid4()), "page": 3, "caption": "front view"}, json.dumps({"label": "side view"})),
-            ),
-        )
+        service = VNextMemoryCommitService(SQLiteVNextStore(conn, vault.user))
+        with pytest.raises(Exception, match="source_refs entries must be strings"):
+            service.commit(
+                identity=None,
+                request=MemoryCommitRequest(
+                    user_id=str(vault.user), title="Kiln photo", canonical_text="The kiln is photographed.", memory_type="semantic",
+                    domain="project", sensitivity="internal", confidence=0.95,
+                    source_refs=({"memory_id": str(uuid4()), "page": 3, "caption": "front view"},),
+                ),
+            )
+        store = SQLiteVNextStore(conn, vault.user)
+        store.create_memory({
+            "memory_key": "kiln-photo",
+            "title": "Kiln photo",
+            "canonical_text": "The kiln is photographed.",
+            "status": "active",
+            "domain": "project",
+            "sensitivity": "internal",
+            "memory_type": "semantic",
+            "metadata_json": {"source_refs": [{"memory_id": str(uuid4()), "page": 3, "caption": "front view"}, json.dumps({"label": "side view"})]},
+            "value": {"source_refs": [{"memory_id": str(uuid4()), "page": 3, "caption": "front view"}]},
+        })
     names = set().union(*(_names_in(entry) for _t, _c, entry in _stored_entries(vault)))
     assert {"page", "caption", "label"} <= names - PRODUCT_REF_KEYS
     assert "memory_id" in names and "memory_id" in PRODUCT_REF_KEYS
