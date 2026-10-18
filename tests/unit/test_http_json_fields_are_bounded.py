@@ -34,9 +34,6 @@ from alicebot_api.http_json_types import bounded_json
 
 # field -> (the service that holds it, the test in test_write_doors_json_bounds.py or the integration twin that proves it)
 HELD_BY_A_SERVICE = {
-    "vnext_memories.VNextMemoryCommitRequest.source_refs": ("memory commit service", "test_the_commit_door_refuses_what_cannot_be_stored"),
-    "vnext_memories.VNextMemoryProposalRequest.source_refs": ("proposal builder", "test_the_proposal_builder_refuses_what_cannot_be_stored"),
-    "vnext_memories.VNextAgentOutputIngestRequest.source_refs": ("connector normalizer", "test_the_connector_normalizer_refuses_what_cannot_be_stored"),
     "vnext_memories.VNextConnectorSyncRequest.items": ("connector normalizer", "test_the_connector_normalizer_refuses_what_cannot_be_stored"),
     "vnext_memories.VNextTelegramSyncRequest.updates": ("connector normalizer", "test_the_connector_normalizer_refuses_what_cannot_be_stored"),
     "vnext_memories.VNextConnectorConfigRequest.config_json": ("connector service configuration", "test_the_connector_config_is_held_to_the_limits"),
@@ -144,7 +141,7 @@ def test_the_walk_finds_the_fields_it_should() -> None:
     # mount unless the legacy surfaces are on.
     assert "legacy_gated.TaskStepRequestSnapshot.attributes" in free
     assert "legacy_gated.CreateNextTaskStepRequest" in _request_models()
-    assert "vnext_memories.VNextMemoryCommitRequest.source_refs" in free
+    assert "vnext_memories.VNextMemoryCommitRequest.source_refs" not in free
     assert "providers.RegisterProviderRequest.metadata" in free
 
 

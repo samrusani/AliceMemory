@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -68,6 +69,32 @@ def test_the_http_models_are_422_for_an_object() -> None:
         VNextAgentOutputIngestRequest.model_validate(ingest)
     accepted = {**body, "source_refs": list(SHAPES)}
     assert VNextMemoryCommitRequest.model_validate(accepted).source_refs == list(SHAPES)
+
+
+@pytest.mark.parametrize(
+    "backup",
+    ("v0.20.0-object-source-ref.jsonl", "v0.20.2-object-source-ref.jsonl"),
+)
+def test_a_released_backup_that_holds_an_object_ref_restores(tmp_path, backup: str) -> None:
+    """A backup exported by the tagged source of v0.20.0 or v0.20.2, with an object entry the release stored.
+
+    The commit doors on main refuse that shape. Import still accepts it.
+    """
+
+    source = Path(__file__).resolve().parents[1] / "fixtures" / "legacy-object-ref-backups" / backup
+    release = backup.split("-", 1)[0]
+    header = json.loads(source.read_text().splitlines()[0])
+    assert header["record"]["application_version"] == release.removeprefix("v")
+    user_id = header["record"]["user_id"]
+    database = tmp_path / "restored.db"
+    bootstrap_database(database, user_id=user_id, user_email="local@alice")
+    from alicebot_api import onramp as onramp_module
+
+    assert onramp_module.main(["import", "--in", str(source), "--db", str(database), "--user-id", user_id]) == 0
+    row = sqlite3.connect(database).execute("SELECT metadata_json FROM memories").fetchone()
+    assert row is not None
+    stored = json.loads(row[0])
+    assert stored["agentic_memory"]["source_refs"][0]["quote"] == f"kept from the {release} vault"
 
 
 def test_a_backup_that_holds_an_object_ref_restores(tmp_path) -> None:

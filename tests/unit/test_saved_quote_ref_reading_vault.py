@@ -55,7 +55,10 @@ def _propose(vault: _Vault, refs: list[object], *, tag: str) -> str:
     size of the request. Returns the id of the memory it made."""
 
     from alicebot_api.routers import vnext_memories as router
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from tests.support.legacy_source_refs import link_strings, needs_legacy_plant, plant_legacy_source_refs
 
+    sent = link_strings(refs) if needs_legacy_plant(refs) else list(refs)
     response = router.create_vnext_memory_proposal(
         router.VNextMemoryProposalRequest(
             user_id=UUID(_USER_ID),
@@ -64,14 +67,21 @@ def _propose(vault: _Vault, refs: list[object], *, tag: str) -> str:
             domain="project",
             sensitivity="internal",
             confidence=0.6,
-            source_refs=refs,
+            source_refs=sent,
             agent_id=_AGENT_IDS["trusted"],
         ),
         authorization=f"Bearer {vault.keys['trusted']}",
     )
     body = json.loads(response.body)
     assert response.status_code == 201, body
-    return str(body["proposal"]["id"])
+    memory_id = str(body["proposal"]["id"])
+    if needs_legacy_plant(refs):
+        from alicebot_api.mcp.runtime import _sqlite_path_from_url
+
+        database = _sqlite_path_from_url(vault.context.database_url)
+        with sqlite_user_connection(database, _USER_ID) as conn:
+            plant_legacy_source_refs(SQLiteVNextStore(conn, _USER_ID), memory_id, refs, sent)
+    return memory_id
 
 
 # -- 1. a ref that merely contains a marker --------------------------------------------------------------------------

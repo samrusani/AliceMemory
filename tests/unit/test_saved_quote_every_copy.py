@@ -104,10 +104,22 @@ def _commit_with_refs(
     confidence: float = 0.95,
     expect: int = 201,
 ) -> tuple[str, str, dict[str, object]]:
-    """``POST /v0/vnext/memories/commit`` with the refs as given (the MCP tool takes strings only and has no excerpt)."""
+    """Store ``refs`` on a commit.
+
+    String entries go through ``POST /v0/vnext/memories/commit``. An object entry is legacy stored data: the door
+    refuses it, so the commit links the source ids the writer would have linked and the store then writes the
+    original entries. The MCP tool takes strings only and has no excerpt.
+    """
 
     from alicebot_api.routers import vnext_memories as router
+    from tests.support.legacy_source_refs import link_strings, needs_legacy_plant, plant_legacy_source_refs
 
+    sent = link_strings(refs) if needs_legacy_plant(refs) else list(refs)
+    request_fields: dict[str, object] = {}
+    authorization = None
+    if vault.keys.get("trusted"):
+        request_fields["agent_id"] = _AGENT_IDS["trusted"]
+        authorization = f"Bearer {vault.keys['trusted']}"
     response = router.commit_vnext_memory(
         router.VNextMemoryCommitRequest(
             user_id=UUID(_USER_ID),
@@ -117,15 +129,23 @@ def _commit_with_refs(
             domain="project",
             sensitivity="internal",
             confidence=confidence,
-            source_refs=refs,
+            source_refs=sent,
             conversation_excerpt=excerpt,
-            agent_id=_AGENT_IDS["trusted"],
+            **request_fields,
         ),
-        authorization=f"Bearer {vault.keys['trusted']}",
+        authorization=authorization,
     )
     body = json.loads(response.body)
     assert response.status_code == expect, body
-    return str(body["memory"]["id"]), _QUERY_WORDS.format(tag=tag), body
+    memory_id = str(body["memory"]["id"])
+    if needs_legacy_plant(refs) and expect == 201:
+        from alicebot_api.mcp.runtime import _sqlite_path_from_url
+        from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+
+        database = _sqlite_path_from_url(vault.context.database_url)
+        with sqlite_user_connection(database, _USER_ID) as conn:
+            plant_legacy_source_refs(SQLiteVNextStore(conn, _USER_ID), memory_id, refs, sent)
+    return memory_id, _QUERY_WORDS.format(tag=tag), body
 
 
 def _two_sources(vault: _Vault) -> tuple[str, str]:
@@ -555,25 +575,9 @@ def test_the_owner_is_shown_what_was_stored_for_a_nested_reference(
     assert _sqlite_path_from_url(context.database_url)
     owner_vault = _Vault(context, monkeypatch, with_keys=False)
     allowed, restricted = _two_sources(owner_vault)
-    from alicebot_api.routers import vnext_memories as router
-
-    response = router.commit_vnext_memory(
-        router.VNextMemoryCommitRequest(
-            user_id=UUID(_USER_ID),
-            title="Cone ten firing owner",
-            canonical_text="The cone ten firing schedule ownernested is posted on the wall calendar.",
-            memory_type="project_fact",
-            domain="project",
-            sensitivity="internal",
-            confidence=0.95,
-            source_refs=[{"source_ids": [allowed, restricted]}],
-            conversation_excerpt=_QUOTE,
-        ),
-        authorization=None,
+    memory_id, query, _body = _commit_with_refs(
+        owner_vault, [{"source_ids": [allowed, restricted]}], tag="ownernested"
     )
-    assert response.status_code == 201, response.body
-    memory_id = str(json.loads(response.body)["memory"]["id"])
-    query = _QUERY_WORDS.format(tag="ownernested")
     for variant in ("confidential", "archived"):
         owner_vault.reclassify(restricted, variant)
         for surface, answer in {

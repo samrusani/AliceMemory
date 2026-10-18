@@ -138,8 +138,8 @@ FIELD_NAMES_GOES = (
     "under a name such as `origin`, `ref_id` or `evidence`"
 )
 FIELD_NAMES_WRITE_SIDE = (
-    "the commit route, the memory proposal and the agent-output ingest still accept any name in an object ref, so the reader is the "
-    "fence for new rows and for the rows stored by earlier releases"
+    "from main the commit route, the memory proposal and the agent-output ingest refuse an object entry (v0.20.2 accepted and "
+    "stored one as sent), so the reader is the fence for the rows stored by earlier releases"
 )
 FIELD_NAMES_CHANGELOG = (
     "the names of the fields are withheld with their values: the entry keeps a field only when its name is one the product writes"

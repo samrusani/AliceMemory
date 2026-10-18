@@ -145,8 +145,9 @@ def _commit_body(app, ref: object, key: str) -> dict[str, Any]:
 def test_the_commit_route_refuses_a_ref_nested_past_the_limit_with_a_400_and_writes_nothing(app) -> None:
     before = _counts(app)
     status, answer = _post("/v0/vnext/memories/commit", _commit_body(app, _nested(LIMIT + 1), "deep"))
-    assert status == 400, answer
-    assert answer == {"detail": {"code": "invalid_request", "message": "The request is invalid"}}
+    assert status == 422, answer
+    assert answer["detail"][0]["type"] == "string_type"
+    assert answer["detail"][0]["loc"] == ["body", "source_refs", 0]
     assert _counts(app) == before
 
 
@@ -166,21 +167,23 @@ def test_the_commit_route_answers_a_number_that_is_not_finite_with_a_422_and_wri
     )
     status, answer = _call("POST", "/v0/vnext/memories/commit", body=body)
     assert status == 422, answer
-    assert answer == {"detail": [{"type": "finite_number", "loc": location, "msg": "Input should be a finite number"}]}
+    assert answer["detail"][0]["type"] == "string_type"
+    assert answer["detail"][0]["loc"][0] == location[0]
+    assert answer["detail"][0]["loc"] == ["body", "source_refs", 0]
     assert _counts(app) == before
 
 
 def test_a_ref_nested_exactly_to_the_limit_is_stored_and_every_reader_returns_it(app) -> None:
+    """An object entry is refused at the commit door, including one nested only to the limit.
+
+    v0.20.2 stored that shape. A backup that already holds it still restores (see the source-ref shape tests).
+    """
+
+    before = _counts(app)
     status, answer = _post("/v0/vnext/memories/commit", _commit_body(app, _nested(LIMIT), "limit"))
-    assert status == 201, answer
-    memory_id = answer["memory"]["id"]
-    recent = _call("GET", "/v0/vnext/memories/recent-commits", query={"user_id": app.user, "limit": "5"})
-    audit = _call("GET", f"/v0/vnext/memories/{memory_id}/audit", query={"user_id": app.user})
-    assert recent[0] == 200 and audit[0] == 200
-    assert memory_id in json.dumps(recent[1]) and memory_id in json.dumps(audit[1])
-    context = MCPRuntimeContext(database_url=app.url, user_id=app.user_id)
-    assert call_mcp_tool(context, name="alice_memory_review", arguments={"review_item_id": memory_id})
-    assert call_mcp_tool(context, name="alice_explain", arguments={"memory_id": memory_id})
+    assert status == 422, answer
+    assert answer["detail"][0]["type"] == "string_type"
+    assert _counts(app) == before
 
 
 # The proposal and the agent output doors.
@@ -191,12 +194,11 @@ def test_the_proposal_route_names_the_limit(app) -> None:
     body = {"user_id": app.user, "agent": AGENT, "title": "t", "canonical_text": "A proposal about the cobalt door.",
             "source_refs": [_nested(LIMIT + 1)]}
     status, answer = _post("/v0/vnext/memory-proposals", body)
-    assert status == 400, answer
-    assert answer == {
-        "detail": "vNext memory proposal source_refs must nest at most 64 levels and hold no number that is not finite"}
+    assert status == 422, answer
+    assert answer["detail"][0]["type"] == "string_type"
     status, answer = _call("POST", "/v0/vnext/memory-proposals", body=json.dumps(body).replace(json.dumps(_nested(LIMIT + 1)), "[NaN]").encode())
-    assert status == 422 and answer["detail"][0]["type"] == "finite_number"
-    ok = {**body, "source_refs": [_nested(LIMIT)]}
+    assert status == 422 and answer["detail"][0]["type"] == "string_type"
+    ok = {**body, "source_refs": ["source:cobalt-door"]}
     status, answer = _post("/v0/vnext/memory-proposals", ok)
     assert status == 201, answer
     assert _counts(app)[0] == before[0] + 1
@@ -207,9 +209,10 @@ def test_the_agent_output_route_refuses_what_cannot_be_stored(app) -> None:
     body = {"user_id": app.user, "agent_id": "hermes", "agent_type": "personal_assistant", "title": "Output", "content": "An output.",
             "project_scope": ["Alice"], "source_refs": [_nested(LIMIT + 1)]}
     status, answer = _post("/v0/vnext/agents/ingest-output", body)
-    assert status == 400 and answer == {"detail": "vNext agent output ingest request is invalid"}, answer
+    assert status == 422, answer
+    assert answer["detail"][0]["type"] == "string_type"
     assert _counts(app) == before
-    status, answer = _post("/v0/vnext/agents/ingest-output", {**body, "source_refs": [_nested(LIMIT - 5)]})
+    status, answer = _post("/v0/vnext/agents/ingest-output", {**body, "source_refs": ["source:cobalt-door"]})
     assert status == 201, answer
 
 
