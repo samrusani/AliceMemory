@@ -183,10 +183,25 @@ class LabelHarness:
 @pytest.fixture
 def label_harness(migrated_database_urls, monkeypatch):
     from alicebot_api import vnext_label_writes
-    from alicebot_api.routers import vnext_memories, vnext_projects, vnext_retrieval, vnext_review, workspaces
+    from alicebot_api.routers import (
+        vnext_changes,
+        vnext_memories,
+        vnext_projects,
+        vnext_retrieval,
+        vnext_review,
+        workspaces,
+    )
 
     settings = Settings(database_url=migrated_database_urls["app"])
-    for module in (main_module, vnext_memories, vnext_projects, vnext_retrieval, vnext_review, workspaces):
+    for module in (
+        main_module,
+        vnext_changes,
+        vnext_memories,
+        vnext_projects,
+        vnext_retrieval,
+        vnext_review,
+        workspaces,
+    ):
         monkeypatch.setattr(module, "get_settings", lambda: settings)
     monkeypatch.setattr(vnext_label_writes, "STRICT_LOCK_ORDER", True)
     monkeypatch.setenv("ALICE_LEGACY_SURFACES", "1")

@@ -43,6 +43,7 @@ from alicebot_api.routers import (
     continuity,
     legacy_gated,
     memories_legacy,
+    vnext_changes,
     vnext_memories,
     vnext_projects,
     vnext_retrieval,
@@ -739,6 +740,7 @@ _VNEXT_ROUTE_LOCAL_POLICY = frozenset(
         ("POST", "/v0/vnext/scheduler/pause"),
         ("POST", "/v0/vnext/scheduler/resume"),
         ("POST", "/v0/vnext/open-loops/{loop_id}/review"),
+        ("POST", "/v0/vnext/changes"),
     }
 )
 
@@ -1554,6 +1556,9 @@ def _apply_legacy_surface_mount_policy() -> None:
             continue
         retained_routes.append(route)
     app.router.routes[:] = retained_routes
+
+
+app.include_router(vnext_changes.changes_router)
 
 
 _apply_legacy_surface_mount_policy()

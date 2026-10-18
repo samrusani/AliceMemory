@@ -130,6 +130,7 @@ from .retrieval import (
     _handle_alice_task_brief_show,
     _handle_alice_timeline,
 )
+from .what_changed import _handle_alice_what_changed
 from .review import (
     _handle_alice_contradictions_detect,
     _handle_alice_contradictions_list,
@@ -212,6 +213,7 @@ _TOOL_HANDLERS = {
     "alice_memory_review": _handle_alice_memory_review,
     "alice_memory_correct": _handle_alice_memory_correct,
     "alice_explain": _handle_alice_explain,
+    "alice_what_changed": _handle_alice_what_changed,
     "alice_artifact_inspect": _handle_alice_artifact_inspect,
     "alice_context_pack": _handle_alice_context_pack,
     "alice_vnext_context_pack": _handle_alice_vnext_context_pack,

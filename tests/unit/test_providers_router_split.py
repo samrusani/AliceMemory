@@ -126,7 +126,8 @@ EXPECTED_CARRIER_NAMES_SHA256 = "946e9d456afbdc7751df671b251457a432ba444dbbdfad5
 # central vNext route policy; the app carrier keeps the same definitions.
 # Round-two re-pin: _VNEXT_ROUTE_LOCAL_POLICY and
 # _VNEXT_CENTRAL_OPERATOR_ROUTES move source GET to its route-local full fence.
-EXPECTED_CARRIER_AST_SHA256 = "fd24edcced0b556c78ffa27c5db8c0046d06940f4e6493f6aff72c9b7ef94110"
+# Re-pin: hidden-id withholding stays on the carrier, and main's what-changed registration is in the same file.
+EXPECTED_CARRIER_AST_SHA256 = "0e0d7436a328ecf53a29d6f31de2ebf0e3ec90e4e379cd902ebabbab3a9564ea"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "1a438538e16120361f92d30375cc94679d598fe4b78ba5a58a7d8a4dda6af83c"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "8b79ceaf996b8c51b5bb2f3f38a8c19a4e33796955d8b8f7a66e7ac01ea1732d"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "2fbc286e5aeaca8cb8c5ae1d0e1d7ef7816ae2d905542f967c813a047e1f2c29"

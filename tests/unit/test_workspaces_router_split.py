@@ -155,7 +155,8 @@ EXPECTED_CARRIER_NAMES_SHA256 = "946e9d456afbdc7751df671b251457a432ba444dbbdfad5
 # Re-pin 2026-10-09: _vnext_workspace_payload lists the queued tasks and the brain charter the caller may read
 # (readable_own_label_rows), names its caller for the recent-commits fallback, and holds the connector health block and
 # the doctor to the caller's guard; no other definition changed.
-EXPECTED_CARRIER_AST_SHA256 = "fd24edcced0b556c78ffa27c5db8c0046d06940f4e6493f6aff72c9b7ef94110"
+# Re-pin: hidden-id withholding stays on the carrier, and main's what-changed registration is in the same file.
+EXPECTED_CARRIER_AST_SHA256 = "0e0d7436a328ecf53a29d6f31de2ebf0e3ec90e4e379cd902ebabbab3a9564ea"
 EXPECTED_ROUTE_NODE_SHA256 = {
     "get_vnext_workspace": "62f9a0dec65229b3ff523d12e99529f1e4751f7953e26ed69fc52d184ebc9d2d",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",
