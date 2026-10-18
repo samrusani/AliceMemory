@@ -111,23 +111,49 @@ def test_a_back_pointer_in_any_spelling_reaches_the_replaced_decision(spelling: 
     assert chain["current"]["replaced"] == str(old["id"])
 
 
+@pytest.mark.parametrize("first", ["old", "new"])
 @pytest.mark.parametrize("spelling", SPELLED)
-def test_two_matches_joined_by_a_pointer_in_any_spelling_are_one_chain(spelling: str) -> None:
-    """Both decisions match the topic and the old one points at the new one. There is one chain, one ``current`` and one start.
+def test_two_matches_joined_by_a_pointer_in_any_spelling_are_one_chain(spelling: str, first: str) -> None:
+    """Both decisions match the topic and the old one points at the new one. There is one chain, one ``current`` and one start,
+    whichever of the two the search ranks first.
 
     Mutations: read ``superseded_by`` without ``identifier``: two chains come back and the old one says it is current; leave the
-    chain's own members out of the predecessors of a step: the new decision replaced nothing."""
+    chain's own members out of the predecessors of a step: the new decision replaced nothing; leave the decisions already
+    loaded out of the neighbours of a step: the chain found from the new start leaves the old one out; start a walk from a
+    start another chain already holds: the decision is in two chains."""
 
     store = _store()
-    old = _decision(store, title="price policy", canonical_text="the price is 600", valid_from="2026-01-01T00:00:00Z")
-    new = _decision(store, title="price policy", canonical_text="the price is 520", valid_from="2026-02-01T00:00:00Z")
+    heavy = "price policy price policy price policy"
+    old = _decision(store, title=heavy if first == "old" else "price policy", canonical_text="the price is 600",
+                    valid_from="2026-01-01T00:00:00Z")
+    new = _decision(store, title=heavy if first == "new" else "price policy", canonical_text="the price is 520",
+                    valid_from="2026-02-01T00:00:00Z")
     _point(store, old["id"], "superseded_by", SPELLINGS[spelling](str(new["id"])))
     chains = _ask(store, "price policy")["chains"]
     assert len(chains) == 1  # type: ignore[arg-type]
     assert sorted(_ids(chains[0])) == sorted([str(old["id"]), str(new["id"])])  # type: ignore[index]
+    assert chains[0]["start"] == str((old if first == "old" else new)["id"])  # type: ignore[index]
     assert chains[0]["current"]["id"] == str(new["id"])  # type: ignore[index]
     # The new decision names no ``supersedes``, so the old one is its predecessor only because the old one points at it.
     assert chains[0]["current"]["replaced"] == str(old["id"])  # type: ignore[index]
+
+
+@pytest.mark.parametrize("spelling", SPELLED)
+def test_a_decision_that_names_what_it_replaced_in_any_spelling_is_reached_from_the_older_one(spelling: str) -> None:
+    """Only the old decision matches the topic and it names no successor. The new decision names the old one in ``supersedes``,
+    stored in every spelling ``uuid.UUID`` takes, and is reached through the decisions that name the old one.
+
+    Mutations: read ``supersedes`` of the decisions that name another without ``identifier``; leave those decisions out of the
+    walk."""
+
+    store = _store()
+    old = _decision(store, title="price policy", canonical_text="the price is 600", valid_from="2026-01-01T00:00:00Z")
+    new = _decision(store, title="renewal tariff", canonical_text="the tariff is 520", valid_from="2026-02-01T00:00:00Z")
+    _point(store, new["id"], "supersedes", SPELLINGS[spelling](str(old["id"])))
+    chains = _ask(store, "price policy")["chains"]
+    assert len(chains) == 1  # type: ignore[arg-type]
+    assert _ids(chains[0]) == [str(old["id"]), str(new["id"])]  # type: ignore[index]
+    assert chains[0]["current"]["id"] == str(new["id"])  # type: ignore[index]
 
 
 def test_a_decision_that_names_what_it_replaced_is_reached_from_the_older_one() -> None:
