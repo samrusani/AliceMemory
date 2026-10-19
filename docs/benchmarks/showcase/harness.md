@@ -18,9 +18,9 @@ A test run uses `--extractor fake` and does not call Ollama.
 
 Every questions file states its kind: `demonstration`, `development` or `hidden`.
 
-The 210 questions written for the two company sizes are the development set. They check that the harness works. The report of that set says so. The demonstration set is the small set in `scripts/showcase_demo.py`, and the demo uses only that set. A hidden set is run through `showcase-heldout`, which takes the notes folder and the questions file it is given and does not look for any other set. The report refuses to combine kinds in one table, and it refuses to compare arms across models. `showcase-report --heldout` leaves the development-set sentence out.
+The 210 questions written for the two company sizes are the development set. They check that the harness works. The report of that set says so. The demonstration set is the small set in `scripts/showcase_demo.py`, and the demo uses only that set. A hidden set is run through `showcase-heldout`, which imports the notes folder it is given into `--run-dir` with each note's labels, the four team keys, the capture report and a snapshot. It generates nothing, and it does not look for any other question set. The same embedding and endpoint flags as `showcase-build` apply. The report refuses to combine kinds in one table, refuses to combine a held-out corpus with the generated company, and refuses to compare arms across models. `showcase-report --heldout` leaves the development-set sentence out. A held-out grade row leaves that sentence out on its own.
 
-Phase 0 builds and reports the 1,000-note company only. The 10,000-note questions stay in the development set. The 10,000-note build waits until the 1,000-note results separate the arms.
+Phase 0 builds and reports the 1,000-note company only. A held-out folder is reported under its own corpus, for example `corpus heldout (N notes)`, with N counted from that folder, and never under the generator's size. `showcase-report --run-dir RUN` refuses a held-out grade row whose `notes` differ from the count the import recorded in that run's `showcase.json`. Without `--run-dir` the report uses the count on the grade row. The 10,000-note questions stay in the development set. The 10,000-note build waits until the 1,000-note results separate the arms.
 
 ## Team keys
 
@@ -80,7 +80,7 @@ The database is the disposable local PostgreSQL the tower names, in `--database-
 
 Grep and the note-folder arm search the whole shared folder. That is what a shared note vault gives.
 
-The questions file records who may know each planted fact. HR pay is for leadership only. A pricing draft is for sales and leadership. Any other note is for every team. Leak scores use that table. They do not ask Alice who may read a note.
+The questions file records who may know each planted fact. HR pay is for leadership only. A pricing draft is for sales and leadership. Any other note is for every team. Leak scores use that table. They do not ask Alice who may read a note. A permission question asked by a team in that fact's list expects the value. A question asked by any other team expects not known.
 
 ## Demo setup
 
@@ -98,11 +98,11 @@ python scripts/alice_bench.py showcase-search --run-dir RUN --arm alice --team s
 python scripts/alice_bench.py showcase-record --run-dir RUN --id ID --arm alice --team support --answer "..."
 python scripts/alice_bench.py showcase-packet --questions questions.json --answers answers.json --out packet.json --key-out key.json
 python scripts/alice_bench.py showcase-report --grades grades.json
-python scripts/alice_bench.py showcase-heldout --notes DIR --questions FILE
+python scripts/alice_bench.py showcase-heldout --notes DIR --questions FILE --run-dir RUN
 python scripts/alice_bench.py showcase-keyed-permission --questions questions.json
 ```
 
-`showcase-record` keeps the first answer for a question, an arm, a team and a model, so a batch can stop and resume. `showcase-heldout` takes the notes folder and the questions file it is given and does not look for any other question set. Each size has 15 questions for each of the seven tasks, 210 in all. Those 210 questions are the development set. Phase 0 builds and reports the 1,000-note company only.
+`showcase-record` keeps the first answer for a question, an arm, a team and a model, so a batch can stop and resume. `showcase-heldout` imports the notes folder it is given and does not look for any other question set. Search, record and packet then use that run directory unchanged. Each size has 15 questions for each of the seven tasks, 210 in all. Those 210 questions are the development set. Phase 0 builds and reports the 1,000-note company only. A held-out report names `corpus heldout (N notes)` and does not use the generator's size.
 
 ## A 20 note run on a machine with Ollama
 
