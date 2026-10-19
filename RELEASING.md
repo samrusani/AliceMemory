@@ -67,7 +67,7 @@ readback:
 
    The required check named
    `Unit tests + live eval battery (SQLite)` is the summary job of the unit
-   tests in `tests.yml`. The unit tests run as four shard jobs, the model-free
+   tests in `tests.yml`. The unit tests run as five shard jobs, the model-free
    eval battery runs in its own job, and a coverage job combines the shard data
    and enforces the coverage threshold. The summary
    needs all of them, runs whatever they did, and fails unless each one
