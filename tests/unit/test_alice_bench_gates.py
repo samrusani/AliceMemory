@@ -182,12 +182,14 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     The job was first split into three parallel shard jobs with the same limit and line, behind a summary
     job that keeps the old name, the required status check. The tests of this release may add 90 seconds,
     and the shards are split again before another test lands if a shard passes 17 minutes. The unit
-    tests grew until the longest of the three took 17.5, 18.7 and over 20 minutes, so they run as four.
+    tests grew until the longest of the three took 17.5, 18.7 and over 20 minutes, so they ran as four.
+    The longest of the four then took 18.0 and 20.0 minutes, the second run stopped at the limit, so they run as five.
 
     Mutation: change ``timeout-minutes`` of the shard job in the workflow (the budget then describes
     a different job), change the shard count or the required check name in the workflow alone, record
     a split threshold at or above the timeout, write the pre-split sample as fewer runs than it was
-    taken over, record a shard measurement at or above the split line, or record a count of tests or
+    taken over, record a shard measurement at or above the split line, record a four-shard measurement
+    below the split line (it is why the unit tests were split a third time), or record a count of tests or
     files of the harness (it would go stale with the next test: the entry holds the measured duration
     and its note only).
     """
@@ -200,15 +202,20 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     shard_job = workflow["jobs"]["python-unit-shards"]
     summary_job = workflow["jobs"]["python-unit"]
     assert shard_job["timeout-minutes"] == budget["timeout_minutes"] == 20
-    assert budget["shard_count"] == len(shard_job["strategy"]["matrix"]["include"]) == 4
+    assert budget["shard_count"] == len(shard_job["strategy"]["matrix"]["include"]) == 5
     assert budget["required_check"] == summary_job["name"] == "Unit tests + live eval battery (SQLite)"
-    assert budget["job"].startswith("python-unit-shards ") and "shard N of 4" in budget["job"]
+    assert budget["job"].startswith("python-unit-shards ") and "shard N of 5" in budget["job"]
     assert budget["split_threshold_minutes"] == 17 < budget["timeout_minutes"]
     assert budget["new_test_budget_seconds"] == 90
     measured = budget["measured_seconds"]
     assert 0 < measured["min"] <= measured["median"] <= measured["max"] < budget["split_threshold_minutes"] * 60
     assert budget["measured_runs"] >= 1
     assert "longest of the three shard jobs" in budget["measured_scope"]
+    third = budget["third_split"]
+    assert set(third) == {"measured_on", "measured_scope", "four_shards_longest_job_seconds", "note"}
+    assert third["measured_on"] == "2026-10-19" and "longest of the four shard jobs" in third["measured_scope"]
+    four_shards = third["four_shards_longest_job_seconds"]
+    assert len(four_shards) == 2 and min(four_shards) >= budget["split_threshold_minutes"] * 60, "the sample is why they were split again"
     before = budget["before_split"]
     assert before["job"] == "python-unit (Unit tests + live eval battery, SQLite)"
     assert before["measured_runs"] == 70
