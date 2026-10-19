@@ -640,10 +640,39 @@ def compare_arms(rows: Sequence[Mapping[str, Any]]) -> str:
     return render_report(rows)
 
 
-def _group_prefix(size: Any, model: str, arm: str, task: str) -> str:
+def _report_corpus(rows: Sequence[Mapping[str, Any]]) -> str:
+    """``generated`` or ``heldout``. A missing corpus is refused before any size lookup."""
+
+    if not rows:
+        return "generated"
+    corpora: set[str] = set()
+    for row in rows:
+        if "corpus" not in row or not str(row.get("corpus") or "").strip():
+            raise bench.BenchError("a grade row must name its corpus")
+        corpora.add(str(row["corpus"]))
+    if corpora - {"generated", "heldout"}:
+        raise bench.BenchError("a grade row corpus must be generated or heldout")
+    if len(corpora) > 1:
+        raise bench.BenchError("the report refuses to combine a held-out corpus with the generated company")
+    corpus = next(iter(corpora))
+    if corpus == "generated":
+        for row in rows:
+            if "size" not in row:
+                raise bench.BenchError("a generated grade row must name its size")
+        assert_phase0_report_size(rows)
+        return corpus
+    for row in rows:
+        notes = row.get("notes")
+        if type(notes) is not int or notes < 0:
+            raise bench.BenchError("a held-out grade row must count the notes in the folder")
+    return corpus
+
+
+def _group_prefix(corpus: str, marker: Any, model: str, arm: str, task: str) -> str:
+    head = f"corpus heldout ({marker} notes)" if corpus == "heldout" else f"size {marker}"
     if model:
-        return f"size {size} model {model} arm {arm} task {task}"
-    return f"size {size} arm {arm} task {task}"
+        return f"{head} model {model} arm {arm} task {task}"
+    return f"{head} arm {arm} task {task}"
 
 
 def render_report(
@@ -667,21 +696,25 @@ def render_report(
     kinds = {question_kind(row) for row in rows}
     if len(kinds) > 1:
         raise bench.BenchError("the report refuses to combine question kinds")
-    assert_phase0_report_size(rows)
+    corpus = _report_corpus(rows)
     reported = [row for row in rows if not str(row.get("arm") or "").startswith("mem0")]
     mem0_present = len(reported) != len(list(rows))
-    groups: dict[tuple[Any, str, str, str], list[Mapping[str, Any]]] = {}
+    groups: dict[tuple[Any, ...], list[Mapping[str, Any]]] = {}
     for row in reported:
-        key = (row["size"], str(row.get("model") or ""), str(row["arm"]), str(row["task"]))
+        marker: Any = int(row["notes"]) if corpus == "heldout" else row["size"]
+        key = (corpus, marker, str(row.get("model") or ""), str(row["arm"]), str(row["task"]))
         groups.setdefault(key, []).append(row)
     lines: list[str] = []
-    by_model: dict[tuple[Any, str], list[tuple[str, str, tuple[float, float]]]] = {}
-    ordered = sorted(groups.items(), key=lambda item: (str(item[0][0]), item[0][1], item[0][3], item[0][2]))
-    for (size, model, arm, task), items in ordered:
+    by_model: dict[tuple[Any, Any, str], list[tuple[str, str, tuple[float, float]]]] = {}
+    ordered = sorted(
+        groups.items(),
+        key=lambda item: (str(item[0][0]), str(item[0][1]), item[0][2], item[0][4], item[0][3]),
+    )
+    for (group_corpus, marker, model, arm, task), items in ordered:
         correct = sum(1 for item in items if item["correct"])
         leaks = sum(1 for item in items if item["leak"])
         low, high = wilson_interval(correct, len(items))
-        prefix = _group_prefix(size, model, arm, task)
+        prefix = _group_prefix(group_corpus, marker, model, arm, task)
         line = f"{prefix}: {correct}/{len(items)} interval {low:.2f} to {high:.2f}; leaks {leaks}/{len(items)}"
         if arm == "alice":
             line = f"{line} ({ALICE_PRIVILEGE_NOTE})"
@@ -718,14 +751,15 @@ def render_report(
                 f"interval {team_low:.2f} to {team_high:.2f}; leaks {team_leaks}/{len(subset)}; "
                 f"tokens {team_tokens}; seconds {team_seconds:.3f}"
             )
-        by_model.setdefault((size, model), []).append((arm, task, (low, high)))
-    for (size, model), entries in by_model.items():
+        by_model.setdefault((group_corpus, marker, model), []).append((arm, task, (low, high)))
+    for (group_corpus, marker, model), entries in by_model.items():
         for index, (arm, task, interval) in enumerate(entries):
             for other_arm, other_task, other in entries[index + 1 :]:
                 if task == other_task and arm != other_arm and intervals_overlap(interval, other):
                     model_bit = f"model {model} " if model else ""
+                    head = f"corpus heldout ({marker} notes)" if group_corpus == "heldout" else f"size {marker}"
                     lines.append(
-                        f"size {size} {model_bit}task {task}: {arm} and {other_arm} overlap, "
+                        f"{head} {model_bit}task {task}: {arm} and {other_arm} overlap, "
                         "so this sample cannot separate them"
                     )
     if mem0_present:
@@ -734,7 +768,7 @@ def render_report(
     lines.append(HARNESS_PRIVILEGE_SECTION)
     lines.append(keyed_section(keyed, reported))
     body = "\n".join(lines) + ("\n" if lines else "")
-    if heldout:
+    if heldout or corpus == "heldout":
         return body
     return DEVELOPMENT_HEADER + body
 
@@ -827,6 +861,82 @@ def list_notes(snapshot: Path, *, cap: int) -> str:
     return raw[:cap].decode("utf-8", errors="ignore") + f"\n[output cut at {cap} bytes]\n"
 
 
+def _check_phase0_run(*, chat_model: str, endpoint: str, extractor: str) -> str:
+    local = require_local_endpoint(endpoint)
+    if chat_model not in CHAT_MODELS:
+        raise bench.BenchError("the chat model must be qwen2.5:7b, llama3.2, or gemma4")
+    if extractor == "mem0":
+        raise bench.BenchError("Phase 0 does not run the mem0 arms. They stay in the code and are not reported.")
+    return local
+
+
+class _FolderNote:
+    """A note read from a folder, for the same scope index the generated notes use."""
+
+    def __init__(self, kind: str, text: str) -> None:
+        self.kind = kind
+        self._text = text
+
+    def markdown(self) -> str:
+        return self._text
+
+
+def notes_from_folder(corpus: Path) -> list[_FolderNote]:
+    """One note per markdown file, using the kind in its front matter."""
+
+    from alicebot_api.markdown_import import _parse_frontmatter
+
+    notes: list[_FolderNote] = []
+    for path in sorted(item for item in corpus.rglob("*.md") if item.is_file()):
+        raw = path.read_text(encoding="utf-8")
+        meta, _lines = _parse_frontmatter(raw)
+        notes.append(_FolderNote(str(meta.get("kind") or "note"), raw))
+    return notes
+
+
+def _install_imported_corpus(
+    prepared: Path,
+    corpus: Path,
+    notes: Sequence[Any],
+    *,
+    chat_model: str,
+    embed_model: str,
+    local: str,
+    extractor: str,
+    embeddings: bool,
+) -> dict[str, Any]:
+    """Snapshot, import, team keys, capture report and the memory index."""
+
+    snapshot = prepared / bench.SNAPSHOT_DIRNAME
+    if snapshot.exists():
+        shutil.rmtree(snapshot)
+    shutil.copytree(corpus, snapshot)
+    embed = embedding_settings(local, embed_model) if embeddings else None
+    db_path = import_corpus(prepared, corpus, embeddings=embed)
+    keys = _create_keys(db_path)
+    capture_path = prepared / "capture.json"
+    capture = json.loads(capture_path.read_text(encoding="utf-8")) if capture_path.is_file() else {}
+    (prepared / "keys.json").write_text(json.dumps(keys, indent=1) + "\n", encoding="utf-8")
+    memory = _index_memory(
+        notes,
+        extractor=extractor,
+        chat_model=chat_model,
+        embed_model=embed_model,
+        endpoint=local,
+        store_path=prepared / "mem0",
+    )
+    (prepared / "memory.json").write_text(json.dumps(memory, indent=1) + "\n", encoding="utf-8")
+    return {
+        "notes": len(notes),
+        "models": {"chat": chat_model, "embed": embed_model, "endpoint": local},
+        "embedding_env": embedding_settings(local, embed_model),
+        "embeddings": "on" if embeddings else "off",
+        "extractor": extractor,
+        "teams": dict(TEAM_PROFILES),
+        "capture": capture,
+    }
+
+
 def build_company(
     run_dir: Path,
     *,
@@ -841,42 +951,68 @@ def build_company(
     """Import the company with each note's own labels and make one key per team."""
 
     assert_phase0_build_size(size)
-    local = require_local_endpoint(endpoint)
-    if chat_model not in CHAT_MODELS:
-        raise bench.BenchError("the chat model must be qwen2.5:7b, llama3.2, or gemma4")
-    if extractor == "mem0":
-        raise bench.BenchError("Phase 0 does not run the mem0 arms. They stay in the code and are not reported.")
+    local = _check_phase0_run(chat_model=chat_model, endpoint=endpoint, extractor=extractor)
     notes = generate(size, seed=seed)
     prepared = bench.prepare_run_dir(run_dir, create=True)
     corpus = prepared / "corpus"
     if corpus.exists():
         shutil.rmtree(corpus)
     write_notes(notes, corpus)
-    snapshot = prepared / bench.SNAPSHOT_DIRNAME
-    if snapshot.exists():
-        shutil.rmtree(snapshot)
-    shutil.copytree(corpus, snapshot)
-    embed = embedding_settings(local, embed_model) if embeddings else None
-    db_path = import_corpus(prepared, corpus, embeddings=embed)
-    keys = _create_keys(db_path)
-    capture_path = prepared / "capture.json"
-    capture = json.loads(capture_path.read_text(encoding="utf-8")) if capture_path.is_file() else {}
-    (prepared / "keys.json").write_text(json.dumps(keys, indent=1) + "\n", encoding="utf-8")
-    memory = _index_memory(notes, extractor=extractor, chat_model=chat_model, embed_model=embed_model, endpoint=local, store_path=prepared / "mem0")
-    (prepared / "memory.json").write_text(json.dumps(memory, indent=1) + "\n", encoding="utf-8")
+    installed = _install_imported_corpus(
+        prepared,
+        corpus,
+        notes,
+        chat_model=chat_model,
+        embed_model=embed_model,
+        local=local,
+        extractor=extractor,
+        embeddings=embeddings,
+    )
     manifest = {
         "schema": SHOWCASE_SCHEMA,
         "company": COMPANY_NAME,
         "size": size,
         "seed": seed,
-        "notes": len(notes),
-        "models": {"chat": chat_model, "embed": embed_model, "endpoint": local},
-        "embedding_env": embedding_settings(local, embed_model),
-        "embeddings": "on" if embeddings else "off",
-        "extractor": extractor,
-        "teams": dict(TEAM_PROFILES),
-        "capture": capture,
+        **installed,
     }
+    (prepared / "showcase.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+    return manifest
+
+
+def build_heldout_folder(
+    run_dir: Path,
+    notes_dir: Path,
+    *,
+    chat_model: str = DEFAULT_CHAT_MODEL,
+    embed_model: str = DEFAULT_EMBED_MODEL,
+    endpoint: str = DEFAULT_OLLAMA_BASE,
+    extractor: str = "fake",
+    embeddings: bool = False,
+) -> dict[str, Any]:
+    """Import a given notes folder. Nothing is generated."""
+
+    local = _check_phase0_run(chat_model=chat_model, endpoint=endpoint, extractor=extractor)
+    if not notes_dir.is_dir():
+        raise bench.BenchError("the notes folder is missing")
+    prepared = bench.prepare_run_dir(run_dir, create=True)
+    corpus = prepared / "corpus"
+    if corpus.exists():
+        shutil.rmtree(corpus)
+    shutil.copytree(notes_dir, corpus)
+    notes = notes_from_folder(corpus)
+    if not notes:
+        raise bench.BenchError("the notes folder has no markdown files")
+    installed = _install_imported_corpus(
+        prepared,
+        corpus,
+        notes,
+        chat_model=chat_model,
+        embed_model=embed_model,
+        local=local,
+        extractor=extractor,
+        embeddings=embeddings,
+    )
+    manifest = {"schema": SHOWCASE_SCHEMA, "corpus": "heldout", **installed}
     (prepared / "showcase.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
     return manifest
 
@@ -1580,9 +1716,15 @@ def add_showcase_commands(sub: argparse._SubParsersAction, commands: dict[str, A
         help="The grades are from showcase-heldout. Omit the development-set header.",
     )
 
-    held = sub.add_parser("showcase-heldout", help="Record a notes folder and a questions file the bench has not seen.")
+    held = sub.add_parser("showcase-heldout", help="Import a given notes folder and record the questions file it is given.")
+    held.add_argument("--run-dir", required=True)
     held.add_argument("--notes", required=True)
     held.add_argument("--questions", required=True)
+    held.add_argument("--chat-model", default=DEFAULT_CHAT_MODEL, choices=CHAT_MODELS)
+    held.add_argument("--embed-model", default=DEFAULT_EMBED_MODEL)
+    held.add_argument("--endpoint", default=DEFAULT_OLLAMA_BASE)
+    held.add_argument("--embeddings", default="off", choices=("off", "on"))
+    held.add_argument("--extractor", default="fake", choices=("fake", "mem0"))
 
     keyed = sub.add_parser(
         "showcase-keyed-permission",
@@ -1770,7 +1912,22 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 
 def _cmd_heldout(args: argparse.Namespace) -> int:
-    print(json.dumps(heldout_manifest(Path(args.notes), Path(args.questions)), sort_keys=True))
+    notes = Path(args.notes)
+    questions = Path(args.questions)
+    paths = heldout_manifest(notes, questions)
+    manifest = build_heldout_folder(
+        Path(args.run_dir),
+        notes,
+        chat_model=args.chat_model,
+        embed_model=args.embed_model,
+        endpoint=args.endpoint,
+        extractor=args.extractor,
+        embeddings=args.embeddings == "on",
+    )
+    print(json.dumps(paths, sort_keys=True))
+    capture = manifest.get("capture")
+    if isinstance(capture, dict) and capture:
+        print(format_capture(capture))
     return bench.EXIT_OK
 
 
