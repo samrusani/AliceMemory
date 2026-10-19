@@ -1318,3 +1318,211 @@ def test_a_grade_row_without_a_corpus_is_refused() -> None:
         assert "held-out" in str(exc)
     else:
         raise AssertionError("a held-out corpus was combined with the generated company")
+
+
+def _grade_row(**extra: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "corpus": "generated",
+        "size": 1000,
+        "arm": "alice",
+        "task": "recall",
+        "correct": True,
+        "leak": False,
+    }
+    row.update(extra)
+    return row
+
+
+def test_a_correct_abstention_counts_as_supported_complete() -> None:
+    """A correct not-known answer has nothing to cite. A wrong one does not count.
+
+    Mutation: leave supported complete as correct and cited. The abstention row scores 0.
+    """
+
+    correct = _grade_row(task="abstention", abstain=True, answer="not known")
+    text = showcase.render_report([correct])
+    assert "supported complete 1/1" in text
+    wrong = _grade_row(task="abstention", abstain=True, correct=False, answer="The figure is 128400.")
+    wrong_text = showcase.render_report([wrong])
+    assert "supported complete 0/1" in wrong_text
+    recalled = _grade_row(answer="QF-C-2041")
+    recalled_text = showcase.render_report([recalled])
+    assert "supported complete 0/1" in recalled_text
+
+
+def test_a_partial_quote_cites_and_a_paraphrase_does_not() -> None:
+    """Mutation: require the whole passage. The partial quote stops citing."""
+
+    passage = "The harbor latch sits beside the north culvert gauge in the yard."
+    evidence = [{"id": "src-9", "passage": passage}]
+    assert showcase.cites_returned("It says the harbor latch sits beside the north culvert.", evidence) is True
+    assert showcase.cites_returned("The latch is near a gauge outdoors.", evidence) is False
+    assert showcase.cites_returned("See src-9 for the note.", evidence) is True
+
+
+def test_showcase_search_uses_the_recorded_search_quality(tmp_path: Path, monkeypatch, capsys) -> None:
+    """Mutation: accept any search quality. A passage run is searched as off."""
+
+    notes = tmp_path / "notes"
+    _note(notes, "a.md", "sales", "internal", "professional", "A field note mentions harborlatchtoken.")
+    questions = tmp_path / "questions.json"
+    questions.write_text(
+        json.dumps(
+            {
+                "kind": "hidden",
+                "questions": [
+                    {
+                        "id": "h1",
+                        "kind": "hidden",
+                        "task": "recall",
+                        "team": "sales",
+                        "question": "What token is shared?",
+                        "must_include": [],
+                        "must_not_include": [],
+                        "leak_strings": [],
+                        "abstain": False,
+                        "needed_paths": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    run = tmp_path / "run"
+    built = bench.main(
+        [
+            "showcase-heldout",
+            "--notes",
+            str(notes),
+            "--questions",
+            str(questions),
+            "--run-dir",
+            str(run),
+            "--search-quality",
+            "passage",
+            "--embeddings",
+            "off",
+        ]
+    )
+    assert built == 0, capsys.readouterr()
+    manifest = json.loads((run / "showcase.json").read_text(encoding="utf-8"))
+    assert manifest["search_quality"] == "passage"
+    capsys.readouterr()
+    refused = bench.main(
+        [
+            "showcase-search",
+            "--run-dir",
+            str(run),
+            "--arm",
+            "fake-separated",
+            "--team",
+            "sales",
+            "--query",
+            "harbor",
+            "--search-quality",
+            "off",
+        ]
+    )
+    assert refused != 0
+    assert "passage" in capsys.readouterr().err
+    seen: dict[str, str | None] = {}
+
+    def spy(_run_dir: Path, *, team: str, query: str) -> str:
+        del team, query
+        seen["quality"] = os.environ.get("ALICE_SEARCH_QUALITY")
+        return "harborlatchtoken"
+
+    monkeypatch.setattr(showcase, "fake_separated_search", spy)
+    accepted = bench.main(
+        [
+            "showcase-search",
+            "--run-dir",
+            str(run),
+            "--arm",
+            "fake-separated",
+            "--team",
+            "sales",
+            "--query",
+            "harbor",
+            "--search-quality",
+            "passage",
+        ]
+    )
+    assert accepted == 0
+    assert seen["quality"] == "passage"
+
+
+def test_showcase_search_exits_with_the_bench_codes_and_records_its_budget(tmp_path: Path) -> None:
+    """A failed search and a spent budget use the bench's exit codes, not a traceback.
+
+    Mutation: return success after an error result, and keep the budget fixed at 3.
+    """
+
+    run = tmp_path / "run"
+    bench.prepare_run_dir(run, create=True)
+    (run / "memory.json").write_text(
+        json.dumps({"engine": "fake-separated", "scopes": {"sales": ["hello harbor"]}}),
+        encoding="utf-8",
+    )
+    (run / "showcase.json").write_text(json.dumps({"search_quality": "unset"}) + "\n", encoding="utf-8")
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(bench.REPO_ROOT / "apps" / "api" / "src")
+    script = [sys.executable, str(bench.REPO_ROOT / "scripts" / "alice_bench.py")]
+
+    def run_search(*extra: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [*script, "showcase-search", "--run-dir", str(run), "--arm", "fake-separated", "--team", "sales", *extra],
+            cwd=bench.REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    failed = subprocess.run(
+        [*script, "showcase-search", "--run-dir", str(run), "--arm", "grep", "--pattern", "harbor", "--team", "sales"],
+        cwd=bench.REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert failed.returncode == bench.EXIT_SEARCH_ERROR
+    assert "error:" in failed.stdout
+    assert "Traceback" not in failed.stderr
+    first = run_search("--query", "harbor", "--budget", "2")
+    assert first.returncode == 0
+    assert (run / bench.STATE_DIRNAME / "fake-separated-sales" / "budget").read_text(encoding="utf-8").strip() == "2"
+    second = run_search("--query", "harbor")
+    assert second.returncode == 0
+    spent = run_search("--query", "harbor")
+    assert spent.returncode == bench.EXIT_BUDGET
+    assert "Traceback" not in spent.stderr
+    assert "budget" in spent.stderr.casefold()
+    assert spent.stderr.count("\n") == 1
+    bare = tmp_path / "bare.json"
+    bare.write_text(
+        json.dumps([{"arm": "alice", "task": "recall", "correct": True, "leak": False}]),
+        encoding="utf-8",
+    )
+    refused = subprocess.run(
+        [*script, "showcase-report", "--grades", str(bare)],
+        cwd=bench.REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert refused.returncode == bench.EXIT_REFUSED
+    assert "Traceback" not in refused.stderr
+    assert refused.stderr.count("\n") == 1
+    assert "corpus" in refused.stderr.casefold()
+
+
+def test_alice_search_drops_the_echoed_query() -> None:
+    """Mutation: return the tool JSON unchanged. The query text stays in the output."""
+
+    raw = json.dumps({"query": "128400", "results": [], "sources": [{"excerpt": "a public note"}]})
+    text = showcase.without_echoed_query(raw)
+    assert "128400" not in text
+    assert "a public note" in text
