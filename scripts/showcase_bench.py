@@ -1710,6 +1710,7 @@ def add_showcase_commands(sub: argparse._SubParsersAction, commands: dict[str, A
 
     report = sub.add_parser("showcase-report", help="Print accuracy, intervals and leak rates.")
     report.add_argument("--grades", required=True)
+    report.add_argument("--run-dir", default=None)
     report.add_argument(
         "--heldout",
         action="store_true",
@@ -1905,8 +1906,31 @@ def _cmd_packet(args: argparse.Namespace) -> int:
     return bench.EXIT_OK
 
 
+def assert_heldout_notes_match_run(rows: Sequence[Mapping[str, Any]], run_dir: Path) -> None:
+    """A held-out grade row must carry the note count the import recorded."""
+
+    prepared = bench.require_run_dir(run_dir)
+    manifest_path = prepared / "showcase.json"
+    if not manifest_path.is_file():
+        raise bench.BenchError("the run does not record how many notes it imported")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    recorded = manifest.get("notes")
+    if type(recorded) is not int:
+        raise bench.BenchError("the run does not record how many notes it imported")
+    for row in rows:
+        if str(row.get("corpus") or "") != "heldout":
+            continue
+        notes = row.get("notes")
+        if notes != recorded:
+            raise bench.BenchError(
+                f"a held-out grade row says {notes} notes and the import recorded {recorded}"
+            )
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     rows = json.loads(Path(args.grades).read_text(encoding="utf-8"))
+    if args.run_dir:
+        assert_heldout_notes_match_run(rows, Path(args.run_dir))
     print(render_report(rows, heldout=bool(args.heldout)), end="")
     return bench.EXIT_OK
 

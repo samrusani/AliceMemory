@@ -1212,6 +1212,74 @@ def test_showcase_heldout_imports_a_notes_folder_and_the_report_names_that_corpu
     assert "1,000-note" not in text
 
 
+def test_showcase_report_refuses_a_heldout_count_that_differs_from_the_import(tmp_path: Path, capsys) -> None:
+    """The import's note count wins when the report names the run.
+
+    Mutation: do not compare grade rows with showcase.json. The wrong count is printed.
+    """
+
+    run = tmp_path / "run"
+    bench.prepare_run_dir(run, create=True)
+    manifest = run / "showcase.json"
+    grades = tmp_path / "grades.json"
+
+    def grade(notes: int) -> None:
+        grades.write_text(
+            json.dumps(
+                [
+                    {
+                        "corpus": "heldout",
+                        "notes": notes,
+                        "arm": "alice",
+                        "task": "recall",
+                        "correct": True,
+                        "leak": False,
+                        "kind": "hidden",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    manifest.write_text("{}\n", encoding="utf-8")
+    grade(12)
+    missing = bench.main(["showcase-report", "--grades", str(grades), "--run-dir", str(run)])
+    assert missing != 0
+    assert "notes" in capsys.readouterr().err.casefold()
+    manifest.write_text(json.dumps({"corpus": "heldout", "notes": 12}) + "\n", encoding="utf-8")
+    grade(11)
+    refused = bench.main(["showcase-report", "--grades", str(grades), "--run-dir", str(run)])
+    assert refused != 0
+    err = capsys.readouterr().err
+    assert "11" in err and "12" in err
+    grade(12)
+    accepted = bench.main(["showcase-report", "--grades", str(grades), "--run-dir", str(run)])
+    assert accepted == 0
+    assert "corpus heldout (12 notes)" in capsys.readouterr().out
+    grade(11)
+    trusted = bench.main(["showcase-report", "--grades", str(grades)])
+    assert trusted == 0
+    assert "corpus heldout (11 notes)" in capsys.readouterr().out
+    generated = tmp_path / "generated.json"
+    generated.write_text(
+        json.dumps(
+            [
+                {
+                    "corpus": "generated",
+                    "size": 1000,
+                    "arm": "alice",
+                    "task": "recall",
+                    "correct": True,
+                    "leak": False,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    left = bench.main(["showcase-report", "--grades", str(generated), "--run-dir", str(run)])
+    assert left == 0
+
+
 def test_a_grade_row_without_a_corpus_is_refused() -> None:
     """Mutation: drop the corpus check. This row is reported, or it raises KeyError."""
 
