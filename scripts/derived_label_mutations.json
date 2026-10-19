@@ -4246,8 +4246,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py\"",
           "after": "tests/performance/test_label_read_handoff_budget.py\"",
-          "sha256": "9bcf64ee25daf17cefb6ff0253564fa26b3fc0b0cbcf4c43b529e91a3cea2d49",
-          "line": 2566
+          "sha256": "48cf04e420886a25e468c47356d3c11f57e2f5998503153faf4703cf79ab933f",
+          "line": 2570
         }
       ],
       "pytest": [
@@ -12484,10 +12484,10 @@
       "edits": [
         {
           "file": ".github/workflows/tests.yml",
-          "line": 2382,
+          "line": 2386,
           "before": "          ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"\n",
           "after": "",
-          "sha256": "9bcf64ee25daf17cefb6ff0253564fa26b3fc0b0cbcf4c43b529e91a3cea2d49"
+          "sha256": "48cf04e420886a25e468c47356d3c11f57e2f5998503153faf4703cf79ab933f"
         }
       ],
       "pytest": [
@@ -17599,8 +17599,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
           "after": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
-          "sha256": "9bcf64ee25daf17cefb6ff0253564fa26b3fc0b0cbcf4c43b529e91a3cea2d49",
-          "line": 2520
+          "sha256": "48cf04e420886a25e468c47356d3c11f57e2f5998503153faf4703cf79ab933f",
+          "line": 2524
         }
       ],
       "pytest": [
@@ -17871,8 +17871,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
           "after": "          ALICE_READ_ABSOLUTE_GATE: \"1\"\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
-          "sha256": "9bcf64ee25daf17cefb6ff0253564fa26b3fc0b0cbcf4c43b529e91a3cea2d49",
-          "line": 2521
+          "sha256": "48cf04e420886a25e468c47356d3c11f57e2f5998503153faf4703cf79ab933f",
+          "line": 2525
         }
       ],
       "pytest": [
@@ -17887,8 +17887,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_round2_read_budget_postgres.py::test_postgres_round2_read_budgets[one-hidden]'\n",
           "after": "",
-          "sha256": "9bcf64ee25daf17cefb6ff0253564fa26b3fc0b0cbcf4c43b529e91a3cea2d49",
-          "line": 2387
+          "sha256": "48cf04e420886a25e468c47356d3c11f57e2f5998503153faf4703cf79ab933f",
+          "line": 2391
         }
       ],
       "pytest": [
@@ -17903,8 +17903,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_read_handoff_budget_postgres.py::test_postgres_five_thousand_native_read_budgets[False]'\n",
           "after": "",
-          "sha256": "9bcf64ee25daf17cefb6ff0253564fa26b3fc0b0cbcf4c43b529e91a3cea2d49",
-          "line": 2388
+          "sha256": "48cf04e420886a25e468c47356d3c11f57e2f5998503153faf4703cf79ab933f",
+          "line": 2392
         }
       ],
       "pytest": [
@@ -18460,7 +18460,7 @@
           "file": "scripts/showcase_bench.py",
           "before": "SUPPORT_PROFILE = \"memory_proposal_agent\"",
           "after": "SUPPORT_PROFILE = \"admin_agent\"",
-          "sha256": "2d4d33c21cd2ea3588f8f5aa56cd3542bab5f6165b66af83f4ea04ee6e326b06",
+          "sha256": "2beda7b53082c31d25281724cfe6473ab951cceb083ae6523221d93b8efc7f18",
           "line": 46
         }
       ],
@@ -18476,7 +18476,7 @@
           "file": "scripts/showcase_visibility.py",
           "before": "    return frozenset(fact[\"may_know\"])",
           "after": "    from alicebot_api.vnext_agent_control import _profile_sensitivity, permitted_domains\n    from alicebot_api.vnext_memory_commit import VNEXT_SENSITIVITY_LEVELS\n    domain = str(fact.get(\"domain\") or \"professional\")\n    sensitivity = str(fact.get(\"sensitivity\") or \"internal\")\n    allowed: list[str] = []\n    profiles = (\n        (\"sales\", \"trusted_local_agent\"),\n        (\"support\", \"memory_proposal_agent\"),\n        (\"product\", \"project_scoped_agent\"),\n        (\"leadership\", \"admin_agent\"),\n    )\n    for team, profile in profiles:\n        ceiling = set(_profile_sensitivity(profile))\n        if ceiling < set(VNEXT_SENSITIVITY_LEVELS) and sensitivity not in ceiling:\n            continue\n        domains = permitted_domains(profile)\n        if domains is not None and domain not in domains:\n            continue\n        allowed.append(team)\n    return frozenset(allowed)",
-          "sha256": "8ee01c065a3cbce198cef918194ebb80dbca27827cffb119738df8cc0b534969",
+          "sha256": "e79b64faaa0de32295377a40997e169de89f5587359ab9965066942712469082",
           "line": 42
         }
       ],
@@ -18492,8 +18492,8 @@
           "file": "scripts/showcase_demo.py",
           "before": "    \"\"\"The project scope stored on the product key.\"\"\"\n\n    return project_id",
           "after": "    \"\"\"The project scope stored on the product key.\"\"\"\n\n    return None",
-          "sha256": "975113f10b4a94bc479f2a9b1c4c8fe0126903a177f39a48dbcd3daac5c6bdd1",
-          "line": 23
+          "sha256": "8c7e8a88c7879ae18df4caf08e740d035aea9baae6023f361375a8a4f747d3c2",
+          "line": 32
         }
       ],
       "pytest": [

@@ -19,6 +19,15 @@ PRODUCT_PROJECT_SLUG = "quenby-product"
 PRODUCT_AGENT_ID = "showcase-product"
 
 
+def demonstration_questions() -> dict[str, object]:
+    """The demo's own small set. It is not the development set of 210 questions."""
+
+    document = showcase.demonstration_question_document()
+    if document.get("kind") != "demonstration":
+        raise bench.BenchError("the demo uses its own demonstration set only")
+    return document
+
+
 def demo_product_binding(project_id: str) -> str | None:
     """The project scope stored on the product key."""
 
