@@ -72,9 +72,19 @@ Optional:
 ## Default Tool Surface
 
 - `alice_memory_commit` — explicit policy-checked memory write with commit / confirmation / review / reject outcomes
-- `alice_recall` — hybrid full-text + vector search with fused ranking; hard
+- `alice_recall`: hybrid full-text + vector search with fused ranking; hard
   pre-limit scopes support `thread_id`, `task_id`, `project`/`projects`,
-  `person`/`people`, and absolute `since`/`until` bounds
+  `person`/`people`, and absolute `since`/`until` bounds. Its `sources` are
+  imported documents. Unreleased (on main, not in v0.20.2): with
+  `ALICE_SEARCH_QUALITY=passage`, `alice_recall` returns up to three passages
+  from one document and ranks passages across documents. v0.20.2 returns one
+  passage per document. The switch is off by default on main. A PostgreSQL
+  caller whose key has limits still gets one passage per document when the
+  switch is `passage`. Each passage entry adds `chunk_index`, and
+  `source_count` counts entries. When no memory in the result names a source,
+  the extra memories added to `results` come from the first source entry,
+  which can be a different document than the one v0.20.2 put first. The
+  context pack and the brief stay on one passage per document.
 - `alice_resume` — resumption brief for a project, person, or thread
 
 `ALICE_MCP_FULL_TOOLS=1` also advertises `alice_capture`, `alice_context_pack`,

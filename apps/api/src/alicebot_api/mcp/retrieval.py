@@ -46,6 +46,7 @@ from alicebot_api.task_briefing import (
     get_persisted_task_brief,
 )
 from alicebot_api.vnext_agent_control import (
+    AgentIdentity,
     AgentPolicyBlockedError,
     PolicyDecision,
 )
@@ -184,6 +185,21 @@ def _recall_source_scope(retrieval_filters: Mapping[str, object]) -> _ResolvedRe
     )
 
 
+def recall_source_ranking(store: object, identity: AgentIdentity | None) -> SourceRanking:
+    """The ranking ``alice_recall`` asks for.
+
+    Read here, with the store kind and the caller's identity, so the later
+    change that makes passage the default on SQLite is one line in this
+    function. A PostgreSQL caller whose key has limits stays on document
+    mode even when ``ALICE_SEARCH_QUALITY=passage``. The owner and an
+    unbound admin key have no limits. The service never reads the switch.
+    """
+
+    if type(store).__name__ == "PostgresVNextStore" and SourceReadFence.for_identity(identity).entity_read_fenced:
+        return SourceRanking.document()
+    return SourceRanking.from_environment()
+
+
 def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     query = _parse_required_text(arguments, "query")
     limit = _parse_int(
@@ -304,9 +320,9 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             # hint: without this the excerpt path is a way around a control
             # the pack enforces.
             scope=recall_scope,
-            # Written here on purpose. Recall ranks sources by document, the
-            # ranking v0.20.0 has, until the passage stage exists.
-            ranking=SourceRanking.document(),
+            # Written here on purpose. The switch and the PostgreSQL
+            # limited-key rule are applied at this edge, not inside the service.
+            ranking=recall_source_ranking(store, context.agent_identity),
             winning_memories=ordered_rows,
         )
         window_start = retrieval_filters.get("scope_window_start")

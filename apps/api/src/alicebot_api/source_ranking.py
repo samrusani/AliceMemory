@@ -13,9 +13,11 @@ Fields
 ``mode``
     ``document`` is the ranking v0.20.0 has: sources are fused by document, each
     document shows the one chunk that won, and the result holds at most one entry
-    per document. ``passage`` is the ranking of the passage-level slice: chunks
+    per document.     ``passage`` is the ranking of the passage-level slice: chunks
     rank on their own, several passages of one document may come back and the same
-    source id may repeat. Nothing builds or runs ``passage`` yet.
+    source id may repeat. ``alice_recall`` runs it when
+    ``ALICE_SEARCH_QUALITY=passage``. The pack, the brief and every other caller
+    stay on ``document``.
 
 ``passages_per_source``
     The most passages one document may contribute in ``passage`` mode. Document
@@ -30,14 +32,15 @@ Why a required argument
 
 A defaulted ``ranking`` would be a silent choice for whoever forgets it. The
 retrieval service therefore takes it with no default, and a caller writes
-``SourceRanking.document()`` where it means the ranking v0.20.0 has. Until the
-passage stage exists the service refuses every other value (see
-``VNextRetrievalService._source_stage_lists``), so a value that no code path can
-honour is never accepted and ignored.
+``SourceRanking.document()`` where it means the ranking v0.20.0 has. A passage
+value with the legacy lexical query is the passage stage. ``lexical="improved"``
+and ``ALICE_SEARCH_QUALITY=on`` stay refused until that slice is built.
 """
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final, Literal, get_args
 
@@ -49,6 +52,14 @@ SOURCE_LEXICAL_MODES: Final[tuple[str, ...]] = get_args(SourceLexicalMode)
 
 #: Document mode shows one chunk per document.
 DOCUMENT_PASSAGES_PER_SOURCE: Final[int] = 1
+
+#: The most passages one document contributes in passage mode.
+#: The tower's cap rule changes this one line. Ties in that rule prefer 3.
+PASSAGES_PER_SOURCE: Final[int] = 3
+
+#: ``off`` is document mode, ``passage`` is the passage stage, ``on`` stays refused.
+SEARCH_QUALITY_ENV: Final[str] = "ALICE_SEARCH_QUALITY"
+_SEARCH_QUALITY_VALUES: Final[tuple[str, ...]] = ("off", "passage", "on")
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,3 +89,35 @@ class SourceRanking:
         """The ranking v0.20.0 has. The value of every caller that is not ``alice_recall``."""
 
         return cls(mode="document", passages_per_source=DOCUMENT_PASSAGES_PER_SOURCE, lexical="legacy")
+
+    @classmethod
+    def passage(cls) -> SourceRanking:
+        """Passage mode at the cap in ``PASSAGES_PER_SOURCE``, legacy lexical query."""
+
+        return cls(mode="passage", passages_per_source=PASSAGES_PER_SOURCE, lexical="legacy")
+
+    @classmethod
+    def from_environment(cls, environ: Mapping[str, str] | None = None) -> SourceRanking:
+        """The ranking ``ALICE_SEARCH_QUALITY`` names.
+
+        Unset and ``off`` are document mode. ``passage`` is :meth:`passage`.
+        ``on`` is the passage cap with the improved lexical query, which this
+        build refuses at the stage. Any other value is refused here. Library
+        code does not call this: the MCP recall edge does, then applies the
+        PostgreSQL limited-key rule.
+        """
+
+        source = os.environ if environ is None else environ
+        raw = source.get(SEARCH_QUALITY_ENV)
+        if raw is None:
+            return cls.document()
+        value = raw.strip().casefold()
+        if value == "off":
+            return cls.document()
+        if value == "passage":
+            return cls.passage()
+        if value == "on":
+            return cls(mode="passage", passages_per_source=PASSAGES_PER_SOURCE, lexical="improved")
+        raise ValueError(
+            f"{SEARCH_QUALITY_ENV} must be one of {', '.join(_SEARCH_QUALITY_VALUES)}"
+        )

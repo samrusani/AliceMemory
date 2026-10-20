@@ -174,7 +174,7 @@ def test_the_products_own_compact_fields_are_all_classified() -> None:
 
     from alicebot_api.mcp.context import _COMPACT_SOURCE_FIELDS
 
-    non_string_source_fields = {"derived_memory_corrected"}
+    non_string_source_fields = {"derived_memory_corrected", "chunk_index"}
     for field in _COMPACT_SOURCE_FIELDS:
         if field in non_string_source_fields:
             continue

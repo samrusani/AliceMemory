@@ -41,6 +41,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+import hashlib
 import inspect
 import json
 import logging
@@ -89,6 +90,7 @@ from alicebot_api import vnext_currency
 # "reranker" blocks in VNextRetrievalService.
 from alicebot_api import vnext_reranker
 from alicebot_api.vnext_reranker import RerankProvider, get_reranker_provider
+from alicebot_api.credential_floor import credential_verdict
 from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.vnext_entity_names import normalize_entity_name
 from alicebot_api.vnext_embeddings import (
@@ -368,6 +370,14 @@ SOURCE_CHUNK_STAGE_DISABLED_NO_STORE_SUPPORT = "disabled: store does not support
 # outrank the best chunk of another, so the chunk pass over-fetches
 # before deduplicating down to distinct parent sources.
 SOURCE_CHUNK_CANDIDATE_MULTIPLIER = 4
+# Passage mode reads this many chunk rows before it starts deepening, and
+# never fewer, so a short ``limit`` still sees past one long document.
+SOURCE_PASSAGE_CANDIDATE_FLOOR = 32
+# Deepening stops here. Past it the stage keeps the rows of that fetch,
+# returns fewer entries and records "scan capped". It does not raise.
+SOURCE_PASSAGE_SCAN_MAX_ROWS = 2048
+SOURCE_PASSAGE_SCAN_CAPPED = "scan capped"
+SOURCE_PASSAGE_SCAN_COMPLETE = "complete"
 # Supersession chain notes (high tier): walk supersedes/superseded_by
 # pointers at most this many hops in each direction, with a cycle guard.
 SUPERSESSION_CHAIN_HOP_LIMIT = 5
@@ -435,21 +445,62 @@ class VNextRetrievalCompletenessError(RuntimeError):
 
 
 def _require_document_ranking(ranking: object) -> None:
-    """Refuse every source ranking the source stage cannot honour yet.
+    """Refuse every document ranking other than ``SourceRanking.document()``.
 
-    Only ``SourceRanking.document()`` has a code path, so any other value is
-    refused here and never accepted and ignored. A caller that writes a passage
-    ranking before the passage stage exists learns it at the call, not from a
-    result that looks like the ranking it asked for. The passage slice replaces
-    this refusal with the stage.
+    Document mode shows one chunk per document. A different cap or lexical
+    mode is not that ranking and is refused, never accepted and ignored.
     """
 
     if not isinstance(ranking, SourceRanking):
         raise VNextRetrievalValidationError("ranking must be a SourceRanking value")
     if ranking != SourceRanking.document():
         raise VNextRetrievalValidationError(
-            "this build ranks sources by document only; pass SourceRanking.document()"
+            "document mode shows one passage per document; pass SourceRanking.document()"
         )
+
+
+def _require_supported_ranking(ranking: object) -> SourceRanking:
+    """The rankings this build runs: document mode, or passage mode on the legacy query.
+
+    ``lexical="improved"`` (what ``ALICE_SEARCH_QUALITY=on`` asks for) stays
+    refused. A value that is not a ``SourceRanking`` is refused before any
+    field is read, so an object that compares equal to every value cannot
+    pass by equality alone.
+    """
+
+    if not isinstance(ranking, SourceRanking):
+        raise VNextRetrievalValidationError("ranking must be a SourceRanking value")
+    if ranking.lexical != "legacy":
+        raise VNextRetrievalValidationError(
+            "this build ranks sources with the legacy lexical query only"
+        )
+    if ranking.mode == "document":
+        _require_document_ranking(ranking)
+        return ranking
+    if ranking.mode == "passage":
+        return ranking
+    raise VNextRetrievalValidationError("ranking must be a SourceRanking value")
+
+
+def _passage_text_hash(text: str) -> str:
+    """Identity of a passage after whitespace and case are normalised."""
+
+    normalized = " ".join(text.split()).casefold()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _source_captured_later(left: Mapping[str, object], right: Mapping[str, object]) -> bool:
+    """True when ``left`` was captured after ``right``, or at the same time with a greater id."""
+
+    left_time = _parse_timestamp(left.get("captured_at"))
+    right_time = _parse_timestamp(right.get("captured_at"))
+    if left_time != right_time:
+        if left_time is None:
+            return False
+        if right_time is None:
+            return True
+        return left_time > right_time
+    return str(left.get("id") or "") > str(right.get("id") or "")
 
 
 class VNextRetrievalStore(Protocol):
@@ -1075,6 +1126,7 @@ def _fetch_filtered_prefix(
     predicate_applied_before_limit: bool = False,
     initial_limit: int | None = None,
     max_rows: int | None = None,
+    incomplete: list[bool] | None = None,
 ) -> tuple[list[JsonObject], StageSourceT]:
     """Fetch/select a ranked prefix with finite legacy compatibility deepening.
 
@@ -1086,8 +1138,11 @@ def _fetch_filtered_prefix(
     deduplicated, repeated/non-growing prefixes fail closed, and an adapter
     that still returns a full prefix at ``LEGACY_SCOPED_SCAN_MAX_ROWS`` raises
     ``VNextRetrievalCompletenessError`` instead of doubling forever or
-    returning a false-negative pack. ``max_rows`` lowers that ceiling for a
-    caller that would rather stop early; it never raises it.
+    returning a false-negative pack.     ``max_rows`` lowers that ceiling for a
+    caller that would rather stop early; it never raises it. ``incomplete``,
+    when passed, is a one-element list: a shortfall that would raise sets
+    ``incomplete[0]`` and returns the filtered rows of the last fetch instead.
+    The default still raises.
     """
     if predicate_applied_before_limit:
         rows, source = fetch(target)
@@ -1106,11 +1161,14 @@ def _fetch_filtered_prefix(
         filtered = _dedupe_retrieval_rows(select_rows(rows))
         if len(filtered) >= target or len(raw_rows) < limit:
             return filtered, source
-        if len(rows) <= previous_unique_count:
-            raise VNextRetrievalCompletenessError(
-                "legacy scoped retrieval adapter returned a repeated or non-progressing prefix"
-            )
-        if limit >= scan_ceiling:
+        if len(rows) <= previous_unique_count or limit >= scan_ceiling:
+            if incomplete is not None:
+                incomplete[0] = True
+                return filtered, source
+            if len(rows) <= previous_unique_count:
+                raise VNextRetrievalCompletenessError(
+                    "legacy scoped retrieval adapter returned a repeated or non-progressing prefix"
+                )
             raise VNextRetrievalCompletenessError(
                 "legacy scoped retrieval adapter did not prove exhaustion within "
                 f"{scan_ceiling} rows"
@@ -3562,7 +3620,25 @@ class VNextRetrievalService:
         / ``get_source``) are skipped with an honest label instead of
         failing, so minimal stores and test fakes keep working. The stage
         record reports each list's candidate count under its stage key.
+
+        Passage mode does not fuse. It runs ``_passage_excerpts`` and returns
+        those entries under ``chunk_fts`` so a direct caller still receives a
+        list. ``search_source_excerpts`` is the caller that returns them as
+        excerpts. ``lexical="improved"`` is refused before a store is touched.
         """
+        checked = _require_supported_ranking(ranking)
+        if checked.mode == "passage":
+            excerpts, record = self._passage_excerpts(
+                query=query,
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                limit=limit,
+                winning_memories=winning_memories,
+                ranking=checked,
+                scope=scope,
+                anchor=anchor,
+            )
+            return {SOURCE_STAGE_CHUNK_FTS: excerpts}, record
         _require_document_ranking(ranking)
         # source id -> the chunk this stage ranked best, for the packed
         # excerpt. Reset per run so a previous query's winner is never reused.
@@ -3686,11 +3762,11 @@ class VNextRetrievalService:
             )
             for memory in winning_memories:
                 for link in links_by_target.get(str(memory.get("id")), []):
-                    source_id = link.get("source_id")
-                    if source_id is None or str(source_id) in seen_provenance:
+                    linked_id = link.get("source_id")
+                    if linked_id is None or str(linked_id) in seen_provenance:
                         continue
-                    seen_provenance.add(str(source_id))
-                    provenance_ids.append(str(source_id))
+                    seen_provenance.add(str(linked_id))
+                    provenance_ids.append(str(linked_id))
             provenance_sources = _resolve_sources(provenance_ids)[:limit]
             ranked_lists[SOURCE_STAGE_PROVENANCE] = provenance_sources
 
@@ -3986,6 +4062,322 @@ class VNextRetrievalService:
         if callable(check):
             check(query)
 
+    def _passage_excerpts(
+        self,
+        *,
+        query: str,
+        domains: list[str],
+        sensitivity_allowed: list[str],
+        limit: int,
+        winning_memories: Sequence[JsonObject],
+        ranking: SourceRanking,
+        scope: _ResolvedRetrievalScope | None,
+        anchor: TemporalAnchor | None = None,
+    ) -> tuple[list[JsonObject], JsonObject]:
+        """Passage mode: several chunks of one document, ranked across documents.
+
+        The steps stay in this order because a row the caller may not read has
+        to be gone before it can take a slot, win a duplicate, or fill the cap:
+
+        1. Chunk candidates for the strict query. Resolve each parent and drop one
+           that does not come back or that ``_allowed`` refuses.
+        2. Collapse exact duplicates (whitespace and case). Keep the row whose
+           source was captured last, and on a tie the greater source id.
+        3. Drop a passage ``credential_verdict`` flags, and count it.
+        4. Keep at most ``passages_per_source`` rows of each source, in rank order.
+           The scan deepens on those usable passages until the result fills, the
+           store returns a short prefix, or ``SOURCE_PASSAGE_SCAN_MAX_ROWS`` is
+           reached. ``scan capped`` is recorded only in that last case. It does
+           not raise.
+        6. Take the first ``limit - limit // 4`` passages. Provenance, then
+           title/recency, then the temporal list, fused the way
+           ``_fused_candidates`` fuses those lists alone, fill the reserve and
+           any slot the passages did not use. A source that already has a
+           passage is skipped. A reserve slot those lists cannot fill goes to
+           the next passage.
+
+        Document-list fillers are compacted by ``_compact_source``. Passage
+        entries use their own chunk text and carry ``chunk_index``. This method
+        does not call ``list_source_chunks``.
+        """
+
+        self._winning_chunk_text = {}
+        requested_scope = scope
+        scope = scope or _ResolvedRetrievalScope(
+            projects=frozenset(),
+            people=frozenset(),
+            window_start=None,
+            window_end=None,
+            exclude_global_domains=frozenset(),
+        )
+        has_source_resolver = callable(getattr(self.store, "get_sources_by_ids", None)) or callable(
+            getattr(self.store, "get_source", None)
+        )
+
+        def _resolve_sources(source_ids: list[str]) -> list[JsonObject]:
+            by_id = self._sources_by_ids(source_ids)
+            return [
+                row
+                for source_id in source_ids
+                if (row := by_id.get(source_id)) is not None
+                and _row_matches_scope(row, scope, source_scope_envelope=True)
+            ]
+
+        def _resource_scope_filters(method: object) -> dict[str, object]:
+            if not scope.active or not _supports_resource_scope_predicate(method):
+                return {}
+            return {
+                "scope_projects": tuple(sorted(scope.projects)),
+                "scope_people": tuple(sorted(scope.people)),
+                "scope_window_start": scope.window_start,
+                "scope_window_end": scope.window_end,
+            }
+
+        depth = max(limit * SOURCE_CHUNK_CANDIDATE_MULTIPLIER, SOURCE_PASSAGE_CANDIDATE_FLOOR)
+        incomplete = [False]
+        capped: list[tuple[JsonObject, JsonObject]] = []
+        credential_dropped = 0
+        search_source_chunks = getattr(self.store, "search_source_chunks", None)
+        if callable(search_source_chunks) and has_source_resolver:
+            chunk_fts_source = str(getattr(self.store, "fts_stage_source", "postgres_fts"))
+            chunk_scope_filters = _resource_scope_filters(search_source_chunks)
+
+            def _fetch(n: int) -> tuple[list[JsonObject], str]:
+                return list(
+                    search_source_chunks(
+                        query=query,
+                        domains=domains or None,
+                        sensitivity_allowed=sensitivity_allowed,
+                        limit=n,
+                        **chunk_scope_filters,
+                    )
+                ), chunk_fts_source
+
+            def _select(rows: Sequence[JsonObject]) -> list[JsonObject]:
+                kept_rows: list[JsonObject] = []
+                ordered_ids: list[str] = []
+                for row in _stabilize_scored_rows(rows):
+                    source_id = row.get("source_id")
+                    text = row.get("text")
+                    if source_id is None or not isinstance(text, str) or not text.strip():
+                        continue
+                    ordered_ids.append(str(source_id))
+                    kept_rows.append(row)
+                parents = {
+                    str(parent.get("id")): parent
+                    for parent in _resolve_sources(list(dict.fromkeys(ordered_ids)))
+                }
+                visible: list[JsonObject] = []
+                for row in kept_rows:
+                    parent = parents.get(str(row.get("source_id")))
+                    if parent is None:
+                        continue
+                    if _allowed(parent, domains=domains, sensitivity_allowed=sensitivity_allowed) is not None:
+                        continue
+                    visible.append(row)
+                return visible
+
+            def _usable(raw_rows: Sequence[JsonObject]) -> tuple[list[tuple[JsonObject, JsonObject]], int]:
+                visible_rows = _select(raw_rows)
+                ordered = [str(row.get("source_id")) for row in visible_rows if row.get("source_id") is not None]
+                resolved = {
+                    str(parent.get("id")): parent
+                    for parent in _resolve_sources(list(dict.fromkeys(ordered)))
+                }
+                pairs: list[tuple[JsonObject, JsonObject]] = []
+                for row in visible_rows:
+                    parent = resolved.get(str(row.get("source_id")))
+                    if parent is not None:
+                        pairs.append((parent, row))
+                collapsed_order: list[str] = []
+                collapsed_rows: dict[str, tuple[JsonObject, JsonObject]] = {}
+                for parent, chunk in pairs:
+                    digest = _passage_text_hash(str(chunk.get("text") or ""))
+                    current = collapsed_rows.get(digest)
+                    if current is None:
+                        collapsed_order.append(digest)
+                        collapsed_rows[digest] = (parent, chunk)
+                    elif _source_captured_later(parent, current[0]):
+                        collapsed_rows[digest] = (parent, chunk)
+                dropped = 0
+                cleared: list[tuple[JsonObject, JsonObject]] = []
+                for digest in collapsed_order:
+                    parent, chunk = collapsed_rows[digest]
+                    text = chunk.get("text")
+                    if isinstance(text, str) and credential_verdict(text) is not None:
+                        dropped += 1
+                        continue
+                    cleared.append((parent, chunk))
+                per_source: dict[str, int] = {}
+                kept: list[tuple[JsonObject, JsonObject]] = []
+                for parent, chunk in cleared:
+                    source_id = str(parent.get("id"))
+                    if per_source.get(source_id, 0) >= ranking.passages_per_source:
+                        continue
+                    per_source[source_id] = per_source.get(source_id, 0) + 1
+                    kept.append((parent, chunk))
+                return kept, dropped
+
+            scan_limit = min(depth, SOURCE_PASSAGE_SCAN_MAX_ROWS)
+            while True:
+                raw_rows, _chunk_source = _fetch(scan_limit)
+                capped, credential_dropped = _usable(raw_rows)
+                if len(capped) >= limit or len(raw_rows) < scan_limit:
+                    break
+                if scan_limit >= SOURCE_PASSAGE_SCAN_MAX_ROWS:
+                    incomplete[0] = True
+                    break
+                scan_limit = min(scan_limit * 2, SOURCE_PASSAGE_SCAN_MAX_ROWS)
+        else:
+            chunk_fts_source = SOURCE_CHUNK_STAGE_DISABLED_NO_STORE_SUPPORT
+
+        provenance_sources: list[JsonObject] = []
+        if has_source_resolver:
+            provenance_ids: list[str] = []
+            seen_provenance: set[str] = set()
+            links_by_target = self._provenance_by_target(
+                target_type="memory",
+                target_ids=[str(memory.get("id")) for memory in winning_memories],
+            )
+            for memory in winning_memories:
+                for link in links_by_target.get(str(memory.get("id")), []):
+                    linked_id = link.get("source_id")
+                    if linked_id is None or str(linked_id) in seen_provenance:
+                        continue
+                    seen_provenance.add(str(linked_id))
+                    provenance_ids.append(str(linked_id))
+            provenance_sources = _resolve_sources(provenance_ids)[:limit]
+
+        search_sources = cast(Callable[..., list[JsonObject]], self.store.search_sources)
+        source_scope_filters = _resource_scope_filters(search_sources)
+
+        def _fetch_sources(n: int) -> tuple[list[JsonObject], str]:
+            return list(
+                search_sources(
+                    query=query,
+                    domains=domains or None,
+                    sensitivity_allowed=sensitivity_allowed,
+                    limit=n,
+                    **source_scope_filters,
+                )
+            ), SOURCE_STAGE_TITLE_RECENCY
+
+        lexical_rows, _lexical_source = _fetch_scope_filtered(
+            _fetch_sources,
+            scope=scope,
+            person_linked_memory_ids=frozenset(),
+            target=limit,
+            store_scope_complete=bool(source_scope_filters),
+            source_scope_envelope=True,
+        )
+        lexical_rows = lexical_rows[:limit]
+
+        temporal_sources: list[JsonObject] = []
+        if anchor is not None:
+            center = anchor.window_center
+            dated: list[tuple[float, str, JsonObject]] = []
+            seen_dated: set[str] = set()
+            passage_parents = [parent for parent, _chunk in capped]
+            for rows in (passage_parents, provenance_sources, lexical_rows):
+                for row in rows:
+                    source_id = str(row.get("id"))
+                    if source_id in seen_dated:
+                        continue
+                    seen_dated.add(source_id)
+                    event = _source_event_time(row)
+                    if event is None or not (anchor.window_start <= event < anchor.window_end):
+                        continue
+                    dated.append((abs((event - center).total_seconds()), source_id, row))
+            dated.sort(key=lambda entry: (entry[0], *content_stable_tiebreak(entry[2]), entry[1]))
+            temporal_sources = [row for _distance, _source_id, row in dated]
+
+        fill_lists: dict[str, Sequence[JsonObject]] = {}
+        if provenance_sources:
+            fill_lists[SOURCE_STAGE_PROVENANCE] = provenance_sources
+        if lexical_rows:
+            fill_lists[SOURCE_STAGE_TITLE_RECENCY] = lexical_rows
+        if temporal_sources:
+            fill_lists[SOURCE_STAGE_TEMPORAL] = temporal_sources
+        sources_with_passages = {str(parent.get("id")) for parent, _chunk in capped}
+        fillers: list[JsonObject] = []
+        if fill_lists:
+            fused = _fused_candidates(
+                fill_lists,
+                target_type="source",
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                limit=max(sum(len(rows) for rows in fill_lists.values()), 1),
+            )
+            fillers = [
+                candidate.item
+                for candidate in fused
+                if candidate.selected and str(candidate.item.get("id")) not in sources_with_passages
+            ]
+
+        reserve = limit // 4 if limit > 0 else 0
+        head_n = max(limit - reserve, 0)
+        head = capped[:head_n]
+        overflow = capped[head_n:]
+        chosen: list[tuple[str, object]] = [("passage", item) for item in head]
+        filler_at = 0
+        overflow_at = 0
+        while len(chosen) < limit and (filler_at < len(fillers) or overflow_at < len(overflow)):
+            if filler_at < len(fillers):
+                chosen.append(("fill", fillers[filler_at]))
+                filler_at += 1
+            else:
+                chosen.append(("passage", overflow[overflow_at]))
+                overflow_at += 1
+
+        entries: list[JsonObject] = []
+        for kind, item in chosen:
+            if kind == "passage":
+                parent, chunk = cast(tuple[JsonObject, JsonObject], item)
+                entries.append(self._passage_entry(parent, chunk, query=query))
+            else:
+                entries.append(self._compact_source(cast(JsonObject, item), query=query))
+        memory_visible = self.memory_visibility(
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            scope=requested_scope,
+        )
+        annotate_derived_memory_corrections(self.store, entries, memory_visible=memory_visible)
+
+        stage_record: JsonObject = {
+            "source": "passage",
+            "candidate_count": len(entries),
+            SOURCE_STAGE_CHUNK_FTS: len(capped),
+            SOURCE_STAGE_PROVENANCE: len(provenance_sources),
+            SOURCE_STAGE_TITLE_RECENCY: len(lexical_rows),
+            "chunk_fts_source": chunk_fts_source,
+            "chunk_scan": SOURCE_PASSAGE_SCAN_CAPPED if incomplete[0] else SOURCE_PASSAGE_SCAN_COMPLETE,
+            "credential_dropped": credential_dropped,
+            "passages_per_source": ranking.passages_per_source,
+        }
+        if anchor is not None:
+            stage_record[SOURCE_STAGE_TEMPORAL] = len(temporal_sources)
+        return entries, stage_record
+
+    def _passage_entry(self, parent: JsonObject, chunk: JsonObject, *, query: str) -> JsonObject:
+        """One passage: the parent's row, the window of this chunk, and its index."""
+
+        compacted = _compact_item(parent)
+        metadata = compacted.get("metadata_json")
+        if isinstance(metadata, Mapping):
+            compacted["metadata_json"] = {
+                key: value for key, value in metadata.items() if key != "raw_text"
+            }
+        text = chunk.get("text")
+        if isinstance(text, str) and text.strip():
+            compacted["excerpt"] = _query_anchored_window(
+                text, query=query, max_chars=SOURCE_EXCERPT_MAX_CHARS
+            )
+            compacted["excerpt_kind"] = "imported_source_material"
+        index = chunk.get("chunk_index")
+        if isinstance(index, int) and not isinstance(index, bool):
+            compacted["chunk_index"] = index
+        return compacted
+
     def search_source_excerpts(
         self,
         *,
@@ -4019,9 +4411,10 @@ class VNextRetrievalService:
         down at the call site.
 
         ``ranking`` is required for the same reason and is passed on to
-        ``_source_stage_lists``. A caller writes ``SourceRanking.document()``
-        where it means the one-entry-per-document ranking v0.20.0 has; any other
-        value is refused until a stage exists that honours it.
+        ``_source_stage_lists`` in document mode. ``SourceRanking.document()``
+        is the one-entry-per-document ranking v0.20.0 has. Passage mode runs
+        ``_passage_excerpts`` instead of that fusion. ``lexical="improved"``
+        is refused.
 
         NOT the only source reader. ``compile_context_pack`` runs its own
         ``_source_stage_lists`` -> ``_fused_candidates`` -> ``_packable_source``
@@ -4040,6 +4433,17 @@ class VNextRetrievalService:
         test.
         """
 
+        checked = _require_supported_ranking(ranking)
+        if checked.mode == "passage":
+            return self._passage_excerpts(
+                query=query,
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                limit=limit,
+                winning_memories=winning_memories,
+                ranking=checked,
+                scope=scope,
+            )
         source_lists, stage_record = self._source_stage_lists(
             query=query,
             domains=domains,
