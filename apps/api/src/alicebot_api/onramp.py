@@ -94,6 +94,7 @@ Export/import round-trip contract ("you own the memory"):
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 from contextlib import closing, contextmanager, redirect_stderr
 from io import StringIO
@@ -547,6 +548,135 @@ def _remove_sqlite_files(path: Path) -> None:
             candidate.unlink()
         except OSError:
             pass
+
+
+def _open_data_directory(directory: Path) -> int | None:
+    try:
+        return os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    except OSError:
+        return None
+
+
+def acquire_restore_lock(database: Path) -> int | None:
+    """Take the lock a restore holds from before it makes its working copy until it has removed it.
+
+    The lock is a shared ``flock`` on the vault's data directory. Restores do not wait for one another, and the
+    sweep takes the same lock exclusively without waiting, so it removes nothing while any restore holds it. The
+    lock is on the directory and not on a file in it: deleting a file cannot release it, and a restore that is
+    killed loses it with the process. Returns ``None`` when the directory cannot be locked, as on some network
+    file systems. The sweep cannot lock it there either, so it removes nothing. Pass the result to
+    ``release_restore_lock``.
+    """
+
+    descriptor = _open_data_directory(database.parent)
+    if descriptor is None:
+        return None
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_SH)
+    except OSError:
+        os.close(descriptor)
+        return None
+    return descriptor
+
+
+def release_restore_lock(descriptor: int | None) -> None:
+    if descriptor is None:
+        return
+    try:
+        os.close(descriptor)
+    except OSError:
+        pass
+
+
+def _restore_copy_bases(directory: Path, prefix: str) -> list[Path]:
+    """The ``.tmp`` working copies in ``directory`` that start with ``prefix``, found from the copy or any sidecar."""
+
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return []
+    bases: list[Path] = []
+    for path in entries:
+        entry = path.name
+        if not entry.startswith(prefix):
+            continue
+        base = entry
+        for suffix in ("-wal", "-shm", "-journal"):
+            if base.endswith(".tmp" + suffix):
+                base = base[: -len(suffix)]
+                break
+        if base.endswith(".tmp"):
+            bases.append(directory / base)
+    return list(dict.fromkeys(bases))
+
+
+def sweep_restore_working_copies(database: Path) -> None:
+    """Remove ``.{name}.restore.*.tmp`` working copies left in the data directory.
+
+    A killed ``alice-memory import`` leaves the copy, and its ``-wal`` and ``-shm`` files, beside the vault.
+    The next import or open of that vault removes them. The sweep takes the data directory's lock exclusively and
+    without waiting before it lists or deletes anything. A running restore holds that lock from before it makes
+    its copy until it has removed it, so when the sweep cannot take the lock it removes nothing, and when it can,
+    no restore is running in the directory and every copy it finds is left over. A file that is itself a restore
+    copy is left alone, so the import can open the copy it just made. A failed sweep does not fail the command.
+    """
+
+    try:
+        name = database.name
+    except (OSError, ValueError):
+        return
+    if ".restore." in name:
+        return
+    directory = database.parent
+    prefix = f".{name}.restore."
+    if not _restore_copy_bases(directory, prefix):
+        return
+    descriptor = _open_data_directory(directory)
+    if descriptor is None:
+        return
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return
+        for working in _restore_copy_bases(directory, prefix):
+            _remove_sqlite_files(working)
+    finally:
+        os.close(descriptor)
+
+
+def sentinel_hits(database: Path, needle: str) -> list[str]:
+    """Paths under the vault's directory, and the vault file, whose bytes hold ``needle``.
+
+    The search reads each file. It does not follow a directory. A restore working copy is included, so a
+    sentinel left in a killed import is a hit until the next open removes the copy.
+    """
+
+    if not needle:
+        return []
+    raw = needle.encode("utf-8")
+    found: list[str] = []
+    directory = database.parent
+
+    def _read(path: Path) -> None:
+        try:
+            if not path.is_file():
+                return
+            if raw in path.read_bytes():
+                found.append(path.name)
+        except OSError:
+            return
+
+    _read(database)
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return found
+    for path in entries:
+        if path == database:
+            continue
+        _read(path)
+    return sorted(found)
 
 
 class _BackupError(Exception):
@@ -4171,13 +4301,17 @@ def _run_import_snapshot(
             return 1
 
     target_existed = db_path.exists()
+    sweep_restore_working_copies(db_path)
     working_path: Path | None = None
+    restore_lock: int | None = None
     credential_reports: tuple[tuple[str, str, str], ...] = ()
     claim_tally: dict[str, int] = {}
     scoping_events: list[dict[str, object]] = []
     imported_scoping: ImportedScoping | None = None
     try:
         _ensure_private_directory(db_path.parent)
+        # Held before the working copy exists, so no sweep can see the copy while the restore does not hold the lock.
+        restore_lock = acquire_restore_lock(db_path)
         fd, raw_working_path = tempfile.mkstemp(
             prefix=f".{db_path.name}.restore.",
             suffix=".tmp",
@@ -4269,8 +4403,10 @@ def _run_import_snapshot(
         _emit_error("restore_failed")
         return 1
     finally:
-        if working_path is not None and working_path != db_path:
-            _remove_sqlite_files(working_path)
+        staged = working_path if working_path is not None and working_path != db_path else None
+        if staged is not None:
+            _remove_sqlite_files(staged)
+        release_restore_lock(restore_lock)
         _remove_sqlite_files(validated_import.spool_path)
     # A new target is the already-fchmod(0600) staged inode published by
     # hard link, so no fallible post-publication chmod is needed. Existing
