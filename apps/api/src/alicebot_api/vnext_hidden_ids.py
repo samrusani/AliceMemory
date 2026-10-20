@@ -825,10 +825,15 @@ def withhold_json_body(
     The user is the one the vNext gate authenticated the key for. It is not read from the query or the body.
     """
 
+    from alicebot_api.lone_surrogates import request_validation_echoes
+
     state = getattr(request, "state", None)
     identity = getattr(state, "vnext_agent_identity", None)
     path = getattr(getattr(request, "url", None), "path", "")
     if identity is None or not str(path).startswith("/v0/vnext") or not body:
+        return None
+    if request_validation_echoes(request):
+        # The validation error of this request repeats what the caller sent, whatever it held.
         return None
     if not _caller_is_limited(identity):
         return None

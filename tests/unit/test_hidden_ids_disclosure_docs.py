@@ -20,7 +20,8 @@ quote of a row`` from the changelog; delete the sentence about the words of a re
 unbound admin key read, from the security note, the known limitations, the changelog or the tool reference; delete the
 sentence about an archived or redacted memory from the security note, the changelog or the tool reference; delete the sentence about the memory audit route, the `capture_content_hash` of a
 memory or the scheduler's run records from the security note, the known limitations, the tool reference or the changelog; delete a sentence of the
-paragraph on the event feeds from the security note, or the changelog entry for the event feed.
+paragraph on the event feeds from the security note, or the changelog entry for the event feed; delete the sentence about the validation
+error of a refused request from the security note, the changelog entry or the tool reference.
 """
 
 from __future__ import annotations
@@ -179,6 +180,7 @@ def test_the_security_note_states_what_main_withholds() -> None:
     assert "An id the caller supplied is an exemption nowhere. It stays only where the answer repeats the input that held it" in paragraph
     assert "reached from the top of the answer through objects and not through a list of rows, and only the ids that input held; a path parameter also repeats at the `id` of the object it names" in paragraph
     assert "A query parameter or a body field the route does not declare supplies nothing, so a key cannot confirm that an id belongs to a report by adding the id to the request" in paragraph
+    assert "The validation error of a request that is refused (HTTP 422) repeats the caller's own input as sent and is not filtered, so it shows an id the caller wrote whether the row is hidden or missing." in paragraph
     assert "the same id at any other key, in a list of rows or in the metadata of a row is judged like any other id" in paragraph
     for count in ("derived_from.counts", "input_summary.counts", "input_counts", "member_count", "instance_count", "displayed_instance_count", "expired_marked"):
         assert f"`{count}`" in paragraph or f"`{count.split('.')[0]}" in paragraph, count
@@ -303,6 +305,7 @@ def test_the_unreleased_changelog_entry_says_what_main_withholds() -> None:
         "A count beside a list that lost an entry is recomputed or dropped",
         "An id the caller supplied stays only where the answer repeats the input that held it",
         "A parameter the route does not declare supplies nothing, so adding an id to the query of a read no longer shows that the id belongs to a report.",
+        "The validation error of a refused request (HTTP 422) repeats the caller's own input as sent and is not filtered.",
         "A long run of reference prefixes is read in time proportional to its length.",
         "for the user the key was authenticated for and not for the `user_id` of the query",
         "a POST that carries it only in its body is filtered under development and test",
@@ -335,6 +338,7 @@ def test_the_tool_reference_states_both() -> None:
     assert "in any spelling of the id and behind a `memory:`, `source:`, `artifact:` or `open_loop:` prefix, and a count beside a list that lost an entry follows the list" in ids
     assert "an id that names no row the key may read is withheld whether the row is hidden or missing, an id inside free text (a title, a note, a quote) is not looked for" in ids
     assert "an id the request supplied stays only where the answer repeats the input that held it (a parameter, field or argument the route or tool declares), and a parameter the route does not declare supplies nothing" in ids
+    assert "the validation error of a refused request (HTTP 422) repeats the caller's own input as sent and is not filtered" in ids
     assert "(on main, a key with limits no longer reads the roll-up entry or the member digest of a row it may not read)" in ids
     assert "A report also keeps the words it was made with, so the title, text or quote of a row that was archived after the report was made stays in the report's text" in ids
     assert "and a key that can read the report reads those words (on main, a key with limits no longer reads the roll-up entry or the member digest of a row it may not read); withholding the other words is tracked for v0.21.0." in ids

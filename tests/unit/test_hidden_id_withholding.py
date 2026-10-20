@@ -17,6 +17,10 @@ Mutations that these tests fail, each one alone:
   with no user through, or the layer rebuilds the headers from a dict: the tests of the layer below.
 * ``withhold_with`` always opens a store, or ignores the ids the caller named.
 * ``runner.main`` calls the handler outside ``reader_scope``: ``test_a_reader_a_command_remembers_ends_with_the_command``.
+* ``render_validation_error`` does not set the flag that marks the validation error of a request, or ``withhold_json_body`` does
+  not read it: ``test_the_validation_error_of_a_request_repeats_its_input_for_a_hidden_id_and_for_a_missing_id`` and
+  ``test_the_flag_is_set_where_the_error_of_the_request_is_rendered_and_nowhere_else``.
+* The flag is set for every 422: ``test_a_422_that_a_route_builds_from_stored_data_is_filtered_like_any_other_answer``.
 """
 
 from __future__ import annotations
@@ -789,30 +793,35 @@ class Thing(BaseModel):
     memory_id: str | None = None
 
 
-def _layer(*, identity, answer, method: str = "GET", path: str, query: bytes = b"", body: dict | None = None):
+def _layer(
+    *, identity, answer, method: str = "GET", path: str, query: bytes = b"", body: dict | None = None, status_code: int = 200
+):
     """The withhold layer of the application in front of a throwaway app, called as a client calls it.
 
     The app has one route with a path parameter and two declared query parameters, and one that takes a JSON body with
     three declared fields. A request's undeclared query parameters and body fields reach neither. ``answer`` builds what
-    the route returns from the inputs the route read.
+    the route returns from the inputs the route read, with the status ``status_code``. A request the routes refuse is
+    answered by the handler of the application for the validation error of a request.
     """
 
     import anyio
     from fastapi import FastAPI
+    from fastapi.exceptions import RequestValidationError
     from fastapi.responses import JSONResponse
     from starlette.middleware.base import BaseHTTPMiddleware
 
     import alicebot_api.main as main_module
 
     app = FastAPI()
+    app.add_exception_handler(RequestValidationError, main_module._alice_request_validation_error)
 
     @app.get("/v0/vnext/things/{target_id}")
     def get_thing(target_id: str, artifact_id: str | None = None, limit: int = 10):
-        return JSONResponse(answer({"target_id": target_id, "artifact_id": artifact_id}))
+        return JSONResponse(answer({"target_id": target_id, "artifact_id": artifact_id}), status_code=status_code)
 
     @app.post("/v0/vnext/things")
     def post_thing(thing: Thing):
-        return JSONResponse(answer(thing.model_dump()))
+        return JSONResponse(answer(thing.model_dump()), status_code=status_code)
 
     class Gate(BaseHTTPMiddleware):
         """What the vNext gate records for the layer outside it."""
@@ -959,6 +968,129 @@ def test_a_commit_that_names_a_hidden_id_and_one_that_names_a_missing_id_have_on
         assert status == 200
     assert json.dumps(shown["hidden"]).replace(HIDDEN, "<ID>") == json.dumps(shown["missing"]).replace(MISSING, "<ID>")
     assert HIDDEN in json.dumps(shown["hidden"]) and MISSING in json.dumps(shown["missing"])
+
+
+# -- the answer to a refused request is the caller's own input -------------------------------------------------------------
+
+
+def _apart_from(text: str, row_id: str) -> str:
+    return text.replace(row_id, "<ID>")
+
+
+def test_the_validation_error_of_a_request_repeats_its_input_for_a_hidden_id_and_for_a_missing_id(connections) -> None:
+    """A request the routes refuse is answered with the input the caller sent: a query value of the wrong type, a body
+    field of the wrong type. The caller wrote the id, so the answer shows it as written, whether the row is hidden or
+    missing. A filter that judged the echo would show a missing id and take out a hidden one, and the difference tells a
+    caller which ids name a row.
+
+    Mutations, each alone: ``render_validation_error`` does not set the flag; ``withhold_json_body`` does not look at it.
+    """
+
+    identity = _identity("trusted_local_agent")
+    answers: dict[str, list[str]] = {}
+    for label, row_id in (("hidden", HIDDEN), ("missing", MISSING)):
+        status, from_query = _layer(
+            identity=identity, answer=_row_answer, path=f"/v0/vnext/things/{VISIBLE}", query=f"limit={row_id}".encode()
+        )
+        assert status == 422
+        body = {"user_id": {"see_also": row_id, "memory_id": row_id, "refs": [f"memory:{row_id}"]}}
+        status, from_body = _layer(identity=identity, answer=_row_answer, method="POST", path="/v0/vnext/things", body=body)
+        assert status == 422
+        assert from_query["detail"][0]["input"] == row_id
+        assert from_body["detail"][0]["input"] == body["user_id"]
+        answers[label] = [_apart_from(json.dumps(answer), row_id) for answer in (from_query, from_body)]
+    assert answers["hidden"] == answers["missing"]
+
+
+def test_a_422_that_a_route_builds_from_stored_data_is_filtered_like_any_other_answer(connections) -> None:
+    """Only the error of the caller's own request repeats what the caller sent. A route that finds a stored row invalid
+    and answers 422 by hand has the shape of that error and none of its source, so the ids in it are judged.
+
+    Mutation: the flag is set for every 422 (the layer leaves any answer with that status as it is).
+    """
+
+    identity = _identity("trusted_local_agent")
+
+    def stored_row_is_invalid(_supplied: dict) -> dict:
+        return {
+            "detail": [
+                {
+                    "type": "value_error", "loc": ["body", "source_refs", 0], "msg": "the stored row is invalid",
+                    "input": {"see_also": HIDDEN, "memory_id": HIDDEN, "kept": VISIBLE},
+                }
+            ]
+        }
+
+    status, body = _layer(
+        identity=identity, answer=stored_row_is_invalid, path=f"/v0/vnext/things/{VISIBLE}", status_code=422
+    )
+    assert status == 422
+    assert HIDDEN not in json.dumps(body)
+    assert body["detail"][0]["input"] == {"see_also": None, "memory_id": None, "kept": VISIBLE}
+
+
+def test_the_flag_is_set_where_the_error_of_the_request_is_rendered_and_nowhere_else() -> None:
+    import anyio
+    from fastapi.exceptions import RequestValidationError
+    from starlette.requests import Request
+
+    import alicebot_api.main as main_module
+    from alicebot_api.lone_surrogates import render_validation_error, request_validation_echoes
+
+    def request(path: str) -> Request:
+        return Request({"type": "http", "method": "POST", "path": path, "headers": [], "query_string": b""})
+
+    error = RequestValidationError([{"type": "string_type", "loc": ("body", "x"), "msg": "m", "input": {"see_also": HIDDEN}}])
+    plain = request("/v0/vnext/things")
+    assert request_validation_echoes(plain) is False
+    assert anyio.run(render_validation_error, plain, error).status_code == 422
+    assert request_validation_echoes(plain) is True
+    # The handler of the application renders the error of the request, so it sets the flag too.
+    through_handler = request("/v0/vnext/things")
+    assert anyio.run(main_module._alice_request_validation_error, through_handler, error).status_code == 422
+    assert request_validation_echoes(through_handler) is True
+    # The answer for the browser clipper repeats nothing, and nothing marks it.
+    clipper = request("/v0/vnext/connectors/browser-clipper/capture")
+    assert anyio.run(main_module._alice_request_validation_error, clipper, error).status_code == 422
+    assert request_validation_echoes(clipper) is False
+    # Only the value True marks a request.
+    assert request_validation_echoes(SimpleNamespace(state=SimpleNamespace(request_validation_echo="yes"))) is False
+    assert request_validation_echoes(SimpleNamespace()) is False
+
+
+def test_the_only_validation_error_a_route_raises_by_itself_holds_the_path_the_caller_sent() -> None:
+    """Every ``RequestValidationError`` the application raises is built in one place, and its input is the text of the
+    path parameter in the URL, so no error that carries stored data can be taken for the error of the request.
+
+    Mutation: a second construction of the error, with a value read from a row.
+    """
+
+    import ast
+    from pathlib import Path
+
+    from fastapi.exceptions import RequestValidationError
+
+    from alicebot_api.routers._vnext_shared import _vnext_path_uuid
+
+    source_root = Path(__file__).resolve().parents[2] / "apps" / "api" / "src" / "alicebot_api"
+    builders = set()
+    for path in sorted(source_root.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call):
+                called = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+                if called == "RequestValidationError":
+                    builders.add(str(path.relative_to(source_root)))
+    assert builders == {"routers/_vnext_shared.py"}, builders
+    with pytest.raises(RequestValidationError) as caught:
+        _vnext_path_uuid("source_id", HIDDEN + "x")
+    assert [error["input"] for error in caught.value.errors()] == [HIDDEN + "x"]
+    # The flag has one name and one writer.
+    holders = {
+        str(path.relative_to(source_root))
+        for path in sorted(source_root.rglob("*.py"))
+        if '"request_validation_echo"' in path.read_text(encoding="utf-8")
+    }
+    assert holders == {"lone_surrogates.py"}, holders
 
 
 # -- a long run of prefixes costs time in proportion to its length ---------------------------------------------------------

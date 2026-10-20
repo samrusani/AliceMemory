@@ -5,14 +5,19 @@
 * The workspace task view withholds the id of the report a task made once the report is out of the key's reach.
 * A commit that names a hidden id and a commit that names a missing id are answered alike, and read back alike. The id the
   caller sent stays in the answer to the commit where the answer repeats the input that held it, because it is not a row the
-  caller discovered.
+  caller discovered. An entry the door refuses is answered with the validation error of the request, which repeats the input
+  as sent for a hidden id and a missing id alike; a stored legacy entry is read back alike for both.
 * An id the caller supplied is no exemption anywhere else: a query parameter the route does not use, or an id in a field
   the answer does not repeat the input at, confirms nothing about a row the key may not read.
+* Every refusal a door gives (a validation error, an invalid request, a 404, an unknown argument) is the same whole answer
+  for the id of a row the key may not read and for an id that names no row: the status and the body, once generated values
+  are normalised.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -23,13 +28,14 @@ import pytest
 import alicebot_api.main as main_module
 from alicebot_api.config import Settings
 from alicebot_api.mcp.registry import call_mcp_tool
-from alicebot_api.mcp.types import MCPRuntimeContext
+from alicebot_api.mcp.types import MCPRuntimeContext, MCPToolError
 from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_hidden_ids import apply_hidden_id_withholding
 from alicebot_api.vnext_label_writes import without_insert_floor
 from alicebot_api.vnext_queue import QueueTaskRequest, VNextQueueService
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 from tests.integration.hidden_ids_postgres_support import normalize
+from tests.support.legacy_source_refs import link_strings, needs_legacy_plant, plant_legacy_source_refs
 
 
 def _memory(store, key, *, sensitivity="public", metadata=None):
@@ -204,8 +210,8 @@ def test_the_workspace_task_view_withholds_a_report_id_that_names_no_report(labe
     assert answers["hidden"]["metadata_json"] == answers["missing"]["metadata_json"] == {"artifact_id": None}
 
 
-def _commit(h, key, refs):
-    status, body, _ = h.request(
+def _post_commit(h, key, refs):
+    return h.request(
         "POST",
         "/v0/vnext/memories/commit",
         key=key,
@@ -217,6 +223,10 @@ def _commit(h, key, refs):
             "sensitivity": "public",
         },
     )
+
+
+def _commit(h, key, refs):
+    status, body, _ = _post_commit(h, key, refs)
     assert status == 201, body
     return body["memory"]["id"], body
 
@@ -231,14 +241,49 @@ def _read_back(h, monkeypatch, key, memory_id):
     return {"review": review, "explain": explained, "audit": audit}
 
 
-# Whether the answer to the commit shows the id that the form names.
-ECHOED = [True, True, True, False, True, None]
+def _spellings_of(row_id):
+    return [row_id, row_id.upper(), row_id.replace("-", ""), f"memory:{row_id}", f"urn:uuid:{row_id}"]
+
+
+def _without_the_callers_id(answer, row_id):
+    """An answer (status and body) with every spelling of the id the caller sent replaced, and generated values normalised.
+
+    The caller's id is the one thing that differs between asking about a hidden row and asking about a missing one, so two
+    answers are compared by what they say around it. An id that was withheld in one answer and written in the other still
+    differs: ``null`` is not the placeholder.
+    """
+
+    status, body = answer
+    text = json.dumps(body, sort_keys=True, default=str)
+    for spelling in sorted(_spellings_of(row_id), key=len, reverse=True):
+        text = re.sub(re.escape(spelling), "<CALLERS_ID>", text, flags=re.IGNORECASE)
+    return status, normalize(json.loads(text))
+
+
+def _same_answer(hidden_answer, hidden_id, missing_answer, missing_id):
+    return _without_the_callers_id(hidden_answer, hidden_id) == _without_the_callers_id(missing_answer, missing_id)
+
+
+def _without_events(value):
+    """A trace and an audit list the policy events that each read writes, so two reads of one row differ by those."""
+
+    if isinstance(value, dict):
+        return {key: _without_events(child) for key, child in value.items() if key not in ("events", "event_count")}
+    if isinstance(value, list):
+        return [_without_events(child) for child in value]
+    return value
+
+
+# Whether the answer to the commit shows the id that a form the door accepts names.
+ECHOED = [True, True]
 # The form that names the id in a field the product does not read as a reference and without a prefix: it may name a
 # chunk or a session, and the saved-quote reader holds it to the rule for rows that exist.
 INCIDENTAL = 5
 
 
 def _forms(row_id):
+    """The first two are strings, which the door accepts. The others are entries no producer writes, which it refuses."""
+
     return [
         f"memory:{row_id}",
         f"MEMORY:{row_id.upper()}",
@@ -252,12 +297,17 @@ def _forms(row_id):
 def test_a_commit_that_names_a_hidden_id_is_answered_and_read_back_as_one_that_names_a_missing_id(label_harness, monkeypatch):
     """A key that holds a candidate id commits a memory that cites it, and reads the memory back.
 
-    The answer to the commit repeats the ids the caller sent, so a hidden id and a missing id both stand in it. When the
-    memory is read back the ids are not the caller's request any more: a hidden id and a missing id are both withheld,
-    and the stored memory reads alike, field by field.
+    The strings the door accepts are answered with the ids the caller sent, so a hidden id and a missing id both stand in
+    the answer. The entries it refuses (an object, a list) are answered with the validation error of the request, which
+    repeats the input as sent: the two refusals are the same answer. The vault a v0.20.2 release stored holds such entries,
+    so each is planted as a stored row and read back. When the memory is read back the ids are not the caller's request any
+    more: a hidden id and a missing id are both withheld, and the stored memory reads alike, field by field. The owner of
+    the vault sees the stored entry, so the filter had something to withhold.
 
     Mutations: ``withhold_json_body`` is given no ``named_body`` (the answer to the commit loses the ids the caller sent);
-    ``_Judge.withheld`` asks only whether the id is hidden in a typed position (a missing id stays when the memory is read back).
+    ``_Judge.withheld`` asks only whether the id is hidden in a typed position (a missing id stays when the memory is read
+    back); the request flag is never set, or ``withhold_json_body`` does not read it (the refusal of a hidden id loses the
+    id the caller sent, and the refusal of a missing id keeps it).
     """
 
     h = label_harness
@@ -265,31 +315,49 @@ def test_a_commit_that_names_a_hidden_id_is_answered_and_read_back_as_one_that_n
         hidden = _memory(store, "hidden", sensitivity="confidential")
     hidden_id, missing_id = str(hidden["id"]), str(uuid4())
     trusted = h.key("trusted_local_agent")
+    admin = h.key("admin_agent")
     made = {}
     answers = {}
+    refusals = {}
     for label, row_id in (("hidden", hidden_id), ("missing", missing_id)):
         for number, ref in enumerate(_forms(row_id)):
-            memory_id, answer = _commit(h, trusted, [ref])
-            made[(label, number)] = memory_id
-            answers[(label, number)] = answer
-            # The caller sent the id, so the answer to the commit shows it, hidden row or not. The exception is a reference
-            # under a field the product does not write: a ref drops it with its value, as the saved-quote reader drops it.
-            if number != INCIDENTAL:
+            if needs_legacy_plant([ref]):
+                status, refusal, _ = _post_commit(h, trusted, [ref])
+                assert status == 422, (label, number, refusal)
+                # The refusal repeats what the caller sent, so the id stands in it.
+                assert row_id in json.dumps(refusal).lower(), (label, number)
+                refusals[(label, number)] = (status, refusal)
+                # The vault of an earlier release holds the entry: commit what the door takes, then store the entry.
+                sent = link_strings([ref])
+                memory_id, _ = _commit(h, trusted, sent)
+                with h.store() as store:
+                    plant_legacy_source_refs(store, memory_id, [ref], sent)
+            else:
+                memory_id, answer = _commit(h, trusted, [ref])
+                answers[(label, number)] = answer
+                # The caller sent the id, so the answer to the commit shows it, hidden row or not.
                 assert (row_id in json.dumps(answer).lower()) is ECHOED[number], (label, number)
+            made[(label, number)] = memory_id
     for number in range(len(ECHOED)):
-        if number != INCIDENTAL:
-            assert normalize(answers[("hidden", number)]["memory"]["value"]) == normalize(
-                answers[("missing", number)]["memory"]["value"]
-            )
-    for number in range(len(ECHOED)):
+        assert normalize(answers[("hidden", number)]["memory"]["value"]) == normalize(
+            answers[("missing", number)]["memory"]["value"]
+        )
+    for number in range(len(ECHOED), len(_forms(hidden_id))):
+        assert _same_answer(refusals[("hidden", number)], hidden_id, refusals[("missing", number)], missing_id), number
+    for number in range(len(_forms(hidden_id))):
         hidden_view = _read_back(h, monkeypatch, trusted, made[("hidden", number)])
         missing_view = _read_back(h, monkeypatch, trusted, made[("missing", number)])
         assert hidden_id not in json.dumps(hidden_view).lower()
+        if number >= len(ECHOED):
+            # The owner reads the stored entry as it was planted. Without it the rows below would hold nothing to withhold.
+            for label, row_id in (("hidden", hidden_id), ("missing", missing_id)):
+                assert row_id in json.dumps(_read_back(h, monkeypatch, admin, made[(label, number)])).lower(), (label, number)
         if number == INCIDENTAL:
             # An id under a field the product does not read as a reference may name a chunk or a session. The saved-quote
             # reader refuses it only when it names a stored row, and then it removes the copy of the quote beside it, and the
             # filter withholds only the id of a stored row there too. That is the boundary the security note states. The id of
             # the hidden row is gone, and the id of a missing row stands as the caller wrote it.
+            assert missing_id in json.dumps(missing_view).lower()
             continue
         assert missing_id not in json.dumps(missing_view).lower()
         # Every id and instant is replaced before two answers are compared, so they compare by what they say.
@@ -299,6 +367,233 @@ def test_a_commit_that_names_a_hidden_id_is_answered_and_read_back_as_one_that_n
         assert normalize(hidden_view["audit"]["memory"]["metadata_json"]) == normalize(
             missing_view["audit"]["memory"]["metadata_json"]
         )
+
+
+def _a_hidden_id_and_a_missing_id(h):
+    """The id of a memory the trusted key may not read, and the id of no row."""
+
+    with h.store() as store:
+        hidden = _memory(store, "hidden", sensitivity="confidential")
+    return str(hidden["id"]), str(uuid4())
+
+
+@pytest.mark.parametrize("number", [2, 3, 4, 5])
+def test_a_source_ref_the_door_refuses_is_answered_alike_for_a_hidden_id_and_a_missing_id(label_harness, number):
+    """The four entries no producer writes: an object that names the id, an object whose field holds a prefixed id, a list
+    that holds both, and an object whose field the product does not read.
+
+    The refusal is the 422 of a string field, and it repeats the entry as the caller sent it, the id included, for both.
+
+    Mutations: the request flag is never set, or ``withhold_json_body`` does not read it; the flag is set for every 422
+    (a unit test builds one).
+    """
+
+    h = label_harness
+    hidden_id, missing_id = _a_hidden_id_and_a_missing_id(h)
+    trusted = h.key("trusted_local_agent")
+    answers = {}
+    for label, row_id in (("hidden", hidden_id), ("missing", missing_id)):
+        status, body, _ = _post_commit(h, trusted, [_forms(row_id)[number]])
+        assert status == 422, body
+        assert body["detail"][0]["type"] == "string_type" and body["detail"][0]["loc"] == ["body", "source_refs", 0]
+        assert row_id in json.dumps(body).lower(), label
+        answers[label] = (status, body)
+    assert _same_answer(answers["hidden"], hidden_id, answers["missing"], missing_id)
+
+
+def test_a_body_field_the_route_does_not_declare_is_refused_alike_for_a_hidden_id_and_a_missing_id(label_harness):
+    """The commit takes no ``metadata`` field. The 422 says so and repeats the input as sent, in the field of the caller's own.
+
+    Mutations: the request flag is never set, or ``withhold_json_body`` does not read it.
+    """
+
+    h = label_harness
+    hidden_id, missing_id = _a_hidden_id_and_a_missing_id(h)
+    trusted = h.key("trusted_local_agent")
+    answers = {}
+    for label, row_id in (("hidden", hidden_id), ("missing", missing_id)):
+        status, body = _call(
+            "POST", "/v0/vnext/memories/commit", query={}, key=trusted, user_id=h.user_id,
+            payload={
+                "user_id": str(h.user_id), "title": "A kiln note", "canonical_text": f"Kiln note {uuid4()}",
+                "domain": "project", "sensitivity": "public", "metadata": {"see_also": row_id},
+            },
+        )
+        assert status == 422, body
+        assert body["detail"][0]["type"] == "extra_forbidden" and body["detail"][0]["loc"] == ["body", "metadata"]
+        assert body["detail"][0]["input"] == {"see_also": row_id}
+        answers[label] = (status, body)
+    assert _same_answer(answers["hidden"], hidden_id, answers["missing"], missing_id)
+
+
+def test_a_query_value_of_the_wrong_type_is_refused_alike_for_a_hidden_id_and_a_missing_id(label_harness):
+    """``limit`` is an integer. An id in it is refused, and the 422 repeats the value as sent.
+
+    Mutations: the request flag is never set, or ``withhold_json_body`` does not read it.
+    """
+
+    h = label_harness
+    hidden_id, missing_id = _a_hidden_id_and_a_missing_id(h)
+    trusted = h.key("trusted_local_agent")
+    answers = {}
+    for label, row_id in (("hidden", hidden_id), ("missing", missing_id)):
+        status, body = _call(
+            "GET", "/v0/vnext/artifacts", query={"limit": row_id}, payload=None, key=trusted, user_id=h.user_id
+        )
+        assert status == 422, body
+        assert body["detail"][0]["type"] == "int_parsing" and body["detail"][0]["loc"] == ["query", "limit"]
+        assert body["detail"][0]["input"] == row_id
+        answers[label] = (status, body)
+    assert _same_answer(answers["hidden"], hidden_id, answers["missing"], missing_id)
+
+
+def _hidden_rows(store):
+    """One row of each kind the doors below name, none of them readable by the trusted key."""
+
+    memory = _memory(store, "hidden", sensitivity="confidential")
+    source = store.create_source(
+        {
+            "source_type": "note", "title": "hidden source", "content_hash": uuid4().hex, "domain": "project",
+            "sensitivity": "confidential", "metadata_json": {"project_scope": []},
+        }
+    )
+    with without_insert_floor():
+        artifact = store.create_artifact(
+            {
+                "artifact_type": "daily_brief", "title": "T", "content_markdown": "C", "domain": "project",
+                "sensitivity": "confidential",
+                "metadata_json": {
+                    "derived_from": {
+                        "v": 1, "sources": [], "memories": [], "open_loops": [], "artifacts": [], "beliefs": [],
+                        "counts": {"sources": 0, "memories": 0, "open_loops": 0, "artifacts": 0, "beliefs": 0},
+                    },
+                },
+            }
+        )
+    return {"memory": str(memory["id"]), "source": str(source["id"]), "artifact": str(artifact["id"])}
+
+
+# (name, kind of the hidden row, the status of the answer). The call is built in the test.
+REFUSALS = [
+    ("commit with a json text entry", "memory", 422),
+    ("commit with a blank entry beside a prefixed id", "memory", 400),
+    ("proposal with an object entry", "memory", 422),
+    ("artifacts list, limit", "artifact", 422),
+    ("recent commits, limit", "memory", 422),
+    ("context tree, limit", "memory", 422),
+    ("quality evals, artifact", "artifact", 200),
+    ("quality evals, artifact that is not an id", "artifact", 422),
+    ("artifact", "artifact", 404),
+    ("artifact, id that is not an id", "artifact", 422),
+    ("audit of a memory", "memory", 404),
+    ("audit of a memory, id that is not an id", "memory", 422),
+    ("trace of a source", "source", 404),
+    ("trace of a source, id that is not an id", "source", 422),
+    ("trace of an artifact", "artifact", 404),
+    ("trace of an artifact, id that is not an id", "artifact", 422),
+    ("source", "source", 404),
+    ("source, id that is not an id", "source", 422),
+    ("graph neighborhood", "memory", 200),
+    ("review of a memory", "memory", 404),
+    ("review of a source, id that is not an id", "source", 422),
+    ("forget, id that is not an id", "memory", 422),
+    ("forget", "memory", 400),
+    ("tool: commit with an object entry", "memory", "MCPArgumentError"),
+    ("tool: commit with a json text entry", "memory", "MCPArgumentError"),
+    ("tool: commit with an argument it does not take", "memory", "MCPArgumentError"),
+    ("tool: explain", "memory", "MCPToolError"),
+    ("tool: review, id that is not an id", "memory", "MCPArgumentError"),
+    ("tool: recall, limit", "memory", "MCPArgumentError"),
+    ("tool: context pack, ids it does not take", "memory", "MCPArgumentError"),
+]
+
+
+def _refusal_calls(h, key, monkeypatch):
+    """name -> a function of the id the caller sends that returns the whole answer: (status, body)."""
+
+    user = str(h.user_id)
+
+    def commit_body(extra):
+        return lambda row_id: {"user_id": user, "title": "t", "canonical_text": f"Kiln note {uuid4()}", "domain": "project",
+                               "sensitivity": "public", **extra(row_id)}
+
+    def post(path, body):
+        return lambda row_id: _call("POST", path.format(id=row_id), query={}, payload=body(row_id), key=key, user_id=h.user_id)
+
+    def get(path, query=None):
+        return lambda row_id: _call("GET", path.format(id=row_id), query=(query or (lambda _: {}))(row_id), payload=None, key=key, user_id=h.user_id)
+
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
+    context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+
+    def tool(name, arguments):
+        def run(row_id):
+            try:
+                return "ok", call_mcp_tool(context, name=name, arguments=arguments(row_id))
+            except MCPToolError as error:
+                return type(error).__name__, str(error)
+
+        return run
+
+    def not_an_id(call):
+        return lambda row_id: call(row_id + "x")
+
+    calls = {
+        "commit with a json text entry": post("/v0/vnext/memories/commit", commit_body(lambda r: {"source_refs": [json.dumps({"memory_id": r})]})),
+        "commit with a blank entry beside a prefixed id": post("/v0/vnext/memories/commit", commit_body(lambda r: {"source_refs": [f"memory:{r}", "   "]})),
+        "proposal with an object entry": post("/v0/vnext/memory-proposals", commit_body(lambda r: {"source_refs": [{"memory_id": r}]})),
+        "artifacts list, limit": get("/v0/vnext/artifacts", lambda r: {"limit": r}),
+        "recent commits, limit": get("/v0/vnext/memories/recent-commits", lambda r: {"limit": r}),
+        "context tree, limit": get("/v0/vnext/context-tree", lambda r: {"limit": r}),
+        "quality evals, artifact": get("/v0/vnext/quality-evals", lambda r: {"artifact_id": r}),
+        "quality evals, artifact that is not an id": not_an_id(get("/v0/vnext/quality-evals", lambda r: {"artifact_id": r})),
+        "artifact": get("/v0/vnext/artifacts/{id}"),
+        "artifact, id that is not an id": not_an_id(get("/v0/vnext/artifacts/{id}")),
+        "audit of a memory": get("/v0/vnext/memories/{id}/audit"),
+        "audit of a memory, id that is not an id": not_an_id(get("/v0/vnext/memories/{id}/audit")),
+        "trace of a source": get("/v0/vnext/traces/sources/{id}"),
+        "trace of a source, id that is not an id": not_an_id(get("/v0/vnext/traces/sources/{id}")),
+        "trace of an artifact": get("/v0/vnext/traces/artifacts/{id}"),
+        "trace of an artifact, id that is not an id": not_an_id(get("/v0/vnext/traces/artifacts/{id}")),
+        "source": get("/v0/vnext/sources/{id}"),
+        "source, id that is not an id": not_an_id(get("/v0/vnext/sources/{id}")),
+        "graph neighborhood": get("/v0/vnext/graph/neighborhood/{id}"),
+        "review of a memory": post("/v0/vnext/memories/{id}/review", lambda r: {"user_id": user, "action": "accept"}),
+        "review of a source, id that is not an id": not_an_id(post("/v0/vnext/sources/{id}/review", lambda r: {"user_id": user, "action": "review"})),
+        "forget, id that is not an id": post("/v0/vnext/memories/forget", lambda r: {"user_id": user, "memory_id": r + "x", "reason": "r"}),
+        "forget": post("/v0/vnext/memories/forget", lambda r: {"user_id": user, "memory_id": r, "reason": "r"}),
+        "tool: commit with an object entry": tool("alice_memory_commit", lambda r: {"title": "t", "canonical_text": f"Kiln note {uuid4()}", "source_refs": [{"memory_id": r}]}),
+        "tool: commit with a json text entry": tool("alice_memory_commit", lambda r: {"title": "t", "canonical_text": f"Kiln note {uuid4()}", "source_refs": [json.dumps({"memory_id": r})]}),
+        "tool: commit with an argument it does not take": tool("alice_memory_commit", lambda r: {"title": "t", "canonical_text": "c", "probe": r}),
+        "tool: explain": tool("alice_explain", lambda r: {"memory_id": r}),
+        "tool: review, id that is not an id": not_an_id(tool("alice_memory_review", lambda r: {"review_item_id": r})),
+        "tool: recall, limit": tool("alice_recall", lambda r: {"query": "kiln", "limit": r}),
+        "tool: context pack, ids it does not take": tool("alice_context_pack", lambda r: {"query": "kiln", "memory_ids": [r]}),
+    }
+    assert set(calls) == {name for name, _, _ in REFUSALS}
+    return calls
+
+
+def test_every_refusal_is_the_same_whole_answer_for_a_hidden_id_and_for_a_missing_id(label_harness, monkeypatch):
+    """The status and the body are compared, after generated values are normalised, for every status.
+
+    The doors: a body or a query the framework refuses (422), an entry the product refuses (400, and the tools' own
+    errors), an id that names nothing (404), a tool argument it does not take, and an id in a path that is not an id. A
+    422 repeats the caller's input as sent, so it carries a hidden id as it carries a missing one.
+
+    Mutations: the request flag is never set, or ``withhold_json_body`` does not read it (the 422 of a hidden id loses the
+    id and the 422 of a missing id keeps it).
+    """
+
+    h = label_harness
+    with h.store() as store:
+        rows = _hidden_rows(store)
+    calls = _refusal_calls(h, h.key("trusted_local_agent"), monkeypatch)
+    for name, kind, expected in REFUSALS:
+        hidden_id, missing_id = rows[kind], str(uuid4())
+        hidden_answer, missing_answer = calls[name](hidden_id), calls[name](missing_id)
+        assert hidden_answer[0] == expected, (name, hidden_answer)
+        assert _same_answer(hidden_answer, hidden_id, missing_answer, missing_id), (name, hidden_answer, missing_answer)
 
 
 def _statements(h, identity, payload):
@@ -397,10 +692,6 @@ def _call(method, path, *, query, payload, key, user_id):
     return int(start["status"]), json.loads(raw)
 
 
-def _spellings_of(row_id):
-    return [row_id, row_id.upper(), row_id.replace("-", ""), f"memory:{row_id}", f"urn:uuid:{row_id}"]
-
-
 def test_a_query_parameter_the_route_does_not_use_confirms_no_association(label_harness):
     """A key that knows or guesses an id adds it to the query of a read. The report is answered as without it.
 
@@ -440,21 +731,36 @@ def test_a_query_parameter_the_route_does_not_use_confirms_no_association(label_
         "/v0/vnext/workspace",
         "/v0/vnext/artifacts",
     )
+    missing_id = str(uuid4())
+    refused = 0
     for path in doors:
         status, plain = _call("GET", path, query={}, payload=None, key=trusted, user_id=h.user_id)
         assert status == 200, (path, status, plain)
         assert hidden_id not in json.dumps(plain).lower(), path
-        for spelling in _spellings_of(hidden_id):
+        for hidden_spelling, missing_spelling in zip(_spellings_of(hidden_id), _spellings_of(missing_id), strict=True):
             for name in ("probe", "other", "artifact_id", "limit", "candidate_memory_ids", "metadata_json", "source_refs"):
-                status, probed = _call("GET", path, query={name: spelling}, payload=None, key=trusted, user_id=h.user_id)
+                asked = {}
+                for label, spelling in (("hidden", hidden_spelling), ("missing", missing_spelling)):
+                    asked[label] = _call("GET", path, query={name: spelling}, payload=None, key=trusted, user_id=h.user_id)
+                # Hidden and missing read alike, whatever the status: the same status and the same body but for the id.
+                assert asked["hidden"][0] == asked["missing"][0], (path, name, hidden_spelling)
+                status, probed = asked["hidden"]
                 if status == 422:
-                    continue  # the route declares the parameter and its type refuses the text
+                    # The route declares the parameter and its type refuses the text. The refusal repeats what was sent.
+                    refused += 1
+                    assert _same_answer(asked["hidden"], hidden_id, asked["missing"], missing_id), (path, name, hidden_spelling)
+                    continue
                 assert status == 200, (path, name, status)
-                assert hidden_id not in json.dumps(probed).lower(), (path, name, spelling)
+                assert hidden_id not in json.dumps(probed).lower(), (path, name, hidden_spelling)
                 if path == doors[0]:
-                    # The report itself reads the same with and without the parameter. (A trace or an audit lists the
-                    # policy events that each read writes, so its events differ by one on every call.)
-                    assert probed == plain, (path, name, spelling)
+                    # The report itself reads the same with and without the parameter.
+                    assert probed == plain, (path, name, hidden_spelling)
+                # Every 200 is the same whole answer for both, but for the events that each read of a trace or an audit writes.
+                assert _same_answer(
+                    (asked["hidden"][0], _without_events(asked["hidden"][1])), hidden_id,
+                    (asked["missing"][0], _without_events(asked["missing"][1])), missing_id,
+                ), (path, name, hidden_spelling)
+    assert refused, "no probe was refused, so the refusals were not compared"
     # The id was there to be withheld: the owner of the report is shown it.
     status, owner = _call("GET", doors[0], query={}, payload=None, key=admin, user_id=h.user_id)
     assert status == 200 and owner["metadata_json"]["candidate_memory_ids"] == [hidden_id]
