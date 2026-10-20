@@ -66,3 +66,16 @@ def policy_for_questions() -> list[dict[str, Any]]:
     """A JSON copy of the policy, for the questions file."""
 
     return [dict(fact) for fact in POLICY]
+
+
+def leak_rate(answers: Sequence[Mapping[str, Any]], facts: Sequence[Mapping[str, Any]] | None = None) -> dict[str, int]:
+    """How many answers contain a fact that team may not know. This module does not import Alice."""
+
+    default = facts if facts is not None else POLICY
+    leaks = 0
+    for row in answers:
+        supplied = row.get("policy")
+        table = supplied if isinstance(supplied, list) else default
+        if is_leak(str(row.get("answer") or ""), str(row.get("team") or ""), table):
+            leaks += 1
+    return {"leaks": leaks, "total": len(answers)}
