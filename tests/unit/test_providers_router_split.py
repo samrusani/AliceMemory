@@ -129,7 +129,9 @@ EXPECTED_CARRIER_NAMES_SHA256 = "946e9d456afbdc7751df671b251457a432ba444dbbdfad5
 # Re-pin: hidden-id withholding stays on the carrier, and main's what-changed registration is in the same file.
 # Re-pin: _vnext_protected_http_auth stashes the body it already read, after a keyless refusal returns, and
 # _withhold_hidden_ids keeps ids from that copy. The set of definitions is the same.
-EXPECTED_CARRIER_AST_SHA256 = "f893026a89fbf316ea0b224840ce7767e8f97d5158a4e6c535d3eb07162c1510"
+# Re-pin: `_vnext_protected_http_auth` records the user the key was authenticated for, and `_withhold_hidden_ids` keeps
+# every response header, repeated ones included. The set of definitions is the same.
+EXPECTED_CARRIER_AST_SHA256 = "039f3b987d1bce8daff4c142bb69ab4b6357cd284683c59005cef5bbe50400c0"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "1a438538e16120361f92d30375cc94679d598fe4b78ba5a58a7d8a4dda6af83c"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "8b79ceaf996b8c51b5bb2f3f38a8c19a4e33796955d8b8f7a66e7ac01ea1732d"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "2fbc286e5aeaca8cb8c5ae1d0e1d7ef7816ae2d905542f967c813a047e1f2c29"

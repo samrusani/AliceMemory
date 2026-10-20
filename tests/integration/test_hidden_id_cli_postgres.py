@@ -1,4 +1,4 @@
-"""The command line withholds a hidden id on PostgreSQL, in every spelling of the id.
+"""The command line withholds a hidden id on PostgreSQL, in every spelling of the id, mixed case and odd hyphens included.
 
 The dump used to run after the command's transaction ended, so the label query saw no rows and the id
 came back. It now opens a fresh authenticated connection.
@@ -17,6 +17,7 @@ from tests.integration.derived_labels_postgres_support import label_harness  # n
 
 def _spellings(canonical: str) -> tuple[str, ...]:
     compact = canonical.replace("-", "")
+    groups = canonical.split("-")
     return (
         canonical,
         canonical.upper(),
@@ -24,6 +25,11 @@ def _spellings(canonical: str) -> tuple[str, ...]:
         compact.upper(),
         "{" + canonical + "}",
         "urn:uuid:" + canonical,
+        # One hex group in upper case, and hyphens in other places: neither holds the canonical spelling.
+        "-".join([groups[0].upper(), *groups[1:]]),
+        "-".join(compact[i : i + 4] for i in range(0, 32, 4)),
+        "-".join(compact[i : i + 8] for i in range(0, 32, 8)),
+        f"memory:{compact.upper()}",
     )
 
 
@@ -98,6 +104,8 @@ def test_the_cli_withholds_every_spelling_of_a_hidden_id(label_harness, monkeypa
         assert body["memory"]["id"] == shown_id
         for spelling in _spellings(hidden_id):
             assert spelling not in limited, spelling
+        assert hidden_id.replace("-", "") not in limited.lower().replace("-", "")
+        assert body["memory"]["metadata_json"]["candidate_memory_ids"] == []
     finally:
         for name, value in saved.items():
             if value is None:

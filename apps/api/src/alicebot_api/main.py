@@ -1044,6 +1044,9 @@ async def _vnext_protected_http_auth(
         return public_exception_response(exc, status_code=400)
 
     request.state.vnext_agent_identity = identity
+    # The user this key was authenticated for. The withhold layer opens its connection for this user and reads no
+    # user_id from the query or the body, which only some deployments rewrite.
+    request.state.vnext_authenticated_user_id = user_id
     return await call_next(request)
 
 
@@ -1418,13 +1421,18 @@ async def _withhold_hidden_ids(request: Request, call_next):  # type: ignore[no-
         named_body = b""
     updated = withhold_json_body(request, raw, database_url=get_settings().database_url, named_body=bytes(named_body))
     content = raw if updated is None else updated
-    headers = {key: value for key, value in response.headers.items() if key.lower() != "content-length"}
-    return Response(
+    rebuilt = Response(
         content=content,
         status_code=response.status_code,
-        headers=headers,
         background=getattr(response, "background", None),
     )
+    # Keep every header as it was sent, repeated ones included (two Set-Cookie headers are two headers).
+    # The length is the one the new response computed for the new body, and none for a status that has no body.
+    rebuilt.raw_headers = [
+        *[(name, value) for name, value in response.raw_headers if name.lower() != b"content-length"],
+        *[(name, value) for name, value in rebuilt.raw_headers if name == b"content-length"],
+    ]
+    return rebuilt
 
 
 # Registered just before the body limit, so it wraps every layer that reads a body and sits inside the limit: a request

@@ -1,19 +1,54 @@
 """A key with limits is not shown the id of a row it may not read.
 
-Mutation: ``strip_hidden_ids`` returns ``value`` before it walks. ``test_listing_fields_lose_a_hidden_id_and_the_count_matches``
-fails because the confidential memory id is still in ``candidate_memory_ids``.
+The ids below hold hex letters on purpose. An id made of digits only reads the same in upper case, so a filter that
+compared one spelling of it would pass every test.
+
+Mutations that these tests fail, each one alone:
+
+* ``strip_hidden_ids`` returns ``value`` before it walks: ``test_listing_fields_lose_a_hidden_id_and_the_count_matches``.
+* ``_tokens`` and ``_whole_id`` take the text of a token as it was written, without ``identifier``, or accept only the
+  canonical spelling: ``test_every_spelling_of_a_hidden_id_is_removed_when_it_stands_alone`` fails for the compact, braced,
+  ``urn:uuid:``, upper case, mixed case and odd-hyphen spellings.
+* ``_Judge.withheld`` stops asking whether the id is readable at a typed position, or ``output_artifact_id`` leaves the
+  typed scalar fields: ``test_a_hidden_id_and_a_missing_id_leave_the_same_answer``.
+* ``_fix_counts`` is not called, drops the zero rule or the rule for a list that lost nothing, or the stale sweep and
+  roll-up relations go: the tests of counts below.
+* ``withhold_json_body`` reads the user from the query, skips the early exit for a body without an id, passes a limited key
+  with no user through, or the layer rebuilds the headers from a dict: the tests of the layer below.
+* ``withhold_with`` always opens a store, or ignores the ids the caller named.
+* ``runner.main`` calls the handler outside ``reader_scope``: ``test_a_reader_a_command_remembers_ends_with_the_command``.
 """
 
 from __future__ import annotations
 
-from alicebot_api.vnext_agent_control import AgentIdentity
-from alicebot_api.vnext_hidden_ids import apply_hidden_id_withholding, strip_hidden_ids
+import json
+import re
+from contextlib import contextmanager
+from types import SimpleNamespace
+from uuid import UUID
 
-HIDDEN = "11111111-1111-4111-8111-111111111111"
-VISIBLE = "22222222-2222-4222-8222-222222222222"
-SOURCE = "33333333-3333-4333-8333-333333333333"
-LOOP = "44444444-4444-4444-8444-444444444444"
-ARTIFACT = "55555555-5555-4555-8555-555555555555"
+import pytest
+
+from alicebot_api.vnext_agent_control import AgentIdentity
+from alicebot_api.vnext_hidden_ids import (
+    HiddenIdFilterError,
+    apply_hidden_id_withholding,
+    judged_ids,
+    strip_hidden_ids,
+    withhold_json_body,
+    withhold_with,
+)
+
+HIDDEN = "abcdef12-3456-4789-8abc-def012345678"
+VISIBLE = "bbbbbbbb-2222-4222-8222-222222222222"
+SECOND_VISIBLE = "bbbbbbbb-2222-4222-8222-333333333333"
+SOURCE = "cccccccc-3333-4333-8333-333333333333"
+VISIBLE_SOURCE = "cccccccc-3333-4333-8333-444444444444"
+LOOP = "dddddddd-4444-4444-8444-444444444444"
+ARTIFACT = "eeeeeeee-5555-4555-8555-555555555555"
+BELIEF = "9a9a9a9a-6666-4666-8666-666666666666"
+VISIBLE_BELIEF = "9a9a9a9a-6666-4666-8666-777777777777"
+MISSING = "fafafafa-9999-4999-8999-999999999999"
 
 
 def _identity(profile: str) -> AgentIdentity:
@@ -22,18 +57,68 @@ def _identity(profile: str) -> AgentIdentity:
 
 class _Store:
     def __init__(self) -> None:
+        self.reads = 0
         self.rows = {
             "memory": [
                 {"id": HIDDEN, "domain": "project", "sensitivity": "confidential"},
                 {"id": VISIBLE, "domain": "project", "sensitivity": "public"},
+                {"id": SECOND_VISIBLE, "domain": "project", "sensitivity": "public"},
             ],
-            "source": [{"id": SOURCE, "domain": "project", "sensitivity": "confidential"}],
+            "source": [
+                {"id": SOURCE, "domain": "project", "sensitivity": "confidential"},
+                {"id": VISIBLE_SOURCE, "domain": "project", "sensitivity": "public"},
+            ],
             "open_loop": [{"id": LOOP, "domain": "project", "sensitivity": "confidential"}],
             "artifact": [{"id": ARTIFACT, "domain": "project", "sensitivity": "confidential"}],
+            "belief": [
+                {"id": BELIEF, "domain": "project", "sensitivity": "confidential"},
+                {"id": VISIBLE_BELIEF, "domain": "project", "sensitivity": "public"},
+            ],
         }
 
     def read_label_rows(self, kind: str, ids: list[str]):
+        self.reads += 1
         return [row for row in self.rows.get(kind, []) if row["id"] in ids]
+
+
+def _shown(payload, *, profile: str = "trusted_local_agent", store=None, keep=None):
+    return apply_hidden_id_withholding(store or _Store(), _identity(profile), payload, keep=keep)
+
+
+def _spellings(canonical: str) -> dict[str, str]:
+    """Spellings of one id that ``uuid.UUID`` takes, none of them the canonical one."""
+
+    compact = canonical.replace("-", "")
+    groups = canonical.split("-")
+    return {
+        "upper case": canonical.upper(),
+        "first group upper case": "-".join([groups[0].upper(), *groups[1:]]),
+        "last group upper case": "-".join([*groups[:-1], groups[-1].upper()]),
+        "compact": compact,
+        "compact upper case": compact.upper(),
+        "braces": "{" + canonical + "}",
+        "braces upper case": "{" + canonical.upper() + "}",
+        "urn": "urn:uuid:" + canonical,
+        "urn upper case": "URN:UUID:" + canonical.upper(),
+        "uuid prefix": "uuid:" + canonical,
+        "groups of four": "-".join(compact[i : i + 4] for i in range(0, 32, 4)),
+        "groups of eight": "-".join(compact[i : i + 8] for i in range(0, 32, 8)),
+        "hyphens at both ends": "-" + canonical + "-",
+        "doubled hyphens": canonical.replace("-", "--"),
+    }
+
+
+def _digits(text: str) -> str:
+    return re.sub(r"[^0-9a-f]", "", text.lower())
+
+
+def test_the_ids_of_these_tests_hold_hex_letters() -> None:
+    """An upper case spelling that equals the canonical one would hide a filter that compares one spelling."""
+
+    assert HIDDEN.upper() != HIDDEN
+    assert all(spelling != HIDDEN for spelling in _spellings(HIDDEN).values())
+    # Most spellings do not hold the canonical one as a substring, so a filter that looks for it misses them.
+    assert sum(HIDDEN not in spelling for spelling in _spellings(HIDDEN).values()) >= 9
 
 
 def _payload() -> dict:
@@ -59,6 +144,7 @@ def test_listing_fields_lose_a_hidden_id_and_the_count_matches() -> None:
     assert "stays in words only" in payload["content_markdown"]
     assert payload["member_snapshots"] == [{"id": VISIBLE, "status": "active"}]
     assert payload["open_loop_ids"] == [VISIBLE]
+    # Free text is the writer's words, so an id in it is not looked for.
     assert payload["detail"] == f"missing {HIDDEN}"
     assert payload["count"] == 1
 
@@ -97,19 +183,239 @@ def test_an_id_the_caller_named_stays_and_another_hidden_id_does_not() -> None:
     assert shown["candidate_memory_ids"] == [HIDDEN, VISIBLE]
 
 
-def test_every_spelling_of_a_hidden_id_is_removed() -> None:
-    spellings = [
-        HIDDEN.upper(),
-        HIDDEN.replace("-", ""),
-        "{" + HIDDEN + "}",
-        "urn:uuid:" + HIDDEN,
+def test_a_field_the_product_does_not_write_is_dropped_from_a_ref_that_names_a_row_even_when_the_caller_sent_it() -> None:
+    """The saved-quote reader drops such a field for a hidden row, so a missing row must leave the same entry."""
+
+    refs = [{"origin": f"memory:{MISSING}", "memory_id": MISSING, "quote": "q"}, {"origin": f"memory:{VISIBLE}"}]
+    shown = _shown({"source_refs": refs}, keep={MISSING})
+    assert shown == {"source_refs": [{"memory_id": MISSING, "quote": "q"}, {"origin": f"memory:{VISIBLE}"}]}
+    assert _shown({"source_refs": [{"origin": f"memory:{HIDDEN}", "memory_id": HIDDEN}]}) == {"source_refs": [{"memory_id": None}]}
+
+
+def test_an_id_in_a_ref_that_may_name_a_chunk_or_a_session_stays_when_it_names_no_row() -> None:
+    """The saved-quote reader leaves such an id alone, because it cannot tell it from the id of a chunk or a session."""
+
+    refs = [
+        {"origin": MISSING, "chunk_id": MISSING, "memory_id": VISIBLE, "quote": f"words {MISSING}"},
+        f"see session {MISSING}",
+        f"{MISSING}#chunk-1",
+        {"evidence": {"ref_id": MISSING}},
+        MISSING,
     ]
-    payload = {"candidate_memory_ids": spellings, "memory_id": HIDDEN.upper()}
-    shown = apply_hidden_id_withholding(_Store(), _identity("trusted_local_agent"), payload)
-    assert shown["candidate_memory_ids"] == []
+    shown = _shown({"source_refs": refs})["source_refs"]
+    assert shown == refs[:-1]
+    # The words of a quote are the writer's text, so an id in them is not looked for, in a ref as anywhere else.
+    quoted = [{"memory_id": VISIBLE, "quote": f"words {HIDDEN}"}, {"memory_id": VISIBLE, "conversation_excerpt": f"see {HIDDEN}"}]
+    assert _shown({"source_refs": quoted})["source_refs"] == quoted
+    # An id under a field the product reads as a reference names a row, and a bare entry of the list does too.
+    assert _shown({"source_refs": [{"id": MISSING}, {"ref": MISSING}, {"source_ids": [MISSING]}]})["source_refs"] == [{"id": None}, {"ref": None}, {"source_ids": []}]
+
+
+def test_a_prefixed_ref_that_goes_on_after_its_id_is_judged_by_the_id() -> None:
+    """``source:<id>#chunk-1`` names the row of the id. A hidden row and a missing row leave one answer."""
+
+    def shown_refs(row_id: str) -> list:
+        refs = [
+            f"source:{row_id}#chunk-1",
+            f"memory:{row_id} some words",
+            f"alice://sources/{row_id.upper()}#c",
+            f"MEMORY: {row_id}",
+        ]
+        return _shown({"source_refs": refs})["source_refs"]
+
+    assert shown_refs(HIDDEN) == shown_refs(MISSING) == []
+    readable = [f"memory:{VISIBLE}#chunk-1", f"alice://sources/{VISIBLE_SOURCE}#c"]
+    assert _shown({"source_refs": readable})["source_refs"] == readable
+    # A bare id with words round it is an incidental position: only a stored, unreadable row is withheld there.
+    incidental = {"source_refs": [f"{HIDDEN}#frag", f"{MISSING}#frag"]}
+    assert _shown(incidental)["source_refs"] == [f"{MISSING}#frag"]
+
+
+def test_json_text_in_a_ref_is_read_like_the_object_it_holds() -> None:
+    def shown(row_id: str) -> list:
+        refs = [
+            json.dumps({"memory_id": row_id, "quote": "q"}),
+            json.dumps([{"memory_id": row_id}, f"memory:{row_id}", {"origin": f"memory:{row_id}", "quote": "q"}]),
+            "[" + json.dumps(json.dumps({"source_id": row_id})) + "]",
+        ]
+        return _shown({"source_refs": refs})["source_refs"]
+
+    hidden, missing = shown(HIDDEN), shown(MISSING)
+    assert hidden == missing
+    assert [json.loads(entry) for entry in hidden[:3]] == [
+        {"memory_id": None, "quote": "q"},
+        [{"memory_id": None}, {"quote": "q"}],
+        [json.dumps({"source_id": None})],
+    ]
+    # A sentence that holds an id is an incidental position: only the id of a stored row that is hidden is withheld there.
+    sentence = {"source_refs": [f"copied from {{not json {HIDDEN}", f"copied from {{not json {MISSING}"]}
+    assert _shown(sentence)["source_refs"] == [f"copied from {{not json {MISSING}"]
+    readable = [json.dumps({"memory_id": VISIBLE, "quote": "q"})]
+    assert _shown({"source_refs": readable})["source_refs"] == readable
+
+
+def test_a_readable_id_the_caller_sent_is_looked_up_when_the_field_decides() -> None:
+    """The id is looked up although the caller sent it, because the field decides, so a readable row is not dropped."""
+
+    refs = [{"origin": f"memory:{VISIBLE}", "memory_id": VISIBLE, "quote": "q"}]
+    assert _shown({"source_refs": refs}, keep={VISIBLE}) == {"source_refs": refs}
+    assert judged_ids({"source_refs": refs}, {VISIBLE}) == {VISIBLE}
+    assert judged_ids({"source_refs": [{"memory_id": VISIBLE}]}, {VISIBLE}) == set()
+
+
+def test_an_id_the_caller_named_stays_whether_the_row_is_hidden_or_missing() -> None:
+    payload = {"source_refs": [f"memory:{HIDDEN}", f"memory:{MISSING}"], "memory_id": MISSING}
+    assert _shown(payload, keep={HIDDEN, MISSING}) == payload
+    assert _shown(payload, keep={HIDDEN}) == {"source_refs": [f"memory:{HIDDEN}"], "memory_id": None}
+
+
+# -- item 1: every spelling, found by shape and compared in canonical form --------------------------------------------
+
+
+@pytest.mark.parametrize("name", sorted(_spellings(HIDDEN)))
+def test_every_spelling_of_a_hidden_id_is_removed_when_it_stands_alone(name: str) -> None:
+    """The canonical spelling is nowhere in the payload, so a filter that lists spellings, or that compares text
+    it did not parse with ``identifier``, leaves the id in."""
+
+    spelling = _spellings(HIDDEN)[name]
+    shown = _shown(
+        {
+            "candidate_memory_ids": [spelling, VISIBLE],
+            "memory_id": spelling,
+            "source_refs": [f"memory:{spelling}", f"source:{spelling}"],
+            "content_markdown": f"One line {spelling} and another.",
+        }
+    )
+    assert shown["candidate_memory_ids"] == [VISIBLE]
     assert shown["memory_id"] is None
-    kept = apply_hidden_id_withholding(_Store(), _identity("admin_agent"), payload)
-    assert kept["candidate_memory_ids"] == spellings
+    assert shown["source_refs"] == []
+    assert _digits(HIDDEN) not in _digits(shown["content_markdown"])
+    assert shown["content_markdown"].startswith("One line") and shown["content_markdown"].endswith("and another.")
+
+
+def test_an_owner_and_an_unbound_admin_key_keep_every_spelling() -> None:
+    spellings = list(_spellings(HIDDEN).values())
+    payload = {"candidate_memory_ids": spellings, "memory_id": HIDDEN.upper()}
+    assert apply_hidden_id_withholding(_Store(), _identity("admin_agent"), payload) == payload
+    assert apply_hidden_id_withholding(_Store(), None, payload) == payload
+
+
+def test_a_token_is_removed_where_it_stands_and_its_neighbours_stay() -> None:
+    other = VISIBLE.upper()
+    text = f"- memory:{HIDDEN.upper()} says {{{HIDDEN}}} and urn:uuid:{HIDDEN}; [{other}] stays.\n"
+    shown = _shown({"content_markdown": text})["content_markdown"]
+    assert _digits(HIDDEN) not in _digits(shown)
+    assert other in shown and " says " in shown and shown.endswith(" stays.\n")
+
+
+def test_a_run_of_hex_digits_that_is_not_an_id_is_not_taken_for_one() -> None:
+    digest = "ab" * 32
+    longer = HIDDEN.replace("-", "") + "ab"
+    shown = _shown({"content_markdown": f"{digest} {longer} {HIDDEN[:-1]}", "source_refs": [digest, longer]})
+    assert shown["content_markdown"] == f"{digest} {longer} {HIDDEN[:-1]}"
+    assert shown["source_refs"] == [digest, longer]
+
+
+# -- item 2: any field name, any depth, a prefix, a key ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "build,expected",
+    [
+        (lambda i: {"see_also": i}, {"see_also": None}),
+        (lambda i: {"related_memory": i}, {"related_memory": None}),
+        (lambda i: {"links": {"memory": i, "kept": VISIBLE}}, {"links": {"memory": None, "kept": VISIBLE}}),
+        (lambda i: {"refs": [{"id": i, "label": "a"}, {"id": VISIBLE}]}, {"refs": [{"id": None, "label": "a"}, {"id": VISIBLE}]}),
+        (lambda i: {"a": {"b": {"c": [{"d": [i, VISIBLE]}]}}}, {"a": {"b": {"c": [{"d": [VISIBLE]}]}}}),
+        (lambda i: {"notes": [[i], [VISIBLE]]}, {"notes": [[], [VISIBLE]]}),
+        (lambda i: {i: {"note": "n"}, "other": 1}, {"other": 1}),
+        (lambda i: {"related": {i.upper(): [1, 2], "ok": True}}, {"related": {"ok": True}}),
+    ],
+)
+@pytest.mark.parametrize("wrap", ["{}", "memory:{}", "source:{}", "urn:uuid:{}", "MEMORY:{}", "artifact:{}", "alice://memories/{}"])
+def test_an_id_that_is_the_whole_value_is_removed_under_any_key(build, expected, wrap: str) -> None:
+    shown = _shown(build(wrap.format(HIDDEN)))
+    assert shown == expected
+
+
+def test_an_id_inside_free_text_is_not_looked_for() -> None:
+    """Ids in the writer's own words are out of scope. The row's own label governs them."""
+
+    payload = {
+        "title": f"Notes on {HIDDEN}",
+        "note": f"see {HIDDEN} for details",
+        "summary": [f"{HIDDEN} was archived", "other"],
+        "metadata_json": {"explanation": f"Shares terms with {HIDDEN}"},
+    }
+    assert _shown(payload) == payload
+
+
+def test_the_id_of_a_readable_row_stays_wherever_it_stands() -> None:
+    payload = {
+        "see_also": VISIBLE,
+        "candidate_memory_ids": [VISIBLE, f"memory:{SECOND_VISIBLE}"],
+        "source_refs": [f"source:{VISIBLE_SOURCE}", {"memory_id": VISIBLE, "quote": "q"}],
+        "links": {VISIBLE: 1},
+    }
+    assert _shown(payload) == payload
+
+
+def test_a_value_that_is_not_an_id_is_left_alone() -> None:
+    payload = {
+        "memory_id": "not-an-id-but-long-enough-to-be-checked-by-length",
+        "see_also": "a" * 31,
+        "candidate_memory_ids": ["notes from the standup", "x" * 64],
+        "n": 7,
+        "flag": True,
+        "nothing": None,
+    }
+    assert _shown(payload) == payload
+
+
+# -- item 3: a hidden row and a missing row leave one answer ----------------------------------------------------------
+
+
+def _typed_payload(row_id: str) -> dict:
+    return {
+        "candidate_memory_ids": [row_id, VISIBLE],
+        "memory_id": row_id,
+        "artifact_id": row_id,
+        "output_artifact_id": row_id,
+        "source_refs": [
+            f"memory:{row_id}",
+            f"source:{row_id}",
+            row_id,
+            row_id.upper(),
+            {"memory_id": row_id, "quote": "q"},
+            {"origin": f"artifact:{row_id}"},
+            [row_id],
+        ],
+        "metadata_json": {
+            "derived_from": {"memories": [row_id, VISIBLE], "counts": {"memories": 2}},
+            "member_snapshots": [{"id": row_id, "status": "active"}, {"id": VISIBLE}],
+            "consolidation": {"cluster_member_ids": [row_id, VISIBLE]},
+            "rollup": {"instances": [{"memory_id": row_id}, {"memory_id": VISIBLE}]},
+        },
+        "related": f"memory:{row_id}",
+    }
+
+
+@pytest.mark.parametrize("profile", ["trusted_local_agent", "read_only_agent", "memory_proposal_agent"])
+def test_a_hidden_id_and_a_missing_id_leave_the_same_answer(profile: str) -> None:
+    hidden = _shown(_typed_payload(HIDDEN), profile=profile)
+    missing = _shown(_typed_payload(MISSING), profile=profile)
+    assert hidden == missing
+    assert HIDDEN not in json.dumps(hidden) and MISSING not in json.dumps(missing)
+    assert hidden["candidate_memory_ids"] == [VISIBLE]
+    assert hidden["source_refs"] == [{"memory_id": None, "quote": "q"}, {}, []]
+
+
+def test_an_id_that_names_no_row_at_a_position_the_product_does_not_type_stays() -> None:
+    """The filter cannot tell such an id from the id of an event, a task or a chunk. This is the boundary the docs state."""
+
+    shown = _shown({"see_also": MISSING, "event": {"id": MISSING}, "metadata_json": {"chunk": MISSING}})
+    assert shown == {"see_also": MISSING, "event": {"id": MISSING}, "metadata_json": {"chunk": MISSING}}
+    assert _shown({"see_also": HIDDEN, "event": {"id": HIDDEN}})["see_also"] is None
 
 
 def test_a_limited_key_loses_every_id_kind_and_the_owner_keeps_them() -> None:
@@ -125,3 +431,431 @@ def test_a_limited_key_loses_every_id_kind_and_the_owner_keeps_them() -> None:
     assert owner["artifact_id"] == ARTIFACT
     assert admin["artifact_id"] == ARTIFACT
     assert owner is not None and admin["member_snapshots"][0]["id"] == HIDDEN
+
+
+def test_the_id_of_a_belief_is_left_as_written() -> None:
+    """Beliefs are not one of the rows the filter resolves: its lookups are for memories, sources, artifacts and open loops."""
+
+    payload = {
+        "belief_ids": [BELIEF, VISIBLE_BELIEF, MISSING],
+        "beliefs": [BELIEF],
+        "derived_from": {"beliefs": [BELIEF, VISIBLE_BELIEF], "counts": {"beliefs": 2}},
+        "source_refs": [f"belief:{BELIEF}", f"belief:{MISSING}"],
+    }
+    assert _shown(payload) == payload
+
+
+def test_a_payload_with_nothing_to_withhold_is_the_same_object() -> None:
+    payload = {"candidate_memory_ids": [VISIBLE], "items": [{"id": VISIBLE}], "n": 1}
+    assert _shown(payload) is payload
+
+
+# -- item 4: counts ---------------------------------------------------------------------------------------------------
+
+
+def test_a_count_follows_the_list_the_filter_shortened() -> None:
+    payload = {
+        "derived_from": {
+            "v": 1,
+            "memories": [HIDDEN, VISIBLE, SECOND_VISIBLE],
+            "sources": [SOURCE, VISIBLE_SOURCE],
+            "open_loops": [],
+            "counts": {"memories": 3, "sources": 2, "open_loops": 0},
+        },
+        "input_summary": {"memory_ids": [HIDDEN, VISIBLE], "source_ids": [VISIBLE_SOURCE], "counts": {"memories": 2, "sources": 1}},
+        "memory_ids": [HIDDEN, VISIBLE, SECOND_VISIBLE],
+        "source_ids": [SOURCE, VISIBLE_SOURCE],
+        "input_counts": {"memories": 3, "sources": 2, "artifacts": 6, "active_memories": 9},
+        "memory_count": 3,
+        "count": 3,
+    }
+    shown = _shown(payload)
+    assert shown["derived_from"]["memories"] == [VISIBLE, SECOND_VISIBLE]
+    assert shown["derived_from"]["counts"] == {"memories": 2, "sources": 1, "open_loops": 0}
+    assert shown["input_summary"]["counts"] == {"memories": 1, "sources": 1}
+    assert shown["input_counts"] == {"memories": 2, "sources": 1, "artifacts": 6, "active_memories": 9}
+    assert shown["memory_count"] == 2
+    # A bare count beside several lists is recomputed only when it equals the old length of one of them.
+    assert shown["count"] == 2
+
+
+def test_member_instance_and_displayed_counts_follow_the_roll_up() -> None:
+    rollup = {
+        "member_count": 3,
+        "displayed_instance_count": 2,
+        "instances_truncated": True,
+        "grouping_input_count": 7,
+        "member_ids": [HIDDEN, VISIBLE, SECOND_VISIBLE],
+        "instances": [{"memory_id": HIDDEN, "text": "t"}, {"memory_id": VISIBLE, "text": "t"}],
+    }
+    shown = _shown({"value": {"rollup": rollup}})["value"]["rollup"]
+    assert shown["member_ids"] == [VISIBLE, SECOND_VISIBLE]
+    assert shown["instances"] == [{"memory_id": VISIBLE, "text": "t"}]
+    assert shown["member_count"] == 2
+    assert shown["displayed_instance_count"] == 1
+    assert shown["instances_truncated"] is True
+    # What the grouping read is a statistic of the report, not a count of a list the filter shortens.
+    assert shown["grouping_input_count"] == 7
+
+
+def test_a_roll_up_proposal_counts_its_members_as_instances() -> None:
+    proposal = {
+        "instance_count": 3,
+        "displayed_instance_count": 2,
+        "instances_truncated": True,
+        "member_ids": [VISIBLE, HIDDEN, SECOND_VISIBLE],
+        "source_refs": [f"memory:{VISIBLE}", f"memory:{HIDDEN}", f"memory:{SECOND_VISIBLE}"],
+    }
+    shown = _shown({"rollups": {"proposals": [proposal]}})["rollups"]["proposals"][0]
+    assert shown["member_ids"] == [VISIBLE, SECOND_VISIBLE]
+    assert shown["source_refs"] == [f"memory:{VISIBLE}", f"memory:{SECOND_VISIBLE}"]
+    assert shown["instance_count"] == 2
+    # Two instances were shown of three members. The filter cannot say which one was withheld, so it keeps no flag
+    # that could tell a key how many members were hidden.
+    assert "displayed_instance_count" not in shown
+    assert "instances_truncated" not in shown
+
+
+def test_an_instance_count_that_is_still_right_is_kept() -> None:
+    value = {
+        "member_count": 3,
+        "displayed_instance_count": 2,
+        "instances_truncated": True,
+        "member_ids": [VISIBLE, SECOND_VISIBLE, HIDDEN],
+        "instances": [{"memory_id": VISIBLE}, {"memory_id": SECOND_VISIBLE}],
+    }
+    shown = _shown({"rollup": value})["rollup"]
+    assert shown["member_count"] == 2
+    assert shown["displayed_instance_count"] == 2
+    assert shown["instances_truncated"] is False
+
+
+def test_the_stale_sweep_counts_follow_the_marked_ids() -> None:
+    payload = {
+        "stale_marked_memory_ids": [HIDDEN, VISIBLE],
+        "input_counts": {"expired_marked": 2, "unconfirmed_marked": 0, "scanned": 5},
+    }
+    shown = _shown(payload)
+    assert shown["stale_marked_memory_ids"] == [VISIBLE]
+    # Both marked ids were counted as expired. One is withheld, so one is left.
+    assert shown["input_counts"] == {"expired_marked": 1, "unconfirmed_marked": 0, "scanned": 5}
+    split = _shown(
+        {
+            "stale_marked_memory_ids": [HIDDEN, VISIBLE],
+            "input_counts": {"expired_marked": 1, "unconfirmed_marked": 1, "scanned": 5},
+        }
+    )
+    # One was counted as expired and one as unconfirmed. The filter cannot say which one went, so it drops both.
+    assert split["input_counts"] == {"scanned": 5}
+
+
+def test_the_counts_of_a_regenerated_source_and_of_a_capture_follow_their_id_lists() -> None:
+    regenerated = {
+        "source_id": VISIBLE_SOURCE,
+        "memory_ids": [HIDDEN, VISIBLE],
+        "open_loop_ids": [LOOP, SECOND_VISIBLE],
+        "memory_count": 2,
+        "open_loop_count": 2,
+    }
+    assert _shown(regenerated) == {
+        "source_id": VISIBLE_SOURCE,
+        "memory_ids": [VISIBLE],
+        "open_loop_ids": [SECOND_VISIBLE],
+        "memory_count": 1,
+        "open_loop_count": 1,
+    }
+    receipt = {"candidate_memory_ids": [HIDDEN, VISIBLE], "candidate_memory_count": 2, "chunk_count": 2}
+    assert _shown(receipt) == {"candidate_memory_ids": [VISIBLE], "candidate_memory_count": 1, "chunk_count": 2}
+
+
+def test_an_id_nested_fifty_levels_down_is_found() -> None:
+    deep: object = [HIDDEN, VISIBLE]
+    for level in range(50):
+        deep = {f"level_{level}": deep}
+    shown = _shown({"metadata_json": deep, "see_also": VISIBLE})
+    node = shown["metadata_json"]
+    for level in range(49, -1, -1):
+        node = node[f"level_{level}"]
+    assert node == [VISIBLE]
+
+
+def test_a_count_of_a_list_that_lost_nothing_is_untouched() -> None:
+    payload = {
+        "derived_from": {"memories": [VISIBLE], "sources": [VISIBLE_SOURCE], "counts": {"memories": 1, "sources": 1}},
+        "count": 2,
+        "limit": 50,
+        "memory_limit": 50,
+    }
+    assert _shown(payload) == payload
+
+
+# -- no store is opened for a payload without an id --------------------------------------------------------------------
+
+
+def test_no_store_is_opened_when_the_payload_holds_no_id_to_judge() -> None:
+    opened: list[int] = []
+
+    @contextmanager
+    def open_store():
+        opened.append(1)
+        yield _Store()
+
+    identity = _identity("trusted_local_agent")
+    plain = {"items": [{"id": "not-an-id", "title": f"words {HIDDEN}"}], "count": 1, "digest": "ab" * 32}
+    assert withhold_with(open_store, identity, plain) is plain
+    assert opened == []
+    assert judged_ids(plain) == set()
+    assert withhold_with(open_store, identity, {"memory_ids": [HIDDEN]}) == {"memory_ids": []}
+    assert opened == [1]
+    # An id the caller named is not judged either.
+    assert withhold_with(open_store, identity, {"memory_ids": [HIDDEN]}, keep={HIDDEN}) == {"memory_ids": [HIDDEN]}
+    assert opened == [1]
+    # The owner and an unbound admin key never open a store.
+    assert withhold_with(open_store, None, {"memory_ids": [HIDDEN]}) == {"memory_ids": [HIDDEN]}
+    assert withhold_with(open_store, _identity("admin_agent"), {"memory_ids": [HIDDEN]}) == {"memory_ids": [HIDDEN]}
+    assert opened == [1]
+
+
+# -- items 5 and 7 at the layer that reads the request ---------------------------------------------------------------
+
+
+USER = UUID("11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+
+
+def _request(*, identity, user_id=USER, query: str = "", path: str = "/v0/vnext/memories/forget") -> SimpleNamespace:
+    state = SimpleNamespace(vnext_agent_identity=identity)
+    if user_id is not None:
+        state.vnext_authenticated_user_id = user_id
+    return SimpleNamespace(
+        state=state,
+        url=SimpleNamespace(path=path, query=query),
+        query_params={key: value for key, value in (pair.split("=") for pair in query.split("&") if pair)},
+    )
+
+
+@pytest.fixture
+def connections(monkeypatch):
+    opened: list[tuple[str, UUID]] = []
+    store = _Store()
+
+    @contextmanager
+    def fake_connection(url, user_id):
+        opened.append((url, user_id))
+        yield object()
+
+    import alicebot_api.db as db
+    import alicebot_api.vnext_store as vnext_store
+
+    monkeypatch.setattr(db, "user_connection", fake_connection)
+    monkeypatch.setattr(vnext_store, "PostgresVNextStore", lambda _conn: store)
+    return opened
+
+
+def test_the_filter_reads_rows_for_the_user_the_key_was_authenticated_for(connections) -> None:
+    """The query holds no user_id and the body is the response: only the authenticated user can tell whom to read for."""
+
+    body = json.dumps({"memory": {"metadata_json": {"candidate_memory_ids": [HIDDEN, VISIBLE]}}}).encode()
+    request = _request(identity=_identity("trusted_local_agent"), query="")
+    updated = withhold_json_body(request, body, database_url="postgresql://db")
+    assert updated is not None
+    assert json.loads(updated)["memory"]["metadata_json"]["candidate_memory_ids"] == [VISIBLE]
+    assert connections == [("postgresql://db", USER)]
+
+
+def test_the_filter_ignores_a_user_id_in_the_query(connections) -> None:
+    other = "22222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    body = json.dumps({"memory_ids": [HIDDEN]}).encode()
+    request = _request(identity=_identity("trusted_local_agent"), query=f"user_id={other}")
+    assert withhold_json_body(request, body, database_url="postgresql://db") is not None
+    assert connections == [("postgresql://db", USER)]
+
+
+def test_a_limited_key_with_no_authenticated_user_is_refused_not_passed_through(connections) -> None:
+    body = json.dumps({"memory_ids": [HIDDEN]}).encode()
+    request = _request(identity=_identity("trusted_local_agent"), user_id=None, query=f"user_id={USER}")
+    with pytest.raises(HiddenIdFilterError):
+        withhold_json_body(request, body, database_url="postgresql://db")
+    assert connections == []
+
+
+def test_no_connection_is_opened_for_a_body_without_an_id(connections) -> None:
+    identity = _identity("trusted_local_agent")
+    for text in ({"detail": f"words {HIDDEN}", "count": 3, "digest": "ab" * 32}, {"items": []}, {}, []):
+        assert withhold_json_body(_request(identity=identity), json.dumps(text).encode(), database_url="postgresql://db") is None
+    assert connections == []
+    body = json.dumps({"memory_ids": [VISIBLE]}).encode()
+    assert withhold_json_body(_request(identity=identity), body, database_url="postgresql://db") is None
+    assert len(connections) == 1
+
+
+def test_a_body_without_an_id_needs_no_authenticated_user(connections) -> None:
+    """Nothing is judged, so nothing is refused: the missing user matters only when there is an id to read rows for."""
+
+    request = _request(identity=_identity("trusted_local_agent"), user_id=None)
+    assert withhold_json_body(request, json.dumps({"items": [], "count": 0}).encode(), database_url="postgresql://db") is None
+    assert connections == []
+
+
+def test_the_owner_and_an_unbound_admin_key_open_no_connection(connections) -> None:
+    body = json.dumps({"memory_ids": [HIDDEN]}).encode()
+    for identity in (None, _identity("admin_agent")):
+        assert withhold_json_body(_request(identity=identity), body, database_url="postgresql://db") is None
+    assert connections == []
+
+
+def test_the_named_body_keeps_an_id_the_caller_sent(connections) -> None:
+    body = json.dumps({"memory": {"value": {"source_refs": [f"memory:{HIDDEN}", f"memory:{SOURCE}"]}}}).encode()
+    request = _request(identity=_identity("trusted_local_agent"), query="")
+    named = json.dumps({"source_refs": [f"MEMORY:{HIDDEN.upper()}"]}).encode()
+    updated = withhold_json_body(request, body, database_url="postgresql://db", named_body=named)
+    assert json.loads(updated)["memory"]["value"]["source_refs"] == [f"memory:{HIDDEN}"]
+    without = withhold_json_body(request, body, database_url="postgresql://db")
+    assert json.loads(without)["memory"]["value"]["source_refs"] == []
+
+
+def test_a_response_header_that_repeats_stays_repeated() -> None:
+    """The layer rebuilds the response after it reads the body. Two Set-Cookie headers are two headers."""
+
+    import anyio
+    from starlette.applications import Starlette
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.responses import Response
+    from starlette.routing import Route
+
+    import alicebot_api.main as main_module
+
+    def route(_request):
+        response = Response(b'{"ok": true}', media_type="application/json")
+        for name, value in (
+            (b"set-cookie", b"a=1"),
+            (b"set-cookie", b"b=2"),
+            (b"vary", b"Origin"),
+            (b"vary", b"Accept"),
+        ):
+            response.raw_headers.append((name, value))
+        return response
+
+    app = Starlette(routes=[Route("/v0/vnext/probe", route)])
+    app.add_middleware(BaseHTTPMiddleware, dispatch=main_module._withhold_hidden_ids)
+    messages: list[dict] = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        messages.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/v0/vnext/probe",
+        "raw_path": b"/v0/vnext/probe",
+        "query_string": b"",
+        "headers": [(b"host", b"127.0.0.1:8000")],
+        "client": ("127.0.0.1", 50000),
+        "server": ("testserver", 80),
+        "root_path": "",
+    }
+    anyio.run(app, scope, receive, send)
+    start = next(item for item in messages if item["type"] == "http.response.start")
+    headers = [(name.lower(), value) for name, value in start["headers"]]
+    assert [value for name, value in headers if name == b"set-cookie"] == [b"a=1", b"b=2"]
+    assert [value for name, value in headers if name == b"vary"] == [b"Origin", b"Accept"]
+    assert [value for name, value in headers if name == b"content-length"] == [b"12"]
+    assert [value for name, value in headers if name == b"content-type"] == [b"application/json"]
+
+
+def test_a_response_with_no_body_gets_no_content_length() -> None:
+    """A 204 has no body and no length. The layer rebuilds the response and must not add one."""
+
+    import anyio
+    from starlette.applications import Starlette
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.responses import Response
+    from starlette.routing import Route
+
+    import alicebot_api.main as main_module
+
+    app = Starlette(routes=[Route("/v0/vnext/probe", lambda _request: Response(status_code=204))])
+    app.add_middleware(BaseHTTPMiddleware, dispatch=main_module._withhold_hidden_ids)
+    messages: list[dict] = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        messages.append(message)
+
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET", "scheme": "http",
+        "path": "/v0/vnext/probe", "raw_path": b"/v0/vnext/probe", "query_string": b"",
+        "headers": [(b"host", b"127.0.0.1:8000")], "client": ("127.0.0.1", 50000), "server": ("testserver", 80),
+        "root_path": "",
+    }
+    anyio.run(app, scope, receive, send)
+    start = next(item for item in messages if item["type"] == "http.response.start")
+    assert start["status"] == 204
+    assert [name for name, _value in start["headers"] if name.lower() == b"content-length"] == []
+
+
+
+@pytest.fixture
+def clean_reader():
+    """Run a test with no reader remembered, and leave none behind for the next test."""
+
+    from alicebot_api.vnext_hidden_ids import _READER
+
+    token = _READER.set(None)
+    try:
+        yield
+    finally:
+        _READER.reset(token)
+
+
+def test_a_reader_a_command_remembers_ends_with_the_command(monkeypatch, clean_reader) -> None:
+    """The remembered reader names a database, a user and a key. The next command must not inherit it.
+
+    Mutation: ``runner.main`` calls the handler outside ``reader_scope``. The reader outlives the command and the next
+    command sees it (the contention test of the label lock then opens a connection to a database that was dropped).
+    """
+
+    from argparse import Namespace
+
+    from alicebot_api.cli import runner
+    from alicebot_api.vnext_hidden_ids import reader_for_dump, remember_reader
+
+    identity = _identity("trusted_local_agent")
+    seen: list[tuple] = []
+
+    def handler(_ctx, _args) -> str:
+        remember_reader(SimpleNamespace(database_url="postgresql://db", user_id=USER), identity)
+        seen.append(reader_for_dump())
+        return "done"
+
+    class Parser:
+        def __init__(self, run):
+            self.run = run
+
+        def parse_args(self, _argv):
+            return Namespace(handler=self.run)
+
+    monkeypatch.setattr(runner, "build_parser", lambda: Parser(handler))
+    monkeypatch.setattr(runner, "_validate_arguments", lambda _args: None)
+    monkeypatch.setattr(runner, "_build_context", lambda _args: object())
+    assert runner.main([]) == 0
+    assert seen == [("postgresql://db", str(USER), identity)]
+    assert reader_for_dump() == (None, None, None)
+    # A reader left by code that ran no command is not seen by the command either.
+    remember_reader(SimpleNamespace(database_url="postgresql://stale", user_id=USER), identity)
+    seen.clear()
+
+    def next_handler(_ctx, _args) -> str:
+        seen.append(reader_for_dump())
+        return "done"
+
+    monkeypatch.setattr(runner, "build_parser", lambda: Parser(next_handler))
+    assert runner.main([]) == 0
+    assert seen == [(None, None, None)]

@@ -219,19 +219,25 @@ def _remember_cli_reader(store: object, identity: object) -> None:
 
 
 def _json_dumps(value: object) -> str:
-    from alicebot_api.vnext_hidden_ids import reader_for_dump
+    from alicebot_api.vnext_hidden_ids import reader_for_dump, withhold_with
 
+    # The filter reads the plain JSON the command prints, so an id that is still a UUID object is judged too.
+    safe = json_safe(value)
     url, user_id, identity = reader_for_dump()
     if url and user_id and identity is not None:
+        from contextlib import contextmanager
         from uuid import UUID
 
         from alicebot_api.db import user_connection
-        from alicebot_api.vnext_hidden_ids import apply_hidden_id_withholding
         from alicebot_api.vnext_store import PostgresVNextStore
 
-        with user_connection(url, UUID(user_id)) as conn:
-            value = apply_hidden_id_withholding(PostgresVNextStore(conn), identity, value)
-    return json.dumps(json_safe(value), indent=2, sort_keys=True)
+        @contextmanager
+        def open_store() -> Iterator[PostgresVNextStore]:
+            with user_connection(url, UUID(user_id)) as conn:
+                yield PostgresVNextStore(conn)
+
+        safe = withhold_with(open_store, identity, safe)
+    return json.dumps(safe, indent=2, sort_keys=True)
 
 
 def _checked_batch_output(record: dict[str, object]) -> str:

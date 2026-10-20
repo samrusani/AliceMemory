@@ -64,6 +64,15 @@ LISTING_KEYS = frozenset(
         "belief_memory_id", "content_markdown", "member_ids", "cluster_member_ids",
     }
 )
+# Paths (by their tail) where the id of a deleted memory also stands, next to what the report copied from it: the roll-up
+# card lists its instances with the text, label and amounts of each memory it rolled up, and a consolidation candidate
+# lists its members with a status, an update time and a digest. The last segment alone (``id``, ``memory_id``) is too
+# common to allow on its own.
+LISTING_PATHS = (".consolidation.member_snapshots.id", ".rollup.instances.memory_id")
+# The fields of an event that name the row it is about.
+EVENT_TARGETS = ("target_id", "memory_id")
+
+
 def _paths(value, path=""):
     """Every (path, id, text) where a string holds a UUID. A list adds no segment, so the last segment is the field."""
     if isinstance(value, dict):
@@ -305,20 +314,27 @@ def world(label_harness):
     return World(label_harness)
 
 
-def _sweep(h, world, monkeypatch):
+def _sweep(h, world, monkeypatch, *, owner=False):
     """Every response of every door that returns stored metadata, for a key of each kind that can reach it.
 
     The artifact get and trace doors check the artifact against the key's own limits, so a read-only key, a project-scoped
     key and a project-bound admin key read a report within them. The artifact list, the source trace, the workspace and the
     project dashboard are operator routes, which only an unbound trusted key reaches.
+
+    With ``owner`` the sweep is made by the unbound admin key alone, which has no limits and is shown every id as stored.
+    It reaches the same doors as the unbound trusted key, so the two sweeps are compared door by door.
     """
     trusted = h.key("trusted_local_agent")
-    keys = {
-        "trusted": trusted,
-        "read_only": h.key("read_only_agent"),
-        "project_scoped": h.key("project_scoped_agent", project=world.alpha),
-        "admin_bound": h.key("admin_agent", project=world.alpha),
-    }
+    if owner:
+        trusted = world.admin
+        keys = {"trusted": world.admin}
+    else:
+        keys = {
+            "trusted": trusted,
+            "read_only": h.key("read_only_agent"),
+            "project_scoped": h.key("project_scoped_agent", project=world.alpha),
+            "admin_bound": h.key("admin_agent", project=world.alpha),
+        }
     responses: list[tuple[str, str, int, object]] = []
 
     def get(key_name, label, path, key):
@@ -372,23 +388,159 @@ def _sweep(h, world, monkeypatch):
     return responses
 
 
+# The doors that return a stored report or memory with its metadata. The detail modes of explain and review return the
+# lists of a derived memory (a project update lists the sources it was made from), and so does the memory audit, an
+# operator route, with the revisions and the event changes of the memory. The list modes of the other tools return none.
+DETAIL_TOOLS = {"alice_explain", "alice_memory_review"}
+OPERATOR_DOORS = {
+    "artifact list", "artifact get", "artifact trace", "source trace", "workspace", "project dashboard", "memory audit",
+    *DETAIL_TOOLS,
+}
+KIND_COUNTS = {
+    "sources": "source_ids", "memories": "memory_ids", "open_loops": "open_loop_ids", "artifacts": "artifact_ids",
+    "beliefs": "belief_ids",
+}
+
+
+def _count_problems(value, path="") -> list[str]:
+    """Every count of a list that disagrees with the list beside it, in the shapes the producers write.
+
+    The shapes are ``derived_from`` and ``input_summary`` (a ``counts`` object beside the lists), ``input_counts`` beside
+    ``<kind>_ids``, and a roll-up (``member_count``, ``instance_count`` and ``displayed_instance_count``). A count the
+    filter dropped is not a disagreement. The stored rows agree, so this holds for the owner and must hold for a key.
+    """
+    problems: list[str] = []
+    if isinstance(value, list):
+        for child in value:
+            problems.extend(_count_problems(child, path + "[]"))
+    elif isinstance(value, dict):
+        def check(count, size, label):
+            if isinstance(count, int) and not isinstance(count, bool) and count != size:
+                problems.append(f"{path}.{label}: {count} but {size} listed")
+
+        counts = value.get("counts")
+        if isinstance(counts, dict):
+            for kind, listed in value.items():
+                if kind in KIND_COUNTS and isinstance(listed, list):
+                    check(counts.get(kind), len(listed), f"counts.{kind}")
+            for kind, name in KIND_COUNTS.items():
+                if isinstance(value.get(name), list):
+                    check(counts.get(kind), len(value[name]), f"counts.{kind}")
+        input_counts = value.get("input_counts")
+        if isinstance(input_counts, dict):
+            for kind, name in KIND_COUNTS.items():
+                if isinstance(value.get(name), list):
+                    check(input_counts.get(kind), len(value[name]), f"input_counts.{kind}")
+            marked = value.get("stale_marked_memory_ids")
+            if isinstance(marked, list) and "expired_marked" in input_counts and "unconfirmed_marked" in input_counts:
+                check(input_counts["expired_marked"] + input_counts["unconfirmed_marked"], len(marked), "marked")
+        if isinstance(value.get("member_ids"), list):
+            check(value.get("member_count"), len(value["member_ids"]), "member_count")
+            check(value.get("instance_count"), len(value["member_ids"]), "instance_count")
+        if isinstance(value.get("instances"), list):
+            check(value.get("displayed_instance_count"), len(value["instances"]), "displayed_instance_count")
+        for key, child in value.items():
+            problems.extend(_count_problems(child, f"{path}.{key}"))
+    return problems
+
+
 def test_a_limited_key_is_shown_no_id_of_a_row_it_may_not_read(world, label_harness, monkeypatch):
-    """Every door and every key in the sweep returns zero ids of unreadable rows.
+    """Every door and every key in the sweep returns zero ids of unreadable rows, and the counts beside the lists agree.
+
+    The owner's sweep comes first. It is the control: the unbound admin key is shown every id as stored, so each kind of
+    hidden row really does stand in the doors and fields that the checks below ask about. Without it a filter that removed
+    too much, or a sweep that reached too little, would pass. These are the checks the sweep made before ids were withheld:
+
+    * a hidden id stands only under the fields that list ids, and each id is a bare UUID or a ``source:`` or ``memory:``
+      reference to one;
+    * every kind of hidden row stands somewhere, in the fields its producer writes;
+    * the memory audit returns the lists of a derived memory in the memory, in its revisions and in the changes of its events;
+    * the doors that return the ids are the ones named above.
+
+    Then each key with limits reads the same doors, and no answer holds an id it may not read.
 
     Mutation: ``strip_hidden_ids`` returns ``value`` before it walks. A hidden id is in the response again and this fails.
     """
 
     h = label_harness
+    keys_by_reason: dict[str, set[str]] = {}
+    doors_with_ids: set[str] = set()
+    labels_with_ids: set[str] = set()
+    audit_paths: set[str] = set()
+    own_ids: list[tuple[str, str]] = []
+    owner_count_problems: list[tuple[str, str, str]] = []
+    for _key_name, label, _status, body in _sweep(h, world, monkeypatch, owner=True):
+        door = label.split(":")[0]
+        owner_count_problems.extend(("owner", label, problem) for problem in _count_problems(body))
+        for path, row_id, text in _paths(body):
+            if row_id not in world.hidden:
+                continue
+            reason, last = world.hidden[row_id], path.rsplit(".", 1)[-1]
+            if door == "workspace" and ".recent_events." in path and reason.endswith("memory archived") and last in EVENT_TARGETS:
+                # The event feed judges an event by the label of the rows it names, and an archived memory keeps its label,
+                # so the events about the memory name it as their target. Whether they stand in the latest events depends on
+                # how many events the other calls of this sweep wrote, so the test does not count on them either way.
+                continue
+            keys_by_reason.setdefault(reason, set()).add(last)
+            doors_with_ids.add(door)
+            labels_with_ids.add(label)
+            if door == "memory audit":
+                audit_paths.add(path)
+            if last not in LISTING_KEYS and not path.endswith(LISTING_PATHS):
+                # The owner may audit, explain and review an archived memory, and those answers name the memory they are
+                # about. No key below an unbound admin key reads such an answer, and the sweep of the keys with limits
+                # below finds no hidden id at all.
+                if door not in {"memory audit", *DETAIL_TOOLS}:
+                    own_ids.append((label, path))
+            elif last != "content_markdown":
+                assert BARE_ID.match(text), (label, path, text)
+    assert not own_ids, own_ids[:10]
+    # The stored rows hold one disagreement of their own: an open loop made from a source that is archived afterwards has
+    # its source list blanked (``sources delete`` does that) and its count left at one. That is stored so, for the owner
+    # too, and is not the filter's. A key must show no disagreement beyond the ones the owner is shown.
+    stored_disagreements = {re.sub(r"\d+", "N", problem) for _owner, _label, problem in owner_count_problems}
+    assert stored_disagreements <= {".open_loops[].metadata_json.derived_from.counts.sources: N but N listed",
+                                    ".project_dashboards[].open_loops[].metadata_json.derived_from.counts.sources: N but N listed",
+                                    ".items[].metadata_json.derived_from.counts.sources: N but N listed"}, stored_disagreements
+    # Every kind of hidden row really does appear, so the checks below ran on something.
+    assert set(keys_by_reason) == {
+        "candidate made confidential", "source archived", "memory archived", "second memory archived",
+    }, keys_by_reason
+    assert "candidate_memory_ids" in keys_by_reason["candidate made confidential"]
+    assert {"source_ids", "source_refs"} <= keys_by_reason["source archived"]
+    for reason in ("memory archived", "second memory archived"):
+        assert {"memories", "memory_ids", "member_ids", "source_refs"} <= keys_by_reason[reason], (reason, keys_by_reason[reason])
+    # The memory audit returns the lists of a derived memory in the memory, in its revisions and in the changes its events
+    # recorded, and an archived member stands in each of them. The security note, the tool reference, the known
+    # limitations and the changelog name the route; this fails when a field is added or goes.
+    assert {
+        ".memory.metadata_json.consolidation.cluster_member_ids", ".memory.metadata_json.derived_from.memories",
+        ".memory.metadata_json.source_refs", ".memory.value.rollup.member_ids",
+        ".revisions.previous_value.rollup.member_ids", ".revisions.new_value.rollup.member_ids",
+        ".events.payload_json.changes.metadata_json.consolidation.cluster_member_ids",
+        ".events.payload_json.changes.metadata_json.derived_from.memories", ".events.payload_json.changes.metadata_json.source_refs",
+    } <= audit_paths, sorted(audit_paths)
+    assert doors_with_ids == OPERATOR_DOORS, doors_with_ids
+
+    count_problems: list[tuple[str, str, str]] = []
     leaks: list[tuple[str, str, str]] = []
+    reached: dict[str, set[str]] = {}
     saw_visible = False
     visible = str(world.memories[0]["id"])
     # The rows of the confidential capture are named by no door to a key below the ceiling, as an id or in words. A
     # project-bound admin key is not below it.
     named: list[tuple[str, str, str]] = []
-    for key_name, label, _status, body in _sweep(h, world, monkeypatch):
+    for key_name, label, status, body in _sweep(h, world, monkeypatch):
         text = json.dumps(body, default=str)
         if visible in text:
             saw_visible = True
+        if status == 200 and label in labels_with_ids:
+            reached.setdefault(key_name, set()).add(label.split(":")[0])
+        count_problems.extend(
+            (key_name, label, problem)
+            for problem in _count_problems(body)
+            if re.sub(r"\d+", "N", problem) not in stored_disagreements
+        )
         if key_name != "admin_bound":
             if world.capture["token"] in text:
                 named.append((key_name, label, "the words of the source"))
@@ -399,6 +551,13 @@ def test_a_limited_key_is_shown_no_id_of_a_row_it_may_not_read(world, label_harn
     assert saw_visible, "a readable memory id never came back, so a withheld id would not be noticed"
     assert not leaks, leaks[:12]
     assert not named, named[:10]
+    assert not count_problems, count_problems[:10]
+    # The filter takes ids out of an answer and keeps the answer: the doors that held the ids for the owner still answer
+    # the keys that reach them. The unbound trusted key reaches all of them, the others the detail modes and the two
+    # artifact doors.
+    assert reached["trusted"] == OPERATOR_DOORS, reached
+    for key_name in ("read_only", "project_scoped", "admin_bound"):
+        assert reached[key_name] == {"artifact get", "artifact trace", *DETAIL_TOOLS}, (key_name, reached)
 
 
 def _workspace(h, key):
@@ -646,8 +805,10 @@ def test_the_graph_neighborhood_lists_an_edge_only_when_the_key_may_read_the_row
     memory_body = neighborhood(memory_id, trusted)
     memory_text = json.dumps(memory_body)
     assert "BELIEF title" not in memory_text and "SOURCE1 Atlas" not in memory_text
-    # The caller named this memory in the path, so the target id is that id. It is not
-    # another row they discovered. The rest of the answer does not repeat it.
+    # The memory has no edge the key may read, so its neighborhood is the neighborhood of an id that has none. The caller
+    # named the memory in the path, so the target id is that id and is not withheld; nothing else repeats it.
+    gone = neighborhood(str(uuid4()), trusted)
+    assert neighborhood(memory_id, trusted) == {**gone, "target_id": memory_id}
     assert memory_body["target_id"] == memory_id
     rest = json.dumps({key: value for key, value in memory_body.items() if key != "target_id"})
     assert memory_id not in rest
@@ -810,14 +971,35 @@ def test_a_report_keeps_the_words_of_a_row_that_was_archived_or_redacted_after_i
         context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
         return call_mcp_tool(context, name="alice_explain", arguments={"memory_id": rollups[0]})
 
+    # The owner reads the card as it was made: the text and label of the archived memory stand in it, with its id, and the
+    # consolidation candidate holds a digest of that member as it was. The checks of this test before ids were withheld.
+    owner_instances = explain_card(world.admin)["memory"]["value"]["rollup"]["instances"]
+    assert any(
+        instance["memory_id"] == world.to_redact and "MEMORY3" in instance["text"] for instance in owner_instances
+    ), "the card no longer keeps the text of the archived memory"
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", world.admin)
+    context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+    owner_detail = call_mcp_tool(context, name="alice_memory_review", arguments={"review_item_id": candidates[0]})
+    owner_snapshots = {
+        item["id"]: item for item in owner_detail["review"]["memory"]["metadata_json"]["consolidation"]["member_snapshots"]
+    }
+    assert re.fullmatch(r"[0-9a-f]{16}", owner_snapshots[world.to_redact]["content_digest"])
+    assert owner_snapshots[world.to_redact]["status"] == "active"  # the digest and status are those of the member as it was
+    # A key with limits reads the same card without the entry of a member it may not read: the id goes, and the text, label
+    # and digest of that entry go with it, because they are fields of the entry and not of the report. The entries of the
+    # members it may read are as the owner reads them, and the counts agree with what is listed.
     instances = explain_card(trusted)["memory"]["value"]["rollup"]["instances"]
     assert all(instance.get("memory_id") != world.to_redact for instance in instances)
     assert world.to_redact not in json.dumps(instances)
+    assert len(instances) < len(owner_instances)
+    assert [i for i in owner_instances if i["memory_id"] in {j["memory_id"] for j in instances}] == instances
     monkeypatch.setenv("ALICE_AGENT_API_KEY", trusted)
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
     detail = call_mcp_tool(context, name="alice_memory_review", arguments={"review_item_id": candidates[0]})
     snapshots = detail["review"]["memory"]["metadata_json"]["consolidation"]["member_snapshots"]
     assert all(item.get("id") != world.to_redact for item in snapshots)
+    assert all(item == owner_snapshots[item["id"]] for item in snapshots)
+    assert len(snapshots) < len(owner_snapshots)
 
     # A memory that is redacted now keeps its words in the same reports, and the reports that recorded it are contained:
     # the owner and an unbound admin key read them, and the key that read them a moment ago is answered as for a report that
