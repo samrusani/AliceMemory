@@ -202,12 +202,12 @@ def test_the_readme_states_no_longmemeval_figure_and_links_the_page() -> None:
     assert STATED_NUMBER.search(readme) is None
     assert "81.2" not in readme and "79.4" not in readme and "64.6" not in readme
     assert "img.shields.io/badge/LongMemEval" not in readme
-    benchmarks = " ".join(_section(readme, "Benchmarks").split())
+    benchmarks = " ".join(_section(readme, "Benchmark").split())
     assert "known issue" in benchmarks
     assert "(docs/benchmarks/longmemeval/README.md)" in benchmarks
     assert "(docs/benchmarks/showcase/phase0-baseline.md)" in benchmarks
     # The dated corrections in the published release notes send the reader to "the Benchmark section of the README".
-    assert "## Benchmarks" in readme
+    assert "\n## Benchmark\n" in readme
 
 
 def test_the_benchmark_page_discloses_the_label_hint_before_it_states_a_result() -> None:

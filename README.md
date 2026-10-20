@@ -122,7 +122,7 @@ The default MCP surface is three tools:
 - `alice_recall`: search memory, with full-text, vector and entity-graph results fused by rank. Also returns matching passages from captured documents under `sources`.
 - `alice_resume`: resumption brief for a project or thread.
 
-The other core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. Unreleased (on main, not in v0.20.2): `alice_what_changed` is one of the other nine core tools, and v0.20.2 does not have it. Capture stores a source and import is a source, while commit is a fact.
+The other core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. Unreleased (on main, not in v0.20.2): `alice_what_changed` is one of the other nine core tools, and v0.20.2 does not have it. Capture and import store sources; commit stores a fact.
 
 Calling directly from a human client (Claude Desktop, an IDE)? `alice_memory_commit` needs only `title` and `canonical_text`, with no identity fields. Agent integrations declare `agent_id` and `agent_type`, and custom agents calling the HTTP API use per-agent API keys; see [agent integration](docs/alpha/agent-integration.md), which also covers the optional [skill packs](docs/alpha/agent-integration.md#skill-packs). Every tool is listed in [MCP tools](docs/alpha/mcp-tools.md). The retained legacy tools need `ALICE_MCP_LEGACY_TOOLS=1` and a keyless local-operator server; see the [MCP guide](docs/integrations/mcp.md).
 
@@ -138,7 +138,7 @@ ALICE_EMBEDDINGS_API_KEY=            # only if the endpoint requires one
 
 Alice embeds only memories that recall can return, and cuts each memory and each query to its first 8,000 characters; `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` changes that cap. Search fuses full-text, vector, and entity-graph results by reciprocal rank: FTS5 and cosine similarity on SQLite, full-text search and pgvector 0.8+ (iterative HNSW) on Postgres. With no embeddings endpoint, search skips the vector list and the retrieval trace says so. Details are in [MCP tools](docs/alpha/mcp-tools.md#embeddings).
 
-## Benchmarks
+## Benchmark
 
 The published LongMemEval figures carry a known issue: the model answering each question could see which sessions held the evidence. [Alice on LongMemEval](docs/benchmarks/longmemeval/README.md) gives the figures, the method and the issue. The [showcase baseline](docs/benchmarks/showcase/phase0-baseline.md) compares Alice with grep, a note folder and no tool on two question sets, measured on main after v0.20.2.
 
