@@ -159,6 +159,10 @@ def test_the_cited_source_bullets_state_the_doors_and_the_residuals_the_fence_le
     assert residual.count(MARK) == 1
     assert residual.index(MARK) < residual.index("memory proposals")
     assert "memory proposals and the agent-output ingest store their `source_refs` as given" in residual
+    # What the sentence says of v0.20.2 and of main, so it is not read as the behaviour of main alone.
+    assert (
+        "(v0.20.2 kept an object entry and JSON text whole; main takes only a string that is not blank and not JSON text)"
+    ) in residual
     assert "the owner dependency trace lists a memory by the first id of a multi-id ref only" in residual
     assert "`provenance_count` still counts a withheld link" in residual
     assert (

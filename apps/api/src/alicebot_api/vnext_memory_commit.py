@@ -55,9 +55,11 @@ from alicebot_api.vnext_lifecycle import (
 )
 from alicebot_api.vnext_memory_version import memory_matches_snapshot
 from alicebot_api.vnext_source_fence import (
+    SOURCE_REF_SHAPE_MESSAGE,
     AttachableSources,
     SavedProvenanceReader,
     SourceReadFence,
+    is_producer_source_ref,
     resolve_attachable_sources,
 )
 from alicebot_api.write_bounds import (
@@ -554,18 +556,20 @@ def _object_tuple(value: object) -> tuple[object, ...]:
             f"source_refs must hold at most {MAX_COMMIT_SOURCE_REFS} entries"
         )
     for ref in value:
-        # Depth and finite numbers first, by a walk that keeps its own stack: the size below serializes the ref, and a
-        # ref nested a thousand levels deep overflows the serializer. A ref nested 64 levels or less is stored and read.
+        # Depth and finite numbers first, by a walk that keeps its own stack: a ref nested a thousand levels deep
+        # overflows a recursive encoder, and the answer then names the limit and not only the shape.
         try:
             refuse_unstorable_json(ref, name="each source_ref")
         except JsonShapeError as exc:
             raise VNextMemoryCommitValidationError(str(exc)) from exc
-        # A string ref is measured as sent (owner ruling R4): measuring its
-        # JSON form counted every quote and newline twice, so a 2,100
-        # character ref of quotes was refused. Any other ref is measured by
-        # its serialized length.
-        size = len(ref) if isinstance(ref, str) else len(json.dumps(json_safe(ref), ensure_ascii=False))
-        if size > MAX_COMMIT_SOURCE_REF_CHARS:
+        # Producers write a string: ``source:<id>``, ``memory:<id>``, a bare id, or a label such as a URL. An object, a
+        # number, a boolean, null, a nested array, a blank string and the text of a JSON object or array are not those
+        # shapes, and every door that stores source_refs asks the same function.
+        if not is_producer_source_ref(ref):
+            raise VNextMemoryCommitValidationError(SOURCE_REF_SHAPE_MESSAGE)
+        # A ref is measured as sent (owner ruling R4): measuring its JSON form counted every quote and newline twice, so a
+        # 2,100 character ref of quotes was refused.
+        if len(ref) > MAX_COMMIT_SOURCE_REF_CHARS:
             raise VNextMemoryCommitValidationError(
                 f"each source_ref must be at most {MAX_COMMIT_SOURCE_REF_CHARS} characters"
             )
@@ -1321,6 +1325,7 @@ class VNextMemoryCommitService:
         identity: AgentIdentity | None,
         request: MemoryCommitRequest,
     ) -> JsonObject:
+        _object_tuple(request.source_refs)
         existing = self._idempotent_memory(request.idempotency_key)
         if existing is not None:
             return _with_commit_receipt(self._idempotent_replay(memory=existing, request=request, identity=identity))

@@ -1102,6 +1102,6 @@ def test_rollup_key_over_an_opaque_value_is_refused_on_the_correction_and_propos
             "source_refs": [{"source_id": "note-1", "rollup_key": token}],
         },
     )
-    assert proposal_status == 400
+    assert proposal_status == 422
     assert _count(app_url, user_id, "memories") == 0
     assert _secret_rows(app_url, user_id, token) == 0
