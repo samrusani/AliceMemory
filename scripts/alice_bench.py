@@ -2195,19 +2195,36 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
 }
 
 
+def _refusal_types() -> tuple[tuple[type[BaseException], ...], tuple[type[BaseException], ...]]:
+    """Bench errors of this module and of ``scripts.alice_bench`` when the file is the program.
+
+    Running ``python scripts/alice_bench.py`` loads this file as ``__main__``. The showcase
+    commands import it again as ``scripts.alice_bench``, so their exceptions are a second class.
+    """
+
+    budgets: list[type[BaseException]] = [BudgetExhausted]
+    errors: list[type[BaseException]] = [BenchError]
+    other = sys.modules.get("scripts.alice_bench")
+    if other is not None and other is not sys.modules.get(__name__):
+        budgets.append(other.BudgetExhausted)
+        errors.append(other.BenchError)
+    return tuple(budgets), tuple(errors)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
     allow = arm_environment(getattr(args, "search_quality", None))
+    budget_types, error_types = _refusal_types()
     try:
         with scoped_environment(allow):
             code = _COMMANDS[args.command](args)
             require_harness_unchanged()
             return code
-    except BudgetExhausted as exc:
+    except budget_types as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return EXIT_BUDGET
-    except BenchError as exc:
+    except error_types as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return EXIT_REFUSED
 
