@@ -28,11 +28,14 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
+from pydantic import BaseModel, ConfigDict
 
 from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_hidden_ids import (
     HiddenIdFilterError,
     apply_hidden_id_withholding,
+    echo_of_arguments,
+    echo_of_request,
     judged_ids,
     strip_hidden_ids,
     withhold_json_body,
@@ -81,8 +84,14 @@ class _Store:
         return [row for row in self.rows.get(kind, []) if row["id"] in ids]
 
 
-def _shown(payload, *, profile: str = "trusted_local_agent", store=None, keep=None):
-    return apply_hidden_id_withholding(store or _Store(), _identity(profile), payload, keep=keep)
+def _echo(**inputs: set[str]) -> dict[str, frozenset[str]]:
+    """What a caller supplied, by the name of the input."""
+
+    return {name: frozenset(ids) for name, ids in inputs.items()}
+
+
+def _shown(payload, *, profile: str = "trusted_local_agent", store=None, echo=None):
+    return apply_hidden_id_withholding(store or _Store(), _identity(profile), payload, echo=echo)
 
 
 def _spellings(canonical: str) -> dict[str, str]:
@@ -169,25 +178,25 @@ def test_an_archived_row_is_withheld_and_a_forgotten_row_stays() -> None:
     assert limited["source_id"] is None
 
 
-def test_an_id_the_caller_named_stays_and_another_hidden_id_does_not() -> None:
-    """The id in the request is not a row the caller discovered. Another unreadable id still goes."""
+def test_an_id_stays_where_the_answer_repeats_the_input_that_held_it() -> None:
+    """The id in the request is not a row the caller discovered, at the key that repeats it. Nowhere else."""
 
     payload = {
         "target_id": HIDDEN,
         "source_refs": [f"source:{SOURCE}", f"memory:{HIDDEN}"],
         "candidate_memory_ids": [HIDDEN, VISIBLE],
     }
-    shown = strip_hidden_ids(payload, {HIDDEN, SOURCE}, keep={HIDDEN})
+    shown = strip_hidden_ids(payload, {HIDDEN, SOURCE}, echo=_echo(target_id={HIDDEN}))
     assert shown["target_id"] == HIDDEN
-    assert shown["source_refs"] == [f"memory:{HIDDEN}"]
-    assert shown["candidate_memory_ids"] == [HIDDEN, VISIBLE]
+    assert shown["source_refs"] == []
+    assert shown["candidate_memory_ids"] == [VISIBLE]
 
 
 def test_a_field_the_product_does_not_write_is_dropped_from_a_ref_that_names_a_row_even_when_the_caller_sent_it() -> None:
     """The saved-quote reader drops such a field for a hidden row, so a missing row must leave the same entry."""
 
     refs = [{"origin": f"memory:{MISSING}", "memory_id": MISSING, "quote": "q"}, {"origin": f"memory:{VISIBLE}"}]
-    shown = _shown({"source_refs": refs}, keep={MISSING})
+    shown = _shown({"source_refs": refs}, echo=_echo(source_refs={MISSING}))
     assert shown == {"source_refs": [{"memory_id": MISSING, "quote": "q"}, {"origin": f"memory:{VISIBLE}"}]}
     assert _shown({"source_refs": [{"origin": f"memory:{HIDDEN}", "memory_id": HIDDEN}]}) == {"source_refs": [{"memory_id": None}]}
 
@@ -258,15 +267,18 @@ def test_a_readable_id_the_caller_sent_is_looked_up_when_the_field_decides() -> 
     """The id is looked up although the caller sent it, because the field decides, so a readable row is not dropped."""
 
     refs = [{"origin": f"memory:{VISIBLE}", "memory_id": VISIBLE, "quote": "q"}]
-    assert _shown({"source_refs": refs}, keep={VISIBLE}) == {"source_refs": refs}
-    assert judged_ids({"source_refs": refs}, {VISIBLE}) == {VISIBLE}
-    assert judged_ids({"source_refs": [{"memory_id": VISIBLE}]}, {VISIBLE}) == set()
+    echo = _echo(source_refs={VISIBLE})
+    assert _shown({"source_refs": refs}, echo=echo) == {"source_refs": refs}
+    assert judged_ids({"source_refs": refs}, echo) == {VISIBLE}
+    assert judged_ids({"source_refs": [{"memory_id": VISIBLE}]}, echo) == set()
 
 
-def test_an_id_the_caller_named_stays_whether_the_row_is_hidden_or_missing() -> None:
+def test_an_id_the_caller_supplied_stays_in_the_echo_whether_the_row_is_hidden_or_missing() -> None:
     payload = {"source_refs": [f"memory:{HIDDEN}", f"memory:{MISSING}"], "memory_id": MISSING}
-    assert _shown(payload, keep={HIDDEN, MISSING}) == payload
-    assert _shown(payload, keep={HIDDEN}) == {"source_refs": [f"memory:{HIDDEN}"], "memory_id": None}
+    both = _echo(source_refs={HIDDEN, MISSING})
+    assert _shown(payload, echo=both) == {**payload, "memory_id": None}
+    one = _echo(source_refs={HIDDEN})
+    assert _shown(payload, echo=one) == {"source_refs": [f"memory:{HIDDEN}"], "memory_id": None}
 
 
 # -- item 1: every spelling, found by shape and compared in canonical form --------------------------------------------
@@ -607,8 +619,9 @@ def test_no_store_is_opened_when_the_payload_holds_no_id_to_judge() -> None:
     assert judged_ids(plain) == set()
     assert withhold_with(open_store, identity, {"memory_ids": [HIDDEN]}) == {"memory_ids": []}
     assert opened == [1]
-    # An id the caller named is not judged either.
-    assert withhold_with(open_store, identity, {"memory_ids": [HIDDEN]}, keep={HIDDEN}) == {"memory_ids": [HIDDEN]}
+    # An id that stands only in the echo of the caller's own input is not judged either.
+    echo = _echo(memory_ids={HIDDEN})
+    assert withhold_with(open_store, identity, {"memory_ids": [HIDDEN]}, echo=echo) == {"memory_ids": [HIDDEN]}
     assert opened == [1]
     # The owner and an unbound admin key never open a store.
     assert withhold_with(open_store, None, {"memory_ids": [HIDDEN]}) == {"memory_ids": [HIDDEN]}
@@ -703,14 +716,321 @@ def test_the_owner_and_an_unbound_admin_key_open_no_connection(connections) -> N
     assert connections == []
 
 
-def test_the_named_body_keeps_an_id_the_caller_sent(connections) -> None:
-    body = json.dumps({"memory": {"value": {"source_refs": [f"memory:{HIDDEN}", f"memory:{SOURCE}"]}}}).encode()
-    request = _request(identity=_identity("trusted_local_agent"), query="")
-    named = json.dumps({"source_refs": [f"MEMORY:{HIDDEN.upper()}"]}).encode()
-    updated = withhold_json_body(request, body, database_url="postgresql://db", named_body=named)
-    assert json.loads(updated)["memory"]["value"]["source_refs"] == [f"memory:{HIDDEN}"]
-    without = withhold_json_body(request, body, database_url="postgresql://db")
-    assert json.loads(without)["memory"]["value"]["source_refs"] == []
+# -- an id the caller supplied is the echo of that input and no exemption -------------------------------------------------
+
+
+def test_an_id_the_caller_supplied_is_not_an_exemption_elsewhere_in_the_answer() -> None:
+    """A key that holds an id must not learn which report it is tied to by supplying it."""
+
+    payload = {
+        "target_id": HIDDEN,
+        "metadata_json": {"candidate_memory_ids": [HIDDEN, VISIBLE], "source_refs": [f"memory:{HIDDEN}"], "see_also": HIDDEN},
+        "items": [{"target_id": HIDDEN, "memory_id": HIDDEN}],
+    }
+    # An input that the answer has no key for exempts nothing.
+    nothing = _shown(payload, echo=_echo(probe={HIDDEN}))
+    assert HIDDEN not in json.dumps(nothing)
+    assert nothing["target_id"] is None
+    # An input named like a key repeats at that key, reached through objects, and nowhere else.
+    shown = _shown(payload, echo=_echo(target_id={HIDDEN}))
+    assert shown["target_id"] == HIDDEN
+    assert shown["metadata_json"] == {"candidate_memory_ids": [VISIBLE], "source_refs": [], "see_also": None}
+    assert shown["items"] == [{"target_id": None, "memory_id": None}]
+
+
+def test_a_key_inside_a_list_of_rows_opens_no_scope_but_a_scope_covers_what_is_under_the_key() -> None:
+    echo = _echo(source_refs={HIDDEN})
+    rows = {"rows": [{"source_refs": [f"memory:{HIDDEN}"]}], "memory": {"value": {"source_refs": [f"memory:{HIDDEN}", f"memory:{SOURCE}"]}}}
+    shown = _shown(rows, echo=echo)
+    assert shown["rows"] == [{"source_refs": []}]
+    # Under the key of the input, every list and object belongs to it, and only the ids the input held stay.
+    assert shown["memory"]["value"]["source_refs"] == [f"memory:{HIDDEN}"]
+    nested = {"source_refs": [[f"memory:{HIDDEN}"], {"memory_id": HIDDEN, "see_also": [HIDDEN]}]}
+    assert _shown(nested, echo=echo)["source_refs"][0] == [f"memory:{HIDDEN}"]
+    assert _shown(nested, echo=echo)["source_refs"][1] == {"memory_id": HIDDEN, "see_also": [HIDDEN]}
+
+
+def test_the_echo_holds_only_the_ids_the_input_held() -> None:
+    payload = {"source_refs": [f"memory:{HIDDEN}", f"memory:{SOURCE}", HIDDEN.upper(), SOURCE]}
+    shown = _shown(payload, echo=_echo(source_refs={HIDDEN}))
+    assert shown["source_refs"] == [f"memory:{HIDDEN}", HIDDEN.upper()]
+    # Two inputs: the key of one does not repeat the ids of the other.
+    both = {"target_id": HIDDEN, "source_refs": [f"memory:{SOURCE}", f"memory:{HIDDEN}"]}
+    shown = _shown(both, echo=_echo(source_refs={HIDDEN}, target_id={SOURCE}))
+    assert shown == {"target_id": None, "source_refs": [f"memory:{HIDDEN}"]}
+
+
+def test_the_ids_that_stand_outside_the_echo_are_still_looked_up() -> None:
+    echo = _echo(target_id={HIDDEN})
+    assert judged_ids({"target_id": HIDDEN}, echo) == set()
+    assert judged_ids({"target_id": HIDDEN, "items": [{"target_id": HIDDEN}]}, echo) == {HIDDEN}
+    assert judged_ids({"target_id": HIDDEN, "see_also": HIDDEN}, echo) == {HIDDEN}
+    assert judged_ids({"target_id": HIDDEN}, _echo(probe={HIDDEN})) == {HIDDEN}
+
+
+def test_the_echo_of_a_tool_call_is_its_arguments_by_name() -> None:
+    echo = echo_of_arguments({"memory_id": HIDDEN.upper(), "query": f"words {SOURCE}", "limit": 5, "flag": True, "none": None})
+    assert echo == {"memory_id": frozenset({HIDDEN}), "query": frozenset({SOURCE})}
+    assert echo_of_arguments(None) == {} and echo_of_arguments([HIDDEN]) == {}
+
+
+def test_a_request_with_no_matched_route_supplies_nothing() -> None:
+    request = SimpleNamespace(scope={"path_params": {"target_id": HIDDEN}}, query_params=SimpleNamespace(getlist=lambda _name: [HIDDEN]))
+    assert echo_of_request(request, json.dumps({"source_refs": [HIDDEN]}).encode()) == {}
+    assert echo_of_request(SimpleNamespace(), b"") == {}
+
+
+class Thing(BaseModel):
+    """The body of the POST route of the throwaway app. A field it does not declare is ignored."""
+
+    model_config = ConfigDict(extra="ignore")
+    user_id: str | None = None
+    source_refs: list[object] = []
+    memory_id: str | None = None
+
+
+def _layer(*, identity, answer, method: str = "GET", path: str, query: bytes = b"", body: dict | None = None):
+    """The withhold layer of the application in front of a throwaway app, called as a client calls it.
+
+    The app has one route with a path parameter and two declared query parameters, and one that takes a JSON body with
+    three declared fields. A request's undeclared query parameters and body fields reach neither. ``answer`` builds what
+    the route returns from the inputs the route read.
+    """
+
+    import anyio
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    import alicebot_api.main as main_module
+
+    app = FastAPI()
+
+    @app.get("/v0/vnext/things/{target_id}")
+    def get_thing(target_id: str, artifact_id: str | None = None, limit: int = 10):
+        return JSONResponse(answer({"target_id": target_id, "artifact_id": artifact_id}))
+
+    @app.post("/v0/vnext/things")
+    def post_thing(thing: Thing):
+        return JSONResponse(answer(thing.model_dump()))
+
+    class Gate(BaseHTTPMiddleware):
+        """What the vNext gate records for the layer outside it."""
+
+        async def dispatch(self, request, call_next):
+            request.state.vnext_agent_identity = identity
+            request.state.vnext_authenticated_user_id = USER
+            if request.method == "POST":
+                request.scope.setdefault("state", {})["withhold_named_body"] = await request.body()
+            return await call_next(request)
+
+    app.add_middleware(Gate)
+    app.add_middleware(BaseHTTPMiddleware, dispatch=main_module._withhold_hidden_ids)
+    raw = json.dumps(body).encode() if body is not None else b""
+    messages: list[dict] = []
+    received = False
+
+    async def receive():
+        nonlocal received
+        if received:
+            return {"type": "http.disconnect"}
+        received = True
+        return {"type": "http.request", "body": raw, "more_body": False}
+
+    async def send(message):
+        messages.append(message)
+
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method, "scheme": "http",
+        "path": path, "raw_path": path.encode(), "query_string": query,
+        "headers": [(b"host", b"127.0.0.1:8000"), (b"content-type", b"application/json")],
+        "client": ("127.0.0.1", 50000), "server": ("testserver", 80), "root_path": "",
+    }
+    anyio.run(app, scope, receive, send)
+    start = next(item for item in messages if item["type"] == "http.response.start")
+    answer_bytes = b"".join(item.get("body", b"") for item in messages if item["type"] == "http.response.body")
+    return int(start["status"]), json.loads(answer_bytes)
+
+
+def _row_answer(supplied: dict) -> dict:
+    """A route that repeats its inputs in an echo and lists a hidden id in a result list and in its metadata."""
+
+    return {
+        "target_id": supplied["target_id"],
+        "filters": {"artifact_id": supplied["artifact_id"]},
+        "items": [{"artifact_id": supplied["artifact_id"], "target_id": supplied["target_id"], "candidate_memory_ids": [HIDDEN]}],
+        "metadata_json": {"candidate_memory_ids": [HIDDEN, VISIBLE], "source_refs": [f"memory:{HIDDEN}"], "see_also": HIDDEN},
+    }
+
+
+def test_a_query_parameter_the_route_does_not_declare_supplies_nothing(connections) -> None:
+    """The route declares ``artifact_id`` and ``limit``. A parameter that nothing reads exempts nothing, also when its name
+    is the name of a key of the answer."""
+
+    identity = _identity("trusted_local_agent")
+    seen = []
+    for query in (
+        b"",
+        f"probe={HIDDEN}".encode(),
+        f"probe={HIDDEN.upper()}&other=memory:{HIDDEN}&limit=3".encode(),
+        f"candidate_memory_ids={HIDDEN}&source_refs=memory:{HIDDEN}&see_also={HIDDEN}&items={HIDDEN}&metadata_json={HIDDEN}".encode(),
+    ):
+        status, body = _layer(identity=identity, answer=_row_answer, path=f"/v0/vnext/things/{VISIBLE}", query=query)
+        assert status == 200
+        assert HIDDEN not in json.dumps(body).lower(), query
+        seen.append(body)
+    assert seen[0] == seen[1] == seen[2] == seen[3]
+    assert seen[0]["metadata_json"] == {"candidate_memory_ids": [VISIBLE], "source_refs": [], "see_also": None}
+
+
+def test_a_declared_parameter_is_echoed_where_the_answer_repeats_it_and_nowhere_else(connections) -> None:
+    identity = _identity("trusted_local_agent")
+    status, body = _layer(
+        identity=identity, answer=_row_answer, path=f"/v0/vnext/things/{HIDDEN}", query=f"artifact_id={ARTIFACT}&limit=2".encode()
+    )
+    assert status == 200
+    # The path parameter and the declared query parameter come back where the answer repeats them.
+    assert body["target_id"] == HIDDEN
+    assert body["filters"] == {"artifact_id": ARTIFACT}
+    # The same ids stand in a list of result rows and in the metadata. They are rows the caller may not read.
+    assert body["items"] == [{"artifact_id": None, "target_id": None, "candidate_memory_ids": []}]
+    assert body["metadata_json"] == {"candidate_memory_ids": [VISIBLE], "source_refs": [], "see_also": None}
+
+
+def test_a_body_field_the_route_declares_is_echoed_and_one_it_does_not_is_not(connections) -> None:
+    identity = _identity("trusted_local_agent")
+
+    def answer(supplied: dict) -> dict:
+        return {
+            "memory": {
+                "value": {"source_refs": supplied["source_refs"]},
+                "metadata_json": {"candidate_memory_ids": [HIDDEN], "copy": [f"memory:{HIDDEN}"], "probe": HIDDEN},
+            }
+        }
+
+    body = {"user_id": str(USER), "source_refs": [f"memory:{HIDDEN}"], "probe": HIDDEN, "candidate_memory_ids": [HIDDEN]}
+    status, shown = _layer(identity=identity, answer=answer, method="POST", path="/v0/vnext/things", body=body)
+    assert status == 200
+    assert shown["memory"]["value"]["source_refs"] == [f"memory:{HIDDEN}"]
+    # Copies of the same id under other names are not the echo of the input.
+    assert shown["memory"]["metadata_json"] == {"candidate_memory_ids": [], "copy": [], "probe": None}
+    # A field that is not declared supplies nothing, so it exempts nothing.
+    only_probe = {"user_id": str(USER), "probe": HIDDEN, "candidate_memory_ids": [HIDDEN], "copy": [f"memory:{HIDDEN}"]}
+    status, shown = _layer(identity=identity, answer=answer, method="POST", path="/v0/vnext/things", body=only_probe)
+    assert HIDDEN not in json.dumps(shown)
+
+
+def test_a_commit_that_names_a_hidden_id_and_one_that_names_a_missing_id_have_one_echo(connections) -> None:
+    identity = _identity("trusted_local_agent")
+
+    def answer(supplied: dict) -> dict:
+        return {"memory": {"value": {"source_refs": supplied["source_refs"]}, "metadata_json": {"candidate_memory_ids": []}}}
+
+    shown = {}
+    for label, row_id in (("hidden", HIDDEN), ("missing", MISSING)):
+        body = {"user_id": str(USER), "source_refs": [f"memory:{row_id}", {"memory_id": row_id, "quote": "q"}]}
+        status, shown[label] = _layer(identity=identity, answer=answer, method="POST", path="/v0/vnext/things", body=body)
+        assert status == 200
+    assert json.dumps(shown["hidden"]).replace(HIDDEN, "<ID>") == json.dumps(shown["missing"]).replace(MISSING, "<ID>")
+    assert HIDDEN in json.dumps(shown["hidden"]) and MISSING in json.dumps(shown["missing"])
+
+
+# -- a long run of prefixes costs time in proportion to its length ---------------------------------------------------------
+
+
+class _Recorder:
+    """Stands in for a compiled pattern and records which string each match was asked about, and where."""
+
+    def __init__(self, pattern) -> None:
+        self.pattern = pattern
+        self.calls: list[tuple[int, int, int]] = []
+
+    def match(self, string, position=0):
+        self.calls.append((id(string), len(string), position))
+        return self.pattern.match(string, position)
+
+
+@pytest.mark.parametrize("function_name", ["_whole_id", "_leading_id"])
+def test_a_run_of_kind_prefixes_is_matched_in_place_and_copies_nothing(monkeypatch, function_name: str) -> None:
+    """Counted, not timed. Each prefix is one match at a later index of the same string, so the work is the number of
+    prefixes. Slicing the rest of the string after every prefix copies it again each time, and the work grows with the
+    square of the length: 1.4 MB took two seconds, and 700 KB took more than three on the route.
+
+    Mutation: ``_kind_prefixes_end`` matches against ``text[position:]`` again, as the loop did.
+    """
+
+    from alicebot_api import vnext_hidden_ids as module
+
+    function = getattr(module, function_name)
+    matches = {}
+    for count in (200, 2000):
+        text = "source:" * count + HIDDEN
+        recorder = _Recorder(module._LEADING_KIND)
+        monkeypatch.setattr(module, "_LEADING_KIND", recorder)
+        assert function(text) == (HIDDEN, True)
+        assert {call[0] for call in recorder.calls} == {id(text)}, "the string was copied"
+        assert {call[1] for call in recorder.calls} == {len(text)}
+        assert len(recorder.calls) == count + 1
+        matches[count] = len(recorder.calls)
+    assert matches[2000] <= 11 * matches[200]
+
+
+class _Text(str):
+    """A string that counts the slices taken of it."""
+
+    slices: list[tuple[int | None, int | None]] = []
+
+    def __getitem__(self, key):
+        if isinstance(key, slice):
+            _Text.slices.append((key.start, key.stop))
+        return str.__getitem__(self, key)
+
+
+def test_the_prefixes_before_a_printed_id_are_read_backwards_once() -> None:
+    """Counted, not timed. A pattern that repeats a group of prefixes in front of the id starts again at every prefix
+    of a run, so a run of ten thousand takes the square of that. The prefixes are read backwards from the id instead.
+
+    Mutation: ``content_markdown`` is scanned with a pattern that repeats the group of prefixes before the id.
+    """
+
+    work = {}
+    for count in (100, 1000):
+        _Text.slices = []
+        line = _Text("source:" * count + HIDDEN + " and the rest.")
+        shown = strip_hidden_ids({"content_markdown": line}, {HIDDEN}, readable=set())
+        assert shown["content_markdown"] == " and the rest."
+        compared = [bounds for bounds in _Text.slices if bounds[0] is not None and bounds[1] is not None and bounds[1] - bounds[0] <= 17]
+        assert len(compared) >= count
+        work[count] = len(compared)
+    assert work[1000] <= 11 * work[100]
+
+
+def test_other_prefix_runs_are_linear_too() -> None:
+    """A ref made of one prefix repeated, the key of a dict, and a line with many ids each preceded by a prefix."""
+
+    from alicebot_api import vnext_hidden_ids as module
+
+    for count in (50, 500):
+        recorder = _Recorder(module._LEADING_KIND)
+        original = module._LEADING_KIND
+        module._LEADING_KIND = recorder
+        try:
+            shown = _shown({"source_refs": ["source:" * count + HIDDEN], "x": {"source:" * count + HIDDEN: 1}})
+        finally:
+            module._LEADING_KIND = original
+        assert shown == {"source_refs": [], "x": {}}
+        assert len({call[0] for call in recorder.calls}) <= 8  # the strings the filter was given, none of them copied
+    many = " ".join(f"uuid:{HIDDEN}" for _ in range(3000))
+    assert _shown({"content_markdown": many})["content_markdown"] == " " * 2999
+
+
+def test_json_text_nested_past_the_decoder_is_read_as_text() -> None:
+    """The decoder raises RecursionError for text nested this deep. That must not bring the filter down."""
+
+    deep = "[" * 90_000
+    payload = {"source_refs": [deep, deep + f" {HIDDEN}"], "note": "kept"}
+    assert judged_ids(payload) == {HIDDEN}
+    assert _shown(payload) == {"source_refs": [deep], "note": "kept"}
 
 
 def test_a_response_header_that_repeats_stays_repeated() -> None:

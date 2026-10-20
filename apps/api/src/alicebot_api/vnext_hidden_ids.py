@@ -27,7 +27,16 @@ An id is judged against the rows the caller may read. In a position that is type
 id names a memory, a source, an artifact or an open loop) an id that does not resolve to a row the caller may read is
 withheld, whether the row is hidden or does not exist, so a key cannot tell the two apart. In any other position the
 filter cannot tell an id of one of these rows from the id of an event, a task or a chunk, so it withholds only the id
-of a row that exists and that the caller may not read. An id the caller named in the request stays.
+of a row that exists and that the caller may not read.
+
+An id the caller supplied
+-------------------------
+
+An id the caller supplied is not an exemption. It may appear in the answer only where the answer repeats the caller's own
+input: at a key that is named like a declared input of the request (a path parameter, a declared query parameter, a field
+of the JSON body, an argument of a tool), reached from the top of the answer through objects only, and only the ids that
+input held. A query parameter or a body field the route does not declare supplies nothing. A key in a list of result
+rows is not an echo, and neither is an id at any other key of the answer, whatever the caller sent.
 """
 
 from __future__ import annotations
@@ -90,8 +99,18 @@ _ID_SHAPE = re.compile(_ID_SHAPE_PATTERN)
 # The ways a ref says what it names. ``uuid:`` and ``urn:uuid:`` are read by ``identifier`` and say no kind.
 _KIND_PREFIX = r"(?:(?:memory|source|artifact|open_loop):|alice://(?:memories|sources)/)"
 _LEADING_KIND = re.compile(r"\s*" + _KIND_PREFIX, re.IGNORECASE)
-_IN_TEXT = re.compile(
-    r"(?i:" + _KIND_PREFIX + r"|(?:urn:)?uuid:)*(?:\{(?P<braced>" + _ID_SHAPE_PATTERN + r")\}|(?P<bare>" + _ID_SHAPE_PATTERN + r"))"
+_WHITESPACE = re.compile(r"\s*")
+# What can stand in front of an id in a printed line, longest first. They are read backwards from the id, one fixed
+# size comparison for each, so the time is the length of the run and not the length of the text.
+_PRINTED_PREFIXES = (
+    "alice://memories/",
+    "alice://sources/",
+    "open_loop:",
+    "artifact:",
+    "urn:uuid:",
+    "memory:",
+    "source:",
+    "uuid:",
 )
 # A whole value that is made only of characters an id spelling can hold. The shape test of the whole value is
 # ``identifier`` itself, which takes every spelling ``uuid.UUID`` takes; this keeps it off prose.
@@ -149,20 +168,29 @@ _OBJECT_MARKERS = {"member_snapshots": "id", "instances": "memory_id"}
 _REF_FIELDS = frozenset({"source_refs"})
 
 
+def _kind_prefixes_end(text: str) -> int:
+    """Where the kind prefixes at the start of ``text`` end, or 0 when it starts with none.
+
+    Each prefix is matched at an index of the same string. Nothing is sliced, so a run of ten thousand prefixes takes
+    ten thousand matches and copies nothing.
+    """
+
+    position = 0
+    while True:
+        lead = _LEADING_KIND.match(text, position)
+        if lead is None:
+            return position
+        position = lead.end()
+
+
 def _whole_id(text: str) -> tuple[str, bool] | None:
     """The canonical id that the whole of ``text`` is, and whether a kind prefix said what it names."""
 
     if len(text) < _MIN_ID_CHARS:
         return None
-    body = text
-    prefixed = False
-    while True:
-        lead = _LEADING_KIND.match(body)
-        if lead is None:
-            break
-        body = body[lead.end() :]
-        prefixed = True
-    core = body.strip()
+    start = _kind_prefixes_end(text)
+    prefixed = start > 0
+    core = text[start:].strip()
     if len(core) < _MIN_ID_CHARS:
         return None
     if len(core) > _MAX_PLAIN_CHARS and _ID_SHAPE.search(core) is None:
@@ -184,21 +212,34 @@ def _leading_id(text: str) -> tuple[str, bool] | None:
     not part of the id.
     """
 
-    body = text
-    prefixed = False
-    while True:
-        lead = _LEADING_KIND.match(body)
-        if lead is None:
-            break
-        body = body[lead.end() :]
-        prefixed = True
-    match = _ID_SHAPE.match(body.lstrip())
+    start = _kind_prefixes_end(text)
+    prefixed = start > 0
+    blank = _WHITESPACE.match(text, start)
+    match = _ID_SHAPE.match(text, blank.end() if blank is not None else start)
     if match is None:
         return None
     canonical = identifier(match.group())
     if _CANONICAL.fullmatch(canonical) is None:
         return None
     return canonical, prefixed
+
+
+def _printed_extent(text: str, start: int, end: int) -> tuple[int, int]:
+    """The span of an id printed in a line, with its braces and the prefixes in front of it.
+
+    The prefixes are read backwards from the id, so a long run of them is read once.
+    """
+
+    if start > 0 and end < len(text) and text[start - 1] == "{" and text[end] == "}":
+        start, end = start - 1, end + 1
+    while True:
+        for prefix in _PRINTED_PREFIXES:
+            size = len(prefix)
+            if start >= size and text[start - size : start].lower() == prefix:
+                start -= size
+                break
+        else:
+            return start, end
 
 
 def _names_a_row(field: str | None, refs: bool) -> bool:
@@ -372,16 +413,13 @@ def _deleted_source_ids(store: Any, ids: list[str]) -> set[str]:
 class _Judge:
     """Which ids of a payload are withheld."""
 
-    __slots__ = ("hidden", "readable", "keep")
+    __slots__ = ("hidden", "readable")
 
-    def __init__(self, hidden: set[str], readable: set[str] | None, keep: set[str] | None) -> None:
+    def __init__(self, hidden: set[str], readable: set[str] | None) -> None:
         self.hidden = hidden
         self.readable = readable
-        self.keep = keep or set()
 
-    def withheld(self, canonical: str, typed: bool, honour_keep: bool = True) -> bool:
-        if honour_keep and canonical in self.keep:
-            return False
+    def withheld(self, canonical: str, typed: bool) -> bool:
         if typed and self.readable is not None:
             return canonical not in self.readable
         return canonical in self.hidden
@@ -423,36 +461,48 @@ def _related(count_name: str, list_name: str) -> bool:
 
 
 class _Walk:
-    """One pass over a payload. With no judge it removes nothing and collects the ids it would judge."""
+    """One pass over a payload. With no judge it removes nothing and collects the ids it would judge.
 
-    __slots__ = ("judge", "seen", "always")
+    ``inputs`` holds what the caller supplied, by the name of the input. ``scope`` is the set of ids that the position
+    being visited repeats from the caller's own input. It is empty until the walk reaches a key named like an input,
+    and it is opened only by a key reached through objects from the top of the payload (``may_open``), so a key inside a
+    list of result rows opens nothing.
+    """
 
-    def __init__(self, judge: _Judge | None) -> None:
+    __slots__ = ("judge", "seen", "inputs", "scope", "may_open")
+
+    def __init__(self, judge: _Judge | None, inputs: Mapping[str, frozenset[str]] | None = None) -> None:
         self.judge = judge
         self.seen: set[str] = set()
-        # Ids judged without regard to what the caller named. They need a lookup even when the caller sent them.
-        self.always: set[str] = set()
+        self.inputs: Mapping[str, frozenset[str]] = inputs or {}
+        self.scope: frozenset[str] = frozenset()
+        self.may_open = True
 
-    def withheld(self, canonical: str, typed: bool, honour_keep: bool = True) -> bool:
+    def withheld(self, canonical: str, typed: bool, honour_echo: bool = True) -> bool:
+        if honour_echo and canonical in self.scope:
+            return False
         self.seen.add(canonical)
-        if not honour_keep:
-            self.always.add(canonical)
-        return self.judge is not None and self.judge.withheld(canonical, typed, honour_keep)
+        return self.judge is not None and self.judge.withheld(canonical, typed)
 
     def text(self, text: str) -> str:
         """``text`` with every withheld id token removed as it was written, with the prefix and braces around it."""
 
         if len(text) < _MIN_ID_CHARS:
             return text
-
-        def replace(match: re.Match[str]) -> str:
-            token = match.group("braced") or match.group("bare")
-            canonical = identifier(token)
+        cuts: list[tuple[int, int]] = []
+        for match in _ID_SHAPE.finditer(text):
+            canonical = identifier(match.group())
             if _CANONICAL.fullmatch(canonical) is not None and self.withheld(canonical, False):
-                return ""
-            return match.group(0)
-
-        return _IN_TEXT.sub(replace, text)
+                cuts.append(_printed_extent(text, match.start(), match.end()))
+        if not cuts:
+            return text
+        pieces: list[str] = []
+        kept = 0
+        for start, end in cuts:
+            pieces.append(text[kept : max(start, kept)])
+            kept = max(kept, end)
+        pieces.append(text[kept:])
+        return "".join(pieces)
 
     def string(self, text: str, field: str | None, refs: bool = False, depth: int = 0) -> str | None:
         """``text`` itself when it stays, ``None`` when the whole value is withheld."""
@@ -471,7 +521,8 @@ class _Walk:
             # A ref can be JSON text. It is read like the object or list it holds, so the same id gives the same answer.
             try:
                 parsed = json.loads(text)
-            except ValueError:
+            except (ValueError, RecursionError):
+                # Not JSON, or nested past what the decoder reads. It is read as text, like any other string of a ref.
                 parsed = None
             if isinstance(parsed, (dict, list)):
                 judged = self.value(parsed, field, depth + 1, True)
@@ -501,19 +552,39 @@ class _Walk:
         marker_key = _OBJECT_MARKERS.get(field or "")
         kept: list[Any] = []
         changed = False
-        for item in node:
-            if marker_key is not None and isinstance(item, Mapping) and isinstance(item.get(marker_key), str):
-                whole = _whole_id(item[marker_key])
-                if whole is not None and self.withheld(whole[0], True):
+        may_open = self.may_open
+        if not self.scope:
+            # A list outside the scope of an input is a list of rows. No key inside it repeats an input.
+            self.may_open = False
+        try:
+            for item in node:
+                if marker_key is not None and isinstance(item, Mapping) and isinstance(item.get(marker_key), str):
+                    whole = _whole_id(item[marker_key])
+                    if whole is not None and self.withheld(whole[0], True):
+                        changed = True
+                        continue
+                new = self.value(item, field, depth + 1, refs)
+                if new is None and isinstance(item, (str, UUID)):
                     changed = True
                     continue
-            new = self.value(item, field, depth + 1, refs)
-            if new is None and isinstance(item, (str, UUID)):
-                changed = True
-                continue
-            changed = changed or new is not item
-            kept.append(new)
+                changed = changed or new is not item
+                kept.append(new)
+        finally:
+            self.may_open = may_open
         return kept if changed else node
+
+    def child(self, child: Any, field: str, depth: int, refs: bool) -> Any:
+        """Visit the value of ``field``. A key named like an input of the request opens the scope of that input's ids."""
+
+        if field not in self.inputs or not (self.scope or self.may_open):
+            return self.value(child, field, depth + 1, refs)
+        scope, may_open = self.scope, self.may_open
+        self.scope = scope | self.inputs[field]
+        self.may_open = True
+        try:
+            return self.value(child, field, depth + 1, refs)
+        finally:
+            self.scope, self.may_open = scope, may_open
 
     def mapping(self, node: Mapping[Any, Any], depth: int, refs: bool) -> Any:
         output: dict[Any, Any] = {}
@@ -531,10 +602,10 @@ class _Walk:
                 # saved-quote reader drops it for a hidden row, even when the caller sent the id: the reader's answer
                 # to a hidden id and a missing id must be one answer.
                 named = _whole_id(child)
-                if named is not None and named[1] and self.withheld(named[0], True, honour_keep=False):
+                if named is not None and named[1] and self.withheld(named[0], True, honour_echo=False):
                     changed = True
                     continue
-            new = self.value(child, field, depth + 1, refs or field in _REF_FIELDS)
+            new = self.child(child, field, depth, refs or field in _REF_FIELDS)
             if new is None and isinstance(child, (str, UUID)):
                 changed = True
                 if refs and _product_key(key) is None:
@@ -606,16 +677,15 @@ def _fix_counts(output: dict[Any, Any], shortened: dict[str, tuple[int, int]]) -
             del output["instances_truncated"]
 
 
-def judged_ids(payload: object, keep: set[str] | None = None) -> set[str]:
+def judged_ids(payload: object, echo: Mapping[str, frozenset[str]] | None = None) -> set[str]:
     """The ids of ``payload`` whose answer depends on the rows the caller may read. No store is read.
 
-    An id the caller named (``keep``) is not one of them, unless it stands where the filter drops an unreadable id
-    whoever sent it.
+    An id that stands only where the answer repeats an input of the caller (``echo``) is not one of them.
     """
 
-    walk = _Walk(None)
+    walk = _Walk(None, echo)
     walk.value(payload, None, 0)
-    return (walk.seen - (keep or set())) | walk.always
+    return walk.seen
 
 
 def strip_hidden_ids(
@@ -623,32 +693,31 @@ def strip_hidden_ids(
     hidden: set[str],
     *,
     readable: set[str] | None = None,
-    keep: set[str] | None = None,
+    echo: Mapping[str, frozenset[str]] | None = None,
 ) -> Any:
     """``value`` with every withheld id removed from the positions that carry one.
 
     ``hidden`` holds the ids of rows that exist and that the caller may not read. ``readable``, when given, holds
     the ids of rows it may read: an id in a typed position that is in neither set is the id of no row, and goes
-    with the hidden ones. ``keep`` holds ids the caller already named, such as the id in the request path.
-    Nothing to remove returns ``value``, the same object.
+    with the hidden ones. ``echo`` holds what the caller supplied, by the name of the input: an id stays where the
+    answer repeats the input that held it, and nowhere else. Nothing to remove returns ``value``, the same object.
     """
 
     if not hidden and readable is None:
         return value
-    return _Walk(_Judge(hidden, readable, keep)).value(value, None, 0)
+    return _Walk(_Judge(hidden, readable), echo).value(value, None, 0)
 
 
 def apply_hidden_id_withholding(
-    store: Any, identity: Any, payload: Any, *, keep: set[str] | None = None
+    store: Any, identity: Any, payload: Any, *, echo: Mapping[str, frozenset[str]] | None = None
 ) -> Any:
     """The payload a caller may be shown. Unchanged, and the same object, when nothing is withheld.
 
-    ``keep`` holds ids the caller already named. A row nested past the saved-quote depth makes the label
-    walk overflow. That call is the one the deep-row cut runs again. This step leaves that payload as the
-    cut reader returned it.
+    A row nested past the saved-quote depth makes the label walk overflow. That call is the one the deep-row cut
+    runs again. This step leaves that payload as the cut reader returned it.
     """
 
-    return withhold_with(lambda: nullcontext(store), identity, payload, keep=keep)
+    return withhold_with(lambda: nullcontext(store), identity, payload, echo=echo)
 
 
 def withhold_with(
@@ -656,7 +725,7 @@ def withhold_with(
     identity: Any,
     payload: Any,
     *,
-    keep: set[str] | None = None,
+    echo: Mapping[str, frozenset[str]] | None = None,
 ) -> Any:
     """Like ``apply_hidden_id_withholding``, with a store opened only when the payload holds an id to judge.
 
@@ -666,7 +735,7 @@ def withhold_with(
 
     if not _caller_is_limited(identity):
         return payload
-    candidates = judged_ids(payload, keep)
+    candidates = judged_ids(payload, echo)
     if not candidates:
         return payload
     try:
@@ -677,7 +746,73 @@ def withhold_with(
     if resolved is None:
         return payload
     hidden, readable = resolved
-    return strip_hidden_ids(payload, hidden, readable=readable, keep=keep)
+    return strip_hidden_ids(payload, hidden, readable=readable, echo=echo)
+
+
+def echo_of_arguments(arguments: object) -> dict[str, frozenset[str]]:
+    """What a tool call supplied, by the name of the argument. The tool schema refuses an argument it does not declare."""
+
+    if not isinstance(arguments, Mapping):
+        return {}
+    return _ids_by_name(arguments)
+
+
+def echo_of_request(request: Any, named_body: bytes = b"") -> dict[str, frozenset[str]]:
+    """What a request supplied through the inputs its route declares, by the name of the input.
+
+    The path parameters, the query parameters the route declares and the fields of the JSON body the route declares.
+    A query parameter or a body field the route does not declare supplies nothing, so a key cannot make an id
+    appear in an answer by adding it to the request. A request with no matched route supplies nothing.
+    """
+
+    scope = getattr(request, "scope", None)
+    if not isinstance(scope, Mapping):
+        return {}
+    dependant = getattr(scope.get("route"), "dependant", None)
+    if dependant is None:
+        return {}
+    from fastapi.dependencies.utils import get_flat_dependant
+
+    flat = get_flat_dependant(dependant)
+    supplied: dict[str, set[str]] = {}
+
+    def add(name: object, value: object) -> None:
+        ids = _canonical_ids(value)
+        if ids and isinstance(name, str):
+            supplied.setdefault(name, set()).update(ids)
+
+    for name, value in (scope.get("path_params") or {}).items():
+        add(name, str(value))
+    query = getattr(request, "query_params", None)
+    if query is not None:
+        for parameter in flat.query_params:
+            for value in query.getlist(parameter.alias):
+                add(parameter.alias, value)
+    declared: set[str] = set()
+    for parameter in flat.body_params:
+        fields = getattr(parameter.field_info.annotation, "model_fields", None)
+        if isinstance(fields, Mapping):
+            declared.update(field.alias or name for name, field in fields.items())
+        else:
+            declared.add(parameter.alias)
+    if declared and named_body:
+        try:
+            body = json.loads(named_body)
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            body = None
+        if isinstance(body, Mapping):
+            for name in declared & {key for key in body if isinstance(key, str)}:
+                add(name, body[name])
+    return {name: frozenset(ids) for name, ids in supplied.items()}
+
+
+def _ids_by_name(items: Mapping[Any, Any]) -> dict[str, frozenset[str]]:
+    found: dict[str, frozenset[str]] = {}
+    for name, value in items.items():
+        ids = _canonical_ids(value)
+        if ids and isinstance(name, str):
+            found[name] = frozenset(ids)
+    return found
 
 
 def withhold_json_body(
@@ -697,17 +832,10 @@ def withhold_json_body(
         return None
     try:
         payload = json.loads(body)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
         return None
-    url = getattr(request, "url", None)
-    named = str(getattr(url, "path", "") or "") + "?" + str(getattr(url, "query", "") or "")
-    if named_body:
-        try:
-            named += named_body.decode()
-        except UnicodeDecodeError:
-            pass
-    keep = _canonical_ids(named)
-    if not judged_ids(payload, keep):
+    echo = echo_of_request(request, named_body)
+    if not judged_ids(payload, echo):
         return None
     user_id = getattr(state, "vnext_authenticated_user_id", None)
     if user_id is None:
@@ -727,7 +855,7 @@ def withhold_json_body(
         with user_connection(database_url, UUID(str(user_id))) as conn:
             yield PostgresVNextStore(conn)
 
-    filtered = withhold_with(open_store, identity, payload, keep=keep)
+    filtered = withhold_with(open_store, identity, payload, echo=echo)
     if filtered is payload:
         return None
     return json.dumps(filtered).encode("utf-8")

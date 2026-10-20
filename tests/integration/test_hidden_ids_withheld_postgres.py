@@ -4,12 +4,16 @@
   rewrites the query. The filter reads rows for the user the key was authenticated for, not for the ``user_id`` of the query.
 * The workspace task view withholds the id of the report a task made once the report is out of the key's reach.
 * A commit that names a hidden id and a commit that names a missing id are answered alike, and read back alike. The id the
-  caller sent stays in the answer to the commit, because it is not a row the caller discovered.
+  caller sent stays in the answer to the commit where the answer repeats the input that held it, because it is not a row the
+  caller discovered.
+* An id the caller supplied is no exemption anywhere else: a query parameter the route does not use, or an id in a field
+  the answer does not repeat the input at, confirms nothing about a row the key may not read.
 """
 
 from __future__ import annotations
 
 import json
+from urllib.parse import urlencode
 from uuid import uuid4
 
 import anyio
@@ -22,6 +26,7 @@ from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_hidden_ids import apply_hidden_id_withholding
+from alicebot_api.vnext_label_writes import without_insert_floor
 from alicebot_api.vnext_queue import QueueTaskRequest, VNextQueueService
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 from tests.integration.hidden_ids_postgres_support import normalize
@@ -358,3 +363,179 @@ def test_the_filter_runs_the_same_statements_for_ten_rows_and_for_a_thousand(lab
         assert metadata["source_refs"] == [f"memory:{row_id}" for row_id in readable]
         assert metadata["derived_from"] == {"memories": readable, "counts": {"memories": size}}
     assert statements[10] == statements[1000] <= 8, statements
+
+
+def _call(method, path, *, query, payload, key, user_id):
+    """The mounted application, called with exactly this query string and, for a POST, this JSON body."""
+
+    messages: list[dict] = []
+    body = json.dumps(payload).encode() if payload is not None else b""
+    received = False
+
+    async def receive():
+        nonlocal received
+        if received:
+            return {"type": "http.disconnect"}
+        received = True
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    async def send(message):
+        messages.append(message)
+
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method, "scheme": "http",
+        "path": path, "raw_path": path.encode(), "query_string": urlencode({"user_id": str(user_id), **query}).encode(),
+        "headers": [
+            (b"host", b"127.0.0.1:8000"), (b"content-type", b"application/json"),
+            (b"authorization", f"Bearer {key}".encode()),
+        ],
+        "client": ("127.0.0.1", 50000), "server": ("testserver", 80), "root_path": "",
+    }
+    anyio.run(main_module.app, scope, receive, send)
+    start = next(item for item in messages if item["type"] == "http.response.start")
+    raw = b"".join(item.get("body", b"") for item in messages if item["type"] == "http.response.body")
+    return int(start["status"]), json.loads(raw)
+
+
+def _spellings_of(row_id):
+    return [row_id, row_id.upper(), row_id.replace("-", ""), f"memory:{row_id}", f"urn:uuid:{row_id}"]
+
+
+def test_a_query_parameter_the_route_does_not_use_confirms_no_association(label_harness):
+    """A key that knows or guesses an id adds it to the query of a read. The report is answered as without it.
+
+    The routes below declare ``user_id`` and, for the artifact list, a few filters of their own. None of them reads
+    ``probe``, ``other``, ``candidate_memory_ids``, ``metadata_json`` or ``source_refs``, so the id they carry is no part
+    of the key's input, also where the name is the name of a key of the report.
+
+    Mutation: ``echo_of_request`` takes every id of the query, or ``Walk.withheld`` exempts the ids of the request wherever
+    they stand. The id of the archived row stands in the report again.
+    """
+
+    h = label_harness
+    admin = h.key("admin_agent")
+    trusted = h.key("trusted_local_agent")
+    with h.store() as store:
+        hidden = _memory(store, "hidden", sensitivity="confidential")
+        shown = _memory(store, "shown", metadata={"candidate_memory_ids": [str(hidden["id"])]})
+        with without_insert_floor():
+            report = store.create_artifact(
+                {
+                    "artifact_type": "daily_brief", "title": "T", "content_markdown": "C", "domain": "project",
+                    "sensitivity": "public",
+                    "metadata_json": {
+                        "candidate_memory_ids": [str(hidden["id"])],
+                        "derived_from": {
+                            "v": 1, "sources": [], "memories": [], "open_loops": [], "artifacts": [], "beliefs": [],
+                            "counts": {"sources": 0, "memories": 0, "open_loops": 0, "artifacts": 0, "beliefs": 0},
+                        },
+                    },
+                }
+            )
+    hidden_id = str(hidden["id"])
+    doors = (
+        f"/v0/vnext/artifacts/{report['id']}",
+        f"/v0/vnext/traces/artifacts/{report['id']}",
+        f"/v0/vnext/memories/{shown['id']}/audit",
+        "/v0/vnext/workspace",
+        "/v0/vnext/artifacts",
+    )
+    for path in doors:
+        status, plain = _call("GET", path, query={}, payload=None, key=trusted, user_id=h.user_id)
+        assert status == 200, (path, status, plain)
+        assert hidden_id not in json.dumps(plain).lower(), path
+        for spelling in _spellings_of(hidden_id):
+            for name in ("probe", "other", "artifact_id", "limit", "candidate_memory_ids", "metadata_json", "source_refs"):
+                status, probed = _call("GET", path, query={name: spelling}, payload=None, key=trusted, user_id=h.user_id)
+                if status == 422:
+                    continue  # the route declares the parameter and its type refuses the text
+                assert status == 200, (path, name, status)
+                assert hidden_id not in json.dumps(probed).lower(), (path, name, spelling)
+                if path == doors[0]:
+                    # The report itself reads the same with and without the parameter. (A trace or an audit lists the
+                    # policy events that each read writes, so its events differ by one on every call.)
+                    assert probed == plain, (path, name, spelling)
+    # The id was there to be withheld: the owner of the report is shown it.
+    status, owner = _call("GET", doors[0], query={}, payload=None, key=admin, user_id=h.user_id)
+    assert status == 200 and owner["metadata_json"]["candidate_memory_ids"] == [hidden_id]
+    # A POST is held to the same rule. The query of a write is no more a supply than the query of a read.
+    status, forgotten = _call(
+        "POST", "/v0/vnext/memories/forget", query={"probe": hidden_id},
+        payload={"user_id": str(h.user_id), "memory_id": str(shown["id"]), "reason": "r"}, key=trusted, user_id=h.user_id,
+    )
+    assert status == 200, forgotten
+    assert hidden_id not in json.dumps(forgotten).lower()
+
+
+def _paths_holding(value, needle, path=""):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield from _paths_holding(child, needle, f"{path}.{key}")
+    elif isinstance(value, list):
+        for child in value:
+            yield from _paths_holding(child, needle, path + "[]")
+    elif isinstance(value, str) and needle in value.lower():
+        yield path
+
+
+def test_the_echo_of_a_commit_stands_only_under_the_names_of_its_inputs(label_harness):
+    """The answer to a commit repeats what the commit was sent. It does so at the keys of the fields that held the ids.
+
+    A hidden id and a missing id are sent in the same two declared fields, and the answers are the same in shape. The same
+    ids sent in no field the answer repeats are not in the answer at all.
+
+    Mutation: the echo covers every key of the answer, as the set of all ids of the request did.
+    """
+
+    h = label_harness
+    trusted = h.key("trusted_local_agent")
+    with h.store() as store:
+        hidden = _memory(store, "hidden", sensitivity="confidential")
+    shapes = {}
+    for label, row_id in (("hidden", str(hidden["id"])), ("missing", str(uuid4()))):
+        status, answer = _call(
+            "POST", "/v0/vnext/memories/commit", query={}, key=trusted, user_id=h.user_id,
+            payload={
+                "user_id": str(h.user_id), "title": "A kiln note", "canonical_text": f"Kiln note {uuid4()}",
+                "source_refs": [f"memory:{row_id}"], "contradiction_refs": [row_id], "domain": "project",
+                "sensitivity": "public",
+            },
+        )
+        assert status == 201, answer
+        paths = sorted(_paths_holding(answer, row_id))
+        assert paths, "the answer repeats nothing the caller sent"
+        assert all(path.removesuffix("[]").endswith(("source_refs", "contradiction_refs")) for path in paths), paths
+        shapes[label] = paths
+    assert shapes["hidden"] == shapes["missing"]
+
+
+def test_a_declared_field_that_names_a_hidden_id_exempts_nothing_in_the_rows_of_the_answer(label_harness):
+    """The correction of a readable memory repeats the reason it was sent, and returns the memory with its metadata.
+
+    The reason names an id the key may not read. The metadata of the memory lists the same id as a candidate. The reason
+    is the caller's own words, and the candidate list is a stored row: the id of a row the key may not read stands in no
+    list of the answer, and it stands in the list for the owner, so the answer had something to withhold.
+
+    Mutation: the ids of an input exempt the id wherever it stands in the answer, as the ids of the whole request did.
+    """
+
+    h = label_harness
+    with h.store() as store:
+        hidden = _memory(store, "hidden", sensitivity="confidential")
+        shown = [_memory(store, f"shown{n}", metadata={"candidate_memory_ids": [str(hidden["id"])]}) for n in range(3)]
+    hidden_id = str(hidden["id"])
+    stood = {}
+    for number, (who, key) in enumerate((("trusted", h.key("trusted_local_agent")), ("admin", h.key("admin_agent")))):
+        status, answer = _call(
+            "POST", "/v0/vnext/memories/correct", query={}, key=key, user_id=h.user_id,
+            payload={
+                "user_id": str(h.user_id), "memory_id": str(shown[number]["id"]),
+                "canonical_text": "Corrected kiln note", "reason": f"see {hidden_id}",
+            },
+        )
+        assert status == 200, answer
+        stood[who] = sorted(_paths_holding(answer, hidden_id))
+    assert stood["admin"] == [
+        ".memory.metadata_json.agentic_memory.corrections[].reason", ".memory.metadata_json.candidate_memory_ids[]",
+    ]
+    assert stood["trusted"] == [".memory.metadata_json.agentic_memory.corrections[].reason"]

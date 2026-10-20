@@ -176,7 +176,10 @@ def test_the_security_note_states_what_main_withholds() -> None:
     assert "An id inside free text (a title, a note, a quote, the words a report copied) is not looked for" in paragraph
     assert "is withheld whether the row is hidden or does not exist, so a key that holds the id of a candidate cannot tell a hidden row from a missing one" in paragraph
     assert "it withholds only the id of a row that exists and that the key may not read, and an id that names no row stays as it was written" in paragraph
-    assert "An id that the caller sent in a request, in its path, its query or its body, stays in the answer to that request" in paragraph
+    assert "An id the caller supplied is an exemption nowhere. It stays only where the answer repeats the input that held it" in paragraph
+    assert "reached from the top of the answer through objects and not through a list of rows, and only the ids that input held" in paragraph
+    assert "A query parameter or a body field the route does not declare supplies nothing, so a key cannot confirm that an id belongs to a report by adding the id to the request" in paragraph
+    assert "the same id at any other key, in a list of rows or in the metadata of a row is judged like any other id" in paragraph
     for count in ("derived_from.counts", "input_summary.counts", "input_counts", "member_count", "instance_count", "displayed_instance_count", "expired_marked"):
         assert f"`{count}`" in paragraph or f"`{count.split('.')[0]}" in paragraph, count
     assert "a count that the step cannot recompute, because it cannot tell which of several counts the dropped entry was in, is dropped" in paragraph
@@ -184,7 +187,7 @@ def test_the_security_note_states_what_main_withholds() -> None:
     assert "Some answers still differ between a hidden row and a missing row, as in v0.20.2" in paragraph
     assert "an id in a `source_refs` entry that may name a chunk or a session" in paragraph
     assert "The ids of beliefs, edges and projects are not judged." in paragraph
-    assert "is dropped with its field for a missing row, as the saved-quote reader drops it for a hidden one" in paragraph
+    assert "is dropped with its field for a missing row, as the saved-quote reader drops it for a hidden one, also when the caller sent it" in paragraph
 
 
 def test_the_security_note_states_the_vector_stage_limit() -> None:
@@ -296,6 +299,9 @@ def test_the_unreleased_changelog_entry_says_what_main_withholds() -> None:
         "an id that names no row the key may read is withheld whether the row is hidden or missing, so a key cannot tell the two apart",
         "An id inside free text is not looked for; the `content_markdown` of a report is.",
         "A count beside a list that lost an entry is recomputed or dropped",
+        "An id the caller supplied stays only where the answer repeats the input that held it",
+        "A parameter the route does not declare supplies nothing, so adding an id to the query of a read no longer shows that the id belongs to a report.",
+        "A long run of reference prefixes is read in time proportional to its length.",
         "for the user the key was authenticated for and not for the `user_id` of the query",
         "a POST that carries it only in its body is filtered under development and test",
         "It opens a connection only when the answer holds an id, and it keeps repeated response headers.",
@@ -326,6 +332,7 @@ def test_the_tool_reference_states_both() -> None:
     assert "This was a known exception to the rule that a hidden id is not shown. Unreleased (on main, not in v0.20.2): a key with limits is not shown the id of a memory, a source, an artifact or an open loop it may not read" in ids
     assert "in any spelling of the id and behind a `memory:`, `source:`, `artifact:` or `open_loop:` prefix, and a count beside a list that lost an entry follows the list" in ids
     assert "an id that names no row the key may read is withheld whether the row is hidden or missing, an id inside free text (a title, a note, a quote) is not looked for" in ids
+    assert "an id the request supplied stays only where the answer repeats the input that held it (a parameter, field or argument the route or tool declares), and a parameter the route does not declare supplies nothing" in ids
     assert "(on main, a key with limits no longer reads the roll-up entry or the member digest of a row it may not read)" in ids
     assert "A report also keeps the words it was made with, so the title, text or quote of a row that was archived after the report was made stays in the report's text" in ids
     assert "and a key that can read the report reads those words (on main, a key with limits no longer reads the roll-up entry or the member digest of a row it may not read); withholding the other words is tracked for v0.21.0." in ids
