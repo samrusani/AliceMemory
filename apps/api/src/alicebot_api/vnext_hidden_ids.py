@@ -85,13 +85,13 @@ class HiddenIdFilterError(RuntimeError):
 # Thirty-two hex digits with any number of hyphens between them, not part of a longer run of hex digits. This is the
 # shape of every spelling ``uuid.UUID`` takes once its wrappers (braces, ``urn:uuid:``) are set aside. It only finds a
 # candidate. ``identifier`` decides what the candidate is.
-_TOKEN_BODY = r"(?<![0-9A-Fa-f])(?:[0-9A-Fa-f]-*){31}[0-9A-Fa-f](?![0-9A-Fa-f])"
-_TOKEN = re.compile(_TOKEN_BODY)
+_ID_SHAPE_PATTERN = r"(?<![0-9A-Fa-f])(?:[0-9A-Fa-f]-*){31}[0-9A-Fa-f](?![0-9A-Fa-f])"
+_ID_SHAPE = re.compile(_ID_SHAPE_PATTERN)
 # The ways a ref says what it names. ``uuid:`` and ``urn:uuid:`` are read by ``identifier`` and say no kind.
 _KIND_PREFIX = r"(?:(?:memory|source|artifact|open_loop):|alice://(?:memories|sources)/)"
 _LEADING_KIND = re.compile(r"\s*" + _KIND_PREFIX, re.IGNORECASE)
 _IN_TEXT = re.compile(
-    r"(?i:" + _KIND_PREFIX + r"|(?:urn:)?uuid:)*(?:\{(?P<braced>" + _TOKEN_BODY + r")\}|(?P<bare>" + _TOKEN_BODY + r"))"
+    r"(?i:" + _KIND_PREFIX + r"|(?:urn:)?uuid:)*(?:\{(?P<braced>" + _ID_SHAPE_PATTERN + r")\}|(?P<bare>" + _ID_SHAPE_PATTERN + r"))"
 )
 # A whole value that is made only of characters an id spelling can hold. The shape test of the whole value is
 # ``identifier`` itself, which takes every spelling ``uuid.UUID`` takes; this keeps it off prose.
@@ -165,7 +165,7 @@ def _whole_id(text: str) -> tuple[str, bool] | None:
     core = body.strip()
     if len(core) < _MIN_ID_CHARS:
         return None
-    if len(core) > _MAX_PLAIN_CHARS and _TOKEN.search(core) is None:
+    if len(core) > _MAX_PLAIN_CHARS and _ID_SHAPE.search(core) is None:
         return None
     if _ID_CHARS.fullmatch(core) is None:
         return None
@@ -192,7 +192,7 @@ def _leading_id(text: str) -> tuple[str, bool] | None:
             break
         body = body[lead.end() :]
         prefixed = True
-    match = _TOKEN.match(body.lstrip())
+    match = _ID_SHAPE.match(body.lstrip())
     if match is None:
         return None
     canonical = identifier(match.group())
@@ -223,7 +223,7 @@ def _tokens(text: str) -> list[str]:
     if len(text) < _MIN_ID_CHARS:
         return []
     found = []
-    for match in _TOKEN.finditer(text):
+    for match in _ID_SHAPE.finditer(text):
         canonical = identifier(match.group())
         if _CANONICAL.fullmatch(canonical) is not None:
             found.append(canonical)

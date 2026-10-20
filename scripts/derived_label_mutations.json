@@ -19159,7 +19159,7 @@
           "line": 636,
           "before": "    if not hidden and readable is None:\n        return value\n    return _Walk(_Judge(hidden, readable, keep)).value(value, None, 0)\n",
           "after": "    if True:\n        return value\n    return _Walk(_Judge(hidden, readable, keep)).value(value, None, 0)\n",
-          "sha256": "acfc60ae7ee1bc064f937057f04bde7ec3b7e1d21c1a017d42afb9a13a629782"
+          "sha256": "d24bf58d883c66d00747d175fb65ad2d3985a8b6bea78e2404caa52de8bd39e3"
         }
       ],
       "pytest": [
@@ -19175,14 +19175,14 @@
           "line": 227,
           "before": "        canonical = identifier(match.group())\n        if _CANONICAL.fullmatch(canonical) is not None:\n            found.append(canonical)",
           "after": "        canonical = match.group()\n        if _CANONICAL.fullmatch(canonical) is not None:\n            found.append(canonical)",
-          "sha256": "acfc60ae7ee1bc064f937057f04bde7ec3b7e1d21c1a017d42afb9a13a629782"
+          "sha256": "d24bf58d883c66d00747d175fb65ad2d3985a8b6bea78e2404caa52de8bd39e3"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
           "line": 174,
           "before": "    canonical = identifier(core.lower())\n    if _CANONICAL.fullmatch(canonical) is None:",
           "after": "    canonical = core\n    if _CANONICAL.fullmatch(canonical) is None:",
-          "sha256": "acfc60ae7ee1bc064f937057f04bde7ec3b7e1d21c1a017d42afb9a13a629782"
+          "sha256": "d24bf58d883c66d00747d175fb65ad2d3985a8b6bea78e2404caa52de8bd39e3"
         }
       ],
       "pytest": [
@@ -19198,14 +19198,14 @@
           "line": 227,
           "before": "        canonical = identifier(match.group())\n        if _CANONICAL.fullmatch(canonical) is not None:\n            found.append(canonical)",
           "after": "        canonical = identifier(match.group())\n        if _CANONICAL.fullmatch(match.group()) is not None:\n            found.append(canonical)",
-          "sha256": "acfc60ae7ee1bc064f937057f04bde7ec3b7e1d21c1a017d42afb9a13a629782"
+          "sha256": "d24bf58d883c66d00747d175fb65ad2d3985a8b6bea78e2404caa52de8bd39e3"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
           "line": 174,
           "before": "    canonical = identifier(core.lower())\n    if _CANONICAL.fullmatch(canonical) is None:",
           "after": "    canonical = identifier(core.lower())\n    if _CANONICAL.fullmatch(core) is None:",
-          "sha256": "acfc60ae7ee1bc064f937057f04bde7ec3b7e1d21c1a017d42afb9a13a629782"
+          "sha256": "d24bf58d883c66d00747d175fb65ad2d3985a8b6bea78e2404caa52de8bd39e3"
         }
       ],
       "pytest": [
@@ -19221,7 +19221,7 @@
           "line": 385,
           "before": "        if typed and self.readable is not None:\n            return canonical not in self.readable\n",
           "after": "        if False:\n            return canonical not in self.readable\n",
-          "sha256": "acfc60ae7ee1bc064f937057f04bde7ec3b7e1d21c1a017d42afb9a13a629782"
+          "sha256": "d24bf58d883c66d00747d175fb65ad2d3985a8b6bea78e2404caa52de8bd39e3"
         }
       ],
       "pytest": [
@@ -19237,7 +19237,7 @@
           "line": 551,
           "before": "        if shortened:\n            _fix_counts(output, shortened)\n",
           "after": "        if shortened:\n            pass\n",
-          "sha256": "acfc60ae7ee1bc064f937057f04bde7ec3b7e1d21c1a017d42afb9a13a629782"
+          "sha256": "d24bf58d883c66d00747d175fb65ad2d3985a8b6bea78e2404caa52de8bd39e3"
         }
       ],
       "pytest": [
@@ -19253,7 +19253,7 @@
           "line": 712,
           "before": "user_id = getattr(state, \"vnext_authenticated_user_id\", None)",
           "after": "user_id = getattr(request, \"query_params\", {}).get(\"user_id\")",
-          "sha256": "acfc60ae7ee1bc064f937057f04bde7ec3b7e1d21c1a017d42afb9a13a629782"
+          "sha256": "d24bf58d883c66d00747d175fb65ad2d3985a8b6bea78e2404caa52de8bd39e3"
         }
       ],
       "pytest": [
@@ -19269,7 +19269,7 @@
           "line": 669,
           "before": "    candidates = judged_ids(payload, keep)\n    if not candidates:\n        return payload\n",
           "after": "    candidates = judged_ids(payload, keep)\n    if False:\n        return payload\n",
-          "sha256": "acfc60ae7ee1bc064f937057f04bde7ec3b7e1d21c1a017d42afb9a13a629782"
+          "sha256": "d24bf58d883c66d00747d175fb65ad2d3985a8b6bea78e2404caa52de8bd39e3"
         }
       ],
       "pytest": [
@@ -19317,7 +19317,7 @@
           "line": 712,
           "before": "user_id = getattr(state, \"vnext_authenticated_user_id\", None)",
           "after": "user_id = getattr(request, \"query_params\", {}).get(\"user_id\")",
-          "sha256": "acfc60ae7ee1bc064f937057f04bde7ec3b7e1d21c1a017d42afb9a13a629782"
+          "sha256": "d24bf58d883c66d00747d175fb65ad2d3985a8b6bea78e2404caa52de8bd39e3"
         }
       ],
       "pytest": [
@@ -19333,7 +19333,7 @@
           "line": 468,
           "before": "            if named is not None and self.withheld(named[0], True):\n                return None\n",
           "after": "            pass\n",
-          "sha256": "acfc60ae7ee1bc064f937057f04bde7ec3b7e1d21c1a017d42afb9a13a629782"
+          "sha256": "d24bf58d883c66d00747d175fb65ad2d3985a8b6bea78e2404caa52de8bd39e3"
         }
       ],
       "pytest": [
@@ -19349,7 +19349,7 @@
           "line": 470,
           "before": "if refs and field not in _TEXT_KEYS and text[:1] in \"{[\"",
           "after": "if False and refs and field not in _TEXT_KEYS and text[:1] in \"{[\"",
-          "sha256": "acfc60ae7ee1bc064f937057f04bde7ec3b7e1d21c1a017d42afb9a13a629782"
+          "sha256": "d24bf58d883c66d00747d175fb65ad2d3985a8b6bea78e2404caa52de8bd39e3"
         }
       ],
       "pytest": [
@@ -19365,7 +19365,7 @@
           "line": 216,
           "before": "    lowered = _product_key(field)\n    return lowered is not None and lowered not in _TEXT_KEYS",
           "after": "    return True",
-          "sha256": "acfc60ae7ee1bc064f937057f04bde7ec3b7e1d21c1a017d42afb9a13a629782"
+          "sha256": "d24bf58d883c66d00747d175fb65ad2d3985a8b6bea78e2404caa52de8bd39e3"
         }
       ],
       "pytest": [
