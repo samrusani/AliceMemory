@@ -897,6 +897,32 @@ def test_a_declared_parameter_is_echoed_where_the_answer_repeats_it_and_nowhere_
     assert body["metadata_json"] == {"candidate_memory_ids": [VISIBLE], "source_refs": [], "see_also": None}
 
 
+def test_a_path_parameter_repeats_at_the_id_of_the_object_it_names_and_not_in_a_list_of_rows(connections) -> None:
+    """The URL names a row, and the answer describes it. Archiving a source makes it unreadable, and its trace still
+    carries the id the caller named.
+
+    Mutation: a path parameter is registered under its own name only.
+    """
+
+    identity = _identity("trusted_local_agent")
+
+    def answer(supplied: dict) -> dict:
+        row = supplied["target_id"]
+        return {
+            "trace": {"source": {"id": row, "title": "t"}, "events": [{"id": row, "target_id": row}]},
+            "id": row,
+            "metadata_json": {"parent": {"id": HIDDEN}, "see_also": row},
+        }
+
+    status, body = _layer(identity=identity, answer=answer, path=f"/v0/vnext/things/{SOURCE}")
+    assert status == 200
+    assert body["id"] == SOURCE and body["trace"]["source"]["id"] == SOURCE
+    # A list of rows is not the object the URL names, an id the path did not hold is withheld, and so is the same id at a
+    # key that is neither the name of the parameter nor ``id``.
+    assert body["trace"]["events"] == [{"id": None, "target_id": None}]
+    assert body["metadata_json"] == {"parent": {"id": None}, "see_also": None}
+
+
 def test_a_body_field_the_route_declares_is_echoed_and_one_it_does_not_is_not(connections) -> None:
     identity = _identity("trusted_local_agent")
 

@@ -35,8 +35,8 @@ An id the caller supplied
 An id the caller supplied is not an exemption. It may appear in the answer only where the answer repeats the caller's own
 input: at a key that is named like a declared input of the request (a path parameter, a declared query parameter, a field
 of the JSON body, an argument of a tool), reached from the top of the answer through objects only, and only the ids that
-input held. A query parameter or a body field the route does not declare supplies nothing. A key in a list of result
-rows is not an echo, and neither is an id at any other key of the answer, whatever the caller sent.
+input held. A query parameter or a body field the route does not declare supplies nothing. A path parameter also repeats at the
+``id`` of the object it names. A key in a list of result rows is not an echo, and neither is an id at any other key of the answer, whatever the caller sent.
 """
 
 from __future__ import annotations
@@ -783,6 +783,8 @@ def echo_of_request(request: Any, named_body: bytes = b"") -> dict[str, frozense
 
     for name, value in (scope.get("path_params") or {}).items():
         add(name, str(value))
+        # The URL names the row, so the object that describes it repeats the id as its own ``id``.
+        add("id", str(value))
     query = getattr(request, "query_params", None)
     if query is not None:
         for parameter in flat.query_params:

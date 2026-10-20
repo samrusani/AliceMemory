@@ -177,7 +177,7 @@ def test_the_security_note_states_what_main_withholds() -> None:
     assert "is withheld whether the row is hidden or does not exist, so a key that holds the id of a candidate cannot tell a hidden row from a missing one" in paragraph
     assert "it withholds only the id of a row that exists and that the key may not read, and an id that names no row stays as it was written" in paragraph
     assert "An id the caller supplied is an exemption nowhere. It stays only where the answer repeats the input that held it" in paragraph
-    assert "reached from the top of the answer through objects and not through a list of rows, and only the ids that input held" in paragraph
+    assert "reached from the top of the answer through objects and not through a list of rows, and only the ids that input held; a path parameter also repeats at the `id` of the object it names" in paragraph
     assert "A query parameter or a body field the route does not declare supplies nothing, so a key cannot confirm that an id belongs to a report by adding the id to the request" in paragraph
     assert "the same id at any other key, in a list of rows or in the metadata of a row is judged like any other id" in paragraph
     for count in ("derived_from.counts", "input_summary.counts", "input_counts", "member_count", "instance_count", "displayed_instance_count", "expired_marked"):
