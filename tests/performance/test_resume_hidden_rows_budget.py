@@ -222,3 +222,45 @@ def test_sqlite_resume_stays_within_the_budget_of_the_baseline_with_many_hidden_
         seed_hidden_rows(store, postgres=False, hidden=hidden, shape=shape)
         _record, key = create_agent_key(store, user_id=USER, agent_id="resume-budget", permission_profile="read_only_agent")
     paired_resume_budgets("sqlite", "sqlite:///" + str(path), USER, key, case=case, actions=SQLITE_ACTIONS)
+
+
+def test_ten_thousand_hidden_nearest_vector_rows_stay_within_the_merge_base_gate() -> None:
+    """The vector refill judges 128 of 10,000 hidden nearest rows and stays inside the merge-base gate.
+
+    The head reads the cap once and returns nothing, since every row is hidden. A merge base from before the refill
+    took the nearest page and dropped it; a merge base that already has the refill reads the cap too. Either way both
+    are timed on the same rows. A head that walked all 10,000 would miss the gate and would not return the cap
+    as its only limit.
+
+    This does not measure the label walk. The rows carry plain labels (a domain and a sensitivity of their own, no input)
+    and the store is a stub, so judging a row is a short check. A row below a chain of memories costs more to judge, and up to
+    128 rows are judged where four were, so the time of a read with hidden rows below deep chains is not what this test
+    bounds.
+    """
+
+    import json
+    import subprocess
+
+    repo = Path(__file__).resolve().parents[2]
+    script = Path(__file__).with_name("vector_refill_budget_probe.py")
+    base = merge_base_checkout()
+
+    def measure(checkout: str) -> dict:
+        completed = subprocess.run(
+            [sys.executable, str(script), checkout],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return json.loads(completed.stdout)
+
+    head, base_row = measure(str(repo)), measure(base)
+    assert head["refill"] is True
+    assert head["limits"] == [READABLE_SCAN_CAP] * 10
+    # The merge base is whatever main was when this branch forked: before the refill it judged the four rows it
+    # asked for, after it the cap. The head's numbers above are what this test pins; the base is the yardstick.
+    assert base_row["limits"] == ([READABLE_SCAN_CAP] * 10 if base_row["refill"] else [4] * 10)
+    assert head["ids"] == []
+    assert base_row["ids"] == []
+    assert not over_merge_base(head["wall"], base_row["wall"]), (head, base_row)
+    assert not over_merge_base(head["cpu"], base_row["cpu"]), (head, base_row)

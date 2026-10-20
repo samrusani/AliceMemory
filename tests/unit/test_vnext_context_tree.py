@@ -306,9 +306,14 @@ def test_scoped_context_tree_matches_project_id_slug_or_name(
 def test_unscoped_context_tree_keeps_global_event_read_behavior() -> None:
     store = ContextTreeStore()
 
+    # The default caller is limited, so each list is read at the cap. The owner is read at the limit asked for.
     payload = VNextContextTreeService(store).build_tree(ContextTreeRequest(limit=2))
+    owner = ContextTreeStore()
+    owner_payload = VNextContextTreeService(owner).build_tree(
+        ContextTreeRequest(limit=2, caller_limited=False)
+    )
 
-    assert payload["summary"] == {
+    assert payload["summary"] == owner_payload["summary"] == {
         "projects": 2,
         "memories": 2,
         "sources": 2,
@@ -316,7 +321,10 @@ def test_unscoped_context_tree_keeps_global_event_read_behavior() -> None:
         "artifacts": 2,
         "events": 2,
     }
-    assert store.calls["list_events"] == [{"limit": 2}]
+    from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
+
+    assert store.calls["list_events"] == [{"limit": READABLE_SCAN_CAP}]
+    assert owner.calls["list_events"] == [{"limit": 2}]
     assert "scope_projects" not in store.calls["list_projects"][0]
     assert "projects" not in store.calls["search_memories"][0]
     assert "scope_projects" not in store.calls["search_sources"][0]

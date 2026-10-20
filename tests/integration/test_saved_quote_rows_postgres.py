@@ -214,10 +214,13 @@ def test_a_source_that_cites_a_source_raised_above_the_ceiling_loses_the_entry(l
     Mutation: pass an empty set of refused sources in ``SavedProvenanceReader._shown_refs``.
     """
 
+    from tests.support.legacy_source_refs import link_strings, plant_legacy_source_metadata
+
     vault = _vault(label_harness)
     readable = vault.ids["source_shown"]
     hidden = vault.ids["source_hidden"]
     refs = [{"source_id": readable, "quote": "readable words"}, {"source_id": hidden, "quote": "hidden words"}, f"source:{hidden}"]
+    sent = link_strings(refs)
     status, body = vault.admin_request(
         "POST",
         "/v0/vnext/agents/ingest-output",
@@ -227,10 +230,12 @@ def test_a_source_that_cites_a_source_raised_above_the_ceiling_loses_the_entry(l
             "content": vault.shown("cites_a_source-text"),
             "domain": "project",
             "sensitivity": "public",
-            "source_refs": refs,
+            "source_refs": sent,
         },
     )
     assert status in {200, 201}, (status, str(body)[:300])
+    with label_harness.store() as store:
+        plant_legacy_source_metadata(store, str(body["source_id"]), refs, sent)
     cites = body["source_id"]
     status, text = run_call(vault, "GET", "/v0/vnext/sources/{source_id}", Call("source", path={"source_id": cites}), vault.keys["trusted"])
     assert status == 200, text

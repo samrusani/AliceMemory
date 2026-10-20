@@ -23,11 +23,12 @@ from alicebot_api.vnext_json import json_safe
 # a correction. The same size as the largest canonical_text a memory commit
 # accepts over HTTP.
 # A memory commit's source_refs (owner ruling R4, 2026-09-23): at most 64
-# refs; a string ref at most 4,000 characters of raw text as sent, any other
-# ref at most 4,000 characters serialized. Enforced by the service every
-# surface calls (vnext_memory_commit._object_tuple); advertised, and enforced
-# on the raw argument, by the MCP schema. Scoped to a memory commit: the
-# propose and artifact source_refs are not bounded here.
+# refs, each a string of at most 4,000 characters of raw text as sent. (A ref
+# that is not a string is refused as a shape; it was measured by its
+# serialized length until then.) Enforced by the service every surface calls
+# (vnext_memory_commit._object_tuple); advertised, and enforced on the raw
+# argument, by the MCP schema. Scoped to a memory commit: the propose and
+# artifact source_refs are not bounded here.
 MAX_COMMIT_SOURCE_REFS = 64
 MAX_COMMIT_SOURCE_REF_CHARS = 4_000
 

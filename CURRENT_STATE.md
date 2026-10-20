@@ -166,6 +166,13 @@ SQLite vault is repaired on its next open.
   full stored row, a vector made from a cut text represents only its head,
   removal of redacted text from reports is planned for `v0.21.0`, and the
   vector stage of recall does not refill after hiding rows.
+- Unreleased (on main, not in v0.20.2): the vector stage of recall and of the
+  context pack, the time stage of the context pack, the context tree, the
+  workspace and the project list refill after hiding rows for a key with
+  limits. A page is read once, at 128 rows (`READABLE_SCAN_CAP`), and is full
+  while the hidden rows in front of it number at most 128 minus the rows the
+  list is asked for: 118 for `alice_recall` at limit 5, which asks its vector
+  stage for ten rows. The owner and an unbound admin key are read as before.
 
 ## What `v0.20.0` Shipped
 

@@ -258,9 +258,11 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
     assert "removing them is planned for v0.21.0, with hiding the words of archived rows tracked for v0.21.0" in kept
     assert "redacting a memory does not rewrite the reports that printed it" not in kept
     assert "(see the [security note](../release/derived-labels-security-note-draft.md))" in kept
-    vector = _paragraph(page, f"- {VECTOR}")
-    assert "a restricted caller can get fewer results than exist, down to none" in vector
-    assert "tracked for v0.21.0" in vector
+    vector = _paragraph(page, "- Unreleased (on main, not in v0.20.2): the vector stage of recall and of the context pack, and the time stage of the context pack, refill after hiding rows")
+    assert "judged at most 128 rows of each list" in vector
+    assert "so a page is short when the hidden rows in front of it number more than 128 minus the rows the list is asked for (118 for `alice_recall` at limit 5)" in vector
+    assert "the owner and an unbound admin key are unchanged" in vector
+    assert "v0.20.2 did not refill these pages" in vector
 
 
 def test_the_changelog_has_one_entry_for_each() -> None:

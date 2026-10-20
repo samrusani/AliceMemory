@@ -53,7 +53,11 @@ from alicebot_api.credential_floor import carries_credential_material, normalize
 from alicebot_api.onramp import _memory_record_credential_finding
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user
-from alicebot_api.vnext_memory_commit import VNextMemoryCommitService, memory_commit_request_from_payload
+from alicebot_api.vnext_memory_commit import (
+    VNextMemoryCommitService,
+    VNextMemoryCommitValidationError,
+    memory_commit_request_from_payload,
+)
 from alicebot_api.vnext_promotion_policy import PromotionCandidate, PromotionSettings, evaluate_promotion, hard_floor_hits
 
 from tests.unit import legacy_v0160_credential_oracle as oracle
@@ -960,7 +964,9 @@ _BENIGN_PINS = {
     "doc sentences": (400, 0, 0, 0),
     "credential vocabulary": (474, 6, 6, 4),
     "promotion notes": (100, 0, 0, 0),
-    "named adversary notes": (34, 16, 27, 0),
+    # Four object entries that the credential check refused are now refused as shapes
+    # before that check, so they stay out of the vault and out of the credential count.
+    "named adversary notes": (34, 12, 27, 0),
 }
 
 
@@ -972,7 +978,16 @@ def test_harness_v4_benign_refusals_against_v0160_are_pinned(group: str) -> None
     rows = _corpus_groups()[group]
     for index, (title, text, refs) in enumerate(rows):
         payload: dict[str, object] = {"title": title, "canonical_text": text, "source_refs": refs}
-        request = memory_commit_request_from_payload(payload, user_id=store.user_id)
+        try:
+            request = memory_commit_request_from_payload(payload, user_id=store.user_id)
+        except VNextMemoryCommitValidationError:
+            # An object entry is refused before the credential check. It is not stored.
+            rejected_any += 1
+            commit_v0160 += oracle.commit_gate_refuses(title, text, None, None, refs)
+            record = {"id": str(index), "title": title, "canonical_text": text, "summary": text[:280],
+                      "value": refs[0] if refs and isinstance(refs[0], dict) else None}
+            import_now += _memory_record_credential_finding(record, line_no=index + 1) is not None
+            continue
         result = service.commit(identity=None, request=request)
         rejected_any += result["status"] == "rejected"
         refused = result["status"] == "rejected" and bool(

@@ -105,6 +105,33 @@ class Vault:
         status, body, _headers = self.harness.request(method, path, payload=payload, key=self.keys.get("admin"))
         return status, body
 
+    def _commit_legacy_refs(self, name: str, refs: list[object], *, confidence: float, hidden: bool) -> str:
+        """Commit string entries through the route, then plant any object entry as stored legacy data."""
+
+        from tests.support.legacy_source_refs import link_strings, needs_legacy_plant, plant_legacy_source_refs
+
+        sent = link_strings(refs) if needs_legacy_plant(refs) else list(refs)
+        status, body = self.admin_request(
+            "POST",
+            "/v0/vnext/memories/commit",
+            {
+                "title": self._text(f"{name}-title", hidden=hidden),
+                "canonical_text": self._text(f"{name}-text", hidden=hidden),
+                "memory_type": "fact",
+                "domain": "project",
+                "sensitivity": "public",
+                "confidence": confidence,
+                "source_type": "agent",
+                "source_refs": sent,
+            },
+        )
+        assert status in {200, 201}, (status, str(body)[:300])
+        memory_id = str(body["memory"]["id"])
+        if needs_legacy_plant(refs):
+            with self.harness.store() as store:
+                plant_legacy_source_refs(store, memory_id, refs, sent)
+        return memory_id
+
     def hidden_rows(self) -> dict[tuple[str, str], object]:
         """The stored rows of the hidden set, as JSON, to compare before and after a call."""
 
@@ -529,22 +556,12 @@ class Vault:
             ("commit_keys_redacted", [{"memory_id": cited, words: None}], 0.99),
             ("commit_keys_redacted_typed", [f"memory:{cited}", {words: 1}], 0.99),
         ):
-            status, body = self.admin_request(
-                "POST",
-                "/v0/vnext/memories/commit",
-                {
-                    "title": self._text(f"{name}-title", hidden=False),
-                    "canonical_text": self._text(f"{name}-text", hidden=False),
-                    "memory_type": "fact",
-                    "domain": "project",
-                    "sensitivity": "public",
-                    "confidence": confidence,
-                    "source_type": "agent",
-                    "source_refs": refs,
-                },
+            self.ids[name] = self._commit_legacy_refs(
+                name,
+                refs,
+                confidence=confidence,
+                hidden=False,
             )
-            assert status in {200, 201}, (status, str(body)[:300])
-            self.ids[name] = str(body["memory"]["id"])
         self._ingested_quote(cited, words)
         self._queued_quote(cited, words)
         self._rated_quote(cited, words)
@@ -561,6 +578,10 @@ class Vault:
         the ids and the quote marker and none of the words once the memory is redacted.
         """
 
+        refs = [{"memory_id": cited, "quote": words, words: True}, f"memory:{cited}", {"quote": words}]
+        from tests.support.legacy_source_refs import link_strings, needs_legacy_plant, plant_legacy_source_metadata
+
+        sent = link_strings(refs) if needs_legacy_plant(refs) else list(refs)
         status, body = self.admin_request(
             "POST",
             "/v0/vnext/agents/ingest-output",
@@ -570,10 +591,13 @@ class Vault:
                 "content": self._text("ingest_quotes_redacted-text", hidden=False),
                 "domain": "project",
                 "sensitivity": "public",
-                "source_refs": [{"memory_id": cited, "quote": words, words: True}, f"memory:{cited}", {"quote": words}],
+                "source_refs": sent,
             },
         )
         assert status in {200, 201}, (status, str(body)[:300])
+        if needs_legacy_plant(refs):
+            with self.harness.store() as store:
+                plant_legacy_source_metadata(store, str(body["source_id"]), refs, sent)
         self.ids["ingest_quotes_redacted"] = str(body["source_id"])
         self.ids["ingest_quotes_redacted_artifact"] = str(body["artifact_id"])
 
@@ -650,8 +674,11 @@ class Vault:
         """
 
         from alicebot_api.vnext_memory_commit import MemoryCommitRequest, VNextMemoryCommitService
+        from tests.support.legacy_source_refs import link_strings, plant_legacy_source_refs
 
         words = self.text("memory_redacted-text")
+        refs = ({"memory_id": self.ids["memory_redacted"], "quote": words, words: None},)
+        sent = link_strings(refs)
         # Two transactions, as the commit route and the confirm route are: a strict test refuses the graph lock after the label lock,
         # and the commit takes the label lock.
         with self.harness.store() as store:
@@ -665,11 +692,12 @@ class Vault:
                     domain="project",
                     sensitivity="public",
                     confidence=0.6,
-                    source_refs=({"memory_id": self.ids["memory_redacted"], "quote": words, words: None},),
+                    source_refs=tuple(sent),
                     conversation_excerpt=words,
                 ),
             )
-        assert asked["status"] == "confirmation_required", str(asked)[:300]
+            assert asked["status"] == "confirmation_required", str(asked)[:300]
+            plant_legacy_source_refs(store, str(asked["memory"]["id"]), refs, sent)
         with self.harness.store() as store:
             VNextMemoryCommitService(store, defer_embeddings=True).confirm(
                 identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm"
@@ -687,6 +715,10 @@ class Vault:
         """
 
         words = self.text("memory_redacted-text")
+        refs = [{"memory_id": self.ids["memory_redacted"], "quote": words, words: True}]
+        from tests.support.legacy_source_refs import link_strings, needs_legacy_plant, plant_legacy_source_refs
+
+        sent = link_strings(refs) if needs_legacy_plant(refs) else refs
         status, body = self.admin_request(
             "POST",
             "/v0/vnext/memories/commit",
@@ -698,11 +730,14 @@ class Vault:
                 "sensitivity": "public",
                 "confidence": 0.6,
                 "source_type": "agent",
-                "source_refs": [{"memory_id": self.ids["memory_redacted"], "quote": words, words: True}],
+                "source_refs": sent,
                 "conversation_excerpt": words,
             },
         )
         assert status in {200, 201} and body["status"] == "confirmation_required", (status, str(body)[:300])
+        if needs_legacy_plant(refs):
+            with self.harness.store() as store:
+                plant_legacy_source_refs(store, str(body["memory"]["id"]), refs, sent)
         status, confirmed = self.admin_request(
             "POST", "/v0/vnext/memories/confirm", {"confirmation_id": body["memory"]["confirmation_id"], "action": "confirm"}
         )
