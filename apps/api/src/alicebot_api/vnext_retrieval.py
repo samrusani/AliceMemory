@@ -102,7 +102,7 @@ from alicebot_api.vnext_embeddings import (
     get_embedding_provider,
 )
 from alicebot_api.vnext_event_log import append_event
-from alicebot_api.project_view import readable_prefix
+from alicebot_api.project_view import page_after_label_drop, readable_prefix
 from alicebot_api.vnext_grounding import compute_query_grounding
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded, label_read_request
@@ -3274,6 +3274,7 @@ class VNextRetrievalService:
         person_linked_memory_ids: frozenset[str] = frozenset(),
         query_vector: list[float] | None = None,
         query_embedding_status: str | None = None,
+        label_refill: bool = False,
         scope_thread_id: str | None = None,
         scope_task_id: str | None = None,
         scope_people: tuple[str, ...] = (),
@@ -3286,8 +3287,9 @@ class VNextRetrievalService:
             query_vector, query_embedding_status = self._query_embedding(query)
         if query_embedding_status != VECTOR_STAGE_ENABLED or query_vector is None:
             return [], query_embedding_status
-        assert self.embedding_provider is not None
-        assert callable(search_memories_vector)
+        provider = self.embedding_provider
+        if provider is None or not callable(search_memories_vector):
+            return [], VECTOR_STAGE_DISABLED_NO_PROVIDER
         try:
             search_kwargs: dict[str, object] = {
                 "query_vector": query_vector,
@@ -3319,22 +3321,40 @@ class VNextRetrievalService:
                         "scope_window_end": effective_window_end,
                     }
                 )
-            try:
-                rows = search_memories_vector(
-                    **search_kwargs,
-                    embedding_provider=self.embedding_provider.provider,
-                    embedding_model=self.embedding_provider.model,
-                    embedding_endpoint=endpoint_fingerprint(
-                        getattr(self.embedding_provider, "base_url", "")
-                    ),
-                    embedding_signature_version=EMBEDDING_SIGNATURE_VERSION,
-                )
-            except TypeError as exc:
-                # Compatibility for third-party/minimal store adapters. The
-                # bundled stores enforce provider/model/version matching.
-                if "unexpected keyword argument" not in str(exc):
-                    raise
-                rows = search_memories_vector(**search_kwargs)
+            def fetch_vectors(page: int) -> list[JsonObject]:
+                page_kwargs = {**search_kwargs, "limit": page}
+                try:
+                    return list(
+                        search_memories_vector(
+                            **page_kwargs,
+                            embedding_provider=provider.provider,
+                            embedding_model=provider.model,
+                            embedding_endpoint=endpoint_fingerprint(
+                                getattr(provider, "base_url", "")
+                            ),
+                            embedding_signature_version=EMBEDDING_SIGNATURE_VERSION,
+                        )
+                    )
+                except TypeError as exc:
+                    # Compatibility for third-party/minimal store adapters. The
+                    # bundled stores enforce provider/model/version matching.
+                    if "unexpected keyword argument" not in str(exc):
+                        raise
+                    return list(search_memories_vector(**page_kwargs))
+
+            rows = page_after_label_drop(
+                want=limit,
+                fetch=fetch_vectors,
+                keep=lambda page: admit_loaded(
+                    self.store,
+                    kind="memory",
+                    rows=page,
+                    domains=domains,
+                    sensitivity_allowed=sensitivity_allowed,
+                    projects=projects,
+                ),
+                refill=label_refill,
+            )
         except (VNextEmbeddingConfigurationError, VNextEmbeddingProviderError) as exc:
             logger.warning(
                 "Query embedding failed open error_code=query_embedding_failed",
@@ -3343,14 +3363,6 @@ class VNextRetrievalService:
             return [], VECTOR_STAGE_DISABLED_QUERY_EMBEDDING_FAILED
         # Ascending stage: smaller distance ranks first. Equal distances
         # (identical texts embed identically) stabilize content-first.
-        rows = admit_loaded(
-            self.store,
-            kind="memory",
-            rows=rows,
-            domains=domains,
-            sensitivity_allowed=sensitivity_allowed,
-            projects=projects,
-        )
         return _stabilize_scored_rows(rows, score_key="vector_distance", descending=False), VECTOR_STAGE_ENABLED
 
     def _memory_graph_rows(
@@ -3546,6 +3558,7 @@ class VNextRetrievalService:
         projects: tuple[str, ...] = (),
         created_by_agent_ids: tuple[str, ...] = (),
         run_id: str | None = None,
+        label_refill: bool = False,
     ) -> tuple[list[JsonObject], str]:
         """Temporal-anchor stage: ``(rows, stage_status)``.
 
@@ -3559,22 +3572,33 @@ class VNextRetrievalService:
         search_memories_by_time = getattr(self.store, "search_memories_by_time", None)
         if not callable(search_memories_by_time):
             return [], TEMPORAL_STAGE_DISABLED_NO_STORE_SUPPORT
-        rows = search_memories_by_time(
-            window_start=anchor.window_start,
-            window_end=anchor.window_end,
-            window_center=anchor.window_center,
-            domains=domains or None,
-            sensitivity_allowed=sensitivity_allowed,
-            limit=limit,
-            **_optional_search_filters(memory_types, projects, created_by_agent_ids, run_id),
-        )
-        rows = admit_loaded(
-            self.store,
-            kind="memory",
-            rows=rows,
-            domains=domains,
-            sensitivity_allowed=sensitivity_allowed,
-            projects=projects,
+        filters = _optional_search_filters(memory_types, projects, created_by_agent_ids, run_id)
+
+        def fetch_temporal(page: int) -> list[JsonObject]:
+            return list(
+                search_memories_by_time(
+                    window_start=anchor.window_start,
+                    window_end=anchor.window_end,
+                    window_center=anchor.window_center,
+                    domains=domains or None,
+                    sensitivity_allowed=sensitivity_allowed,
+                    limit=page,
+                    **filters,
+                )
+            )
+
+        rows = page_after_label_drop(
+            want=limit,
+            fetch=fetch_temporal,
+            keep=lambda page: admit_loaded(
+                self.store,
+                kind="memory",
+                rows=page,
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                projects=projects,
+            ),
+            refill=label_refill,
         )
         return list(rows), TEMPORAL_STAGE_ENABLED
 
@@ -4631,6 +4655,7 @@ class VNextRetrievalService:
                     person_linked_memory_ids=person_linked_memory_ids,
                     query_vector=query_vector,
                     query_embedding_status=query_embedding_status,
+                    label_refill=source_fence.entity_read_fenced,
                 ),
                 scope=scope,
                 person_linked_memory_ids=person_linked_memory_ids,
@@ -4683,6 +4708,7 @@ class VNextRetrievalService:
                         projects=projects,
                         created_by_agent_ids=created_by_agent_ids,
                         run_id=filter_run_id,
+                        label_refill=source_fence.entity_read_fenced,
                     ),
                     scope=scope,
                     person_linked_memory_ids=person_linked_memory_ids,
