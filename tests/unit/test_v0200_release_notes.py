@@ -300,7 +300,10 @@ def test_the_embedded_text_is_described_with_its_summary_and_no_twenty_thousand_
     assert "The summary of a committed memory is the first 280 characters of its text" in notes
     assert "a memory with text of about 7,700 characters or more can be over the default cap" in notes
     assert "the first 280 characters of its text), so a memory whose text is about 7,700 characters or more" in changelog
-    assert "a memory whose embedded text (its title, text and summary) is over 8,000 characters is embedded from its first 8,000" in readme
+    # The README states the cap in one sentence and no more: the 8,000 character rule for a long memory lives in the
+    # MCP guide below, and the tools page (see test_readme_facts_live_in_the_docs.py) holds what the endpoint receives.
+    assert "cuts each memory and each query to its first 8,000 characters" in readme
+    assert "`ALICE_EMBEDDINGS_MAX_INPUT_CHARS` changes that cap" in readme
     assert "A memory whose embedded text (its title, text and summary) is over 8,000 characters is embedded from its first 8,000" in mcp
     limitations = _section(_text(NOTES_PATH), "Known limitations")
     assert "`alice_memory_commit` on SQLite has no length limit" in limitations

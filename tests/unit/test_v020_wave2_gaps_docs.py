@@ -209,23 +209,27 @@ def test_the_importers_doc_covers_the_file_commands_and_the_log_line() -> None:
     assert "so it ends the import and is not counted as an unreadable conversation" in text
 
 
-def test_the_known_limitation_and_the_readme_name_the_three_commands() -> None:
+def test_the_known_limitation_and_the_importers_page_name_the_three_commands() -> None:
     """Both say the three commands take the limit now; the v0.19.2 half is on the changelog entry.
 
     The known limitations page lists what is limited now, so it no longer says that v0.19.2 read the whole file with no
     limit: ``test_the_entry_states_the_v0192_behaviour_of_the_three_file_commands`` pins that on the changelog entry.
+    The README keeps no file size limit at all: the importers page, which holds the whole rule, says it.
 
-    Mutations: put ``capture-file has no limit`` back, or delete the limit sentence from the page or the README.
+    Mutations: put ``capture-file has no limit`` back, or delete the limit sentence from the limitations page or the
+    importers page.
     """
     limits = _read("docs/alpha/known-limitations.md")
     assert "`alicebot vnext sources capture-file` has no limit" not in limits
     assert "take the same 16 MiB limit and `--max-file-mib N`" in limits
     assert "in v0.19.2 they read the whole file with no limit." not in limits
-    readme = _read("README.md")
+    importers = _read("docs/integrations/importers.md")
     assert (
-        "`alicebot vnext sources capture-file` and the `--file` options of `alicebot vnext connectors browser-clipper "
-        "capture` and `alicebot vnext agents ingest-output` take the same limit (16 MiB) and `--max-file-mib N`."
-    ) in readme
+        "`alicebot vnext sources capture-file`, `alicebot vnext connectors browser-clipper capture --file` and "
+        "`alicebot vnext agents ingest-output --file` read their file with the same read: once, up to 16 MiB, with the "
+        "same `import_file_too_large` refusal and the same `--max-file-mib N`."
+    ) in importers
+    assert "--max-file-mib" not in _read("README.md")
 
 
 def test_the_entry_states_the_v0192_local_folder_behaviour() -> None:

@@ -10,6 +10,12 @@ This path is import plus augmentation, not a second runtime.
 
 To connect OpenClaw to Alice over MCP, run `alice-memory install` (OpenClaw is one of the four default hosts); see [Install with alice-memory](../alpha/quickstart.md#install-with-alice-memory). The instruction block for OpenClaw is in [OpenClaw skill](../alpha/openclaw-skill.md).
 
+OpenClaw can also add the server in one line, which probes before saving:
+
+```bash
+openclaw mcp add alice --command uvx --arg alice-memory --arg mcp --arg --data-dir --arg ~/.alice
+```
+
 ## One-Command Demo
 
 Run the end-to-end import, replay, recall, and resume demo:

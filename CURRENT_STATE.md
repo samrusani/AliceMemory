@@ -22,8 +22,8 @@
   It is not the product path and not a measurement of the current release.
   Known issue: the harness showed the reader model each session's id, and in
   this dataset every evidence session id starts with `answer_`. The effect is
-  unmeasured, so the number may be overstated by an unknown amount. See the
-  README Benchmark section.
+  unmeasured, so the number may be overstated by an unknown amount. See
+  `docs/benchmarks/longmemeval/README.md`.
 - Alice remains public-alpha, pre-1.0, local-first, single-user, and self-hosted.
 - The MCP registry on main is 12-core/65-legacy/77-total. The default handshake
   stays at three tools. `ALICE_MCP_FULL_TOOLS=1` exposes all twelve core tools.
