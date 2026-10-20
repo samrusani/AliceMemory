@@ -419,6 +419,29 @@ def readable_prefix(
     return _scan_readable(want=limit, fetch=fetch, keep=keep, cap=cap)[:limit]
 
 
+def page_after_label_drop(
+    *,
+    want: int,
+    fetch: Callable[[int], Sequence[_ROW]],
+    keep: Callable[[Sequence[_ROW]], Sequence[_ROW]],
+    refill: bool,
+    cap: int = READABLE_SCAN_CAP,
+) -> list[_ROW]:
+    """The first ``want`` rows ``keep`` keeps.
+
+    The owner and an unbound admin key pass ``refill=False``. They are read once, ``want`` rows, and ``keep`` is applied,
+    which is the page they had. A caller with limits whose page is shorter than ``cap`` is read once, at ``cap`` rows, and
+    given the first ``want`` rows ``keep`` keeps. One read, so a vault of hidden nearest rows is not scanned a second
+    time, and the rows judged are at most ``cap``. The page is a prefix of that order: a larger limit, still under
+    ``cap``, starts with the smaller page, and the answer names no hidden row. A page already at ``cap`` is not widened.
+    """
+
+    if want < 1:
+        return []
+    window = cap if refill and want < cap else want
+    return list(keep(list(fetch(window))))[:want]
+
+
 def project_first_fill_readable(
     *,
     limit: int,
@@ -502,6 +525,7 @@ __all__ = [
     "fill_counts",
     "project_first_fill",
     "project_first_fill_readable",
+    "page_after_label_drop",
     "readable_prefix",
     "resolve_project_view",
     "resolve_view_at_edge",

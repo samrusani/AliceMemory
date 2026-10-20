@@ -188,7 +188,9 @@ def list_vnext_projects(
     limit: int = 20,
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
+    from alicebot_api.project_view import page_after_label_drop
     from alicebot_api.vnext_label_guard import apply_sensitivity_ceiling
+    from alicebot_api.vnext_source_fence import SourceReadFence
 
     settings = get_settings()
 
@@ -201,11 +203,13 @@ def list_vnext_projects(
                 raw_key=agent_key_from_authorization(authorization),
                 payload={},
             )
-            payload = apply_sensitivity_ceiling(
-                store,
-                kind="project",
-                rows=store.list_projects(status=status, limit=limit),
-                identity=identity,
+            payload = page_after_label_drop(
+                want=limit,
+                fetch=lambda n: store.list_projects(status=status, limit=n),
+                keep=lambda rows: apply_sensitivity_ceiling(
+                    store, kind="project", rows=rows, identity=identity
+                ),
+                refill=SourceReadFence.for_identity(identity).entity_read_fenced,
             )
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)

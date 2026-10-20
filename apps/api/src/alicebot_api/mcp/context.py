@@ -101,6 +101,10 @@ _COMPACT_SOURCE_FIELDS = (
     "sensitivity",
     "excerpt",
     "excerpt_kind",
+    # Set only on a passage-mode entry: which chunk of the document the
+    # excerpt was cut from. Absent in document mode, so those results stay
+    # byte for byte what they were.
+    "chunk_index",
     # Set only when the quoted_from memory was corrected or superseded
     # after the capture. Absent on every current excerpt.
     "derived_memory_corrected",
