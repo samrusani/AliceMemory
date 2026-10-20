@@ -104,6 +104,10 @@ python scripts/alice_bench.py showcase-keyed-permission --questions questions.js
 
 `showcase-record` keeps the first answer for a question, an arm, a team and a model, so a batch can stop and resume. `showcase-heldout` imports the notes folder it is given and does not look for any other question set. Search, record and packet then use that run directory unchanged. Each size has 15 questions for each of the seven tasks, 210 in all. Those 210 questions are the development set. Phase 0 builds and reports the 1,000-note company only. A held-out report names `corpus heldout (N notes)` and does not use the generator's size.
 
+A question with `abstain: true` is supported complete when the answer is correct and is not a leak. Any other question is supported complete only when it is correct and cites returned evidence. A citation is a returned id, or a word-aligned span of 8 or more characters that appears verbatim in a returned passage.
+
+`showcase-build`, `showcase-heldout` and `showcase-search` take `--search-quality` of `off`, `passage` or `on`. The build records that value in `showcase.json`. A search whose quality differs from the recorded one is refused. The Alice arm's tool text leaves out the echoed query. `showcase-search --budget N` allows 1 to 10 searches in that state folder, the default is 3, and the folder keeps the number it recorded. A failed search exits with the bench's search error code. A spent budget prints one line and exits with the bench's budget code. Any other refusal prints one line to stderr and exits nonzero.
+
 ## A 20 note run on a machine with Ollama
 
 `showcase-live` refuses an endpoint that is not loopback. Phase 0 does not run the mem0 arms, so the command stops after that check. Do not download a model for a test run. The mem0 search code stays in `scripts/showcase_bench.py`.

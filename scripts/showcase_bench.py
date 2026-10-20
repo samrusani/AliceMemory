@@ -20,6 +20,7 @@ import math
 import os
 from pathlib import Path
 import random
+import re
 import shutil
 from typing import Any
 from urllib.parse import urlsplit
@@ -578,8 +579,35 @@ def paired_sample_size(*, delta: float = 0.10, variance: float = 0.5) -> int:
     return math.ceil(PAIRED_Z * PAIRED_Z * variance / (delta * delta))
 
 
+_CITATION_TOKEN = re.compile(r"[0-9A-Za-z]+(?:[-'][0-9A-Za-z]+)*")
+
+
+def _cites_passage(answer: str, passage: str) -> bool:
+    """A word-aligned span of 8 or more characters from the passage appears in the answer."""
+
+    folded_answer = answer.casefold()
+    folded = passage.casefold()
+    tokens = list(_CITATION_TOKEN.finditer(folded))
+    for left in range(len(tokens)):
+        for right in range(left, len(tokens)):
+            start = tokens[left].start()
+            end = tokens[right].end()
+            if end - start < 8:
+                continue
+            snippet = folded[start:end]
+            found = folded_answer.find(snippet)
+            while found != -1:
+                after = found + len(snippet)
+                before_ok = found == 0 or not folded_answer[found - 1].isalnum()
+                after_ok = after == len(folded_answer) or not folded_answer[after].isalnum()
+                if before_ok and after_ok:
+                    return True
+                found = folded_answer.find(snippet, found + 1)
+    return False
+
+
 def cites_returned(answer: str, evidence: Sequence[Mapping[str, Any]]) -> bool:
-    """True when the answer quotes a returned id, or a returned passage of 8 characters or more."""
+    """True when the answer quotes a returned id, or a word-aligned span of a returned passage."""
 
     folded = answer.casefold()
     for item in evidence:
@@ -587,7 +615,7 @@ def cites_returned(answer: str, evidence: Sequence[Mapping[str, Any]]) -> bool:
         passage = str(item.get("passage") or "").strip()
         if identifier and identifier.casefold() in folded:
             return True
-        if len(passage) >= 8 and passage.casefold() in folded:
+        if passage and _cites_passage(answer, passage):
             return True
     return False
 
@@ -600,8 +628,13 @@ def answer_support(answer: str, evidence: Sequence[Mapping[str, Any]]) -> dict[s
 
 
 def _supported_complete(row: Mapping[str, Any]) -> bool:
-    """A correct answer that cites returned evidence. Missing evidence is empty, so it cites nothing."""
+    """A correct answer that cites returned evidence. An abstention needs no citation.
 
+    Missing evidence is empty, so a question that is not an abstention cites nothing.
+    """
+
+    if row.get("abstain") is True:
+        return bool(row.get("correct")) and not bool(row.get("leak"))
     if "evidence" not in row and "unsupported" in row:
         return bool(row.get("correct")) and not bool(row.get("unsupported"))
     evidence = row.get("evidence")
@@ -894,6 +927,16 @@ def notes_from_folder(corpus: Path) -> list[_FolderNote]:
     return notes
 
 
+def recorded_search_quality(value: str | None) -> str:
+    """``unset`` when the command leaves the quality alone. Otherwise off, passage or on."""
+
+    if value is None:
+        return "unset"
+    if value not in {"off", "passage", "on"}:
+        raise bench.BenchError("search quality must be off, passage, or on")
+    return value
+
+
 def _install_imported_corpus(
     prepared: Path,
     corpus: Path,
@@ -904,6 +947,7 @@ def _install_imported_corpus(
     local: str,
     extractor: str,
     embeddings: bool,
+    search_quality: str | None = None,
 ) -> dict[str, Any]:
     """Snapshot, import, team keys, capture report and the memory index."""
 
@@ -934,6 +978,7 @@ def _install_imported_corpus(
         "extractor": extractor,
         "teams": dict(TEAM_PROFILES),
         "capture": capture,
+        "search_quality": recorded_search_quality(search_quality),
     }
 
 
@@ -947,6 +992,7 @@ def build_company(
     endpoint: str = DEFAULT_OLLAMA_BASE,
     extractor: str = "fake",
     embeddings: bool = False,
+    search_quality: str | None = None,
 ) -> dict[str, Any]:
     """Import the company with each note's own labels and make one key per team."""
 
@@ -967,6 +1013,7 @@ def build_company(
         local=local,
         extractor=extractor,
         embeddings=embeddings,
+        search_quality=search_quality,
     )
     manifest = {
         "schema": SHOWCASE_SCHEMA,
@@ -988,6 +1035,7 @@ def build_heldout_folder(
     endpoint: str = DEFAULT_OLLAMA_BASE,
     extractor: str = "fake",
     embeddings: bool = False,
+    search_quality: str | None = None,
 ) -> dict[str, Any]:
     """Import a given notes folder. Nothing is generated."""
 
@@ -1011,6 +1059,7 @@ def build_heldout_folder(
         local=local,
         extractor=extractor,
         embeddings=embeddings,
+        search_quality=search_quality,
     )
     manifest = {"schema": SHOWCASE_SCHEMA, "corpus": "heldout", **installed}
     (prepared / "showcase.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
@@ -1248,7 +1297,22 @@ def load_showcase(run_dir: Path) -> dict[str, Any]:
     return json.loads((prepared / "showcase.json").read_text(encoding="utf-8"))
 
 
+def without_echoed_query(text: str) -> str:
+    """The tool JSON without its top-level query, so a probe does not treat the question as a hit."""
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    if not isinstance(payload, dict) or "query" not in payload:
+        return text
+    payload.pop("query")
+    return json.dumps(payload)
+
+
 def alice_search(run_dir: Path, *, team: str, query: str) -> str:
+    """Recall with the team key. The echoed query is removed from what the answering agent sees."""
+
     if team not in TEAM_PROFILES:
         raise bench.BenchError("unknown team")
     from alicebot_api.vnext_agent_control import _profile_sensitivity
@@ -1279,7 +1343,7 @@ def alice_search(run_dir: Path, *, team: str, query: str) -> str:
             _restore_environment(previous)
     if is_error:
         raise bench.BenchError("alice_recall returned an error: " + text[:200])
-    return text
+    return without_echoed_query(text)
 
 
 def _identity(db_path: Path, raw_key: str):
@@ -1669,6 +1733,7 @@ def add_showcase_commands(sub: argparse._SubParsersAction, commands: dict[str, A
     build.add_argument("--endpoint", default=DEFAULT_OLLAMA_BASE)
     build.add_argument("--embeddings", default="off", choices=("off", "on"))
     build.add_argument("--extractor", default="fake", choices=("fake", "mem0"))
+    build.add_argument("--search-quality", default=None, choices=("off", "passage", "on"))
 
     questions = sub.add_parser("showcase-questions", help="Write 15 questions per task for one size.")
     questions.add_argument("--size", type=int, required=True, choices=SIZES)
@@ -1684,6 +1749,8 @@ def add_showcase_commands(sub: argparse._SubParsersAction, commands: dict[str, A
     search.add_argument("--action", default="search")
     search.add_argument("--path", default="")
     search.add_argument("--state-dir", default=None)
+    search.add_argument("--search-quality", default=None, choices=("off", "passage", "on"))
+    search.add_argument("--budget", type=int, default=None)
 
     record = sub.add_parser(
         "showcase-record",
@@ -1726,6 +1793,7 @@ def add_showcase_commands(sub: argparse._SubParsersAction, commands: dict[str, A
     held.add_argument("--endpoint", default=DEFAULT_OLLAMA_BASE)
     held.add_argument("--embeddings", default="off", choices=("off", "on"))
     held.add_argument("--extractor", default="fake", choices=("fake", "mem0"))
+    held.add_argument("--search-quality", default=None, choices=("off", "passage", "on"))
 
     keyed = sub.add_parser(
         "showcase-keyed-permission",
@@ -1770,6 +1838,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
         endpoint=args.endpoint,
         extractor=args.extractor,
         embeddings=args.embeddings == "on",
+        search_quality=args.search_quality,
     )
     print(f"built {manifest['notes']} notes, chat model {manifest['models']['chat']}, extractor {manifest['extractor']}")
     capture = manifest.get("capture")
@@ -1785,18 +1854,58 @@ def _cmd_questions(args: argparse.Namespace) -> int:
     return bench.EXIT_OK
 
 
+def assert_search_quality(run_dir: Path, requested: str | None) -> None:
+    """Refuse a search whose quality is not the one this run recorded."""
+
+    manifest_path = run_dir / "showcase.json"
+    recorded = "unset"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if "search_quality" in manifest:
+            recorded = str(manifest["search_quality"])
+    asked = "unset" if requested is None else recorded_search_quality(requested)
+    if asked != recorded:
+        raise bench.BenchError(f"the search quality is {asked} and this run recorded {recorded}")
+
+
+def recorded_budget(state: Path, requested: int | None) -> int:
+    """The budget this state folder keeps. The first search records it. The default is 3."""
+
+    path = state / "budget"
+    recorded: int | None = None
+    if path.is_file():
+        text = path.read_text(encoding="utf-8").strip()
+        if not text.isdigit():
+            raise bench.BenchError("this state folder recorded a budget that is not a number")
+        recorded = int(text)
+    if requested is not None and (requested < 1 or requested > 10):
+        raise bench.BenchError("the search budget must be from 1 to 10")
+    if requested is None:
+        chosen = 3 if recorded is None else recorded
+    elif recorded is not None and requested != recorded:
+        raise bench.BenchError(f"this state folder recorded a budget of {recorded}")
+    else:
+        chosen = requested
+    if recorded is None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(chosen) + "\n", encoding="utf-8")
+    return chosen
+
+
 def _cmd_search(args: argparse.Namespace) -> int:
     if str(args.arm).startswith("mem0"):
         raise bench.BenchError("Phase 0 does not run the mem0 arms. They stay in the code and are not reported.")
     if args.arm == "none":
         none_search()
     run_dir = bench.require_run_dir(Path(args.run_dir))
+    assert_search_quality(run_dir, args.search_quality)
     state = bench.resolve_inside(
         run_dir,
         args.state_dir,
         default=run_dir / bench.STATE_DIRNAME / f"{args.arm}-{args.team}",
         what="--state-dir",
     )
+    budget = recorded_budget(state, args.budget)
     gates = bench.load_gates(None)
 
     def runner() -> bench.SearchResult:
@@ -1831,11 +1940,11 @@ def _cmd_search(args: argparse.Namespace) -> int:
         state,
         arm=args.arm,
         search_input=args.query or args.pattern or args.action,
-        budget=gates.searches_per_run,
+        budget=budget,
         runner=runner,
     )
     print(result.text)
-    return bench.EXIT_OK
+    return bench.EXIT_OK if result.status == "ok" else bench.EXIT_SEARCH_ERROR
 
 
 def recall_note_retrieved(snapshot: Path, question: Mapping[str, Any], tool_text: str) -> bool | None:
@@ -1947,6 +2056,7 @@ def _cmd_heldout(args: argparse.Namespace) -> int:
         endpoint=args.endpoint,
         extractor=args.extractor,
         embeddings=args.embeddings == "on",
+        search_quality=args.search_quality,
     )
     print(json.dumps(paths, sort_keys=True))
     capture = manifest.get("capture")
