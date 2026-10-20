@@ -757,6 +757,28 @@ def echo_of_arguments(arguments: object) -> dict[str, frozenset[str]]:
     return _ids_by_name(arguments)
 
 
+def _declared_inputs(dependant: Any) -> tuple[list[Any], list[Any]]:
+    """The query and the body parameters of a route and of every dependency it calls, each dependency read once.
+
+    Only the public fields of ``Dependant`` are read (``query_params``, ``body_params`` and ``dependencies``). Nothing is
+    imported from the dependency machinery of the framework, which moves between releases.
+    """
+
+    query: list[Any] = []
+    body: list[Any] = []
+    seen: set[int] = set()
+    pending = [dependant]
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        query.extend(getattr(current, "query_params", None) or ())
+        body.extend(getattr(current, "body_params", None) or ())
+        pending.extend(getattr(current, "dependencies", None) or ())
+    return query, body
+
+
 def echo_of_request(request: Any, named_body: bytes = b"") -> dict[str, frozenset[str]]:
     """What a request supplied through the inputs its route declares, by the name of the input.
 
@@ -771,9 +793,7 @@ def echo_of_request(request: Any, named_body: bytes = b"") -> dict[str, frozense
     dependant = getattr(scope.get("route"), "dependant", None)
     if dependant is None:
         return {}
-    from fastapi.dependencies.utils import get_flat_dependant
-
-    flat = get_flat_dependant(dependant)
+    query_parameters, body_parameters = _declared_inputs(dependant)
     supplied: dict[str, set[str]] = {}
 
     def add(name: object, value: object) -> None:
@@ -787,11 +807,11 @@ def echo_of_request(request: Any, named_body: bytes = b"") -> dict[str, frozense
         add("id", str(value))
     query = getattr(request, "query_params", None)
     if query is not None:
-        for parameter in flat.query_params:
+        for parameter in query_parameters:
             for value in query.getlist(parameter.alias):
                 add(parameter.alias, value)
     declared: set[str] = set()
-    for parameter in flat.body_params:
+    for parameter in body_parameters:
         fields = getattr(parameter.field_info.annotation, "model_fields", None)
         if isinstance(fields, Mapping):
             declared.update(field.alias or name for name, field in fields.items())

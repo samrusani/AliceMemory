@@ -21,6 +21,8 @@ Mutations that these tests fail, each one alone:
   not read it: ``test_the_validation_error_of_a_request_repeats_its_input_for_a_hidden_id_and_for_a_missing_id`` and
   ``test_the_flag_is_set_where_the_error_of_the_request_is_rendered_and_nowhere_else``.
 * The flag is set for every 422: ``test_a_422_that_a_route_builds_from_stored_data_is_filtered_like_any_other_answer``.
+* ``_declared_inputs`` reads the parameters of the route and not those of its dependencies:
+  ``test_the_inputs_of_the_dependencies_of_a_route_are_inputs_of_the_route``.
 """
 
 from __future__ import annotations
@@ -968,6 +970,61 @@ def test_a_commit_that_names_a_hidden_id_and_one_that_names_a_missing_id_have_on
         assert status == 200
     assert json.dumps(shown["hidden"]).replace(HIDDEN, "<ID>") == json.dumps(shown["missing"]).replace(MISSING, "<ID>")
     assert HIDDEN in json.dumps(shown["hidden"]) and MISSING in json.dumps(shown["missing"])
+
+
+def test_the_inputs_of_the_dependencies_of_a_route_are_inputs_of_the_route() -> None:
+    """A route reads some of its inputs through functions it depends on. Those inputs are declared by the route too, each
+    function is read once however often the route names it, and a parameter that nothing declares supplies nothing.
+
+    The route is read through the public fields of its ``Dependant`` only (see ``test_framework_public_surface.py``).
+
+    Mutation: ``_declared_inputs`` reads the parameters of the route and not those of its dependencies.
+    """
+
+    from fastapi import Depends, FastAPI
+    from starlette.requests import Request
+
+    app = FastAPI()
+
+    def shared(artifact_id: str | None = None) -> str | None:
+        return artifact_id
+
+    def nested(inner: str | None = Depends(shared), other: str | None = None) -> str | None:
+        return other
+
+    @app.get("/v0/vnext/things/{target_id}")
+    def get_thing(
+        target_id: str,
+        first: str | None = Depends(nested),
+        second: str | None = Depends(shared),
+        limit: int = 10,
+    ) -> dict:
+        return {}
+
+    @app.post("/v0/vnext/things")
+    def post_thing(thing: Thing, artifact: str | None = Depends(shared)) -> dict:
+        return {}
+
+    def routed(path: str, query: bytes, **path_params: str) -> Request:
+        route = next(item for item in app.router.routes if getattr(item, "path", None) == path)
+        return Request(
+            {"type": "http", "method": "GET", "path": path, "headers": [], "query_string": query, "route": route,
+             "path_params": path_params}
+        )
+
+    query = f"artifact_id={HIDDEN}&other={VISIBLE}&probe={MISSING}&limit=2".encode()
+    assert echo_of_request(routed("/v0/vnext/things/{target_id}", query, target_id=SOURCE)) == {
+        "target_id": frozenset({SOURCE}),
+        "id": frozenset({SOURCE}),
+        "artifact_id": frozenset({HIDDEN}),
+        "other": frozenset({VISIBLE}),
+    }
+    body = json.dumps({"user_id": str(USER), "source_refs": [f"memory:{HIDDEN}"], "probe": MISSING}).encode()
+    assert echo_of_request(routed("/v0/vnext/things", query), body) == {
+        "artifact_id": frozenset({HIDDEN}),
+        "source_refs": frozenset({HIDDEN}),
+        "user_id": frozenset({str(USER)}),
+    }
 
 
 # -- the answer to a refused request is the caller's own input -------------------------------------------------------------

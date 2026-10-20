@@ -19587,7 +19587,7 @@
           "line": 706,
           "before": "    if not hidden and readable is None:\n        return value\n    return _Walk(_Judge(hidden, readable), echo).value(value, None, 0)\n",
           "after": "    if True:\n        return value\n    return _Walk(_Judge(hidden, readable), echo).value(value, None, 0)\n",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19603,14 +19603,14 @@
           "line": 268,
           "before": "        canonical = identifier(match.group())\n        if _CANONICAL.fullmatch(canonical) is not None:\n            found.append(canonical)",
           "after": "        canonical = match.group()\n        if _CANONICAL.fullmatch(canonical) is not None:\n            found.append(canonical)",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
           "line": 202,
           "before": "    canonical = identifier(core.lower())\n    if _CANONICAL.fullmatch(canonical) is None:",
           "after": "    canonical = core\n    if _CANONICAL.fullmatch(canonical) is None:",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19626,14 +19626,14 @@
           "line": 268,
           "before": "        canonical = identifier(match.group())\n        if _CANONICAL.fullmatch(canonical) is not None:\n            found.append(canonical)",
           "after": "        canonical = identifier(match.group())\n        if _CANONICAL.fullmatch(match.group()) is not None:\n            found.append(canonical)",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
           "line": 202,
           "before": "    canonical = identifier(core.lower())\n    if _CANONICAL.fullmatch(canonical) is None:",
           "after": "    canonical = identifier(core.lower())\n    if _CANONICAL.fullmatch(core) is None:",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19649,7 +19649,7 @@
           "line": 423,
           "before": "        if typed and self.readable is not None:\n            return canonical not in self.readable\n",
           "after": "        if False:\n            return canonical not in self.readable\n",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19665,7 +19665,7 @@
           "line": 622,
           "before": "        if shortened:\n            _fix_counts(output, shortened)\n",
           "after": "        if shortened:\n            pass\n",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19678,10 +19678,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
-          "line": 847,
+          "line": 867,
           "before": "user_id = getattr(state, \"vnext_authenticated_user_id\", None)",
           "after": "user_id = getattr(request, \"query_params\", {}).get(\"user_id\")",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19697,7 +19697,7 @@
           "line": 738,
           "before": "    candidates = judged_ids(payload, echo)\n    if not candidates:\n        return payload\n",
           "after": "    candidates = judged_ids(payload, echo)\n    if False:\n        return payload\n",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19742,10 +19742,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
-          "line": 847,
+          "line": 867,
           "before": "user_id = getattr(state, \"vnext_authenticated_user_id\", None)",
           "after": "user_id = getattr(request, \"query_params\", {}).get(\"user_id\")",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19761,7 +19761,7 @@
           "line": 518,
           "before": "            if named is not None and self.withheld(named[0], True):\n                return None\n",
           "after": "            pass\n",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19777,7 +19777,7 @@
           "line": 520,
           "before": "if refs and field not in _TEXT_KEYS and text[:1] in \"{[\"",
           "after": "if False and refs and field not in _TEXT_KEYS and text[:1] in \"{[\"",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19793,7 +19793,7 @@
           "line": 257,
           "before": "    lowered = _product_key(field)\n    return lowered is not None and lowered not in _TEXT_KEYS",
           "after": "    return True",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19841,7 +19841,7 @@
           "line": 482,
           "before": "        if honour_echo and canonical in self.scope:",
           "after": "        if honour_echo and any(canonical in ids for ids in self.inputs.values()):",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19854,10 +19854,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
-          "line": 790,
-          "before": "        for parameter in flat.query_params:\n            for value in query.getlist(parameter.alias):\n                add(parameter.alias, value)",
+          "line": 810,
+          "before": "        for parameter in query_parameters:\n            for value in query.getlist(parameter.alias):\n                add(parameter.alias, value)",
           "after": "        for name in set(query.keys()):\n            for value in query.getlist(name):\n                add(name, value)",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19870,10 +19870,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
-          "line": 806,
+          "line": 826,
           "before": "            for name in declared & {key for key in body if isinstance(key, str)}:",
           "after": "            for name in {key for key in body if isinstance(key, str)}:",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19889,7 +19889,7 @@
           "line": 556,
           "before": "        if not self.scope:\n            # A list outside the scope of an input is a list of rows. No key inside it repeats an input.\n            self.may_open = False\n",
           "after": "",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19905,7 +19905,7 @@
           "line": 180,
           "before": "        lead = _LEADING_KIND.match(text, position)\n        if lead is None:\n            return position\n        position = lead.end()\n",
           "after": "        lead = _LEADING_KIND.match(text[position:])\n        if lead is None:\n            return position\n        position += lead.end()\n",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19921,7 +19921,7 @@
           "line": 235,
           "before": "    while True:\n        for prefix in _PRINTED_PREFIXES:\n            size = len(prefix)\n            if start >= size and text[start - size : start].lower() == prefix:\n                start -= size\n                break\n        else:\n            return start, end\n",
           "after": "    tail = re.compile(r\"(?i:(?:alice://(?:memories|sources)/|open_loop:|artifact:|urn:uuid:|memory:|source:|uuid:)*)\\Z\").search(text[:start])\n    return (tail.start() if tail else start), end\n",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19937,7 +19937,7 @@
           "line": 524,
           "before": "            except (ValueError, RecursionError):\n                # Not JSON",
           "after": "            except ValueError:\n                # Not JSON",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19953,7 +19953,7 @@
           "line": 482,
           "before": "        if honour_echo and canonical in self.scope:",
           "after": "        if honour_echo and any(canonical in ids for ids in self.inputs.values()):",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19969,14 +19969,14 @@
           "line": 482,
           "before": "        if honour_echo and canonical in self.scope:",
           "after": "        if honour_echo and any(canonical in ids for ids in self.inputs.values()):",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
-          "line": 790,
-          "before": "        for parameter in flat.query_params:\n            for value in query.getlist(parameter.alias):\n                add(parameter.alias, value)",
+          "line": 810,
+          "before": "        for parameter in query_parameters:\n            for value in query.getlist(parameter.alias):\n                add(parameter.alias, value)",
           "after": "        for name in set(query.keys()):\n            for value in query.getlist(name):\n                add(name, value)",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -19989,10 +19989,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
-          "line": 786,
+          "line": 806,
           "before": "        # The URL names the row, so the object that describes it repeats the id as its own ``id``.\n        add(\"id\", str(value))\n",
           "after": "",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -20037,10 +20037,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
-          "line": 835,
+          "line": 855,
           "before": "    if request_validation_echoes(request):\n        # The validation error of this request repeats what the caller sent, whatever it held.\n        return None\n",
           "after": "",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -20053,10 +20053,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
-          "line": 835,
+          "line": 855,
           "before": "    if request_validation_echoes(request):\n        # The validation error of this request repeats what the caller sent, whatever it held.\n        return None\n",
           "after": "",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -20104,7 +20104,7 @@
           "line": 423,
           "before": "        if typed and self.readable is not None:\n            return canonical not in self.readable\n",
           "after": "        if False:\n            return canonical not in self.readable\n",
-          "sha256": "2467363174ddc046f669ac0db565262692046517182c543b6b7cf6496e2f6de9"
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
         }
       ],
       "pytest": [
@@ -20127,6 +20127,38 @@
         "tests/unit/test_hidden_id_withholding.py::test_the_only_validation_error_a_route_raises_by_itself_holds_the_path_the_caller_sent"
       ],
       "expected_failure": "test_the_only_validation_error_a_route_raises_by_itself_holds_the_path_the_caller_sent"
+    },
+    {
+      "name": "hidden-ids-private-framework-import-put-back",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
+          "line": 796,
+          "before": "    query_parameters, body_parameters = _declared_inputs(dependant)\n",
+          "after": "    from fastapi.dependencies.utils import get_flat_dependant\n\n    query_parameters, body_parameters = _declared_inputs(dependant)\n",
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_framework_public_surface.py::test_the_package_imports_nothing_private_from_the_frameworks"
+      ],
+      "expected_failure": "test_the_package_imports_nothing_private_from_the_frameworks"
+    },
+    {
+      "name": "hidden-ids-dependencies-of-a-route-not-read",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
+          "line": 778,
+          "before": "        pending.extend(getattr(current, \"dependencies\", None) or ())\n",
+          "after": "",
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_id_withholding.py::test_the_inputs_of_the_dependencies_of_a_route_are_inputs_of_the_route"
+      ],
+      "expected_failure": "test_the_inputs_of_the_dependencies_of_a_route_are_inputs_of_the_route"
     }
   ]
 }
