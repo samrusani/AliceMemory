@@ -80,6 +80,25 @@ publication committed but a post-commit condition or reporting step failed.
 The records are present: inspect stderr and the target path, and do not
 blindly retry.
 
+Unreleased (on main, not in v0.20.2): a restore builds its staged database in a
+working copy named `.<vault file>.restore.<random>.tmp` in the vault's data
+directory, with `-wal` and `-shm` files beside it, and removes the copy when it
+ends. Killing the import (SIGKILL, a power loss) can leave the copy, and it holds
+the imported rows, confidential ones included. The next `alice-memory import`
+into that vault removes it, and so does the next open of an existing vault, for
+example `doctor` or the MCP server. v0.20.2 removes it at neither. A restore
+holds a shared lock on the vault's data directory from before it makes its copy
+until it has removed it. The removal takes that lock without waiting, so it
+removes nothing while any restore runs in that directory, and leaves the copy for
+the next open or import. The lock is on the directory and not on a file, so
+deleting a file cannot release it, and a killed restore loses the lock with the
+process. On a vault that was never created, cleanup happens at the next import
+into that path. `labels check` and the `sources` commands stop with
+`vault_not_found` before they open anything, so they leave the copy of a killed
+first import in place, and a search of the data directory for a string finds it
+there. A command that creates the empty vault, such as `doctor`, removes it when
+it opens the new file.
+
 From v0.20.2, the per-project scoping switch that
 `alice-memory project scoping on|off` sets is saved in the vault's
 `alice_schema_state` table, which an export does not carry. Each change also
