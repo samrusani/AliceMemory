@@ -227,8 +227,9 @@ def test_sqlite_resume_stays_within_the_budget_of_the_baseline_with_many_hidden_
 def test_ten_thousand_hidden_nearest_vector_rows_stay_within_the_merge_base_gate() -> None:
     """The vector refill judges 128 of 10,000 hidden nearest rows and stays inside the merge-base gate.
 
-    The merge base takes the nearest page and drops it, so this vault returns nothing. The head reads the cap once.
-    Both are timed on the same rows. A head that walked all 10,000 would miss the gate and would not return the cap
+    The head reads the cap once and returns nothing, since every row is hidden. A merge base from before the refill
+    took the nearest page and dropped it; a merge base that already has the refill reads the cap too. Either way both
+    are timed on the same rows. A head that walked all 10,000 would miss the gate and would not return the cap
     as its only limit.
 
     This does not measure the label walk. The rows carry plain labels (a domain and a sensitivity of their own, no input)
@@ -254,9 +255,11 @@ def test_ten_thousand_hidden_nearest_vector_rows_stay_within_the_merge_base_gate
         return json.loads(completed.stdout)
 
     head, base_row = measure(str(repo)), measure(base)
-    assert head["refill"] is True and base_row["refill"] is False
+    assert head["refill"] is True
     assert head["limits"] == [READABLE_SCAN_CAP] * 10
-    assert base_row["limits"] == [4] * 10
+    # The merge base is whatever main was when this branch forked: before the refill it judged the four rows it
+    # asked for, after it the cap. The head's numbers above are what this test pins; the base is the yardstick.
+    assert base_row["limits"] == ([READABLE_SCAN_CAP] * 10 if base_row["refill"] else [4] * 10)
     assert head["ids"] == []
     assert base_row["ids"] == []
     assert not over_merge_base(head["wall"], base_row["wall"]), (head, base_row)
