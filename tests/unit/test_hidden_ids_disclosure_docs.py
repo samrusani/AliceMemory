@@ -150,18 +150,11 @@ def test_the_security_note_says_the_open_loop_route_holds_the_project_to_the_bin
 
 
 def test_the_security_note_states_the_vector_stage_limit() -> None:
-    paragraph = _paragraph(
-        _text("docs/release/derived-labels-security-note-draft.md"),
-        f"{MARK} the vector stage of recall and of the context pack, and the temporal-anchor stage of the context pack, took the nearest rows",
-    )
-    assert "They now refill after that drop." in paragraph
-    assert "read once, at 128 rows, and given the first rows it may read" in paragraph
-    assert "The context tree, the workspace lists and `GET /v0/vnext/projects` fill their pages the same way." in paragraph
-    assert "the answer and the trace are the same as the same vault without them" in paragraph
+    paragraph = _paragraph(_text("docs/release/derived-labels-security-note-draft.md"), VECTOR)
+    assert "a restricted caller can get fewer results than exist, down to none" in paragraph
     assert "Nothing the caller may not read is shown." in paragraph
     assert "The full-text stage does refill until its limit is met." in paragraph
-    assert "v0.20.2 did not refill these stages." in paragraph
-    assert "tracked for v0.21.0" not in paragraph
+    assert "tracked for v0.21.0" in paragraph
 
 
 def test_the_security_note_says_the_event_feeds_follow_the_rows_they_name() -> None:
@@ -220,6 +213,7 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
     assert "(see the [security note](../release/derived-labels-security-note-draft.md))" in kept
     vector = _paragraph(page, "- Unreleased (on main, not in v0.20.2): the vector stage of recall and of the context pack, and the time stage of the context pack, refill after hiding rows")
     assert "judged at most 128 rows of each list" in vector
+    assert "so a page is short when the hidden rows in front of it number more than 128 minus the rows the list is asked for (118 for `alice_recall` at limit 5)" in vector
     assert "the owner and an unbound admin key are unchanged" in vector
     assert "v0.20.2 did not refill these pages" in vector
 

@@ -230,6 +230,11 @@ def test_ten_thousand_hidden_nearest_vector_rows_stay_within_the_merge_base_gate
     The merge base takes the nearest page and drops it, so this vault returns nothing. The head reads the cap once.
     Both are timed on the same rows. A head that walked all 10,000 would miss the gate and would not return the cap
     as its only limit.
+
+    This does not measure the label walk. The rows carry plain labels (a domain and a sensitivity of their own, no input)
+    and the store is a stub, so judging a row is a short check. A row below a chain of memories costs more to judge, and up to
+    128 rows are judged where four were, so the time of a read with hidden rows below deep chains is not what this test
+    bounds.
     """
 
     import json

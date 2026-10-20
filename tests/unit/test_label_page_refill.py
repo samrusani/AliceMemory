@@ -14,6 +14,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
+
 from alicebot_api.project_view import page_after_label_drop
 from alicebot_api.vnext_context_tree import ContextTreeRequest, VNextContextTreeService
 from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
@@ -84,6 +86,30 @@ def test_a_page_at_the_cap_is_not_widened() -> None:
     page = page_after_label_drop(want=READABLE_SCAN_CAP, fetch=rank.fetch, keep=_keep, refill=True)
     assert page == []
     assert rank.limits == [READABLE_SCAN_CAP]
+
+
+@pytest.mark.parametrize("want", [1, 4, 10, READABLE_SCAN_CAP - 1])
+def test_the_page_is_full_up_to_the_cap_minus_the_rows_asked_for_and_one_short_from_there(want: int) -> None:
+    """The window is ``READABLE_SCAN_CAP`` rows, so the hidden rows in front of the page may number the cap minus ``want``.
+    With that many the page is the page of the vault without them. With one more the window holds one readable row fewer than
+    ``want``, and the page is one row short, with the rows it has unchanged.
+
+    Mutation: replace ``window = cap if refill and want < cap else want`` in ``page_after_label_drop`` with
+    ``window = cap + 1 if refill and want < cap else want`` (the first row outside the window is read, and the short page
+    is full), or with ``window = cap - 1 if refill and want < cap else want`` (the last row inside the window is not read,
+    and the page at the edge is short).
+    """
+
+    visible = [_row(f"visible-{index}", hidden=False) for index in range(want + 2)]
+    clean = [row["id"] for row in page_after_label_drop(want=want, fetch=_Rank(visible).fetch, keep=_keep, refill=True)]
+    assert clean == [f"visible-{index}" for index in range(want)]
+    inside = READABLE_SCAN_CAP - want
+    edge = _Rank([*[_row(f"hidden-{index}", hidden=True) for index in range(inside)], *visible])
+    assert [row["id"] for row in page_after_label_drop(want=want, fetch=edge.fetch, keep=_keep, refill=True)] == clean
+    assert edge.limits == [READABLE_SCAN_CAP]
+    past = _Rank([*[_row(f"hidden-{index}", hidden=True) for index in range(inside + 1)], *visible])
+    assert [row["id"] for row in page_after_label_drop(want=want, fetch=past.fetch, keep=_keep, refill=True)] == clean[:-1]
+    assert past.limits == [READABLE_SCAN_CAP]
 
 
 class _VectorStore:

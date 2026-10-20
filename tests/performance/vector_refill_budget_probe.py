@@ -3,6 +3,9 @@
 The checkout is put on the path before Alice is imported, so this file can time the merge base and the head with the
 same rows. It prints one JSON object: the minimum wall and CPU seconds of ten calls, the ids returned, and the limits
 the store was asked for.
+
+The rows carry plain labels and the store is a stub, so the numbers do not include the label walk of a row that has
+inputs.
 """
 
 import inspect
