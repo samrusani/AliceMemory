@@ -2,8 +2,8 @@
 
 ``publish-pypi.yml`` reruns ``pytest tests/unit`` in one process, from the tag,
 before it builds anything. CI runs the same suite split into shards, each under
-its own ``timeout-minutes``, and the split grew from one job to three and then
-four as the suite grew. The publish job kept a 35 minute limit. v0.20.1 was
+its own ``timeout-minutes``, and the split grew from one job to three, then
+four and then five as the suite grew. The publish job kept a 35 minute limit. v0.20.1 was
 tagged, its publish run stopped at that limit with the suite 84% done and every
 test passing so far, and nothing was built. The workflow runs from the tag, so
 that commit can never publish and the number is burned.
@@ -19,7 +19,7 @@ Mutations that must fail this file, each alone:
 
 * set ``timeout-minutes`` of the ``build-and-verify`` job in
   ``publish-pypi.yml`` back to 35;
-* add a fifth and a sixth entry to the shard matrix in ``tests.yml``, or raise
+* add a sixth entry to the shard matrix in ``tests.yml``, or raise
   the shard job's ``timeout-minutes`` to 30;
 * remove the ``pytest tests/unit`` rerun from ``publish-pypi.yml``;
 * rename the shard matrix key ``shard`` or drop the shard job's
