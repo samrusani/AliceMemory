@@ -459,16 +459,21 @@ def test_the_dashboard_and_the_source_trace_withhold_the_quote(label_harness):
             }
         )
         stored_id = str(stored["id"])
+    from tests.support.legacy_source_refs import link_strings, plant_legacy_source_refs
+
+    refs = (source_id, {"memory_id": cited_id, "quote": quote})
+    sent = link_strings(refs)
     with harness.store() as store:
         asked = VNextMemoryCommitService(store, defer_embeddings=True).commit(
             identity=None,
             request=MemoryCommitRequest(
                 user_id=str(harness.user_id), title="Atlas confirmed follow up", canonical_text="Atlas confirmed follow up on the games note",
                 memory_type="semantic", domain="project", sensitivity="public", confidence=0.6,
-                source_refs=(source_id, {"memory_id": cited_id, "quote": quote}), conversation_excerpt=excerpt, project_scope=(project_id,),
+                source_refs=tuple(sent), conversation_excerpt=excerpt, project_scope=(project_id,),
             ),
         )
-    assert asked["status"] == "confirmation_required", str(asked)[:300]
+        assert asked["status"] == "confirmation_required", str(asked)[:300]
+        plant_legacy_source_refs(store, str(asked["memory"]["id"]), refs, sent)
     with harness.store() as store:
         VNextMemoryCommitService(store, defer_embeddings=True).confirm(
             identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm"
@@ -626,10 +631,13 @@ def test_every_spelling_of_a_memory_ref_is_withheld_at_the_audit_the_recent_comm
     def quote_of(name: str) -> str:
         return f"Atlas played {sentinel} for 115 hours ({name})"
 
+    from tests.support.legacy_source_refs import link_strings, needs_legacy_plant, plant_legacy_source_refs
+
     for name, (refs, saves_excerpt) in _spellings(cited_id, quote_of, vault.ids["source_shown"]).items():
+        sent = link_strings(refs) if needs_legacy_plant(refs) else list(refs)
         payload = {
             "title": f"Follow up {name}", "canonical_text": f"Follow up on the games note {name}", "memory_type": "fact",
-            "domain": "project", "sensitivity": "public", "confidence": 0.99, "source_type": "agent", "source_refs": refs,
+            "domain": "project", "sensitivity": "public", "confidence": 0.99, "source_type": "agent", "source_refs": sent,
         }
         if saves_excerpt:
             payload["conversation_excerpt"] = (
@@ -637,6 +645,9 @@ def test_every_spelling_of_a_memory_ref_is_withheld_at_the_audit_the_recent_comm
             )
         status, body = vault.admin_request("POST", "/v0/vnext/memories/commit", payload)
         assert status in {200, 201}, (name, status, str(body)[:300])
+        if needs_legacy_plant(refs):
+            with harness.store() as store:
+                plant_legacy_source_refs(store, str(body["memory"]["id"]), refs, sent)
         commits[name] = str(body["memory"]["id"])
 
     def read(key, memory_id):

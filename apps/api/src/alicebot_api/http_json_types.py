@@ -19,9 +19,11 @@ from pydantic import AfterValidator
 from pydantic_core import PydanticCustomError
 
 from alicebot_api.json_bounds import MAX_STORED_JSON_DEPTH, NOT_FINITE, TOO_DEEP, first_json_problem
+from alicebot_api.vnext_source_fence import is_json_text_ref
 
 TOO_DEEP_ERROR_TYPE = "json_too_deep"
 NOT_FINITE_ERROR_TYPE = "finite_number"
+JSON_TEXT_REF_ERROR_TYPE = "source_ref_json_text"
 
 
 def bounded_json(value: object) -> object:
@@ -39,6 +41,25 @@ def bounded_json(value: object) -> object:
     return value
 
 
+def source_ref_text(value: str) -> str:
+    """Return a ``source_refs`` entry that is not the text of a JSON object or array, else raise the validation error.
+
+    An object entry is refused by the string type (HTTP 422), so JSON text, which is the same object in disguise, is refused
+    with the same status and at the same place in the body. A blank entry is not refused here: the service every route calls
+    answers it with HTTP 400, as it always has.
+    """
+
+    if is_json_text_ref(value):
+        raise PydanticCustomError(
+            JSON_TEXT_REF_ERROR_TYPE,
+            "Input should be a reference or a label, not the text of a JSON object or array",
+        )
+    return value
+
+
+# One entry of the ``source_refs`` of a memory commit, a memory proposal or an agent output ingest.
+SourceRefText = Annotated[str, AfterValidator(source_ref_text)]
+
 BoundedJsonObject = Annotated[dict[str, object], AfterValidator(bounded_json)]
 BoundedJsonList = Annotated[list[object], AfterValidator(bounded_json)]
 BoundedJsonObjectList = Annotated[list[dict[str, object]], AfterValidator(bounded_json)]
@@ -52,5 +73,7 @@ __all__ = [
     "BoundedJsonObject",
     "BoundedJsonObjectList",
     "BoundedJsonValue",
+    "SourceRefText",
     "bounded_json",
+    "source_ref_text",
 ]

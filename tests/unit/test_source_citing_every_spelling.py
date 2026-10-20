@@ -47,7 +47,7 @@ from alicebot_api.mcp import memories as mcp_memories
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
-from alicebot_api.vnext_source_fence import cited_source_ids
+from alicebot_api.vnext_source_fence import cited_source_ids, is_producer_source_ref
 from alicebot_api.vnext_stores.sqlite import source_retirement
 from alicebot_api.vnext_stores.sqlite.source_retirement import (
     _Probes, _citation_hits, _in_ascii_digits, _memories_by_id, citing_memories, citing_memories_by_source,
@@ -123,12 +123,13 @@ def seeded(tmp_path):
 
 
 def propose(db, monkeypatch, ref, *, text=TEXT):
-    """A proposal through the real MCP door, as the probe made it. A ref that is not text cannot go through that door (it
-    takes a list of strings), so it is written as the same row the door writes."""
+    """A proposal through the real MCP door, as the probe made it. A ref the door refuses (one that is not text, and JSON
+    text, which main refuses as the object it decodes to) cannot go through it, so it is written as the row an earlier
+    release stored."""
 
     with sqlite_user_connection(db, USER_ID) as conn:
         store = SQLiteVNextStore(conn, USER_ID)
-        if not isinstance(ref, str):
+        if not is_producer_source_ref(ref):
             return plant(store, [ref], text=text)
 
         @contextmanager

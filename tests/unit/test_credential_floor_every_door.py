@@ -773,17 +773,27 @@ def test_a_rollup_key_over_an_opaque_value_is_refused_in_a_continuity_body() -> 
 
 
 def test_proposal_source_refs_refuse_a_rollup_key_over_an_opaque_value() -> None:
-    from alicebot_api.vnext_memory_propose import MemoryProposal, MemoryProposalRefused, refuse_proposal_credentials
+    from alicebot_api.vnext_memory_propose import MemoryProposal, MemoryProposalInvalid, MemoryProposalRefused
 
     opaque = _opaque_rollup_body()["rollup_key"]
+    with pytest.raises(MemoryProposalInvalid, match="source_refs entries must be strings"):
+        MemoryProposal(
+            proposal_type="candidate_memory",
+            title="Deploy cadence",
+            canonical_text="The team deploys on Thursdays.",
+            memory_type="fact",
+            source_refs=({"source_id": "note-1", "rollup_key": opaque},),
+        )
     proposal = MemoryProposal(
         proposal_type="candidate_memory",
         title="Deploy cadence",
         canonical_text="The team deploys on Thursdays.",
         memory_type="fact",
-        source_refs=({"source_id": "note-1", "rollup_key": opaque},),
+        source_refs=(f"note-1 rollup_key={opaque}",),
     )
     with pytest.raises(MemoryProposalRefused, match="credential material"):
+        from alicebot_api.vnext_memory_propose import refuse_proposal_credentials
+
         refuse_proposal_credentials(proposal)
 
 
@@ -1281,9 +1291,13 @@ def test_door7_commit_source_refs_are_bounded_at_the_service() -> None:
     base = {"title": "deploy", "canonical_text": "Deploys go out on Tuesdays."}
     memory_commit_request_from_payload({**base, "source_refs": ["ref"] * MAX_COMMIT_SOURCE_REFS}, user_id=USER_ID)
     memory_commit_request_from_payload({**base, "source_refs": ["x" * MAX_COMMIT_SOURCE_REF_CHARS]}, user_id=USER_ID)
-    for heavy in ('"' * MAX_COMMIT_SOURCE_REF_CHARS, "\n" * MAX_COMMIT_SOURCE_REF_CHARS, '"\n' * 2_000):
+    for heavy in ('"' * MAX_COMMIT_SOURCE_REF_CHARS, '"\n' * 2_000):
         assert len(heavy) == MAX_COMMIT_SOURCE_REF_CHARS
         memory_commit_request_from_payload({**base, "source_refs": [heavy]}, user_id=USER_ID)
+    blank = "\n" * MAX_COMMIT_SOURCE_REF_CHARS
+    assert len(blank) == MAX_COMMIT_SOURCE_REF_CHARS
+    with pytest.raises(VNextMemoryCommitValidationError, match="source_refs entries must be strings"):
+        memory_commit_request_from_payload({**base, "source_refs": [blank]}, user_id=USER_ID)
     with pytest.raises(VNextMemoryCommitValidationError, match="at most 64"):
         memory_commit_request_from_payload(
             {**base, "source_refs": ["ref"] * (MAX_COMMIT_SOURCE_REFS + 1)}, user_id=USER_ID
@@ -1292,8 +1306,8 @@ def test_door7_commit_source_refs_are_bounded_at_the_service() -> None:
         memory_commit_request_from_payload(
             {**base, "source_refs": ["x" * (MAX_COMMIT_SOURCE_REF_CHARS + 1)]}, user_id=USER_ID
         )
-    # A non-string ref is measured by its serialized length.
-    with pytest.raises(VNextMemoryCommitValidationError, match="at most 4000"):
+    # An object entry is refused as a shape. v0.20.2 measured it by its serialized length.
+    with pytest.raises(VNextMemoryCommitValidationError, match="source_refs entries must be strings"):
         memory_commit_request_from_payload(
             {**base, "source_refs": [{"nested": ["x" * MAX_COMMIT_SOURCE_REF_CHARS]}]}, user_id=USER_ID
         )

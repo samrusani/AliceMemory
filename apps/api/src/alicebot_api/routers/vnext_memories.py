@@ -28,6 +28,7 @@ from alicebot_api.credential_floor import (
     withhold_credential_text,
 )
 from alicebot_api.db import user_connection
+from alicebot_api.http_json_types import SourceRefText
 from alicebot_api.mcp_tools import redact_memory_flow
 from alicebot_api.public_errors import public_exception_response
 from alicebot_api.routers._vnext_embeddings import (
@@ -92,7 +93,12 @@ from alicebot_api.vnext_memory_commit import (
     load_promotion_settings,
     memory_commit_request_from_payload,
 )
-from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence, SourceRefNotFoundError
+from alicebot_api.vnext_source_fence import (
+    SOURCE_REF_SHAPE_MESSAGE,
+    SavedProvenanceReader,
+    SourceReadFence,
+    SourceRefNotFoundError,
+)
 from alicebot_api.vnext_promotion_policy import PromotionCandidate
 from alicebot_api.vnext_project_update_guard import (
     PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
@@ -212,7 +218,7 @@ class VNextAgentOutputIngestRequest(VNextAgentRequest):
     output_type: str = Field(default="general", min_length=1, max_length=80)
     domain: VNextDomain = "project"
     sensitivity: VNextSensitivity = "private"
-    source_refs: list[object] = Field(default_factory=list)
+    source_refs: list[SourceRefText] = Field(default_factory=list)
     rationale: str | None = Field(default=None, min_length=1, max_length=4000)
     propose_memory: bool = False
 
@@ -234,7 +240,7 @@ class VNextMemoryProposalRequest(VNextAgentRequest):
     proposal_type: str = Field(default="candidate_memory", min_length=1, max_length=80)
     title: str = Field(min_length=1, max_length=280)
     canonical_text: str = Field(min_length=1, max_length=20_000)
-    source_refs: list[object] = Field(default_factory=list)
+    source_refs: list[SourceRefText] = Field(default_factory=list)
     domain: VNextDomain = "unknown"
     sensitivity: VNextSensitivity = "unknown"
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -253,9 +259,10 @@ class VNextMemoryCommitRequest(VNextAgentRequest):
     confidence: float = Field(default=0.9, ge=0.0, le=1.0)
     source_type: str = Field(default="direct_user_instruction", min_length=1, max_length=120)
     # The count is advertised here from the service constant; the per-ref
-    # length is enforced by the service every surface calls, which answers
-    # 400 (owner ruling R4). list[object] cannot express a per-item rule.
-    source_refs: list[object] = Field(default_factory=list, max_length=MAX_COMMIT_SOURCE_REFS)
+    # length and a blank entry are enforced by the service every surface
+    # calls, which answers 400 (owner ruling R4). An entry that is not a
+    # string, or is the text of a JSON object or array, is a 422 from the type.
+    source_refs: list[SourceRefText] = Field(default_factory=list, max_length=MAX_COMMIT_SOURCE_REFS)
     conversation_excerpt: str | None = Field(default=None, min_length=1, max_length=4000)
     rationale: str | None = Field(default=None, min_length=1, max_length=4000)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
@@ -1692,10 +1699,9 @@ def create_vnext_memory_proposal(
             trace_id=request.trace_id,
         )
     except MemoryProposalInvalid:
-        return _vnext_public_error_response(
-            status_code=400,
-            detail="vNext memory proposal source_refs must nest at most 64 levels and hold no number that is not finite",
-        )
+        # The model takes only strings, so what reaches the proposal is a blank entry: the detail names that rule and
+        # repeats no value. A depth or a number that is not finite cannot arrive in a string.
+        return _vnext_public_error_response(status_code=400, detail=f"vNext memory proposal {SOURCE_REF_SHAPE_MESSAGE}")
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)

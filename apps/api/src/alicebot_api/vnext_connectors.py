@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 from uuid import UUID, uuid4
 
 from alicebot_api.json_bounds import JsonShapeError, loads_caller_json, refuse_unstorable_json
+from alicebot_api.vnext_source_fence import SOURCE_REF_SHAPE_MESSAGE, is_producer_source_ref
 from alicebot_api.connector_payloads import ConnectorPayloadValidationError, normalize_telegram_source_item
 from alicebot_api.importer_paths import ContainedReadRefused, read_text_beneath
 from alicebot_api.vnext_capture import (
@@ -754,7 +755,27 @@ def _normalize_local_folder_item(payload: JsonObject) -> NormalizedConnectorItem
     )
 
 
+def _agent_output_source_refs(payload: JsonObject) -> list[object]:
+    """The ``source_refs`` of an agent output item, when each is a shape a producer writes, else a validation error.
+
+    Both ways in come here, the single ingest (``ingest_agent_output``: the HTTP route, the MCP tool, ``alicebot vnext agents
+    ingest-output``) and the connector sync (``sync_items``: ``POST /v0/vnext/connectors/agent_output/sync`` and
+    ``alicebot vnext connectors ingest agent_output FILE``), because both call ``normalize_connector_item``. An item without the
+    key has none. Anything else must be a list of strings that are not blank and not the text of a JSON object or array, and an
+    item that holds another shape is refused whole, so nothing of it reaches ``metadata_json.source_refs`` or the copy of the
+    item kept beside it in ``metadata_json.raw_payload``.
+    """
+
+    refs = payload.get("source_refs")
+    if refs is None:
+        return []
+    if not isinstance(refs, list) or not all(is_producer_source_ref(ref) for ref in refs):
+        raise VNextConnectorValidationError(SOURCE_REF_SHAPE_MESSAGE)
+    return refs
+
+
 def _normalize_agent_output_item(payload: JsonObject) -> NormalizedConnectorItem:
+    source_refs = _agent_output_source_refs(payload)
     content = _required_text(payload, ("content", "text", "summary"), connector_name="agent_output")
     title = _first_text(payload, ("title",)) or "Agent output"
     agent_id = _required_text(payload, ("agent_id",), connector_name="agent_output")
@@ -783,7 +804,7 @@ def _normalize_agent_output_item(payload: JsonObject) -> NormalizedConnectorItem
             "project_scope": payload.get("project_scope") if isinstance(payload.get("project_scope"), list) else [],
             "output_type": _as_optional_text(payload.get("output_type")) or "general",
             "rationale": _as_optional_text(payload.get("rationale")),
-            "source_refs": payload.get("source_refs") if isinstance(payload.get("source_refs"), list) else [],
+            "source_refs": source_refs,
             "untrusted_source_material": True,
             "raw_evidence_preserved": True,
         },
