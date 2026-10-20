@@ -18,7 +18,7 @@ jobs:
   # job named below stays the required status check of the main ruleset by
   # failing unless every one of those jobs succeeded.
   python-unit-shards:
-    name: Unit tests, shard ${{ matrix.shard }} of 4 (SQLite)
+    name: Unit tests, shard ${{ matrix.shard }} of 5 (SQLite)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -30,34 +30,30 @@ jobs:
         # (tests/unit/test_ci_unit_job_split.py) fails if a file matches none.
         #
         # The shards are balanced by the time their files took in CI with coverage
-        # on (the mean of several runs, since one runner is slower than another):
-        # about 11 minutes of tests each, 12 to 13 minutes as jobs, against the 20
-        # minute limit and the 17 minute split line recorded in gates.json. The
-        # saved-quote files are the heaviest family and are split by name over
-        # three shards. The what-changed files and the saved-quote memory-ref
-        # vault run in shard 1. Shard 4 went past the 20 minute limit with the
-        # what-changed files and the showcase files. Shard 2 hit that limit
-        # on the vault file. A new file that no pattern selects fails the
-        # split test. The other saved-quote files stay spread across the
-        # remaining shards.
+        # on: one local run of every file, scaled for each file by the CI time of
+        # its old shard over the local time of that shard (the mean of two
+        # complete CI runs of the four shard layout, since one runner is slower
+        # than another). That gives 11.4 to 12.0 minutes of tests each, about 12
+        # to 13 minutes as jobs, against the 20 minute limit and the 17 minute
+        # split line recorded in gates.json. The four shards before had reached
+        # 19.6 minutes of tests in the longest. The saved-quote files are the
+        # heaviest family: shard 4 runs the test_saved_quote_ files alone (the
+        # vault tests, test_saved_quote_memory_refs_vault.py, are among them), and
+        # the other saved files run in shards 1 and 2. The one file
+        # test_entity_disclosure_fence.py is about 8 minutes of shard 5. The
+        # what-changed files run in shard 1 with the other w files. A new file
+        # that no pattern selects fails the split test.
         include:
           - shard: 1
-            selection: >-
-              tests/unit/test_[bde]*.py tests/unit/test_what_changed*.py
-              tests/unit/test_saved_quote_memory_refs_vault.py
+            selection: "tests/unit/test_[p-r]*.py tests/unit/test_saved_p*.py tests/unit/test_[t-w]*.py"
           - shard: 2
-            selection: >-
-              tests/unit/test_c*.py tests/unit/test_[pq]*.py tests/unit/test_saved_[!q]*.py
-              tests/unit/test_saved_quote_memory_refs.py tests/unit/test_saved_quote_memory_refs_d*.py
-              tests/unit/test_saved_quote_p*.py tests/unit/test_saved_quote_ref_reading*.py
-              tests/unit/test_saved_quotes_*.py
+            selection: "tests/unit/test_[0-9a-c]*.py tests/unit/test_s[!aoq]*.py tests/unit/test_saved_quotes_*.py"
           - shard: 3
-            selection: "tests/unit/test_[0-9a]*.py tests/unit/test_[f-i]*.py tests/unit/test_[no]*.py tests/unit/test_r*.py"
+            selection: "tests/unit/test_[j-o]*.py tests/unit/test_s[oq]*.py"
           - shard: 4
-            selection: >-
-              tests/unit/test_[j-m]*.py tests/unit/test_s[!a]*.py
-              tests/unit/test_saved_quote_[a-l]*.py
-              tests/unit/test_[t-vx-z]*.py tests/unit/test_w[!h]*.py
+            selection: "tests/unit/test_saved_quote_*.py"
+          - shard: 5
+            selection: "tests/unit/test_[d-i]*.py"
     env:
       COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
@@ -179,7 +175,7 @@ jobs:
           merge-multiple: true
           path: coverage-data
       - name: Combine the shard coverage data (every shard must have written some)
-        run: python scripts/combine_python_coverage.py --data-dir coverage-data --shards 4
+        run: python scripts/combine_python_coverage.py --data-dir coverage-data --shards 5
       - name: Combined coverage baseline
         # The same threshold, configuration and per-file floor that the single
         # unit job enforced, now on the combined data of all shards.
