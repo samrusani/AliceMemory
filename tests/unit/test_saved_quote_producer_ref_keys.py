@@ -9,10 +9,11 @@ column of the vault, and require that each entry the producers stored is a strin
 stored. The producers that need PostgreSQL (the scheduler's reports, consolidation, the roll-ups, the project update scan) are run
 by ``tests/integration/test_saved_quote_producer_ref_keys_postgres.py``.
 
-The doors a client uses to send an object are the HTTP commit route, the memory proposal and the agent-output ingest (their request
-models take strings); the MCP tools take an array of strings and refuse an object, and the CLI flag ``--source-ref`` takes a
-string, which may be JSON text. A client's object is refused at the write door. A row stored by an earlier release can still hold
-an object, and the test reads one inserted as a stored row to show that the scan would have seen a producer's.
+The doors a client could use to send an object are the HTTP commit route, the memory proposal and the agent-output ingest (their
+request models take strings), the MCP tools (an array of strings), the CLI flag ``--source-ref`` (a string) and the connector sync
+of ``agent_output`` (a free item). Each refuses an object, a blank string and the text of a JSON object or array. A row stored by
+an earlier release can still hold an object, and the test reads one inserted as a stored row to show that the scan would have seen a
+producer's.
 
 Mutation: have the commit service write an object entry (``json_safe(list(request.source_refs))`` in ``_base_metadata`` replaced
 with a list of ``{"source_id": ..., "label": ...}`` built from the strings): the producers' test fails on the object and on the name
@@ -218,27 +219,32 @@ def test_the_scan_sees_the_names_of_an_object_a_client_stored(vault: _Vault) -> 
 
 
 def test_the_mcp_tools_and_the_cli_flag_take_strings_and_no_object() -> None:
-    """The MCP tools that write ``source_refs`` take an array of strings and refuse an object, and the CLI flag ``--source-ref`` of
-    the commit and the agent-output ingest gives strings (which may be JSON text, and the reader decodes JSON text), so the two
-    doors never store an object either.
+    """The MCP tools that write ``source_refs`` take an array of strings and refuse an object, a blank entry and JSON text, and
+    the CLI flag ``--source-ref`` of the commit and the agent-output ingest gives strings that the services then hold to the same
+    rule (``tests/unit/test_source_ref_shapes.py``), so the two doors never store an object either, nor an object in disguise.
 
-    Mutation: let ``_parse_string_list`` accept an object (the MCP assertion fails).
+    Mutation: let ``_parse_string_list`` accept an object (the first MCP assertion fails); let ``_parse_source_refs`` take JSON text
+    (the second fails).
     """
 
-    from alicebot_api.mcp.arguments import MCPArgumentError, _parse_string_list
+    from alicebot_api.mcp.arguments import MCPArgumentError, _parse_source_refs, _parse_string_list
 
     with pytest.raises(MCPArgumentError):
         _parse_string_list({"source_refs": [{"memory_id": str(uuid4()), "page": 3}]}, "source_refs")
-    assert _parse_string_list({"source_refs": ["source:a", '{"page": 3}']}, "source_refs") == ("source:a", '{"page": 3}')
+    with pytest.raises(MCPArgumentError):
+        _parse_source_refs({"source_refs": [{"memory_id": str(uuid4()), "page": 3}]})
+    with pytest.raises(MCPArgumentError, match="source_refs entries must be strings"):
+        _parse_source_refs({"source_refs": ["source:a", '{"page": 3}']})
+    assert _parse_source_refs({"source_refs": ["source:a", "[draft] notes"]}) == ("source:a", "[draft] notes")
     parser = build_parser()
     commit = parser.parse_args(
-        ["vnext", "memories", "commit", "--agent-id", "a", "--title", "t", "--text", "x", "--source-ref", '{"page": 3}',
+        ["vnext", "memories", "commit", "--agent-id", "a", "--title", "t", "--text", "x", "--source-ref", "https://example.test/a",
          "--source-ref", "source:a"]
     )
     ingest = parser.parse_args(
-        ["vnext", "agents", "ingest-output", "--agent-id", "a", "--title", "t", "--source-ref", '{"page": 3}', "inline", "content"]
+        ["vnext", "agents", "ingest-output", "--agent-id", "a", "--title", "t", "--source-ref", "source:a", "inline", "content"]
     )
-    assert commit.source_ref == ['{"page": 3}', "source:a"] and ingest.source_ref == ['{"page": 3}']
+    assert commit.source_ref == ["https://example.test/a", "source:a"] and ingest.source_ref == ["source:a"]
 
 
 def test_a_tool_that_takes_an_object_for_a_ref_is_refused_over_mcp(vault: _Vault) -> None:

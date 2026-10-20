@@ -9,6 +9,7 @@ from uuid import UUID
 
 from alicebot_api.recall_framing import frame_rendered_block
 from alicebot_api.session_briefing import quote_session_brief_text
+from alicebot_api.vnext_source_fence import SOURCE_REF_SHAPE_MESSAGE, is_producer_source_ref
 from alicebot_api.contracts import (
     CONTINUITY_BRIEF_TYPE_ORDER,
     CONTINUITY_CORRECTION_ACTIONS,
@@ -200,6 +201,32 @@ def _parse_string_list(arguments: Mapping[str, object], key: str) -> tuple[str, 
         normalized = " ".join(item.split()).strip()
         if normalized:
             output.append(normalized)
+    return tuple(output)
+
+
+def _parse_source_refs(arguments: Mapping[str, object], key: str = "source_refs") -> tuple[str, ...]:
+    """The ``source_refs`` of a write tool, when each entry is a shape a producer writes, else ``MCPArgumentError``.
+
+    ``_parse_string_list`` drops a blank entry and goes on, which is right for a list of filters and wrong here: the HTTP
+    routes and the command line refuse a blank ``source_refs`` entry, so a tool does too. An entry that is the text of a JSON
+    object or array is refused as the object it decodes to is (``invalid_request``, before the tool writes anything). Each
+    entry is judged as it is stored, with runs of whitespace collapsed to one space.
+    """
+
+    value = arguments.get(key)
+    if value is None:
+        return ()
+    items = [value] if isinstance(value, str) else value
+    if not isinstance(items, list):
+        raise MCPArgumentError(f"{key} must be a string array")
+    output: list[str] = []
+    for item in items:
+        if not isinstance(item, str):
+            raise MCPArgumentError(f"{key} must be a string array")
+        normalized = " ".join(item.split()).strip()
+        if not is_producer_source_ref(normalized):
+            raise MCPArgumentError(SOURCE_REF_SHAPE_MESSAGE)
+        output.append(normalized)
     return tuple(output)
 
 

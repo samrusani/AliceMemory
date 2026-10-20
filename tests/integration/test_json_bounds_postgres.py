@@ -3,10 +3,10 @@
 ``tests/unit/test_write_doors_json_bounds.py`` and its twins hold the services to the limits without a database. These tests
 drive the mounted application against PostgreSQL:
 
-* each door that stores caller JSON answers a ref nested past 64 levels as it answers other bad input (HTTP 400 on the
-  memory commit, proposal and agent output doors and on the connector routes; HTTP 422 on a field that no service holds),
-  and NaN, Infinity and ``1e999`` are HTTP 422 everywhere; a refused request writes nothing; a ref nested exactly 64 levels
-  is stored and read back by the audit and recent commits routes;
+* each door that stores caller JSON answers a value nested past 64 levels as it answers other bad input (HTTP 400 on the
+  connector routes; HTTP 422 on a field that no service holds), and NaN, Infinity and ``1e999`` are HTTP 422 everywhere; a
+  refused request writes nothing. The ``source_refs`` of the memory commit, the proposal and the agent output doors take
+  strings only, so a ref that nests, to the limit or past it, is HTTP 422 as a non-string and never reaches the depth check;
 * a row already stored with JSON nested far past the readers' recursion (written by SQL, as an older door or a hand edit
   could leave it) no longer makes the memory audit route, the recent commits route, ``alice_memory_review`` or
   ``alice_explain`` fail with ``RecursionError``, for the owner and for a key with limits. A row the route can walk is read
@@ -142,7 +142,7 @@ def _commit_body(app, ref: object, key: str) -> dict[str, Any]:
 # The memory commit door.
 
 
-def test_the_commit_route_refuses_a_ref_nested_past_the_limit_with_a_400_and_writes_nothing(app) -> None:
+def test_the_commit_route_refuses_a_ref_nested_past_the_limit_with_a_422_and_writes_nothing(app) -> None:
     before = _counts(app)
     status, answer = _post("/v0/vnext/memories/commit", _commit_body(app, _nested(LIMIT + 1), "deep"))
     assert status == 422, answer
@@ -172,7 +172,7 @@ def test_the_commit_route_answers_a_number_that_is_not_finite_with_a_422_and_wri
     assert _counts(app) == before
 
 
-def test_a_ref_nested_exactly_to_the_limit_is_stored_and_every_reader_returns_it(app) -> None:
+def test_a_ref_nested_exactly_to_the_limit_is_refused_by_the_commit_route_as_a_non_string(app) -> None:
     """An object entry is refused at the commit door, including one nested only to the limit.
 
     v0.20.2 stored that shape. A backup that already holds it still restores (see the source-ref shape tests).
@@ -188,7 +188,7 @@ def test_a_ref_nested_exactly_to_the_limit_is_stored_and_every_reader_returns_it
 # The proposal and the agent output doors.
 
 
-def test_the_proposal_route_names_the_limit(app) -> None:
+def test_the_proposal_route_answers_a_nested_ref_with_a_422_and_takes_a_string(app) -> None:
     before = _counts(app)
     body = {"user_id": app.user, "agent": AGENT, "title": "t", "canonical_text": "A proposal about the cobalt door.",
             "source_refs": [_nested(LIMIT + 1)]}

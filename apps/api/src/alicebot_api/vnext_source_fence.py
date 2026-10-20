@@ -771,6 +771,36 @@ def _json_container(text: str) -> object | None:
     return parsed if isinstance(parsed, (dict, list)) else None
 
 
+# What a write door tells a client whose ``source_refs`` hold an entry no producer writes. One message for every door and every
+# shape, so a client that sends JSON text is answered as one that sends the object it decodes to.
+SOURCE_REF_SHAPE_MESSAGE = (
+    "source_refs entries must be strings: source:<id>, memory:<id>, a bare id, or a label, "
+    "and not blank or the text of a JSON object or array"
+)
+
+
+def is_json_text_ref(ref: str) -> bool:
+    """True when ``ref`` is the text of a JSON object or array: a string the reader decodes and reads as the value it holds.
+
+    It asks ``_json_container``, the decoder ``cited_source_ids`` reads a string ref with, so a text a write door refuses is
+    a text the reader would have read as an object, and a text the reader leaves as a label (one that is not JSON, one that
+    holds a scalar, one nested past the recursion limit of the interpreter) is a label here too.
+    """
+
+    return _json_container(ref) is not None
+
+
+def is_producer_source_ref(ref: object) -> bool:
+    """True when ``ref`` is a shape a producer writes into ``source_refs``: a string that is not blank and is not the text of a
+    JSON object or array. ``source:<id>``, ``memory:<id>``, a bare id and a label such as a URL are those.
+
+    The write doors of the commit, the proposal and the agent output (HTTP, MCP, CLI, the connector sync) ask this one
+    function. A row stored by an earlier release can still hold an object or JSON text, and the readers keep reading both.
+    """
+
+    return isinstance(ref, str) and bool(ref.strip()) and not is_json_text_ref(ref)
+
+
 def cited_source_ids(value: object) -> CitedSourceIds:
     """Every source id ``value`` (a ref, a list of refs, or a provenance object) names, as ``CitedSourceIds``.
 
@@ -2277,6 +2307,7 @@ __all__ = [
     "PRODUCT_REF_KEYS",
     "SOURCE_REFERENCE_KEYS",
     "SOURCE_REF_NOT_FOUND_MESSAGE",
+    "SOURCE_REF_SHAPE_MESSAGE",
     "SavedProvenanceReader",
     "SourceReadFence",
     "SourceRefNotFoundError",
@@ -2284,6 +2315,8 @@ __all__ = [
     "cited_memory_refs",
     "cited_source_ids",
     "cited_source_ids_in_memory_audit",
+    "is_json_text_ref",
+    "is_producer_source_ref",
     "memory_cited_source_ids",
     "memory_rows_including_deleted",
     "resolve_attachable_memory_id",

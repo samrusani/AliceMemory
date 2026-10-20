@@ -200,18 +200,23 @@ def test_the_connector_normalizer_measures_the_rest_of_an_item_from_the_item(ref
 def test_the_connector_normalizer_takes_an_item_inside_the_limits() -> None:
     item = normalize_connector_item(
         "agent_output",
-        {"content": "An agent output.", "agent_id": "agent-1", "title": "Output", "source_refs": [_nested(LIMIT)]},
+        {"content": "An agent output.", "agent_id": "agent-1", "title": "Output", "source_refs": ["source:abc"],
+         "extra": _nested(LIMIT - 1)},
     )
     assert item.raw_text == "An agent output."
+    assert item.metadata_json["source_refs"] == ["source:abc"]
 
 
-def test_a_source_ref_of_an_agent_output_is_measured_as_the_commit_door_measures_it() -> None:
-    """The commit door takes a ref nested 64 levels and refuses 65. The agent output door counts the same: the ref is the
-    caller's value, and the two levels of the item and of its list are not charged to it. Any other field of the item is
-    measured from the item."""
+def test_a_source_ref_of_an_agent_output_is_refused_for_its_depth_before_its_shape() -> None:
+    """The ref is the caller's value and the two levels of the item and of its list are not charged to it. A ref that nests
+    past 64 levels is refused for its depth, as the commit door refuses it. A ref that nests less is an array and not a string,
+    which the agent output door refuses as a shape (``test_source_ref_shapes.py``). Any other field of the item is measured
+    from the item."""
 
     base = {"content": "An agent output.", "agent_id": "agent-1", "title": "Output"}
-    normalize_connector_item("agent_output", {**base, "source_refs": [_nested(LIMIT), "source:abc"]})
+    normalize_connector_item("agent_output", {**base, "source_refs": ["source:abc", "https://example.test/kiln"]})
+    with pytest.raises(VNextConnectorValidationError, match=r"source_refs entries must be strings"):
+        normalize_connector_item("agent_output", {**base, "source_refs": [_nested(LIMIT), "source:abc"]})
     with pytest.raises(VNextConnectorValidationError, match=r"each source_ref must nest at most 64 levels"):
         normalize_connector_item("agent_output", {**base, "source_refs": ["source:abc", _nested(LIMIT + 1)]})
     normalize_connector_item("agent_output", {**base, "extra": _nested(LIMIT - 1)})

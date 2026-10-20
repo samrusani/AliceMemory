@@ -35,6 +35,7 @@ from alicebot_api.vnext_agent_control import (
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_promotion_policy import PromotionCandidate, promotion_candidate_for_proposal
 from alicebot_api.vnext_repositories import JsonObject
+from alicebot_api.vnext_source_fence import SOURCE_REF_SHAPE_MESSAGE, is_producer_source_ref
 
 
 class ProposalStore(Protocol):
@@ -52,10 +53,11 @@ class MemoryProposalRefused(ValueError):
 
 
 class MemoryProposalInvalid(ValueError):
-    """The proposal's ``source_refs`` hold JSON that cannot be stored (nested too deeply, or a number that is not finite).
+    """The proposal's ``source_refs`` hold an entry that cannot be stored: JSON nested too deeply or holding a number that is
+    not finite, or an entry no producer writes (anything but a non-blank string that is not the text of a JSON object or array).
 
     Raised when the proposal is built, before any policy audit or row is written. The message names the field and the
-    limit and never repeats the value.
+    rule and never repeats the value.
     """
 
 
@@ -86,10 +88,8 @@ class MemoryProposal:
                 refuse_unstorable_json(ref, name="source_refs")
             except JsonShapeError as exc:
                 raise MemoryProposalInvalid(str(exc)) from exc
-            if not isinstance(ref, str) or not ref.strip():
-                raise MemoryProposalInvalid(
-                    "source_refs entries must be strings: source:<id>, memory:<id>, a bare id, or a label"
-                )
+            if not is_producer_source_ref(ref):
+                raise MemoryProposalInvalid(SOURCE_REF_SHAPE_MESSAGE)
 
     @property
     def summary(self) -> str:

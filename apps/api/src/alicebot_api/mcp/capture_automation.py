@@ -23,6 +23,7 @@ from alicebot_api.vnext_queue import (
 )
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 
+from .arguments import _parse_source_refs
 from .scheduler import _handle_alice_vnext_scheduler_run_now
 from .shared import (
     MCPRuntimeContext,
@@ -112,6 +113,8 @@ def _handle_alice_vnext_ingest_agent_output(context: MCPRuntimeContext, argument
         raise MCPArgumentError("agent_id is required for alice_vnext_ingest_agent_output")
     domain = _parse_optional_text(arguments, "domain") or "project"
     sensitivity = _parse_optional_text(arguments, "sensitivity") or "private"
+    # Judged before the policy check writes its audit rows: a refused entry leaves nothing behind.
+    source_refs = list(_parse_source_refs(arguments))
     blocked_decision: PolicyDecision | None = None
     ingest_result = None
     decision: PolicyDecision | None = None
@@ -141,7 +144,7 @@ def _handle_alice_vnext_ingest_agent_output(context: MCPRuntimeContext, argument
                     "output_type": _parse_optional_text(arguments, "output_type") or "general",
                     "domain": domain,
                     "sensitivity": sensitivity,
-                    "source_refs": list(_parse_string_list(arguments, "source_refs")),
+                    "source_refs": source_refs,
                     "rationale": _parse_optional_text(arguments, "rationale"),
                     "propose_memory": _parse_bool(arguments, key="propose_memory", default=False),
                 },
