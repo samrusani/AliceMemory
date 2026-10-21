@@ -344,7 +344,7 @@ This command restores a SQLite database. It is not a PostgreSQL import.
 
 Portable backups include active sources and chunks, memories and fact keys,
 revisions, provenance, entities, graph edges, entity relationship events,
-open loops, and the event log. They intentionally omit users, agent API keys,
+open loops, and the event log. They intentionally omit users, agent identities and API keys,
 embedding vectors, and soft-deleted content. References from retained rows to
 omitted soft-deleted parents are nulled where nullable; graph edges whose
 known endpoints were omitted are excluded. Historical event ids, timestamps,

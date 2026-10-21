@@ -1547,9 +1547,9 @@ def test_the_docs_say_what_the_readers_do_and_name_the_two_limits_that_remain() 
     once where a user reads the tool contract and once in the release notes.
 
     Mutations, each one alone: put the old sentence back in any one of the CHANGELOG, ``docs/alpha/known-limitations.md``
-    or ``docs/alpha/mcp-tools.md``, or delete the new paragraph of ``mcp-tools.md``; delete ``ask the reader's own
-    fence again`` from the limitations page; change ``the value is `null` `` to ``the value is an empty string`` in
-    ``mcp-tools.md``.
+    or ``docs/alpha/mcp-tools.md``, or delete the new paragraph of ``mcp-tools.md``; change ``the value is `null` `` to
+    ``the value is an empty string`` in ``mcp-tools.md``. The limitations page no longer states the protection (the readers
+    ask the reader's own fence again): it lists what is limited, and the protection is pinned on ``mcp-tools.md`` below.
     """
 
     def squashed(path: str) -> str:
@@ -1575,8 +1575,8 @@ def test_the_docs_say_what_the_readers_do_and_name_the_two_limits_that_remain() 
         )
         == 1
     )
-    # The limitations page states the change in one clause and links the sections that hold the detail. The clause is
-    # pinned here; the rule that a reader gets `null` for a reference it may not read is pinned on ``mcp-tools.md``,
-    # which holds it (it used to be pinned on the page as well).
-    assert limitations.count("the readers of a saved quote and of an open loop ask the reader's own fence again") == 1
+    # The limitations page lists the residuals and links the section that holds the rule. The change itself is a protection,
+    # so it is pinned on ``mcp-tools.md`` (the count above), and the rule that a reader gets `null` for a reference it may
+    # not read is pinned there too. The page does not repeat the sentence.
+    assert "ask the reader's own fence again" not in limitations
     assert tools.count("the key stays and the value is `null`, so the cases read alike") == 1

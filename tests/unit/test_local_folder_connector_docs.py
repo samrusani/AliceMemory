@@ -57,17 +57,19 @@ def test_the_changelog_entry_for_the_connector_sits_under_v0200_and_states_v0192
 
 
 def test_the_threat_model_and_limitations_mark_the_connector_fix_from_v0200_and_keep_the_hard_link() -> None:
-    """The threat model and the security notes mark the fix, and the limitations page states what the scan does now.
+    """The threat model and the security notes mark the fix, and the limitations page keeps the hard link residual.
 
     The known limitations page lists what is limited now, so it no longer retells what v0.19.2 did
-    (a read by path after a containment check). That history is in the threat model, in the
-    changelog entry pinned in ``test_the_changelog_entry_for_the_connector_sits_under_v0200_and_states_v0192``
-    and in the v0.19.2 and v0.20.0 notes. All three documents keep the hard link residual.
+    (a read by path after a containment check) or how the scan opens the folder, each directory and the file one at a
+    time. The threat model states that, with the files the scan skips and counts in ``refused_count``, and this test pins
+    it there. The history is in the threat model, in the changelog entry pinned in
+    ``test_the_changelog_entry_for_the_connector_sits_under_v0200_and_states_v0192`` and in the v0.19.2 and v0.20.0 notes.
+    All three documents and the page keep the hard link residual.
 
     Mutations, each one alone: drop the ``From v0.20.0,`` marker from the threat model or the
-    security notes; delete the hard link sentence from one of the three documents; say the fix is
-    in v0.19.2; delete the sentence about opening each directory and the file one at a time from
-    the limitations page.
+    security notes; delete the hard link sentence from one of the three documents or from the limitations page; say the
+    fix is in v0.19.2; delete the sentence about the files that are skipped and counted in ``refused_count`` from the
+    threat model.
     """
 
     threat_model = _read("docs/security/threat-model.md")
@@ -82,8 +84,8 @@ def test_the_threat_model_and_limitations_mark_the_connector_fix_from_v0200_and_
         "The local-folder connector reads a hard link planted in the watched folder too, because a hard link is the "
         "file itself."
     ) in threat_model
-    assert "the local-folder scan opens the watched folder, each directory below it" in limitations
-    assert "without following a link, so a file or directory swapped for a link is skipped and counted in `refused_count`" in limitations
+    assert "opens the watched folder, each directory below it and the file one at a time, each relative to the one before and with `O_NOFOLLOW`" in threat_model
+    assert "A file or directory swapped for a link, a FIFO or a device is skipped and counted in `refused_count`, and the rest of the folder still scans." in threat_model
     assert f"{FROM_V0200} each local folder file is read through a descriptor" in privacy
     assert "constraint to allowed local roots also holds for the read itself" in privacy
 
@@ -116,11 +118,13 @@ def test_the_changelog_states_the_bounds_and_what_v0192_did_without_them() -> No
 
 
 def test_the_threat_model_and_limitations_mark_the_bounds_from_v0200_and_keep_v0192() -> None:
-    """The threat model keeps the v0.19.2 sentence and marks the bounds from v0.20.0; the limitations page states the bounds.
+    """The threat model keeps the v0.19.2 sentence and marks the bounds from v0.20.0; the limitations page names them.
 
     The limitations page lists what is limited now, so the v0.19.2 half (no size limit, one bad
     file ended the sync) is pinned on the dated records: the threat model here and the changelog entry
-    in ``test_the_changelog_states_the_bounds_and_what_v0192_did_without_them``.
+    in ``test_the_changelog_states_the_bounds_and_what_v0192_did_without_them``. The page names the three bounds that
+    matter to a reader in one sentence (the numbers are read from the code in ``test_known_limitations_current_facts.py``)
+    and the threat model holds the fourth, 100,000 directory entries, and ``truncated``.
 
     Mutations, each one alone: drop the DB-011 sentence from the threat model; delete the
     sentence that says v0.19.2 ended the sync on one such file from the threat model; drop the
@@ -138,9 +142,8 @@ def test_the_threat_model_and_limitations_mark_the_bounds_from_v0200_and_keep_v0
         f"Existing size/shape checks and local deployment limits. {FROM_V0200} the local-folder scan reads at most "
         "2 MiB of a file and stops at 10,000 files or 64 MiB."
     ) in threat_model
-    assert "the local-folder scan opens the watched folder" in limitations
-    assert "It reads at most 2 MiB of a file, stops at 10,000 files or 64 MiB in all" in limitations
-    assert "and lists at most 100,000 directory entries, and sets `truncated` when a limit stopped it" in limitations
+    assert "the local-folder scan reads at most 2 MiB of a file and stops at 10,000 files or 64 MiB" in limitations
+    assert "and sets `truncated` when a limit stopped it" in threat_model
 
 
 def test_the_cli_page_says_what_sync_and_watch_print_and_what_ignored_count_counts(

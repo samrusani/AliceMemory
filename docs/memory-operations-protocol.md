@@ -452,7 +452,7 @@ project update, connection report or roll-up card keeps the words it copied, and
 a belief keeps its claim. Redacting the memory restricts those rows, from v0.20.2, to the
 owner and an unbound admin key until they are regenerated without it. This is
 temporary access containment, not removal: the text stays in those rows, and
-full removal is planned for v0.21.0. Archiving a memory restricts nothing. See
+full removal is planned, with no release set. Archiving a memory restricts nothing. See
 [Redacted memories](alpha/mcp-tools.md#redacted-memories).
 
 From v0.20.2, redact asks the policy before it reads the

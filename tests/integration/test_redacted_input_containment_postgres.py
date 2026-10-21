@@ -3,7 +3,7 @@
 Redacting a memory replaces its text, but a report, a card or a project state made from it before keeps the words it copied.
 This is temporary access containment, not removal: a row that recorded a redacted row as an input is read as an unverified row
 is read, only by the owner and an unbound admin key, and so is every row built from it. The text stays in those rows, and the
-owner and an unbound admin key still read it. Full removal of redacted text from reports is planned for v0.21.0.
+owner and an unbound admin key still read it. Full removal of redacted text from reports is planned, with no release set.
 
 The first three tests prove, in turn, that a row built from a redacted memory is unverified through every door (reports of reports
 included), that no restricted key profile recovers the text through any door, and that regenerating a report restores access only

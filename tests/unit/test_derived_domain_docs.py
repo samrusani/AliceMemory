@@ -63,23 +63,27 @@ def _migration_0096():
     return _load(MIGRATION_0096, "derived_label_floor_0096")
 
 
-def test_the_limitations_page_has_one_short_bullet_that_links_to_the_explanation() -> None:
-    """The page states the label rule, the two limits that remain and the link, and nothing longer.
+def test_the_limitations_page_leaves_the_derived_row_rule_to_the_tool_reference() -> None:
+    """The rule is a protection, not a limit, so the page does not state it and the tool reference does.
 
-    Mutations, each one alone: delete ``keeps the label its inputs had when it was made``, ``follows its
-    inputs when they are relabelled``, ``read only by the owner and an unbound admin key``, ``sensitivity
-    ceiling``, ``counting rows the caller may read`` or the link from the bullet; point the link at ``#derived-rows``; add a ``## Derived`` heading
-    with a paragraph to the page.
+    The page used to hold a bullet that said a derived row kept the label its inputs had when it was made (v0.20.0) and
+    followed its inputs from v0.20.2, was read only by the owner and an unbound admin key when unverified, and that the
+    screens applied the sensitivity ceiling and counted the rows the caller may read. The same facts are pinned on the
+    tool reference in the test below (the label rule, ``apply the caller's sensitivity ceiling``, ``rows the caller may
+    read``) and in the redacted-input tests (who reads an unverified row). The page keeps no bullet, no heading and no link
+    for them.
+
+    Mutations, each one alone: put the bullet back on the page (``keeps the label its inputs had when it was made``); add a
+    ``## Derived`` heading with a paragraph to the page; add a link to ``mcp-tools.md#derived-row-domains`` to the page.
     """
 
-    bullet = _paragraph(LIMITATIONS, "- in v0.20.0 a derived summary, report or copy")
-    assert "keeps the label its inputs had when it was made" in bullet
-    assert "follows its inputs when they are relabelled" in bullet
-    assert "read only by the owner and an unbound admin key" in bullet
-    assert "sensitivity ceiling" in bullet
-    assert "counting rows the caller may read" in bullet
-    assert bullet.endswith(f"See [{HEADING}]({ANCHOR})")
-    assert "\n## Derived" not in LIMITATIONS.read_text(encoding="utf-8")
+    page = LIMITATIONS.read_text(encoding="utf-8")
+    flat = _flat(page)
+    assert "keeps the label its inputs had when it was made" not in flat
+    assert "follows its inputs when they are relabelled" not in flat
+    assert "derived summary, report or copy" not in flat
+    assert ANCHOR not in page
+    assert "\n## Derived" not in page
 
 
 def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_readers_see() -> None:

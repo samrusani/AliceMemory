@@ -194,11 +194,22 @@ def test_october_six_correction_distinguishes_the_new_doctor_counts() -> None:
     assert "These limits also occur in v0.20.0" not in correction
 
 
-def test_known_limitations_says_the_graph_follows_the_ceiling_and_doctor_omits_content_checks() -> None:
+def test_known_limitations_leaves_the_graph_ceiling_and_the_doctor_checks_to_the_security_note() -> None:
+    """The page lists limits and not protections, so it no longer says that the graph neighborhood lists only the edges
+    whose ends the key may read or that doctor omits content checks for keys with limits. The security note states both and
+    ``test_draft_security_note_distinguishes_baseline_graph_from_doctor_content_checks`` pins them there, the doctor page
+    states the second and ``test_doctor_page_and_runbook_say_who_receives_the_content_checks`` pins it, and the changelog
+    states both and is pinned in ``test_the_pages_say_what_the_graph_routes_do_now``. The page must not go back to calling the
+    graph an exception, and it links the security note for the open items.
+
+    Mutations, each one alone: put ``but graph edge explanations remain outside that ceiling`` or ``new doctor label counts``
+    on the page; delete the security note link from the page.
+    """
+
     limits = _text("docs/alpha/known-limitations.md")
-    assert "and doctor omits content checks for keys with limits, and the graph neighborhood lists only the edges whose ends the key may read" in limits
     assert "but graph edge explanations remain outside that ceiling" not in limits
     assert "new doctor label counts" not in limits
+    assert "doctor omits content checks" not in limits
     assert "derived-labels-security-note-draft.md" in limits
 
 

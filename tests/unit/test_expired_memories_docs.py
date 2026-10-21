@@ -79,34 +79,40 @@ def test_the_entry_states_the_v0200_behaviour_beside_each_change() -> None:
     assert "\u2014" not in entry and "\u2013" not in entry
 
 
-def test_the_known_limitations_list_what_stays_open_and_name_what_v0202_closed() -> None:
-    """The open list keeps what stays open, and the closing paragraph names the four closed gaps, with v0.19.2 as the comparison.
+def test_the_known_limitations_list_what_stays_open_after_the_expiry_fix() -> None:
+    """The open list keeps what stays open, and the history of the four closed gaps is on the dated records.
 
-    The three bullets that listed the gaps as open are gone from the open list: the gaps are fixed. One bullet
-    keeps what is left (the context pack and the text already sent). The closing paragraph of the page names the four
-    gaps as closed, and keeps the v0.19.2 comparison: recall and the context pack never returned an expired memory.
+    The three bullets that listed the gaps as open are gone from the open list: the gaps are fixed. One bullet keeps what
+    is left (the context pack still names the id of an expired memory in ``recent_changes``, its ``max_tokens`` budget
+    prices the full row, and text already sent to an embeddings endpoint cannot be taken back). The closing paragraph that
+    named the four closed gaps, with v0.19.2 as the comparison, left the page with the rest of the version history: the
+    changelog entry pins each gap and the v0.20.0 behaviour beside it (``test_the_entry_states_the_v0200_behaviour_beside_each_change``),
+    the v0.20.0 notes pin that recall and the context pack did not return an expired memory in v0.19.2, and the page links
+    the release notes and the changelog from its header.
 
-    Mutations, each one alone: put one of the three open bullets back, delete the sentence that says the context pack is
-    unchanged, or delete a gap from the closing paragraph.
+    Mutations, each one alone: put one of the three open bullets back, delete the ``recent_changes`` sentence or the
+    sentence about text already sent to an embeddings endpoint, or put the closing paragraph back
+    (``What v0.20.0 listed as open and v0.20.2 closed``).
     """
 
     limitations = _read("docs/alpha/known-limitations.md")
-    section = limitations[limitations.index("Open in v0.20.2, with the detail") :]
+    section = limitations[limitations.index("Open in v0.20.2") :]
     assert "- the session brief, `alice_resume` and `alice_recent_decisions` list memories by status" not in section
     assert "- consolidation and the roll-up semantic tier embed, for clustering" not in section
     assert "- promoting a reviewed artifact into a memory does not embed the new memory" not in section
-    bullet = section[section.index("- `alice_context_pack` is not changed by the expiry fix") : section.index("- the `max_tokens` budget")]
-    assert "its `recent_changes` still names the id of an expired memory through its creation and expire events" in bullet
-    assert "text that v0.20.0 and earlier sent to an embeddings endpoint" in bullet.lower()
-    closing = limitations[limitations.index("What v0.20.0 listed as open and v0.20.2 closed") :]
-    for gap in (
-        "the session brief, `alice_resume`, `alice_recent_decisions` and the SessionStart hook showing a memory whose `valid_to` has passed",
-        "while recall and the context pack do not return it, as in v0.19.2",
-        "consolidation and the roll-up semantic tier sending the text of such a memory to the embeddings endpoint",
-        "the roll-up pass counting an expired card as the accepted card for its topic",
-        "artifact promotion leaving the new memory without a vector",
-    ):
-        assert gap in closing, gap
+    bullet = section[
+        section.index("- `alice_context_pack` still names the id of an expired memory") : section.index("- the cited-source fence has gaps")
+    ]
+    assert "`alice_context_pack` still names the id of an expired memory in `recent_changes`" in bullet
+    assert "its `max_tokens` budget prices the full stored row while the agent receives a compact row" in bullet
+    assert (
+        "Text that earlier releases sent to an embeddings endpoint, an expired memory's included, cannot be taken back from it"
+    ) in bullet
+    assert "What v0.20.0 listed as open and v0.20.2 closed" not in limitations
+    assert "the roll-up pass counting an expired card as the accepted card for its topic" not in limitations
+    notes = _read(NOTES)
+    assert "Recall and the context pack do not return such a memory, as in v0.19.2" in notes
+    assert "so they agree with recall and the context pack" in _entry()
 
 
 def test_the_v0200_notes_are_unchanged_and_carry_no_main_only_marker() -> None:
