@@ -154,6 +154,7 @@ class QueryInterpretation(TypedDict):
 
 
 StageSourceT = TypeVar("StageSourceT")
+ChunkPassT = TypeVar("ChunkPassT")
 
 
 DEFAULT_CONTEXT_PACK_LIMIT = 8
@@ -1175,6 +1176,36 @@ def _fetch_filtered_prefix(
             )
         previous_unique_count = len(rows)
         limit = min(limit * 2, scan_ceiling)
+
+
+def _strict_then_or_pass(
+    run_pass: "Callable[[bool], ChunkPassT]",
+    *,
+    query: str,
+    source: str,
+    found: "Callable[[ChunkPassT], bool]",
+) -> tuple[ChunkPassT, str]:
+    """The strict chunk query, then one OR query when the strict one found nothing. Both chunk stages decide here.
+
+    ``run_pass(match_any)`` runs one whole pass of the stage: the store query and every fence that stage applies to
+    the rows it gets back. ``found`` says whether that pass left a row the caller may read. The decision is made on
+    that, not on the raw rows, so a row the caller may not read cannot change whether the OR pass runs or the label
+    that tells the caller which pass produced its result.
+
+    The OR pass runs when ``found`` is false and the query holds at least two tokens ``fts_fallback_tokens`` keeps.
+    A store that predates ``match_any`` raises ``TypeError`` on it, and the strict result stands. ``source`` comes
+    back with ``_or_fallback`` appended exactly when the OR pass ran, so the label reports the pass that produced
+    the result.
+    """
+
+    strict = run_pass(False)
+    if found(strict) or len(fts_fallback_tokens(query)) < 2:
+        return strict, source
+    try:
+        relaxed = run_pass(True)
+    except TypeError:
+        return strict, source
+    return relaxed, f"{source}_or_fallback"
 
 
 def _fetch_scope_filtered(
@@ -3759,18 +3790,15 @@ class VNextRetrievalService:
                 )
                 return selected[:limit]
 
-            chunk_sources = _fetch_chunk_sources(match_any=False)
-            if not chunk_sources and len(fts_fallback_tokens(query)) >= 2:
-                # Same one-shot OR retry as _memory_fts_rows, same honesty
-                # rule: the label reports the relaxed pass.
-                try:
-                    chunk_sources = _fetch_chunk_sources(match_any=True)
-                except TypeError:
-                    # Store predates the match_any kwarg; keep the strict
-                    # (empty) result rather than guessing.
-                    chunk_sources = []
-                else:
-                    chunk_fts_source = f"{chunk_fts_source}_or_fallback"
+            # The one-shot OR retry of _memory_fts_rows, same honesty rule: the
+            # label reports the relaxed pass. A store that predates the
+            # match_any kwarg keeps the strict (empty) result.
+            chunk_sources, chunk_fts_source = _strict_then_or_pass(
+                lambda match_any: _fetch_chunk_sources(match_any=match_any),
+                query=query,
+                source=chunk_fts_source,
+                found=bool,
+            )
             ranked_lists[SOURCE_STAGE_CHUNK_FTS] = chunk_sources
         else:
             chunk_fts_source = SOURCE_CHUNK_STAGE_DISABLED_NO_STORE_SUPPORT
@@ -4120,6 +4148,12 @@ class VNextRetrievalService:
            passage is skipped. A reserve slot those lists cannot fill goes to
            the next passage.
 
+        When steps 1 to 4 leave no passage for the strict query and the query has at
+        least two tokens ``fts_fallback_tokens`` keeps, they run once more on the
+        OR query (``match_any``), as document mode does, and ``chunk_fts_source``
+        ends in ``_or_fallback``. ``_strict_then_or_pass`` makes that decision for
+        both modes. A store that predates ``match_any`` keeps the strict result.
+
         Document-list fillers are compacted by ``_compact_source``. Passage
         entries use their own chunk text and carry ``chunk_index``. This method
         does not call ``list_source_chunks``.
@@ -4166,13 +4200,14 @@ class VNextRetrievalService:
             chunk_fts_source = str(getattr(self.store, "fts_stage_source", "postgres_fts"))
             chunk_scope_filters = _resource_scope_filters(search_source_chunks)
 
-            def _fetch(n: int) -> tuple[list[JsonObject], str]:
+            def _fetch(n: int, *, match_any: bool) -> tuple[list[JsonObject], str]:
                 return list(
                     search_source_chunks(
                         query=query,
                         domains=domains or None,
                         sensitivity_allowed=sensitivity_allowed,
                         limit=n,
+                        **({"match_any": True} if match_any else {}),
                         **chunk_scope_filters,
                     )
                 ), chunk_fts_source
@@ -4242,16 +4277,28 @@ class VNextRetrievalService:
                     kept.append((parent, chunk))
                 return kept, dropped
 
-            scan_limit = min(depth, SOURCE_PASSAGE_SCAN_MAX_ROWS)
-            while True:
-                raw_rows, _chunk_source = _fetch(scan_limit)
-                capped, credential_dropped = _usable(raw_rows)
-                if len(capped) >= limit or len(raw_rows) < scan_limit:
-                    break
-                if scan_limit >= SOURCE_PASSAGE_SCAN_MAX_ROWS:
-                    incomplete[0] = True
-                    break
-                scan_limit = min(scan_limit * 2, SOURCE_PASSAGE_SCAN_MAX_ROWS)
+            def _scan(match_any: bool) -> tuple[list[tuple[JsonObject, JsonObject]], int, bool]:
+                """One pass of the chunk query: the usable passages, the credential drops, and whether the scan was capped."""
+
+                scan_limit = min(depth, SOURCE_PASSAGE_SCAN_MAX_ROWS)
+                while True:
+                    raw_rows, _chunk_source = _fetch(scan_limit, match_any=match_any)
+                    usable, dropped = _usable(raw_rows)
+                    if len(usable) >= limit or len(raw_rows) < scan_limit:
+                        return usable, dropped, False
+                    if scan_limit >= SOURCE_PASSAGE_SCAN_MAX_ROWS:
+                        return usable, dropped, True
+                    scan_limit = min(scan_limit * 2, SOURCE_PASSAGE_SCAN_MAX_ROWS)
+
+            # The strict query first. When it leaves no passage the caller may read, the OR query runs the same
+            # pipeline, as in document mode, and the label reports the pass that produced the result.
+            scanned, chunk_fts_source = _strict_then_or_pass(
+                _scan,
+                query=query,
+                source=chunk_fts_source,
+                found=lambda scan: bool(scan[0]),
+            )
+            capped, credential_dropped, incomplete[0] = scanned
         else:
             chunk_fts_source = SOURCE_CHUNK_STAGE_DISABLED_NO_STORE_SUPPORT
 
