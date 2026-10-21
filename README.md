@@ -122,7 +122,7 @@ The default MCP surface is three tools:
 - `alice_recall`: search memory, with full-text, vector and entity-graph results fused by rank. Also returns matching passages from captured documents under `sources`.
 - `alice_resume`: resumption brief for a project or thread.
 
-The other core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. Unreleased (on main, not in v0.20.2): `alice_what_changed` is one of the other nine core tools, and v0.20.2 does not have it. Capture and import store sources; commit stores a fact.
+The other core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. From v0.21.0, `alice_what_changed` is one of the other nine core tools, and v0.20.2 does not have it. Capture and import store sources; commit stores a fact.
 
 Calling directly from a human client (Claude Desktop, an IDE)? `alice_memory_commit` needs only `title` and `canonical_text`, with no identity fields. Agent integrations declare `agent_id` and `agent_type`, and custom agents calling the HTTP API use per-agent API keys; see [agent integration](docs/alpha/agent-integration.md), which also covers the optional [skill packs](docs/alpha/agent-integration.md#skill-packs). Every tool is listed in [MCP tools](docs/alpha/mcp-tools.md). The retained legacy tools need `ALICE_MCP_LEGACY_TOOLS=1` and a keyless local-operator server; see the [MCP guide](docs/integrations/mcp.md).
 
@@ -144,7 +144,7 @@ The published LongMemEval figures carry a known issue: the model answering each 
 
 ## Status
 
-`v0.20.2` is the latest published release and remains the install, checksum, and release-note baseline. `v0.20.0` is the immediately prior published release. [Current state](CURRENT_STATE.md) lists the tags that were never published. Alice is a public-alpha, pre-1.0 project:
+`v0.20.2` is the latest published release and remains the install, checksum, and release-note baseline. `v0.20.0` is the immediately prior published release. `v0.21.0` is the current release candidate. It is not published. [Current state](CURRENT_STATE.md) lists the tags that were never published. Alice is a public-alpha, pre-1.0 project:
 
 - **Local-first, single-user.** One operator, one machine (or one headless server reached over SSH).
 - **Review-governed writes.** Agents propose or commit through policy; outcomes are commit, confirm, review, or reject. The review step is the trust boundary for durable memory.

@@ -31,18 +31,20 @@ def test_the_readme_stays_short() -> None:
     assert len(_text("README.md")) <= README_CEILING
 
 
-def test_the_readme_keeps_no_version_history_and_one_unreleased_line() -> None:
-    """Mutation: write a ``From v0.19.0``, ``From v0.20.0`` or ``In v0.18.0`` sentence into README.md, name a
-    second main-only behaviour, or drop the one line about ``alice_what_changed``.
+def test_the_readme_keeps_no_version_history_and_one_from_v0210_line() -> None:
+    """Mutation: write a ``From v0.19.0``, ``From v0.20.0`` or ``In v0.18.0`` sentence into README.md, put the
+    ``Unreleased (on main`` marker back, name a second behaviour that begins in v0.21.0, or drop the one line
+    about ``alice_what_changed``.
     """
 
     readme = _text("README.md")
     assert not [line for line in readme.splitlines() if re.match(r"(From|In|Since) v0\.\d+\.\d+\b", line)]
     assert not re.search(r"\b(?:From|In) v0\.(?:1[0-9]|20)\.\d+[ ,]", readme)
-    marked = [line for line in readme.splitlines() if "Unreleased (on main" in line]
+    assert "Unreleased (on main" not in readme
+    marked = [line for line in readme.splitlines() if "From v0.21.0" in line]
     assert len(marked) == 1
-    assert marked[0].count("Unreleased (on main") == 1
-    assert "Unreleased (on main, not in v0.20.2): `alice_what_changed` is one of the other nine core tools" in marked[0]
+    assert marked[0].count("From v0.21.0") == 1
+    assert "From v0.21.0, `alice_what_changed` is one of the other nine core tools" in marked[0]
 
 
 def test_the_readme_security_wording_is_unchanged() -> None:

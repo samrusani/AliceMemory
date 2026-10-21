@@ -318,7 +318,7 @@ def resolved_ranking_mode(search_quality: str | None) -> str:
     """``document`` or ``passage``: the ranking ``alice_recall`` runs on the SQLite vault this harness builds.
 
     ``search_quality`` is the value the run sets in ``ALICE_SEARCH_QUALITY``; ``None`` leaves it unset. An unset
-    variable does not name one ranking: v0.20.2 ranks sources by document, and main ranks them by passage on
+    variable does not name one ranking: v0.20.2 ranks sources by document, and v0.21.0 ranks them by passage on
     SQLite. So the mode is not read off the variable. It is asked of the recall edge of the checkout that was
     imported (``recall_source_ranking``), under the environment this run carries, with a SQLite store and no
     agent key, which is how this harness calls recall. A checkout without that edge ranks by document whatever

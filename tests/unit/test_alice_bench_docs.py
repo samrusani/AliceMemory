@@ -75,8 +75,8 @@ def _added_texts() -> dict[str, str]:
 
 def _changelog_entry() -> str:
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    released = changelog.split("\n## ", 3)[2]
-    assert released.startswith("v0.20.2")
+    released = changelog[changelog.index("\n## v0.20.2") : changelog.index("\n## v0.20.0")]
+    assert released.startswith("\n## v0.20.2")
     entries = [entry for entry in released.split("\n- ") if "scripts/alice_bench.py" in entry]
     assert len(entries) == 1
     return entries[0]

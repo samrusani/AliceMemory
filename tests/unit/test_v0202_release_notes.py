@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import re
-import tomllib
 from pathlib import Path
 
 from alicebot_api.vnext_label_repair import REPAIR_CAUSE, REPAIR_STATE_KEY
@@ -108,22 +107,15 @@ def test_the_checksums_file_records_the_two_published_digests_in_the_format_of_t
     assert _text(CHECKSUMS_PATH).endswith(".tar.gz\n")
 
 
-def test_every_version_site_names_0202_and_the_marketplace_pins_the_published_release() -> None:
-    """Mutations, each one alone: set one version site or one plugin pin back to 0.20.0; set the marketplace
-    ``ref`` back to v0.20.0; change one hex digit of the marketplace ``sha``.
+def test_the_marketplace_pins_the_published_release_and_the_notes_carry_its_install_lines() -> None:
+    """Mutations, each one alone: set the marketplace ``ref`` back to v0.20.0; change one hex digit of the marketplace
+    ``sha``; change the install or upgrade command in the notes.
 
     The post-publication change moved the marketplace file to the v0.20.2 tag and the commit that tag
-    points at, so it names the latest published release.
+    points at, so it names the latest published release. The tree has moved on to the version sites of the next
+    release, which ``test_v0210_release_notes.py`` pins, so this test no longer reads them.
     """
 
-    pyproject = tomllib.loads(_text("pyproject.toml"))["project"]["version"]
-    assert pyproject == "0.20.2"
-    assert json.loads(_text("apps/web/package.json"))["version"] == pyproject
-    assert json.loads(_text("packaging/mcpb/manifest.json"))["version"] == pyproject
-    assert json.loads(_text("plugins/alice-memory/.claude-plugin/plugin.json"))["version"] == pyproject
-    for name in ("plugins/alice-memory/.mcp.json", "plugins/alice-memory/hooks/hooks.json"):
-        assert f"alice-memory=={pyproject}" in _text(name), name
-        assert "alice-memory==0.20.0" not in _text(name), name
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
     assert marketplace["ref"] == "v0.20.2"
     assert marketplace["sha"] == TAG_COMMIT
@@ -143,7 +135,7 @@ def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section(
     v0.20.2 and v0.20.0; put an unreleased marker inside the v0.20.2 section.
 
     The Unreleased section was empty on the release commit. It may hold entries now that main has
-    moved on, so this test no longer asks for it to be empty. It still asks that the v0.20.2 and
+    moved on, so this test no longer asks for it to be empty. It still asks that the v0.21.0, v0.20.2 and
     v0.20.0 sections follow it in that order, one heading each.
     """
 
@@ -151,10 +143,11 @@ def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section(
     sections = changelog.split("\n## ")
     assert sections[1].startswith("Unreleased\n")
     assert sections[1].endswith("\n")
-    assert sections[2].startswith("v0.20.2 \u2014 2026-10-17\n")
-    assert sections[3].startswith("v0.20.0 \u2014 2026-10-02\n")
+    assert sections[2].startswith("v0.21.0 \u2014 2026-10-22\n")
+    assert sections[3].startswith("v0.20.2 \u2014 2026-10-17\n")
+    assert sections[4].startswith("v0.20.0 \u2014 2026-10-02\n")
     assert changelog.count(HEADING) == 1
-    assert "Unreleased (on main" not in sections[2]
+    assert "Unreleased (on main" not in sections[3]
 
 
 def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_or_the_code() -> None:
