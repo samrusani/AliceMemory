@@ -610,6 +610,12 @@ def _restore_copy_bases(directory: Path, prefix: str) -> list[Path]:
     return list(dict.fromkeys(bases))
 
 
+def _is_restore_copy_name(name: str) -> bool:
+    """True for a name of the shape a restore gives its working copy: ``.{vault}.restore.{random}.tmp``."""
+
+    return name.startswith(".") and ".restore." in name and name.endswith(".tmp")
+
+
 def sweep_restore_working_copies(database: Path) -> None:
     """Remove ``.{name}.restore.*.tmp`` working copies left in the data directory.
 
@@ -618,14 +624,16 @@ def sweep_restore_working_copies(database: Path) -> None:
     without waiting before it lists or deletes anything. A running restore holds that lock from before it makes
     its copy until it has removed it, so when the sweep cannot take the lock it removes nothing, and when it can,
     no restore is running in the directory and every copy it finds is left over. A file that is itself a restore
-    copy is left alone, so the import can open the copy it just made. A failed sweep does not fail the command.
+    copy is left alone, so the import can open the copy it just made: that is a name of the copy's own shape, a leading
+    dot, ``.restore.`` and a ``.tmp`` ending. A vault whose name merely contains ``.restore.`` is swept like any other.
+    A failed sweep does not fail the command.
     """
 
     try:
         name = database.name
     except (OSError, ValueError):
         return
-    if ".restore." in name:
+    if _is_restore_copy_name(name):
         return
     directory = database.parent
     prefix = f".{name}.restore."

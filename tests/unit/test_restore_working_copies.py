@@ -17,6 +17,8 @@ Mutations, each in ``onramp.py`` alone. ``scripts/derived_label_mutations.json``
 * the sweep goes on when it could not take the lock: the same tests and the sweep loop test fail.
 * the lock is a file beside the vault instead of the directory:
   ``test_deleting_files_beside_a_running_import_does_not_expose_its_working_copy`` fails.
+* the sweep skips any vault name that contains ``.restore.``:
+  ``test_a_vault_whose_name_holds_restore_is_swept_like_any_other`` fails.
 * ``sweep_restore_working_copies`` returns before it reads the directory:
   ``test_the_next_open_removes_a_restore_working_copy_and_its_sidecars`` fails because the sentinel is still there.
 
@@ -195,6 +197,26 @@ def test_the_next_open_removes_a_restore_working_copy_and_its_sidecars(tmp_path)
     assert not copy.exists()
     assert not wal.exists()
     assert not shm.exists()
+    assert sentinel_hits(database, NEEDLE) == []
+
+
+def test_a_vault_whose_name_holds_restore_is_swept_like_any_other(tmp_path) -> None:
+    """A vault named ``notes.restore.sqlite`` gets the cleanup the backup guide promises.
+
+    Mutation: skip the sweep for any name that contains ``.restore.`` (the check before this test): the copy stays.
+    """
+
+    database = tmp_path / "notes.restore.sqlite"
+    user = str(uuid4())
+    bootstrap_database(database, user_id=user, user_email="synthetic@example.invalid")
+    copy = tmp_path / ".notes.restore.sqlite.restore.deadbeef.tmp"
+    copy.write_bytes(NEEDLE.encode())
+    wal = tmp_path / ".notes.restore.sqlite.restore.deadbeef.tmp-wal"
+    wal.write_bytes(b"wal")
+    with sqlite_user_connection(database, user):
+        pass
+    assert not copy.exists()
+    assert not wal.exists()
     assert sentinel_hits(database, NEEDLE) == []
 
 
