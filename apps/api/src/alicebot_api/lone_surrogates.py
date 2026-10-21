@@ -343,6 +343,24 @@ def validation_error_response(errors: Sequence[Any]) -> JSONResponse:
 _WITHHOLD_INPUT_TYPES = frozenset({TOO_DEEP_ERROR_TYPE, NOT_FINITE_ERROR_TYPE})
 
 
+# The name of the flag on ``request.state`` that says the answer is the validation error of the request, which repeats the
+# input the caller sent. Only ``render_validation_error`` sets it.
+_REQUEST_VALIDATION_ECHO = "request_validation_echo"
+
+
+def request_validation_echoes(request: Any) -> bool:
+    """True when the answer to ``request`` is the validation error of that request.
+
+    The ``input`` of each of its errors is a copy of what the caller sent, so the layer that withholds the ids of rows a
+    key may not read leaves the answer as it is: it shows the caller nothing it did not send, and it must show a hidden id
+    and a missing id alike. The flag is set where the request's own error is rendered and nowhere else. An answer that only
+    has the shape of a validation error (a route that validates stored data and builds its own 422) has no flag, and is
+    filtered like any other answer.
+    """
+
+    return getattr(getattr(request, "state", None), _REQUEST_VALIDATION_ECHO, False) is True
+
+
 async def render_validation_error(request: Request, exc: RequestValidationError) -> Response:
     """Answer a validation error with the framework's own handler.
 
@@ -357,6 +375,7 @@ async def render_validation_error(request: Request, exc: RequestValidationError)
     the limit, and the value it refused is not sent back.
     """
 
+    setattr(request.state, _REQUEST_VALIDATION_ECHO, True)
     errors = exc.errors()
     if any(isinstance(error, dict) and error.get("type") in _WITHHOLD_INPUT_TYPES for error in errors):
         return validation_error_response(

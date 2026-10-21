@@ -61,7 +61,11 @@ def main(argv: list[str] | None = None) -> int:
         _validate_arguments(args)
         ctx = _build_context(args)
         handler = args.handler
-        output = handler(ctx, args)
+        from alicebot_api.vnext_hidden_ids import reader_scope
+
+        # The reader a command remembers to withhold hidden ids from its output ends with the command.
+        with reader_scope():
+            output = handler(ctx, args)
     except (
         ValueError,
         OSError,
