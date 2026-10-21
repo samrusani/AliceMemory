@@ -42,7 +42,6 @@ from pathlib import Path
 import random
 import sqlite3
 import string
-import time
 from uuid import UUID, uuid4
 
 import pytest
@@ -64,7 +63,7 @@ from tests.unit import legacy_v0160_credential_oracle as oracle
 from tests.unit.fixtures_benign_corpus import CREDENTIAL_VOCABULARY_SENTENCES, DOC_SENTENCES
 from tests.unit.fixtures_promotion_corpus import ALL_NOTES
 from tests.unit.fixtures_throwaway_keys import PRIVATE_KEY_NAMES, PUBLIC_KEY_NAMES, throwaway_key
-from tests.unit.fixtures_timing import budget, tracer_active
+from tests.unit.fixtures_timing import SIZE_RATIO, assert_grows_linearly, budget, smallest_cpu_seconds, tracer_active
 from tests.unit.test_credential_floor_design import _T3_FALSE
 
 
@@ -1010,7 +1009,7 @@ def test_harness_v4_benign_refusals_against_v0160_are_pinned(group: str) -> None
 
 
 # ---------------------------------------------------------------------------
-# Linear time, door-7 style: 50 KB and 200 KB through both doors.
+# Linear time, door-7 style: 25 KB and 200 KB through both doors.
 # ---------------------------------------------------------------------------
 
 
@@ -1046,22 +1045,22 @@ _ADVERSARIAL_UNITS = {
 _BUDGET_SECONDS = 2.0
 
 
-def _door_seconds(text: str) -> float:
-    started = time.perf_counter()
+def _run_doors(text: str) -> None:
     legacy.commit_gate_refuses("title", text)
     legacy.promotion_floor_refuses("title", text)
-    return time.perf_counter() - started
 
 
 @pytest.mark.parametrize("label", sorted(_ADVERSARIAL_UNITS))
 def test_harness_v4_the_reimplementation_is_linear(label: str) -> None:
     unit = _ADVERSARIAL_UNITS[label]
-    small = (unit * (50_000 // len(unit) + 1))[:50_000]
-    large = (unit * (200_000 // len(unit) + 1))[:200_000]
-    small_seconds = min(_door_seconds(small) for _ in range(3))
-    large_seconds = min(_door_seconds(large) for _ in range(3))
+    small = (unit * (25_000 // len(unit) + 1))[:25_000]
+    large = (unit * (25_000 * SIZE_RATIO // len(unit) + 1))[: 25_000 * SIZE_RATIO]
+    # CPU seconds, alternating rounds, the smallest of each size. Linear is 8x;
+    # quadratic is 64x; the limit is a third of 64 (see fixtures_timing).
+    small_seconds, large_seconds = smallest_cpu_seconds(
+        lambda: _run_doors(small), lambda: _run_doors(large), give_up_over=budget(_BUDGET_SECONDS)
+    )
     assert large_seconds < budget(_BUDGET_SECONDS), (label, large_seconds, tracer_active())
-    # Linear is 4x; quadratic is 16x.
-    assert large_seconds < max(8 * small_seconds, 0.02), (label, small_seconds, large_seconds)
+    assert_grows_linearly(small_seconds, large_seconds, what=label)
     # Guards the guard: the same path still finds a real assignment after it.
     assert legacy.commit_gate_refuses("title", large + f" TOKEN_GITHUB={R}")
