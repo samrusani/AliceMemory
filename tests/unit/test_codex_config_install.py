@@ -658,7 +658,9 @@ def test_codex_refusals(
     assert _error_records(err) == [INSTALL_REFUSED]
 
 
-def test_codex_toml_11_refused_before_tomllib(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_codex_toml_11_refused_before_tomllib(
+    monkeypatch: pytest.MonkeyPatch, process_home: Path
+) -> None:
     """The lexer refuses TOML 1.1 forms without asking tomllib."""
 
     def boom(*_args: object, **_kwargs: object) -> dict[str, object]:
@@ -914,7 +916,7 @@ def test_codex_guard_rejects_an_outside_byte_change() -> None:
         )
 
 
-def test_seeded_fuzz_run_finds_no_meaning_change() -> None:
+def test_seeded_fuzz_run_finds_no_meaning_change(process_home: Path) -> None:
     """A short seeded pass. A lexer that treats ''' inside a basic string as an opener fails it.
 
     A writer that refuses everything fails it too: every label has to be written.
@@ -1471,8 +1473,12 @@ def test_codex_backup_race(
 
 
 def test_codex_home_through_install(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    process_home: Path,
 ) -> None:
+    # The calls without --home resolve against the process home, which is a temp folder here.
     codex_home = tmp_path / "elsewhere"
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
     code = onramp_main(["install", "--data-dir", str(tmp_path / "vault"), "--host", "codex"])
@@ -1506,6 +1512,7 @@ def test_codex_home_through_install(
     captured = capsys.readouterr()
     assert code == 1
     assert "next: Set CODEX_HOME to an absolute path, or pass --home, then run install again." in captured.out
+    assert list(process_home.iterdir()) == []
 
 
 def test_codex_refuses_non_utf8(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -2249,7 +2256,7 @@ def test_codex_deeply_nested_config_is_refused_not_a_crash(
     assert _HAND_NEXT in lines
 
 
-def test_codex_plan_refuses_a_deeply_nested_value() -> None:
+def test_codex_plan_refuses_a_deeply_nested_value(process_home: Path) -> None:
     """The public planner refuses too, not only the install command.
 
     Mutation: drop the RecursionError catch in ``_plan_codex_text``. This
@@ -2386,6 +2393,7 @@ def test_codex_refusal_names_the_first_invalid_key_in_carried_order(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    process_home: Path,
 ) -> None:
     """Several invalid carried keys are checked in the order the writer lists them.
 
@@ -2423,11 +2431,12 @@ def test_codex_refusal_names_the_first_invalid_key_in_carried_order(
     assert caught.value.detail == "Codex would refuse to load this value for startup_timeout_sec"
 
 
-def test_codex_refusal_reason_is_the_same_under_every_hash_seed() -> None:
+def test_codex_refusal_reason_is_the_same_under_every_hash_seed(process_home: Path) -> None:
     """The same file gives the same refusal reason in separate processes.
 
     Each process gets its own PYTHONHASHSEED. Before the fix the reason
     changed with the seed, and seeds 1 to 6 alone gave three different keys.
+    Each child process inherits the temp HOME, so it never reaches the real one.
 
     Mutation: loop over ``_CODEX_CARRIED`` instead of ``_CODEX_CARRIED_KEYS``
     in the planner. At least two of these seeds name a different key, so the
@@ -2698,7 +2707,10 @@ def test_codex_success_notes_come_from_codex_home(
 
 
 def test_codex_home_refusal_keeps_the_layer_notes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    process_home: Path,
 ) -> None:
     """A CODEX_HOME refusal still prints the notes from other layers.
 

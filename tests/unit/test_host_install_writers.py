@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import zipfile
 from pathlib import Path
 
@@ -528,24 +529,37 @@ def test_dry_run_writes_no_files(tmp_path: Path, monkeypatch, capsys) -> None:
 
 
 def test_written_paths_stay_under_home_and_do_not_touch_real_host_dirs(
-    tmp_path: Path, capsys
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    """Written paths stay under --home. Real ~/.hermes and ~/.openclaw stay put.
+    """Written paths stay under --home. The process home's host dirs stay put.
 
     Mutation: resolve host files against the process home. This test fails.
-    HOME is not patched here so Path.home() is the unpatched process home.
+    HOME is a seeded temp folder here, apart from --home, so the install can
+    be told apart from the process home. The real home is never read.
     """
 
-    real_home = Path.home()
+    process_home = tmp_path / "process-home"
+    seeded = {
+        process_home / ".hermes" / "config.yaml": b"model: process-home-hermes\n",
+        process_home / ".openclaw" / "openclaw.json": b'{"seeded": "process-home-openclaw"}\n',
+    }
+    for seed_path, seed_bytes in seeded.items():
+        seed_path.parent.mkdir(parents=True)
+        seed_path.write_bytes(seed_bytes)
+    monkeypatch.setenv("HOME", str(process_home))
+    assert Path.home() == process_home
+    assert os.path.expanduser("~") == str(process_home)
     watched = (
-        real_home / ".hermes",
-        real_home / ".hermes" / "config.yaml",
-        real_home / ".openclaw",
-        real_home / ".openclaw" / "openclaw.json",
+        process_home / ".hermes",
+        process_home / ".hermes" / "config.yaml",
+        process_home / ".openclaw",
+        process_home / ".openclaw" / "openclaw.json",
     )
+    tree_before = {path: _snapshot(path) for path in sorted(process_home.rglob("*"))}
     before = {path: _snapshot(path) for path in watched}
     home = tmp_path / "home"
     vault = tmp_path / "vault"
+    assert not home.is_relative_to(process_home)
     code, out, err = _install(_base_argv(home, vault, "--host", "hermes", "--host", "openclaw"), capsys)
     assert code == 0, err
     resolved_home = home.resolve()
@@ -554,13 +568,15 @@ def test_written_paths_stay_under_home_and_do_not_touch_real_host_dirs(
     for path in written:
         assert path.is_file()
         assert str(path).startswith(str(resolved_home) + "/")
-        assert path != real_home / ".hermes" / "config.yaml"
-        assert path != real_home / ".openclaw" / "openclaw.json"
+        assert not path.is_relative_to(process_home)
     assert str(resolved_home) in out
-    assert str(real_home / ".hermes" / "config.yaml") not in out
-    assert str(real_home / ".openclaw" / "openclaw.json") not in out
+    assert str(process_home / ".hermes" / "config.yaml") not in out
+    assert str(process_home / ".openclaw" / "openclaw.json") not in out
+    for seed_path, seed_bytes in seeded.items():
+        assert seed_path.read_bytes() == seed_bytes
     after = {path: _snapshot(path) for path in watched}
     assert after == before
+    assert {path: _snapshot(path) for path in sorted(process_home.rglob("*"))} == tree_before
 
 
 def test_mcpb_zip_manifest_launches_alice_memory(
