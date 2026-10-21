@@ -14790,10 +14790,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/onramp.py",
-          "line": 2549,
+          "line": 2557,
           "before": "        payload = loads_finite(text)\n",
           "after": "        payload = json.loads(text)\n",
-          "sha256": "16dd670b74bbfeae6db823c7db8a430b93f156c2747fd8e74675e70e574a9f33"
+          "sha256": "fcefc937acdce47d452a9d4bfc7543dae2db789471fb238d0ccd345461845c0e"
         }
       ],
       "pytest": [
@@ -19350,10 +19350,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/onramp.py",
-          "line": 628,
-          "before": "    if \".restore.\" in name:\n        return\n",
+          "line": 636,
+          "before": "    if _is_restore_copy_name(name):\n        return\n",
           "after": "    if True:\n        return\n",
-          "sha256": "16dd670b74bbfeae6db823c7db8a430b93f156c2747fd8e74675e70e574a9f33"
+          "sha256": "fcefc937acdce47d452a9d4bfc7543dae2db789471fb238d0ccd345461845c0e"
         }
       ],
       "pytest": [
@@ -19366,10 +19366,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/onramp.py",
-          "line": 4314,
+          "line": 4322,
           "before": "        restore_lock = acquire_restore_lock(db_path)\n",
           "after": "        restore_lock = None\n",
-          "sha256": "16dd670b74bbfeae6db823c7db8a430b93f156c2747fd8e74675e70e574a9f33"
+          "sha256": "fcefc937acdce47d452a9d4bfc7543dae2db789471fb238d0ccd345461845c0e"
         }
       ],
       "pytest": [
@@ -19382,17 +19382,17 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/onramp.py",
-          "line": 4314,
+          "line": 4322,
           "before": "        restore_lock = acquire_restore_lock(db_path)\n        fd, raw_working_path = tempfile.mkstemp(\n",
           "after": "        fd, raw_working_path = tempfile.mkstemp(\n",
-          "sha256": "16dd670b74bbfeae6db823c7db8a430b93f156c2747fd8e74675e70e574a9f33"
+          "sha256": "fcefc937acdce47d452a9d4bfc7543dae2db789471fb238d0ccd345461845c0e"
         },
         {
           "file": "apps/api/src/alicebot_api/onramp.py",
-          "line": 4321,
+          "line": 4329,
           "before": "        working_path = Path(raw_working_path)\n        if target_existed:\n",
           "after": "        working_path = Path(raw_working_path)\n        restore_lock = acquire_restore_lock(db_path)\n        if target_existed:\n",
-          "sha256": "16dd670b74bbfeae6db823c7db8a430b93f156c2747fd8e74675e70e574a9f33"
+          "sha256": "fcefc937acdce47d452a9d4bfc7543dae2db789471fb238d0ccd345461845c0e"
         }
       ],
       "pytest": [
@@ -19405,10 +19405,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/onramp.py",
-          "line": 639,
+          "line": 647,
           "before": "fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)",
           "after": "fcntl.flock(descriptor, fcntl.LOCK_EX)",
-          "sha256": "16dd670b74bbfeae6db823c7db8a430b93f156c2747fd8e74675e70e574a9f33"
+          "sha256": "fcefc937acdce47d452a9d4bfc7543dae2db789471fb238d0ccd345461845c0e"
         }
       ],
       "pytest": [
@@ -19421,10 +19421,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/onramp.py",
-          "line": 4303,
+          "line": 4311,
           "before": "    target_existed = db_path.exists()\n    sweep_restore_working_copies(db_path)\n",
           "after": "    target_existed = db_path.exists()\n",
-          "sha256": "16dd670b74bbfeae6db823c7db8a430b93f156c2747fd8e74675e70e574a9f33"
+          "sha256": "fcefc937acdce47d452a9d4bfc7543dae2db789471fb238d0ccd345461845c0e"
         }
       ],
       "pytest": [
@@ -20366,6 +20366,22 @@
         "eval/longmemeval/test_run_choices.py::test_a_recall_run_records_the_mode_the_recall_edge_resolves"
       ],
       "expected_failure": "test_a_recall_run_records_the_mode_the_recall_edge_resolves"
+    },
+    {
+      "name": "restore-sweep-skips-vault-names-with-restore",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/onramp.py",
+          "line": 636,
+          "before": "    if _is_restore_copy_name(name):\n        return\n",
+          "after": "    if \".restore.\" in name:\n        return\n",
+          "sha256": "fcefc937acdce47d452a9d4bfc7543dae2db789471fb238d0ccd345461845c0e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_restore_working_copies.py::test_a_vault_whose_name_holds_restore_is_swept_like_any_other"
+      ],
+      "expected_failure": "test_a_vault_whose_name_holds_restore_is_swept_like_any_other"
     }
   ]
 }
