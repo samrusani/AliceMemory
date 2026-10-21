@@ -373,6 +373,19 @@ ignored while `ALICE_AGENT_API_KEY` is set, and direct legacy calls fail
 closed instead of attempting partial authorization. Hidden core tools are
 rejected the same way.
 
+## Tool hints
+
+From v0.19.0, every MCP tool declares hints. From v0.19.2, `alice_recall`, `alice_resume`, `alice_context_pack`,
+`alice_recent_decisions`, `alice_explain`, and `alice_memory_review` are marked read-only. `alice_memory_review` only
+lists items or shows one, and v0.19.0 marked it destructive, grouped with the tools that act on the review queue.
+Unreleased (on main, not in v0.20.2): `alice_what_changed` is marked read-only too, and v0.20.2 does not have it.
+`alice_memory_commit` and `alice_capture` are marked non-destructive, which is true of adding a fact.
+`alice_memory_commit` called with `confirmation_id` and `confirmation_action` instead updates the one pending write it
+names, so by Codex's default approval rule neither call prompts, and the confirm step relies on the agent asking the
+user. `alice_memory_correct`, `alice_memory_manage`, and `alice_open_loops` are marked destructive. Codex's default
+approval rule, as this repo records it, skips its prompt for the read-only and non-destructive tools, and no test here
+runs that prompt. In v0.18.0 these tools declare no hints.
+
 ## The debug flag
 
 `alice_recall`, `alice_context_pack`, and `alice_resume` accept
@@ -443,6 +456,21 @@ ALICE_EMBEDDINGS_API_KEY=   # only if the endpoint requires one
 
 Without these, `alice_recall` and `alice_context_pack` still work on
 full-text search alone.
+
+From v0.20.0, Alice sends the text of a memory to the embeddings endpoint only when recall can return it, which means
+its status is active or accepted and its `valid_to`, if it has one, has not passed. A write that waits for
+confirmation, a proposal that waits for review and the candidate memories that capture and the connectors write are not
+embedded when they are created. Each is embedded once, when it becomes active (confirm, approve, correct), and a
+rejected one is never sent. `alice-memory reindex-embeddings`, `alicebot vnext memories backfill-embeddings` and the
+`memories without a current vector` count in `alice-memory doctor` use the same test, so a forgotten, rejected,
+candidate or expired memory is not sent or counted, and one that becomes active, or whose `valid_to` is cleared, is
+embedded by the next run. Text already sent cannot be recalled from the endpoint.
+
+Each memory and each recall query is cut to its first 8,000 characters before it is sent, and the vector of a cut
+memory is labelled as made from a cut text. `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` (256 to 1,000,000) changes the cap; see
+[MCP integration](../integrations/mcp.md). When the endpoint refuses one memory, reindex still embeds the others, lists
+the failed memory ids and the endpoint's reason (at most 300 characters, withheld if it looks like a credential), and
+`alice-memory doctor` prints the `memories without a current vector` count.
 
 ## Explicit memory commits
 

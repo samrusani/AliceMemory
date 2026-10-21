@@ -98,8 +98,8 @@ PostgreSQL + pgvector  |  SQLite
   is not the product path and not a measurement of the current release. The
   earlier single 79.4% run is retained as evidence. The receipt has a known
   issue: the harness showed the reader model each session's id, and in that
-  dataset every evidence session id starts with `answer_`. See the README
-  Benchmark section.
+  dataset every evidence session id starts with `answer_`. See
+  `docs/benchmarks/longmemeval/README.md`.
 
 ### Provider support
 

@@ -1566,26 +1566,28 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     the ``~/.alice`` default and why the hook has no ``--data-dir``. Every
     paragraph that names ``ALICE_MEMORY_DATA_DIR`` says the plugin's hook
     ignores it, and one of them holds the relative-value sentence. The
-    changelog's v0.19.0 section, the README and the quickstart each keep the
-    plugin line they already have, and the sections above v0.19.0's (the
-    Unreleased section and v0.19.2's) do not hold a plugin entry of v0.19.0's. The
-    README, the quickstart, the plugin page and the plugin README say the plugin
-    installs from the `alicememory` marketplace, give the two commands, and no
-    longer say it arrives once v0.19.0 is published. The reader must not take
-    v0.19.0's behaviour for v0.18.0's.
+    changelog's v0.19.0 section and the quickstart each keep the plugin line they
+    already have, and the sections above v0.19.0's (the Unreleased section and
+    v0.19.2's) do not hold a plugin entry of v0.19.0's. The README, the
+    quickstart, the plugin page and the plugin README say the plugin installs from
+    the `alicememory` marketplace, give the two commands, and no longer say it
+    arrives once v0.19.0 is published. The README keeps no version comparison at
+    all: the v0.18.0 clause lives in the changelog, the quickstart, the plugin page
+    and the plugin README, and the README names no v0.18.0. The reader must not
+    take v0.19.0's behaviour for v0.18.0's.
 
     Mutations, each one alone: drop "v0.18.0 has no Claude Code plugin" from the
     top of either plugin file; change ``ignores`` to ``reads`` for
     ``ALICE_MEMORY_DATA_DIR``; change ``~/.alice`` to ``~/.alice-x`` in the
     option paragraph or the default sentence; delete the relative-value
     sentence; drop the unset-option reason; drop the "In v0.18.0 there is no
-    Claude Code plugin" clause from the changelog, the README or the quickstart;
-    move a plugin entry from the v0.19.0 changelog section up into the v0.19.2
+    Claude Code plugin" clause from the changelog or the quickstart; write v0.18.0
+    into the README; move a plugin entry from the v0.19.0 changelog section up into the v0.19.2
     section or back under Unreleased;
     put "once v0.19.0 is published" back into the README, the quickstart, the
     plugin page or the plugin README; drop either marketplace command from one
     of those four files; change the README's pin sentence or its add-from-main
-    sentence; put the tag-by-tag history (the v0.19.0 tag has no marketplace
+    clause; put the tag-by-tag history (the v0.19.0 tag has no marketplace
     file, the v0.19.2 tag still pins v0.19.0, the v0.20.0 tag still pins
     v0.19.2, the v0.20.2 tag still pins v0.20.0) back into the README or the
     plugin README; drop it from the plugin
@@ -1651,27 +1653,21 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         assert sentence not in unreleased, sentence
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    lines = [
-        line
-        for line in readme.splitlines()
-        if line.startswith("From v0.19.0, folder-import receipt items") and "Claude Code plugin" in line
-    ]
-    assert len(lines) == 1
-    assert "The Claude Code plugin is in `plugins/alice-memory`." in lines[0]
-    assert "v0.18.0 has no Claude Code plugin." in lines[0]
+    # The README keeps no version comparison. The v0.18.0 clause is pinned above for the changelog and below for the
+    # quickstart, the plugin page and the plugin README.
+    assert "v0.18.0" not in readme
     assert (
         "The Claude Code plugin in `plugins/alice-memory` installs from the "
-        "`alicememory` marketplace. Run:\n\n"
+        "`alicememory` marketplace:\n\n"
         "```bash\n"
         "claude plugin marketplace add samrusani/AliceMemory\n"
         "claude plugin install alice-memory@alicememory\n"
         "```\n\n"
-        "The marketplace file is on `main` and pins the plugin to the v0.20.2 tag commit. "
-        "Add the marketplace from `main`, not from a checkout of a tag: a tag's file is "
-        "missing or pins an earlier release."
+        "The marketplace file on `main` pins the plugin to the v0.20.2 tag commit, "
+        "so add it from `main`, not from a checkout of a tag. "
     ) in readme
     guide_url = "https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md"
-    assert f"See [Claude Code plugin]({guide_url}), which lists what each tag pins." in readme
+    assert "See [Claude Code plugin](docs/integrations/claude-code-plugin.md), which lists what each tag pins." in readme
 
     plugin_readme_text = " ".join((ROOT / "plugins" / "alice-memory" / "README.md").read_text(encoding="utf-8").split())
     assert (
@@ -1720,7 +1716,9 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         assert "A later post-publication change adds" not in text, name
         assert "there is nothing to add from the tag alone" not in text, name
         assert "claude plugin marketplace add samrusani/AliceMemory" in text, name
-        assert "claude plugin marketplace add <path to the clone>" in text, name
+        # The README keeps the two commands only; the clone fallback lives in the other three pages.
+        if name != "README.md":
+            assert "claude plugin marketplace add <path to the clone>" in text, name
         assert "claude plugin install alice-memory@alicememory" in text, name
 
 
@@ -1775,11 +1773,12 @@ def test_the_docs_install_from_the_repo_shorthand_with_two_fallbacks() -> None:
 
     Real host CI showed ``claude plugin marketplace add samrusani/AliceMemory``
     works on a runner with no SSH key, so the documented install no longer
-    starts with a clone. Each of README.md, the quickstart, the plugin page and
-    the plugin README gives the shorthand as the first ``marketplace add``
-    command, the HTTPS URL as the fallback for a git set to use SSH for GitHub
-    without a key, and the local clone path for readers who already have one.
-    None keeps the clone-only wording. The plugin README's update sentence says
+    starts with a clone. Each of the quickstart, the plugin page and the plugin
+    README gives the shorthand as the first ``marketplace add`` command, the HTTPS
+    URL as the fallback for a git set to use SSH for GitHub without a key, and the
+    local clone path for readers who already have one. README.md gives the
+    shorthand first and the install command, and leaves the two fallbacks to
+    those pages. None keeps the clone-only wording. The plugin README's update sentence says
     to refresh the marketplace, still names ``claude plugin update
     alice-memory@alicememory``, and no longer says pulling a clone is the whole
     refresh. The plugin page keeps the ``--config data_dir`` option and the
@@ -1799,11 +1798,16 @@ def test_the_docs_install_from_the_repo_shorthand_with_two_fallbacks() -> None:
     https = "https://github.com/samrusani/AliceMemory.git"
     clone = "claude plugin marketplace add <path to the clone>"
     names = (
-        "README.md",
         "docs/alpha/quickstart.md",
         "docs/integrations/claude-code-plugin.md",
         "plugins/alice-memory/README.md",
     )
+    readme_raw = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme_first = readme_raw.index("claude plugin marketplace add ")
+    assert readme_raw[readme_first:].startswith(shorthand)
+    assert readme_raw[readme_first + len(shorthand)] in "`\n"
+    assert " ".join(readme_raw.split()).count(shorthand) == 1
+    assert "claude plugin install alice-memory@alicememory" in readme_raw
     for name in names:
         raw = (ROOT / name).read_text(encoding="utf-8")
         text = " ".join(raw.split())
@@ -1823,6 +1827,7 @@ def test_the_docs_install_from_the_repo_shorthand_with_two_fallbacks() -> None:
             "pull your clone so its marketplace file carries the new pin",
         ):
             assert gone not in text, (name, gone)
+            assert gone not in " ".join(readme_raw.split()), gone
 
     plugin_readme = " ".join((PLUGIN / "README.md").read_text(encoding="utf-8").split())
     assert (

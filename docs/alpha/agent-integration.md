@@ -170,6 +170,25 @@ The full verb contract — remember, recall, correct, confirm, undo, forget,
 audit — with outcomes and audit guarantees per verb is documented in the
 [Memory Operations Protocol](../memory-operations-protocol.md).
 
+## Skill packs
+
+Optional. Packs exist for 2 of the 7 install hosts, Hermes and OpenClaw. Nothing in this repo measures whether a pack
+changes what an agent does. [`agent-skills/hermes/alice-memory`](../../agent-skills/hermes/alice-memory) and
+[`agent-skills/openclaw/alice-project-memory`](../../agent-skills/openclaw/alice-project-memory) are the packs under
+`agent-skills/`. Copy the directory, not the file:
+
+```bash
+cp -R agent-skills/openclaw/alice-project-memory ~/.openclaw/skills/
+cp -R agent-skills/hermes/alice-memory ~/.hermes/skills/
+```
+
+An older Hermes pack at `docs/integrations/hermes-skill-pack/skills/alice-workflows/` is legacy. It uses the manual
+`alice_core` server name plus full-surface tools; see [Hermes skill pack](../integrations/hermes-skill-pack.md).
+
+Both hosts load `<skill-name>/SKILL.md` and read the frontmatter `description` to decide when the skill applies. A skill
+grants no tools on its own; it tells an agent how to use the ones the MCP server already provides. The instruction blocks
+you paste into an agent's prompt are [hermes-skill.md](hermes-skill.md) and [openclaw-skill.md](openclaw-skill.md).
+
 ## Agent Identity Fields
 
 ```json

@@ -20,13 +20,13 @@ uvx alice-memory demo --vault ~/Notes --data-dir ~/.alice-demo
 
 Alice is a local-first memory service for AI agents. It lets them resume interrupted work, track open loops, recall decisions with provenance, and improve when corrected. They do not have to re-read transcripts or trust opaque summaries.
 
-Alice is a public alpha with one maintainer, and most of its code is written by AI coding agents ([how it is built](#how-it-is-built)). Read the [known limitations](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/known-limitations.md) before you rely on it.
+Alice is a public alpha with one maintainer, and most of its code is written by AI coding agents ([how it is built](#how-it-is-built)). Read the [known limitations](docs/alpha/known-limitations.md) before you rely on it.
 
 Agents connect over MCP, HTTP API, or CLI. Humans stay in control. Agent writes land as policy-checked commits or reviewable proposals. On SQLite you approve, correct, or forget memory with the full tool set (`ALICE_MCP_FULL_TOOLS=1`). The Postgres stack adds a local review console.
 
 ## How Alice compares
 
-Most agent memory tools, such as mem0, Zep, and Letta, focus on extracting facts from conversations and retrieving them later. That solves recall, and they do it well. Alice focuses on continuity: it stores typed continuity objects (decisions, open loops, resumption briefs) alongside plain memories; source-backed answers trace to the evidence that was supplied; and writes are review-governed, so an agent cannot silently promote a bad extraction into durable truth. Explicit commits may legitimately have no source reference. If you mainly need conversational fact recall, those tools are solid choices. If your agents need to resume work, honor past decisions, and explain why they believe something, that is what Alice is built for.
+Most agent memory tools, such as mem0, Zep, and Letta, focus on extracting facts from conversations and retrieving them later. Alice focuses on continuity: it stores typed continuity objects (decisions, open loops, resumption briefs) alongside plain memories; source-backed answers trace to the evidence that was supplied; and writes are review-governed, so an agent cannot silently promote a bad extraction into durable truth. Explicit commits may legitimately have no source reference. If you mainly need conversational fact recall, those tools are solid choices. If your agents need to resume work, honor past decisions, and explain why they believe something, that is what Alice is built for.
 
 Alice runs alongside other memory tools. A stack can use a fact-extraction memory for conversational recall and Alice for governed continuity.
 
@@ -52,28 +52,26 @@ uvx alice-memory install --data-dir ~/.alice
 # or, without uv: pip install alice-memory && alice-memory install --data-dir ~/.alice
 ```
 
-That writes Claude Desktop, Claude Code, Cursor, and OpenClaw MCP config. Claude Code and Cursor also get a SessionStart hook so the next session can inject the brief. Hermes is opt-in. `--host hermes` configures Hermes only, because any `--host` replaces the default set. To write those five, pass `--host claude-desktop --host claude-code --host cursor --host openclaw --host hermes`. Without `uvx` on PATH, install writes the path of the installed `alice-memory` scripts instead. It warns if it finds neither `uvx` nor those scripts. On Claude Desktop, Claude Code, Cursor and OpenClaw, a re-run keeps any keys you added to the Alice entry. On Hermes it keeps only the documented Alice env values and refuses while the entry has other keys. A re-run keeps your data dir unless you pass `--data-dir`. It backs up each file before it rewrites it. `--dry-run` prints the plan and writes nothing. The command writes host config. It does not import a vault. The details are in [Install with alice-memory](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/quickstart.md#install-with-alice-memory).
+That writes Claude Desktop, Claude Code, Cursor, and OpenClaw MCP config, plus a SessionStart hook for Claude Code and Cursor so the next session can inject the brief. It backs up each file before it rewrites it, and `--dry-run` prints the plan and writes nothing. It does not import a vault. See [Install with alice-memory](docs/alpha/quickstart.md#install-with-alice-memory).
 
-OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. See [OpenCode](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/opencode.md).
+Any `--host` replaces the default set, so name every host you want written.
 
-Codex is opt-in with `--host codex`, which edits `config.toml` in Codex's home as text and writes a SessionStart hook to `hooks.json` there. Codex skips the hook until you trust it once at "Hooks need review" or with `/hooks`. See [Codex](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/codex.md).
+Hermes is opt-in with `--host hermes`, which edits `config.yaml` in Hermes's home. See [Hermes](docs/integrations/hermes.md).
 
-The Claude Code plugin in `plugins/alice-memory` installs from the `alicememory` marketplace. Run:
+OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. See [OpenCode](docs/integrations/opencode.md).
+
+Codex is opt-in with `--host codex`, which edits `config.toml` in Codex's home and adds a SessionStart hook that Codex skips until you trust it once. See [Codex](docs/integrations/codex.md).
+
+The Claude Code plugin in `plugins/alice-memory` installs from the `alicememory` marketplace:
 
 ```bash
 claude plugin marketplace add samrusani/AliceMemory
 claude plugin install alice-memory@alicememory
 ```
 
-The marketplace file is on `main` and pins the plugin to the v0.20.2 tag commit. Add the marketplace from `main`, not from a checkout of a tag: a tag's file is missing or pins an earlier release. If git on your machine is set to use SSH for GitHub and you have no key there, add `https://github.com/samrusani/AliceMemory.git` instead. If you already have a clone, `claude plugin marketplace add <path to the clone>` works too. Use the plugin or `--host claude-code`, not both. See [Claude Code plugin](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md), which lists what each tag pins.
+The marketplace file on `main` pins the plugin to the v0.20.2 tag commit, so add it from `main`, not from a checkout of a tag. See [Claude Code plugin](docs/integrations/claude-code-plugin.md), which lists what each tag pins.
 
-OpenClaw can also add the server in one line, which probes before saving:
-
-```bash
-openclaw mcp add alice --command uvx --arg alice-memory --arg mcp --arg --data-dir --arg ~/.alice
-```
-
-Or paste this into a host that still wants a file. There is no `DATABASE_URL`:
+For a host that wants a config file, paste this (no `DATABASE_URL`):
 
 ```json
 {
@@ -95,38 +93,11 @@ uvx alice-memory mcp --data-dir ~/.alice
 
 OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches the model as `alice__alice_recall`.
 
-#### Skill packs
-
-Optional. Packs exist for 2 of the 7 install hosts, Hermes and OpenClaw.
-Nothing in this repo measures whether a pack changes what an agent does.
-[`agent-skills/hermes/alice-memory`](https://github.com/samrusani/AliceMemory/tree/main/agent-skills/hermes/alice-memory)
-and [`agent-skills/openclaw/alice-project-memory`](https://github.com/samrusani/AliceMemory/tree/main/agent-skills/openclaw/alice-project-memory)
-are the packs under `agent-skills/`. Copy the directory, not the file:
-
-```bash
-cp -R agent-skills/openclaw/alice-project-memory ~/.openclaw/skills/
-cp -R agent-skills/hermes/alice-memory ~/.hermes/skills/
-```
-
-An older Hermes pack at
-`docs/integrations/hermes-skill-pack/skills/alice-workflows/` is legacy. It
-uses the manual `alice_core` server name plus full-surface tools.
-
-Both hosts load `<skill-name>/SKILL.md` and read the frontmatter `description` to decide
-when the skill applies. A skill grants no tools on its own; it tells an agent how to use
-the ones the MCP server already provides.
-
-SQLite mode is the single-agent path and the one most agents should use: it serves the default three tools for one user. Capture, the pack, and review are on the full surface (`ALICE_MCP_FULL_TOOLS=1`). Boundaries are listed in [known limitations](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/known-limitations.md).
-
 > **Install note:** the PyPI package is [`alice-memory`](https://pypi.org/project/alice-memory/). The name `alice-core` on PyPI belongs to an unrelated project.
 
 ### Full stack (Postgres + review console)
 
-For Postgres with pgvector, the web review console, and the core memory
-scheduler workflows, run from a repo checkout. Requirements: Python 3.12+,
-Node 20+, pnpm, Docker, Git.
-
-The clone checks out `main`, which can be ahead of the latest release. To run v0.20.2, run `git checkout v0.20.2` before `make setup`.
+For Postgres with pgvector, the web review console, and the core memory scheduler workflows, run from a repo checkout. Requirements: Python 3.12+, Node 20+, pnpm, Docker, Git. The clone checks out `main`, which can be ahead of the latest release. To run v0.20.2, run `git checkout v0.20.2` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git
@@ -137,64 +108,23 @@ make doctor
 make dev
 ```
 
-- `make setup` creates `.env` files from checked-in examples and installs Python and web dependencies.
-- `make migrate` starts local services (Postgres via Docker) and runs database migrations.
-- `make doctor` runs readiness checks and applies safe fixes.
-- `make dev` runs the API on port 8000 and the web review console on port 3000.
-
-Open the review console at `http://localhost:3000/vnext`. The detailed walkthrough, with demo data, smoke checks, and a first memory, is in [the alpha quickstart](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/quickstart.md).
+`make dev` runs the API on port 8000 and the review console at `http://localhost:3000/vnext`. The [alpha quickstart](docs/alpha/quickstart.md) has the full walkthrough, with demo data and smoke checks.
 
 ## Connect an agent
 
 ### MCP
 
-Point any MCP-capable agent or IDE at the Alice server. For the packaged SQLite runtime, use the `uvx` config from the Quickstart above. For the full Postgres stack from a checkout:
-
-```json
-{
-  "mcpServers": {
-    "alice": {
-      "command": "/ABSOLUTE/PATH/TO/AliceMemory/.venv/bin/python",
-      "args": ["-m", "alicebot_api.mcp_server"],
-      "cwd": "/ABSOLUTE/PATH/TO/AliceMemory",
-      "env": {
-        "DATABASE_URL": "postgresql://alicebot_app:alicebot_app@localhost:5432/alicebot",
-        "ALICEBOT_AUTH_USER_ID": "00000000-0000-0000-0000-000000000001"
-      }
-    }
-  }
-}
-```
+Point any MCP-capable agent or IDE at the Alice server. For the packaged SQLite runtime, use the `uvx` config from the Quickstart. For the full Postgres stack from a checkout, use the config in [agent integration](docs/alpha/agent-integration.md).
 
 The default MCP surface is three tools:
 
-- `alice_memory_commit`: **record one fact as durable, immediately recallable memory.** This is the verb for ordinary memory, including when the user has not asked the agent to remember. Policy-checked: committed, confirmation-required, review-required, or rejected
-- `alice_recall`: search memory (full-text, vector and entity-graph results fused by rank, with vectors only when an embeddings endpoint is set; hard-scopable by thread, task, project, person, time, and memory type). Also returns matching passages from captured documents under `sources`, with an excerpt to read and quote; `results` are facts Alice asserts, `sources` are material the user imported, and the same scope fence applies to both
-- `alice_resume`: resumption brief for a project or thread
+- `alice_memory_commit`: **record one fact as durable, immediately recallable memory.** Policy-checked: committed, confirmation-required, review-required, or rejected.
+- `alice_recall`: search memory, with full-text, vector and entity-graph results fused by rank. Also returns matching passages from captured documents under `sources`.
+- `alice_resume`: resumption brief for a project or thread.
 
-The other core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. Unreleased (on main, not in v0.20.2): `alice_what_changed` is one of the other nine core tools, and v0.20.2 does not have it. Capture stores a source; candidates stay unsearchable as memories. Import is a source. Commit is a fact.
+The other core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. Unreleased (on main, not in v0.20.2): `alice_what_changed` is one of the other nine core tools, and v0.20.2 does not have it. Capture and import store sources; commit stores a fact.
 
-From v0.19.0, folder-import receipt items name the file, a withheld ChatGPT title is counted, the Postgres doctor names `DELETE /v0/vnext/sources/{id}`, candidate capture withholds a token and committing that withheld text is refused, a flagged import line, message, or title is withheld and the rest is imported, `alice_capture` refuses a low-entropy AKIA-shaped key and both imports withhold it, an install dry run shows top-level booleans and numbers on Claude Desktop, Claude Code, Cursor, OpenClaw and OpenCode, and Codex is opt-in with `--host codex`. In v0.18.0 those receipt items omit the file, that title is not counted, the doctor says `delete_source`, the candidate response echoes the token, capture stores a low-entropy AKIA-shaped key, a dry run prints a top-level boolean or number, such as OpenCode's `"enabled": false`, as `<hidden>`, and there is no Codex install. `--host codex` also writes a SessionStart hook to `hooks.json`, which Codex skips until you trust it once at "Hooks need review" or with `/hooks`. In v0.18.0 there is no Codex hook. The Claude Code plugin is in `plugins/alice-memory`. v0.18.0 has no Claude Code plugin.
-
-From v0.20.0, `alice-memory import-markdown`, `alice-memory import-chatgpt` and the two `alicebot vnext sources` imports refuse a file over 16 MiB (Markdown) or 512 MiB (ChatGPT export) before they read it, with the error `import_file_too_large`, and `--max-file-mib N` changes the limit. The limit is per file, not per folder. `alicebot vnext sources capture-file` and the `--file` options of `alicebot vnext connectors browser-clipper capture` and `alicebot vnext agents ingest-output` take the same limit (16 MiB) and `--max-file-mib N`. A ChatGPT conversation of any length imports, and one that cannot be read is named by its position (`conversation 2 refused: conversation_unreadable`) while the others import. In v0.19.2 there is no size limit, and a conversation of about 1,000 replies in one chain fails the whole `import-chatgpt` with `alice_memory_failed` and imports nothing. See [docs/integrations/importers.md](docs/integrations/importers.md).
-
-From v0.19.0, the session brief omits a superseded fact and a source line whose captured sentence was corrected or superseded later, while recall and the context pack keep that old passage and set `derived_memory_corrected`. In v0.18.0 the brief still prints the old sentence as a fact or a source line, and the excerpt is unmarked.
-
-From v0.19.0, every MCP tool declares hints. From v0.19.2, `alice_recall`, `alice_resume`, `alice_context_pack`, `alice_recent_decisions`, `alice_explain`, and `alice_memory_review` are marked read-only. `alice_memory_review` only lists items or shows one, and v0.19.0 marked it destructive, grouped with the tools that act on the review queue. `alice_memory_commit` and `alice_capture` are marked non-destructive, which is true of adding a fact. `alice_memory_commit` called with `confirmation_id` and `confirmation_action` instead updates the one pending write it names, so by Codex's default approval rule neither call prompts, and the confirm step relies on the agent asking the user. `alice_memory_correct`, `alice_memory_manage`, and `alice_open_loops` are marked destructive. Codex's default approval rule, as this repo records it, skips its prompt for the read-only and non-destructive tools, and no test here runs that prompt. In v0.18.0 these tools declare no hints.
-
-From v0.19.0, a long session-brief note is cut to at most 1,500 characters with a marker outside the quote, later short items still fit, and the brief stays under 9,500 characters. The reserve is UTF-16 code units and includes the caller's newline, so the brief is at most 9,499 minus the reserve. The hook's final cap drops whole trailing lines and does not cut inside a line. `alice-memory doctor` prints `N / 9500 characters`. A long newest fact, open loop, explicit query or source title no longer empties the brief: a search string over 40,000 raw or casefolded UTF-8 bytes, or with more than 499 distinct search terms, is cut to a few hundred characters of its tokens, and its facts and loops still print. In v0.18.0 that note was dropped when it did not fit the token budget, a brief could run past 15,000 characters, the doctor line was a token estimate, and a fact of more than about 990 distinct words, or of about 50,000 bytes with a source in the vault, made the hook print `{}`.
-
-From v0.19.2, `alice_recall` and `alice_context_pack` on the SQLite vault refuse, before they search, a query of more than 499 distinct search terms or over 40,000 UTF-8 bytes (counted as sent and again after case folding), with `invalid_request` and a message that names the limit. The query is never cut to fit. In v0.19.0 a query of about 991 or more distinct terms, or over about 50,000 bytes with a captured source in the vault, returned `tool_execution_failed` with no detail, and a query of 500 to 990 distinct terms, or of 40,001 to about 50,000 bytes, was taken. `alice_resume` and `alice_recent_decisions` are not covered by that check in v0.19.2. From v0.20.0, they refuse a query over 40,000 UTF-8 bytes (counted as sent and again after each backslash, `%` and `_` is escaped) the same way, before they read anything. In v0.19.2 a query of 49,999 plain bytes or more returns `tool_execution_failed` from `alice_resume` once the vault holds an active memory of any type or an open loop, and from `alice_recent_decisions` once it holds a stored decision.
-
-From v0.19.2, `alice-memory-session-start` refuses a relative or unexpanded `ALICE_MEMORY_DATA_DIR`, such as the literal `${HOME}/.alice`, with one line that names the value, and exits 0. In v0.19.0 the hook creates a vault under the current directory for that value. Also from v0.19.2, a stored note that contains `jsonrpc` or `Content-Length:` no longer empties the session brief, which it did from v0.16.0 through v0.19.0.
-
-From v0.19.2, `alice-memory import` restores a stored claim that an agent API key wrote a row as an unverified claim (`auth: imported_claim`), lists credential-shaped text in records it does not refuse, and `alice-memory doctor` reads source chunk text. `POST /v1/memory/operations/commit` applies without review only a user turn that matched an explicit prefix, and queues the rest as `review_required`. `alice_recall` and `alice_context_pack` leave out a memory id the caller cannot read. Hermes provider 0.5.2 keeps a turn's user text and assistant text apart. In v0.19.0 a row restored from an edited backup can read `verified_by_key` with no key behind it, a token that sits only in a chunk prints `flagged sources: 0`, the `/v1` route applies an assistant line such as `decision: ship X`, recall names those ids, and provider 0.5.1 can take an assistant line for the user's own decision. The [v0.19.2 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.19.2-release-notes.md) list what it left open, and a dated update beside each item that v0.20.0 fixed says so.
-
-Calling directly from a human client (Claude Desktop, an IDE)? `alice_memory_commit` needs only `title` and `canonical_text`, with no identity fields. Agent integrations declare `agent_id` and `agent_type`; see [agent integration](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/agent-integration.md).
-
-The write verbs follow one contract. Outcomes, audit guarantees, and honest boundaries per verb are documented in the [Memory Operations Protocol](https://github.com/samrusani/AliceMemory/blob/main/docs/memory-operations-protocol.md). Removed backing services no longer have MCP tools. Retained long-tail memory tools require `ALICE_MCP_LEGACY_TOOLS=1` and append to whatever core set is enabled; exactly `alice_task_brief`, `alice_task_brief_show`, and `alice_task_brief_compare` additionally require `ALICE_LEGACY_SURFACES=1`. All legacy tools require a deliberately keyless local-operator deployment; a server bound with `ALICE_AGENT_API_KEY` exposes only the enabled core set.
-
-Custom agents calling the HTTP API authenticate with per-agent API keys. See [agent integration](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/agent-integration.md).
+Calling directly from a human client (Claude Desktop, an IDE)? `alice_memory_commit` needs only `title` and `canonical_text`, with no identity fields. Agent integrations declare `agent_id` and `agent_type`, and custom agents calling the HTTP API use per-agent API keys; see [agent integration](docs/alpha/agent-integration.md), which also covers the optional [skill packs](docs/alpha/agent-integration.md#skill-packs). Every tool is listed in [MCP tools](docs/alpha/mcp-tools.md). The retained legacy tools need `ALICE_MCP_LEGACY_TOOLS=1` and a keyless local-operator server; see the [MCP guide](docs/integrations/mcp.md).
 
 ### Embeddings
 
@@ -206,64 +136,43 @@ ALICE_EMBEDDINGS_MODEL=nomic-embed-text
 ALICE_EMBEDDINGS_API_KEY=            # only if the endpoint requires one
 ```
 
-From v0.20.0, Alice cuts the text of each memory, and each recall query, to its first 8,000 characters before it sends it to the embeddings endpoint, and labels the vector of a cut memory as made from a cut text. Set `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` (256 to 1,000,000) lower for a model with a smaller window, for example 1,500 for one that takes 512 tokens, or higher for long memories on a model with a large window: a memory whose embedded text (its title, text and summary) is over 8,000 characters is embedded from its first 8,000. Changing the cap makes `alice-memory reindex-embeddings` re-embed only the memories whose embedded text changes. When the endpoint refuses one memory, reindex still embeds the others, lists the failed memory ids and the endpoint's reason (at most 300 characters, withheld if it looks like a credential), and `alice-memory doctor` prints the `memories without a current vector` count. Nothing is re-embedded by the upgrade itself, but the first `alice-memory reindex-embeddings` after it makes the vector again for each memory whose embedded text is over the cap, and the doctor count shows how many that is. In v0.19.2 there is no cap, one over-long memory fails its whole batch of 128 with `HTTP 400` and no id, and a model that cuts text without saying so gets a vector of the head of the text that nothing marks as cut.
-
-From v0.20.0, Alice sends the text of a memory to the embeddings endpoint only when recall can return it, which means its status is active or accepted and its `valid_to`, if it has one, has not passed. A write that waits for confirmation, a proposal that waits for review and the candidate memories that capture and the connectors write are not embedded when they are created. Each is embedded once, when it becomes active (confirm, approve, correct), and a rejected one is never sent. `alice-memory reindex-embeddings`, `alicebot vnext memories backfill-embeddings` and the `memories without a current vector` count in `alice-memory doctor` use the same test, so a forgotten, rejected, candidate or expired memory is not sent or counted, and one that becomes active, or whose `valid_to` is cleared, is embedded by the next run. In v0.19.2 a pending write or a candidate was sent when it was created, and again when it was confirmed or approved, and reindex and the backfill sent every memory with no current vector, whatever its status or `valid_to`. Text already sent cannot be recalled from the endpoint.
-
-Search fuses full-text, vector, and entity-graph results by reciprocal rank.
-On SQLite that is FTS5 and cosine similarity. On Postgres it is full-text search
-and pgvector 0.8+ (iterative HNSW). With no embeddings endpoint, search skips the
-vector list and the retrieval trace says so.
+Alice embeds only memories that recall can return, and cuts each memory and each query to its first 8,000 characters; `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` changes that cap. Search fuses full-text, vector, and entity-graph results by reciprocal rank: FTS5 and cosine similarity on SQLite, full-text search and pgvector 0.8+ (iterative HNSW) on Postgres. With no embeddings endpoint, search skips the vector list and the retrieval trace says so. Details are in [MCP tools](docs/alpha/mcp-tools.md#embeddings).
 
 ## Benchmark
 
-A LongMemEval_s receipt of 81.2% mean over three independent full runs (80.8 / 81.0 / 81.8; 404-409 of 500) was measured 2026-07-18/19 on the published `v0.12.0` tag with the privileged `store_chunks` harness. That path reads chunks straight from the store. No MCP tool offers it, and it is not the product path. `pack_excerpts` is the product-path mode and is not yet a published score. Per-question evidence for all three runs, the reader/judge/embedding configuration, and the reproduction script are committed to this repo. Multi-session is the weakest category at roughly 63%. The 30-question abstention subset is noisy across runs (76.7 / 90.0 / 83.3) and should not be quoted to one decimal. The earlier single run of 79.4% (397/500) from 2026-07-07 is retained as evidence.
-
-Known issue with this number. In the LongMemEval_s data, the id of every session that holds a question's evidence starts with `answer_`, and no other session id does. Our harness put that id in the header above each excerpt and in the first line of each session's text, so the model answering the question could see which sessions held the evidence. In the three runs, a retrieved session carried that label on 495 of 500 questions, and in 29 to 32 answers per run the model named such a session id in its reasoning. We have not measured how much this helped, so 81.2% may overstate the result by an unknown amount. The earlier 64.6% and 79.4% runs used the same harness code. The next LongMemEval result we publish will hide the ids, use the product-path `pack_excerpts` mode, and replace these numbers rather than sit beside them.
+The published LongMemEval figures carry a known issue: the model answering each question could see which sessions held the evidence. [Alice on LongMemEval](docs/benchmarks/longmemeval/README.md) gives the figures, the method and the issue. The [showcase baseline](docs/benchmarks/showcase/phase0-baseline.md) compares Alice with grep, a note folder and no tool on two question sets, measured on main after v0.20.2.
 
 ## Status
 
-`v0.20.2` is the latest published release and remains the install, checksum,
-and release-note baseline (the `v0.9.3`, `v0.10.0`, `v0.13.0`, `v0.15.0`,
-`v0.19.1` and `v0.20.1` tags were never published). Its tag, release record, and published
-artifacts are immutable. `v0.20.0` is the immediately prior published release.
-`v0.12.0` was the structural refactor release. Structure only. Zero behavior change.
-Alice is a public-alpha, pre-1.0 project.
-What that means in practice:
+`v0.20.2` is the latest published release and remains the install, checksum, and release-note baseline. `v0.20.0` is the immediately prior published release. [Current state](CURRENT_STATE.md) lists the tags that were never published. Alice is a public-alpha, pre-1.0 project:
 
 - **Local-first, single-user.** One operator, one machine (or one headless server reached over SSH).
 - **Review-governed writes.** Agents propose or commit through policy; outcomes are commit, confirm, review, or reject. The review step is the trust boundary for durable memory.
 - **No hosted service.** There is no cloud offering yet; you run Alice yourself.
-- **No channels or bundled chat runtime.** Telegram, hosted administration,
-  chief-of-staff/chat/model-pack features, and the public `/v0/responses` chat
-  endpoint are not part of the current product. Retained `/v1/runtime/invoke`
-  still uses internal durable response-job/provider machinery.
-- **No managed OAuth or automatic polling.** Temporary manual-token Gmail and
-  Calendar compatibility is unmounted by default behind
-  `ALICE_LEGACY_SURFACES=1`; Alice does not provide managed consent or syncing.
+- **No channels or bundled chat runtime.** Telegram, hosted administration, chief-of-staff and chat features, and the public `/v0/responses` endpoint are not part of the current product.
+- **No managed OAuth or automatic polling.** Gmail and Calendar compatibility is manual-token only, and unmounted by default behind `ALICE_LEGACY_SURFACES=1`.
 - **No automatic capture from arbitrary conversation.** Durable memory comes from explicit commits, reviewable proposals, or captured sources, never from silent transcript mining.
-- **No OCR or transcription execution.** Alice accepts text extracted by an
-  external tool; it does not run OCR or transcription models.
+- **No OCR or transcription execution.** Alice accepts text extracted by an external tool.
 
 ## Docs
 
-- [Quickstart walkthrough](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/quickstart.md)
-- [Agent integration](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/agent-integration.md)
-- [MCP tools](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/mcp-tools.md)
-- [Custom agent guide](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/custom-agent-guide.md)
-- [Known limitations](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/known-limitations.md)
-- [Backup and restore](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/backup-and-restore.md)
-- [Single-tenant deployment](https://github.com/samrusani/AliceMemory/blob/main/docs/deployment/single-tenant-self-hosted.md)
-- [Disaster recovery](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/disaster-recovery.md)
-- [Health and monitoring](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/health-and-monitoring.md)
-- [Upgrade v0.12.0 to current](https://github.com/samrusani/AliceMemory/blob/main/docs/runbooks/upgrade-v0.12-to-current.md)
-- [Security and privacy](https://github.com/samrusani/AliceMemory/blob/main/docs/alpha/security-and-privacy.md)
-- [v0.20.2 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.20.2-release-notes.md)
+- [Quickstart walkthrough](docs/alpha/quickstart.md)
+- [Agent integration](docs/alpha/agent-integration.md)
+- [MCP tools](docs/alpha/mcp-tools.md)
+- [Custom agent guide](docs/alpha/custom-agent-guide.md)
+- [Known limitations](docs/alpha/known-limitations.md)
+- [Backup and restore](docs/alpha/backup-and-restore.md)
+- [Single-tenant deployment](docs/deployment/single-tenant-self-hosted.md)
+- [Disaster recovery](docs/runbooks/disaster-recovery.md)
+- [Health and monitoring](docs/runbooks/health-and-monitoring.md)
+- [Upgrade v0.12.0 to current](docs/runbooks/upgrade-v0.12-to-current.md)
+- [Security and privacy](docs/alpha/security-and-privacy.md)
+- [v0.20.2 release notes](docs/release/v0.20.2-release-notes.md)
 - [All release notes](https://github.com/samrusani/AliceMemory/releases)
-- [Release procedure](https://github.com/samrusani/AliceMemory/blob/main/RELEASING.md)
-- [Architecture](https://github.com/samrusani/AliceMemory/blob/main/ARCHITECTURE.md)
-- [Roadmap](https://github.com/samrusani/AliceMemory/blob/main/ROADMAP.md)
-- [Changelog](https://github.com/samrusani/AliceMemory/blob/main/CHANGELOG.md)
+- [Release procedure](RELEASING.md)
+- [Architecture](ARCHITECTURE.md)
+- [Roadmap](ROADMAP.md)
+- [Changelog](CHANGELOG.md)
 
 ## How it is built
 
@@ -271,14 +180,14 @@ Most of the code is written by AI coding agents (Codex, Claude Code and Cursor's
 
 ## Contributing
 
-Issues, integrations, importers, and eval contributions are welcome. See [CONTRIBUTING.md](https://github.com/samrusani/AliceMemory/blob/main/CONTRIBUTING.md).
+Issues, integrations, importers, and eval contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security
 
 Security posture: automated security scanning and internal adversarial review, findings triaged and fixed. No one outside the project has audited the code.
 
-If you discover a security issue, follow the process in [SECURITY.md](https://github.com/samrusani/AliceMemory/blob/main/SECURITY.md).
+If you discover a security issue, follow the process in [SECURITY.md](SECURITY.md).
 
 ## License
 
-MIT. See [LICENSE](https://github.com/samrusani/AliceMemory/blob/main/LICENSE).
+MIT. See [LICENSE](LICENSE).
