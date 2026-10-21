@@ -1,0 +1,85 @@
+name: Publish recheck rehearsal
+
+on:
+  # Dispatch it on the ref you are about to release: it runs on the ref it is
+  # dispatched from. It never runs on a pull request and is not a required check.
+  workflow_dispatch:
+  # Weekly, so a change to the suite that only breaks the one-process rerun
+  # surfaces while it is cheap and not at a release tag. The slot is not the hour
+  # of semantic-release-gate.yml.
+  schedule:
+    - cron: "37 5 * * 3"
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse-publish-recheck:
+    name: Rehearse the publish recheck step
+    runs-on: ubuntu-latest
+    # Equal to the build-and-verify job of publish-pypi.yml. The recheck below runs
+    # the whole unit suite in one process, as that job does, and
+    # tests/unit/test_publish_recheck_rehearsal.py fails when the two limits differ.
+    timeout-minutes: 120
+    steps:
+      - name: Checkout the exact workflow SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          # Full history and tags: a unit test reads the published release notes
+          # at their tags with git show, as it does on a release tag.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install release dependencies
+        run: |
+          python -m pip install -e '.[dev]'
+          python -m pip install build==1.5.0
+
+      # The recheck step below must stay byte-identical to the step of the same name
+      # in publish-pypi.yml, so its time is taken around it and not inside it.
+      - name: Record the time the recheck starts
+        run: echo "RECHECK_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Recheck release-critical source tests and coverage
+        id: recheck
+        run: |
+          python -m pytest tests/unit -q --cov=alicebot_api --cov-report=term --cov-report=json:/tmp/alicebot-python-coverage.json --cov-fail-under=50
+          python scripts/check_python_coverage.py --coverage-json /tmp/alicebot-python-coverage.json --path apps/api/src/alicebot_api/main.py --path apps/api/src/alicebot_api/routers/_api_shared.py --path apps/api/src/alicebot_api/routers/_vnext_automation.py --path apps/api/src/alicebot_api/routers/_vnext_embeddings.py --path apps/api/src/alicebot_api/routers/_vnext_shared.py --path apps/api/src/alicebot_api/routers/continuity.py --path apps/api/src/alicebot_api/routers/legacy_gated.py --path apps/api/src/alicebot_api/routers/memories_legacy.py --path apps/api/src/alicebot_api/routers/providers.py --path apps/api/src/alicebot_api/routers/vnext_memories.py --path apps/api/src/alicebot_api/routers/vnext_projects.py --path apps/api/src/alicebot_api/routers/vnext_retrieval.py --path apps/api/src/alicebot_api/routers/vnext_changes.py --path apps/api/src/alicebot_api/routers/vnext_review.py --path apps/api/src/alicebot_api/routers/workspaces.py --min-percent 45
+          python -m pytest eval/longmemeval -q
+          python scripts/check_longmemeval_evidence.py
+
+      # A release step that is expected to take more than half its limit blocks the
+      # tag. The limit here is half of the job's timeout-minutes, and the unit test
+      # keeps JOB_TIMEOUT_MINUTES equal to it.
+      - name: Report the recheck duration and enforce the half-limit rule
+        if: ${{ !cancelled() && steps.recheck.outcome != 'skipped' }}
+        env:
+          JOB_TIMEOUT_MINUTES: "120"
+          RECHECK_OUTCOME: ${{ steps.recheck.outcome }}
+        run: |
+          elapsed=$(( $(date +%s) - RECHECK_STARTED_AT ))
+          limit=$(( JOB_TIMEOUT_MINUTES * 60 / 2 ))
+          # The count comes from a second collection, after the time was taken.
+          # It is a report line, so a failure to collect does not fail the rehearsal.
+          collected="$(python -m pytest tests/unit --collect-only -q 2>/dev/null | tail -n 1 || true)"
+          {
+            echo "### Publish recheck rehearsal"
+            echo
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| Commit | \`$GITHUB_SHA\` |"
+            echo "| Recheck step outcome | ${RECHECK_OUTCOME} |"
+            echo "| Recheck step duration | ${elapsed} s ($(( elapsed / 60 )) min $(( elapsed % 60 )) s) |"
+            echo "| Most the rule allows (half of ${JOB_TIMEOUT_MINUTES} min) | ${limit} s |"
+            echo "| Unit tests | ${collected:-not counted} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$elapsed" -gt "$limit" ]; then
+            echo "::error::The recheck step took ${elapsed} s, more than half of the ${JOB_TIMEOUT_MINUTES} minute limit (${limit} s). A release step that slow blocks the tag."
+            exit 1
+          fi
