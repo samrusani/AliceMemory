@@ -13,11 +13,11 @@ Fields
 ``mode``
     ``document`` is the ranking v0.20.0 has: sources are fused by document, each
     document shows the one chunk that won, and the result holds at most one entry
-    per document.     ``passage`` is the ranking of the passage-level slice: chunks
+    per document. ``passage`` is the ranking of the passage-level slice: chunks
     rank on their own, several passages of one document may come back and the same
-    source id may repeat. ``alice_recall`` runs it when
-    ``ALICE_SEARCH_QUALITY=passage``. The pack, the brief and every other caller
-    stay on ``document``.
+    source id may repeat. ``alice_recall`` runs it by default on the SQLite store
+    and when ``ALICE_SEARCH_QUALITY=passage``. The pack, the brief and every other
+    caller stay on ``document``.
 
 ``passages_per_source``
     The most passages one document may contribute in ``passage`` mode. Document
@@ -97,20 +97,24 @@ class SourceRanking:
         return cls(mode="passage", passages_per_source=PASSAGES_PER_SOURCE, lexical="legacy")
 
     @classmethod
-    def from_environment(cls, environ: Mapping[str, str] | None = None) -> SourceRanking:
+    def from_environment(
+        cls, environ: Mapping[str, str] | None = None, *, unset: SourceRanking | None = None
+    ) -> SourceRanking:
         """The ranking ``ALICE_SEARCH_QUALITY`` names.
 
-        Unset and ``off`` are document mode. ``passage`` is :meth:`passage`.
-        ``on`` is the passage cap with the improved lexical query, which this
-        build refuses at the stage. Any other value is refused here. Library
-        code does not call this: the MCP recall edge does, then applies the
-        PostgreSQL limited-key rule.
+        ``off`` is document mode. ``passage`` is :meth:`passage`. ``on`` is the
+        passage cap with the improved lexical query, which this build refuses
+        at the stage. Any other value is refused here. An unset variable is
+        ``unset``, which is document mode unless the caller passes another
+        ranking: the MCP recall edge passes the default of the store it reads.
+        Library code does not call this: the MCP recall edge does, then applies
+        the PostgreSQL limited-key rule.
         """
 
         source = os.environ if environ is None else environ
         raw = source.get(SEARCH_QUALITY_ENV)
         if raw is None:
-            return cls.document()
+            return cls.document() if unset is None else unset
         value = raw.strip().casefold()
         if value == "off":
             return cls.document()

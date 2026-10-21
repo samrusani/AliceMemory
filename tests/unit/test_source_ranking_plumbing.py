@@ -349,7 +349,10 @@ def test_the_three_production_callers_write_the_document_ranking(
 
     Each route is run for real over a vault that holds one matching source. The control is that
     every named entry point was reached, so a route that stopped reading sources cannot pass by
-    recording nothing.
+    recording nothing. Passage mode is the SQLite default of ``alice_recall``, so the recall route
+    sets ``ALICE_SEARCH_QUALITY=off`` and still checks that the edge hands the stage the document
+    ranking it was asked for. The pack and the brief run with the variable unset, as they do for
+    everyone (``test_sqlite_passage_default.py`` checks them with the recall default in view).
     """
 
     from alicebot_api.mcp.registry import call_mcp_tool
@@ -359,6 +362,7 @@ def test_the_three_production_callers_write_the_document_ranking(
     seen = _spy(monkeypatch)
 
     if route == "recall":
+        monkeypatch.setenv("ALICE_SEARCH_QUALITY", "off")
         payload = call_mcp_tool(context, name="alice_recall", arguments={"query": "kettle shelf"})
         assert payload["sources"], "the fixture source was not found, so the route proves nothing"
     elif route == "pack":

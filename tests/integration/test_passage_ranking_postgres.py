@@ -279,6 +279,87 @@ def test_both_doors_hide_a_confidential_source(migrated_database_urls, monkeypat
     assert seen == [SourceRanking.document()]
 
 
+def test_unset_is_document_mode_on_postgres_for_every_caller(
+    migrated_database_urls, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Passage mode is the default on SQLite only. On PostgreSQL an unset variable is document mode for the owner,
+    an unbound admin key and a key with limits. ``passage`` keeps today's behaviour, including the limited-key rule.
+
+    Mutation: name ``PostgresVNextStore`` in ``PASSAGE_BY_DEFAULT_STORES``, or make the default passage mode for
+    every store (the unset rows become passage mode), or drop the limited-key rule (the last row does).
+    """
+
+    _quiet(monkeypatch)
+    user_id = uuid4()
+    with _open(migrated_database_urls, user_id) as conn:
+        ContinuityStore(conn).create_user(user_id, "unset-default@example.invalid", "Unset default")
+        store = PostgresVNextStore(conn)
+        visible = store.create_source(
+            {
+                "source_type": "note",
+                "title": "Inventory",
+                "content_hash": "sha256:unset-default",
+                "domain": "project",
+                "sensitivity": "public",
+            }
+        )
+        for index, place in enumerate(("first", "second", "third")):
+            store.create_source_chunk(
+                {"source_id": str(visible["id"]), "chunk_index": index, "text": f"brass lantern on the {place} hook"}
+            )
+        _record, limited_key = create_agent_key(
+            store, user_id=user_id, agent_id="reader", permission_profile="trusted_local_agent"
+        )
+        _record, admin_key = create_agent_key(
+            store, user_id=user_id, agent_id="admin", permission_profile="admin_agent"
+        )
+    context = MCPRuntimeContext(database_url=migrated_database_urls["app"], user_id=user_id)
+
+    seen: list[tuple[object, object]] = []
+    original = VNextRetrievalService.search_source_excerpts
+
+    def wrapped(self, **kwargs):  # type: ignore[no-untyped-def]
+        entries, stage = original(self, **kwargs)
+        seen.append((kwargs.get("ranking"), stage.get("source")))
+        return entries, stage
+
+    monkeypatch.setattr(VNextRetrievalService, "search_source_excerpts", wrapped)
+
+    def recall(caller: str, setting: str | None) -> tuple[object, dict[str, object]]:
+        if setting is None:
+            monkeypatch.delenv(SEARCH_QUALITY_ENV, raising=False)
+        else:
+            monkeypatch.setenv(SEARCH_QUALITY_ENV, setting)
+        keys = {"owner": None, "admin": admin_key, "limited": limited_key}
+        if keys[caller] is None:
+            monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+        else:
+            monkeypatch.setenv("ALICE_AGENT_API_KEY", str(keys[caller]))
+        seen.clear()
+        payload = call_mcp_tool(context, name="alice_recall", arguments={"query": "brass lantern"})
+        assert len(seen) == 1
+        return seen[0][0], payload
+
+    for caller in ("owner", "admin", "limited"):
+        for setting in (None, "off"):
+            ranking, payload = recall(caller, setting)
+            assert ranking == SourceRanking.document(), (caller, setting)
+            assert payload["source_count"] == 1, (caller, setting)
+            assert all("chunk_index" not in row for row in payload["sources"]), (caller, setting)
+
+    expected_for = {
+        "owner": SourceRanking.passage(),
+        "admin": SourceRanking.passage(),
+        "limited": SourceRanking.document(),
+    }
+    for caller, expected in expected_for.items():
+        ranking, payload = recall(caller, "passage")
+        assert ranking == expected, caller
+        has_passages = all("chunk_index" in row for row in payload["sources"])
+        assert has_passages is (expected == SourceRanking.passage()), caller
+        assert payload["source_count"] == (3 if expected == SourceRanking.passage() else 1), caller
+
+
 LONG_QUESTION = "Who keeps the only spare key to the brass cabinet where the almanac is stored, and where does she hang it?"
 KEY_CHUNKS = (
     "Marta Quill holds the only spare key to the brass cabinet",

@@ -1,9 +1,11 @@
 """Passage ranking for ``alice_recall`` (``ALICE_SEARCH_QUALITY=passage``).
 
-Document mode stays the default. Passage mode ranks chunks across documents,
-keeps at most ``PASSAGES_PER_SOURCE`` of each, and drops a row the caller may
-not read before that row can take a slot. The pack and the brief keep calling
-``SourceRanking.document()``.
+Passage mode is the default of ``alice_recall`` on the SQLite store, and
+``ALICE_SEARCH_QUALITY=off`` gives document mode there (the default and the
+store rule are in ``test_sqlite_passage_default.py``). Passage mode ranks chunks
+across documents, keeps at most ``PASSAGES_PER_SOURCE`` of each, and drops a row
+the caller may not read before that row can take a slot. The pack and the brief
+keep calling ``SourceRanking.document()``.
 
 Each test names the edit that must make it fail.
 """
@@ -193,8 +195,8 @@ def test_a_limited_postgres_key_stays_on_document_mode_when_passage_is_set(
 ) -> None:
     """The edge reads the store kind and the identity. Mutation: return ``from_environment()`` first.
 
-    A later change can make passage the SQLite default by editing ``recall_source_ranking``
-    only. This test is the line that must stay: a limited key on PostgreSQL is document mode.
+    This test is the line that must stay: a limited key on PostgreSQL is document mode.
+    The default of a store with the variable unset is in ``test_sqlite_passage_default.py``.
     """
 
     class PostgresVNextStore:
@@ -210,7 +212,7 @@ def test_a_limited_postgres_key_stays_on_document_mode_when_passage_is_set(
     assert recall_source_ranking(PostgresVNextStore(), None) == SourceRanking.passage()
     assert recall_source_ranking(PostgresVNextStore(), admin) == SourceRanking.passage()
     assert recall_source_ranking(SQLiteVNextStore(), limited) == SourceRanking.passage()
-    monkeypatch.delenv(SEARCH_QUALITY_ENV, raising=False)
+    monkeypatch.setenv(SEARCH_QUALITY_ENV, "off")
     assert recall_source_ranking(SQLiteVNextStore(), None) == SourceRanking.document()
 
 
@@ -768,7 +770,7 @@ def test_both_recall_doors_hide_the_same_rows_and_repeat_the_id(
 def test_the_two_doors_agree_and_the_switch_off_has_no_chunk_index(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Unset switch: one entry, no ``chunk_index``. Passage: the doors match.
+    """Switch ``off``: one entry, no ``chunk_index``. Passage: the doors match.
 
     Mutation: add ``chunk_index`` in document mode.
     """
@@ -777,6 +779,7 @@ def test_the_two_doors_agree_and_the_switch_off_has_no_chunk_index(
     context, database = _context(tmp_path)
     _seed_doors(database)
     arguments = {"query": "brass lantern", "sensitivity_allowed": ["public"]}
+    monkeypatch.setenv(SEARCH_QUALITY_ENV, "off")
     off = _door_call(context, "alice_recall", arguments)
     assert off["source_count"] == 1
     assert "chunk_index" not in off["sources"][0]
@@ -841,6 +844,7 @@ def test_the_hop_follows_the_first_passage_when_no_memory_names_a_source(
         store.create_provenance_link(
             {"target_type": "memory", "target_id": memory_chunked, "source_id": chunked, "evidence_role": "supports"}
         )
+    monkeypatch.setenv(SEARCH_QUALITY_ENV, "off")
     off = _door_call(context, "alice_recall", {"query": "kettle shelf"})
     monkeypatch.setenv(SEARCH_QUALITY_ENV, "passage")
     passage = _door_call(context, "alice_recall", {"query": "kettle shelf"})

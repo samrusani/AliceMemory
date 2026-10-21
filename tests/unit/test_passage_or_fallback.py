@@ -305,7 +305,7 @@ def test_alice_recall_returns_passages_for_a_long_question(
     assert payload["source_count"] == len(sources)
     assert {row["id"] for row in sources} == {keys}
     assert sorted(row["chunk_index"] for row in sources) == [0, 1, 2]
-    monkeypatch.delenv(SEARCH_QUALITY_ENV)
+    monkeypatch.setenv(SEARCH_QUALITY_ENV, "off")
     off = _door_call(context, "alice_recall", arguments)
     assert [row["id"] for row in off["sources"]] == [keys]
     assert "chunk_index" not in off["sources"][0]

@@ -147,9 +147,16 @@ def test_alice_resume_equals_the_v0200_golden(vault) -> None:
         ("alice_context_pack", {"query": "release gate and payments"}, "context_pack"),
     ],
 )
-def test_the_other_readers_equal_the_v0200_golden(vault, tool: str, arguments: dict, golden: str) -> None:
-    """Mutation: pass a view other than unscoped to ``_policy_checked`` from one of these readers."""
+def test_the_other_readers_equal_the_v0200_golden(
+    vault, tool: str, arguments: dict, golden: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mutation: pass a view other than unscoped to ``_policy_checked`` from one of these readers.
 
+    v0.20.0 ranked the sources of ``alice_recall`` by document. Passage mode is the default on SQLite now, so the
+    recall case asks for the ranking the golden was made with. The other readers do not read the variable.
+    """
+
+    monkeypatch.setenv("ALICE_SEARCH_QUALITY", "off")
     _data_dir, _repo, context = vault
     assert normalize_result(call_mcp_tool(context, name=tool, arguments=arguments)) == GOLDENS[golden]
 

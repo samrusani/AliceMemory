@@ -482,10 +482,32 @@ def scenario_queries() -> list[str]:
     return queries
 
 
+@contextlib.contextmanager
+def recall_ranking_off() -> Iterator[None]:
+    """``ALICE_SEARCH_QUALITY=off`` for the length of the block, then the earlier state.
+
+    The recall goldens are what v0.20.2 printed, and it ranks sources by document. Passage mode is the
+    default of ``alice_recall`` on SQLite, so the recall scenarios ask for document mode by name. A commit
+    that does not read the variable ignores it, so the recording command still works against such a commit.
+    The other surfaces do not read the variable and run with it unset.
+    """
+
+    previous = os.environ.get("ALICE_SEARCH_QUALITY")
+    os.environ["ALICE_SEARCH_QUALITY"] = "off"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("ALICE_SEARCH_QUALITY", None)
+        else:
+            os.environ["ALICE_SEARCH_QUALITY"] = previous
+
+
 def _recall(vault: Vault) -> dict[str, object]:
     scenarios: dict[str, object] = {}
     for name, arguments in RECALL_SCENARIOS.items():
-        result = vault.call("alice_recall", arguments)
+        with recall_ranking_off():
+            result = vault.call("alice_recall", arguments)
         entry: dict[str, object] = {
             "arguments": copy.deepcopy(arguments),
             "result": normalize_value(result, vault.labels()),
