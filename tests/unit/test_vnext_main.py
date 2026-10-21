@@ -949,6 +949,12 @@ def _install_fake_vnext_store(monkeypatch, store: FakeVNextStore) -> None:
         monkeypatch.setattr(module, "get_settings", lambda: Settings(database_url="postgresql://db"))
         monkeypatch.setattr(module, "user_connection", fake_user_connection)
         monkeypatch.setattr(module, "PostgresVNextStore", lambda _conn: store)
+    # The withhold middleware imports these at call time. The sentinel URL postgresql://db is not a host.
+    import alicebot_api.db as db
+    import alicebot_api.vnext_store as vnext_store
+
+    monkeypatch.setattr(db, "user_connection", fake_user_connection)
+    monkeypatch.setattr(vnext_store, "PostgresVNextStore", lambda _conn: store)
 
 
 def _invoke_vnext_request(

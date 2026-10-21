@@ -72,7 +72,7 @@ CARRIER_NAMES = tuple(
     _append_vary_header
     _cors_origin_allowed _resolve_cors_allow_origin_value _apply_cors_headers
     _apply_security_headers apply_http_security_posture
-    enforce_authenticated_user_identity healthcheck _apply_legacy_surface_mount_policy
+    enforce_authenticated_user_identity _withhold_hidden_ids healthcheck _apply_legacy_surface_mount_policy
     """.split()
 )
 
@@ -82,7 +82,7 @@ EXPECTED_ROUTE_AST_SHA256 = "9e5d6c2c79cc1391688b74bb5138ccaa881033546e7b0cfd34a
 # levels, or one that holds NaN or Infinity, is HTTP 422 before the handler runs. One import is added (89 below). The
 # route definitions, their order and the set of definitions are the same, and the published schema is unchanged.
 EXPECTED_SUPPORT_AST_SHA256 = "65593860adda61aea673cec7d9bc345c47ed6ed6d0518e78c284dcbd88a97a79"
-EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e92413391541a7e504da328b"
+EXPECTED_CARRIER_NAMES_SHA256 = "946e9d456afbdc7751df671b251457a432ba444dbbdfad59c1e9b96a28ccc0fe"
 # Re-pinned 2026-10-02 (DB-005, legacy /v0 routes). One definition changed,
 # found by a per-definition AST diff against the previous pin:
 # enforce_authenticated_user_identity runs keyless_edge.keyless_request_refusal
@@ -126,7 +126,12 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # central vNext route policy; the app carrier keeps the same definitions.
 # Round-two re-pin: _VNEXT_ROUTE_LOCAL_POLICY and
 # _VNEXT_CENTRAL_OPERATOR_ROUTES move source GET to its route-local full fence.
-EXPECTED_CARRIER_AST_SHA256 = "af76e0b8904bb76a54403125e86dd9f49cc42403d6e1a9bffadcaf9cee27899e"
+# Re-pin: hidden-id withholding stays on the carrier, and main's what-changed registration is in the same file.
+# Re-pin: _vnext_protected_http_auth stashes the body it already read, after a keyless refusal returns, and
+# _withhold_hidden_ids keeps ids from that copy. The set of definitions is the same.
+# Re-pin: `_vnext_protected_http_auth` records the user the key was authenticated for, and `_withhold_hidden_ids` keeps
+# every response header, repeated ones included. The set of definitions is the same.
+EXPECTED_CARRIER_AST_SHA256 = "039f3b987d1bce8daff4c142bb69ab4b6357cd284683c59005cef5bbe50400c0"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "1a438538e16120361f92d30375cc94679d598fe4b78ba5a58a7d8a4dda6af83c"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "8b79ceaf996b8c51b5bb2f3f38a8c19a4e33796955d8b8f7a66e7ac01ea1732d"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "2fbc286e5aeaca8cb8c5ae1d0e1d7ef7816ae2d905542f967c813a047e1f2c29"

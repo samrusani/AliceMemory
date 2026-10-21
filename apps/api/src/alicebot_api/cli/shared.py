@@ -106,7 +106,12 @@ def _store_context(ctx: CLIContext) -> Iterator[ContinuityStore]:
 @contextmanager
 def _vnext_store_context(ctx: CLIContext) -> Iterator[PostgresVNextStore]:
     with user_connection(ctx.database_url, ctx.user_id) as conn:
-        yield PostgresVNextStore(conn)
+        store = PostgresVNextStore(conn)
+        # The dump runs after this transaction ends. The withholding step opens a new
+        # connection with these, because the pooled one has lost its user by then.
+        store.database_url = ctx.database_url  # type: ignore[attr-defined]
+        store.user_id = ctx.user_id  # type: ignore[attr-defined]
+        yield store
 
 
 def _parse_maintenance_status_payload(payload: object) -> dict[str, object]:
@@ -207,8 +212,32 @@ def _run_capture(ctx: CLIContext, args: argparse.Namespace) -> str:
     return format_capture_output(payload)
 
 
+def _remember_cli_reader(store: object, identity: object) -> None:
+    from alicebot_api.vnext_hidden_ids import remember_reader
+
+    remember_reader(store, identity)
+
+
 def _json_dumps(value: object) -> str:
-    return json.dumps(json_safe(value), indent=2, sort_keys=True)
+    from alicebot_api.vnext_hidden_ids import reader_for_dump, withhold_with
+
+    # The filter reads the plain JSON the command prints, so an id that is still a UUID object is judged too.
+    safe = json_safe(value)
+    url, user_id, identity = reader_for_dump()
+    if url and user_id and identity is not None:
+        from contextlib import contextmanager
+        from uuid import UUID
+
+        from alicebot_api.db import user_connection
+        from alicebot_api.vnext_store import PostgresVNextStore
+
+        @contextmanager
+        def open_store() -> Iterator[PostgresVNextStore]:
+            with user_connection(url, UUID(user_id)) as conn:
+                yield PostgresVNextStore(conn)
+
+        safe = withhold_with(open_store, identity, safe)
+    return json.dumps(safe, indent=2, sort_keys=True)
 
 
 def _checked_batch_output(record: dict[str, object]) -> str:
@@ -271,9 +300,10 @@ def _vnext_authenticated_agent_identity_from_args(
     claimed = _vnext_agent_identity_from_args(args)
     raw_key = (os.environ.get(_AGENT_API_KEY_ENV) or "").strip() or None
     if raw_key is None or claimed is None:
+        _remember_cli_reader(store, claimed)
         return claimed
     try:
-        return resolve_agent_identity(
+        identity = resolve_agent_identity(
             store,
             user_id=getattr(args, "user_id", None) or getattr(store, "user_id", None),
             raw_key=raw_key,
@@ -281,6 +311,8 @@ def _vnext_authenticated_agent_identity_from_args(
         )
     except AgentKeyAuthenticationError as exc:
         raise ValueError(str(exc)) from exc
+    _remember_cli_reader(store, identity)
+    return identity
 
 
 # Both helpers below import inside the function body and carry leading
