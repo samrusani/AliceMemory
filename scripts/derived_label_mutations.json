@@ -20363,9 +20363,9 @@
         }
       ],
       "pytest": [
-        "eval/longmemeval/test_run_choices.py::test_the_fingerprint_records_the_ranking_mode"
+        "eval/longmemeval/test_run_choices.py::test_a_recall_run_records_the_mode_the_recall_edge_resolves"
       ],
-      "expected_failure": "test_the_fingerprint_records_the_ranking_mode"
+      "expected_failure": "test_a_recall_run_records_the_mode_the_recall_edge_resolves"
     }
   ]
 }
