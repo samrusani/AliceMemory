@@ -138,7 +138,7 @@ FIELD_NAMES_GOES = (
     "under a name such as `origin`, `ref_id` or `evidence`"
 )
 FIELD_NAMES_WRITE_SIDE = (
-    "from main the commit route, the memory proposal and the agent-output ingest (the sync of the `agent_output` connector "
+    "from v0.21.0 the commit route, the memory proposal and the agent-output ingest (the sync of the `agent_output` connector "
     "included) refuse an entry of `source_refs` that is an object, a number, a boolean, `null`, a nested array, a blank string or "
     "a string that is the text of a json object or array (v0.20.2 accepted and stored one as sent), so the reader is the fence "
     "for the rows stored by earlier releases"

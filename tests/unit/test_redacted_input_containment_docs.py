@@ -131,22 +131,23 @@ def test_every_page_says_redaction_restricts_reports_until_they_are_regenerated(
 
 
 def test_every_page_says_this_is_containment_and_not_removal_and_when_removal_comes() -> None:
-    """Removal is planned with no release set. The released changelog section keeps the sentence it was published with."""
+    """Removal is planned with no release set. The published v0.20.2 changelog section keeps the sentence it was released
+    with, and the v0.21.0 section (below the empty Unreleased one) says it is planned with no release set."""
 
     for name, path in PAGES.items():
         text = _flat(path)
         if name == "known limitations":
             assert LIMITS_CONTAINMENT in text and LIMITS_REMOVAL in text, name
-            assert "v0.21.0" not in text, name
+            assert not re.search(r"(?:planned|tracked|scheduled|due) for v0\.\d+\.\d+", text), name
             continue
         assert CONTAINMENT in text, name
         if name == "changelog":
             raw = (ROOT / path).read_text(encoding="utf-8")
-            unreleased = " ".join(raw[raw.index("## Unreleased") : raw.index("## v0.20.2")].split()).lower()
+            newer = " ".join(raw[raw.index("## Unreleased") : raw.index("## v0.20.2")].split()).lower()
             released = " ".join(raw[raw.index("## v0.20.2") : raw.index("## v0.20.0")].split()).lower()
             assert REMOVAL_AS_RELEASED in released, name
-            assert "removing the words of a redacted memory from reports" in unreleased
-            assert "are planned, with no release set" in unreleased
+            assert "removing the words of a redacted memory from reports" in newer
+            assert "are planned, with no release set" in newer
             continue
         assert REMOVAL in text, name
         assert REMOVAL_AS_RELEASED not in text, name
@@ -166,7 +167,7 @@ def test_each_sentence_stands_in_an_unreleased_paragraph_and_not_beside_a_releas
     """The sentences describe v0.20.2, not v0.20.0, and no release note of a tag says them."""
     for name, path in PAGES.items():
         if name == "known limitations":
-            continue  # the page is written for v0.20.2 and carries no marker: its bullet is pinned above
+            continue  # the page is written for v0.21.0 and carries no marker for these: its bullet is pinned above
         text = (ROOT / path).read_text(encoding="utf-8")
         paragraphs = [item for item in re.split(r"\n\s*\n|\n(?=- )", text) if RESTRICTS in " ".join(item.split()).lower()]
         assert paragraphs, name

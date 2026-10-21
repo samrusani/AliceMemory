@@ -804,8 +804,8 @@ def _docs_paragraph() -> str:
 
 def _changelog_entry() -> str:
     text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    released = text.split("\n## ", 3)[2]
-    assert released.startswith("v0.20.2")
+    released = text[text.index("\n## v0.20.2") : text.index("\n## v0.20.0")]
+    assert released.startswith("\n## v0.20.2")
     matching = [line for line in released.splitlines() if line.startswith(_CHANGELOG_LEAD)]
     assert len(matching) == 1
     return matching[0]

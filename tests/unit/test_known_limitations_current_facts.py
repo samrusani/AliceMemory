@@ -1,6 +1,6 @@
 """The facts that only the known limitations page states are pinned, and the numbers on it are the ones the code enforces.
 
-The page is a short list of what is limited now in v0.20.2. Most of its statements are pinned next to the pages that
+The page is a short list of what is limited now in v0.21.0. Most of its statements are pinned next to the pages that
 explain them (the local-folder scan, the HTTP edge, the expiry and commit text bullets and the rest). A bound that
 another page owns is one short sentence on the page and a link, and the page that owns it holds the rest and is pinned
 here, so the fact is not lost when it leaves the page:
@@ -39,7 +39,7 @@ from alicebot_api.vnext_connectors import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-UNRELEASED = "Unreleased (on main, not in v0.20.2):"
+FROM_V0210 = "from v0.21.0,"
 
 
 def _flat(text: str) -> str:
@@ -73,7 +73,7 @@ def _under(heading_start: str, bullet: str) -> bool:
 
     raw = (ROOT / "docs/alpha/known-limitations.md").read_text(encoding="utf-8")
     start = raw.index(heading_start)
-    following = [raw.find(lead, start + 1) for lead in ("\nPostgres stack and outbound calls", "\nOpen in v0.20.2")]
+    following = [raw.find(lead, start + 1) for lead in ("\nPostgres stack and outbound calls", "\nOpen in v0.21.0")]
     end = min(position for position in following if position != -1)
     return _flat(bullet.removeprefix("- ")) in _flat(raw[start:end])
 
@@ -150,7 +150,7 @@ def test_the_error_bullet_names_the_generic_codes_and_the_three_that_tell_a_refu
     and the three generic codes come before them.
 
     The three are read from ``MCP_CODED_ERROR_CODES``: the four coded errors less ``invalid_request``, which a query over a
-    size limit already got in v0.20.0. The page is written for v0.20.2 and carries no marker.
+    size limit already got in v0.20.0. The page is written for v0.21.0 and carries no marker.
 
     Mutations, each one alone: on the page, delete ``precondition_failed`` from the list, delete ``except
     `invalid_request` for a rejected argument or an oversized query``, move a generic code after the three or put
@@ -174,7 +174,7 @@ def test_the_error_bullet_names_the_generic_codes_and_the_three_that_tell_a_refu
 
 
 def test_the_cited_source_bullet_states_the_residuals_the_fence_leaves() -> None:
-    """The residuals no other page lists in one place, and the two limits of v0.20.2 and main for the ref shapes.
+    """The residuals no other page lists in one place, and the two limits of v0.20.2 and v0.21.0 for the ref shapes.
 
     The owner dependency trace reading the first id of a multi-id ref only, ``provenance_count``, a link or id saved
     before v0.20.2 and the write-time fence of an ``admin_agent`` writer are on the page and in the changelog entry on
@@ -188,12 +188,12 @@ def test_the_cited_source_bullet_states_the_residuals_the_fence_leaves() -> None
     """
 
     residual = _bullet("the cited-source fence has gaps")
-    assert residual.count(UNRELEASED) == 1
-    assert residual.index("memory proposals") < residual.index(UNRELEASED)
+    assert residual.count(FROM_V0210) == 1
+    assert residual.index("memory proposals") < residual.index(FROM_V0210)
     assert "memory proposals and the agent-output ingest store `source_refs` without checking the ids" in residual
-    # What the sentence says of v0.20.2 and of main, so it is not read as the behaviour of main alone.
+    # What the sentence says of v0.20.2 and of v0.21.0, so it is not read as the behaviour of v0.21.0 alone.
     assert (
-        f"(v0.20.2 kept an object entry and JSON text whole; {UNRELEASED} only a string that is not blank and not JSON text)"
+        f"(v0.20.2 kept an object entry and JSON text whole; {FROM_V0210} only a string that is not blank and not JSON text)"
     ) in residual
     assert "the owner dependency trace lists the first id of a multi-id ref only" in residual
     assert "`provenance_count` counts a withheld link" in residual

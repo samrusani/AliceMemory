@@ -109,6 +109,53 @@ not install it; and `v0.20.1`, whose publish run reached its first job's time
 limit while it reran the unit suite, before anything was built. Neither of the
 last two has a PyPI artifact or a published GitHub Release.
 
+## What `v0.21.0` Targets
+
+`v0.21.0` is the current release candidate. It is not published.
+
+It takes the fixes and additions on `main` since `v0.20.2`. Passage ranking
+becomes the default of `alice_recall` on SQLite, a key with limits is no longer
+shown the ids of rows it may not read and gets a full page when hidden rows sit
+in front of it, and the doors that write `source_refs` refuse entries that no
+producer writes. It adds the tool `alice_what_changed` to the full tool
+surface, and the route `POST /v0/vnext/changes`. It adds no migration:
+PostgreSQL stays at revision `20261011_0097`.
+
+- [v0.21.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.21.0-release-notes.md)
+
+`v0.21.0` has these changes. `v0.20.2` does not.
+
+- On SQLite, `alice_recall` runs passage mode by default: up to three passages
+  from one document, ranked across documents. `ALICE_SEARCH_QUALITY=off` restores
+  the `v0.20.2` ranking, and a value other than `off` or `passage` makes the
+  tool answer `tool_request_failed`. PostgreSQL keeps document mode.
+- A key with limits is not shown the id of a memory, a source, an artifact or an
+  open loop it may not read, in any field at any depth of an answer, in any
+  spelling and behind the prefixes `memory:`, `source:`, `artifact:` and
+  `open_loop:`. A count beside a list that lost an id is recomputed or dropped.
+  The owner and an unbound admin key keep every id.
+- The vector stage of recall and of the context pack, the time stage of the
+  context pack, the context tree, the workspace and the project list refill
+  after hiding rows for a key with limits. A page is read once, at 128 rows
+  (`READABLE_SCAN_CAP`), and is full while the hidden rows in front of it number
+  at most 128 minus the rows the list is asked for: 118 for `alice_recall` at
+  limit 5, which asks its vector stage for ten rows. The owner and an unbound
+  admin key are read as before.
+- The memory commit, the memory proposal and the agent-output ingest routes, the
+  sync of the `agent_output` connector, their MCP tools and the `--source-ref`
+  flag refuse a `source_refs` entry that is an object, a number, a boolean, null,
+  a nested array, a blank string or the text of a JSON object or array.
+- `alice_what_changed` and `POST /v0/vnext/changes` answer the recorded decision
+  history of one topic as chains of current, upcoming, disputed and past steps.
+  The full tool surface holds twelve core tools. `alice_memory_correct` with
+  `replacement_body.decision_text` stores that text.
+- A killed `alice-memory import` no longer leaves its working copy in the data
+  directory: the next import into that vault and the next open of an existing
+  vault remove it.
+- Still open, listed in the release notes: an id inside free text is not removed,
+  and redaction restricts reports and does not remove the words from them, which
+  is planned with no release set.
+
 ## What `v0.20.2` Shipped
 
 `v0.20.2` is the latest published release and remains the install, checksum,
@@ -166,13 +213,6 @@ SQLite vault is repaired on its next open.
   full stored row, a vector made from a cut text represents only its head,
   removal of redacted text from reports is planned, with no release set, and
   the vector stage of recall does not refill after hiding rows.
-- Unreleased (on main, not in v0.20.2): the vector stage of recall and of the
-  context pack, the time stage of the context pack, the context tree, the
-  workspace and the project list refill after hiding rows for a key with
-  limits. A page is read once, at 128 rows (`READABLE_SCAN_CAP`), and is full
-  while the hidden rows in front of it number at most 128 minus the rows the
-  list is asked for: 118 for `alice_recall` at limit 5, which asks its vector
-  stage for ten rows. The owner and an unbound admin key are read as before.
 
 ## What `v0.20.0` Shipped
 

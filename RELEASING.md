@@ -457,7 +457,9 @@ shard jobs. Its `timeout-minutes` must cover the shard count times the shard
 limit plus a margin, and `tests/unit/test_publish_workflow_time_limit.py` fails
 when it does not. Raise the publish limit in the same pull request that adds a
 shard or raises the shard limit. `v0.20.1` was never published because this job
-reached its old 35 minute limit while it reran the suite.
+reached its old 35 minute limit while it reran the suite. The limit is 180
+minutes, because the one-process rerun took 3,876 s on a runner and a release
+step must take less than half of its job's limit.
 
 `publish-recheck-rehearsal.yml` runs the install step and the recheck step of that
 first job on a runner before a release tag exists, with the same commands, the same
@@ -534,3 +536,5 @@ macOS with `shasum -a 256 -c SHA256SUMS`.
 
 `v0.20.2` is the latest published release and remains the install, checksum,
 and baseline reference.
+
+`v0.21.0` is the current release candidate. It is not published.

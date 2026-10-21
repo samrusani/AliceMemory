@@ -5,7 +5,7 @@ words of archived rows in reports, and withholding ``capture_content_hash``. Non
 draft, the tool reference, the memory operations protocol, ``CURRENT_STATE.md`` and the known limitations page say
 "planned, with no release set". The v0.20.2 release notes are published, so they keep the sentences they were published with
 and carry a dated correction (2026-10-21) beside each of the four statements, in the form the earlier corrections use. The
-v0.20.2 section of the changelog is published too and is not edited: the Unreleased section has one entry that says the three
+v0.20.2 section of the changelog is published too and is not edited: the v0.21.0 section has one entry that says the three
 items are planned with no release set and that the docs were corrected on 2026-10-21.
 
 Other work that the pages tracked for v0.21.0 (the ids, the refill of the vector stage and of the list pages, the configured
@@ -14,8 +14,8 @@ sentences about it still name v0.21.0.
 
 Mutations, each one alone: put ``planned for v0.21.0`` back for one of the three in the security note, the tool reference,
 the protocol or ``CURRENT_STATE.md``; delete a correction from the v0.20.2 notes; move a correction away from the statement it
-follows; delete the date from the Unreleased entry; delete one of the three items from it; name v0.21.0 in a bullet of
-the known limitations page.
+follows; delete the date from the v0.21.0 entry; delete one of the three items from it; name v0.21.0 in a bullet of
+the known limitations page as work still to do.
 """
 
 from __future__ import annotations
@@ -81,7 +81,11 @@ def test_the_current_pages_say_planned_with_no_release_set_for_the_three() -> No
 
 
 def test_no_current_sentence_names_v0210_for_the_three() -> None:
-    """A sentence that names v0.21.0 on a current page is about other work, never about the three."""
+    """A sentence that promises v0.21.0 on a current page (``for v0.21.0``) is about other work, never about the three.
+
+    A sentence may say that something begins ``from v0.21.0``. That describes the release, and the release does none of the
+    three. Mutation: put ``planned for v0.21.0`` back beside the redacted text, the archived words or the hash.
+    """
 
     about_the_three = (
         "redacted text",
@@ -96,7 +100,7 @@ def test_no_current_sentence_names_v0210_for_the_three() -> None:
     )
     for path in CURRENT_PAGES:
         for sentence in _sentences(_read(path)):
-            if "v0.21.0" in sentence or "`v0.21.0`" in sentence:
+            if "for v0.21.0" in sentence or "for `v0.21.0`" in sentence:
                 lowered = sentence.lower()
                 assert not any(marker in lowered for marker in about_the_three), (path, sentence[:200])
 
@@ -142,22 +146,21 @@ def test_the_published_notes_keep_each_statement_and_carry_a_dated_correction_be
     assert "Withholding these is tracked for v0.21.0" in _flat(notes)
 
 
-def test_the_unreleased_changelog_entries_name_the_three_the_date_and_the_shorter_page() -> None:
+def test_the_v0210_changelog_entries_name_the_three_the_date_and_the_shorter_page() -> None:
     """One entry says the three are planned with no release set and when the docs were corrected; one says the page is shorter.
 
     The v0.20.2 section of the changelog is published and keeps the sentences that named v0.21.0.
     """
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = changelog[changelog.index("## Unreleased") : changelog.index("## v0.20.2")]
-    entries = [_flat(line.removeprefix("- ")) for line in unreleased.splitlines() if line.startswith("- ")]
-    marker = "Unreleased (on main, not in v0.20.2):"
+    released = changelog[changelog.index("## v0.21.0") : changelog.index("## v0.20.2")]
+    entries = [_flat(line.removeprefix("- ")) for line in released.splitlines() if line.startswith("- ")]
 
-    promise = [entry for entry in entries if entry.startswith(f"{marker} removing the words of a redacted memory from reports")]
+    promise = [entry for entry in entries if entry.startswith("Removing the words of a redacted memory from reports")]
     assert len(promise) == 1
     entry = promise[0]
     assert (
-        "removing the words of a redacted memory from reports, hiding the words of archived rows in reports, and withholding "
+        "Removing the words of a redacted memory from reports, hiding the words of archived rows in reports, and withholding "
         "`capture_content_hash` are planned, with no release set."
     ) in entry
     assert "They are no longer scheduled for v0.21.0." in entry
@@ -165,10 +168,10 @@ def test_the_unreleased_changelog_entries_name_the_three_the_date_and_the_shorte
     assert "the v0.20.2 release notes, which gained a dated correction beside each of the four statements" in entry
     assert "The v0.20.2 section of this changelog is unchanged and still says v0.21.0 where it was published that way." in entry
 
-    shorter = [entry for entry in entries if entry.startswith(f"{marker} the known limitations page is shorter.")]
+    shorter = [entry for entry in entries if entry.startswith("The known limitations page is shorter.")]
     assert len(shorter) == 1
     entry = shorter[0]
-    assert "It describes v0.20.2" in entry
+    assert "It describes v0.21.0" in entry
     assert "no longer retells what earlier releases did. That history stays in this changelog and in the release notes." in entry
     assert "a ChatGPT export takes about 6 to 9 times its size in memory (`docs/integrations/importers.md`)" in entry
     assert "a backup omits agent identities as well as users and API keys (`docs/alpha/backup-and-restore.md`)" in entry
@@ -182,8 +185,24 @@ def test_the_unreleased_changelog_entries_name_the_three_the_date_and_the_shorte
 
 
 def test_the_known_limitations_page_names_no_release_for_unscheduled_work() -> None:
-    """The page is written for v0.20.2 and names no later release, because nothing it lists is scheduled for one."""
+    """The page is written for v0.21.0 and names no later release, because nothing it lists is scheduled for one.
+
+    v0.21.0 appears only as the release the page describes: the lead-in, the release notes link, the heading of the open
+    list and the ``From v0.21.0`` clauses. Mutation: write ``planned for v0.21.0``, ``tracked for v0.22.0`` or any other
+    release name beside an item that has no release into the page.
+    """
 
     page = _read("docs/alpha/known-limitations.md")
-    assert "v0.21.0" not in page
-    assert "0.21" not in page
+    rest = page
+    for described in (
+        "v0.21.0-release-notes.md",
+        "limited now in v0.21.0",
+        "new in v0.21.0 is marked `From v0.21.0`",
+        "Open in v0.21.0,",
+        "From v0.21.0,",
+        "from v0.21.0,",
+    ):
+        rest = rest.replace(described, "")
+    assert "v0.21" not in rest
+    assert "0.22" not in page
+    assert not re.search(r"(?:planned|tracked|scheduled|due) for v0\.\d+\.\d+", page)

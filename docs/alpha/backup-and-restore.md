@@ -80,7 +80,7 @@ publication committed but a post-commit condition or reporting step failed.
 The records are present: inspect stderr and the target path, and do not
 blindly retry.
 
-Unreleased (on main, not in v0.20.2): a restore builds its staged database in a
+From v0.21.0, a restore builds its staged database in a
 working copy named `.<vault file>.restore.<random>.tmp` in the vault's data
 directory, with `-wal` and `-shm` files beside it, and removes the copy when it
 ends. Killing the import (SIGKILL, a power loss) can leave the copy, and it holds
