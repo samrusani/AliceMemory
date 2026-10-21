@@ -967,9 +967,16 @@ def _run_codex(home: Path, cwd: Path, *args: str) -> subprocess.CompletedProcess
 @pytest.mark.skipif(sys.platform != "linux", reason="the Codex real-host check runs on Linux")
 @pytest.mark.skipif(_codex_bin() is None, reason="codex is not on PATH")
 def test_real_codex_reads_the_written_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    process_home: Path,
 ) -> None:
-    """codex mcp get and mcp list read the file install wrote. The PATH-alias warning is ignored."""
+    """codex mcp get and mcp list read the file install wrote. The PATH-alias warning is ignored.
+
+    The generated cases below go through the planner, which resolves ``~/.alice``
+    against the process home, so that home is a temp folder (``process_home``).
+    """
 
     scripts = make_scripts(tmp_path / "scripts", session_start=False)
     pin_launcher_search(monkeypatch, tmp_path, uvx=None, interpreter=scripts)
