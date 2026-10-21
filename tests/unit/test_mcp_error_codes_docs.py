@@ -239,7 +239,9 @@ def test_the_pages_that_describe_the_old_answer_carry_the_marker_in_the_right_pl
     """Each page that says a refusal comes back as ``tool_request_failed`` also says, after one marker, what main does.
 
     The marker is counted in the sentence or bullet that holds the old text, so a page that gains another marked
-    bullet does not break it.
+    bullet does not break it. The known limitations page is not in this list: it describes v0.20.2 and carries no
+    marker, so its bullet (the three generic codes, ``invalid_request``, and the three codes that tell a refusal from a
+    failure) is pinned in ``test_known_limitations_current_facts.py``.
 
     Mutations, each one alone: delete the marker from one of the five places; move the new-code sentence before the
     marker; delete the ``not_permitted`` clause after the marker. Each fails its own check.
@@ -267,7 +269,6 @@ def test_the_pages_that_describe_the_old_answer_carry_the_marker_in_the_right_pl
             "Over the stdio server, a refused confirm or reject",
             "come back as `not_permitted`",
         ),
-        ("docs/alpha/known-limitations.md", "tool failures over stdio return a generic code", "`not_permitted`"),
         (
             "docs/alpha/mcp-tools.md",
             "A request that names only those domains is refused",

@@ -2,13 +2,16 @@
 
 Redacting a memory restricts the reports and derived rows built from it to the owner and an unbound admin key until they are
 regenerated without it. That is temporary access containment and not removal: the text stays in those reports, and full
-removal is planned for v0.21.0. Archiving is not redaction and restricts nothing. The security note, the known limitations
-page, the tool reference and the CHANGELOG say so in the same words, and this file pins them, so the pages and the behaviour
-change together.
+removal is planned with no release set (it was named for v0.21.0 until 2026-10-21). Archiving is not redaction and restricts
+nothing. The security note, the tool reference and the CHANGELOG say so in the same words, the known limitations page says
+the same in one shorter bullet, and this file pins them, so the pages and the behaviour change together. The CHANGELOG
+section of v0.20.2 and the v0.20.2 release notes are published, so they keep the sentence that named v0.21.0 and the notes
+carry a dated correction beside it (pinned in ``test_unscheduled_promises_docs.py``).
 
 Mutations, each one alone: delete the sentence that says redaction restricts reports from the security note, the known
-limitations page, the tool reference or the changelog; replace ``not removal`` with ``removal``; delete ``planned for
-v0.21.0`` from any of the four; delete the archived sentence from any of the four; delete ``input_redacted`` from the tool
+limitations page, the tool reference or the changelog; replace ``not removal`` with ``removal``; delete ``planned, with no
+release set`` from any of the four; put ``planned for v0.21.0`` back in the security note or the tool reference; delete the archived sentence from any of the other three
+pages; delete ``input_redacted`` from the tool
 reference; delete the graph edge sentence, the project end sentence or the belief review sentence from the tool reference, the
 security note or the changelog; restore a sentence that calls the graph an exception from any page; delete the belief sentence from the security note,
 the tool reference or the changelog; delete the sentence that says the review route also refuses an edge whose end is an
@@ -42,7 +45,16 @@ CONTAINMENT = (
     "this is temporary access containment, not removal: the text stays in those reports and the owner and an unbound admin "
     "key can still read it"
 )
-REMOVAL = "full removal of redacted text from reports is planned for v0.21.0"
+REMOVAL = "full removal of redacted text from reports is planned, with no release set"
+# The v0.20.2 section of the changelog is published and keeps the sentence as it was released.
+REMOVAL_AS_RELEASED = "full removal of redacted text from reports is planned for v0.21.0"
+# The known limitations page says it in its own, shorter words: it lists limits and does not repeat the protections.
+LIMITS_RESTRICTS = (
+    "the reports and derived rows built from a redacted memory are readable by the owner and an unbound admin key only until "
+    "they are regenerated without it"
+)
+LIMITS_CONTAINMENT = "redaction is containment, not removal"
+LIMITS_REMOVAL = "the text stays in them, and removing it is planned, with no release set"
 ARCHIVED = "archiving keeps reports' historical content and does not restrict them"
 # The graph and the belief review route are contained like the reports, on the three pages that describe the doors.
 EDGE = (
@@ -69,7 +81,7 @@ REVIEW_KINDS = (
 # the report. A redacted memory contains the reports that recorded it.
 ARCHIVED_WORDS = {
     "security note": "a key reads the words of an archived row as it read them in the report",
-    "known limitations": "the words of a memory redacted after the report was made stay in it too, but then only the owner and an unbound admin key read the report",
+    "known limitations": LIMITS_RESTRICTS,
     "tool reference": "the words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only",
     "changelog": "the words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only",
 }
@@ -111,25 +123,50 @@ def _flat(path: str) -> str:
 def test_every_page_says_redaction_restricts_reports_until_they_are_regenerated() -> None:
     for name, path in PAGES.items():
         text = _flat(path)
+        if name == "known limitations":
+            assert LIMITS_RESTRICTS in text, name
+            continue
         assert RESTRICTS in text, name
         assert text.count(RESTRICTS) >= 1
 
 
 def test_every_page_says_this_is_containment_and_not_removal_and_when_removal_comes() -> None:
+    """Removal is planned with no release set. The released changelog section keeps the sentence it was published with."""
+
     for name, path in PAGES.items():
         text = _flat(path)
+        if name == "known limitations":
+            assert LIMITS_CONTAINMENT in text and LIMITS_REMOVAL in text, name
+            assert "v0.21.0" not in text, name
+            continue
         assert CONTAINMENT in text, name
+        if name == "changelog":
+            raw = (ROOT / path).read_text(encoding="utf-8")
+            unreleased = " ".join(raw[raw.index("## Unreleased") : raw.index("## v0.20.2")].split()).lower()
+            released = " ".join(raw[raw.index("## v0.20.2") : raw.index("## v0.20.0")].split()).lower()
+            assert REMOVAL_AS_RELEASED in released, name
+            assert "removing the words of a redacted memory from reports" in unreleased
+            assert "are planned, with no release set" in unreleased
+            continue
         assert REMOVAL in text, name
+        assert REMOVAL_AS_RELEASED not in text, name
 
 
 def test_every_page_says_archiving_keeps_the_historical_content() -> None:
+    """The security note, the tool reference and the changelog say archiving restricts nothing. The known limitations page
+    lists limits and not protections, so it does not repeat the sentence and the other three pin it."""
+
     for name, path in PAGES.items():
+        if name == "known limitations":
+            continue
         assert ARCHIVED in _flat(path), name
 
 
 def test_each_sentence_stands_in_an_unreleased_paragraph_and_not_beside_a_release_that_has_it() -> None:
     """The sentences describe v0.20.2, not v0.20.0, and no release note of a tag says them."""
     for name, path in PAGES.items():
+        if name == "known limitations":
+            continue  # the page is written for v0.20.2 and carries no marker: its bullet is pinned above
         text = (ROOT / path).read_text(encoding="utf-8")
         paragraphs = [item for item in re.split(r"\n\s*\n|\n(?=- )", text) if RESTRICTS in " ".join(item.split()).lower()]
         assert paragraphs, name
@@ -183,10 +220,11 @@ def test_every_page_says_who_reads_the_words_of_an_archived_row_and_of_a_redacte
     for name, sentence in ARCHIVED_WORDS.items():
         assert sentence in _flat(PAGES[name]), name
     assert REDACTED_WORDS in _flat(PAGES["security note"])
-    assert "that is containment and not removal, and removing the words is planned for v0.21.0" in _flat(PAGES["security note"])
+    assert "that is containment and not removal, and removing the words is planned, with no release set" in _flat(PAGES["security note"])
     kept = _flat(PAGES["known limitations"])
-    assert "the title, text or quote of a row that was archived after the report was made stays in the report's text" in kept
-    assert "and a key that can read the report reads those words" in kept
+    assert "the title, text or quote of a row archived after the report was made stays in the report" in kept
+    assert "and a key that can read the report reads it" in kept
+    assert "hiding these words is planned, with no release set" in kept
     tools = _flat(PAGES["tool reference"])
     assert "the title, text or quote of a row that was archived after the report was made stays in the report's text" in tools
     assert "and a key that can read the report reads those words" in tools
@@ -196,7 +234,6 @@ def test_the_pages_say_what_the_graph_routes_do_now() -> None:
     """The neighborhood lists only the edges whose ends the key may read, on every page that once said it did not."""
     assert "it now lists only the edges whose ends the key may read" in _flat(PAGES["security note"])
     assert "graph neighborhood returned edge explanations outside that ceiling in v0.20.0 and baseline main 48873b03" in _flat(PAGES["security note"])
-    assert "and the graph neighborhood lists only the edges whose ends the key may read" in _flat(PAGES["known limitations"])
     assert "the graph neighborhood and the edge review route apply the same ceiling to the rows an edge joins" in _flat(PAGES["changelog"])
     assert "the rule that fences it is under [graph edges and beliefs](#redacted-memories-and-the-graph)" in _flat(PAGES["tool reference"])
     notes = _flat("docs/release/v0.20.0-release-notes.md")
@@ -212,7 +249,7 @@ def test_the_older_redact_sections_point_to_the_reports_that_kept_the_words() ->
     assert "(from v0.20.2, see [redacted memories](#redacted-memories))" in tools
     protocol = _flat("docs/memory-operations-protocol.md")
     assert "redact does not rewrite the reports and derived rows made from the memory before" in protocol
-    assert "temporary access containment, not removal" in protocol and "full removal is planned for v0.21.0" in protocol
+    assert "temporary access containment, not removal" in protocol and "full removal is planned, with no release set" in protocol
     assert "archiving a memory restricts nothing" in protocol
     assert "[redacted memories](alpha/mcp-tools.md#redacted-memories)" in protocol
 
@@ -237,11 +274,14 @@ def test_three_pages_say_a_belief_of_a_redacted_memory_is_contained_with_the_rep
 
 
 def test_the_known_limitations_bullet_is_one_bullet_with_a_link_to_the_explanation() -> None:
+    """One bullet says redaction is containment and not removal, links the tool reference section that explains it, and sits
+    under the lead-in that links the security note."""
+
     text = (ROOT / PAGES["known limitations"]).read_text(encoding="utf-8")
-    bullets = [item for item in re.split(r"\n(?=- )", text) if RESTRICTS in " ".join(item.split()).lower()]
+    bullets = [item for item in re.split(r"\n(?=- )", text) if LIMITS_CONTAINMENT in " ".join(item.split()).lower()]
     assert len(bullets) == 1
     assert "(mcp-tools.md#redacted-memories)" in bullets[0]
-    assert "(../release/derived-labels-security-note-draft.md)" in bullets[0]
+    assert "(../release/derived-labels-security-note-draft.md)" in text[: text.index(bullets[0])]
 
 
 def test_the_doctor_line_in_the_code_says_what_the_pages_say() -> None:

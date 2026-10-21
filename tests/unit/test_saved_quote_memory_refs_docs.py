@@ -197,7 +197,7 @@ LOOP_SENTENCE = (
 )
 LOOP_BULLET = (
     "an open loop made over a memory with `post /v0/vnext/open-loops` keeps the title and description its caller typed, so words "
-    "of the memory typed there stay readable to every key that reads the loop after the memory is redacted"
+    "of the memory stay readable to every key that reads the loop"
 )
 LOOP_TOOLS = (
     "an open loop made over the memory with `post /v0/vnext/open-loops` is a different row: its title and description are text its "
@@ -210,9 +210,9 @@ OWNER_READS = (
     "because the default sensitivity filter of those three reads an unverified row as regulated"
 )
 OWNER_READS_BULLET = (
-    "the owner and an unbound admin key read the rows contained by it by id, in the artifact and project lists, in recent commits "
-    "and in the dashboard, but not through recall, the context pack or the default context tree, which read an unverified row as "
-    "regulated; a request that names every sensitivity lists them"
+    "after a memory is redacted, the owner and an unbound admin key read the rows contained by it by id, in the artifact and "
+    "project lists, in recent commits and in the dashboard, but not through recall, the context pack or the default context tree; "
+    "a request that names every sensitivity lists them"
 )
 OWNER_READS_TOOLS = (
     "the owner and an unbound admin key read the rows contained by it by id, in the artifact list and the project list, in the "
@@ -373,7 +373,6 @@ def test_three_pages_say_a_loop_its_caller_wrote_over_a_memory_stays_readable() 
     assert LOOP_TOOLS in _flat("tool reference")
     assert "a loop that a producer made from the memory records it as an input, is a copy, and is contained with the reports" in _flat("security note")
     assert "a loop that a producer made from the memory records it as an input, is a copy, and is contained with the reports" in _flat("tool reference")
-    assert "a loop that a producer made from the memory is contained with the reports" in _flat("known limitations")
 
 
 def test_three_pages_say_what_the_owner_reads_after_a_redaction() -> None:
@@ -402,13 +401,27 @@ def test_the_security_note_says_the_update_candidate_of_a_contained_project_is_n
     assert len(paragraph) == 1 and MARK in " ".join(paragraph[0].split())
 
 
-def test_the_known_limitations_bullets_are_one_bullet_each_with_a_link_to_the_explanation() -> None:
+def test_the_known_limitations_bullet_holds_what_the_owner_reads_and_the_typed_loop_and_follows_the_link_to_the_explanation() -> None:
+    """One bullet says what the owner reads after a redaction and what a loop its caller typed keeps; the bullet before it
+    says redaction is containment and links the section that explains both. A loop a producer made from the memory is
+    contained with the reports, which the security note and the tool reference state and pin above, so the page does not.
+
+    Mutations, each one alone: delete the typed loop sentence or the owner sentence from the bullet; put ``From v0.20.2,``
+    back at the start of the bullet; delete the link to ``mcp-tools.md#redacted-memories`` from the bullet before it.
+    """
+
     text = (ROOT / PAGES["known limitations"]).read_text(encoding="utf-8")
-    for sentence in (LOOP_BULLET, OWNER_READS_BULLET):
-        bullets = [item for item in re.split(r"\n(?=- )", text) if sentence in " ".join(item.split()).lower()]
-        assert len(bullets) == 1
-        assert "(mcp-tools.md#redacted-memories)" in bullets[0]
-        assert bullets[0].startswith("- " + MARK)
+    blocks = re.split(r"\n(?=- )", text)
+    found = [
+        index
+        for index, item in enumerate(blocks)
+        if OWNER_READS_BULLET in " ".join(item.split()).lower() and LOOP_BULLET.removeprefix("an ") in " ".join(item.split()).lower()
+    ]
+    assert len(found) == 1
+    bullet = blocks[found[0]]
+    assert MARK not in bullet
+    assert "a loop that a producer made from the memory is contained with the reports" not in " ".join(bullet.split()).lower()
+    assert "(mcp-tools.md#redacted-memories)" in blocks[found[0] - 1]
 
 
 def test_the_changelog_names_the_doors_and_says_no_migration_is_needed() -> None:

@@ -308,7 +308,9 @@ def test_the_embedded_text_is_described_with_its_summary_and_no_twenty_thousand_
     limitations = _section(_text(NOTES_PATH), "Known limitations")
     assert "`alice_memory_commit` on SQLite has no length limit" in limitations
     assert "The Postgres HTTP commit routes take up to 20,000 characters of text" in limitations
-    assert "has no length limit" in _flat("docs/alpha/known-limitations.md")
+    # The limitations page describes v0.20.2 and no longer retells that v0.20.0 had no limit: that comparison is pinned on
+    # the v0.20.0 notes above, on mcp-tools.md (test_commit_text_limit.py) and on the v0.20.2 notes.
+    assert "has no length limit" not in _flat("docs/alpha/known-limitations.md")
 
 
 def test_the_pack_lead_admits_an_empty_pack_and_the_notes_name_the_tool_set() -> None:
@@ -360,7 +362,10 @@ def test_the_changelog_and_the_notes_claim_nothing_that_v0192_never_had_or_did()
     assert "no longer return such a memory" not in notes
     assert "Recall and the context pack do not return such a memory, as in v0.19.2" in notes
     assert "no longer return it" not in limits
-    assert "while recall and the context pack do not return it, as in v0.19.2" in limits
+    # The closing paragraph that said recall and the context pack never returned an expired memory is gone from the limitations
+    # page. The v0.20.0 notes above hold the comparison, and the v0.20.2 changelog entry says the three doors now agree with
+    # recall and the context pack (test_expired_memories_docs.py).
+    assert "while recall and the context pack do not return it, as in v0.19.2" not in limits
 
     assert "where v0.19.2 answered HTTP 500 and HTTP 422" not in notes
     assert "where v0.19.2 has no cap and reads the whole body" in notes

@@ -73,11 +73,19 @@ def test_the_known_limitations_state_what_the_pack_does_now_and_leave_the_fixed_
     """
     text = _read("docs/alpha/known-limitations.md")
     assert (
-        "`alice_context_pack` removes the id of a memory the caller cannot read from the `metadata_json` of the "
-        "memories it returns, in every section that holds them"
+        "`alice_context_pack` removes the id of a memory the caller cannot read from `metadata_json`, but looks only for a "
+        "36-character UUID there: an id in another column of a stored row or in another spelling is not removed"
     ) in text
-    assert "Only a 36-character UUID in `metadata_json` is looked for" in text
-    assert "an id in another column of a stored row or in another spelling is not" in text
+    # The threat model holds the longer statement (every memory the pack returns, every section), so the pin is there too.
+    threat = _read("docs/security/threat-model.md")
+    assert (
+        "The pack removes the id of a memory the caller cannot read, under the same fence as the memory reads, from the "
+        "`metadata_json` of every memory it returns."
+    ) in threat
+    assert (
+        "Only a 36-character UUID is looked for, and only in `metadata_json`: an id in another column of a stored row, or in "
+        "another spelling, is not."
+    ) in threat
     assert "is returned without the read fence by an `alice_context_pack` call" not in text
     assert "the context pack drops `validity.superseded`" not in text
 

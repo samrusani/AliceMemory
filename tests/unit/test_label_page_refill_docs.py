@@ -63,12 +63,23 @@ def test_the_changelog_entry_of_the_refill_states_the_real_boundary() -> None:
     assert entry.endswith("No migration is required.")
 
 
-def test_the_known_limitations_entry_of_the_refill_states_the_real_boundary() -> None:
+def test_the_known_limitations_entry_of_the_refill_states_the_v0202_limit_and_the_real_boundary() -> None:
+    """The bullet says what v0.20.2 does in one sentence and what main does in a sentence marked as not in v0.20.2.
+
+    Mutations, each one alone: delete ``v0.20.2 does not refill a page after it hides rows``, delete the marker, delete
+    ``128 minus the rows the list is asked for`` or the sentence that names 118 hidden rows from the bullet.
+    """
+
     page = _text("docs/alpha/known-limitations.md")
     entries = [line.removeprefix("- ") for line in page.splitlines() if line.startswith("- ")]
-    refill = [entry for entry in entries if entry.startswith(f"{MARK} the vector stage of recall and of the context pack")]
+    refill = [entry for entry in entries if "v0.20.2 does not refill a page after it hides rows" in entry]
     assert len(refill) == 1
-    assert "so a page is short when the hidden rows in front of it number more than 128 minus the rows the list is asked for (118 for `alice_recall` at limit 5)" in refill[0]
+    entry = refill[0]
+    shipped, marker, main = entry.partition(MARK)
+    assert marker
+    assert "the vector stage of recall and of the context pack and the time stage of the context pack can return fewer results than exist, down to none" in shipped
+    assert "the context tree, the workspace and the project list can return short pages" in shipped
+    assert "these refill, and a page is short when the hidden rows in front of it number more than 128 minus the rows the list is asked for (118 for `alice_recall` at limit 5)" in main
 
 
 def test_the_security_note_keeps_the_v0202_limit_and_gives_the_refill_its_own_marked_paragraph() -> None:

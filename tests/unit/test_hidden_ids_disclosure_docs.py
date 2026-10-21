@@ -5,8 +5,10 @@ The sentences are pinned by phrase. The behaviour is tested in ``tests/integrati
 
 Mutations, each one alone: delete ``In v0.20.2 this was a known exception, not a way of meeting the requirement to filter
 hidden ids`` from the security note, or put ``and that stays so until v0.21.0`` back; start the known limitations bullet with
-``From v0.20.2`` instead of ``Unreleased (on main, not in v0.20.2)``; put ``withholding these is tracked for v0.21.0`` back in
-the bullet for the memory audit; delete the sentence about free text, about a hidden row and a missing row, or about counts from
+``From v0.20.2`` instead of ``v0.20.2 returns``; put ``withholding these is tracked for v0.21.0`` back in
+the bullet for the memory audit; put ``tracked for v0.21.0`` back for the hash, the words of archived rows or the words of a
+redacted memory in the security note, the tool reference or the known limitations (each says ``planned, with no release set``
+since 2026-10-21); delete the sentence about free text, about a hidden row and a missing row, or about counts from
 the paragraph of the security note that says what main withholds; delete the sentence about an id inside free text from the
 tool reference, or the sentence about a connection and repeated headers from the changelog entry;
 delete ``They grant no access`` from the security note; delete ``is answered exactly as for a missing id`` from the security
@@ -97,7 +99,7 @@ def test_the_security_note_states_the_hidden_id_exception() -> None:
     assert "The ids are random UUIDs" in paragraph
     assert "They reveal that the row exists and how a report links to it. They grant no access." in paragraph
     assert "is answered exactly as for a missing id: the same status and body, or the same tool error, and no stored row changes." in paragraph
-    assert "is tracked for v0.21.0" in paragraph
+    assert "is tracked for v0.21.0" not in paragraph  # the words of archived rows are planned with no release set
     assert "a report keeps the words of a source that was archived later" not in paragraph  # it moved into its own sentences
     # The report keeps more than ids, and the note says what: the printed lines, the quoted fields, the roll-up card and
     # the digest of a consolidation member, that a redaction does not reach the reports that copied the memory, and who reads
@@ -112,8 +114,9 @@ def test_the_security_note_states_the_hidden_id_exception() -> None:
     assert "A key reads the words of an archived row as it read them in the report" in paragraph
     assert "and archiving restricts nothing" in paragraph
     assert "The words of a redacted memory are not read that way: a report that recorded a redacted memory is read by the owner and an unbound admin key only (see the paragraph on redacted memories), so no other key reads them." in paragraph
-    assert "That is containment and not removal, and removing the words is planned for v0.21.0." in paragraph
-    assert "The words of archived rows are a known exception, not a way of meeting the requirement to filter hidden ids, and withholding them for a caller with limits is tracked for v0.21.0." in paragraph
+    assert "That is containment and not removal, and removing the words is planned, with no release set." in paragraph
+    assert "The words of archived rows are a known exception, not a way of meeting the requirement to filter hidden ids, and withholding them for a caller with limits is planned, with no release set." in paragraph
+    assert "v0.21.0" not in paragraph
     assert "so a redacted memory's text can still be read in them" not in paragraph
     assert "withholding these words for a caller with limits is tracked for v0.21.0 with the ids" not in paragraph
 
@@ -230,41 +233,48 @@ def test_the_security_note_covers_belief_and_edge_review() -> None:
 
 
 def test_the_known_limitations_page_lists_both_limits() -> None:
+    """The page states the v0.20.2 limit and the one clause for main, and the three promises that have no release.
+
+    The page is written for v0.20.2, so the id bullet opens with what v0.20.2 does and marks what main does with the one
+    marker. The hash and the words of archived rows are planned with no release set (they were tracked for v0.21.0 until
+    2026-10-21). The security note holds the detail and is linked from the lead-in of the list.
+    """
+
     page = _text("docs/alpha/known-limitations.md")
-    paragraph = _paragraph(page, f"- {WITHHELD}")
-    assert "it may not read, in a list, a field, a dict key or a printed report" in paragraph
+    flat = " ".join(page.split())
+    assert "Open in v0.20.2, with the detail in the [security note](../release/derived-labels-security-note-draft.md):" in flat
+    paragraph = _paragraph(page, "- v0.20.2 returns the ids of rows a key cannot read as stored.")
+    assert paragraph.startswith(f" {UNRELEASED} a key with limits is not shown the id of a memory, a source, an artifact or an open loop it may not read")
     assert "the count of a list that lost an id is recomputed or dropped" in paragraph
     assert "an id in free text is not looked for" in paragraph
     assert "an id that names no row at a position the product does not type is shown as written" in paragraph
-    assert "v0.20.2 returned those ids as stored" in paragraph
     assert "the owner and an unbound admin key keep every id" in paragraph
-    assert "(see the [security note](../release/derived-labels-security-note-draft.md))" in paragraph
     assert "From v0.20.2, a key with limits is not shown" not in page
     assert "three answers" not in paragraph
     assert "which can repeat the row's labels" not in paragraph
-    audit = _paragraph(page, f"- {AUDIT}")
-    assert "(the SHA-256 of the whole captured text) after the source is archived" in audit
-    assert "which the detail mode of `alice_memory_review`, the memory audit and the event feed of the workspace return" in audit
-    assert "withholding it is tracked for v0.21.0" in audit
-    assert "v0.20.2 also returned the archived members of a derived memory, the `source_id` and `source_event_ids` of a memory and the `artifact_id` of the scheduler's run records, which the unreleased change on main withholds from a key with limits" in audit
-    assert "(see the [security note](../release/derived-labels-security-note-draft.md))" in audit
+    audit = _paragraph(page, "- a memory made from a captured source keeps its `capture_content_hash`")
+    assert " after the source is archived, which the detail mode of `alice_memory_review`, the memory audit and the workspace event feed return" in audit
+    assert "withholding it is planned, with no release set" in audit
+    assert (
+        "v0.20.2 also returns the archived members of a derived memory, the `source_id` and `source_event_ids` of a memory and "
+        f"the `artifact_id` of the scheduler's run records; {UNRELEASED} a key with limits is not shown those"
+    ) in audit
+    assert "v0.21.0" not in audit
     # The stale sentences are gone: ids are no longer listed as kept, and no bullet says they are tracked for v0.21.0.
     assert "keeps its `source_id`" not in page
     assert "also keep the `artifact_id` of a report made confidential since" not in page
     assert "withholding these is tracked for v0.21.0" not in page
+    assert "tracked for v0.21.0" not in page
 
-    kept = _paragraph(page, f"- {KEPT}")
-    assert ", so the title, text or quote of a row that was archived after the report was made stays in the report's text" in kept
-    assert "in a roll-up card and as the digest of a consolidation member (on main, a key with limits no longer reads the entry of a member it may not read), and a key that can read the report reads those words" in kept
-    assert "the words of a memory redacted after the report was made stay in it too, but then only the owner and an unbound admin key read the report" in kept
-    assert "removing them is planned for v0.21.0, with hiding the words of archived rows tracked for v0.21.0" in kept
+    kept = _paragraph(page, "- a report keeps the words it was made with")
+    assert ": the title, text or quote of a row archived after the report was made stays in the report, in a roll-up card and as the digest of a consolidation member, and a key that can read the report reads it" in kept
+    assert "hiding these words is planned, with no release set" in kept
+    assert "v0.21.0" not in kept
     assert "redacting a memory does not rewrite the reports that printed it" not in kept
-    assert "(see the [security note](../release/derived-labels-security-note-draft.md))" in kept
-    vector = _paragraph(page, "- Unreleased (on main, not in v0.20.2): the vector stage of recall and of the context pack, and the time stage of the context pack, refill after hiding rows")
-    assert "judged at most 128 rows of each list" in vector
-    assert "so a page is short when the hidden rows in front of it number more than 128 minus the rows the list is asked for (118 for `alice_recall` at limit 5)" in vector
-    assert "the owner and an unbound admin key are unchanged" in vector
-    assert "v0.20.2 did not refill these pages" in vector
+    vector = _paragraph(page, "- a key with limits is judged at most 128 rows of each list")
+    assert "(`READABLE_SCAN_CAP`), so a null `last_decision` or `next_action` can mean that the newest 128 matching rows hold none it may read" in vector
+    assert "v0.20.2 does not refill a page after it hides rows" in vector
+    assert f"{UNRELEASED} these refill, and a page is short when the hidden rows in front of it number more than 128 minus the rows the list is asked for (118 for `alice_recall` at limit 5)" in vector
 
 
 def test_the_changelog_has_one_entry_for_each() -> None:
@@ -341,7 +351,7 @@ def test_the_tool_reference_states_both() -> None:
     assert "the validation error of a refused request (HTTP 422) repeats the caller's own input as sent and is not filtered" in ids
     assert "(on main, a key with limits no longer reads the roll-up entry or the member digest of a row it may not read)" in ids
     assert "A report also keeps the words it was made with, so the title, text or quote of a row that was archived after the report was made stays in the report's text" in ids
-    assert "and a key that can read the report reads those words (on main, a key with limits no longer reads the roll-up entry or the member digest of a row it may not read); withholding the other words is tracked for v0.21.0." in ids
+    assert "and a key that can read the report reads those words (on main, a key with limits no longer reads the roll-up entry or the member digest of a row it may not read); withholding the other words is planned, with no release set." in ids
     assert "The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only (see [Redacted memories](#redacted-memories))." in ids
     assert "and redacting a memory does not rewrite the reports that printed it" not in ids
     exact = _paragraph(tools, f"{MARK} the doors that act on one row by id answer a row above the key's limits as a row that does not exist.")
