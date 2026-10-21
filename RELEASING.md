@@ -459,6 +459,20 @@ when it does not. Raise the publish limit in the same pull request that adds a
 shard or raises the shard limit. `v0.20.1` was never published because this job
 reached its old 35 minute limit while it reran the suite.
 
+`publish-recheck-rehearsal.yml` runs the install step and the recheck step of that
+first job on a runner before a release tag exists, with the same commands, the same
+pinned actions, the same Python and the same `timeout-minutes`. It runs on dispatch,
+from any ref, and once a week on `main`. It does not run on pull requests and it is
+not a required check. It must be green on the exact release commit before you create
+the tag. After the release pull request is merged, dispatch it from the ref that holds
+that commit, with `gh workflow run publish-recheck-rehearsal.yml --ref <branch>`
+(`main` for the merge commit), and confirm that the run's commit is the SHA you will
+tag. It writes the duration of the recheck step and the number of unit tests to the job
+summary, and it fails when the step took more than half of the job's limit, because a
+release-only step that is expected to take more than half its limit blocks the tag.
+`tests/unit/test_publish_recheck_rehearsal.py` fails when the rehearsal and the publish
+job differ in those commands, pins, Python or limit, so change both in one pull request.
+
 ### Recovering finalization after PyPI succeeds
 
 The workflow deliberately stages and verifies a draft before crossing the
