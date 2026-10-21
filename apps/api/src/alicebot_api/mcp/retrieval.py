@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Any, Protocol, cast
+from typing import Any, Final, Protocol, cast
 from alicebot_api.continuity_brief import compile_continuity_brief
 from alicebot_api.continuity_recall import (
     get_retrieval_trace,
@@ -185,19 +185,31 @@ def _recall_source_scope(retrieval_filters: Mapping[str, object]) -> _ResolvedRe
     )
 
 
+#: The store classes on which an unset ``ALICE_SEARCH_QUALITY`` means passage mode.
+#: This is the one place the store-dependent default is decided: a store named
+#: here runs passage mode when the variable is unset, any other store runs
+#: document mode. The names are class names, as in the PostgreSQL check in
+#: ``recall_source_ranking``, so this edge imports neither store.
+PASSAGE_BY_DEFAULT_STORES: Final[frozenset[str]] = frozenset({"SQLiteVNextStore"})
+
+
 def recall_source_ranking(store: object, identity: AgentIdentity | None) -> SourceRanking:
     """The ranking ``alice_recall`` asks for.
 
-    Read here, with the store kind and the caller's identity, so the later
-    change that makes passage the default on SQLite is one line in this
-    function. A PostgreSQL caller whose key has limits stays on document
-    mode even when ``ALICE_SEARCH_QUALITY=passage``. The owner and an
-    unbound admin key have no limits. The service never reads the switch.
+    Read here, with the store kind and the caller's identity. With the
+    variable unset, a store in ``PASSAGE_BY_DEFAULT_STORES`` runs passage mode
+    and every other store runs document mode. ``off`` is document mode and
+    ``passage`` is passage mode on both stores. A PostgreSQL caller whose key
+    has limits stays on document mode even when ``ALICE_SEARCH_QUALITY=passage``.
+    The owner and an unbound admin key have no limits. The service never reads
+    the switch.
     """
 
-    if type(store).__name__ == "PostgresVNextStore" and SourceReadFence.for_identity(identity).entity_read_fenced:
+    store_name = type(store).__name__
+    if store_name == "PostgresVNextStore" and SourceReadFence.for_identity(identity).entity_read_fenced:
         return SourceRanking.document()
-    return SourceRanking.from_environment()
+    unset = SourceRanking.passage() if store_name in PASSAGE_BY_DEFAULT_STORES else SourceRanking.document()
+    return SourceRanking.from_environment(unset=unset)
 
 
 def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -321,8 +333,9 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             # hint: without this the excerpt path is a way around a control
             # the pack enforces.
             scope=recall_scope,
-            # Written here on purpose. The switch and the PostgreSQL
-            # limited-key rule are applied at this edge, not inside the service.
+            # Written here on purpose. The switch, the default of the store
+            # and the PostgreSQL limited-key rule are applied at this edge,
+            # not inside the service.
             ranking=recall_source_ranking(store, context.agent_identity),
             winning_memories=ordered_rows,
         )

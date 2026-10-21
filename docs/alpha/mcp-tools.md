@@ -119,12 +119,14 @@ Remember, recall, continue. These are the only tools in a default
   that loops back to a memory it already passed names no id. In v0.19.2 the
   id of the expired memory is named, and so is the id of the memory the loop
   came back to.
-  Unreleased (on main, not in v0.20.2): with `ALICE_SEARCH_QUALITY=passage`,
-  `alice_recall` returns up to three passages from one document and ranks
-  passages across documents. v0.20.2 returns one passage per document. The
-  switch is off by default on main. A PostgreSQL caller whose key has limits
-  still gets one passage per document when the switch is `passage`. Each
-  passage entry adds `chunk_index`, and `source_count` counts entries. When
+  Unreleased (on main, not in v0.20.2): on the SQLite store, `alice_recall`
+  runs passage mode by default. It returns up to three passages from one
+  document and ranks passages across documents, and `ALICE_SEARCH_QUALITY=off`
+  restores document mode. v0.20.2 returns one passage per document. PostgreSQL
+  keeps document mode unless `ALICE_SEARCH_QUALITY=passage` says otherwise, and
+  a PostgreSQL caller whose key has limits still gets one passage per document
+  when the switch is `passage`. `ALICE_SEARCH_QUALITY=on` is still refused.
+  Each passage entry adds `chunk_index`, and `source_count` counts entries. When
   no memory in the result names a source, the extra memories added to
   `results` come from the first source entry, which can be a different
   document than the one v0.20.2 put first. The context pack and the brief

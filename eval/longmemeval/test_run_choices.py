@@ -165,7 +165,9 @@ def test_the_fingerprint_records_the_ranking_mode(tmp_path: Path, monkeypatch: p
 
     Mutation: drop ``ranking_mode`` from ``config_fingerprint`` or from ``run_choices``.
     A pack run stays ``document`` when the process switch is ``passage``, because the
-    pack does not read the switch. A recall run records ``passage`` and ``on``.
+    pack does not read the switch. A recall run records ``passage`` and ``on``, ``document``
+    for ``off``, and ``passage`` when the switch is unset (the SQLite default).
+    Mutation: read ``SourceRanking.from_environment`` alone, which calls unset ``document``.
     """
 
     document = runner.config_fingerprint(_recall_config(tmp_path), model=None, judge=None)
@@ -180,8 +182,12 @@ def test_the_fingerprint_records_the_ranking_mode(tmp_path: Path, monkeypatch: p
     assert runner.resolved_ranking_mode(adapter.SURFACE_CONTEXT_PACK) == "document"
     monkeypatch.setenv("ALICE_SEARCH_QUALITY", "on")
     assert runner.resolved_ranking_mode(adapter.SURFACE_RECALL) == "on"
-    monkeypatch.delenv("ALICE_SEARCH_QUALITY", raising=False)
+    monkeypatch.setenv("ALICE_SEARCH_QUALITY", "off")
     assert runner.resolved_ranking_mode(adapter.SURFACE_RECALL) == "document"
+    # Passage mode is the SQLite default of alice_recall, so an unset switch records passage, not document.
+    monkeypatch.delenv("ALICE_SEARCH_QUALITY", raising=False)
+    assert runner.resolved_ranking_mode(adapter.SURFACE_RECALL) == "passage"
+    assert runner.resolved_ranking_mode(adapter.SURFACE_CONTEXT_PACK) == "document"
 
 
 def test_every_row_carries_the_choices_even_when_the_question_errors(

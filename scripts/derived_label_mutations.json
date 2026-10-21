@@ -326,7 +326,7 @@
           "line": 118,
           "before": "omit content diagnostics for a caller with limits",
           "after": "show content diagnostics to a caller",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -980,10 +980,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1027,
+          "line": 1029,
           "before": "A call answered HTTP 404 changes nothing",
           "after": "A call answered HTTP 404 may change a thing",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -999,7 +999,7 @@
           "line": 52,
           "before": "stays refused to every key but an unbound `admin_agent`",
           "after": "stays refused",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -1144,10 +1144,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1027,
+          "line": 1029,
           "before": "the only row it adds is the policy event that the operator gate records for its own refusal",
           "after": "it adds no row",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -1160,10 +1160,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1027,
+          "line": 1029,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -1179,7 +1179,7 @@
           "line": 52,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -1551,7 +1551,7 @@
           "line": 53,
           "before": "where it raised a server error",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -1738,10 +1738,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 784,
+          "line": 797,
           "before": "        if target is None or outside_caller_limits(store, identity, \"open_loop\", target):",
           "after": "        if target is None:",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -2034,10 +2034,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1033,
+          "line": 1035,
           "before": "The call now writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry. ",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -2053,7 +2053,7 @@
           "line": 55,
           "before": "and the call writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry.",
           "after": "and the call is recorded.",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -2210,10 +2210,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 798,
+          "line": 800,
           "before": "A refused `redact` of an archived or redacted row writes nothing, as a",
           "after": "A refused `redact` of an archived or redacted row is audited, as a",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -2245,7 +2245,7 @@
           "line": 101,
           "before": "A refused redact of an archived or redacted row now writes nothing, as a redact of an id the vault never held writes nothing: no policy event and no agent record.",
           "after": "A refused redact of an archived or redacted row is still recorded.",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -4004,10 +4004,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1031,
+          "line": 1033,
           "before": "`GET /v0/vnext/memories/{id}/audit` returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, the ids of archived members included. ",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -4023,7 +4023,7 @@
           "line": 54,
           "before": "The memory audit route (`GET /v0/vnext/memories/{id}/audit`) returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, so the ids of archived members stand there too (a derived memory that recorded a redacted memory as a member is read by the owner and an unbound admin key only), ",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -4039,7 +4039,7 @@
           "line": 46,
           "before": "The context tree and the dogfooding view read the same rule. ",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -4701,7 +4701,7 @@
           "line": 38,
           "before": "An artifact event that holds anything more still stops the redaction, so no text is left behind. ",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -4762,10 +4762,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1031,
+          "line": 1033,
           "before": " The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only (see [Redacted memories](#redacted-memories)).",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -4781,7 +4781,7 @@
           "line": 54,
           "before": " The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says.",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -5180,7 +5180,7 @@
           "line": 40,
           "before": "Redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "Redacting a memory leaves reports as they were",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -5193,10 +5193,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1240,
+          "line": 1242,
           "before": "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -5228,7 +5228,7 @@
           "line": 40,
           "before": "This is temporary access containment, not removal",
           "after": "This is removal",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -5257,10 +5257,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1244,
+          "line": 1246,
           "before": "Archiving keeps reports' historical content and does not restrict them.",
           "after": "Archiving restricts them.",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -5292,7 +5292,7 @@
           "line": 40,
           "before": "say to regenerate or delete the reports built from a redacted memory",
           "after": "say nothing",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -5389,10 +5389,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1246,
+          "line": 1248,
           "before": "The recommended fix of the check is to regenerate or delete those reports, and not `alicebot vnext labels repair`",
           "after": "The recommended fix of the check is labels repair",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -5636,7 +5636,7 @@
           "line": 40,
           "before": "is refused to a key that may not read the belief, with the answer of a missing belief, and a refused review changes nothing.",
           "after": "is open to every key.",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -5649,10 +5649,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1254,
+          "line": 1256,
           "before": "only when that key may read every labelled row the edge joins and none of them is redacted",
           "after": "for every key",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -5665,10 +5665,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1254,
+          "line": 1256,
           "before": "From v0.20.2, a graph edge has no label",
           "after": "From v0.20.2, the graph edges are the exception: they have no label",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -5681,10 +5681,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1256,
+          "line": 1258,
           "before": "The only tools a key can call are the core tools",
           "after": "A key can call any tool",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -5697,10 +5697,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 301,
+          "line": 303,
           "before": "It does not rewrite\n  the reports and cards made from the memory before: they keep the words they\n  copied",
           "after": "It rewrites\n  the reports and cards made from the memory before: they lose the words they\n  copied",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -5971,10 +5971,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1254,
+          "line": 1256,
           "before": "A project end that names the project by a name or by an id that finds no project row hides nothing",
           "after": "A project end hides every edge",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -5990,7 +5990,7 @@
           "line": 40,
           "before": "A project end that names the project by a name or by an id that finds no project row hides nothing",
           "after": "A project end hides every edge",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -6083,10 +6083,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1031,
+          "line": 1033,
           "before": "but a report that recorded a redacted memory is read by the owner and an unbound admin key only (see [Redacted memories](#redacted-memories))",
           "after": "but a report that recorded a redacted memory is read like any other report (see [Redacted memories](#redacted-memories))",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -6099,10 +6099,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1031,
+          "line": 1033,
           "before": "and a key that can read the report reads those words (on main, a key with limits no longer reads the roll-up entry or the member digest of a row it may not read);",
           "after": "(on main, a key with limits no longer reads the roll-up entry or the member digest of a row it may not read);",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -6118,7 +6118,7 @@
           "line": 54,
           "before": "but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says",
           "after": "but a report that recorded a redacted memory is read like any other report, as the entry on redacted memories says",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -6150,7 +6150,7 @@
           "line": 73,
           "before": "The graph neighborhood and the edge review route apply the same ceiling to the rows an edge joins, as the entry on redacted memories and the security note say.",
           "after": "Graph edge explanations remain outside that ceiling, as disclosed in the security note.",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -6163,10 +6163,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1027,
+          "line": 1029,
           "before": "and the rule that fences it is under [Graph edges and beliefs](#redacted-memories-and-the-graph).",
           "after": "and its limit is listed in the release security note.",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -6211,10 +6211,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1254,
+          "line": 1256,
           "before": "The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. ",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -6230,7 +6230,7 @@
           "line": 40,
           "before": "The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. ",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -6262,7 +6262,7 @@
           "line": 54,
           "before": "Two answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; and a memory commit",
           "after": "Three answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; the graph neighborhood route, which returns the edges of any id with their explanations; and a memory commit",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -7611,7 +7611,7 @@
           "line": 37,
           "before": "The CTE now names the picked id `next_id`. ",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -7640,10 +7640,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1057,
+          "line": 1059,
           "before": "(the sweep holds it as an expected failure).",
           "after": "(the sweep holds it as an expected failure); and `POST /v0/vnext/queue/process-next` answers HTTP 500 to every caller because its claim statement is ambiguous in PostgreSQL.",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -7851,7 +7851,7 @@
           "line": 37,
           "before": " A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made. The event guard judges that artifact like the artifact of any other event, so the workspace feed of a key with a ceiling holds neither event, and not the id of the artifact, when the task was above its ceiling, and its event count leaves both out. The claim and the failure of a task name no artifact and hold the id of the task, which the entry on the operator routes lists for the creation events of a queued task.",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -7864,10 +7864,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1039,
+          "line": 1041,
           "before": " A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made, so the workspace feed of a key with a ceiling holds neither event, and not the id of the artifact, when the task was above its ceiling.",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -7899,7 +7899,7 @@
           "line": 42,
           "before": ", and, for a task that a worker has claimed, `task.claimed`, and `task.updated` and `queue.task_failed` when it failed",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -7912,10 +7912,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1057,
+          "line": 1059,
           "before": " and, for a task that a worker has claimed, of its claim event (`task.claimed`) and of its failure events (`task.updated` and `queue.task_failed`)",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -8206,7 +8206,7 @@
           "line": 43,
           "before": "The filter on the target stays: an event about a row the trace does not list is still left out. ",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -8222,7 +8222,7 @@
           "line": 44,
           "before": "so no caller left an event that names an object it may not read",
           "after": "so a caller may have left an event",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -8462,7 +8462,7 @@
           "line": 43,
           "before": "A key with limits is read the newest 2,000 events that the trace asks for, as the event feeds are",
           "after": "A key with limits is read every event that the trace asks for",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -8494,7 +8494,7 @@
           "line": 44,
           "before": "which by default leaves out the confidential levels, is not a limit: the owner",
           "after": "which by default leaves out the confidential levels, is a limit: the owner",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -8590,7 +8590,7 @@
           "line": 43,
           "before": "only the events aimed at the source or at a row the trace lists count against that reach",
           "after": "every event of the source counts against that reach",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -8843,10 +8843,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1049,
+          "line": 1051,
           "before": "A loop that was made earlier and is found again by its digest is judged on its effective labels like a new loop: ",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -8862,7 +8862,7 @@
           "line": 57,
           "before": "out of the `created_count` of the `open_loop.extraction_completed` event, as a missing row is, and nothing about it is returned",
           "after": "as a missing row is, and nothing about it is returned",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -9408,10 +9408,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": "a quote saved of a memory follows that memory as a quote saved of a source follows its source",
           "after": "a quote saved of a memory is shown to every caller",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -9427,7 +9427,7 @@
           "line": 39,
           "before": "The quote a commit saved of a memory is withheld from a caller who may not read that memory",
           "after": "The quote a commit saved of a memory is shown to every caller",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -9440,10 +9440,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": "`memory_ids`, `memory_ref`, `memory_refs`, `memory_references`, `source_memory_ids`",
           "after": "`memory_ids`, `memory_ref`, `memory_refs`, `memory_references`, `source_memory_ids`, `memory_notes`",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -9472,10 +9472,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1250,
+          "line": 1252,
           "before": "but not through recall, the context pack or the default context tree, because the default sensitivity filter of those three reads an unverified row as regulated.",
           "after": "and through recall, the context pack and the default context tree, because the default sensitivity filter of those three reads an unverified row as regulated.",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -10049,10 +10049,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": "is looked up as well, because it may name a memory:",
           "after": "is not looked up, because it names no memory:",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -10081,10 +10081,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": "the `quote` and the `conversation_excerpt` become `null`, and so does any other text in the entry (a sentence that has the id in it, or a string in a `memory_id`, `source_id`, `id` or `ref` field that holds more than an id), while the entry keeps its ids, its numbers and its booleans under the fields the product writes",
           "after": "the `quote` and the `conversation_excerpt` become `null` while the entry keeps every other field",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -10097,10 +10097,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1250,
+          "line": 1252,
           "before": "A request that names every sensitivity lists them: the `sensitivity_allowed` argument of `alice_recall` and of the context pack, and the `sensitivity_allowed` query of the context tree.",
           "after": "A request that names every sensitivity (the `sensitivity_allowed` option of the context pack, the `sensitivity_allowed` query of the context tree) lists them. Recall takes no sensitivity argument, so it never lists them.",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -10129,10 +10129,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": "and the three feeds of events (the recent events and the agent activity of the workspace, and the events of a source trace) hold that payload to the same rule as the events of one memory in its audit",
           "after": "and nothing else holds that payload",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -10148,7 +10148,7 @@
           "line": 39,
           "before": "and the recent events and the agent activity of the workspace and the events of a source trace hold the payload of a confirmed commit to the same rule.",
           "after": "and nothing else holds a confirmed commit to it.",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -10403,10 +10403,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": "recent events, agent activity and the source traces it embeds), the project dashboard",
           "after": "recent events and the source traces it embeds), the project dashboard",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -10438,7 +10438,7 @@
           "line": 39,
           "before": "the recent events and the agent activity of the workspace and the events of a source trace hold the payload",
           "after": "the recent events of the workspace and the events of a source trace hold the payload",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -10451,10 +10451,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": "and a `#` and what follows it after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`",
           "after": "and a `#` fragment after a reference is kept",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -10486,7 +10486,7 @@
           "line": 39,
           "before": "(a `#` fragment after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`, and a field that holds an id and more than an id reads `null`)",
           "after": "(a `#` fragment after a reference is kept)",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -10499,10 +10499,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": "Not judged: the text of an entry beside a refused ref that names a stored source or memory the caller may read, which keeps the strings under the fields the product writes, a `quote` or a string beside a `source_id` (the reader cannot tell whose words they are; every other field name goes from it with its value); words a writer typed in a field that is not a ref",
           "after": "Not judged: the name of a field, which is kept as written (a word used as a key cannot be told from a label); text in an entry that names no refused memory, beside an entry that does (an entry that names nothing loses its `quote` and `conversation_excerpt`, and no other string); words a writer typed in a field that is not a ref",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -10531,10 +10531,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": " A ref that lists tens of thousands of ids is read in several passes and its ids are looked up in slices of 500, so each page that returns the commit takes longer in proportion to the size of the ref, bounded by the body limit: about eight times as long at 100,000 ids on SQLite, against a few milliseconds more for a page of ordinary commits.",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -10819,10 +10819,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": "The names of the fields are withheld with their values. A name holds words whatever its value is, so the entry keeps a field only when its name is one the product writes (the memory reference keys,",
           "after": "The names of the fields are kept as written (the memory reference keys,",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -10835,10 +10835,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": "a `text`, `excerpt`, `snippet`, `note` or `page` field goes whole, and so does an id that sits under a name such as `origin`, `ref_id` or `evidence`",
           "after": "a `text` field goes",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -10851,10 +10851,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": " From main the commit route, the memory proposal and the agent-output ingest (the sync of the `agent_output` connector included) refuse an entry of `source_refs` that is an object, a number, a boolean, `null`, a nested array, a blank string or a string that is the text of a JSON object or array (v0.20.2 accepted and stored one as sent), so the reader is the fence for the rows stored by earlier releases.",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -10867,10 +10867,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": "`source_ref`, `source_refs`, `source_references`, `selected_source_ids` and `sources`, `id`, `ref`,",
           "after": "`source_ref`, `source_refs`, `selected_source_ids` and `sources`, `id`, `ref`,",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -10966,7 +10966,7 @@
           "line": 39,
           "before": "and the names of the fields are withheld with their values: the entry keeps a field only when its name is one the product writes",
           "after": "and the entry keeps every field",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -11876,10 +11876,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": "An entry names a row when a reference position says so (`source_id`, `memory_id`, a `source:` or `memory:` ref) and the row is stored and readable by the caller, and only then does it keep its text; an id under `chunk_id`, in a sentence or in a quote, and an id that names no stored row, name nothing, so adding one to an entry keeps no quote.",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -11892,10 +11892,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": "A quote or an excerpt that is an object or a list is read like the rest of the ref, and an id typed in the text of a quote or of the commit's excerpt (`memory:<id> words`) takes the quote when it names a stored memory the caller may not read. ",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -11908,10 +11908,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1014,
+          "line": 1016,
           "before": "the same rule holds the other rows that keep a structure their writer chose. A source made by the agent-output ingest keeps the `source_refs` it was sent in its `metadata_json` and again in `metadata_json.raw_payload`.",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -11924,10 +11924,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1014,
+          "line": 1016,
           "before": "now show a key with limits both copies of the refs with the ids and a `null` quote, and drop an entry that names a source the key may not read; the stored row is not changed.",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -11940,10 +11940,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1014,
+          "line": 1016,
           "before": "`alicebot vnext memories audit` with an agent key now authorizes the memory and its replacement chain as the audit route does and holds the result to the reader; in v0.20.0 it returned the audit as stored to a key that reached it.",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -12036,10 +12036,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1007,
+          "line": 1009,
           "before": "returns the source subject to the route's current read fence (the memory audit, recent commits and source routes hold a\nsaved quote, and the refs a source kept, to the caller now, see the paragraphs below);",
           "after": "returns what was stored subject to the route's current read fence (the memory audit and recent commits routes hold a\nsaved quote to the caller now, see the paragraph below);",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -12055,7 +12055,7 @@
           "line": 39,
           "before": "An entry beside such a ref that names nothing the caller may read is held to the same rule (a bare string and a `text` field go with the `quote`), one that names a stored source or memory the caller may read keeps its text and loses the names the product does not write with their values, and so are the refs a source made by the agent-output ingest keeps (the source routes, the source trace, the artifact trace, the context pack, the workspace and the connector status), the metadata of a quality rating and the allowed sources and scope of a queued task; the report of a consolidation run and the artifact a queue worker makes are derived from the memories their refs and tasks name, and `alicebot vnext memories audit` with an agent key applies the reader. ",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -12260,10 +12260,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1012,
+          "line": 1014,
           "before": ", and the entry beside a refused ref is held to the same rule on names whether or not it names a readable row: one that names nothing readable loses its text as well, and one that names a stored source or memory the caller may read keeps its text and loses every name the product does not write, with its value",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -13513,7 +13513,7 @@
           "line": 31,
           "before": "In v0.20.0 the name was an ordinary one, a key bound to it read only",
           "after": "In v0.20.0 the name was an ordinary one, so this is a regression of main and no release had it. A key bound to it read only",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -13737,7 +13737,7 @@
           "line": 32,
           "before": "In v0.19.2 and in v0.20.0 an unbound `trusted_local_agent` key, whose ceiling is `public`, `internal`, `private` and `unknown`, was shown the path of a confidential file",
           "after": "In v0.20.0 an unbound `trusted_local_agent` key, whose ceiling is `public`, `internal`, `private` and `unknown`, was shown the path of a confidential file",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -13750,10 +13750,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1052,
+          "line": 1054,
           "before": "a failed item or a failed sync without the id the importer gave the item (for a file, its path) and without the cursor",
           "after": "a failed sync without the cursor",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -13977,7 +13977,7 @@
           "line": 31,
           "before": "Each surface answers with its standard refusal and none of them names the reason: the HTTP body is the standard forbidden message and the tool error is the standard text of its code. ",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -13993,7 +13993,7 @@
           "line": 32,
           "before": "One case stays: a key that imports a public item at a path it already knows (it was told the path or guessed it) is then shown a failed import of that same path, so it can confirm that a failed import of a path it can name exists; it learns the path it sent and nothing about the file. ",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -14006,10 +14006,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1057,
+          "line": 1059,
           "before": "a key that imports a public item at a path it already knows (it was told the path or guessed it) is then shown a failed import of that same path, so it can confirm that a failed import of a path it can name exists, and it learns the path it sent and nothing about the file; and the workspace",
           "after": "and the workspace",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -14022,10 +14022,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1054,
+          "line": 1056,
           "before": " `failed_external_ids` follows it too, each id in its place in the list: a folder sync names files the caller never sent, and an item the caller did send that failed is `null` as well unless an import of it made a source the key may read.",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -14342,10 +14342,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1041,
+          "line": 1043,
           "before": "A report the caller may not read now is left out, whether the run made it or found it again under the same digest. ",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -14390,10 +14390,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1041,
+          "line": 1043,
           "before": "The four generation routes answer HTTP 404 with `{\"detail\": \"vNext artifact was not found\"}`, and the tools `alice_generate_daily_brief`, `alice_generate_weekly_synthesis`, `alice_generate_connections`, `alice_generate_contradictions` and `alice_vnext_find_connections`, and the `daily_brief`, `weekly_synthesis`, `connection_report` and `contradiction_report` branches of `alice_vnext_generate_artifact`, answer the error `not_found`. ",
           "after": "",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -14409,7 +14409,7 @@
           "line": 61,
           "before": "A report that a relabel during the run raised after the run had read its inputs is judged the same way: it is stored with the current floor, and a caller who may not read it is answered as for a missing artifact. ",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -15643,7 +15643,7 @@
           "line": 34,
           "before": "A direct call of the commit service stored an entry nested about 950 levels deep (in v0.19.2 and in v0.20.0)",
           "after": "The HTTP route and the MCP commit tool stored an entry nested about 950 levels deep (in v0.19.2 and in v0.20.0)",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -15659,7 +15659,7 @@
           "line": 34,
           "before": "A request or tool call that may have written is never run twice, because it may have committed before it failed: ",
           "after": "",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -15675,7 +15675,7 @@
           "line": 34,
           "before": "so a write that reads it, `forget` and `expire` among them, writes the placeholder back into the row and into the audit event it appends.",
           "after": "so a write that reads it keeps the row whole.",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -15691,7 +15691,7 @@
           "line": 34,
           "before": "so a retried call leaves the events an ordinary call leaves",
           "after": "so a retried call leaves its events twice",
-          "sha256": "bbf56caee2e9f41f7ca9510947b1c694e3c4aabec6d04b065bd6b8db24cffed5"
+          "sha256": "3251e2f31f3d9db7c2bb5ff998d72a4157310115f5b9633481f2d4767d9b683f"
         }
       ],
       "pytest": [
@@ -15704,10 +15704,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1141,
+          "line": 1143,
           "before": "`alice_open_loops` with its `list` action), is run once more with every stored",
           "after": "`alice_open_loops`), is run once more with every stored",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -15720,10 +15720,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1144,
+          "line": 1146,
           "before": "written is never run twice",
           "after": "written may be run twice",
-          "sha256": "fb25b4439efe985ae5e715f2da80510f33bbb8b3079729170f249542d705bb64"
+          "sha256": "a6296bdbd5d055bcc74bf830b0ce07def8b99780ad0399d0335e594662c5ca42"
         }
       ],
       "pytest": [
@@ -15983,10 +15983,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 259,
+          "line": 271,
           "before": "            read_fence=source_fence,\n",
           "after": "            read_fence=SourceReadFence.unfenced(),\n",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -15999,10 +15999,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 259,
+          "line": 271,
           "before": "            read_fence=source_fence,\n",
           "after": "            read_fence=SourceReadFence.unfenced(),\n",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16127,10 +16127,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1085,
+          "line": 1098,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = False",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16143,10 +16143,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1085,
+          "line": 1098,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = False",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16159,10 +16159,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1085,
+          "line": 1098,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = False",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16175,10 +16175,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1085,
+          "line": 1098,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = False",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16191,10 +16191,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1085,
+          "line": 1098,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = True",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16207,10 +16207,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1085,
+          "line": 1098,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = True",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16223,10 +16223,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1149,
+          "line": 1162,
           "before": "                    keep=admit_memories,\n                )\n            return readable_prefix(",
           "after": "                    keep=list,\n                )\n            return readable_prefix(",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16239,10 +16239,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1154,
+          "line": 1167,
           "before": "                keep=admit_memories,\n            )\n\n        decisions = newest_readable",
           "after": "                keep=list,\n            )\n\n        decisions = newest_readable",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16255,10 +16255,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1340,
+          "line": 1353,
           "before": "                if limited:\n                    # Cut after the drop",
           "after": "                if False:\n                    # Cut after the drop",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16271,10 +16271,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1387,
+          "line": 1400,
           "before": "                if limited:\n                    memory_events = readable_prefix(",
           "after": "                if False:\n                    memory_events = readable_prefix(",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16402,10 +16402,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1216,
+          "line": 1229,
           "before": "            elif limited:\n                loop_rows = readable_prefix(",
           "after": "            elif False:\n                loop_rows = readable_prefix(",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16419,10 +16419,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1206,
+          "line": 1219,
           "before": "            elif limited and project_view.mode == \"project\":",
           "after": "            elif False and project_view.mode == \"project\":",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16534,10 +16534,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 924,
+          "line": 937,
           "before": "            honoured = target_id in admitted",
           "after": "            honoured = True",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16551,10 +16551,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1133,
+          "line": 1146,
           "before": "                kind=\"memory\",\n                rows=rows,\n                domains=domain_filter,\n                sensitivity_allowed=sensitivity_filter,\n                projects=effective_project_scope,\n            )\n\n        def newest_readable",
           "after": "                kind=\"memory\",\n                rows=rows,\n                domains=None,\n                sensitivity_allowed=sensitivity_filter,\n                projects=effective_project_scope,\n            )\n\n        def newest_readable",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16568,10 +16568,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1197,
+          "line": 1210,
           "before": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=sensitivity_filter,\n                    projects=effective_project_scope,\n                )",
           "after": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=('public', 'internal', 'private', 'unknown'),\n                    projects=effective_project_scope,\n                )",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -16585,10 +16585,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1197,
+          "line": 1210,
           "before": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=sensitivity_filter,\n                    projects=effective_project_scope,\n                )",
           "after": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=sensitivity_filter,\n                    projects=(),\n                )",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -18428,7 +18428,7 @@
           "file": "scripts/showcase_bench.py",
           "before": "SUPPORT_PROFILE = \"memory_proposal_agent\"",
           "after": "SUPPORT_PROFILE = \"admin_agent\"",
-          "sha256": "fa8d5355fb32a65d6788f600b1309db509c80cb87071c8ba6b20a0daa2a035bd",
+          "sha256": "cc1e3d258962e9f2bb6e9b11a478e8dc4311da19eb84000f1ff381509d009a8e",
           "line": 47
         }
       ],
@@ -19140,10 +19140,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 276,
+          "line": 288,
           "before": "                label_refill=source_fence.entity_read_fenced,\n",
           "after": "",
-          "sha256": "4db4c1acba3716f4a52046832fd76ff67c7fdda2b97e46d50c99978963a1ed19"
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
         }
       ],
       "pytest": [
@@ -20237,6 +20237,135 @@
         "tests/unit/test_hidden_ids_disclosure_docs.py::test_the_known_limitations_page_lists_both_limits"
       ],
       "expected_failure": "test_the_known_limitations_page_lists_both_limits"
+    },
+    {
+      "name": "sqlite-unset-default-stays-document",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 193,
+          "before": "PASSAGE_BY_DEFAULT_STORES: Final[frozenset[str]] = frozenset({\"SQLiteVNextStore\"})",
+          "after": "PASSAGE_BY_DEFAULT_STORES: Final[frozenset[str]] = frozenset()",
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_sqlite_passage_default.py::test_unset_gives_passage_entries_on_sqlite"
+      ],
+      "expected_failure": "test_unset_gives_passage_entries_on_sqlite"
+    },
+    {
+      "name": "postgres-unset-default-becomes-passage",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 211,
+          "before": "unset = SourceRanking.passage() if store_name in PASSAGE_BY_DEFAULT_STORES else SourceRanking.document()",
+          "after": "unset = SourceRanking.passage()",
+          "sha256": "00dad9f335157614696cce4112b79fe04ea55c73ad5ab83485b86df0cd7130f5"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_sqlite_passage_default.py::test_the_edge_picks_the_ranking_by_store_caller_and_setting",
+        "tests/integration/test_passage_ranking_postgres.py::test_unset_is_document_mode_on_postgres_for_every_caller"
+      ],
+      "expected_failure": "test_the_edge_picks_the_ranking_by_store_caller_and_setting"
+    },
+    {
+      "name": "sqlite-off-no-longer-forces-document",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/source_ranking.py",
+          "line": 119,
+          "before": "        if value == \"off\":\n            return cls.document()",
+          "after": "        if value == \"off\":\n            return cls.document() if unset is None else unset",
+          "sha256": "762ae3c134bc01268edc2accb3e32c68a27ed5c4b1ee8fce9dfff7dfee6b6262"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_sqlite_passage_default.py::test_off_gives_document_mode_on_sqlite"
+      ],
+      "expected_failure": "test_off_gives_document_mode_on_sqlite"
+    },
+    {
+      "name": "bench-run-records-only-the-environment-value",
+      "edits": [
+        {
+          "file": "scripts/alice_bench.py",
+          "line": 1751,
+          "before": "\"search_quality\": search_quality if search_quality is not None else \"unset\",\n        \"ranking_mode\": resolved_ranking_mode(search_quality),",
+          "after": "\"search_quality\": search_quality if search_quality is not None else \"unset\",\n        \"ranking_mode\": search_quality if search_quality is not None else \"unset\",",
+          "sha256": "337498bddde7f20458e6e3b99a4338540887617acb4c10a48159b67c14a84e1f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_alice_bench_ranking_mode.py::test_the_build_and_the_run_fingerprint_record_the_resolved_mode"
+      ],
+      "expected_failure": "test_the_build_and_the_run_fingerprint_record_the_resolved_mode"
+    },
+    {
+      "name": "bench-build-records-only-the-environment-value",
+      "edits": [
+        {
+          "file": "scripts/alice_bench.py",
+          "line": 1041,
+          "before": "\"search_quality\": search_quality if search_quality is not None else \"unset\",\n            \"ranking_mode\": resolved_ranking_mode(search_quality),",
+          "after": "\"search_quality\": search_quality if search_quality is not None else \"unset\",\n            \"ranking_mode\": search_quality if search_quality is not None else \"unset\",",
+          "sha256": "337498bddde7f20458e6e3b99a4338540887617acb4c10a48159b67c14a84e1f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_alice_bench_ranking_mode.py::test_an_unset_run_is_not_document_mode_on_sqlite"
+      ],
+      "expected_failure": "test_an_unset_run_is_not_document_mode_on_sqlite"
+    },
+    {
+      "name": "brief-ranks-by-passage",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 436,
+          "before": "ranking=SourceRanking.document(),",
+          "after": "ranking=SourceRanking.passage(),",
+          "sha256": "ed0127498ae4a095a59599fbc0220b210a108a2e171ebfce87fda2f65c0afbc0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_sqlite_passage_default.py::test_the_pack_and_the_brief_stay_on_document_mode_on_sqlite"
+      ],
+      "expected_failure": "test_the_pack_and_the_brief_stay_on_document_mode_on_sqlite"
+    },
+    {
+      "name": "pack-ranks-by-passage",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 4956,
+          "before": "                ranking=SourceRanking.document(),\n                scope=scope,\n                anchor=anchor,",
+          "after": "                ranking=SourceRanking.passage(),\n                scope=scope,\n                anchor=anchor,",
+          "sha256": "17886eeff54fca4061709dded3fc0e435438fd0f1fd5c14894bbbb4acf46ac27"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_sqlite_passage_default.py::test_the_pack_and_the_brief_stay_on_document_mode_on_sqlite"
+      ],
+      "expected_failure": "test_the_pack_and_the_brief_stay_on_document_mode_on_sqlite"
+    },
+    {
+      "name": "longmemeval-unset-records-document",
+      "edits": [
+        {
+          "file": "eval/longmemeval/runner.py",
+          "line": 982,
+          "before": "return recall_source_ranking(SQLiteVNextStore.__new__(SQLiteVNextStore), None).mode",
+          "after": "return \"document\" if raw is None else recall_source_ranking(SQLiteVNextStore.__new__(SQLiteVNextStore), None).mode",
+          "sha256": "b161887ac26b9b7df19e848f06ffe12cec0fdc480ed6f0ef438ee267fba2e499"
+        }
+      ],
+      "pytest": [
+        "eval/longmemeval/test_run_choices.py::test_the_fingerprint_records_the_ranking_mode"
+      ],
+      "expected_failure": "test_the_fingerprint_records_the_ranking_mode"
     }
   ]
 }

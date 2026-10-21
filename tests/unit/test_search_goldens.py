@@ -6,6 +6,11 @@ the ``alice_memory_commit`` result printed on main before any search change, fro
 variable set, and compares. Every later search change merges with its switch off, and "off equals before" is
 proved by this file passing with ``fixtures_search_goldens.py`` absent from the diff.
 
+One exception, on purpose: passage mode is the default of ``alice_recall`` on SQLite, so the recall scenarios run
+with ``ALICE_SEARCH_QUALITY=off`` (``recall_ranking_off`` in ``search_goldens_support``) and equal what v0.20.2
+printed. That is the proof that ``off`` restores the old ranking byte for byte. The other surfaces never read the
+variable and run with it unset.
+
 The tests in the second half guard the goldens themselves: a golden that was recorded again after a change
 emptied a scenario would still pass the comparison, so each scenario's purpose is checked on its own.
 

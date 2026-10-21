@@ -962,20 +962,24 @@ def resolved_ranking_mode(surface: str) -> str:
     """The ranking mode a run should record.
 
     The context pack hard-codes document mode, so a pack run records that even
-    when the process switch says otherwise. A recall run records what
-    ``SourceRanking.from_environment`` would hand the recall edge on SQLite
-    (no key): ``document``, ``passage``, or ``on``.
+    when the process switch says otherwise. A recall run records what the recall
+    edge (``recall_source_ranking``) hands the stage on SQLite with no key:
+    ``document``, ``passage``, or ``on``. An unset switch is ``passage`` there,
+    so the record is not the variable's own value.
     """
 
     if surface != SURFACE_RECALL:
         return "document"
-    from alicebot_api.source_ranking import SEARCH_QUALITY_ENV, SourceRanking
+    from alicebot_api.mcp.retrieval import recall_source_ranking
+    from alicebot_api.source_ranking import SEARCH_QUALITY_ENV
+    from alicebot_api.sqlite_store import SQLiteVNextStore
 
     raw = os.environ.get(SEARCH_QUALITY_ENV)
     if isinstance(raw, str) and raw.strip().casefold() == "on":
         return "on"
     try:
-        return SourceRanking.from_environment().mode
+        # The edge reads the class of the store and the environment, so an instance with no connection is enough.
+        return recall_source_ranking(SQLiteVNextStore.__new__(SQLiteVNextStore), None).mode
     except ValueError:
         return raw.strip().casefold() if isinstance(raw, str) and raw.strip() else "invalid"
 

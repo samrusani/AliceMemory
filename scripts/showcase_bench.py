@@ -979,6 +979,8 @@ def _install_imported_corpus(
         "teams": dict(TEAM_PROFILES),
         "capture": capture,
         "search_quality": recorded_search_quality(search_quality),
+        # What the setting resolves to on this SQLite vault. ``unset`` is passage mode on main, not document mode.
+        "ranking_mode": bench.resolved_ranking_mode(search_quality),
     }
 
 

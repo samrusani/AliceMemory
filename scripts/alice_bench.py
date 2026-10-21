@@ -37,6 +37,7 @@ import contextlib
 import copy
 import fcntl
 import hashlib
+import importlib
 import io
 import json
 import os
@@ -311,6 +312,38 @@ def arm_environment(search_quality: str | None) -> dict[str, str]:
     """The only ALICE variables a run may carry."""
 
     return {} if search_quality is None else {SEARCH_QUALITY_ENV: search_quality}
+
+
+def resolved_ranking_mode(search_quality: str | None) -> str:
+    """``document`` or ``passage``: the ranking ``alice_recall`` runs on the SQLite vault this harness builds.
+
+    ``search_quality`` is the value the run sets in ``ALICE_SEARCH_QUALITY``; ``None`` leaves it unset. An unset
+    variable does not name one ranking: v0.20.2 ranks sources by document, and main ranks them by passage on
+    SQLite. So the mode is not read off the variable. It is asked of the recall edge of the checkout that was
+    imported (``recall_source_ranking``), under the environment this run carries, with a SQLite store and no
+    agent key, which is how this harness calls recall. A checkout without that edge ranks by document whatever
+    the variable says. ``on`` is the improved query, which the product refuses at the stage; it resolves to the
+    passage mode it asks for.
+    """
+
+    try:
+        module = importlib.import_module("alicebot_api.mcp.retrieval")
+    except ModuleNotFoundError as exc:
+        if exc.name != "alicebot_api.mcp.retrieval":
+            raise
+        return "document"
+    edge = getattr(module, "recall_source_ranking", None)
+    if edge is None:
+        return "document"
+    from alicebot_api.sqlite_store import SQLiteVNextStore
+
+    with scoped_environment(arm_environment(search_quality)):
+        try:
+            # The edge reads the class of the store and the environment, so an instance with no connection is enough.
+            ranking = edge(SQLiteVNextStore.__new__(SQLiteVNextStore), None)
+        except ValueError as exc:
+            raise BenchError(str(exc)) from exc
+    return str(ranking.mode)
 
 
 # --------------------------------------------------------------------------
@@ -1003,7 +1036,11 @@ def build_vault(
     manifest: dict[str, Any] = {
         "schema": MANIFEST_SCHEMA,
         "built_at": utc_now(),
-        "build": {**identity, "search_quality": search_quality if search_quality is not None else "unset"},
+        "build": {
+            **identity,
+            "search_quality": search_quality if search_quality is not None else "unset",
+            "ranking_mode": resolved_ranking_mode(search_quality),
+        },
         "order": order,
         "vault_dir": data_dir.relative_to(run_dir).as_posix(),
         "capture_order": [entry["relative_path"] for entry in snapshot_files],
@@ -1712,6 +1749,7 @@ def fingerprint(
         "vault_build": None if manifest is None else manifest.get("build"),
         "tools_list_digest": None if tools is None else tools_list_digest(tools),
         "search_quality": search_quality if search_quality is not None else "unset",
+        "ranking_mode": resolved_ranking_mode(search_quality),
         "recall_arguments": None if recall is None else recall["arguments"],
         "recall_limit": None if recall is None else recall["limit"],
         "recall_context_depth": None if recall is None else recall["context_depth"],

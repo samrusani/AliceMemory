@@ -416,12 +416,13 @@ def test_the_manifest_records_the_checkout_and_the_switch_that_built_the_vault(t
     assert bench.main(["build", "--run-dir", str(default), "--corpus", str(CORPUS)]) == 0
     manifest = _manifest(default)
     identity = bench.checkout_identity(REPO_ROOT)
-    assert manifest["build"] == {**identity, "search_quality": "unset"}
+    assert manifest["build"] == {**identity, "search_quality": "unset", "ranking_mode": "passage"}
     assert (manifest["domain"], manifest["sensitivity"]) == ("project", "internal")
     switched = tmp_path / "switched"
     args = ["build", "--run-dir", str(switched), "--corpus", str(CORPUS), "--search-quality", "passage"]
     assert bench.main([*args, "--sensitivity", "public", "--domain", "learning"]) == 0
     assert _manifest(switched)["build"]["search_quality"] == "passage"
+    assert _manifest(switched)["build"]["ranking_mode"] == "passage"
     assert (_manifest(switched)["domain"], _manifest(switched)["sensitivity"]) == ("learning", "public")
     for run_dir, domain, sensitivity in ((default, "project", "internal"), (switched, "learning", "public")):
         connection = sqlite3.connect(f"file:{run_dir / bench.VAULT_DIRNAME / bench.VAULT_FILENAME}?mode=ro", uri=True)
@@ -462,16 +463,20 @@ def test_the_switch_reaches_the_run_and_a_parent_value_never_does(
     assert bench.main([*base, "--out", str(with_flag), "--search-quality", "passage"]) == 0
     assert seen and set(seen) == {("passage", None)}
     assert json.loads(with_flag.read_text())["fingerprint"]["search_quality"] == "passage"
+    assert json.loads(with_flag.read_text())["fingerprint"]["ranking_mode"] == "passage"
     seen.clear()
     without_flag = tmp_path / "without.json"
     assert bench.main([*base, "--out", str(without_flag)]) == 0
     assert seen and set(seen) == {(None, None)}
     assert json.loads(without_flag.read_text())["fingerprint"]["search_quality"] == "unset"
+    assert json.loads(without_flag.read_text())["fingerprint"]["ranking_mode"] == "passage"
     assert os.environ["ALICE_SEARCH_QUALITY"] == "on" and os.environ["ALICE_AGENT_API_KEY"] == "not-a-real-key"
     capsys.readouterr()
     for value in ("off", "on"):
         assert bench.main(["fingerprint", "--run-dir", str(run), "--search-quality", value]) == 0
-        assert json.loads(capsys.readouterr().out)["search_quality"] == value
+        shown = json.loads(capsys.readouterr().out)
+        assert shown["search_quality"] == value
+        assert shown["ranking_mode"] == ("document" if value == "off" else "passage")
 
 
 def test_a_batch_saves_each_variants_recall_and_a_fingerprint_that_can_be_read_back(run: Path, tmp_path: Path) -> None:
