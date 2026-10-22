@@ -9,7 +9,9 @@ repair (the state key, the cause, the migrations) are read from the code, so a c
 notes behind fails here. Each test names the mutation that must fail it.
 
 The notes are published and the post-publication change recorded the digests, moved the marketplace file to the
-tag and added the dated 2026-10-17 updates. The tagged lines of the notes and of the changelog section are held by
+tag and added the dated 2026-10-17 updates. The v0.21.0 post-publication change moved the marketplace file on to the
+v0.21.0 tag and added the dated 2026-10-22 updates, which say beside each statement that v0.21.0 made untrue what
+changed and where it stops. The tagged lines of the notes and of the changelog section are held by
 ``test_published_release_notes_stay_immutable.py``.
 """
 
@@ -28,6 +30,7 @@ HEADING = "## v0.20.2 \u2014 2026-10-17"
 NOTE_PATH = "docs/release/derived-labels-security-note-draft.md"
 CHECKSUMS_PATH = "docs/release/v0.20.2-checksums.txt"
 TAG_COMMIT = "8d5606153fa4900b0cbbc8ce60a65e342f7fe640"
+LATEST_TAG_COMMIT = "c4757e626405a4bfe77a0039244fb62b483650f7"
 WHEEL_SHA256 = "efc4da0e7512faa8e357a0eaec83bb6e5bdf5f7333a3809fd15a118f9e90c0c2"
 SDIST_SHA256 = "31da21f7a84f1dde61f2d871cece6f33538a234cd8559a5036ada4519a62332a"
 
@@ -108,17 +111,18 @@ def test_the_checksums_file_records_the_two_published_digests_in_the_format_of_t
 
 
 def test_the_marketplace_pins_the_published_release_and_the_notes_carry_its_install_lines() -> None:
-    """Mutations, each one alone: set the marketplace ``ref`` back to v0.20.0; change one hex digit of the marketplace
+    """Mutations, each one alone: set the marketplace ``ref`` back to v0.20.2; change one hex digit of the marketplace
     ``sha``; change the install or upgrade command in the notes.
 
-    The post-publication change moved the marketplace file to the v0.20.2 tag and the commit that tag
-    points at, so it names the latest published release. The tree has moved on to the version sites of the next
-    release, which ``test_v0210_release_notes.py`` pins, so this test no longer reads them.
+    The v0.20.2 post-publication change moved the marketplace file to the v0.20.2 tag, and the v0.21.0
+    post-publication change moved it on to the v0.21.0 tag and the commit that tag points at, so it names the latest
+    published release. The tree has moved on to the version sites of the next release, which
+    ``test_v0210_release_notes.py`` pins, so this test no longer reads them.
     """
 
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.20.2"
-    assert marketplace["sha"] == TAG_COMMIT
+    assert marketplace["ref"] == "v0.21.0"
+    assert marketplace["sha"] == LATEST_TAG_COMMIT
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.20.2 && alice-memory install" in notes
     assert "pip install -U alice-memory==0.20.2" in notes
@@ -457,6 +461,24 @@ PIN_UPDATE = (
     "commit, so the marketplace install runs v0.20.2. The copy inside the v0.20.2 tag still pins v0.20.0, so add "
     "the marketplace from the repository, not from a checkout of the tag."
 )
+PIN_FOLLOW_UP = (
+    "**Update (2026-10-22):** v0.21.0 is published, and the marketplace file on `main` now pins the v0.21.0 tag "
+    "commit, so the marketplace install runs v0.21.0. The copy inside the v0.20.2 tag still pins v0.20.0 and the "
+    "copy inside the v0.21.0 tag still pins v0.20.2, so add the marketplace from the repository, not from a "
+    "checkout of a tag."
+)
+_UPDATE_2026_10_22 = re.compile(r"^\*\*Update \(2026-10-22\):\*\* ")
+
+
+def _changelog_section_of(version: str) -> str:
+    """The body of the ``## vX.Y.Z`` section of the changelog, up to the next ``## `` heading."""
+
+    changelog = _text("CHANGELOG.md")
+    start = re.search(rf"^## {re.escape(version)} \u2014 .*$", changelog, flags=re.MULTILINE)
+    assert start is not None, version
+    rest = changelog[start.end() :]
+    end = re.search(r"^## ", rest, flags=re.MULTILINE)
+    return rest if end is None else rest[: end.start()]
 
 
 def _blocks(path: str) -> list[str]:
@@ -501,9 +523,219 @@ def test_the_notes_say_main_now_pins_v0202_beside_each_marketplace_statement() -
         "`.claude-plugin/marketplace.json`, `claude plugin install alice-memory@alicememory` installs plugin 0.20.0, "
         "which pins `alice-memory==0.20.0` and carries none of the fixes in this release."
     )
-    # Each update ends the statement's own list item or bullet: the next block is what followed it as tagged.
-    assert blocks[positions[0] + 1] == "## Derived rows follow their inputs"
-    assert blocks[positions[1] + 1].startswith(
+    # Each update ends the statement's own list item or bullet. The 2026-10-22 follow-up comes next, and after it
+    # the block that followed as tagged.
+    assert [blocks[index + 1] for index in positions] == [PIN_FOLLOW_UP] * 3
+    assert blocks[positions[0] + 2] == "## Derived rows follow their inputs"
+    assert blocks[positions[1] + 2].startswith(
         "- Use the plugin or `alice-memory install --host claude-code`, not both, as in v0.20.0."
     )
-    assert blocks[positions[2] + 1].startswith("- **The commit routes trust the role a client sends.**")
+    assert blocks[positions[2] + 2].startswith("- **The commit routes trust the role a client sends.**")
+
+
+def test_the_notes_say_main_now_pins_v0210_after_each_2026_10_17_marketplace_update() -> None:
+    """Mutations, each one alone: delete one of the three follow-ups; name v0.20.2 as what ``main`` pins in one of
+    them; drop the sentence about the copy inside a tag; move one away from the 2026-10-17 update it follows; glue
+    one to the end of another paragraph.
+
+    Each of the three marketplace statements has a 2026-10-17 update that says ``main`` pins the v0.20.2 tag
+    commit. ``main`` pins the v0.21.0 tag commit now, so a follow-up sits after each of them. The copy inside the
+    v0.20.2 tag pins v0.20.0 and the copy inside the v0.21.0 tag pins v0.20.2.
+    """
+
+    blocks = _blocks(NOTES_PATH)
+    positions = [index for index, block in enumerate(blocks) if block == PIN_FOLLOW_UP]
+    assert len(positions) == 3, positions
+    for index in positions:
+        assert blocks[index - 1] == PIN_UPDATE, index
+    assert "v0.21.0 tag commit" in PIN_FOLLOW_UP and "v0.20.0 tag commit" not in PIN_FOLLOW_UP
+
+
+# Each v0.20.2 statement that v0.21.0 made untrue or changed, other than the marketplace pin, with text its
+# 2026-10-22 update must carry. The update is the next paragraph, except for the memory audit item, which has the
+# 2026-10-21 correction between the item and the update.
+V0202_ITEMS_CHANGED_IN_V0210: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "- **Rows a key can read may list the ids of rows it cannot read.**",
+        (
+            "Fixed in v0.21.0 for a key with limits.",
+            "an HTTP answer, a tool result or command output",
+            "in any spelling of a UUID",
+            "`memory:`, `source:`, `artifact:` or `open_loop:` prefix",
+            "recomputed or dropped",
+            "whether the row is hidden or does not exist",
+            "The owner and an unbound admin key keep every id.",
+            "An id inside free text, such as the text of a readable memory, is not removed",
+            "shown as written",
+            "does not claim that no hidden id is left in an answer",
+        ),
+    ),
+    (
+        "- **The memory audit route lists the archived members of a derived memory,**",
+        (
+            "Changed in v0.21.0 for the ids this item lists.",
+            "`source_id` and `source_event_ids`",
+            "`artifact_id` of the scheduler's run records",
+            "when it may not read the row they name",
+            "keep every id",
+            "`capture_content_hash` of a memory is still returned after its source is archived",
+            "as the correction above records",
+        ),
+    ),
+    (
+        "- **The vector stage of recall does not refill after hiding rows.**",
+        (
+            "Fixed in v0.21.0.",
+            "temporal-anchor stage of the context pack",
+            "read once, at 128 rows (`READABLE_SCAN_CAP`)",
+            "118 hidden rows for `alice_recall` at limit 5",
+            "nine candidates at 119, one at 127 and none from 128",
+            "candidate counts of the two stages no longer move with hidden rows",
+            "BM25 score of a visible row is still computed over the whole index, hidden rows included",
+            "The owner and an unbound admin key are read as before.",
+        ),
+    ),
+    (
+        "- **The cited-source fence does not cover everything.**",
+        (
+            "Changed in v0.21.0 for the first clause only.",
+            "`--source-ref` flag of `alicebot vnext memories commit`",
+            "an object, a number, a boolean, null, a nested array, a blank string",
+            "text of a JSON object or array, and write nothing",
+            "still stored without checking the id it holds",
+            "label that starts with `[` or `{` and is not JSON",
+            "The other gaps in this item remain, and the known limitations page lists them.",
+            "still restores",
+        ),
+    ),
+    (
+        "- **A key with limits gets short list pages.**",
+        (
+            "Fixed in v0.21.0.",
+            "`GET /v0/vnext/projects`",
+            "read once, at 128 rows",
+            "128 minus the rows the list is asked for",
+            "short past that bound",
+            "The owner and an unbound admin key are read as before.",
+        ),
+    ),
+    (
+        "- **Configured folder paths in the connector status.**",
+        (
+            "v0.21.0 is published and does not contain this fix.",
+            "`trusted_local_agent` key still reads the configured local-folder paths",
+            "`config.config_json.paths`",
+        ),
+    ),
+    (
+        "- **A killed restore can leave a working copy.**",
+        (
+            "Fixed in v0.21.0.",
+            "next `alice-memory import` into that vault",
+            "next open of an existing vault, such as `doctor` or the MCP server",
+            "`-wal` and `-shm` files",
+            "an open leaves its copy alone and does not wait for it",
+            "`vault_not_found`",
+            "`doctor` creates the vault and removes it",
+        ),
+    ),
+)
+
+# v0.20.2 limitations that v0.21.0 leaves as they were. The known limitations page of v0.21.0 still lists each of
+# them, so none gets an update.
+V0202_ITEMS_UNCHANGED_IN_V0210: tuple[tuple[str, str], ...] = (
+    ("- **Some events still name rows without a label.**", "a connector keeps one cursor"),
+    ("- **A caller with limits that reaches 128 rows of a list**", "`READABLE_SCAN_CAP`"),
+    ("- **The context pack still names the id of an expired memory**", "still names the id of an expired memory"),
+    (
+        "- **The `max_tokens` budget prices the full stored row, and the agent receives a compact row.**",
+        "`max_tokens` budget prices the full stored row",
+    ),
+)
+
+
+def test_the_notes_say_beside_each_item_that_v0210_fixed_or_changed_it() -> None:
+    """Mutations, each one alone: delete one of the seven updates; change its version; move it away from its item;
+    drop the limit of the fix from it; put an update beside a limitation that v0.21.0 leaves as it was (the events
+    that name rows, the 128-row bound, the id of an expired memory in the context pack, the ``max_tokens`` budget);
+    glue an update to the end of another paragraph.
+
+    The v0.20.2 notes are published, so each statement that something is open or planned for v0.21.0 stays as it was
+    tagged and a dated update follows it. Each update names v0.21.0 and where the fix stops. The memory audit item
+    keeps its 2026-10-21 correction directly after it, and its update follows the correction. The statement about
+    the folder paths in the connector status said a fix was planned for v0.21.0, and v0.21.0 does not contain it.
+    """
+
+    blocks = _blocks(NOTES_PATH)
+    for opening, needles in V0202_ITEMS_CHANGED_IN_V0210:
+        # Bullets with no blank line between them are one block, so the item must be the last bullet of the block it
+        # opens or sits in, and the update is the next block (the correction is the next block for the audit item).
+        positions = [index for index, block in enumerate(blocks) if opening in block]
+        assert len(positions) == 1, (opening, positions)
+        block = blocks[positions[0]]
+        assert " - **" not in block[block.index(opening) + len(opening) :], opening
+        following = positions[0] + 1
+        if opening.startswith("- **The memory audit route"):
+            assert blocks[following].startswith("**Correction (2026-10-21):** Withholding `capture_content_hash`"), opening
+            following += 1
+        update = blocks[following]
+        assert _UPDATE_2026_10_22.match(update), (opening, update[:80])
+        for needle in needles:
+            assert needle in update, (opening, needle)
+        assert "v0.21.0" in update
+        assert "v0.21.1" not in update and "v0.22.0" not in update
+    updates = [block for block in _blocks(NOTES_PATH) if _UPDATE_2026_10_22.match(block)]
+    assert len(updates) == len(V0202_ITEMS_CHANGED_IN_V0210) + 3, len(updates)
+    # An update glued to the end of another paragraph, with no blank line, is no paragraph of its own.
+    assert _text(NOTES_PATH).count("Update (2026-10-22)") == len(updates)
+
+    limits_page = _flat("docs/alpha/known-limitations.md")
+    for opening, still_listed in V0202_ITEMS_UNCHANGED_IN_V0210:
+        positions = [index for index, block in enumerate(blocks) if opening in block]
+        assert len(positions) == 1, (opening, positions)
+        block = blocks[positions[0]]
+        if " - **" not in block[block.index(opening) + len(opening) :]:
+            assert not _UPDATE_2026_10_22.match(blocks[positions[0] + 1]), opening
+        assert still_listed in limits_page, still_listed
+
+
+def test_the_2026_10_22_updates_carry_the_limits_the_v0210_changelog_and_notes_state() -> None:
+    """Mutations, each one alone: change the 118, the 119, 127 or 128 of the refill update; change the 20,000 or the
+    128 in the changelog; drop the BM25 sentence, the ``vault_not_found`` sentence or the free-text sentence from the
+    changelog or the notes.
+
+    The updates restate numbers and exceptions that the v0.21.0 changelog section and the v0.21.0 notes hold, so the
+    two cannot drift apart: each fact an update states is also in the changelog or the notes.
+    """
+
+    changelog = " ".join(_changelog_section_of("v0.21.0").split())
+    notes = _flat("docs/release/v0.21.0-release-notes.md")
+    facts_in_changelog = (
+        "so at limit 5 that is 118 hidden rows: from 119 the stage returns fewer candidates (nine at 119, one at 127, none from 128)",
+        "On SQLite the BM25 score of a visible row is still computed over the whole index, hidden rows included.",
+        "`READABLE_SCAN_CAP`",
+        "The owner and an unbound admin key are read as before",
+        "An id inside free text is not looked for",
+        "At a position that a field name or a prefix types as one of these rows, an id that names no row the key may read is withheld whether the row is hidden or missing",
+        "a label that starts with `[` or `{` and is not JSON",
+        "A killed `alice-memory import` no longer leaves its working copy in the data directory.",
+        "`labels check` and the `sources` commands stop with `vault_not_found` before they open anything and leave the copy",
+        "A command that creates the empty vault, such as `doctor`, removes it.",
+        "the next open of an existing vault",
+        "a backup from that release restores",
+    )
+    for fact in facts_in_changelog:
+        assert fact in changelog, fact
+    assert "an id that names no row at a position the product does not type is shown as written" in _flat(
+        "docs/alpha/known-limitations.md"
+    )
+    facts_in_notes = (
+        "An id inside free text, such as the text of a readable memory, is not removed.",
+        "It does not claim that no hidden id is left in an answer.",
+        "While an import runs in the data directory, an open leaves its copy alone and does not wait for it.",
+        "Backups made by v0.20.0 and v0.20.2 that hold an object entry still restore.",
+        "The owner and an unbound admin key keep every id.",
+        "The page is still short when the hidden rows in front of it number more than 128 minus the rows the stage asks for.",
+    )
+    for fact in facts_in_notes:
+        assert fact in notes, fact

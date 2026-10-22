@@ -2,7 +2,7 @@
 
 This plugin directory ships in v0.19.0. v0.18.0 has no Claude Code plugin.
 
-It installs from the `alicememory` marketplace, which is `.claude-plugin/marketplace.json` at the root of this repository on `main`. The file pins this plugin to the v0.20.2 tag commit. Add the marketplace from `main`, not from a checkout of a tag: a tag's file is missing or pins an earlier release, and the [Claude Code plugin guide](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md) lists what each tag pins. Adding the repository as `samrusani/AliceMemory` reads its default branch, which is `main`, so run:
+It installs from the `alicememory` marketplace, which is `.claude-plugin/marketplace.json` at the root of this repository on `main`. The file pins this plugin to the v0.21.0 tag commit. Add the marketplace from `main`, not from a checkout of a tag: a tag's file is missing or pins an earlier release, and the [Claude Code plugin guide](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md) lists what each tag pins. Adding the repository as `samrusani/AliceMemory` reads its default branch, which is `main`, so run:
 
 ```bash
 claude plugin marketplace add samrusani/AliceMemory
