@@ -16,7 +16,9 @@ release check's pre-tag mode refuses the tree now, and one test below pins the t
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -24,10 +26,11 @@ import pytest
 import yaml
 
 import scripts.release_check as release_check
-from alicebot_api.mcp.registry import list_mcp_tools
+from tests.unit.test_published_release_notes_stay_immutable import _tagged
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NOTES_PATH = "docs/release/v0.21.0-release-notes.md"
+RELEASE_TAG = "v0.21.0"
 HEADING = "## v0.21.0 \u2014 2026-10-22"
 NOTES_CEILING = 15_000
 
@@ -307,41 +310,29 @@ def test_the_upgrade_steps_name_every_action_an_existing_user_takes_in_order() -
     assert steps.index("**No migration.**") < steps.index("ALICE_SEARCH_QUALITY=off") < steps.index("**Killed imports.**")
 
 
-def test_the_numbers_that_drift_are_the_ones_the_code_and_the_files_have(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The tool counts, the PostgreSQL revision, the sizes of the README and of the known limitations page, and the
-    Vite version are read from the code and the files, so a change that leaves the notes behind fails here.
+def test_the_numbers_in_the_notes_are_the_ones_the_release_tag_has() -> None:
+    """The PostgreSQL revision, the sizes of the README and of the known limitations page, and the Vite version are
+    read from the files at the ``v0.21.0`` tag, because the notes are published and describe that tag; a later change
+    to main does not make them wrong. The tool counts (12, 74, 77) were checked against the code by the release pull
+    request, and ``test_published_release_notes_stay_immutable.py`` keeps the published text from changing, so here
+    they are pinned as text only.
 
-    Mutations, each one alone: add a thirteenth core tool definition; add a migration after 20261011_0097; paste 700
-    characters into the README or into the known limitations page; change the Vite version in ``apps/web/package.json``.
+    Mutations, each one alone: change a number in the notes (the immutability test fails too); read the page sizes
+    from the working tree instead of the tag after adding a paragraph to the page (this test fails).
     """
 
-    for name in ("ALICE_AGENT_API_KEY", "ALICE_MCP_FULL_TOOLS", "ALICE_MCP_LEGACY_TOOLS", "ALICE_LEGACY_SURFACES"):
-        monkeypatch.delenv(name, raising=False)
-    counts: dict[str, int] = {}
-    for label, flags in (
-        ("default", {}),
-        ("full", {"ALICE_MCP_FULL_TOOLS": "1"}),
-        ("legacy", {"ALICE_MCP_FULL_TOOLS": "1", "ALICE_MCP_LEGACY_TOOLS": "1"}),
-        ("all", {"ALICE_MCP_FULL_TOOLS": "1", "ALICE_MCP_LEGACY_TOOLS": "1", "ALICE_LEGACY_SURFACES": "1"}),
-    ):
-        for name, value in flags.items():
-            monkeypatch.setenv(name, value)
-        counts[label] = len(list_mcp_tools())
-        for name in flags:
-            monkeypatch.delenv(name, raising=False)
-    assert counts == {"default": 3, "full": 12, "legacy": 74, "all": 77}
     notes = _flat(NOTES_PATH)
     assert "`ALICE_MCP_FULL_TOOLS=1` lists 12 core tools, and with `ALICE_MCP_LEGACY_TOOLS=1` 74, or 77 with `ALICE_LEGACY_SURFACES=1`." in notes
     assert "The default surface is still three tools." in notes
     assert "now holds 12 core tools" in notes
 
-    versions = REPO_ROOT / "apps" / "api" / "alembic" / "versions"
-    head = sorted(path.name for path in versions.glob("2*.py"))[-1]
+    listing = _tagged_listing(RELEASE_TAG, "apps/api/alembic/versions")
+    head = sorted(name for name in listing if name.startswith("2") and name.endswith(".py"))[-1]
     assert head.startswith("20261011_0097_"), head
     assert "PostgreSQL stays at revision `20261011_0097`." in notes
     assert "There is no migration." in notes
 
-    assert json.loads(_text("apps/web/package.json"))["pnpm"]["overrides"]["vite"] == "6.4.4"
+    assert json.loads(_tagged(RELEASE_TAG, "apps/web/package.json"))["pnpm"]["overrides"]["vite"] == "6.4.4"
     assert "moves from 6.4.3 to 6.4.4" in notes
 
     docs_section = _section(_text(NOTES_PATH), "Docs and tooling")
@@ -349,12 +340,25 @@ def test_the_numbers_that_drift_are_the_ones_the_code_and_the_files_have(monkeyp
     limits_size = int(  # type: ignore[union-attr]
         re.search(r"known limitations page is about ([\d,]+) characters", docs_section).group(1).replace(",", "")  # type: ignore[union-attr]
     )
-    assert abs(len(_text("README.md")) - readme_size) <= 150, (len(_text("README.md")), readme_size)
-    assert abs(len(_text("docs/alpha/known-limitations.md")) - limits_size) <= 150, (
-        len(_text("docs/alpha/known-limitations.md")),
-        limits_size,
-    )
+    tagged_readme = len(_tagged(RELEASE_TAG, "README.md"))
+    tagged_limits = len(_tagged(RELEASE_TAG, "docs/alpha/known-limitations.md"))
+    assert abs(tagged_readme - readme_size) <= 150, (tagged_readme, readme_size)
+    assert abs(tagged_limits - limits_size) <= 150, (tagged_limits, limits_size)
     assert "down from about 28,600" in docs_section and "down from about 18,700" in docs_section
+
+
+def _tagged_listing(tag: str, folder: str) -> list[str]:
+    """The file names in ``folder`` at ``tag``, with the shallow-clone rule of ``_tagged``."""
+
+    completed = subprocess.run(
+        ["git", "ls-tree", "--name-only", f"{tag}:{folder}"], cwd=REPO_ROOT, capture_output=True, text=True, check=False
+    )
+    if completed.returncode != 0:
+        message = f"git ls-tree {tag}:{folder} failed: {completed.stderr.strip()}"
+        if os.environ.get("CI"):
+            pytest.fail(message + ". The checkout must include tags (fetch-depth: 0).")
+        pytest.skip(message)
+    return completed.stdout.split()
 
 
 def test_the_notes_name_the_three_limits_they_say_matter_most() -> None:

@@ -26,6 +26,7 @@ Postgres stack and outbound calls, with the detail in the [threat model](../secu
 - the local-folder scan still reads a hard link planted inside the watched folder to a file elsewhere, as the importers do
 - the embeddings, reranker, fact-key and brain clients can reach a loopback or private address, a request carried by a proxy is not held to the address rule, and a provider response is read whole
 - the Postgres doctor (`alicebot vnext doctor`) reads source rows and `raw_text` only, not chunk text, so a credential only in a source chunk is not found there, where `alice-memory doctor` on SQLite reads chunk text
+- an unbound `trusted_local_agent` key reads the configured local-folder paths in `config.config_json.paths` of `GET /v0/vnext/connectors/{connector_name}/status`, even when a file under a path is confidential (every other profile and a project-bound key get HTTP 403, and an unbound `admin_agent` key reads them too); the fix has no release set
 - `alice_context_pack` removes the id of a memory the caller cannot read from `metadata_json`, but looks only for a 36-character UUID there: an id in another column of a stored row or in another spelling is not removed
 
 Open in v0.21.0, with the detail in the [security note](../release/derived-labels-security-note-draft.md):
