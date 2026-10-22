@@ -244,11 +244,14 @@ Slack pattern. `legacy_credential_check._TOKEN_BODIES` states the published
 shape behind each number. The two ssh markers keep the bare reading, because
 they name a public key line and the first carve-out excuses it. The two FIDO
 key types are still read at any length, so a token glued onto one is still
-refused. Nothing else moved: the commit gate's own prefix patterns (`sk-`,
-`ghp_` and `xoxb-` with 8 or more characters after them) and the detector are
-unchanged, so `SK-20260301` is still read as a key at the commit door, and a
-body one short of a floor can still be read by those. A real token has at
-least its floor, so it is read as before.
+refused. The commit gate's own `sk-` prefix pattern, which read `sk-` and 8
+characters, takes the floor of the `sk-` marker, so `SK-20260301`,
+`SK-2025-0618` and `SK-2291-REV` are not read as keys. Nothing else moved: the
+commit gate's `ghp_` and `xoxb-` prefix patterns (8 or more characters after
+them), the detector and the carve-outs are unchanged, so a lower-case `sk-`
+code of 8 digits is still refused by the detector, and a body one short of a
+floor can still be read by those. A real token has at least its floor, so it is read
+as before.
 
 The carve-outs are the design round's named false positives, and there are
 no others. Each excuses one finding at a time, so a note with an excused

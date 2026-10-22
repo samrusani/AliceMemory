@@ -31,6 +31,8 @@ NOTE = "\n".join(
         "Parts: SK-2291, HD-40213, PO-55102, TB-12, NCR-0042",
         "Note: sk-2291 is current and SK-229 is retired.",
         "Fact: set npm_config_cache to the shared folder.",
+        "Fact: SK-20260301 shipped to the east depot.",
+        "Order history: SK-2025-0618 and SK-2291-REV were backordered.",
     )
 )
 REAL_KEYS = {

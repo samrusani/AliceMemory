@@ -156,7 +156,12 @@ def test_harness_v4_the_reimplementation_reads_v0160s_own_patterns() -> None:
     for name in ("_BASE64_TOKEN", "_HEX_TOKEN", "_SPACED_OUT_RUN"):
         assert _patterns([getattr(legacy, name)]) == _patterns([getattr(oracle, name)]), name
     assert legacy._RUN_SEPARATORS == oracle._RUN_SEPARATORS
-    assert _patterns([legacy._PREFIX_SK, *legacy._PREFIX_PATTERNS]) == _patterns(oracle.SECRET_PREFIX_PATTERNS)
+    assert _patterns(legacy._PREFIX_PATTERNS) == _patterns(oracle.SECRET_PREFIX_PATTERNS[1:])
+    # The sk- prefix pattern is v0.16.0's with the sk- marker's floor in place of 8 (2026-10-22).
+    bare_sk = oracle.SECRET_PREFIX_PATTERNS[0]
+    assert bare_sk.pattern.count("{8,}") == 1
+    assert legacy._PREFIX_SK.flags == bare_sk.flags
+    assert legacy._PREFIX_SK.pattern == bare_sk.pattern.replace("{8,}", "{%d,}" % legacy._TOKEN_BODIES["sk-"].floor)
     # The NAME=value rule's parts are the old expression's parts.
     assert legacy._SECRET_NAME_EMBEDDABLE in oracle.SECRET_ASSIGNMENT_PATTERN.pattern
     # And the promotion policy re-exports the one copy of it.
@@ -184,7 +189,8 @@ _BARE_MARKERS = {"ssh-rsa ", "ssh-ed25519 "}
 
 @pytest.fixture
 def floors_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The module with v0.16.0's bare markers, to compare it with v0.16.0 on everything else.
+    """The module with v0.16.0's bare markers and its 8 character sk- prefix pattern, to compare it with v0.16.0 on
+    everything else.
 
     The token floors (2026-10-22) are the one deliberate difference from v0.16.0. With them off, the rest of the module
     is held to v0.16.0's verdict on every generated input, as before; with them on, the next test holds the
@@ -192,6 +198,7 @@ def floors_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """
 
     monkeypatch.setattr(legacy, "_CREDENTIAL_TOKEN_PATTERNS", tuple(oracle._CREDENTIAL_TOKEN_PATTERNS))
+    monkeypatch.setattr(legacy, "_PREFIX_SK", oracle.SECRET_PREFIX_PATTERNS[0])
     monkeypatch.setattr(
         legacy,
         "_CREDENTIAL_TOKEN_UNBOUNDED_PATTERNS",
@@ -648,7 +655,7 @@ _SSH_NOT_EXCUSED = (
     # The header of a PuTTY private key file names the key that follows.
     "PuTTY-User-Key-File-2: ssh-rsa",
     "Deploy key: ssh-ed25519x9",
-    "sk-ssh-ed25519@openssh.co",
+    "sk-ssh-ed25519@openssh.comx",
 )
 
 
@@ -672,22 +679,25 @@ def test_carve_out_a_lets_every_public_key_fixture_commit_at_the_store(name: str
     assert _memory_count(store) == 1
 
 
-# Findings exist for these (the body after "sk-" is at least 8 characters for the commit gate's prefix pattern, and at
-# least 20 for the marker) and the carve-out excuses them. The second one has a body long enough to be read by the
-# marker rule too, which the promotion floor reads alone.
-_SK_EXCUSED = ("the sk-learn-bench-2024 run", "the sk-learn-benchmark-results-2024 run")
-# Too short to be read since 2026-10-22: v0.16.0 read the bare marker and needed the carve-out for these.
+# Findings exist for these (at least 20 characters after "sk-", for the marker and for the commit gate's prefix
+# pattern) and the carve-out excuses them. The promotion floor has no prefix pattern, so it reads the marker alone.
+_SK_EXCUSED = ("the sk-learn-bench-2024-and run", "the sk-learn-benchmark-results-2024 run")
+# Too short to be read since 2026-10-22: v0.16.0 read the bare marker, and the prefix pattern from 8 characters, and
+# needed the carve-out for the first four. The last three are not a word chain, and are not read either.
 _SK_TOO_SHORT_TO_READ = (
     "We use sk-learn for the churn model baseline.",
     "pip install sk-image",
     "SK-LEARN is the old name",
+    "the sk-learn-bench-2024 run",
+    "sk-learn_v2 and friends",
+    "sk-abcdefghijklmnopq",
+    "sk-ssh-ed25519@openssh.co",
 )
 _SK_NOT_EXCUSED = (
     "SK-LEARN-BENCHMARK-2024 is the old name",
     "Work is on branch SK-1482-fix-retry-backoff until review.",
-    "sk-learn_v2 and friends",
     "key " + "sk" + "-proj-" + R + R,
-    "sk-abcdefghijklmnopq",
+    "sk-learn-bench-2024-and-more-notes here",
 )
 
 

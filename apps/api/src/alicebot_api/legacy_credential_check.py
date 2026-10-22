@@ -69,7 +69,8 @@ characters follows it, and each floor is no longer than the shortest body a
 real token of that kind has (see _TOKEN_BODIES, which states the published
 shape behind every number). The two ssh markers keep the bare reading: they
 name a public key line, which the first carve-out excuses. Nothing else
-changed: the other patterns, the prefix patterns of the commit gate and the
+changed: the commit gate's sk- prefix pattern takes the floor of the sk- marker,
+and the other patterns, its other prefix patterns (ghp_, xoxb-, akia) and the
 carve-outs are v0.16.0's, so a real token is refused exactly as before and
 only a marker with too little after it to be a token is let through.
 tests/unit/test_legacy_credential_check.py runs its comparison with
@@ -181,7 +182,7 @@ _SLACK_CHARS = "0-9A-Za-z-"
 #   Shortest body: 32. Floor: 20, below it, so a compatible provider's
 #   shorter key is still read, and far above the 4 to 6 digits of a part
 #   code such as SK-2291 or SK-22910. The commit gate's own prefix pattern
-#   (_PREFIX_SK, 8 characters) is a separate rule and is unchanged. The two
+#   (_PREFIX_SK) is a separate rule with the same floor, taken from here. The two
 #   FIDO key type names (sk-ssh-ed25519@openssh.com and
 #   sk-ecdsa-sha2-nistp256@openssh.com) are still read at any length, so that
 #   carve-out a keeps refusing a token glued straight onto one.
@@ -264,8 +265,14 @@ _RUN_SEPARATORS = " \t\r\n.\u00b7,;|/"
 _SPACED_OUT_RUN = re.compile(r"(?:\S[" + re.escape(_RUN_SEPARATORS) + r"]{1,3}){7,}\S")
 _RUN_SEPARATOR_STRIP = str.maketrans({char: None for char in _RUN_SEPARATORS})
 
-# The commit gate's own prefix patterns, read on the casefolded field.
-_PREFIX_SK = re.compile(r"(?<![0-9a-z])sk-[0-9a-z_-]{8,}")
+# The commit gate's own prefix patterns, read on the casefolded field. The sk-
+# one takes the floor of the sk- marker (2026-10-22): v0.16.0 read "sk-" and 8
+# token characters, which made SK-20260301, SK-2025-0618 and SK-2291-REV keys.
+# A real sk- key has 32 or more characters after the prefix. The FIDO key type
+# names are short, and the marker pattern above still reads them at any length,
+# so they stay with their carve-out. The ghp_ and xoxb- patterns below still
+# read 8 characters, and are unchanged.
+_PREFIX_SK = re.compile(r"(?<![0-9a-z])sk-[0-9a-z_-]{" + str(_TOKEN_BODIES["sk-"].floor) + r",}")
 _PREFIX_PATTERNS = (
     re.compile(r"(?<![0-9a-z])ghp_[0-9a-z]{8,}"),
     re.compile(r"(?<![0-9a-z])xoxb-[0-9a-z-]{8,}"),

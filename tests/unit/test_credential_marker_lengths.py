@@ -18,13 +18,19 @@ a test too.
 What is pinned here:
 
 * the short codes, and the ordinary words that start with a marker, pass the
-  commit gate, the promotion floor, the credential floor and both doors;
+  commit gate, the promotion floor, the credential floor and both doors. That
+  includes ``SK-20260301``, ``SK-2025-0618`` and ``SK-2291-REV``, which the commit
+  gate's own ``sk-`` prefix pattern (``sk-`` and 8 characters) read as keys until it
+  took the floor of the ``sk-`` marker;
 * for every marker, a real-shaped synthetic token is still read at line start,
   inside a sentence, after ``=`` and ``:``, in a JSON string, in upper case, in a
   file name, on a second line, spaced out, and at exactly the shortest real length;
 * the line is drawn at the floor: one character more is read, one fewer is not by
-  the marker rule (the commit gate's other rules may still read it, and the tests
-  that say "passes" mean the marker rule alone);
+  the marker rule or by the ``sk-`` prefix pattern (the commit gate's other rules
+  and the credential floor may still read it, and the tests that say "passes" mean
+  those two rules alone);
+* a real-shaped ``sk-`` key, at exactly 32 characters after the prefix and in the
+  longer forms, is read by the prefix pattern in every placement;
 * the two ssh markers keep the bare reading, the ``sk-learn`` word chain and the
   FIDO key types are excused as before, and a token glued onto a FIDO key type is
   still refused;
@@ -43,7 +49,8 @@ the ``sk-learn`` carve-out removed
 alternative removed from the ``sk-`` pattern
 (``test_a_token_glued_onto_a_fido_key_type_is_still_refused_on_both_paths``); the
 floor dropped from the unbounded patterns, which read a spaced-out run
-(``test_a_spaced_out_short_code_is_not_a_credential``).
+(``test_a_spaced_out_short_code_is_not_a_credential``); the ``sk-`` prefix pattern
+back to 8 characters (``test_the_sk_prefix_rule_has_the_markers_floor``).
 """
 
 from __future__ import annotations
@@ -215,6 +222,13 @@ _SHORT_CODES = (
     "SK-2291, HD-40213, PO-55102, TB-12, NCR-0042",
     "2025-06-18-parts-note-legacy-seal-kit-sk-2192.md",
     "Parts: SK-2291 and sk-22910 and Sk-229 are the same kit.",
+    # Longer codes, 8 or more characters after the dash. The commit gate's own prefix pattern read these as keys.
+    "SK-20260301",
+    "SK-2025-0618",
+    "SK-2291-REV",
+    "Order history: SK-20260301, SK-2025-0618 and SK-2291-REV were backordered.",
+    "sk-2025-0618 and sk-2291-rev are the same two kits in lower case",
+    "2026-03-01-order-history-SK-20260301.md",
     # Another marker with a short code after it.
     "GHP_2291 is a room code",
     "GHO_12 and GHS_9 and GHU_77",
@@ -320,6 +334,65 @@ def test_a_real_shaped_token_is_still_caught(marker: str, token: str, placement:
     assert commit_door_fields_verdict(text) == "credential"
 
 
+def prefix_hits(text: str) -> list[str]:
+    """The ``sk-`` prefix findings of the commit gate's own rule on one field, with no other rule and no carve-out."""
+
+    return [finding.rule for finding in legacy._commit_field_findings(text) if finding.rule == "prefix_sk"]
+
+
+_SK_CASES = [
+    pytest.param(token, placement, id=f"{label}-{placement}")
+    for label, token in _real_shapes()["sk-"]
+    for placement in _PLACEMENTS
+]
+
+
+@pytest.mark.parametrize(("token", "placement"), _SK_CASES)
+def test_a_real_shaped_sk_key_is_still_read_by_the_prefix_rule_in_every_placement(token: str, placement: str) -> None:
+    """The commit gate's own ``sk-`` pattern reads the shortest real key (32 characters after the prefix), the
+    classic 48, the project, service account, admin and Anthropic forms, and a body of exactly the floor."""
+
+    text = _PLACEMENTS[placement](token)
+    assert prefix_hits(text) == ["prefix_sk"], text
+    assert legacy.commit_gate_refuses("", text)
+    assert commit_door_fields_verdict(text) == "credential"
+
+
+def test_a_lower_case_sk_code_of_8_digits_is_read_by_the_credential_floor_alone() -> None:
+    """A residual, pinned so a change is seen. The credential floor (``credential_floor``, not this module) reads
+    lower-case ``sk-`` followed by 8 or more characters that hold a digit, unless they are a chain of short words and
+    numbers, so ``sk-20260301`` is still refused at every door. Upper case (``SK-20260301``) is a part number to it,
+    and ``sk-2025-0618`` and ``sk-2291-rev`` are word chains. Neither rule in this module reads any of them."""
+
+    for code in ("sk-20260301", "order sk-20260301 today"):
+        assert marker_hits(code) == [] and prefix_hits(code) == [], code
+        assert not legacy.commit_gate_refuses("", code), code
+        assert credential_verdict(code) is not None, code
+    for code in ("SK-20260301", "sk-2025-0618", "sk-2291-rev"):
+        assert credential_verdict(code) is None, code
+
+
+def test_the_sk_prefix_rule_has_the_markers_floor() -> None:
+    """The prefix rule reads ``sk-`` and exactly as many token characters as the marker does, and no fewer.
+
+    A body one short of the floor is allowed to pass this rule by design; the credential floor may still read it.
+    """
+
+    floor = legacy._TOKEN_BODIES["sk-"].floor
+    assert floor == _SHAPE_TABLE["sk-"][1] == 20
+    assert legacy._PREFIX_SK.pattern.endswith("{%d,}" % floor)
+    for placement in _PLACEMENTS.values():
+        assert prefix_hits(placement(_with_body("sk-", floor))) == ["prefix_sk"]
+        assert prefix_hits(placement(_with_body("sk-", floor + 12))) == ["prefix_sk"]
+        assert prefix_hits(placement(_with_body("sk-", floor - 1))) == []
+        assert prefix_hits(placement(_with_body("sk-", 8))) == []
+    # The three longer codes are 8 to 9 characters after the dash, in either case.
+    for code in ("SK-20260301", "SK-2025-0618", "SK-2291-REV", "sk-2025-0618"):
+        assert prefix_hits(code) == [], code
+        assert prefix_hits(f"order {code} today") == [], code
+        assert oracle.commit_gate_refuses("", code), code  # v0.16.0 read each of them as a key
+
+
 @pytest.mark.parametrize("marker", sorted(_SHAPE_TABLE))
 def test_every_marker_is_read_when_it_is_the_whole_shortest_real_token_in_a_title_or_a_ref(marker: str) -> None:
     token = _shortest_real(marker)
@@ -373,8 +446,8 @@ def test_a_body_of_exactly_the_floor_is_read(marker: str) -> None:
 def test_a_body_one_below_the_floor_passes_the_marker_rule_by_design(marker: str) -> None:
     """The marker rule draws its line at the floor. A body one short of it is allowed to pass this rule.
 
-    Other rules may still read it: the commit gate's prefix patterns read ``sk-``, ``ghp_`` and ``xoxb-`` from 8
-    characters, and the credential floor reads most shapes from 8 or 16. This test is about the marker rule alone.
+    Other rules may still read it: the commit gate's prefix patterns read ``ghp_`` and ``xoxb-`` from 8 characters, and
+    the credential floor reads most shapes from 8 or 16. This test is about the marker rule alone.
     """
 
     floor = _SHAPE_TABLE[marker][1]
@@ -491,8 +564,12 @@ _BUDGET_SECONDS = 2.0
 
 
 def _read_everything(text: str) -> int:
-    return sum(1 for _ in legacy._credential_findings(text)) + sum(
-        1 for _ in legacy._credential_findings(text, require_token_boundary=False)
+    """Every finding of the marker rule, bounded and unbounded, and of the commit gate's own field rules."""
+
+    return (
+        sum(1 for _ in legacy._credential_findings(text))
+        + sum(1 for _ in legacy._credential_findings(text, require_token_boundary=False))
+        + sum(1 for _ in legacy._commit_field_findings(text))
     )
 
 
@@ -513,11 +590,20 @@ def test_the_floored_patterns_are_linear(label: str) -> None:
 # ---------------------------------------------------------------------------
 
 _NOTE_NAME = "2025-06-18-parts-note-legacy-seal-kit-sk-2192.md"
+# File names that hold a code: the short one, and the three longer ones the commit gate's prefix pattern read as keys.
+_NOTE_NAMES = (
+    _NOTE_NAME,
+    "2026-03-01-order-history-SK-20260301.md",
+    "2025-06-18-seal-kit-sk-2025-0618.md",
+    "2025-06-18-seal-kit-sk-2291-rev.md",
+)
 _NOTE_LINES = (
     "Fact: SK-2291 is the current seal kit.",
     "Fact: order SK-2192 from stores.",
     "Parts: SK-2291, HD-40213, PO-55102, TB-12, NCR-0042",
     "Note: sk-2291 is current and SK-229 is retired.",
+    "Fact: SK-20260301 shipped to the east depot.",
+    "Order history: SK-2025-0618 and SK-2291-REV were backordered.",
     "Fact: set npm_config_cache to the shared folder.",
     f"Fact: {CLEAN}",
 )
@@ -561,8 +647,9 @@ def _import(folder: Path, database: Path, capsys: pytest.CaptureFixture[str]) ->
     return json.loads(capsys.readouterr().out)
 
 
+@pytest.mark.parametrize("name", _NOTE_NAMES)
 def test_import_markdown_keeps_a_note_with_short_codes_whole_and_keeps_the_file(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], name: str
 ) -> None:
     """Before the fix every code line was stored as the withheld marker and the file, named for a code, was dropped.
 
@@ -571,7 +658,7 @@ def test_import_markdown_keeps_a_note_with_short_codes_whole_and_keeps_the_file(
 
     folder = tmp_path / "notes"
     folder.mkdir()
-    (folder / _NOTE_NAME).write_text("\n".join((*_NOTE_LINES, "")), encoding="utf-8")
+    (folder / name).write_text("\n".join((*_NOTE_LINES, "")), encoding="utf-8")
     database = _db(tmp_path / "data")
     receipt = _import(folder, database, capsys)
     assert receipt["imported_count"] == 1, receipt
@@ -581,7 +668,7 @@ def test_import_markdown_keeps_a_note_with_short_codes_whole_and_keeps_the_file(
     assert receipt["skipped_credential_items"] == []
     stored = _blob(database)
     assert WITHHELD not in stored
-    assert _NOTE_NAME in stored
+    assert name in stored
     for line in _NOTE_LINES:
         assert line in stored, line
 
