@@ -43,8 +43,8 @@ def test_current_state_keeps_the_v0202_open_item_and_names_the_refill_in_the_v02
     assert open_item.endswith("and the vector stage of recall does not refill after hiding rows.")
     assert open_item.count("refill") == 1
     assert "judging at most 128" not in section
-    targets = text.split("## What `v0.21.0` Targets", 1)[1].split("\n## ", 1)[0]
-    refilled = [bullet for bullet in _bullets(targets) if "refill" in bullet]
+    shipped = text.split("## What `v0.21.0` Shipped", 1)[1].split("\n## ", 1)[0]
+    refilled = [bullet for bullet in _bullets(shipped) if "refill" in bullet]
     assert len(refilled) == 1, refilled
     new = refilled[0]
     assert new.startswith("The vector stage of recall and of the context pack, the time stage of the context pack")

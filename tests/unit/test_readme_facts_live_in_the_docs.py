@@ -65,7 +65,7 @@ def test_the_readme_names_the_default_tools_and_the_package_runtime() -> None:
         assert f"- `{tool}`:" in readme
     assert "OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches the model as `alice__alice_recall`." in readme
     assert "The name `alice-core` on PyPI belongs to an unrelated project." in readme
-    assert "To run v0.20.2, run `git checkout v0.20.2` before `make setup`." in readme
+    assert "To run v0.21.0, run `git checkout v0.21.0` before `make setup`." in readme
 
 
 def test_the_skill_pack_steps_moved_to_the_agent_integration_page() -> None:
