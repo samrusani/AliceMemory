@@ -229,6 +229,27 @@ when either of two checks refuses:
    gets v0.16.0's floor rule only, over title, text, excerpt and source
    refs, also joined with a space and with nothing, as v0.16.0 read them.
 
+One difference from v0.16.0 (2026-10-22): a token marker needs a token body
+after it. v0.16.0 read `ghp_`, `gho_`, `ghs_`, `ghu_`, `github_pat_`,
+`glpat-`, `npm_`, `sk-`, `xoxb-`, `xoxp-`, `xoxa-` and `xoxs-` as a
+credential wherever they began a word, with nothing required after them, so a
+part code such as `SK-2291`, a line such as `sk-2291 is current` and a
+variable name such as `npm_config_cache` were refused at the commit door and
+at the promotion floor. A marker now counts only when a floor of token
+characters follows it, and no floor is longer than the shortest body a real
+token of that kind has: 36 for `ghp_`, `gho_`, `ghs_`, `ghu_` and `npm_`
+(base62), 82 for `github_pat_`, 20 for `glpat-` and for `sk-` (the published
+`sk-` formats have 32 or more), and 10 for the four Slack markers, the same floor as the
+Slack pattern. `legacy_credential_check._TOKEN_BODIES` states the published
+shape behind each number. The two ssh markers keep the bare reading, because
+they name a public key line and the first carve-out excuses it. The two FIDO
+key types are still read at any length, so a token glued onto one is still
+refused. Nothing else moved: the commit gate's own prefix patterns (`sk-`,
+`ghp_` and `xoxb-` with 8 or more characters after them) and the detector are
+unchanged, so `SK-20260301` is still read as a key at the commit door, and a
+body one short of a floor can still be read by those. A real token has at
+least its floor, so it is read as before.
+
 The carve-outs are the design round's named false positives, and there are
 no others. Each excuses one finding at a time, so a note with an excused
 `sk-learn` and a real token is refused for the token:
@@ -240,7 +261,9 @@ no others. Each excuses one finding at a time, so a note with an excused
   a qualified label such as "Deploy key", unless the public key body
   follows it.
 - **`sk-` and lower-case words**: `sk-learn`, `sk-learn-bench-2024`.
-  Upper case (`SK-LEARN`, `SK-1482-fix`) is not excused.
+  Upper case (`SK-LEARN-BENCHMARK-2024`, `SK-1482-fix`) is not excused. A short
+  upper-case code such as `SK-LEARN` or `SK-1482` is not read at all since
+  2026-10-22, so it needs no excuse.
 - **Structural key names with identifier values**: `fact_key` and the
   continuity subject keys, `cache_key`, `partition_key`, `sort_key`,
   `next_page_token`, `memory_key`, and dedupe keys (`dedupe_key`,

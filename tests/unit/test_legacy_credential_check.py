@@ -21,7 +21,12 @@ The ruling (H1) and what this file holds, as harness v4:
 (a) Equivalence. alicebot_api.legacy_credential_check re-implements
     v0.16.0's check in linear time. It is compared with v0.16.0's own code,
     kept verbatim in legacy_v0160_credential_oracle.py, on bounded generated
-    inputs at both doors: the same verdict on every input.
+    inputs at both doors: the same verdict on every input. Since 2026-10-22
+    the token markers need a floor of token characters after them (see
+    legacy_credential_check._TOKEN_BODIES), which v0.16.0 did not. The
+    comparison runs with the floors turned off, and a second test holds the
+    floors on to what a floor can change: it only lets through, never adds a
+    refusal. tests/unit/test_credential_marker_lengths.py pins the floors.
 (b) Carve-out safety. Each of the four carve-outs is tested both ways, the
     password rule is tested, and no carve-out excuses anything in the real
     key fixtures or in a generated grammar of published token shapes under
@@ -40,6 +45,7 @@ import hashlib
 import json
 from pathlib import Path
 import random
+import re
 import sqlite3
 import string
 from uuid import UUID, uuid4
@@ -129,7 +135,18 @@ def _patterns(compiled: tuple[object, ...] | list[object]) -> list[tuple[str, in
 def test_harness_v4_the_reimplementation_reads_v0160s_own_patterns() -> None:
     assert legacy._CREDENTIAL_PHRASES == oracle._CREDENTIAL_PHRASES
     assert legacy._CREDENTIAL_TOKEN_MARKERS == oracle._CREDENTIAL_TOKEN_MARKERS
-    assert _patterns(legacy._CREDENTIAL_TOKEN_PATTERNS) == _patterns(oracle._CREDENTIAL_TOKEN_PATTERNS)
+    # The one difference (2026-10-22): v0.16.0's pattern with a floor of token characters after it, for every marker
+    # but the two ssh ones, whose patterns are v0.16.0's exactly.
+    for marker, floored, bare in zip(
+        legacy._CREDENTIAL_TOKEN_MARKERS, legacy._CREDENTIAL_TOKEN_PATTERNS, oracle._CREDENTIAL_TOKEN_PATTERNS
+    ):
+        assert floored.flags == bare.flags, marker
+        assert floored.pattern.startswith(bare.pattern), marker
+        floor = floored.pattern[len(bare.pattern) :]
+        assert (floor == "") is (marker in _BARE_MARKERS), (marker, floor)
+        assert floor == "" or (floor.startswith("(?=") and floor.endswith(")")), (marker, floor)
+    assert _BARE_MARKERS == {"ssh-rsa ", "ssh-ed25519 "}
+    assert set(legacy._TOKEN_BODIES) == set(legacy._CREDENTIAL_TOKEN_MARKERS) - _BARE_MARKERS
     searched = [pattern for _rule, pattern in legacy._SEARCHED_PATTERNS]
     in_v0160_order = [*searched[:4], legacy._JWT_PATTERN, legacy._SSH_PUBLIC_KEY, *searched[4:]]
     assert [getattr(p, "pattern", p) for p in in_v0160_order] == [p.pattern for p in oracle._CREDENTIAL_PATTERNS]
@@ -160,6 +177,26 @@ def test_harness_v4_the_shared_normaliser_is_v0160s() -> None:
 # ---------------------------------------------------------------------------
 # (a) Equivalence on bounded generated inputs.
 # ---------------------------------------------------------------------------
+
+# The markers that keep v0.16.0's bare reading: they name a public key line.
+_BARE_MARKERS = {"ssh-rsa ", "ssh-ed25519 "}
+
+
+@pytest.fixture
+def floors_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The module with v0.16.0's bare markers, to compare it with v0.16.0 on everything else.
+
+    The token floors (2026-10-22) are the one deliberate difference from v0.16.0. With them off, the rest of the module
+    is held to v0.16.0's verdict on every generated input, as before; with them on, the next test holds the
+    difference to what a floor can change.
+    """
+
+    monkeypatch.setattr(legacy, "_CREDENTIAL_TOKEN_PATTERNS", tuple(oracle._CREDENTIAL_TOKEN_PATTERNS))
+    monkeypatch.setattr(
+        legacy,
+        "_CREDENTIAL_TOKEN_UNBOUNDED_PATTERNS",
+        tuple(re.compile(re.escape(marker), re.IGNORECASE) for marker in oracle._CREDENTIAL_TOKEN_MARKERS),
+    )
 
 _SECRET_WORDS = ("password", "passwd", "secret", "token", "credential", "credentials", "apikey", "key")
 _OTHER_WORDS = (
@@ -348,7 +385,7 @@ def _equivalence_inputs(seed: int, count: int) -> list[tuple[str, str, str | Non
 
 
 @pytest.mark.parametrize("seed", [20260923, 5, 17])
-def test_harness_v4_same_verdict_as_v0160_at_both_doors(seed: int) -> None:
+def test_harness_v4_same_verdict_as_v0160_at_both_doors(seed: int, floors_off: None) -> None:
     commit_refused = floor_refused = 0
     inputs = _equivalence_inputs(seed, 1500)
     for title, text, excerpt, rationale, refs in inputs:
@@ -366,6 +403,32 @@ def test_harness_v4_same_verdict_as_v0160_at_both_doors(seed: int) -> None:
     # agreement on one answer.
     assert 0.3 * len(inputs) < commit_refused < 0.9 * len(inputs), commit_refused
     assert 0.3 * len(inputs) < floor_refused < 0.9 * len(inputs), floor_refused
+
+
+@pytest.mark.parametrize("seed", [20260923, 5, 17])
+def test_the_token_floors_only_let_through_what_v0160_refused_for_a_short_marker(seed: int) -> None:
+    """With the floors on, the module never refuses what v0.16.0 allowed, and it allows some of what v0.16.0 refused.
+
+    A floor removes marker findings and adds none, so the first half is a fact about the construction; it is checked
+    so that a change which adds a refusal here is seen. The second half guards the guard: the generated inputs hold
+    short markers, so the floors change some verdicts and the first half is not agreement on nothing. And every
+    input the floors let through is one where turning them off flips it back, which the equivalence test above shows
+    is v0.16.0's verdict.
+    """
+
+    inputs = _equivalence_inputs(seed, 1500)
+    commit_let_through = floor_let_through = 0
+    for title, text, excerpt, rationale, refs in inputs:
+        old_commit = oracle.commit_gate_refuses(title, text, excerpt, rationale, refs)
+        new_commit = legacy.v0160_commit_gate_refuses(title, text, excerpt, rationale, refs)
+        assert old_commit or not new_commit, (title, text, excerpt, rationale, refs)
+        commit_let_through += old_commit and not new_commit
+        old_floor = oracle.promotion_floor_refuses(title, text, excerpt, refs)
+        new_floor = legacy.v0160_promotion_floor_refuses(title, text, excerpt, refs)
+        assert old_floor or not new_floor, (title, text, excerpt, refs)
+        floor_let_through += old_floor and not new_floor
+    assert 0 < commit_let_through < 0.2 * len(inputs), commit_let_through
+    assert 0 < floor_let_through < 0.2 * len(inputs), floor_let_through
 
 
 # Round 6: the three shapes the round 5 generator never made, found by the
@@ -609,9 +672,18 @@ def test_carve_out_a_lets_every_public_key_fixture_commit_at_the_store(name: str
     assert _memory_count(store) == 1
 
 
-_SK_EXCUSED = ("We use sk-learn for the churn model baseline.", "the sk-learn-bench-2024 run", "pip install sk-image")
-_SK_NOT_EXCUSED = (
+# Findings exist for these (the body after "sk-" is at least 8 characters for the commit gate's prefix pattern, and at
+# least 20 for the marker) and the carve-out excuses them. The second one has a body long enough to be read by the
+# marker rule too, which the promotion floor reads alone.
+_SK_EXCUSED = ("the sk-learn-bench-2024 run", "the sk-learn-benchmark-results-2024 run")
+# Too short to be read since 2026-10-22: v0.16.0 read the bare marker and needed the carve-out for these.
+_SK_TOO_SHORT_TO_READ = (
+    "We use sk-learn for the churn model baseline.",
+    "pip install sk-image",
     "SK-LEARN is the old name",
+)
+_SK_NOT_EXCUSED = (
+    "SK-LEARN-BENCHMARK-2024 is the old name",
     "Work is on branch SK-1482-fix-retry-backoff until review.",
     "sk-learn_v2 and friends",
     "key " + "sk" + "-proj-" + R + R,
@@ -623,6 +695,16 @@ _SK_NOT_EXCUSED = (
 def test_carve_out_b_excuses_sk_and_lower_case_words(text: str) -> None:
     assert _excused_by(legacy.carve_out_sk_word_chain, text)
     assert not legacy.commit_gate_refuses("Note", text)
+
+
+@pytest.mark.parametrize("text", _SK_TOO_SHORT_TO_READ)
+def test_carve_out_b_has_nothing_to_excuse_where_the_body_is_too_short_to_read(text: str) -> None:
+    # v0.16.0 read the bare marker and refused each of these.
+    assert oracle.commit_gate_refuses("Note", text)
+    assert not _findings(text)
+    assert not _findings(text, commit=False)
+    assert not legacy.commit_gate_refuses("Note", text)
+    assert not legacy.promotion_floor_refuses("Note", text)
 
 
 @pytest.mark.parametrize("text", _SK_NOT_EXCUSED)
@@ -959,13 +1041,17 @@ def _corpus_groups() -> dict[str, list[tuple[str, str, list[object]]]]:
 # (rows, commit refused now, commit refused by v0.16.0, import refused now).
 # v0.16.0 had no credential check at import, so it refused none there.
 # Measured 2026-09-23 on this branch and on v0.16.0 (880915a) itself.
+# Re-measured 2026-10-22 with the token floors: the commit count falls by one in "credential vocabulary" (a sentence
+# that names the prefix "ghp_" and no token) and by two in "named adversary notes" (a sentence that names
+# "npm_config_registry" and one that names "github_pat_" and "ghp_" without a token). The v0.16.0 column does not
+# move, because v0.16.0's own code is the oracle.
 _BENIGN_PINS = {
     "doc sentences": (400, 0, 0, 0),
-    "credential vocabulary": (474, 6, 6, 4),
+    "credential vocabulary": (474, 5, 6, 4),
     "promotion notes": (100, 0, 0, 0),
     # Four object entries that the credential check refused are now refused as shapes
     # before that check, so they stay out of the vault and out of the credential count.
-    "named adversary notes": (34, 12, 27, 0),
+    "named adversary notes": (34, 10, 27, 0),
 }
 
 

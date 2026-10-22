@@ -60,6 +60,21 @@ and findings are excused one at a time: a note with an excused sk-learn and
 a real token is still refused for the token. Every carve-out ends at a
 boundary (round 6), so a token glued straight onto an excused key type,
 public key, cursor or code reference is not excused with it.
+
+One difference from v0.16.0 (2026-10-22): a token marker needs a token body.
+v0.16.0 read the bare marker, so a short product code that starts with one,
+SK-2291 or SK-229 or "sk-2291 is current", was a credential, and so was
+npm_config_cache. A marker now counts only when at least a floor of token
+characters follows it, and each floor is no longer than the shortest body a
+real token of that kind has (see _TOKEN_BODIES, which states the published
+shape behind every number). The two ssh markers keep the bare reading: they
+name a public key line, which the first carve-out excuses. Nothing else
+changed: the other patterns, the prefix patterns of the commit gate and the
+carve-outs are v0.16.0's, so a real token is refused exactly as before and
+only a marker with too little after it to be a token is let through.
+tests/unit/test_legacy_credential_check.py runs its comparison with
+v0.16.0's own code with the floors turned off, to show that this is the only
+difference, and tests/unit/test_credential_marker_lengths.py pins the floors.
 """
 
 from __future__ import annotations
@@ -104,8 +119,120 @@ _CREDENTIAL_TOKEN_MARKERS = (
     "xoxa-",
     "xoxs-",
 )
-_CREDENTIAL_TOKEN_PATTERNS = tuple(
-    re.compile(r"(?<![0-9A-Za-z_])" + re.escape(marker), re.IGNORECASE) for marker in _CREDENTIAL_TOKEN_MARKERS
+
+
+class _TokenBody(NamedTuple):
+    """What must follow a marker for it to count: ``floor`` characters of ``chars``.
+
+    ``chars`` is the inside of a regular expression character class. The
+    floor is read as a look-ahead of exactly that many characters of one
+    class, so the pattern is as linear as the bare marker was: the engine
+    finds the marker literal, then looks at most ``floor`` characters ahead
+    and stops at the first character outside the class.
+
+    ``owned`` is a regular expression for the text a carve-out names, which
+    is read after the marker whatever its length, so that the carve-out still
+    decides it, boundary and all (see _FIDO_KEY_TYPE_NAMES).
+    """
+
+    chars: str
+    floor: int
+    owned: str = ""
+
+
+# The two FIDO key type names that follow "sk-" (carve-out a). Their body is
+# short and ends at "@", so the floor alone would stop reading them, and the
+# boundary rule that refuses a token glued straight onto one would go with it.
+_FIDO_KEY_TYPE_NAMES = r"(?:ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com"
+
+_BASE62 = "0-9A-Za-z"
+_BASE62_UNDERSCORE = "0-9A-Za-z_"
+_URLSAFE = "0-9A-Za-z_-"
+_SLACK_CHARS = "0-9A-Za-z-"
+
+# The published shape of the token each marker targets, and the shortest body
+# such a token has after the marker. A floor is no longer than that body, so
+# every real token is still read, and long enough that a part code, a ticket
+# id or a variable name is not. Providers other than GitHub publish no formal
+# length for some of these; where a range is known, the shortest is used. A
+# body is counted in the characters of the class beside it, which are the
+# characters the real body is made of.
+#
+# - ghp_ (personal access token, classic), gho_ (OAuth access token), ghu_
+#   (user-to-server token) and ghs_ (server-to-server token). GitHub's token
+#   format since 2021: the prefix, then 36 base62 characters (30 random and a
+#   6 character checksum), 40 in all. Shortest body: 36. Floor: 36.
+# - github_pat_ (fine-grained personal access token). The prefix, then 22
+#   base62 characters, an underscore and 59 base62 characters, 93 in all.
+#   Shortest body: 82. Floor: 82.
+# - glpat- (GitLab personal, project and group access tokens). The fixed
+#   length format is the prefix and 20 characters of [0-9A-Za-z_-]. Newer
+#   routable tokens are longer. Shortest body: 20. Floor: 20.
+# - npm_ (npm access tokens). The prefix, then 36 base62 characters, 40 in
+#   all. Shortest body: 36. Floor: 36. An environment variable such as
+#   npm_config_cache or npm_package_version has underscores, which a base62
+#   body does not, so none is read as a token.
+# - sk- (OpenAI style secret keys). The older keys are the prefix and 48
+#   base62 characters. Project, service account and admin keys (sk-proj-,
+#   sk-svcacct-, sk-admin-) are the prefix, a kind word and 100 or more
+#   characters of [0-9A-Za-z_-]. Anthropic keys (sk-ant-api03-, sk-ant-admin01-)
+#   are the prefix, a kind word and about 90 more of the same characters.
+#   Some OpenAI compatible providers issue the prefix and 32 hex characters.
+#   Shortest body: 32. Floor: 20, below it, so a compatible provider's
+#   shorter key is still read, and far above the 4 to 6 digits of a part
+#   code such as SK-2291 or SK-22910. The commit gate's own prefix pattern
+#   (_PREFIX_SK, 8 characters) is a separate rule and is unchanged. The two
+#   FIDO key type names (sk-ssh-ed25519@openssh.com and
+#   sk-ecdsa-sha2-nistp256@openssh.com) are still read at any length, so that
+#   carve-out a keeps refusing a token glued straight onto one.
+# - xoxb-, xoxp-, xoxa-, xoxs- (Slack bot, user, app and legacy tokens). The
+#   prefix, then groups of digits and hyphens, then an alphanumeric or hex
+#   tail. A bot token is 10 to 13 digits, a hyphen, 10 to 13 digits, a hyphen
+#   and 24 alphanumerics: 46 characters at the shortest. User and legacy
+#   tokens carry a third digit group and a 32 character tail, 65 or more.
+#   Shortest body: 46. Floor: 10, the same floor as the slack rule below
+#   (v0.16.0's own, xox[baprs]- and 10 token characters), so the two agree.
+# - ssh-rsa and ssh-ed25519, each followed by a space. These name a public
+#   key line, not a secret, and carve_out_ssh_public_key excuses the public
+#   key shapes. They keep the bare reading: a space after a key type name is
+#   not how a product code is written, and a floor would not change what a
+#   real private key is refused for.
+_TOKEN_BODIES: Mapping[str, _TokenBody] = {
+    "ghp_": _TokenBody(_BASE62, 36),
+    "gho_": _TokenBody(_BASE62, 36),
+    "ghs_": _TokenBody(_BASE62, 36),
+    "ghu_": _TokenBody(_BASE62, 36),
+    "github_pat_": _TokenBody(_BASE62_UNDERSCORE, 82),
+    "glpat-": _TokenBody(_URLSAFE, 20),
+    "npm_": _TokenBody(_BASE62, 36),
+    "sk-": _TokenBody(_URLSAFE, 20, _FIDO_KEY_TYPE_NAMES),
+    "xoxb-": _TokenBody(_SLACK_CHARS, 10),
+    "xoxp-": _TokenBody(_SLACK_CHARS, 10),
+    "xoxa-": _TokenBody(_SLACK_CHARS, 10),
+    "xoxs-": _TokenBody(_SLACK_CHARS, 10),
+}
+
+
+def _marker_pattern(marker: str, *, bounded: bool) -> re.Pattern[str]:
+    """The marker, with the floor of token characters after it when it has one.
+
+    ``bounded`` puts v0.16.0's lead boundary in front: no letter, digit or
+    underscore before the marker. A collapsed run (see _despaced_runs) lost
+    its boundaries and is read without it.
+    """
+
+    body = _TOKEN_BODIES.get(marker)
+    floor = ""
+    if body is not None:
+        reads = "[" + body.chars + "]{" + str(body.floor) + "}"
+        floor = "(?=" + reads + ("|" + body.owned if body.owned else "") + ")"
+    lead = r"(?<![0-9A-Za-z_])" if bounded else ""
+    return re.compile(lead + re.escape(marker) + floor, re.IGNORECASE)
+
+
+_CREDENTIAL_TOKEN_PATTERNS = tuple(_marker_pattern(marker, bounded=True) for marker in _CREDENTIAL_TOKEN_MARKERS)
+_CREDENTIAL_TOKEN_UNBOUNDED_PATTERNS = tuple(
+    _marker_pattern(marker, bounded=False) for marker in _CREDENTIAL_TOKEN_MARKERS
 )
 _ARMOR = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 _AWS_ID = re.compile(r"\b(?:AKIA|ASIA)[0-9A-Za-z]{16}\b", re.IGNORECASE)
@@ -338,12 +465,13 @@ def _credential_findings(
                 yield Finding("marker", text, match.start(), value=marker)
     else:
         # A collapsed run lost its boundaries, so v0.16.0 read the markers as
-        # substrings of the casefolded run.
-        for marker in _CREDENTIAL_TOKEN_MARKERS:
-            index = folded.find(marker)
-            while index >= 0:
-                yield Finding("marker", text if same_length else folded, index, value=marker, exact=same_length)
-                index = folded.find(marker, index + 1)
+        # substrings of the casefolded run. The floor still applies: a
+        # spaced-out "S K - 2 2 9 1" is a part code too.
+        for marker, pattern in zip(_CREDENTIAL_TOKEN_MARKERS, _CREDENTIAL_TOKEN_UNBOUNDED_PATTERNS):
+            for match in pattern.finditer(folded):
+                yield Finding(
+                    "marker", text if same_length else folded, match.start(), value=marker, exact=same_length
+                )
     for rule, pattern in _SEARCHED_PATTERNS[:4]:
         found = pattern.search(text)
         if found is not None:
@@ -539,7 +667,7 @@ _SSH_KEY_TYPE_VALUES = frozenset(
 # a token: not a letter, digit, "_" or "-".
 _BOUNDARY = r"(?![A-Za-z0-9_-])"
 _AT_BOUNDARY = re.compile(_BOUNDARY)
-_FIDO_KEY_TYPE = re.compile(r"sk-(?:ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com" + _BOUNDARY)
+_FIDO_KEY_TYPE = re.compile(r"sk-" + _FIDO_KEY_TYPE_NAMES + _BOUNDARY)
 # What may follow the "ssh-rsa " or "ssh-ed25519 " marker: a public key body,
 # a plain word ("keys"), or nothing, each ending at a boundary.
 _AFTER_KEY_TYPE = re.compile(r"(?:AAAA[0-9A-Za-z+/=]*|[A-Za-z]{0,24})" + _BOUNDARY)
@@ -707,7 +835,7 @@ def v0160_commit_gate_refuses(
     rationale: str | None = None,
     source_refs: object = (),
 ) -> bool:
-    """What v0.16.0's commit gate decided, carve-outs not applied."""
+    """What v0.16.0's commit gate decided, carve-outs not applied, with the token floors of the module docstring."""
 
     return next(_commit_findings(title, canonical_text, conversation_excerpt, rationale, source_refs), None) is not None
 
@@ -718,7 +846,7 @@ def v0160_promotion_floor_refuses(
     conversation_excerpt: str | None = None,
     source_refs: Iterable[object] = (),
 ) -> bool:
-    """What v0.16.0's promotion floor decided, carve-outs not applied."""
+    """What v0.16.0's promotion floor decided, carve-outs not applied, with the token floors of the module docstring."""
 
     return next(_floor_findings_for(title, canonical_text, conversation_excerpt, source_refs), None) is not None
 
