@@ -23,6 +23,15 @@ v0.21.0 ships one part of Phase 1: passage ranking, which is the default of `ali
 
 The hard set's notes carry the domain words of the company they describe, such as operations, technical, commercial, corporate, strategy and hr. Most of them are not Alice domains, and an import refuses a domain it does not have, so the notes cannot be imported with those words. Who may read a note in this set was defined, when the set was written and checked, by two things only: the sensitivity (a confidential note is readable by leadership only) and whether the domain is restricted (support and product may not read legal or financial notes). The import therefore keeps the legal and financial domains, labels every other note professional, and keeps every sensitivity. The note text and every other label are unchanged, and which team may read which note is the same for all 1,200 notes and all four teams. The locked files are not changed; the import reads a copy with these labels, and the file-search arms read the same copy.
 
+## The credential gate on the hard set
+
+v0.21.0's import withholds a line that its credential check flags, and a whole note when the note's file name is flagged. On the hard set the check flags short product codes (two letters, a hyphen and digits) as credential material, which is a false positive: it withholds 55 lines in 12 notes and one whole note. The run measures v0.21.0 as shipped, so both Alice arms import the notes with those lines withheld, exactly as a user's import would, and the fix goes into a later release.
+
+- 7 of the 177 main-claim questions need a note with withheld lines, and for 1 of them a string the answer must contain appears only on a withheld line.
+- Both Alice arms lose the same lines, so the comparison of Phase 1 with the baseline is not affected by it.
+- The file-search arms read the notes in full, so a comparison of Alice with file search on this set carries this disadvantage for Alice. The report says so beside that comparison.
+- The harness refuses a build in which the product withheld a whole note. For this run it lists such a note instead (`withheld_by_credential_gate` in the capture report) and counts the build as complete when every other note is captured and indexed. That is the only change to the harness, and the product code is the v0.21.0 code.
+
 ## Rules
 
 The decision rule, the target, the agreement requirement and the floors are those of the pre-registration and the hard set page, unchanged. The speed floor was measured for the release on SQLite at 102,192 passages, with a 95th percentile of 1.56 to 1.58 s in passage mode (see the [v0.21.0 release notes](../../release/v0.21.0-release-notes.md)).
