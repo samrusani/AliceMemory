@@ -294,7 +294,7 @@
           "line": 8,
           "before": "Doctor's derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and the doctor routes omit them for callers with limits.",
           "after": "",
-          "sha256": "2755498250a7f7dd3526ca7476f0b0ed122e4595f9fd890ff82d41eecfc47549"
+          "sha256": "3d56c49f14281b2cfba8b9a7ce1e24f5a72e8d64c4aa3a76a44b4fd3abf69227"
         }
       ],
       "pytest": [
@@ -6182,7 +6182,7 @@
           "line": 11,
           "before": "\n> **Update (2026-10-09):** the correction above says graph neighborhood returns edge explanations in v0.20.0, and that is so. On main, not in v0.20.0, it lists only the edges whose ends the key may read, and the graph edge review route applies the same rule. See the [draft security note](derived-labels-security-note-draft.md).\n",
           "after": "",
-          "sha256": "2755498250a7f7dd3526ca7476f0b0ed122e4595f9fd890ff82d41eecfc47549"
+          "sha256": "3d56c49f14281b2cfba8b9a7ce1e24f5a72e8d64c4aa3a76a44b4fd3abf69227"
         }
       ],
       "pytest": [
@@ -19321,7 +19321,7 @@
           "line": 214,
           "before": "removal of redacted text from reports is planned, with no release set, and\n  the vector stage of recall does not refill after hiding rows.\n",
           "after": "removal of redacted text from reports is planned, with no release set.\n",
-          "sha256": "633bb9c016eaa9916f3d2c3016f5d00f00d9d258b3d6a0cb5c91e4bdcb34c51c"
+          "sha256": "5c8ea3d35ae8c9b34fe7c24a4356ce0927ed81d27da0676c030692ba04dbfb31"
         }
       ],
       "pytest": [
@@ -19334,10 +19334,10 @@
       "edits": [
         {
           "file": "CURRENT_STATE.md",
-          "line": 137,
+          "line": 138,
           "before": "- The vector stage of recall and of the context pack, the time stage of the\n  context pack,",
           "after": "- The refill of the vector stage of recall and of the context pack, the time stage of the\n  context pack,",
-          "sha256": "633bb9c016eaa9916f3d2c3016f5d00f00d9d258b3d6a0cb5c91e4bdcb34c51c"
+          "sha256": "5c8ea3d35ae8c9b34fe7c24a4356ce0927ed81d27da0676c030692ba04dbfb31"
         }
       ],
       "pytest": [
