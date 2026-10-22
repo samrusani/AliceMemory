@@ -736,10 +736,14 @@ def test_seeded_property_budget_never_exceeded_never_needlessly_empty_order_kept
             )
         # The unbudgeted pack is produced by the code under test, so it is not an
         # independent witness of the ranking. The store ranks by insertion order,
-        # and only facts_first and recent_first reorder memories, so for every
-        # other strategy the insertion order is the ranking.
+        # and only facts_first, recent_first, and redundancy-diversity demotions
+        # reorder memories. When the unbudgeted ranking preserved store order,
+        # every budgeted pack must preserve it too.
         insertion_order = [f"memory-{index}" for index in range(1, len(store.memories) + 1)]
-        if strategy not in ("facts_first", "recent_first"):
+        unbudgeted_memory_ids = [item["id"] for item in unbudgeted["relevant_memories"]]
+        store_iter = iter(insertion_order)
+        unbudgeted_in_store_order = all(item_id in store_iter for item_id in unbudgeted_memory_ids)
+        if strategy not in ("facts_first", "recent_first") and unbudgeted_in_store_order:
             remaining = iter(insertion_order)
             packed_memory_ids = [item["id"] for item in pack["relevant_memories"]]
             assert all(item_id in remaining for item_id in packed_memory_ids), (

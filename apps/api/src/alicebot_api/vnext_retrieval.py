@@ -1472,6 +1472,104 @@ def _fused_candidates(
     return candidates
 
 
+_REDUNDANCY_TOKEN_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]*")
+
+
+def _redundancy_signature_tokens(text: str) -> frozenset[str]:
+    return frozenset(
+        _REDUNDANCY_TOKEN_PATTERN.findall(
+            text[: vnext_coverage_query.DIVERSITY_SIGNATURE_MAX_CHARS].casefold()
+        )
+    )
+
+
+def _demote_redundant_candidates(
+    candidates: Sequence[RetrievalCandidate],
+    *,
+    text_for: Callable[[JsonObject], str] = vnext_coverage_query.memory_signature_text,
+    limit: int,
+    threshold: float = vnext_coverage_query.NEAR_DUPLICATE_JACCARD,
+    consider_multiplier: int = vnext_coverage_query.DIVERSITY_CANDIDATE_MULTIPLIER,
+) -> tuple[list[RetrievalCandidate], int]:
+    """Demote near-verbatim duplicate candidates behind distinct facts.
+
+    Walking candidates in fused (RRF) order, preserves the top-ranked memory
+    and keeps any subsequent memory whose signature token Jaccard similarity is
+    below ``threshold`` with all already-kept memories. Redundant candidates
+    (Jaccard >= threshold) are demoted behind all distinct candidates in the
+    consideration window. When fewer distinct candidates exist than ``limit``,
+    demoted candidates fill the remaining slots (demote, not discard).
+
+    Unlike aggregation-coverage diversity, this helper does not early-return
+    when candidate count <= limit, ensuring distinct facts always precede
+    redundant duplicates before greedy token-budget packing.
+    """
+    if limit < 1 or not candidates:
+        return list(candidates), 0
+
+    reorderable = [
+        candidate for candidate in candidates if candidate.exclusion_reason in (None, "trimmed_by_limit")
+    ]
+    if len(reorderable) <= 1:
+        return list(candidates), 0
+
+    policy_excluded = [
+        candidate for candidate in candidates if candidate.exclusion_reason not in (None, "trimmed_by_limit")
+    ]
+    consider = reorderable[: max(limit * consider_multiplier, limit)]
+    tail = reorderable[len(consider):]
+
+    signatures: dict[int, frozenset[str]] = {}
+
+    def signature(index: int) -> frozenset[str]:
+        if index not in signatures:
+            item = consider[index].item
+            signatures[index] = _redundancy_signature_tokens(
+                text_for(item) if isinstance(item, dict) else ""
+            )
+        return signatures[index]
+
+    kept: list[int] = []
+    demoted: list[int] = []
+
+    for index in range(len(consider)):
+        sig = signature(index)
+        if not kept:
+            kept.append(index)
+            continue
+        is_redundant = any(
+            vnext_coverage_query._jaccard(sig, signature(kept_index)) >= threshold
+            for kept_index in kept
+        )
+        if is_redundant:
+            demoted.append(index)
+        else:
+            kept.append(index)
+
+    if not demoted:
+        return list(candidates), 0
+
+    reordered = [consider[index] for index in kept] + [consider[index] for index in demoted] + tail
+    rebuilt: list[RetrievalCandidate] = []
+    selected_slots = min(limit, len(reordered))
+    demoted_items = {id(consider[index]) for index in demoted}
+
+    for position, candidate in enumerate([*reordered, *policy_excluded], start=1):
+        is_reorderable = candidate.exclusion_reason in (None, "trimmed_by_limit")
+        selected = is_reorderable and position <= selected_slots
+        if selected:
+            exclusion_reason = None
+        elif not is_reorderable:
+            exclusion_reason = candidate.exclusion_reason
+        elif id(candidate) in demoted_items:
+            exclusion_reason = vnext_coverage_query.EXCLUSION_REASON_COVERAGE_REDUNDANT
+        else:
+            exclusion_reason = "trimmed_by_limit"
+        rebuilt.append(replace(candidate, rank=position, selected=selected, exclusion_reason=exclusion_reason))
+
+    return rebuilt, len(demoted)
+
+
 def _compact_item(item: JsonObject) -> JsonObject:
     return {key: value for key, value in item.items() if key != "deleted_at"}
 
@@ -4629,6 +4727,8 @@ class VNextRetrievalService:
         )
         if coverage_selection_enabled:
             memory_candidate_limit *= vnext_coverage_query.COVERAGE_POOL_MULTIPLIER
+        else:
+            memory_candidate_limit = max(max_items * 3, 12)
         # ---- coverage mode (aggregation intent) end ----------------------
 
         # Bundled stores apply people/time predicates before ranked LIMIT. The
@@ -4910,6 +5010,15 @@ class VNextRetrievalService:
                 group_key_for=vnext_coverage_query.memory_provenance_group_key,
                 limit=max_items,
                 consider_multiplier=2 * vnext_coverage_query.COVERAGE_POOL_MULTIPLIER,
+            )
+        elif coverage_intent is None:
+            memory_candidates, _redundancy_demotions = _demote_redundant_candidates(
+                memory_candidates,
+                limit=max_items,
+                consider_multiplier=max(
+                    vnext_coverage_query.DIVERSITY_CANDIDATE_MULTIPLIER,
+                    (memory_candidate_limit + max_items - 1) // max(max_items, 1),
+                ),
             )
         # ---- coverage mode (aggregation intent) end ----------------------
 
