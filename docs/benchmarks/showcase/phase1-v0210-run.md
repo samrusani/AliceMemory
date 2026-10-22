@@ -19,6 +19,10 @@ v0.21.0 ships one part of Phase 1: passage ranking, which is the default of `ali
 - **Independent company** (204 questions, 138 for the main claim): both Alice arms are answered in this run. The grep, note folder and no-tool answers of the Phase 0 run are reused and scored again under the current rules. A comparison of Alice with file search on this set therefore spans two runs. It is reported as such and is not used for a claim.
 - **Generated company** (50 permission questions): both Alice arms are answered, for the leak floor.
 
+## Labels on the hard set
+
+The hard set's notes carry the domain words of the company they describe, such as operations, technical, commercial, corporate, strategy and hr. Most of them are not Alice domains, and an import refuses a domain it does not have, so the notes cannot be imported with those words. Who may read a note in this set was defined, when the set was written and checked, by two things only: the sensitivity (a confidential note is readable by leadership only) and whether the domain is restricted (support and product may not read legal or financial notes). The import therefore keeps the legal and financial domains, labels every other note professional, and keeps every sensitivity. The note text and every other label are unchanged, and which team may read which note is the same for all 1,200 notes and all four teams. The locked files are not changed; the import reads a copy with these labels, and the file-search arms read the same copy.
+
 ## Rules
 
 The decision rule, the target, the agreement requirement and the floors are those of the pre-registration and the hard set page, unchanged. The speed floor was measured for the release on SQLite at 102,192 passages, with a 95th percentile of 1.56 to 1.58 s in passage mode (see the [v0.21.0 release notes](../../release/v0.21.0-release-notes.md)).
