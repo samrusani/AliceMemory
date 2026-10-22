@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.21.0): the web console's Next.js moves from 16.3.8 to 16.4.1, and `eslint-config-next` with it. 16.4.1 fixes GHSA-2464-fhr4-w9xw (critical: remote code execution in the Image Optimization API when SVG files are used) and GHSA-p3m5-59mp-jv5r (high: denial of service in the App Router through Server Actions), both published on 2026-10-22. The console in v0.21.0 and earlier uses an affected version. The PyPI package does not include the web console. No migration is required.
+
 ## v0.21.0 — 2026-10-22
 
 - Internal change, no behaviour change: the first job of `publish-pypi.yml`, `build-and-verify`, now has a `timeout-minutes` of 180, up from 120, and `publish-recheck-rehearsal.yml` has the same limit. The job reruns the whole unit suite in one process before it builds anything, and that step took 3,876 s on a runner, about 65 minutes. A release step must take less than half of its job's limit, and the rehearsal fails a run past it, so 120 minutes (half is 60) was not enough. `tests/unit/test_publish_workflow_time_limit.py` now asks for the CI shard total plus 80 minutes, which is 180 for five shards of 20 minutes, and `RELEASING.md` states the limit. No migration is required.

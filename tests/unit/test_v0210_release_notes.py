@@ -443,8 +443,16 @@ def test_the_release_check_accepts_the_tree_and_its_pre_tag_mode_refuses_the_pub
     assert issues == []
     assert metadata.version == "0.21.0"
     assert release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=False) == []
-    assert release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=True) == [
+    published = [
         "release notes alice-release-state publication_status must be pending before tag",
         "release notes alice-release-state checksums_status must be pending before tag",
         "docs/release/v0.21.0-checksums.txt must not exist on the pre-publication tag",
     ]
+    issues = release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=True)
+    assert [issue for issue in issues if issue in published] == published
+    # Once main has an Unreleased CHANGELOG entry, the pre-tag mode also says the section must be empty for a tag.
+    # That is true of every later commit and is the only other issue allowed here.
+    assert [issue for issue in issues if issue not in published] in (
+        [],
+        ["CHANGELOG.md Unreleased section must be empty for the release tag"],
+    )
