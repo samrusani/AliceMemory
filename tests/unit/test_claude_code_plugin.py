@@ -1691,6 +1691,7 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         "The v0.20.0 tag carries it, still pinned to the v0.19.2 tag commit.",
         "The v0.20.2 tag carries it, still pinned to the v0.20.0 tag commit.",
         "The v0.21.0 tag carries it, still pinned to the v0.20.2 tag commit.",
+        "`main` pins the v0.21.0 tag commit.",
     ):
         assert history in page_flat, history
 

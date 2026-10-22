@@ -202,6 +202,25 @@ def test_the_control_documents_name_v0210_as_the_latest_published_release_and_v0
     assert "`v0.20.2` is the immediately prior published release; its records are" in state
 
 
+def test_the_install_and_checkout_lines_name_v0210_as_the_latest_release() -> None:
+    """Mutations, each one alone: set the ``--tag`` of the headless install guide, the latest release tag it names, the
+    checkout line of the quickstart or the baseline named by the reference paths page back to v0.20.2.
+
+    The README's checkout line is pinned in ``test_readme_facts_live_in_the_docs.py``. The lines pinned here name the
+    release a reader installs or checks out, so they move with each release. A comparison with v0.20.2 elsewhere in the
+    docs is history and stays.
+    """
+
+    guide = _flat("docs/alpha/headless-ubuntu-install.md")
+    assert "use the latest published release tag (`v0.21.0`) for an immutable deployment." in guide
+    assert "with the latest published release tag (`v0.21.0`): `--tag v0.21.0`." in guide
+    assert "v0.20.2" not in guide
+    quickstart = _flat("docs/alpha/quickstart.md")
+    assert "To run v0.21.0, run `git checkout v0.21.0` before `make setup`." in quickstart
+    assert "git checkout v0.20.2" not in quickstart
+    assert "on top of the latest published `v0.21.0` baseline." in _flat("docs/integrations/reference-paths.md")
+
+
 def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section() -> None:
     """Mutations, each one alone: drop the heading; change its date form; put another section between v0.21.0 and
     v0.20.2; put the marker for the unreleased state back into the v0.21.0 section.
