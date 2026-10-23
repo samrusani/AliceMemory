@@ -53,6 +53,12 @@ def test_the_tool_reference_names_every_variable_default_and_rule() -> None:
     assert QUERY_EMBEDDING_TIMEOUT_SECONDS == 2.0 and "two second timeout" in section
     assert f"{int(BREAKER_SECONDS)} seconds" in section
     assert DISCOVERY_HEAD_DIVISOR == 3 and "A third of the head" in section
+    # The rules are applied again before each request, and the window that is left is stated.
+    assert "just before each request of up to 128 texts" in section
+    assert "can still reach the endpoint" in section and "do not relabel or scrub" in section
+    # Deleting a vector is logical deletion, and a caller with limits is told no more than "unavailable".
+    assert "logical deletion" in section and "`VACUUM`" in section and "`retained_data`" in section
+    assert "`vector search unavailable`" in section
 
 
 def test_the_security_page_lists_what_leaves_the_machine_and_when() -> None:
@@ -65,6 +71,10 @@ def test_the_security_page_lists_what_leaves_the_machine_and_when() -> None:
         "`ALICE_SOURCE_EMBEDDINGS_REMOTE=on`",
         "a source labelled `unknown` is held at `private`",
         "a chunk the credential check flags",
+        "just before each request of up to 128 texts",
+        "can still reach the endpoint",
+        "Deleting is logical",
+        "`VACUUM`",
         "with no database lock held",
         "no tool starts it",
         "each `alice_recall` sends its query",
@@ -79,4 +89,5 @@ def test_the_integration_page_and_the_agent_table_name_the_opt_in() -> None:
     mcp = _flat("docs/integrations/mcp.md")
     assert "`ALICE_SOURCE_EMBEDDINGS`" in mcp and "ALICE_SOURCE_EMBEDDINGS_REMOTE=on" in mcp
     assert "`ALICE_SEARCH_QUALITY=vectors`" in mcp
+    assert "checked again just before each request" in mcp and "can still reach the" in mcp
     assert "ALICE_SOURCE_EMBEDDINGS=on" in _flat("docs/alpha/agent-integration.md")

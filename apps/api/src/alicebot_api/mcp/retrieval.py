@@ -37,6 +37,7 @@ from alicebot_api.session_briefing import sensitive_global_exclusion
 from alicebot_api.source_chunk_vector_search import (
     STATUS_NO_STORE_SUPPORT as VECTOR_STATUS_NO_STORE_SUPPORT,
     disabled_record as disabled_vector_record,
+    limited_record as limited_vector_record,
 )
 from alicebot_api.source_ranking import SourceRanking, search_quality_requests_vectors
 from alicebot_api.store import JsonObject
@@ -248,15 +249,19 @@ def recall_vector_note(store: object, context_depth: str) -> str | None:
     return None
 
 
-def _debug_sources_stage(record: Mapping[str, object], note: str | None, *, returned: int) -> JsonObject:
+def _debug_sources_stage(
+    record: Mapping[str, object], note: str | None, *, returned: int, limited: bool = False
+) -> JsonObject:
     """The source stage as recall's debug payload shows it when ``ALICE_SEARCH_QUALITY=vectors`` was asked for.
 
     The mode and the cap are the stage's own, the count is of the entries it returned, and the chunk query label is the
     stage's. The stage record's other counts (the provenance and title lists, the scan) are left out: they are taken
     before the caller's fence in some modes, and a debug field never counts a row the caller may not read. The vector
     part is the stage's status and its counts of what the caller may read and what changed, or the reason
-    ``recall_vector_note`` gave when the stage did not run. With the switch at any other value the debug payload is
-    what it was, so this is not shown.
+    ``recall_vector_note`` gave when the stage did not run. For a caller with limits (``limited``) a status that rows
+    the caller may not read can decide is one generic status with no counts (``limited_record``); the owner and an
+    unbound admin key are shown the detail. With the switch at any other value the debug payload is what it was, so
+    this is not shown.
     """
 
     mode = record.get("source")
@@ -271,7 +276,7 @@ def _debug_sources_stage(record: Mapping[str, object], note: str | None, *, retu
     if note is not None:
         shown["vector"] = disabled_vector_record(note)
     elif isinstance(vector, Mapping):
-        shown["vector"] = dict(vector)
+        shown["vector"] = limited_vector_record(vector) if limited else dict(vector)
     return _json_object(shown)
 
 
@@ -532,7 +537,10 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
         }
         if search_quality_requests_vectors():
             retrieval_payload["stages"]["sources"] = _debug_sources_stage(  # type: ignore[index]
-                sources_stage, vector_note, returned=len(raw_sources) if isinstance(raw_sources, list) else 0
+                sources_stage,
+                vector_note,
+                returned=len(raw_sources) if isinstance(raw_sources, list) else 0,
+                limited=source_fence.entity_read_fenced,
             )
         if retrieval_filters:
             filter_payload: dict[str, object] = {}

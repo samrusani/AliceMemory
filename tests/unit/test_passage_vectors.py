@@ -36,14 +36,20 @@ from alicebot_api.mcp.retrieval import (
 from alicebot_api.source_chunk_vector_search import (
     BREAKER_SECONDS,
     STATUS_BREAKER_OPEN,
+    STATUS_CACHE_OVER_CAP,
+    STATUS_CACHE_UNAVAILABLE,
     STATUS_ENABLED,
+    STATUS_ERROR,
     STATUS_NONE,
     STATUS_OFF,
     STATUS_QUERY_FAILED,
     STATUS_STALE,
+    STATUS_UNAVAILABLE,
+    VAULT_DEPENDENT_STATUSES,
     breaker_is_open,
     discovery_depth,
     fuse_within_source,
+    limited_record,
     reserved_discovery_slots,
     reset_breaker,
 )
@@ -663,6 +669,135 @@ def test_the_stale_status_is_judged_after_the_mask(tmp_path: Path) -> None:
         outputs[label] = _excerpts(database, SourceRanking.vectors(), ScriptedProvider({}), sensitivity=["public"])
     assert outputs["with"][1]["vector"]["status"] == STATUS_NONE  # type: ignore[index]
     assert _blob(outputs["with"]) == _blob(outputs["without"])
+
+
+# -- a caller with limits is not told what hidden vectors decide ---------------------------------------------------------
+
+
+def _debug_vector_record(output: dict) -> dict:
+    return output["retrieval"]["stages"]["sources"]["vector"]  # type: ignore[no-any-return]
+
+
+def _recall_in(
+    root: Path, monkeypatch: pytest.MonkeyPatch, *, embedded: list[str], hidden: bool, cap_mb: str | None, limited: bool
+) -> dict:
+    """``alice_recall`` with ``debug`` in a vault whose visible notes belong to project ``acme``.
+
+    ``hidden`` adds a note of project ``other`` that a key bound to ``acme`` may not read. ``embedded`` names the notes
+    whose chunks are embedded. ``limited`` calls as a read-only key bound to ``acme``; otherwise as the owner.
+    """
+
+    from alicebot_api.mcp.registry import call_mcp_tool
+    from alicebot_api.source_chunk_embeddings import embed_new_sources, sqlite_store_context
+    from alicebot_api.vnext_agent_keys import create_agent_key
+
+    database = make_vault(root)
+    add_note(database, "Almanac", [hit_text("taga", 4), hit_text("tagb", 3)], metadata={"project_scope": ["acme"]})
+    add_note(database, "Visible", [plain_text("tagvis")], metadata={"project_scope": ["acme"]})
+    if hidden:
+        add_note(database, "Secret", [hit_text("tagsec", 5), plain_text("tagsec2")], metadata={"project_scope": ["other"]})
+    with ScriptedServer({"tagsec": 0.99, "tagsec2": 0.98, "taga": 0.2, "tagb": 0.3, "tagvis": 0.7}) as server:
+        monkeypatch.setenv(EMBEDDINGS_BASE_URL_ENV, server.base_url)
+        monkeypatch.setenv(EMBEDDINGS_MODEL_ENV, MODEL)
+        monkeypatch.setenv(SEARCH_QUALITY_ENV, "vectors")
+        if embedded:
+            receipt = embed_new_sources(
+                [fixed_id("source", name) for name in embedded],
+                store_context=lambda: sqlite_store_context(database, USER_ID),
+            )
+            assert receipt is not None and receipt.pending == 0 and receipt.embedded > 0
+        if cap_mb is not None:
+            monkeypatch.setenv(CACHE_MAX_MB_ENV, cap_mb)
+        clear_registry()
+        if limited:
+            with sqlite_user_connection(database, USER_ID) as conn:
+                _record, raw_key = create_agent_key(
+                    SQLiteVNextStore(conn, USER_ID),
+                    user_id=USER_ID,
+                    agent_id="reader",
+                    permission_profile="read_only_agent",
+                    project_scope="acme",
+                )
+            monkeypatch.setenv("ALICE_AGENT_API_KEY", raw_key)
+        try:
+            return call_mcp_tool(  # type: ignore[no-any-return]
+                mcp_context(database), name="alice_recall", arguments={"query": QUERY, "debug": True, "limit": 8}
+            )
+        finally:
+            monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+
+
+@pytest.mark.parametrize("cap_mb", ["0", None], ids=["over the cap", "under the cap"])
+def test_a_key_with_limits_cannot_tell_a_hidden_vector_from_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap_mb: str | None
+) -> None:
+    """Only a hidden note has vectors. Mutation: pass ``limited=False`` to ``_debug_sources_stage`` in ``_handle_alice_recall``.
+
+    With a cap of 0 MB the vault that holds a vector is over its cap and the vault that holds none is not, and the
+    owner is told which. The key bound to one project is told neither: the same status and the same bytes.
+    """
+
+    answers = {}
+    for label, hidden in (("with", True), ("without", False)):
+        answers[label] = _recall_in(
+            tmp_path / label, monkeypatch, embedded=["Secret"] if hidden else [], hidden=hidden, cap_mb=cap_mb, limited=True
+        )
+    assert _blob(answers["with"]) == _blob(answers["without"])
+    record = _debug_vector_record(answers["with"])
+    assert record["status"] == STATUS_UNAVAILABLE
+    assert record["readable_chunks"] == record["stale_chunks"] == 0
+    assert "Secret" not in _blob(answers["with"])
+
+
+def test_the_owner_keeps_the_detailed_vector_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation: pass ``limited=True`` to ``_debug_sources_stage`` in ``_handle_alice_recall``."""
+
+    with_vector = _recall_in(tmp_path / "with", monkeypatch, embedded=["Secret"], hidden=True, cap_mb="0", limited=False)
+    without = _recall_in(tmp_path / "without", monkeypatch, embedded=[], hidden=False, cap_mb="0", limited=False)
+    assert _debug_vector_record(with_vector)["status"] == STATUS_CACHE_OVER_CAP
+    assert _debug_vector_record(without)["status"] == STATUS_NONE
+    none_embedded = _recall_in(tmp_path / "third", monkeypatch, embedded=[], hidden=True, cap_mb=None, limited=False)
+    assert _debug_vector_record(none_embedded)["status"] == STATUS_NONE
+
+
+def test_a_key_with_limits_gets_the_same_bytes_when_the_hidden_note_also_has_vectors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The enabled case, with a real key. Mutation: build the mask from every source."""
+
+    visible = ["Almanac", "Visible"]
+    with_hidden = _recall_in(
+        tmp_path / "with", monkeypatch, embedded=[*visible, "Secret"], hidden=True, cap_mb=None, limited=True
+    )
+    without = _recall_in(tmp_path / "without", monkeypatch, embedded=visible, hidden=False, cap_mb=None, limited=True)
+    assert _blob(with_hidden) == _blob(without)
+    record = _debug_vector_record(with_hidden)
+    assert record["status"] == STATUS_ENABLED and record["readable_chunks"] == 3
+
+
+def test_every_status_the_stage_can_report_is_either_hidden_from_a_limited_caller_or_free_of_hidden_rows() -> None:
+    """The mapping, one status at a time. Mutation: drop a status from ``VAULT_DEPENDENT_STATUSES`` or keep the counts."""
+
+    counted = {
+        "status": "",
+        "readable_chunks": 7,
+        "stale_chunks": 3,
+        "discovered_in_head": 2,
+        "reordered_slots": 1,
+        "filler_picks": 1,
+    }
+    dependent = {STATUS_CACHE_OVER_CAP, STATUS_CACHE_UNAVAILABLE, STATUS_NONE, STATUS_STALE, STATUS_ERROR}
+    assert set(VAULT_DEPENDENT_STATUSES) == dependent
+    for status in sorted(dependent):
+        shown = limited_record({**counted, "status": status})
+        assert shown["status"] == STATUS_UNAVAILABLE
+        assert shown["readable_chunks"] == shown["stale_chunks"] == shown["discovered_in_head"] == 0
+        assert shown["reordered_slots"] == shown["filler_picks"] == 0
+    # The others are decided by the configuration, the query or the endpoint, or are ``enabled`` with counts of rows
+    # the caller may read and of entries it was returned: the record is left as the stage made it.
+    for status in (STATUS_ENABLED, STATUS_OFF, STATUS_QUERY_FAILED, STATUS_BREAKER_OPEN):
+        record = {**counted, "status": status}
+        assert limited_record(record) == record
 
 
 # -- cost ---------------------------------------------------------------------------------------------------------------------

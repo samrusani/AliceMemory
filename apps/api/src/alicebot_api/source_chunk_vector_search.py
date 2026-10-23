@@ -83,6 +83,14 @@ STATUS_QUERY_WITHHELD = "skipped: query not sent (credential material)"
 STATUS_STALE = "none usable: stored vectors are from another model, endpoint or rule"
 STATUS_NONE = "none embedded"
 STATUS_ERROR = "skipped: vector stage error"
+#: The one status a caller with limits is shown in place of every status that rows it may not read can decide.
+STATUS_UNAVAILABLE = "vector search unavailable"
+#: The statuses decided by the rows of the whole vault, not only the rows the caller may read: the cap on the resident
+#: copy counts every vector of the user, the width of the copy is the commonest width of all of them, and an error may
+#: come from any one. A caller with limits is told none of them apart.
+VAULT_DEPENDENT_STATUSES = frozenset(
+    {STATUS_CACHE_OVER_CAP, STATUS_CACHE_UNAVAILABLE, STATUS_NONE, STATUS_STALE, STATUS_ERROR}
+)
 
 #: Seconds the query embedding may take before the recall goes on without vectors.
 QUERY_EMBEDDING_TIMEOUT_SECONDS = 2.0
@@ -416,6 +424,21 @@ class ChunkVectorSession:
         }
 
 
+def limited_record(record: Mapping[str, object]) -> dict[str, object]:
+    """The vector part of a debug record as a caller with limits is shown it.
+
+    A status that rows the caller may not read can decide (``VAULT_DEPENDENT_STATUSES``) becomes one status with no
+    counts, so two vaults that differ only by a vector the caller may not read give the same bytes on either side of
+    the cap. A status decided by the configuration, the query or the endpoint, and ``enabled`` with counts of rows the
+    caller may read and entries it was returned, are left as they are. The owner and an unbound admin key are not limited and
+    are shown the record as the stage made it.
+    """
+
+    if record.get("status") in VAULT_DEPENDENT_STATUSES:
+        return disabled_record(STATUS_UNAVAILABLE)
+    return dict(record)
+
+
 def disabled_record(status: str) -> dict[str, object]:
     """The vector part of a debug record when the stage did not run at all."""
 
@@ -450,13 +473,16 @@ __all__ = [
     "STATUS_QUERY_WITHHELD",
     "STATUS_REMOTE_NOT_ALLOWED",
     "STATUS_STALE",
+    "STATUS_UNAVAILABLE",
     "ScoredChunk",
+    "VAULT_DEPENDENT_STATUSES",
     "VectorOutcome",
     "WITHIN_SOURCE_RRF_K",
     "breaker_is_open",
     "disabled_record",
     "discovery_depth",
     "fuse_within_source",
+    "limited_record",
     "reserved_discovery_slots",
     "reset_breaker",
     "trip_breaker",

@@ -496,9 +496,15 @@ before, and sends no chunk.
 
 What is sent for a chunk is the model's document prefix (`search_document: ` for `nomic-embed-text`, nothing for a model
 the prefix table does not name), the title of the source, the headings above the chunk and the chunk. The chunk that is
-stored and returned does not change. A chunk is never sent when the credential check flags it (the floor and the commit
+stored and returned does not change. A chunk is not sent when the credential check flags it (the floor and the commit
 door's check, on the whole chunk and on the whole text sent), when it holds only links and headings, when it has fewer
-than 32 readable characters, when its source is deleted, replaced or scrubbed, or on a `--dry-run`.
+than 32 readable characters, when its source is deleted, replaced or scrubbed, or on a `--dry-run`. These rules are
+applied when the text is chosen and again, in a short read with no database lock held, just before each request of up
+to 128 texts: a chunk whose source was relabelled above what a remote endpoint may receive, deleted, replaced or
+scrubbed since, or whose text changed, is dropped from the request and left pending. A change committed while a request
+is already in flight can still reach the endpoint, because the text is already on its way; the vector that comes back
+is not stored. The request size is fixed and not set by the owner, so with a remote endpoint do not relabel or scrub
+sources while `alice-memory reindex-embeddings --sources` is running.
 
 `alice-memory import-markdown`, `alice-memory import-chatgpt` and `alice_capture` embed the chunks of what they save
 after they commit and hold no database lock while they do. A failed batch leaves its chunks pending and never fails the
@@ -507,7 +513,11 @@ pending (and why) and skipped (and why). The legacy `alice_vnext_ingest_agent_ou
 does not complete on SQLite today, so no SQLite vault reaches that wiring yet. `alice-memory reindex-embeddings --sources`
 embeds the chunks that have no current vector or whose vector no longer matches the model, the endpoint, the rules or the
 text, and `--sources --drop` deletes every chunk vector and the table. No tool starts that: it is a command on this
-machine. `alice-memory doctor` prints the mode and the counts of chunks with a current vector, pending, with a stale
+machine. Deleting a vector, with its source or with `--drop`, is logical deletion, as deleting chunk text is: vectors
+are written and deleted with SQLite's secure deletion on, so the pages they free are zeroed, but the write-ahead log,
+unused space in the vault file and earlier backups can keep vector bytes until a checkpoint and `VACUUM` (see
+[list, delete and prune](../integrations/importers.md#list-delete-and-prune-sqlite-sources)). The receipts say so in
+`retained_data`. `alice-memory doctor` prints the mode and the counts of chunks with a current vector, pending, with a stale
 vector and skipped. Export does not carry the vectors, and says how many the vault holds.
 
 `ALICE_SEARCH_QUALITY=vectors` uses them. `alice_recall` embeds the query once, with the model's query prefix and a
@@ -517,8 +527,13 @@ document, and the document keeps the number of passages it had in passage mode. 
 (2 of 6 passages at the default limit of 8) is held for documents that only the vectors found, and they take that share and no more. The decision to retry the
 query with any word is made on the words alone. A document the caller may not read is never ranked, scored or counted,
 and no id of a chunk is ever shown. With `debug`, `retrieval.stages.sources.vector` gives a status (`enabled`,
-`disabled: ...`, `skipped: ...`, `none embedded`, `none usable: ...`) and counts of what the caller may read. At the
-minimal depth the vector stage is off.
+`disabled: ...`, `skipped: ...`, `none embedded`, `none usable: ...`) and counts of what the caller may read. A caller
+whose key has limits is shown `vector search unavailable`, with no counts, in place of `none embedded`, `none usable:
+...` and the three cache statuses (over its cap, no resident copy, stage error), because the cap on the resident copy
+counts every vector of the vault and an error can come from any of them, and some of those belong to sources that
+caller may not read; the owner and an unbound admin key are shown the detail. The cap is a limit on the whole vault, so a
+caller with limits can still tell from the results it gets back that the stage did not run. At the minimal depth the
+vector stage is off.
 
 The cost: one request for the query on each recall; about 3 KB of memory for each chunk vector of 768 numbers, read into
 the process on the first recall and kept; one 4 KB page of disk for each; and the time to embed, once, when a note is

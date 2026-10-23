@@ -54,8 +54,11 @@ Optional:
   unless the value is `on`. An endpoint that is not on this machine also needs
   `ALICE_SOURCE_EMBEDDINGS_REMOTE=on`, and then only chunks of sources at or under
   `ALICE_SOURCE_EMBEDDINGS_MAX_SENSITIVITY` (default `internal`) are sent. A chunk
-  the credential check flags, a chunk of links, a chunk too short to read and a
-  chunk of a deleted, replaced or scrubbed source are never sent.
+  the credential check flags, a chunk of links and a chunk too short to read are
+  not sent, and the rules are checked again just before each request, so a chunk
+  of a source relabelled, deleted, replaced or scrubbed since is dropped from it;
+  a change committed while a request is already in flight can still reach the
+  endpoint.
   `ALICE_SOURCE_EMBEDDINGS_MAX_VECTORS` (default 250,000) caps the vectors of a
   vault and `ALICE_SOURCE_VECTOR_CACHE_MAX_MB` (default 512) caps the memory of
   the resident copy. The page [Embeddings of source

@@ -78,16 +78,21 @@ query. The text of imported and captured notes is a separate opt-in:
   labelled `unknown` is held at `private`) are sent. A proxy in the environment that would carry the request makes an
   address on this machine count as not on it.
 - What is sent for a chunk is the model's document prefix, the source title, the headings above the chunk and the
-  chunk. Never sent: a chunk the credential check flags (read whole, with the title and headings), a chunk of links or
-  headings only, a chunk with fewer than 32 readable characters, a chunk of a deleted, replaced or scrubbed source, and
-  anything on a `--dry-run`.
+  chunk. Not sent: a chunk the credential check flags (read whole, with the title and headings), a chunk of links or
+  headings only, a chunk with fewer than 32 readable characters, and anything on a `--dry-run`. A chunk of a source that
+  is deleted, replaced, scrubbed or relabelled above the ceiling since the text was chosen is judged again in a short
+  read just before each request of up to 128 texts and dropped from it. A change committed while a request is already
+  in flight can still reach the endpoint, because the text is on its way, so with a remote endpoint do not relabel or
+  scrub sources while `reindex-embeddings --sources` is running.
 - The text is sent after the import or capture has committed, with no database lock held. `alice-memory
   reindex-embeddings --sources` sends the same chunks, only when the owner runs it; no tool starts it.
 - With `ALICE_SEARCH_QUALITY=vectors`, each `alice_recall` sends its query to the same endpoint under the same
   settings, unless the credential check flags the query.
 - A vector can be turned back into much of the text it was made from, so deleting a source (`alice-memory sources
   delete`, `sources prune`, `import-markdown --supersede`) deletes its chunk vectors, and `reindex-embeddings --sources
-  --drop` deletes them all. A vector the endpoint's operator kept, or a backup of the vault, is outside Alice's reach.
+  --drop` deletes them all. Deleting is logical, as it is for chunk text: the vectors are zeroed where the database
+  frees them, but the write-ahead log, unused space in the vault file and earlier backups can keep vector bytes until a
+  checkpoint and `VACUUM`. A vector the endpoint's operator kept, or a backup of the vault, is outside Alice's reach.
 
 ## Browser Clipper Credentials
 
