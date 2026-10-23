@@ -15,11 +15,19 @@ has. ``legacy._TOKEN_BODIES`` states the shape behind each number and where it
 comes from. The table below repeats the numbers independently, so a change to a
 floor has to change a test too.
 
-The ``ghs_`` and ``ghu_`` markers read the class GitHub recommends for installation
-tokens (letters, digits, dot, hyphen, underscore), because GitHub's stateless form
-is ``ghs_``, a numeric app id, an underscore and a JWT of about 520 characters. With
-base62 alone, an app id of 1 to 7 digits ended the run before 36 characters and the
-token was not read by the marker rule at all.
+The ``ghs_`` marker reads the class GitHub publishes for installation tokens (letters,
+digits, dot, hyphen, underscore), because GitHub's stateless form is ``ghs_``, a
+numeric app id, an underscore and a JWT of about 520 characters. With base62 alone,
+an app id of 1 to 7 digits ended the run before 36 characters and the token was not
+read by the marker rule at all. ``ghu_`` takes the same class and floor by our
+choice, because GitHub announced a ``ghu_`` format change without details.
+
+A token right after an underscore is read too. v0.16.0's lead boundary was "no
+letter, digit or underscore before the marker", so ``_ghs_...``, ``x_ghs_...`` and
+``TOKEN_npm_...`` were never read by the marker rule. Every token marker now has a
+floor, which is what keeps ordinary names out, so a marker with a floor is hidden
+only by a letter or a digit before it (``Xghs_...`` stays unread). The ssh markers
+have no floor and keep v0.16.0's lead.
 
 What is pinned here:
 
@@ -38,14 +46,17 @@ What is pinned here:
 * a real-shaped ``sk-`` key, at exactly 32 characters after the prefix and in the
   longer forms, is read by the prefix pattern in every placement;
 * a stateless GitHub app token (``ghs_`` and ``ghu_``, an app id of 1, 4, 7 and 10
-  digits, an unsigned JWT shaped body built here from sequential runs) is read in
-  every placement, and refused and not stored at every door: a direct memory commit,
+  digits, an unsigned JWT shaped body built here from sequential runs), the same
+  after an underscore, and a token of every other family after an underscore
+  (``x_ghs_``, ``TOKEN_npm_``, ``_sk-``, ``_glpat-``, ``_github_pat_``, ``_xoxb-``)
+  are read in every placement, and refused and not stored at every door: a direct memory commit,
   ``alice_capture``, ``alice-memory import-markdown``, the ChatGPT import (with
   ordinary text after the token in the same message, and with the token alone) and
   the promotion credential floor, with the classic 40 character token beside it;
-  short names such as ``GHS_2291``, ``ghs_12_ab`` and ``ghu_config`` still pass, and
-  a ``ghs_`` followed by 36 or more identifier characters is read, which is the
-  accepted cost of GitHub's own pattern;
+  short names such as ``GHS_2291``, ``ghs_12_ab``, ``ghu_config``, ``PART_SK-2291`` and
+  ``deploy_ghu_config`` still pass, with or without an underscore before them, and a
+  ``ghs_`` followed by 36 or more identifier characters is read, which is the accepted
+  cost of GitHub's own pattern;
 * the two ssh markers keep the bare reading, the ``sk-learn`` word chain and the
   FIDO key types are excused as before, and a token glued onto a FIDO key type is
   still refused;
@@ -68,7 +79,8 @@ floor dropped from the unbounded patterns, which read a spaced-out run
 back to 8 characters (``test_the_sk_prefix_rule_has_the_markers_floor``); the
 ``ghs_`` class back to base62 alone, and the same for ``ghu_``
 (``test_a_real_shaped_token_is_still_caught``); the ``ghs_`` floor set to 37
-(the same test, on the classic 40 character token).
+(the same test, on the classic 40 character token); the lead boundary back to
+v0.16.0's, which counts an underscore (the same test, on the underscore placements).
 """
 
 from __future__ import annotations
@@ -278,6 +290,11 @@ _SHORT_CODES = (
 _ORDINARY_WORDS = (
     "npm_config_cache",
     "ghu_config",
+    # An underscore before the marker no longer hides it, so the floor alone keeps these out.
+    "PART_SK-2291",
+    "x_ghs_12_ab",
+    "my_npm_config_cache",
+    "deploy_ghu_config",
     "ghs_app_token_cache_dir",
     "the ghu_release_notes file is old",
     "set npm_config_registry to the mirror",
@@ -309,6 +326,19 @@ def test_a_short_code_is_not_a_credential(text: str) -> None:
     # And as a title, where the commit door reads it too. The body is lower case and short: the floor also reads the
     # fields joined with nothing, so a title ending in a word glues to the first word of the body.
     assert legacy.commit_door_secret_verdict(text, "note") is None
+
+
+@pytest.mark.parametrize("marker", sorted(_SHAPE_TABLE))
+def test_a_marker_glued_to_a_letter_or_a_digit_is_still_not_read(marker: str) -> None:
+    """The boundary that stays: a letter or a digit before a marker makes it part of a word (and dropping that would
+    read inside urlsafe base64 blobs). An underscore before it no longer does. Marker rule alone."""
+
+    token = _shortest_real(marker)
+    for lead in ("X", "x", "7", "Q9"):
+        assert marker not in marker_hits(lead + token), lead
+        assert marker not in marker_hits(f"deploy {lead}{token}"), lead
+    for lead in ("_", "x_", "TOKEN_", "9_"):
+        assert marker in marker_hits(lead + token), lead
 
 
 @pytest.mark.parametrize("text", _SHORT_CODES + ("sk-learn", "npm_config_cache"))
@@ -360,6 +390,11 @@ _PLACEMENTS = {
     "second line": lambda token: f"Notes for Friday.\n{token}\nDone.",
     "upper case spelling": lambda token: token.upper(),
     "in a file name": lambda token: f"2025-06-18-deploy-notes-{token}.md",
+    # v0.16.0's lead boundary hid a token right after an underscore. A marker with a floor is hidden only by a letter
+    # or a digit before it now.
+    "right after an underscore": lambda token: f"_{token}",
+    "after a word and an underscore": lambda token: f"x_{token}",
+    "after a name in capitals and an underscore": lambda token: f"TOKEN_{token}",
 }
 _CASES = [
     pytest.param(marker, token, placement, id=f"{marker}-{label}-{placement}")
@@ -470,8 +505,9 @@ def test_a_spaced_out_short_code_is_not_a_credential(text: str) -> None:
 
 
 def test_ghs_and_ghu_read_the_class_github_recommends_and_ghp_and_gho_stay_base62() -> None:
-    """GitHub's changelog of 2026-05-15 on installation tokens recommends ``ghs_[A-Za-z0-9\\.\\-_]{36,}`` for both
-    formats and announces that ``ghu_`` will change format too. Nothing published says so for ``ghp_`` and ``gho_``."""
+    """GitHub's changelog of 2026-05-15 on installation tokens publishes ``ghs_[A-Za-z0-9\\.\\-_]{36,}`` for both
+    formats of ``ghs_`` and announces that ``ghu_`` will change format too, without details, so ``ghu_`` takes the same
+    class and floor by our choice. Nothing published says so for ``ghp_`` and ``gho_``."""
 
     assert legacy._TOKEN_BODIES["ghs_"].chars == legacy._TOKEN_BODIES["ghu_"].chars == "0-9A-Za-z._-"
     assert legacy._TOKEN_BODIES["ghp_"].chars == legacy._TOKEN_BODIES["gho_"].chars == "0-9A-Za-z"
@@ -579,10 +615,17 @@ def test_the_ssh_markers_keep_the_bare_reading_and_the_public_key_carve_out(mark
         assert legacy.commit_gate_refuses("", text), text
     # A body that is not a public key is read in every placement, as the other markers are.
     for placement, place in _PLACEMENTS.items():
+        if "underscore" in placement:
+            continue
         placed = place(marker + _seq(40))
         assert marker in marker_hits(placed), (placement, placed)
         assert legacy.commit_gate_refuses("", placed), (placement, placed)
         assert legacy.promotion_floor_refuses("", placed), (placement, placed)
+    # They keep v0.16.0's lead too (decided 2026-10-22): no floor, so an underscore before them still hides them. A
+    # public key line is not a secret, and the marker is not how a private key is found.
+    for lead in ("_", "x_", "TOKEN_"):
+        assert marker not in marker_hits(lead + marker + _seq(40)), lead
+        assert not legacy.commit_gate_refuses("", lead + marker + _seq(40)), lead
     index = legacy._CREDENTIAL_TOKEN_MARKERS.index(marker)
     assert legacy._CREDENTIAL_TOKEN_PATTERNS[index].pattern == oracle._CREDENTIAL_TOKEN_PATTERNS[index].pattern
 
@@ -600,7 +643,11 @@ def test_a_word_chain_long_enough_to_be_read_is_excused_by_its_carve_out() -> No
     excuses it. The promotion floor has no prefix pattern, so only the carve-out stands between this text and a
     refusal."""
 
-    for text in ("we ran sk-learn-benchmark-results-2024 again", "see sk-learn-bench-2024-and for details"):
+    for text in (
+        "we ran sk-learn-benchmark-results-2024 again",
+        "see sk-learn-bench-2024-and for details",
+        "run_sk-learn-benchmark-results-2024 again",
+    ):
         assert "sk-" in marker_hits(text), text
         assert not legacy.promotion_floor_refuses("", text), text
         assert not legacy.commit_gate_refuses("", text), text
@@ -611,22 +658,31 @@ def test_a_word_chain_long_enough_to_be_read_is_excused_by_its_carve_out() -> No
 
 
 def test_the_fido_key_types_are_excused_alone_and_read_at_any_length() -> None:
-    for text in (_FIDO, _FIDO_ECDSA, f"FIDO keys show as {_FIDO} in authorized_keys"):
+    for text in (
+        _FIDO,
+        _FIDO_ECDSA,
+        f"FIDO keys show as {_FIDO} in authorized_keys",
+        f"_{_FIDO}",
+        f"deploy_key_{_FIDO_ECDSA}",
+    ):
         # Short bodies, read because a carve-out owns them, and excused by it.
         assert "sk-" in marker_hits(text), text
         assert not legacy.commit_gate_refuses("", text), text
         assert not legacy.promotion_floor_refuses("", text), text
 
 
+@pytest.mark.parametrize("lead", ("", "_", "deploy_key_"))
 @pytest.mark.parametrize("name", (_FIDO, _FIDO_ECDSA))
 @pytest.mark.parametrize("marker", ("ghp_", "glpat-", "xoxb-", "npm_", "sk-"))
-def test_a_token_glued_onto_a_fido_key_type_is_still_refused_on_both_paths(name: str, marker: str) -> None:
-    glued = name + _shortest_real(marker)
+def test_a_token_glued_onto_a_fido_key_type_is_still_refused_on_both_paths(
+    name: str, marker: str, lead: str
+) -> None:
+    glued = lead + name + _shortest_real(marker)
     # The commit gate has the prefix pattern as well; the promotion floor has only the marker rule, which reads the
     # FIDO name whatever its length and lets the carve-out's boundary rule refuse the glued token.
     assert legacy.promotion_floor_refuses("", glued), glued
     assert legacy.commit_gate_refuses("", glued), glued
-    assert not legacy.promotion_floor_refuses("", name)
+    assert not legacy.promotion_floor_refuses("", lead + name)
     assert hard_floor_hits(_candidate(glued)), glued
 
 
@@ -710,11 +766,20 @@ for _marker in ("ghs_", "ghu_"):
     for _digits in _APP_ID_DIGITS:
         _REAL_KEYS[f"{_marker}-stateless-{_digits}-digit-app-id"] = _app_token(_marker, _digits)
     _REAL_KEYS[f"{_marker}-classic-40"] = _marker + _seq(36)
-_APP_TOKEN_CASES = [
-    pytest.param(token, id=family)
-    for family, token in _REAL_KEYS.items()
-    if family.startswith(("ghs_", "ghu_"))
-]
+# A token right after an underscore, for every family: the marker rule did not read these before 2026-10-22.
+for _digits in _APP_ID_DIGITS:
+    _REAL_KEYS[f"underscore-ghs_-stateless-{_digits}-digit-app-id"] = "_" + _app_token("ghs_", _digits)
+    _REAL_KEYS[f"underscore-ghu_-stateless-{_digits}-digit-app-id"] = "_" + _app_token("ghu_", _digits)
+_REAL_KEYS["x_ghs_-classic-36"] = "x_" + "gh" + "s_" + _seq(36)
+_REAL_KEYS["underscore-ghu_-classic-36"] = "_" + "gh" + "u_" + _seq(36)
+_REAL_KEYS["TOKEN_npm_-36"] = "TOKEN_" + "np" + "m_" + _seq(36)
+_REAL_KEYS["underscore-sk--20"] = "_sk" + "-" + _urlsafe(20)
+_REAL_KEYS["underscore-sk--48"] = "_sk" + "-" + _seq(48)
+_REAL_KEYS["underscore-glpat--20"] = "_glp" + "at-" + _seq(20)
+_REAL_KEYS["underscore-github_pat_-82"] = "_github" + "_pat_" + _seq(22) + "_" + _seq(59)
+_REAL_KEYS["underscore-xoxb--body"] = "_xo" + "xb-" + _groups(10, 10) + "-" + _seq(24)
+# Every family at the doors that take one token: a direct memory commit, the ChatGPT import, the promotion floor.
+_DOOR_CASES = [pytest.param(token, id=family) for family, token in _REAL_KEYS.items()]
 
 
 def _db(tmp_path: Path) -> Path:
@@ -882,10 +947,10 @@ def test_alice_capture_still_refuses_a_real_shaped_key(tmp_path: Path, family: s
 
 
 # ---------------------------------------------------------------------------
-# GitHub app tokens at the doors that did not have them: the stateless form
-# (ghs_, an app id, an underscore and a JWT) and the classic 40 character form.
-# alice_capture and import-markdown take every _REAL_KEYS family above, these
-# included.
+# Every _REAL_KEYS family at the doors that take one token: the GitHub app tokens
+# (the stateless form, ghs_, an app id, an underscore and a JWT, and the classic
+# 40 character form) and the same tokens right after an underscore. alice_capture
+# and import-markdown take every family above, these included.
 # ---------------------------------------------------------------------------
 
 
@@ -893,8 +958,8 @@ def _rows(conn: sqlite3.Connection, table: str) -> str:
     return json.dumps([list(row) for row in conn.execute(f"SELECT * FROM {table}")], default=str)
 
 
-@pytest.mark.parametrize("token", _APP_TOKEN_CASES)
-def test_a_direct_memory_commit_refuses_a_github_app_token_and_stores_nothing(token: str) -> None:
+@pytest.mark.parametrize("token", _DOOR_CASES)
+def test_a_direct_memory_commit_refuses_a_real_shaped_token_and_stores_nothing(token: str) -> None:
     """At v0.21.0 the bare marker refused a stateless token. With a base62 body alone and an app id of 1 to 7 digits
     the commit gate read nothing, and the memory was stored verbatim."""
 
@@ -930,8 +995,8 @@ def _chatgpt_export(path: Path, messages: list[str]) -> None:
 
 
 @pytest.mark.parametrize("shape", ("ordinary text after the token", "the token alone at the end"))
-@pytest.mark.parametrize("token", _APP_TOKEN_CASES)
-def test_the_chatgpt_import_withholds_a_message_holding_a_github_app_token(
+@pytest.mark.parametrize("token", _DOOR_CASES)
+def test_the_chatgpt_import_withholds_a_message_holding_a_real_shaped_token(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], token: str, shape: str
 ) -> None:
     """With ordinary text after the token in the same message, the cross-field check that catches a token at the end of
@@ -955,8 +1020,8 @@ def test_the_chatgpt_import_withholds_a_message_holding_a_github_app_token(
     assert WITHHELD in stored
 
 
-@pytest.mark.parametrize("token", _APP_TOKEN_CASES)
-def test_the_promotion_credential_floor_holds_back_a_github_app_token(token: str) -> None:
+@pytest.mark.parametrize("token", _DOOR_CASES)
+def test_the_promotion_credential_floor_holds_back_a_real_shaped_token(token: str) -> None:
     assert "credential_material" in hard_floor_hits(_candidate(f"Use app token {token} for the deploy."))
     assert "credential_material" in hard_floor_hits(_candidate(token))
     assert legacy.promotion_floor_refuses("Deploy note", f"Use app token {token} for the deploy.")

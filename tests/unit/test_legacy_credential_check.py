@@ -135,16 +135,20 @@ def _patterns(compiled: tuple[object, ...] | list[object]) -> list[tuple[str, in
 def test_harness_v4_the_reimplementation_reads_v0160s_own_patterns() -> None:
     assert legacy._CREDENTIAL_PHRASES == oracle._CREDENTIAL_PHRASES
     assert legacy._CREDENTIAL_TOKEN_MARKERS == oracle._CREDENTIAL_TOKEN_MARKERS
-    # The one difference (2026-10-22): v0.16.0's pattern with a floor of token characters after it, for every marker
-    # but the two ssh ones, whose patterns are v0.16.0's exactly.
+    # The two differences (2026-10-22), for every marker but the two ssh ones, whose patterns are v0.16.0's exactly:
+    # a floor of token characters after the marker, and a lead boundary that no longer counts an underscore.
     for marker, floored, bare in zip(
         legacy._CREDENTIAL_TOKEN_MARKERS, legacy._CREDENTIAL_TOKEN_PATTERNS, oracle._CREDENTIAL_TOKEN_PATTERNS
     ):
         assert floored.flags == bare.flags, marker
-        assert floored.pattern.startswith(bare.pattern), marker
-        floor = floored.pattern[len(bare.pattern) :]
-        assert (floor == "") is (marker in _BARE_MARKERS), (marker, floor)
-        assert floor == "" or (floor.startswith("(?=") and floor.endswith(")")), (marker, floor)
+        assert bare.pattern.startswith(_V0160_LEAD), marker
+        if marker in _BARE_MARKERS:
+            assert floored.pattern == bare.pattern, marker
+            continue
+        head = bare.pattern.replace(_V0160_LEAD, _LEAD_WITHOUT_UNDERSCORE, 1)
+        assert floored.pattern.startswith(head), marker
+        floor = floored.pattern[len(head) :]
+        assert floor.startswith("(?=") and floor.endswith(")"), (marker, floor)
     assert _BARE_MARKERS == {"ssh-rsa ", "ssh-ed25519 "}
     assert set(legacy._TOKEN_BODIES) == set(legacy._CREDENTIAL_TOKEN_MARKERS) - _BARE_MARKERS
     searched = [pattern for _rule, pattern in legacy._SEARCHED_PATTERNS]
@@ -185,16 +189,19 @@ def test_harness_v4_the_shared_normaliser_is_v0160s() -> None:
 
 # The markers that keep v0.16.0's bare reading: they name a public key line.
 _BARE_MARKERS = {"ssh-rsa ", "ssh-ed25519 "}
+# v0.16.0's lead boundary, and the one a marker with a floor has since 2026-10-22: an underscore no longer hides it.
+_V0160_LEAD = "(?<![0-9A-Za-z_])"
+_LEAD_WITHOUT_UNDERSCORE = "(?<![0-9A-Za-z])"
 
 
 @pytest.fixture
 def floors_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The module with v0.16.0's bare markers and its 8 character sk- prefix pattern, to compare it with v0.16.0 on
-    everything else.
+    """The module with v0.16.0's bare markers, its lead boundary and its 8 character sk- prefix pattern, to compare it
+    with v0.16.0 on everything else.
 
-    The token floors (2026-10-22) are the one deliberate difference from v0.16.0. With them off, the rest of the module
-    is held to v0.16.0's verdict on every generated input, as before; with them on, the next test holds the
-    difference to what a floor can change.
+    The token floors and the underscore lead (2026-10-22) are the deliberate differences from v0.16.0. With them off,
+    the rest of the module is held to v0.16.0's verdict on every generated input, as before; with them on, the next
+    tests hold the differences to what a floor and a lead can change.
     """
 
     monkeypatch.setattr(legacy, "_CREDENTIAL_TOKEN_PATTERNS", tuple(oracle._CREDENTIAL_TOKEN_PATTERNS))
@@ -412,30 +419,108 @@ def test_harness_v4_same_verdict_as_v0160_at_both_doors(seed: int, floors_off: N
     assert 0.3 * len(inputs) < floor_refused < 0.9 * len(inputs), floor_refused
 
 
-@pytest.mark.parametrize("seed", [20260923, 5, 17])
-def test_the_token_floors_only_let_through_what_v0160_refused_for_a_short_marker(seed: int) -> None:
-    """With the floors on, the module never refuses what v0.16.0 allowed, and it allows some of what v0.16.0 refused.
+def _verdicts(inputs: list[tuple[str, str, str | None, str | None, list[object]]]) -> list[tuple[bool, bool]]:
+    return [
+        (
+            legacy.v0160_commit_gate_refuses(title, text, excerpt, rationale, refs),
+            legacy.v0160_promotion_floor_refuses(title, text, excerpt, refs),
+        )
+        for title, text, excerpt, rationale, refs in inputs
+    ]
 
-    A floor removes marker findings and adds none, so the first half is a fact about the construction; it is checked
-    so that a change which adds a refusal here is seen. The second half guards the guard: the generated inputs hold
-    short markers, so the floors change some verdicts and the first half is not agreement on nothing. And every
-    input the floors let through is one where turning them off flips it back, which the equivalence test above shows
-    is v0.16.0's verdict.
+
+@pytest.mark.parametrize("seed", [20260923, 5, 17])
+def test_the_floors_only_let_through_and_the_underscore_lead_only_adds_what_v0160_missed(
+    seed: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The two differences from v0.16.0 move verdicts in one direction each.
+
+    A floor removes marker findings and adds none, so with the floors on and v0.16.0's lead the module never refuses
+    what v0.16.0 allowed. A lead that no longer counts an underscore adds findings and removes none, so the module as
+    it is refuses everything that module refused, and more. Both halves are checked, and both guard the guard: the
+    generated inputs hold short markers and underscore led ones, so each difference changes some verdicts.
     """
 
     inputs = _equivalence_inputs(seed, 1500)
-    commit_let_through = floor_let_through = 0
-    for title, text, excerpt, rationale, refs in inputs:
-        old_commit = oracle.commit_gate_refuses(title, text, excerpt, rationale, refs)
-        new_commit = legacy.v0160_commit_gate_refuses(title, text, excerpt, rationale, refs)
-        assert old_commit or not new_commit, (title, text, excerpt, rationale, refs)
-        commit_let_through += old_commit and not new_commit
-        old_floor = oracle.promotion_floor_refuses(title, text, excerpt, refs)
-        new_floor = legacy.v0160_promotion_floor_refuses(title, text, excerpt, refs)
-        assert old_floor or not new_floor, (title, text, excerpt, refs)
-        floor_let_through += old_floor and not new_floor
-    assert 0 < commit_let_through < 0.2 * len(inputs), commit_let_through
-    assert 0 < floor_let_through < 0.2 * len(inputs), floor_let_through
+    now = _verdicts(inputs)
+    monkeypatch.setattr(
+        legacy,
+        "_CREDENTIAL_TOKEN_PATTERNS",
+        tuple(
+            re.compile(pattern.pattern.replace(_LEAD_WITHOUT_UNDERSCORE, _V0160_LEAD, 1), pattern.flags)
+            for pattern in legacy._CREDENTIAL_TOKEN_PATTERNS
+        ),
+    )
+    floors_only = _verdicts(inputs)
+    let_through = [0, 0]
+    added = [0, 0]
+    for (title, text, excerpt, rationale, refs), after, between in zip(inputs, now, floors_only):
+        before = (
+            oracle.commit_gate_refuses(title, text, excerpt, rationale, refs),
+            oracle.promotion_floor_refuses(title, text, excerpt, refs),
+        )
+        for door in (0, 1):
+            assert before[door] or not between[door], (door, title, text, excerpt, rationale, refs)
+            assert between[door] <= after[door], (door, title, text, excerpt, rationale, refs)
+            let_through[door] += before[door] and not between[door]
+            added[door] += after[door] and not between[door]
+    for door in (0, 1):
+        assert 0 < let_through[door] < 0.2 * len(inputs), (door, let_through)
+        assert added[door] < 0.2 * len(inputs), (door, added)
+    # The lead moves few generated inputs (an underscore directly before a long enough marker), so one seed may move
+    # one door only; every seed moves at least one.
+    assert sum(added) > 0, added
+
+
+def _with_36(prefix: str) -> str:
+    return prefix + _BASE62[:36]
+
+
+# Texts the underscore lead moves: (text, whether the commit gate refuses it now though v0.16.0's own code allowed it).
+# The promotion floor moves for every one. The commit gate's own prefix patterns already read an underscore led ghp_,
+# sk- and xoxb-, so only the promotion floor moves for those three. Built from parts so no whole token sits in the
+# source.
+_UNDERSCORE_MOVES = {
+    "an underscore, then a classic ghs_": ("_" + _with_36("gh" + "s_"), True),
+    "a word and an underscore, then ghs_": ("x_" + _with_36("gh" + "s_"), True),
+    "an underscore, then ghu_": ("_" + _with_36("gh" + "u_"), True),
+    "an underscore, then gho_": ("_" + _with_36("gh" + "o_"), True),
+    "an underscore, then ghp_": ("_" + _with_36("gh" + "p_"), False),
+    "a word and an underscore, then npm_": ("TOKEN_" + _with_36("np" + "m_"), True),
+    "an underscore, then sk-": ("_sk" + "-" + _BASE62[:20], False),
+    "an underscore, then glpat-": ("_glp" + "at-" + _BASE62[:20], True),
+    "an underscore, then github_pat_": ("_github" + "_pat_" + _BASE62[:22] + "_" + _BASE62[:59], True),
+    "an underscore, then xoxb-": ("_xo" + "xb-" + "1234567890-1234567890-" + _BASE62[:24], False),
+}
+# Texts it does not move: a letter or digit before the marker (part of a word), too little after the marker, and the
+# ssh markers, which have no floor and keep v0.16.0's lead.
+_UNDERSCORE_STAYS = {
+    "a letter, then ghs_": "X" + _with_36("gh" + "s_"),
+    "a digit, then ghs_": "7" + _with_36("gh" + "s_"),
+    "a letter, then npm_": "X" + _with_36("np" + "m_"),
+    "an underscore, then a code": "PART_SK-2291",
+    "an underscore, then a short ghs_ name": "x_ghs_12_ab",
+    "an underscore, then npm_config_cache": "my_npm_config_cache",
+    "an underscore, then a short ghu_ name": "deploy_ghu_config",
+    "an underscore, then ssh-rsa": "_ssh-rsa 2048",
+    "a word and an underscore, then ssh-ed25519": "x_ssh-ed25519 keys",
+}
+
+
+@pytest.mark.parametrize("label", sorted(_UNDERSCORE_MOVES))
+def test_the_underscore_lead_moves_this_text_from_allowed_to_refused(label: str) -> None:
+    text, commit_moves = _UNDERSCORE_MOVES[label]
+    assert oracle.promotion_floor_refuses("Note", text) is False
+    assert oracle.commit_gate_refuses("Note", text) is (not commit_moves)
+    assert legacy.promotion_floor_refuses("Note", text) is True
+    assert legacy.commit_gate_refuses("Note", text) is True
+
+
+@pytest.mark.parametrize("label", sorted(_UNDERSCORE_STAYS))
+def test_the_underscore_lead_does_not_move_this_text(label: str) -> None:
+    text = _UNDERSCORE_STAYS[label]
+    for door in ("commit_gate_refuses", "promotion_floor_refuses"):
+        assert getattr(legacy, door)("Note", text) is getattr(oracle, door)("Note", text) is False, (label, door)
 
 
 # Round 6: the three shapes the round 5 generator never made, found by the

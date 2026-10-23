@@ -5,7 +5,9 @@ capture on PostgreSQL, where the commit gate is the same function and the store 
 code such as ``SK-2291`` made the commit gate read a credential, so the whole capture was refused; a real-shaped key is
 refused now as it was then. That includes GitHub's stateless app token (``ghs_``, an app id, an underscore and a JWT
 shaped body), which a base62 only floor did not read when the app id had 1 to 7 digits, and which is refused by a direct
-memory commit here as well. Every key here is synthetic: a repeated or sequential run built from parts at run time.
+memory commit here as well, and so is a token right after an underscore (``_ghs_...``, ``TOKEN_npm_...``), which
+v0.16.0's lead boundary hid from the marker rule. Every key here is synthetic: a repeated or sequential run built
+from parts at run time.
 """
 
 from __future__ import annotations
@@ -61,6 +63,19 @@ for _marker in ("ghs_", "ghu_"):
             _marker + "1234567890"[:_digits] + "_" + _jwt_body()
         )
     REAL_KEYS[f"{_marker}-classic-40"] = _marker + _MIXED[:36]
+# The same tokens right after an underscore.
+for _digits in (1, 4, 7, 10):
+    for _marker in ("ghs_", "ghu_"):
+        REAL_KEYS[f"underscore-{_marker}-stateless-{_digits}-digit-app-id"] = (
+            "_" + _marker + "1234567890"[:_digits] + "_" + _jwt_body()
+        )
+REAL_KEYS["x_ghs_-classic-36"] = "x_" + "gh" + "s_" + _MIXED[:36]
+REAL_KEYS["underscore-ghu_-classic-36"] = "_" + "gh" + "u_" + _MIXED[:36]
+REAL_KEYS["TOKEN_npm_-36"] = "TOKEN_" + "np" + "m_" + _MIXED[:36]
+REAL_KEYS["underscore-sk--20"] = "_sk" + "-" + _MIXED[:20]
+REAL_KEYS["underscore-glpat--20"] = "_glp" + "at-" + _MIXED[:20]
+REAL_KEYS["underscore-github_pat_-82"] = "_github" + "_pat_" + _MIXED[:22] + "_" + _MIXED[:59]
+REAL_KEYS["underscore-xoxb--body"] = "_xo" + "xb-" + "1234567890-1234567890-" + _MIXED[:24]
 
 
 def _source_counts(database_url: str, user_id: UUID) -> tuple[int, int]:
@@ -135,8 +150,8 @@ def test_alice_capture_still_refuses_a_real_shaped_key_on_postgres(migrated_data
     assert key not in _stored_text(app_url, user_id)
 
 
-@pytest.mark.parametrize("family", sorted(family for family in REAL_KEYS if family.startswith(("ghs_", "ghu_"))))
-def test_a_direct_memory_commit_refuses_a_github_app_token_on_postgres(migrated_database_urls, family: str) -> None:
+@pytest.mark.parametrize("family", sorted(REAL_KEYS))
+def test_a_direct_memory_commit_refuses_a_real_shaped_token_on_postgres(migrated_database_urls, family: str) -> None:
     app_url = migrated_database_urls["app"]
     token = REAL_KEYS[family]
     user_id = seed_user(app_url, email=f"marker-lengths-commit-{sorted(REAL_KEYS).index(family)}@example.com")

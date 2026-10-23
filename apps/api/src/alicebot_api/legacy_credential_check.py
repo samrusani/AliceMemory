@@ -61,7 +61,8 @@ a real token is still refused for the token. Every carve-out ends at a
 boundary (round 6), so a token glued straight onto an excused key type,
 public key, cursor or code reference is not excused with it.
 
-One difference from v0.16.0 (2026-10-22): a token marker needs a token body.
+Two differences from v0.16.0 (2026-10-22). The first: a token marker needs a
+token body.
 v0.16.0 read the bare marker, so a short product code that starts with one,
 SK-2291 or SK-229 or "sk-2291 is current", was a credential, and so was
 npm_config_cache. A marker now counts only when at least a floor of token
@@ -74,9 +75,18 @@ the sk- marker,
 and the other patterns, its other prefix patterns (ghp_, xoxb-, akia) and the
 carve-outs are v0.16.0's, so a token of a listed shape is refused as before and
 only a marker with too little after it to be one is let through.
-tests/unit/test_legacy_credential_check.py runs its comparison with
-v0.16.0's own code with the floors turned off, to show that this is the only
-difference, and tests/unit/test_credential_marker_lengths.py pins the floors.
+
+The second: an underscore before a token marker no longer hides it. v0.16.0's
+lead boundary was "no letter, digit or underscore before", so _ghs_ and a
+stateless token, x_ghs_ and a classic one, TOKEN_npm_ and 36 characters were
+never read by the marker rule. With a floor on every token marker the
+underscore is no longer needed to keep ordinary names out, so a marker with a
+floor is hidden only by a letter or a digit before it (a marker glued to a
+word is part of that word). The ssh markers have no floor and keep v0.16.0's
+lead. tests/unit/test_legacy_credential_check.py runs its comparison with
+v0.16.0's own code with the floors and the lead turned off, to show that these
+are the only differences, and tests/unit/test_credential_marker_lengths.py
+pins the floors and the lead.
 """
 
 from __future__ import annotations
@@ -166,21 +176,24 @@ _GITHUB_APP_CHARS = "0-9A-Za-z._-"
 #   Source: GitHub's 2021 post on its token formats: the prefix, then 36
 #   base62 characters (30 random and a 6 character checksum), 40 in all.
 #   Shortest body: 36. Floor: 36.
-# - ghs_ (installation token) and ghu_ (user-to-server token). Source:
-#   GitHub's changelog of 2026-05-15 on installation tokens, which says to
-#   treat ghs_ tokens as opaque and to match both formats with
-#   ghs_[A-Za-z0-9\.\-_]{36,}, and which announces that ghu_ will change
-#   format too, without details. The classic form is the prefix and 36 base62
-#   characters. The stateless form is the prefix, a numeric app id, an
-#   underscore and a JWT of three base64url parts with two dots, about 520
-#   characters in all, so the underscore and the dots belong to the body: with
-#   base62 alone a short app id ended the run before 36 characters and the
-#   token was not read. ghu_ takes the same class because of the announced
-#   change. Shortest body: 36, which is the number in GitHub's pattern.
-#   Floor: 36. The cost is that a ghs_ or ghu_ followed by 36 or more
-#   identifier characters (letters, digits, dots, hyphens, underscores) is
-#   read, as GitHub's pattern reads it. A snake_case name shorter than that,
-#   GHS_2291 and ghu_config are not.
+# - ghs_ (installation token). Source: GitHub's changelog of 2026-05-15 on
+#   installation tokens, which says to treat them as opaque and to match both
+#   formats with ghs_[A-Za-z0-9\.\-_]{36,}. The classic form is the prefix
+#   and 36 base62 characters. The stateless form is the prefix, a numeric app
+#   id, an underscore and a JWT of three base64url parts with two dots, about
+#   520 characters in all, so the underscore and the dots belong to the body:
+#   with base62 alone a short app id ended the run before 36 characters and
+#   the token was not read. Shortest body: 36, which is the number in GitHub's
+#   pattern. Floor: 36.
+# - ghu_ (user-to-server token). The 36 base62 characters are from the same
+#   2021 post as ghp_. GitHub's changelog of 2026-05-15 gives its pattern for
+#   ghs_ only, and says that ghu_ will change format too, without details. So
+#   ghu_ takes the ghs_ class and floor by our choice, not by a published
+#   pattern for ghu_. Floor: 36.
+#   The cost for both: a ghs_ or ghu_ followed by 36 or more identifier
+#   characters (letters, digits, dots, hyphens, underscores) is read, as
+#   GitHub's pattern reads ghs_. A snake_case name shorter than that, GHS_2291
+#   and ghu_config are not.
 # - github_pat_ (fine-grained personal access token). The prefix, then 22
 #   base62 characters, an underscore and 59 base62 characters, 93 in all.
 #   No GitHub page states the length that this module has found; 82 is the
@@ -244,9 +257,15 @@ _TOKEN_BODIES: Mapping[str, _TokenBody] = {
 def _marker_pattern(marker: str, *, bounded: bool) -> re.Pattern[str]:
     """The marker, with the floor of token characters after it when it has one.
 
-    ``bounded`` puts v0.16.0's lead boundary in front: no letter, digit or
-    underscore before the marker. A collapsed run (see _despaced_runs) lost
-    its boundaries and is read without it.
+    ``bounded`` puts a lead boundary in front. v0.16.0's was: no letter, digit
+    or underscore before the marker, so a token right after an underscore
+    (``_ghs_...``, ``TOKEN_npm_...``) was never read. A marker with a floor now
+    gives up only the underscore: a letter or digit before it still makes it
+    part of a word, but "_" does not (2026-10-22). That is safe because the
+    floor, not the lead, keeps ordinary names out: ``PART_SK-2291`` and
+    ``deploy_ghu_config`` have too little after the marker. The two ssh
+    markers have no floor and keep v0.16.0's lead. A collapsed run (see
+    _despaced_runs) lost its boundaries and is read without any.
     """
 
     body = _TOKEN_BODIES.get(marker)
@@ -254,7 +273,9 @@ def _marker_pattern(marker: str, *, bounded: bool) -> re.Pattern[str]:
     if body is not None:
         reads = "[" + body.chars + "]{" + str(body.floor) + "}"
         floor = "(?=" + reads + ("|" + body.owned if body.owned else "") + ")"
-    lead = r"(?<![0-9A-Za-z_])" if bounded else ""
+    lead = ""
+    if bounded:
+        lead = r"(?<![0-9A-Za-z])" if body is not None else r"(?<![0-9A-Za-z_])"
     return re.compile(lead + re.escape(marker) + floor, re.IGNORECASE)
 
 

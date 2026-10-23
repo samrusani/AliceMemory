@@ -229,45 +229,52 @@ when either of two checks refuses:
    gets v0.16.0's floor rule only, over title, text, excerpt and source
    refs, also joined with a space and with nothing, as v0.16.0 read them.
 
-One difference from v0.16.0 (2026-10-22): a token marker needs a token body
-after it. v0.16.0 read `ghp_`, `gho_`, `ghs_`, `ghu_`, `github_pat_`,
-`glpat-`, `npm_`, `sk-`, `xoxb-`, `xoxp-`, `xoxa-` and `xoxs-` as a
-credential wherever they began a word, with nothing required after them, so a
-part code such as `SK-2291`, a line such as `sk-2291 is current` and a
+Two differences from v0.16.0 (2026-10-22). The first: a token marker needs a
+token body after it. v0.16.0 read `ghp_`, `gho_`, `ghs_`, `ghu_`,
+`github_pat_`, `glpat-`, `npm_`, `sk-`, `xoxb-`, `xoxp-`, `xoxa-` and `xoxs-`
+as a credential wherever they began a word, with nothing required after them,
+so a part code such as `SK-2291`, a line such as `sk-2291 is current` and a
 variable name such as `npm_config_cache` were refused at the commit door and
 at the promotion floor. A marker now counts only when a floor of token
 characters follows it, and no floor is longer than the shortest body of the
 shapes listed in `legacy_credential_check._TOKEN_BODIES`: 36 base62 characters
 for `ghp_`, `gho_` and `npm_`; 36 letters, digits, dots, hyphens or
-underscores for `ghs_` and `ghu_`; 82 for `github_pat_`; 20 for `glpat-` and for
-`sk-`; and 10 for the four Slack markers. The `ghs_` and `ghu_` class is the
-one GitHub recommends for installation tokens, because GitHub's stateless
-form is `ghs_`, a numeric app id, an underscore and a JWT of about 520
-characters: the underscore and the dots belong to the body, and with base62
-alone an app id of 1 to 7 digits ended the run before 36 characters. `ghu_`
-takes the same class because GitHub announced a format change for it. The cost
-is that a `ghs_` or `ghu_` followed by 36 or more letters, digits, dots,
-hyphens or underscores is read, as GitHub's own pattern reads it, and a
-shorter name is not. GitHub states the number for `ghp_` and `gho_` (its
-2021 post on its token formats) and for `ghs_` and `ghu_` (its changelog of
-2026-05-15, which gives 36 as the minimum). For `github_pat_`, `glpat-`,
-`npm_` and the Slack markers, no provider page that this module has found
-states a minimum: the length is the one public secret scanning rules use, and
-the Slack floor of 10 is the Slack pattern's own, not a real token's length.
-For `sk-` no provider publishes a minimum: 32 is the shortest key seen, and
-the floor of 20 is a choice below it.
+underscores for `ghs_` and `ghu_`; 82 for `github_pat_`; 20 for `glpat-` and
+for `sk-`; and 10 for the four Slack markers. The `ghs_` class is the one
+GitHub publishes for installation tokens, because GitHub's stateless form is
+`ghs_`, a numeric app id, an underscore and a JWT of about 520 characters: the
+underscore and the dots belong to the body, and with base62 alone an app id of
+1 to 7 digits ended the run before 36 characters. `ghu_` takes the same class
+and floor by our choice, not by a published pattern for it, because GitHub
+announced a format change for `ghu_` without details. The cost is that a
+`ghs_` or `ghu_` followed by 36 or more letters, digits, dots, hyphens or
+underscores is read, as GitHub's own pattern reads `ghs_`, and a shorter name
+is not. GitHub states the number for `ghp_`, `gho_` and `ghu_` (36 base62
+characters, in its 2021 post on its token formats) and for `ghs_` (its
+changelog of 2026-05-15, which gives 36 as the minimum). For `github_pat_`,
+`glpat-`, `npm_` and the Slack markers, no provider page that this module has
+found states a minimum: the length is the one public secret scanning rules
+use, and the Slack floor of 10 is the Slack pattern's own, not a real token's
+length. For `sk-` no provider publishes a minimum: 32 is the shortest key
+seen, and the floor of 20 is a choice below it.
 
-The two ssh markers keep the bare reading, because they name a public key line
-and the first carve-out excuses it. The two FIDO key types are still read at
-any length, so a token glued onto one is still refused. The commit gate's own
-`sk-` prefix pattern, which read `sk-` and 8 characters, takes the floor of the
-`sk-` marker, so `SK-20260301`, `SK-2025-0618` and `SK-2291-REV` are not read
-as keys. Nothing else moved: the commit gate's `ghp_` and `xoxb-` prefix
-patterns (8 or more characters after them), the detector and the carve-outs are
-unchanged, so a lower-case `sk-` code of 8 digits is still refused by the
-detector, and a body one short of a floor can still be read by those. A token
-of a listed shape has at least its floor of such characters right after the
-marker, so it is read as before.
+A token right after an underscore is read too: v0.16.0's boundary was "no
+letter, digit or underscore before the marker", so `_ghs_` and a token,
+`x_ghs_` and 36 characters, and `TOKEN_npm_` and 36 characters were never read
+by the marker rule, and a marker with a floor is now hidden only by a letter
+or a digit before it (a marker glued to a word is part of that word). The
+floor is what keeps `PART_SK-2291` and `deploy_ghu_config` out. The two ssh
+markers keep the bare reading, and v0.16.0's boundary, because they have no
+floor, they name a public key line and the first carve-out excuses it. The two
+FIDO key types are still read at any length, so a token glued onto one is
+still refused. The commit gate's own `sk-` prefix pattern, which read `sk-`
+and 8 characters, takes the floor of the `sk-` marker, so `SK-20260301`,
+`SK-2025-0618` and `SK-2291-REV` are not read as keys. Nothing else moved: the
+commit gate's `ghp_` and `xoxb-` prefix patterns (8 or more characters after
+them), the detector and the carve-outs are unchanged, so a lower-case `sk-`
+code of 8 digits is still refused by the detector, and a body one short of a
+floor can still be read by those. A token of a listed shape has at least its
+floor of such characters right after the marker, so it is read as before.
 
 The carve-outs are the design round's named false positives, and there are
 no others. Each excuses one finding at a time, so a note with an excused
