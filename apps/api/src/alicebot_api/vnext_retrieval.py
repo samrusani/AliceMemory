@@ -4490,9 +4490,11 @@ class VNextRetrievalService:
                     self._winning_chunk_text[str(filler.get("id"))] = pick_text
                     filler_pick_count += 1
 
+        # Documents only the vectors found take the reserved share of the head and no more: a vector search always
+        # has neighbours, so the ones past the share would pad a sparse result with the nearest unrelated passages.
         discovery_slots = min(reserved_discovery_slots(head_n), len(discovered))
         head = [*capped[: head_n - discovery_slots], *discovered[:discovery_slots]]
-        overflow = [*capped[head_n - discovery_slots :], *discovered[discovery_slots:]]
+        overflow = capped[head_n - discovery_slots :]
         chosen: list[tuple[str, object]] = [("passage", item) for item in head]
         filler_at = 0
         overflow_at = 0

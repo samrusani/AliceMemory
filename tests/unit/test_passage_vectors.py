@@ -299,8 +299,12 @@ def test_the_head_of_a_larger_limit_holds_more_discovered_documents(tmp_path: Pa
     assert record["vector"]["discovered_in_head"] == expected  # type: ignore[index]
 
 
-def test_with_no_word_match_at_all_the_documents_the_vectors_found_fill_the_result(tmp_path: Path) -> None:
-    """The lexical list is empty, so there is nothing to put them behind. Mutation: take the share from an empty head."""
+def test_with_no_word_match_at_all_only_the_reserved_share_goes_to_the_documents_the_vectors_found(tmp_path: Path) -> None:
+    """The lexical list is empty, and the nearest documents still take only the reserved share.
+
+    A vector search always has neighbours, so documents past the share would pad a sparse result with the nearest
+    unrelated passages. Mutation: add the documents past the share to the overflow.
+    """
 
     database = make_vault(tmp_path)
     cosines = {}
@@ -312,8 +316,9 @@ def test_with_no_word_match_at_all_the_documents_the_vectors_found_fill_the_resu
     passage, _ = _excerpts(database, SourceRanking.passage(), provider)
     vectors, record = _excerpts(database, SourceRanking.vectors(), provider)
     assert passage == []
-    assert [title for title, _ in _shown(vectors)] == [f"Semantic{index}" for index in range(5)]
+    assert [title for title, _ in _shown(vectors)] == ["Semantic0", "Semantic1"]
     assert record["vector"]["discovered_in_head"] == 2  # type: ignore[index]
+    assert record["candidate_count"] == 2
 
 
 def test_the_or_pass_is_decided_on_the_lexical_list_alone(tmp_path: Path) -> None:

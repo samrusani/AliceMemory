@@ -513,7 +513,7 @@ vector and skipped. Export does not carry the vectors, and says how many the vau
 two second timeout; after a failure it does not ask again for 30 seconds. Then, inside every document the stage shows,
 the document's chunks are ranked by reciprocal rank fusion of their rank by words and their rank by vector within that
 document, and the document keeps the number of passages it had in passage mode. A third of the head of the result
-(2 of 6 passages at the default limit of 8) is held for documents that only the vectors found. The decision to retry the
+(2 of 6 passages at the default limit of 8) is held for documents that only the vectors found, and they take that share and no more. The decision to retry the
 query with any word is made on the words alone. A document the caller may not read is never ranked, scored or counted,
 and no id of a chunk is ever shown. With `debug`, `retrieval.stages.sources.vector` gives a status (`enabled`,
 `disabled: ...`, `skipped: ...`, `none embedded`, `none usable: ...`) and counts of what the caller may read. At the
