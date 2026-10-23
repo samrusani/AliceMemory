@@ -8,9 +8,11 @@ change to the publish workflow. Each test names the mutation that must fail it.
 
 The notes are published. The change that followed publication moved their state to ``published`` and ``recorded``, added
 the checksums file, moved the marketplace file to the v0.21.0 tag and its commit, named v0.21.0 as the latest published
-release in the control documents and removed the release candidate line, as the change after v0.20.2 did. The tagged
-lines of the notes and of the changelog section are held by ``test_published_release_notes_stay_immutable.py``. The
-release check's pre-tag mode refuses the tree now, and one test below pins the three reasons.
+release in the control documents and removed the release candidate line, as the change after v0.20.2 did. The change
+after v0.21.1 moved the marketplace file and the control documents on to v0.21.1, which
+``test_v0211_release_notes.py`` pins, and added a dated 2026-10-23 update to these notes. The tagged lines of the notes
+and of the changelog section are held by ``test_published_release_notes_stay_immutable.py``. The release check's pre-tag
+mode refuses the tree now, and one test below pins the three reasons.
 """
 
 from __future__ import annotations
@@ -34,18 +36,9 @@ HEADING = "## v0.21.0 \u2014 2026-10-22"
 NOTES_CEILING = 15_000
 
 CHECKSUMS_PATH = "docs/release/v0.21.0-checksums.txt"
-TAG_COMMIT = "c4757e626405a4bfe77a0039244fb62b483650f7"
+LATEST_TAG_COMMIT = "8d0bac271164ad494687ab599a96499ddfbcce66"
 WHEEL_SHA256 = "0f3377871981e98a1a64a85e82ad1bcef26fc23c322e3a48820d1a1834fe5bbf"
 SDIST_SHA256 = "49232235fc85f677b1f78551268d0574b5a45e30a2974a81ddcaa63d7721aecc"
-
-CANDIDATE_LINE = "`v0.21.0` is the current release candidate. It is not published."
-LATEST_DOCS = (
-    "ARCHITECTURE.md",
-    "PRODUCT_BRIEF.md",
-    "ROADMAP.md",
-    "RELEASING.md",
-    "docs/vnext/README.md",
-)
 
 SECTIONS = [
     "What to do after upgrading",
@@ -134,89 +127,73 @@ def test_the_notes_stay_under_the_size_ceiling_and_keep_their_sections_in_order(
     assert headings == SECTIONS
 
 
-def test_the_marketplace_pins_the_published_release_and_the_notes_carry_its_install_lines() -> None:
-    """Mutations, each one alone: set the marketplace ``ref`` back to v0.20.2; change one hex digit of the marketplace
+def test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_the_install_lines() -> None:
+    """Mutations, each one alone: set the marketplace ``ref`` back to v0.21.0; change one hex digit of the marketplace
     ``sha``; change the install command in the notes.
 
-    The post-publication change moved the marketplace file to the v0.21.0 tag and the commit that tag points at, so it
-    names the latest published release. The v0.21.0 tag itself still pins v0.20.2, and the plugin page says so. The
-    tree has moved on to the version sites of the next release, which ``test_v0211_release_notes.py`` pins, so this test
-    no longer reads them.
+    The post-publication change of v0.21.0 moved the marketplace file to the v0.21.0 tag, and the one of v0.21.1 moved it
+    on to the v0.21.1 tag and the commit that tag points at, so it names the latest published release. The v0.21.0 tag
+    itself still pins v0.20.2, and the plugin page says so. The tree has moved on to the version sites of the next
+    release, which ``test_v0211_release_notes.py`` pins, so this test no longer reads them. The control documents and
+    the install lines name v0.21.1 as the latest release, and that test pins them too.
     """
 
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.21.0"
-    assert marketplace["sha"] == TAG_COMMIT
+    assert marketplace["ref"] == "v0.21.1"
+    assert marketplace["sha"] == LATEST_TAG_COMMIT
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.21.0 && alice-memory install" in notes
     assert "With uv: `uvx alice-memory install`." in notes
 
 
-def test_the_control_documents_name_v0210_as_the_latest_published_release_and_v0202_as_the_prior_one() -> None:
-    """Mutations, each one alone: put the candidate line back into one control document; name v0.20.2 as the latest
-    published release in one of them; name v0.20.0 as the immediately prior release; set a checksums or release notes
-    pointer back to v0.20.2; put ``Targets`` back in the heading of the current state; point the release notes link
-    of the README or the vNext README at another release.
+def _blocks(path: str) -> list[str]:
+    """Paragraphs of a file with quote markers and indentation removed, each joined onto one line."""
 
-    The candidate line of a later release (v0.21.1) names that release and is pinned by ``test_v0211_release_notes.py``,
-    so only the v0.21.0 candidate line is refused here.
+    blocks: list[list[str]] = [[]]
+    for line in _text(path).splitlines():
+        stripped = re.sub(r"^[\s>]+", "", line)
+        if stripped:
+            blocks[-1].append(stripped)
+        else:
+            blocks.append([])
+    return [" ".join(block) for block in blocks if block]
+
+
+CONSOLE_UPDATE_2026_10_23 = (
+    "**Update (2026-10-23):** v0.21.1 is published. It uses Next.js 16.4.1 and `eslint-config-next` 16.4.1, which fix "
+    "both advisories, and it carries the credential marker fix described in its release notes. If you run the console "
+    "from a v0.21.0 checkout, check out the v0.21.1 tag, run `pnpm --dir apps/web install` and then `pnpm --dir "
+    "apps/web build`, and keep the console reachable only from this machine. You no longer need to run from `main`. "
+    "The PyPI package does not include the console and is not affected."
+)
+
+
+def test_the_notes_carry_the_console_update_of_the_22nd_and_the_one_of_the_23rd_after_it() -> None:
+    """Mutations, each one alone: delete the 2026-10-23 update; move it above the 2026-10-22 update or away from the
+    Security section; reword it, for example name v0.21.0 as the tag to check out or 16.3.8 as the version; glue it to
+    the end of another paragraph; add a third dated update; delete the 2026-10-22 update.
+
+    The 2026-10-22 update tells a v0.21.0 checkout to run from ``main``. v0.21.1 uses Next.js 16.4.1 (its package file
+    at the tag is read in ``test_v0211_release_notes.py``), so the second update tells the same reader to check out the
+    v0.21.1 tag instead. Both stay as dated paragraphs after the Security section, and the release notes are otherwise
+    held to their tag by ``test_published_release_notes_stay_immutable.py``.
     """
 
-    for name in LATEST_DOCS:
-        text = _text(name)
-        assert CANDIDATE_LINE not in text, name
-        assert "`v0.21.0` is the latest published release" in text, name
-        assert "`v0.20.2` is the latest published release" not in text, name
-    readme = _flat("README.md")
-    assert (
-        "`v0.21.0` is the latest published release and remains the install, checksum, and release-note baseline. "
-        "`v0.20.2` is the immediately prior published release."
-    ) in readme
-    assert CANDIDATE_LINE not in readme
-    assert "- [v0.21.0 release notes](docs/release/v0.21.0-release-notes.md)" in _text("README.md")
-    assert "[latest published release notes](../release/v0.21.0-release-notes.md)" in _flat("docs/vnext/README.md")
-    architecture = _flat("ARCHITECTURE.md")
-    assert "`docs/release/v0.21.0-checksums.txt`. - **Prior published:** `v0.20.2` is the immediately prior published release" in architecture
-    assert "artifact digests are in `docs/release/v0.20.2-checksums.txt`." in architecture
-    brief = _flat("PRODUCT_BRIEF.md")
-    assert "`v0.20.2` is the immediately prior published release" in brief
-    assert "exact digests in `docs/release/v0.21.0-checksums.txt`." in brief
-    roadmap = _flat("ROADMAP.md")
-    assert (
-        "`docs/release/v0.21.0-release-notes.md`, with artifact digests in `docs/release/v0.21.0-checksums.txt`. "
-        "`v0.20.2` is the immediately prior published release."
-    ) in roadmap
-    state = _text("CURRENT_STATE.md")
-    assert "What `v0.21.0` Targets" not in state
-    assert (
-        "\n## What `v0.21.0` Shipped\n\n`v0.21.0` is the latest published release and remains the install, checksum,\n"
-        "and baseline reference.\n\nIt shipped the fixes and additions on `main` after `v0.20.2`."
-    ) in state
-    assert "\n## What `v0.20.2` Shipped\n\n`v0.20.2` is the immediately prior published release.\n" in state
-    assert "\n## What `v0.20.0` Shipped\n\n`v0.20.0` is an earlier published release.\n" in state
-    assert "- `v0.21.0` is the latest published release." in state
-    assert "`v0.20.2` is the immediately prior\n  published release." in state
-    assert "`docs/release/v0.21.0-release-notes.md`\n- `docs/release/v0.21.0-checksums.txt`\n" in state
-    assert "`v0.20.2` is the immediately prior published release; its records are" in state
-
-
-def test_the_install_and_checkout_lines_name_v0210_as_the_latest_release() -> None:
-    """Mutations, each one alone: set the ``--tag`` of the headless install guide, the latest release tag it names, the
-    checkout line of the quickstart or the baseline named by the reference paths page back to v0.20.2.
-
-    The README's checkout line is pinned in ``test_readme_facts_live_in_the_docs.py``. The lines pinned here name the
-    release a reader installs or checks out, so they move with each release. A comparison with v0.20.2 elsewhere in the
-    docs is history and stays.
-    """
-
-    guide = _flat("docs/alpha/headless-ubuntu-install.md")
-    assert "use the latest published release tag (`v0.21.0`) for an immutable deployment." in guide
-    assert "with the latest published release tag (`v0.21.0`): `--tag v0.21.0`." in guide
-    assert "v0.20.2" not in guide
-    quickstart = _flat("docs/alpha/quickstart.md")
-    assert "To run v0.21.0, run `git checkout v0.21.0` before `make setup`." in quickstart
-    assert "git checkout v0.20.2" not in quickstart
-    assert "on top of the latest published `v0.21.0` baseline." in _flat("docs/integrations/reference-paths.md")
+    blocks = _blocks(NOTES_PATH)
+    updates = [index for index, block in enumerate(blocks) if block.startswith("**Update (")]
+    assert len(updates) == 2, updates
+    first, second = updates
+    assert blocks[first].startswith(
+        "**Update (2026-10-22):** two Next.js security advisories published on 2026-10-22, after this release, affect "
+        "the review console in a v0.21.0 checkout, which uses Next.js 16.3.8:"
+    )
+    assert "`main` uses 16.4.1, which fixes both." in blocks[first]
+    assert blocks[second] == CONSOLE_UPDATE_2026_10_23
+    assert second == first + 1
+    assert blocks[first - 1].startswith("The change a security-minded reader will care about is the withheld ids above.")
+    assert blocks[second + 1] == "## Install"
+    # An update glued to the end of another paragraph, with no blank line, is no paragraph of its own.
+    assert _text(NOTES_PATH).count("Update (2026-10-2") == 2
 
 
 def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section() -> None:

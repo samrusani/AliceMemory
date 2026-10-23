@@ -49,18 +49,18 @@ def test_the_notes_are_published_with_the_exact_title_state_and_a_checksums_reco
 
 
 def test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_their_install_lines() -> None:
-    """Mutations, each one alone: set the marketplace ``ref`` back to v0.20.2; change one hex digit of ``sha``;
+    """Mutations, each one alone: set the marketplace ``ref`` back to v0.21.0; change one hex digit of ``sha``;
     change an install line of the notes.
 
     The v0.20.0 post-publication change moved the marketplace file to the v0.20.0 tag, the v0.20.2
-    post-publication change moved it on to the v0.20.2 tag, and the v0.21.0 post-publication change moved it
-    on to the v0.21.0 tag and the commit that tag points at, which ``test_v0210_release_notes.py`` also pins
-    with the version sites of the tree.
+    post-publication change moved it on to the v0.20.2 tag, the v0.21.0 post-publication change moved it
+    on to the v0.21.0 tag, and the v0.21.1 post-publication change moved it on to the v0.21.1 tag and the commit
+    that tag points at, which ``test_v0211_release_notes.py`` also pins with the version sites of the tree.
     """
 
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.21.0"
-    assert marketplace["sha"] == "c4757e626405a4bfe77a0039244fb62b483650f7"
+    assert marketplace["ref"] == "v0.21.1"
+    assert marketplace["sha"] == "8d0bac271164ad494687ab599a96499ddfbcce66"
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.20.0 && alice-memory install" in notes
     assert "pip install -U alice-memory==0.20.0" in notes
@@ -882,3 +882,57 @@ def test_both_notes_say_main_now_pins_v0210_after_the_v0202_follow_ups() -> None
         assert len(updates) == count, (path, len(updates))
         # An update glued to the end of another paragraph, with no blank line, is no paragraph of its own.
         assert _text(path).count("Update (2026-10-22)") == count, path
+
+
+def test_both_notes_say_main_now_pins_v0211_after_the_v0210_follow_ups() -> None:
+    """Mutations, each one alone: delete one of the three follow-ups in the v0.20.0 notes or one of the four in the
+    v0.19.2 notes; name v0.21.0 as what ``main`` pins in one of them; drop the sentence about the copy inside a tag;
+    leave the v0.21.1 tag out of it in the v0.20.0 notes; move one away from the 2026-10-22 follow-up it follows; glue
+    one to the end of another paragraph.
+
+    Each marketplace statement already has a 2026-10-02 update and 2026-10-17 and 2026-10-22 follow-ups that say
+    ``main`` pins the v0.20.0, the v0.20.2 and then the v0.21.0 tag commit. ``main`` pins the v0.21.1 tag commit now, so
+    a third follow-up sits after the second. The copy inside the v0.19.2 tag pins v0.19.0, the copy inside the v0.20.0
+    tag pins v0.19.2, the copy inside the v0.20.2 tag pins v0.20.0, the copy inside the v0.21.0 tag pins v0.20.2 and
+    the copy inside the v0.21.1 tag pins v0.21.0.
+    """
+
+    pin = (
+        "**Update (2026-10-23):** v0.21.1 is published, and the marketplace file on `main` now pins the v0.21.1 tag "
+        "commit, so the marketplace install runs v0.21.1. "
+    )
+    v0200_follow_up = pin + (
+        "The copy inside the v0.20.0 tag still pins v0.19.2, the copy inside the v0.20.2 tag still pins v0.20.0, the "
+        "copy inside the v0.21.0 tag still pins v0.20.2 and the copy inside the v0.21.1 tag still pins v0.21.0, so "
+        "add the marketplace from the repository, not from a checkout of a tag."
+    )
+    v0192_follow_up = pin + (
+        "The copy inside the v0.19.2 tag still pins v0.19.0, so add the marketplace from the repository, not from a "
+        "checkout of the tag."
+    )
+    previous = (
+        "**Update (2026-10-22):** v0.21.0 is published, and the marketplace file on `main` now pins the v0.21.0 tag "
+        "commit, so the marketplace install runs v0.21.0. "
+    )
+    previous_v0200 = previous + (
+        "The copy inside the v0.20.0 tag still pins v0.19.2, the copy inside the v0.20.2 tag still pins v0.20.0 and "
+        "the copy inside the v0.21.0 tag still pins v0.20.2, so add the marketplace from the repository, not from a "
+        "checkout of a tag."
+    )
+    previous_v0192 = previous + (
+        "The copy inside the v0.19.2 tag still pins v0.19.0, so add the marketplace from the repository, not from a "
+        "checkout of the tag."
+    )
+    for path, follow_up, before, count in (
+        (NOTES_PATH, v0200_follow_up, previous_v0200, 3),
+        (V0192_NOTES_PATH, v0192_follow_up, previous_v0192, 4),
+    ):
+        blocks = _blocks(path)
+        positions = [index for index, block in enumerate(blocks) if block == follow_up]
+        assert len(positions) == count, (path, positions)
+        for index in positions:
+            assert blocks[index - 1] == before, (path, index)
+        updates = [block for block in blocks if block.startswith("**Update (2026-10-23):**")]
+        assert len(updates) == count, (path, len(updates))
+        # An update glued to the end of another paragraph, with no blank line, is no paragraph of its own.
+        assert _text(path).count("Update (2026-10-23)") == count, path
