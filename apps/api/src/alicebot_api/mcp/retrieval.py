@@ -64,6 +64,7 @@ from alicebot_api.recall_framing import (
     without_leading_framing_line,
     writer_for_recent_change,
 )
+from alicebot_api import vnext_coverage_query
 from alicebot_api.vnext_retrieval import (
     CONTEXT_DEPTH_MINIMAL,
     CONTEXT_DEPTH_MINIMAL_MAX_ITEMS,
@@ -72,6 +73,8 @@ from alicebot_api.vnext_retrieval import (
     STAGE_DISABLED_MINIMAL,
     VECTOR_STAGE_ENABLED,
     VNextRetrievalService,
+    _demote_redundant_candidates,
+    _fused_candidates,
     _order_memories_for_strategy,
     _prefer_current_versions,
     _validity_annotation,
@@ -249,7 +252,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
     sensitivity_allowed = list(decision.effective_sensitivity_allowed)
     if decision.effective_project_scope:
         retrieval_filters["projects"] = decision.effective_project_scope
-    candidate_limit = max(limit * 2, limit)
+    candidate_limit = max(limit * 3, 12)
     source_fence = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments))
 
     with _vnext_store_context(context) as store:
@@ -301,16 +304,35 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             ranked_lists["vector"] = vector_rows
         if graph_stage == GRAPH_STAGE_ENABLED:
             ranked_lists["graph"] = graph_rows
-        fused: list[tuple[VNextJsonObject, float]] = []
-        for item, score, _stage_ranks in reciprocal_rank_fusion(ranked_lists):
-            if len(fused) >= limit:
-                break
-            fused.append((item, score))
+        candidates = _fused_candidates(
+            ranked_lists,
+            target_type="memory",
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            limit=limit,
+        )
+        coverage_intent = (
+            None
+            if context_depth == CONTEXT_DEPTH_MINIMAL
+            else vnext_coverage_query.detect_aggregation_intent(query)
+        )
+        if coverage_intent is None:
+            candidates, _demotions = _demote_redundant_candidates(
+                candidates,
+                limit=limit,
+                consider_multiplier=max(
+                    vnext_coverage_query.DIVERSITY_CANDIDATE_MULTIPLIER,
+                    (candidate_limit + limit - 1) // max(limit, 1),
+                ),
+            )
+        selected_candidates = [candidate for candidate in candidates if candidate.selected]
         # The budget strategy reorders the fused selection exactly like the
         # context-pack packer would (facts_first/recent_first partitions);
         # it never changes what was retrieved or ranked.
-        scores = {str(item.get("id")): score for item, score in fused}
-        ordered_rows = _order_memories_for_strategy([item for item, _score in fused], budget_strategy)
+        scores = {str(candidate.item.get("id")): candidate.rrf_score for candidate in selected_candidates}
+        ordered_rows = _order_memories_for_strategy(
+            [candidate.item for candidate in selected_candidates], budget_strategy
+        )
         # The fence the memories above were retrieved under, resolved once. It
         # is built from retrieval_filters AFTER the policy decision has
         # overwritten "projects" with effective_project_scope, for the source
