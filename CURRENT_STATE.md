@@ -109,6 +109,35 @@ not install it; and `v0.20.1`, whose publish run reached its first job's time
 limit while it reran the unit suite, before anything was built. Neither of the
 last two has a PyPI artifact or a published GitHub Release.
 
+## What `v0.21.1` Targets
+
+`v0.21.1` is the current release candidate. It is not published.
+
+It is a patch release on `v0.21.0` and takes two changes from `main`. The
+credential check no longer reads a short product code or a variable name as a
+credential, and it reads a token right after an underscore. The web console
+moves to Next.js 16.4.1 for two advisories. It adds no tool, command, setting or
+migration: PostgreSQL stays at revision `20261011_0097`.
+
+- [v0.21.1 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.21.1-release-notes.md)
+
+`v0.21.1` has these changes. `v0.21.0` does not.
+
+- A token marker (`ghp_`, `gho_`, `ghs_`, `ghu_`, `github_pat_`, `glpat-`, `npm_`,
+  `sk-`, `xoxb-`, `xoxp-`, `xoxa-`, `xoxs-`) counts only when a floor of token
+  characters follows it. A code such as `SK-2291` and a name such as
+  `npm_config_cache` are not read as credentials, so `alice_capture` accepts the
+  text and `alice-memory import-markdown` keeps the line and the file.
+- A token right after an underscore (`_ghs_` and a token, `TOKEN_npm_` and 36
+  characters) is read at the commit gate, `alice_capture`, both imports and the
+  promotion credential floor. A marker glued directly onto a letter or a digit is
+  not read, as in `v0.21.0`.
+- The web console uses Next.js 16.4.1 and `eslint-config-next` 16.4.1. The PyPI
+  package does not include the console.
+- Still open, listed in the release notes: `alice-memory doctor` reads sources
+  and not the text of a memory, and the floors of `github_pat_`, `glpat-`,
+  `npm_`, `sk-` and the Slack tokens are not a published minimum.
+
 ## What `v0.21.0` Shipped
 
 `v0.21.0` is the latest published release and remains the install, checksum,
