@@ -140,7 +140,7 @@ Alice embeds only memories that recall can return, and cuts each memory and each
 
 ## Benchmark
 
-The published LongMemEval figures carry a known issue: the model answering each question could see which sessions held the evidence. [Alice on LongMemEval](docs/benchmarks/longmemeval/README.md) gives the figures, the method and the issue. The [showcase baseline](docs/benchmarks/showcase/phase0-baseline.md) compares Alice with grep, a note folder and no tool on two question sets, measured on main after v0.20.2.
+The published LongMemEval figures carry a known issue: the model answering each question could see which sessions held the evidence. [Alice on LongMemEval](docs/benchmarks/longmemeval/README.md) gives the figures, the method and the issue. The [showcase baseline](docs/benchmarks/showcase/phase0-baseline.md) compares Alice with grep, a note folder and no tool on two question sets, measured on main after v0.20.2. The [Phase 1 results for v0.21.0](docs/benchmarks/showcase/phase1-v0210-results.md) compare passage ranking with the earlier document ranking on those sets and a harder one.
 
 ## Status
 
