@@ -60,6 +60,36 @@ and findings are excused one at a time: a note with an excused sk-learn and
 a real token is still refused for the token. Every carve-out ends at a
 boundary (round 6), so a token glued straight onto an excused key type,
 public key, cursor or code reference is not excused with it.
+
+Two differences from v0.16.0 (2026-10-22). The first: a token marker needs a
+token body.
+v0.16.0 read the bare marker, so a short product code that starts with one,
+SK-2291 or SK-229 or "sk-2291 is current", was a credential, and so was
+npm_config_cache. A marker now counts only when at least a floor of token
+characters follows it, and each floor is no longer than the shortest body a
+real token of that kind has (see _TOKEN_BODIES, which states the shape behind
+every number and where it comes from). The two ssh markers keep the bare
+reading: they name a public key line, which the first carve-out excuses.
+Nothing else changed: the commit gate's sk- prefix pattern takes the floor of
+the sk- marker, and the other patterns, its other prefix patterns (ghp_,
+xoxb-, akia) and the carve-outs are v0.16.0's, so a marker followed by a body
+of a listed shape is refused as before, and only a marker with too little
+after it to be one is let through.
+
+The second: an underscore before a token marker no longer hides it. v0.16.0's
+lead boundary was "no letter, digit or underscore before", so _ghs_ and a
+stateless token, x_ghs_ and a classic one, TOKEN_npm_ and 36 characters were
+never read by the marker rule. With a floor on every token marker the
+underscore is no longer needed to keep ordinary names out, so a marker with a
+floor is hidden only by a letter or a digit before it (a marker glued to a
+word is part of that word). The ssh markers have no floor and keep v0.16.0's
+lead. So a token of these shapes is withheld or refused when its marker starts
+the text or follows a space, punctuation or an underscore; a marker glued
+directly onto a letter or digit (as in X followed by a ghs_ token) is not read,
+as in v0.21.0. tests/unit/test_legacy_credential_check.py runs its comparison with
+v0.16.0's own code with the floors and the lead turned off, to show that these
+are the only differences, and tests/unit/test_credential_marker_lengths.py
+pins the floors and the lead.
 """
 
 from __future__ import annotations
@@ -104,8 +134,159 @@ _CREDENTIAL_TOKEN_MARKERS = (
     "xoxa-",
     "xoxs-",
 )
-_CREDENTIAL_TOKEN_PATTERNS = tuple(
-    re.compile(r"(?<![0-9A-Za-z_])" + re.escape(marker), re.IGNORECASE) for marker in _CREDENTIAL_TOKEN_MARKERS
+
+
+class _TokenBody(NamedTuple):
+    """What must follow a marker for it to count: ``floor`` characters of ``chars``.
+
+    ``chars`` is the inside of a regular expression character class. The
+    floor is read as a look-ahead of exactly that many characters of one
+    class, so the pattern is as linear as the bare marker was: the engine
+    finds the marker literal, then looks at most ``floor`` characters ahead
+    and stops at the first character outside the class.
+
+    ``owned`` is a regular expression for the text a carve-out names, which
+    is read after the marker whatever its length, so that the carve-out still
+    decides it, boundary and all (see _FIDO_KEY_TYPE_NAMES).
+    """
+
+    chars: str
+    floor: int
+    owned: str = ""
+
+
+# The two FIDO key type names that follow "sk-" (carve-out a). Their body is
+# short and ends at "@", so the floor alone would stop reading them, and the
+# boundary rule that refuses a token glued straight onto one would go with it.
+_FIDO_KEY_TYPE_NAMES = r"(?:ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com"
+
+_BASE62 = "0-9A-Za-z"
+_BASE62_UNDERSCORE = "0-9A-Za-z_"
+_URLSAFE = "0-9A-Za-z_-"
+_SLACK_CHARS = "0-9A-Za-z-"
+# GitHub's own pattern for ghs_ tokens: letters, digits, dots, hyphens and underscores.
+_GITHUB_APP_CHARS = "0-9A-Za-z._-"
+
+# The shape of the token each marker targets, the shortest body such a token
+# has after the marker, and where that number comes from. A floor is no longer
+# than that body, so a marker followed by a body of the listed shape is read
+# (when it starts the text or follows a space, punctuation or an underscore;
+# glued directly onto a letter or digit it is not read, as in v0.21.0), and
+# long enough that a part code, a ticket id or a variable name is not. A body is
+# counted in the characters of the class beside it, which are the characters
+# the real body is made of. Where no provider publishes a minimum, the entry
+# says so, and the floor is a choice below the shortest shape known.
+#
+# - ghp_ (personal access token, classic) and gho_ (OAuth access token).
+#   Source: GitHub's 2021 post on its token formats: the prefix, then 36
+#   base62 characters (30 random and a 6 character checksum), 40 in all.
+#   Shortest body: 36. Floor: 36.
+# - ghs_ (installation token). Source: GitHub's changelog of 2026-05-15 on
+#   installation tokens, which says to treat them as opaque and to match both
+#   formats with ghs_[A-Za-z0-9\.\-_]{36,}. The classic form is the prefix
+#   and 36 base62 characters. The stateless form is the prefix, a numeric app
+#   id, an underscore and a JWT of three base64url parts with two dots, about
+#   520 characters in all, so the underscore and the dots belong to the body:
+#   with base62 alone a short app id ended the run before 36 characters and
+#   the token was not read. Shortest body: 36, which is the number in GitHub's
+#   pattern. Floor: 36.
+# - ghu_ (user-to-server token). The 36 base62 characters are from the same
+#   2021 post as ghp_. GitHub's changelog of 2026-05-15 gives its pattern for
+#   ghs_ only, and says that ghu_ will change format too, without details. So
+#   ghu_ takes the ghs_ class and floor by our choice, not by a published
+#   pattern for ghu_. Floor: 36.
+#   The cost for both: a ghs_ or ghu_ followed by 36 or more identifier
+#   characters (letters, digits, dots, hyphens, underscores) is read, as
+#   GitHub's pattern reads ghs_. A snake_case name shorter than that, GHS_2291
+#   and ghu_config are not.
+# - github_pat_ (fine-grained personal access token). The prefix, then 22
+#   base62 characters, an underscore and 59 base62 characters, 93 in all.
+#   No GitHub page states the length that this module has found; 82 is the
+#   length public secret scanning rules use. Shortest body: 82. Floor: 82.
+# - glpat- (GitLab personal, project and group access tokens). GitLab
+#   documents the prefix. The 20 characters of [0-9A-Za-z_-] after it are the
+#   length public secret scanning rules use for the fixed length format, and
+#   newer routable tokens are longer. Shortest body: 20. Floor: 20.
+# - npm_ (npm access tokens). The prefix, then 36 base62 characters, 40 in
+#   all, the same shape as GitHub's tokens. No npm page states the length that
+#   this module has found; 36 is the length public secret scanning rules use.
+#   Shortest body: 36. Floor: 36. An environment variable such as
+#   npm_config_cache or npm_package_version has underscores, which a base62
+#   body does not, so none is read as a token.
+# - sk- (OpenAI style secret keys). No provider publishes a minimum length.
+#   The older OpenAI keys are the prefix and 48 base62 characters, and
+#   project, service account and admin keys (sk-proj-, sk-svcacct-, sk-admin-)
+#   are the prefix, a kind word and 100 or more characters of [0-9A-Za-z_-];
+#   both are shapes seen, not shapes documented. Anthropic keys
+#   (sk-ant-api03-, sk-ant-admin01-) show the prefix, a kind word and about 90
+#   more of the same characters in its examples. Some OpenAI compatible
+#   providers issue the prefix and 32 hex characters, also seen and not
+#   documented. Shortest body seen: 32. Floor: 20, a choice below it, so a
+#   compatible provider's shorter key is still read, and far above the 4 to 6
+#   digits of a part code such as SK-2291 or SK-22910. The commit gate's own
+#   prefix pattern (_PREFIX_SK) is a separate rule with the same floor, taken
+#   from here. The two FIDO key type names (sk-ssh-ed25519@openssh.com and
+#   sk-ecdsa-sha2-nistp256@openssh.com) are still read at any length, so that
+#   carve-out a keeps refusing a token glued straight onto one.
+# - xoxb-, xoxp-, xoxa-, xoxs- (Slack bot, user, app and legacy tokens). Slack
+#   publishes no minimum length and tells integrations to treat tokens as
+#   opaque. The shapes seen: the prefix, then groups of digits and hyphens,
+#   then an alphanumeric or hex tail. A bot token is 10 to 13 digits, a
+#   hyphen, 10 to 13 digits, a hyphen and 24 alphanumerics: 46 characters at
+#   the shortest. User and legacy tokens carry a third digit group and a 32
+#   character tail, 65 or more. Older Slack tokens may be shorter than any of
+#   these and are not covered by a source. Floor: 10, which is not derived
+#   from a real token: it is the floor of the slack rule below (v0.16.0's
+#   own, xox[baprs]- and 10 token characters), so the two agree.
+# - ssh-rsa and ssh-ed25519, each followed by a space. These name a public
+#   key line, not a secret, and carve_out_ssh_public_key excuses the public
+#   key shapes. They keep the bare reading: a space after a key type name is
+#   not how a product code is written, and a floor would not change what a
+#   real private key is refused for.
+_TOKEN_BODIES: Mapping[str, _TokenBody] = {
+    "ghp_": _TokenBody(_BASE62, 36),
+    "gho_": _TokenBody(_BASE62, 36),
+    "ghs_": _TokenBody(_GITHUB_APP_CHARS, 36),
+    "ghu_": _TokenBody(_GITHUB_APP_CHARS, 36),
+    "github_pat_": _TokenBody(_BASE62_UNDERSCORE, 82),
+    "glpat-": _TokenBody(_URLSAFE, 20),
+    "npm_": _TokenBody(_BASE62, 36),
+    "sk-": _TokenBody(_URLSAFE, 20, _FIDO_KEY_TYPE_NAMES),
+    "xoxb-": _TokenBody(_SLACK_CHARS, 10),
+    "xoxp-": _TokenBody(_SLACK_CHARS, 10),
+    "xoxa-": _TokenBody(_SLACK_CHARS, 10),
+    "xoxs-": _TokenBody(_SLACK_CHARS, 10),
+}
+
+
+def _marker_pattern(marker: str, *, bounded: bool) -> re.Pattern[str]:
+    """The marker, with the floor of token characters after it when it has one.
+
+    ``bounded`` puts a lead boundary in front. v0.16.0's was: no letter, digit
+    or underscore before the marker, so a token right after an underscore
+    (``_ghs_...``, ``TOKEN_npm_...``) was never read. A marker with a floor now
+    gives up only the underscore: a letter or digit before it still makes it
+    part of a word, but "_" does not (2026-10-22). That is safe because the
+    floor, not the lead, keeps ordinary names out: ``PART_SK-2291`` and
+    ``deploy_ghu_config`` have too little after the marker. The two ssh
+    markers have no floor and keep v0.16.0's lead. A collapsed run (see
+    _despaced_runs) lost its boundaries and is read without any.
+    """
+
+    body = _TOKEN_BODIES.get(marker)
+    floor = ""
+    if body is not None:
+        reads = "[" + body.chars + "]{" + str(body.floor) + "}"
+        floor = "(?=" + reads + ("|" + body.owned if body.owned else "") + ")"
+    lead = ""
+    if bounded:
+        lead = r"(?<![0-9A-Za-z])" if body is not None else r"(?<![0-9A-Za-z_])"
+    return re.compile(lead + re.escape(marker) + floor, re.IGNORECASE)
+
+
+_CREDENTIAL_TOKEN_PATTERNS = tuple(_marker_pattern(marker, bounded=True) for marker in _CREDENTIAL_TOKEN_MARKERS)
+_CREDENTIAL_TOKEN_UNBOUNDED_PATTERNS = tuple(
+    _marker_pattern(marker, bounded=False) for marker in _CREDENTIAL_TOKEN_MARKERS
 )
 _ARMOR = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 _AWS_ID = re.compile(r"\b(?:AKIA|ASIA)[0-9A-Za-z]{16}\b", re.IGNORECASE)
@@ -137,8 +318,14 @@ _RUN_SEPARATORS = " \t\r\n.\u00b7,;|/"
 _SPACED_OUT_RUN = re.compile(r"(?:\S[" + re.escape(_RUN_SEPARATORS) + r"]{1,3}){7,}\S")
 _RUN_SEPARATOR_STRIP = str.maketrans({char: None for char in _RUN_SEPARATORS})
 
-# The commit gate's own prefix patterns, read on the casefolded field.
-_PREFIX_SK = re.compile(r"(?<![0-9a-z])sk-[0-9a-z_-]{8,}")
+# The commit gate's own prefix patterns, read on the casefolded field. The sk-
+# one takes the floor of the sk- marker (2026-10-22): v0.16.0 read "sk-" and 8
+# token characters, which made SK-20260301, SK-2025-0618 and SK-2291-REV keys.
+# A real sk- key has 32 or more characters after the prefix. The FIDO key type
+# names are short, and the marker pattern above still reads them at any length,
+# so they stay with their carve-out. The ghp_ and xoxb- patterns below still
+# read 8 characters, and are unchanged.
+_PREFIX_SK = re.compile(r"(?<![0-9a-z])sk-[0-9a-z_-]{" + str(_TOKEN_BODIES["sk-"].floor) + r",}")
 _PREFIX_PATTERNS = (
     re.compile(r"(?<![0-9a-z])ghp_[0-9a-z]{8,}"),
     re.compile(r"(?<![0-9a-z])xoxb-[0-9a-z-]{8,}"),
@@ -338,12 +525,13 @@ def _credential_findings(
                 yield Finding("marker", text, match.start(), value=marker)
     else:
         # A collapsed run lost its boundaries, so v0.16.0 read the markers as
-        # substrings of the casefolded run.
-        for marker in _CREDENTIAL_TOKEN_MARKERS:
-            index = folded.find(marker)
-            while index >= 0:
-                yield Finding("marker", text if same_length else folded, index, value=marker, exact=same_length)
-                index = folded.find(marker, index + 1)
+        # substrings of the casefolded run. The floor still applies: a
+        # spaced-out "S K - 2 2 9 1" is a part code too.
+        for marker, pattern in zip(_CREDENTIAL_TOKEN_MARKERS, _CREDENTIAL_TOKEN_UNBOUNDED_PATTERNS):
+            for match in pattern.finditer(folded):
+                yield Finding(
+                    "marker", text if same_length else folded, match.start(), value=marker, exact=same_length
+                )
     for rule, pattern in _SEARCHED_PATTERNS[:4]:
         found = pattern.search(text)
         if found is not None:
@@ -539,7 +727,7 @@ _SSH_KEY_TYPE_VALUES = frozenset(
 # a token: not a letter, digit, "_" or "-".
 _BOUNDARY = r"(?![A-Za-z0-9_-])"
 _AT_BOUNDARY = re.compile(_BOUNDARY)
-_FIDO_KEY_TYPE = re.compile(r"sk-(?:ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com" + _BOUNDARY)
+_FIDO_KEY_TYPE = re.compile(r"sk-" + _FIDO_KEY_TYPE_NAMES + _BOUNDARY)
 # What may follow the "ssh-rsa " or "ssh-ed25519 " marker: a public key body,
 # a plain word ("keys"), or nothing, each ending at a boundary.
 _AFTER_KEY_TYPE = re.compile(r"(?:AAAA[0-9A-Za-z+/=]*|[A-Za-z]{0,24})" + _BOUNDARY)
@@ -707,7 +895,7 @@ def v0160_commit_gate_refuses(
     rationale: str | None = None,
     source_refs: object = (),
 ) -> bool:
-    """What v0.16.0's commit gate decided, carve-outs not applied."""
+    """What v0.16.0's commit gate decided, carve-outs not applied, with the token floors of the module docstring."""
 
     return next(_commit_findings(title, canonical_text, conversation_excerpt, rationale, source_refs), None) is not None
 
@@ -718,7 +906,7 @@ def v0160_promotion_floor_refuses(
     conversation_excerpt: str | None = None,
     source_refs: Iterable[object] = (),
 ) -> bool:
-    """What v0.16.0's promotion floor decided, carve-outs not applied."""
+    """What v0.16.0's promotion floor decided, carve-outs not applied, with the token floors of the module docstring."""
 
     return next(_floor_findings_for(title, canonical_text, conversation_excerpt, source_refs), None) is not None
 
