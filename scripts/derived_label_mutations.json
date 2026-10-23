@@ -18314,10 +18314,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_schema.py",
-          "line": 2117,
+          "line": 2162,
           "before": "    # label state: none, this ends the savepoint above and rolls nothing back.\n    conn.execute(\"RELEASE SAVEPOINT alice_derived_labels_v4\")\n",
           "after": "    conn.execute(\"RELEASE SAVEPOINT alice_derived_labels_v4\")\n",
-          "sha256": "bf68d06749e653b42bcd75a0c015c0c0d93e79b2c97718e0978e8bb931acbad0"
+          "sha256": "3f26c254196bfe5de8d0bcf62eb231c32e73299ac612454422e30c8f5d4bce08"
         }
       ],
       "pytest": [
@@ -20854,6 +20854,38 @@
         "tests/unit/test_source_chunk_embeddings.py::test_a_title_change_makes_the_vector_stale_in_the_census"
       ],
       "expected_failure": "test_a_title_change_makes_the_vector_stale_in_the_census"
+    },
+    {
+      "name": "chunk-vectors-stamp-not-rewritten-on-delete",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/sqlite_schema.py",
+          "line": 1749,
+          "before": "    AFTER DELETE ON source_chunk_embeddings\n",
+          "after": "    AFTER INSERT ON source_chunk_embeddings\n",
+          "sha256": "3f26c254196bfe5de8d0bcf62eb231c32e73299ac612454422e30c8f5d4bce08"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_source_chunk_embeddings.py::test_the_stamp_changes_when_a_vector_is_overwritten_or_removed_and_not_when_one_is_added"
+      ],
+      "expected_failure": "test_the_stamp_changes_when_a_vector_is_overwritten_or_removed_and_not_when_one_is_added"
+    },
+    {
+      "name": "chunk-vectors-stamp-not-rewritten-on-overwrite",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/sqlite_schema.py",
+          "line": 1742,
+          "before": "    AFTER UPDATE ON source_chunk_embeddings\n",
+          "after": "    AFTER INSERT ON source_chunk_embeddings\n",
+          "sha256": "3f26c254196bfe5de8d0bcf62eb231c32e73299ac612454422e30c8f5d4bce08"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_source_chunk_embeddings.py::test_the_stamp_changes_when_a_vector_is_overwritten_or_removed_and_not_when_one_is_added"
+      ],
+      "expected_failure": "test_the_stamp_changes_when_a_vector_is_overwritten_or_removed_and_not_when_one_is_added"
     }
   ]
 }

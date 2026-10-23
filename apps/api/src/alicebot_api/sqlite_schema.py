@@ -1689,9 +1689,21 @@ def _backfill_source_dedupe_keys(conn: sqlite3.Connection) -> None:
 # that dropped its vectors with ``alice-memory reindex-embeddings --sources --drop`` is back to that state. The step
 # is idempotent and runs inside the transaction of the first write, so it lands with that write or not at all.
 # ``SOURCE_CHUNK_VECTORS_STATE_KEY`` in ``alice_schema_state`` holds the version of the table, for the next change.
+#
+# ``SOURCE_CHUNK_VECTORS_STAMP_KEY`` in the same table holds a token that the table rewrites to a fresh random value
+# whenever a row of it is overwritten or deleted, by whatever path (a trigger, so a cascade from a deleted source
+# counts), and never when a row is added. A resident copy of the vectors in any process reads the token to know it
+# must be rebuilt; new rows it finds by their row number. The token is rewritten and never counted up, so a restored
+# copy of the database cannot show a token that a live cache was built at.
 SOURCE_CHUNK_VECTORS_TABLE = "source_chunk_embeddings"
 SOURCE_CHUNK_VECTORS_STATE_KEY = "source_chunk_embeddings_version"
+SOURCE_CHUNK_VECTORS_STAMP_KEY = "source_chunk_vector_stamp"
 SOURCE_CHUNK_VECTORS_SCHEMA_VERSION = "1"
+_REWRITE_STAMP_SQL = (
+    "INSERT INTO alice_schema_state (key, value) "
+    f"VALUES ('{SOURCE_CHUNK_VECTORS_STAMP_KEY}', lower(hex(randomblob(16)))) "
+    "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+)
 #: Tables a build makes after the bootstrap. An export or import accepts them as this build's own.
 LAZY_TABLE_NAMES: frozenset[str] = frozenset({SOURCE_CHUNK_VECTORS_TABLE})
 
@@ -1725,6 +1737,20 @@ _SOURCE_CHUNK_VECTORS_STATEMENTS: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS source_chunk_embeddings_source_idx
       ON source_chunk_embeddings (user_id, source_id)
     """,
+    f"""
+    CREATE TRIGGER IF NOT EXISTS source_chunk_embeddings_stamp_after_update
+    AFTER UPDATE ON source_chunk_embeddings
+    BEGIN
+      {_REWRITE_STAMP_SQL};
+    END
+    """,
+    f"""
+    CREATE TRIGGER IF NOT EXISTS source_chunk_embeddings_stamp_after_delete
+    AFTER DELETE ON source_chunk_embeddings
+    BEGIN
+      {_REWRITE_STAMP_SQL};
+    END
+    """,
 )
 
 
@@ -1749,6 +1775,23 @@ def ensure_source_chunk_vectors_table(conn: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO alice_schema_state (key, value) VALUES (?, ?)",
         (SOURCE_CHUNK_VECTORS_STATE_KEY, SOURCE_CHUNK_VECTORS_SCHEMA_VERSION),
     )
+    conn.execute(
+        "INSERT OR IGNORE INTO alice_schema_state (key, value) VALUES (?, lower(hex(randomblob(16))))",
+        (SOURCE_CHUNK_VECTORS_STAMP_KEY,),
+    )
+
+
+def source_chunk_vectors_stamp(conn: sqlite3.Connection) -> str | None:
+    """The token that changes when a vector is overwritten or removed, or ``None`` when the vault has none."""
+
+    cursor = conn.execute("SELECT value FROM alice_schema_state WHERE key = ?", (SOURCE_CHUNK_VECTORS_STAMP_KEY,))
+    try:
+        row = cursor.fetchone()
+    finally:
+        cursor.close()
+    if row is None:
+        return None
+    return str(row["value"] if isinstance(row, dict) else row[0])
 
 
 def drop_source_chunk_vectors_table(conn: sqlite3.Connection) -> None:
@@ -1756,6 +1799,8 @@ def drop_source_chunk_vectors_table(conn: sqlite3.Connection) -> None:
 
     conn.execute(f"DROP TABLE IF EXISTS {SOURCE_CHUNK_VECTORS_TABLE}")  # nosec B608 - a module constant
     conn.execute("DELETE FROM alice_schema_state WHERE key = ?", (SOURCE_CHUNK_VECTORS_STATE_KEY,))
+    # The rows went with the table without a trigger firing: a resident copy must still see that they are gone.
+    conn.execute(_REWRITE_STAMP_SQL)
 
 
 _SOURCE_DEDUPE_IDENTITY_STATE_KEY = "source_dedupe_identity_version"
@@ -2188,11 +2233,13 @@ __all__ = [
     "SENSITIVITY_LEVELS",
     "LAZY_TABLE_NAMES",
     "SOURCE_CHUNK_VECTORS_SCHEMA_VERSION",
+    "SOURCE_CHUNK_VECTORS_STAMP_KEY",
     "SOURCE_CHUNK_VECTORS_STATE_KEY",
     "SOURCE_CHUNK_VECTORS_TABLE",
     "apply_row_backfills",
     "bootstrap_sqlite_schema",
     "drop_source_chunk_vectors_table",
     "ensure_source_chunk_vectors_table",
+    "source_chunk_vectors_stamp",
     "source_chunk_vectors_table_exists",
 ]

@@ -76,6 +76,9 @@ LOCAL_URL = "http://127.0.0.1:11434/v1"
 REMOTE_URL = "http://embeddings.example.test/v1"
 DIMENSIONS = 8
 
+PLAN_A = "The first plan chunk is long enough to be read as a note by the rules."
+PLAN_B = "The second plan chunk is long enough to be read as a note by the rules."
+PLAN_C = "The third plan chunk is long enough to be read as a note by the rules."
 # A chunk that reads as a note: well over the shortest chunk that is sent.
 PLAIN = "The lantern review ended with a decision to ship the amber build after the September freeze."
 # A key the commit door refuses and the floor alone does not.
@@ -855,6 +858,45 @@ def test_a_chunk_deleted_from_the_vault_takes_its_vector_with_it(tmp_path: Path)
         conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
         conn.commit()
     assert _vector_chunk_ids(db) == set()
+
+
+def test_the_stamp_changes_when_a_vector_is_overwritten_or_removed_and_not_when_one_is_added(tmp_path: Path) -> None:
+    """A resident copy rebuilds on a changed stamp and finds added rows by their row number.
+
+    Mutation: drop the update trigger; drop the delete trigger; add an insert trigger; leave the stamp out of the drop.
+    """
+
+    from alicebot_api.sqlite_schema import source_chunk_vectors_stamp
+    from alicebot_api.vnext_stores.sqlite.source_chunk_vectors import (
+        delete_chunk_vectors,
+        drop_chunk_vector_table,
+        put_chunk_vector,
+    )
+
+    db = _vault(tmp_path)
+    source_id, chunk_ids = _source(db, "Plan", [PLAN_A, PLAN_B, PLAN_C])
+    fields = {"provider": "p", "model": "m", "endpoint": "e", "signature_version": 1, "header_version": 1, "prefix_version": 0}
+    with sqlite_user_connection(db, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        assert source_chunk_vectors_stamp(conn) is None
+        put_chunk_vector(store, chunk_id=chunk_ids[0], source_id=source_id, vector=[1.0], content_sha256="a", **fields)
+        first = source_chunk_vectors_stamp(conn)
+        assert first
+        put_chunk_vector(store, chunk_id=chunk_ids[1], source_id=source_id, vector=[2.0], content_sha256="b", **fields)
+        assert source_chunk_vectors_stamp(conn) == first  # a row added: the same token
+        put_chunk_vector(store, chunk_id=chunk_ids[1], source_id=source_id, vector=[3.0], content_sha256="c", **fields)
+        second = source_chunk_vectors_stamp(conn)
+        assert second != first  # a row overwritten
+        assert delete_chunk_vectors(store, source_id=source_id) == 2
+        third = source_chunk_vectors_stamp(conn)
+        assert third != second  # rows deleted
+        put_chunk_vector(store, chunk_id=chunk_ids[2], source_id=source_id, vector=[4.0], content_sha256="d", **fields)
+        assert source_chunk_vectors_stamp(conn) == third
+        conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))  # the rows go with the source, by cascade
+        fourth = source_chunk_vectors_stamp(conn)
+        assert fourth != third
+        assert drop_chunk_vector_table(store) == 0
+        assert source_chunk_vectors_stamp(conn) != fourth  # the table is gone, and a copy must know
 
 
 def test_the_vector_row_refuses_a_width_that_is_not_its_dimensions(tmp_path: Path) -> None:
