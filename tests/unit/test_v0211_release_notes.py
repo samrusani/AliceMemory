@@ -205,8 +205,8 @@ def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or
 
 def test_the_notes_use_no_dash_and_only_the_allowed_security_wording() -> None:
     """Mutations, each one alone: write a dash into the notes; say "audited" outside the disclosure sentence;
-    write independently, third-party, penetration or adversarial; name an external review tool; write an advisory id;
-    delete the scanning sentence.
+    write independently, third-party or penetration; name an external review tool; write an advisory id; delete the
+    review sentence, or only its ``internal adversarial review`` clause.
     """
 
     text = _text(NOTES_PATH)
@@ -216,10 +216,11 @@ def test_the_notes_use_no_dash_and_only_the_allowed_security_wording() -> None:
     disclosure = "No one outside the project has audited the code."
     assert flat.count(disclosure) == 1
     assert flat.count("audited") == flat.count(disclosure)
-    scanning = "This release was checked with automated security scanning, findings triaged and fixed."
-    assert flat.count(scanning) == 1
+    review = "automated security scanning and internal adversarial review, findings triaged and fixed"
+    assert flat.count(review) == 1
+    assert "This release was checked with " + review + "." in flat
     lowered = flat.lower()
-    for forbidden in ("independently", "third-party", "third party", "penetration", "pentest", "external review", "adversarial"):
+    for forbidden in ("independently", "third-party", "third party", "penetration", "pentest", "external review"):
         assert forbidden not in lowered, forbidden
     assert "ghsa-" not in lowered and "cve-" not in lowered
     assert "Security" in SECTIONS
