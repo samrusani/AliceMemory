@@ -139,7 +139,7 @@ def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section(
     v0.20.2 and v0.20.0; put an unreleased marker inside the v0.20.2 section.
 
     The Unreleased section was empty on the release commit. It may hold entries now that main has
-    moved on, so this test no longer asks for it to be empty. It still asks that the v0.21.0, v0.20.2 and
+    moved on, so this test no longer asks for it to be empty. It still asks that the v0.21.1, v0.21.0, v0.20.2 and
     v0.20.0 sections follow it in that order, one heading each.
     """
 
@@ -147,11 +147,12 @@ def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section(
     sections = changelog.split("\n## ")
     assert sections[1].startswith("Unreleased\n")
     assert sections[1].endswith("\n")
-    assert sections[2].startswith("v0.21.0 \u2014 2026-10-22\n")
-    assert sections[3].startswith("v0.20.2 \u2014 2026-10-17\n")
-    assert sections[4].startswith("v0.20.0 \u2014 2026-10-02\n")
+    assert sections[2].startswith("v0.21.1 \u2014 2026-10-23\n")
+    assert sections[3].startswith("v0.21.0 \u2014 2026-10-22\n")
+    assert sections[4].startswith("v0.20.2 \u2014 2026-10-17\n")
+    assert sections[5].startswith("v0.20.0 \u2014 2026-10-02\n")
     assert changelog.count(HEADING) == 1
-    assert "Unreleased (on main" not in sections[3]
+    assert "Unreleased (on main" not in sections[4]
 
 
 def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_or_the_code() -> None:
