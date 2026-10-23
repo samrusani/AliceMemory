@@ -1,20 +1,23 @@
 """The v0.21.1 release notes carry the upgrade steps, the security wording and the claims a reader can check.
 
 Every claim in the notes comes from an entry of the changelog. These tests pin the parts a later edit could quietly
-weaken: the release identity and its pending state, the six version sites, the dated changelog heading and the empty
-Unreleased section, the security wording, the steps an upgrading user must act on, the numbers that drift with the
-code (the tool counts, the PostgreSQL revision, the Next.js versions, the token floors) and the lists of texts whose
-verdict changes, which are run against the module and against v0.16.0's own code. Each test names the mutation that
-must fail it.
+weaken: the release identity and its published state, the checksums record, the six version sites and the marketplace
+pin, the dated changelog heading, the security wording, the steps an upgrading user must act on, the numbers that drift
+(the PostgreSQL revision, the Next.js versions and the token floors, read at the v0.21.1 tag) and the lists of texts
+whose verdict changes, which are run against the module and against v0.16.0's own code. Each test names the mutation
+that must fail it.
 
-The notes are not published yet. Their state is ``pending`` and there is no checksums file, because the release check
-requires that before the tag. The change that follows publication moves the state to ``published`` and ``recorded``,
-adds the checksums file and moves the marketplace pin to the tag, and it changes the first test and the version-site
-test below to say so, as the change after v0.21.0 did.
+The notes are published. The change that followed publication moved their state to ``published`` and ``recorded``, added
+the checksums file, moved the marketplace file to the v0.21.1 tag and its commit, named v0.21.1 as the latest published
+release in the control documents and removed the release candidate line, as the change after v0.21.0 did, and added one
+dated 2026-10-23 update beside the notes' own marketplace step. The tagged lines of the notes and of the changelog
+section are held by ``test_published_release_notes_stay_immutable.py``. The release check's pre-tag mode refuses the
+tree now, and one test below pins the three reasons.
 """
 
 from __future__ import annotations
 
+import ast
 import itertools
 import json
 import re
@@ -27,20 +30,25 @@ import pytest
 import scripts.release_check as release_check
 from alicebot_api import legacy_credential_check as legacy
 from alicebot_api.credential_floor import credential_verdict
-from alicebot_api.mcp.registry import list_mcp_tools
 from tests.unit import legacy_v0160_credential_oracle as oracle
+from tests.unit.test_published_release_notes_stay_immutable import _tagged
+from tests.unit.test_v0210_release_notes import _tagged_listing
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NOTES_PATH = "docs/release/v0.21.1-release-notes.md"
+RELEASE_TAG = "v0.21.1"
 HEADING = "## v0.21.1 \u2014 2026-10-23"
 # A patch release: the notes are about 9,800 characters, and 12,000 leaves room for a correction and no more.
 NOTES_CEILING = 12_000
 
-# The v0.21.0 tag and the commit it points at: the marketplace file still pins them until the change after publication.
-TAG_COMMIT = "c4757e626405a4bfe77a0039244fb62b483650f7"
+# The v0.21.1 tag, the commit it points at, and the digests of the two files published for it.
+CHECKSUMS_PATH = "docs/release/v0.21.1-checksums.txt"
+TAG_COMMIT = "8d0bac271164ad494687ab599a96499ddfbcce66"
+WHEEL_SHA256 = "49452a0d9726c06b8b1f1018527cc90a756b3f252cba6b266816eeefa2a931c3"
+SDIST_SHA256 = "813459987dac7837ba2414a803937de2088cac3a1ce81c6687aa835ce12deb6d"
 
 CANDIDATE_LINE = "`v0.21.1` is the current release candidate. It is not published."
-CANDIDATE_DOCS = (
+LATEST_DOCS = (
     "ARCHITECTURE.md",
     "PRODUCT_BRIEF.md",
     "ROADMAP.md",
@@ -84,21 +92,54 @@ def _entries() -> list[str]:
     return [" ".join(item.split()) for item in _changelog_section().split("\n- ")[1:]]
 
 
-def test_the_notes_have_the_exact_title_and_the_pending_state_and_no_checksums_file() -> None:
-    """Mutations, each one alone: change the title, move the state comment, set either status to published or
-    recorded, add a second state line, add ``docs/release/v0.21.1-checksums.txt``.
+def _blocks(path: str) -> list[str]:
+    """Paragraphs of a file with quote markers and indentation removed, each joined onto one line."""
 
-    The release check requires both statuses to be pending and the checksums file to be absent before the tag.
+    blocks: list[list[str]] = [[]]
+    for line in _text(path).splitlines():
+        stripped = re.sub(r"^[\s>]+", "", line)
+        if stripped:
+            blocks[-1].append(stripped)
+        else:
+            blocks.append([])
+    return [" ".join(block) for block in blocks if block]
+
+
+def test_the_notes_are_published_with_the_exact_title_state_and_a_checksums_record() -> None:
+    """Mutations, each one alone: change the title, move the state comment, set either status back to pending,
+    add a second state line, delete the checksums file.
     """
 
     lines = _text(NOTES_PATH).splitlines()
     assert lines[0] == "# Alice v0.21.1 Release Notes"
     assert lines[1] == (
         '<!-- alice-release-state: {"schema_version":"alice_release_document_state_v1","version":"0.21.1",'
-        '"publication_status":"pending","checksums_status":"pending"} -->'
+        '"publication_status":"published","checksums_status":"recorded"} -->'
     )
     assert sum("alice-release-state" in line for line in lines) == 1
-    assert not (REPO_ROOT / "docs/release/v0.21.1-checksums.txt").exists()
+    assert (REPO_ROOT / CHECKSUMS_PATH).is_file()
+
+
+def test_the_checksums_file_records_the_two_published_digests_in_the_format_of_the_last_release() -> None:
+    """Mutations, each one alone: change one hex digit of either digest; swap the two file names; add a third
+    line; write another version into the header or into the verify commands; delete a header line.
+
+    The digests are the ones PyPI serves for 0.21.1 and the GitHub Release lists for its assets, read on
+    2026-10-23 (wheel 1,929,955 bytes, source distribution 1,694,466 bytes). The header and the layout are the v0.21.0
+    file's with the version replaced, so the two files stay in one format. Nothing offline compares the digests with
+    PyPI: ``release_check.py --tag v0.21.1 --verify-pypi-artifacts`` does, with the two files downloaded.
+    """
+
+    old = _text("docs/release/v0.21.0-checksums.txt").splitlines()
+    new = _text(CHECKSUMS_PATH).splitlines()
+    assert len(old) == len(new) == 19
+    assert [line.replace("0.21.0", "0.21.1") for line in old[:17]] == new[:17]
+    assert new[0] == "# Alice v0.21.1: published artifact SHA-256 digests"
+    assert new[17:] == [
+        f"{WHEEL_SHA256}  alice_memory-0.21.1-py3-none-any.whl",
+        f"{SDIST_SHA256}  alice_memory-0.21.1.tar.gz",
+    ]
+    assert _text(CHECKSUMS_PATH).endswith(".tar.gz\n")
 
 
 def test_the_notes_stay_under_the_size_ceiling_and_keep_their_sections_in_order() -> None:
@@ -110,13 +151,13 @@ def test_the_notes_stay_under_the_size_ceiling_and_keep_their_sections_in_order(
     assert headings == SECTIONS
 
 
-def test_every_version_site_names_0211_and_the_marketplace_still_pins_the_published_release() -> None:
-    """Mutations, each one alone: set one version site or one plugin pin back to 0.21.0; move the marketplace ``ref``
-    to v0.21.1; change one hex digit of the marketplace ``sha``; change the install command in the notes.
+def test_every_version_site_names_0211_and_the_marketplace_pins_the_published_release() -> None:
+    """Mutations, each one alone: set one version site or one plugin pin back to 0.21.0; set the marketplace ``ref``
+    back to v0.21.0; change one hex digit of the marketplace ``sha``; change the install command in the notes.
 
-    The six sites are the ones ``scripts/release_check.py`` requires. The marketplace file moves to the v0.21.1 tag
-    only after publication, in the change that records the digests, so here it still names the latest published
-    release and the commit its tag points at.
+    The six sites are the ones ``scripts/release_check.py`` requires. The post-publication change moved the marketplace
+    file to the v0.21.1 tag and the commit that tag points at, so it names the latest published release. The v0.21.1 tag
+    itself still pins v0.21.0, and the plugin page says so.
     """
 
     pyproject = tomllib.loads(_text("pyproject.toml"))["project"]["version"]
@@ -128,51 +169,132 @@ def test_every_version_site_names_0211_and_the_marketplace_still_pins_the_publis
         assert f"alice-memory=={pyproject}" in _text(name), name
         assert "alice-memory==0.21.0" not in _text(name), name
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.21.0"
+    assert marketplace["ref"] == "v0.21.1"
     assert marketplace["sha"] == TAG_COMMIT
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.21.1 && alice-memory install" in notes
     assert "With uv: `uvx alice-memory install`." in notes
 
 
-def test_the_control_documents_name_the_candidate_and_keep_v0210_as_the_latest_published_release() -> None:
-    """Mutations, each one alone: delete the candidate line from one control document or from the README; name
-    v0.21.1 as the latest published release; delete the ``What `v0.21.1` Targets`` section of the current state, or
-    move it below the section of v0.21.0; point its release notes link at another release.
+def test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0211() -> None:
+    """Mutations, each one alone: delete the 2026-10-23 update; name v0.21.0 as what ``main`` pins in it; drop the
+    sentence about the copy inside the tag; move it away from step 6 of the upgrade steps; glue it to the end of
+    another paragraph; add a second dated update.
 
-    The statements about the latest published release, the baseline and the checksums change after publication.
+    Step 6 of the upgrade steps says the marketplace file on ``main`` pins the v0.21.0 tag commit until a change after
+    the release moves it. That sentence stays as tagged, and the update after it says the change has been made, as the
+    update beside the marketplace steps of the v0.20.2 notes did.
     """
 
-    for name in CANDIDATE_DOCS:
+    update = (
+        "**Update (2026-10-23):** v0.21.1 is published, and the marketplace file on `main` now pins the v0.21.1 tag "
+        "commit, so the marketplace install runs v0.21.1. The copy inside the v0.21.1 tag still pins v0.21.0, so add "
+        "the marketplace from the repository, not from a checkout of the tag."
+    )
+    blocks = _blocks(NOTES_PATH)
+    positions = [index for index, block in enumerate(blocks) if block == update]
+    assert len(positions) == 1, positions
+    index = positions[0]
+    assert blocks[index - 1].endswith(
+        "6. **Claude Code plugin.** The marketplace file on `main` pins the v0.21.0 tag commit until a change after "
+        "this release moves it, so a marketplace install runs v0.21.0 code until then."
+    )
+    assert blocks[index + 1] == "## Credential markers"
+    assert _text(NOTES_PATH).count("Update (2026-10-23)") == 1
+    assert sum(block.startswith("**Update (") for block in blocks) == 1
+
+
+def test_the_control_documents_name_v0211_as_the_latest_published_release_and_v0210_as_the_prior_one() -> None:
+    """Mutations, each one alone: put the candidate line back into one control document or into the README; name
+    v0.21.0 as the latest published release in one of them; name v0.20.2 as the immediately prior release; set a
+    checksums or release notes pointer back to v0.21.0; put ``Targets`` back in the heading of the current state; point
+    the release notes link of the README or the vNext README at another release; set the lead of ``What `v0.21.0`
+    Shipped`` back to the latest published release; drop the v0.21.1 tag from the tag history of the current state or
+    set its pin sentence back to v0.21.0.
+
+    The candidate line of a later release names that release and is that release's test to pin, so only the v0.21.1
+    candidate line is refused here.
+    """
+
+    for name in LATEST_DOCS:
         text = _text(name)
-        assert text.endswith("\n\n" + CANDIDATE_LINE + "\n"), name
-        assert "`v0.21.0` is the latest published release" in text, name
-        assert "`v0.21.1` is the latest published release" not in text, name
+        assert CANDIDATE_LINE not in text, name
+        assert "`v0.21.1` is the latest published release" in text, name
+        assert "`v0.21.0` is the latest published release" not in text, name
     readme = _flat("README.md")
     assert (
-        "`v0.21.0` is the latest published release and remains the install, checksum, and release-note baseline. "
-        "`v0.20.2` is the immediately prior published release. " + CANDIDATE_LINE
+        "`v0.21.1` is the latest published release and remains the install, checksum, and release-note baseline. "
+        "`v0.21.0` is the immediately prior published release."
     ) in readme
+    assert CANDIDATE_LINE not in readme
+    assert "- [v0.21.1 release notes](docs/release/v0.21.1-release-notes.md)" in _text("README.md")
+    assert "[latest published release notes](../release/v0.21.1-release-notes.md)" in _flat("docs/vnext/README.md")
+    architecture = _flat("ARCHITECTURE.md")
+    assert "`docs/release/v0.21.1-checksums.txt`. - **Prior published:** `v0.21.0` is the immediately prior published release" in architecture
+    assert "artifact digests are in `docs/release/v0.21.0-checksums.txt`." in architecture
+    brief = _flat("PRODUCT_BRIEF.md")
+    assert "`v0.21.0` is the immediately prior published release" in brief
+    assert "exact digests in `docs/release/v0.21.1-checksums.txt`." in brief
+    roadmap = _flat("ROADMAP.md")
+    assert (
+        "`docs/release/v0.21.1-release-notes.md`, with artifact digests in `docs/release/v0.21.1-checksums.txt`. "
+        "`v0.21.0` is the immediately prior published release."
+    ) in roadmap
     state = _text("CURRENT_STATE.md")
-    assert "\n## What `v0.21.1` Targets\n\n" + CANDIDATE_LINE + "\n" in state
-    assert state.index("## What `v0.21.1` Targets") < state.index("## What `v0.21.0` Shipped")
-    assert "\n## What `v0.21.0` Shipped\n\n`v0.21.0` is the latest published release" in state
-    assert "- `v0.21.0` is the latest published release." in state
+    assert "What `v0.21.1` Targets" not in state
+    assert (
+        "\n## What `v0.21.1` Shipped\n\n`v0.21.1` is the latest published release and remains the install, checksum,\n"
+        "and baseline reference.\n\nIt is a patch release on `v0.21.0` and shipped two changes from `main`."
+    ) in state
+    assert state.index("## What `v0.21.1` Shipped") < state.index("## What `v0.21.0` Shipped")
+    assert "\n## What `v0.21.0` Shipped\n\n`v0.21.0` is the immediately prior published release.\n" in state
+    assert "\n## What `v0.20.2` Shipped\n\n`v0.20.2` is an earlier published release.\n" in state
+    assert "- `v0.21.1` is the latest published release." in state
+    assert "`v0.21.0` is the immediately prior\n  published release." in state
+    assert "`docs/release/v0.21.1-release-notes.md`\n- `docs/release/v0.21.1-checksums.txt`\n" in state
+    assert "`v0.21.0` is the immediately prior published release; its records are" in state
+    history = " ".join(state.split())
+    assert (
+        "The `v0.19.2` tag has the file too, still pinned to the `v0.19.0` tag commit, the `v0.20.0` tag has it still "
+        "pinned to the `v0.19.2` tag commit, the `v0.20.2` tag has it still pinned to the `v0.20.0` tag commit, the "
+        "`v0.21.0` tag has it still pinned to the `v0.20.2` tag commit, and the `v0.21.1` tag has it still pinned to "
+        "the `v0.21.0` tag commit."
+    ) in history
+    assert "pins the plugin to the `v0.21.1` tag commit, so the plugin installs from that marketplace." in history
     assert "- [v0.21.1 release notes](https://github.com/samrusani/AliceMemory/blob/main/" + NOTES_PATH + ")" in state
 
 
-def test_the_changelog_has_the_dated_heading_and_an_empty_unreleased_section_right_before_it() -> None:
-    """Mutations, each one alone: drop the heading; change its date; put an entry under ``## Unreleased``; put another
-    section between v0.21.1 and v0.21.0; put the marker for the unreleased state back into the v0.21.1 section.
+def test_the_install_and_checkout_lines_name_v0211_as_the_latest_release() -> None:
+    """Mutations, each one alone: set the ``--tag`` of the headless install guide, the latest release tag it names, the
+    checkout line of the quickstart or the baseline named by the reference paths page back to v0.21.0.
 
-    ``release_check.py --require-finalized-release-docs`` asks for the same heading and an empty Unreleased section.
-    It is empty on the release commit and may hold entries once main has moved on, and the change after
-    publication drops that demand from here.
+    The README's checkout line is pinned in ``test_readme_facts_live_in_the_docs.py``. The lines pinned here name the
+    release a reader installs or checks out, so they move with each release. A comparison with v0.21.0 elsewhere in the
+    docs is history and stays.
+    """
+
+    guide = _flat("docs/alpha/headless-ubuntu-install.md")
+    assert "use the latest published release tag (`v0.21.1`) for an immutable deployment." in guide
+    assert "with the latest published release tag (`v0.21.1`): `--tag v0.21.1`." in guide
+    assert "v0.21.0" not in guide
+    quickstart = _flat("docs/alpha/quickstart.md")
+    assert "To run v0.21.1, run `git checkout v0.21.1` before `make setup`." in quickstart
+    assert "git checkout v0.21.0" not in quickstart
+    assert "on top of the latest published `v0.21.1` baseline." in _flat("docs/integrations/reference-paths.md")
+
+
+def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section() -> None:
+    """Mutations, each one alone: drop the heading; change its date; put another section between v0.21.1 and v0.21.0;
+    put the marker for the unreleased state back into the v0.21.1 section.
+
+    The Unreleased section is empty on the release commit. It may hold entries once main has moved on, so this test does
+    not ask for it to be empty. It asks that the v0.21.1, v0.21.0 and v0.20.2 sections follow it in that order, one
+    heading each.
     """
 
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
-    assert sections[1] == "Unreleased\n"
+    assert sections[1].startswith("Unreleased\n")
     assert sections[2].startswith("v0.21.1 \u2014 2026-10-23\n")
     assert sections[3].startswith("v0.21.0 \u2014 2026-10-22\n")
     assert sections[4].startswith("v0.20.2 \u2014 2026-10-17\n")
@@ -255,48 +377,64 @@ def test_the_upgrade_steps_name_every_action_an_existing_user_takes_in_order() -
     assert steps.index("**No migration.**") < steps.index("**Notes with part or order codes.**") < steps.index("**Console.**")
 
 
-def test_the_numbers_that_drift_are_the_ones_the_code_and_the_files_have(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The tool counts, the PostgreSQL revision, the Next.js versions and the token floors are read from the code and
-    the files, so a change that leaves the notes behind fails here.
+def _tagged_token_bodies() -> dict[str, tuple[str, int]]:
+    """``{marker: (character class, floor)}`` from the credential check as it is at the release tag.
 
-    Mutations, each one alone: add a tool to the default surface (the notes say there is no new tool); add a migration
-    after 20261011_0097; change ``next`` or ``eslint-config-next`` in ``apps/web/package.json``; change a floor in
-    ``legacy_credential_check._TOKEN_BODIES``; change the character class of ``ghs_`` or ``ghu_``.
+    The table is read from the source at the tag with ``ast``, not from the module in the working tree, so a later
+    change to the floors does not make the published notes wrong. The character classes are module level string
+    constants that the rows name.
     """
 
-    for name in ("ALICE_AGENT_API_KEY", "ALICE_MCP_FULL_TOOLS", "ALICE_MCP_LEGACY_TOOLS", "ALICE_LEGACY_SURFACES"):
-        monkeypatch.delenv(name, raising=False)
-    counts: dict[str, int] = {}
-    for label, flags in (
-        ("default", {}),
-        ("full", {"ALICE_MCP_FULL_TOOLS": "1"}),
-        ("legacy", {"ALICE_MCP_FULL_TOOLS": "1", "ALICE_MCP_LEGACY_TOOLS": "1"}),
-        ("all", {"ALICE_MCP_FULL_TOOLS": "1", "ALICE_MCP_LEGACY_TOOLS": "1", "ALICE_LEGACY_SURFACES": "1"}),
-    ):
-        for name, value in flags.items():
-            monkeypatch.setenv(name, value)
-        counts[label] = len(list_mcp_tools())
-        for name in flags:
-            monkeypatch.delenv(name, raising=False)
-    # The counts of v0.21.0: this release adds no tool.
-    assert counts == {"default": 3, "full": 12, "legacy": 74, "all": 77}
+    tree = ast.parse(_tagged(RELEASE_TAG, "apps/api/src/alicebot_api/legacy_credential_check.py"))
+    constants: dict[str, str] = {}
+    table: ast.Dict | None = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                constants[node.targets[0].id] = node.value.value
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == "_TOKEN_BODIES":
+            assert isinstance(node.value, ast.Dict)
+            table = node.value
+    assert table is not None
+    bodies: dict[str, tuple[str, int]] = {}
+    for key, value in zip(table.keys, table.values, strict=True):
+        assert isinstance(key, ast.Constant) and isinstance(value, ast.Call)
+        chars, floor = value.args[0], value.args[1]
+        assert isinstance(chars, ast.Name) and isinstance(floor, ast.Constant)
+        bodies[key.value] = (constants[chars.id], floor.value)
+    return bodies
+
+
+def test_the_numbers_in_the_notes_are_the_ones_the_release_tag_has() -> None:
+    """The PostgreSQL revision, the Next.js versions and the token floors are read from the files at the ``v0.21.1``
+    tag, because the notes are published and describe that tag; a later change to main does not make them wrong. The
+    absence of a new tool is pinned as text: ``test_published_release_notes_stay_immutable.py`` keeps the published
+    sentence fixed, and the tool counts (12, 74 and 77, unchanged from v0.21.0) were checked against the code while the
+    release was a candidate.
+
+    Mutations, each one alone: set ``RELEASE_TAG`` to ``v0.21.0`` (the tagged Next.js version is 16.3.8 then); change
+    ``20261011_0097``, a Next.js version, a floor or a character class in the notes (the immutability test fails too);
+    drop the sentence that says there is no new tool. Changing ``next`` in the working tree's ``apps/web/package.json``
+    does not fail this test: it reads the tag, which is the point.
+    """
+
     notes = _flat(NOTES_PATH)
     assert "There is no new tool, command or setting, and there is no migration." in notes
 
-    versions = REPO_ROOT / "apps" / "api" / "alembic" / "versions"
-    head = sorted(path.name for path in versions.glob("2*.py"))[-1]
+    listing = _tagged_listing(RELEASE_TAG, "apps/api/alembic/versions")
+    head = sorted(name for name in listing if name.startswith("2") and name.endswith(".py"))[-1]
     assert head.startswith("20261011_0097_"), head
     assert "PostgreSQL stays at revision `20261011_0097`." in notes
 
-    package = json.loads(_text("apps/web/package.json"))
+    package = json.loads(_tagged(RELEASE_TAG, "apps/web/package.json"))
     assert package["dependencies"]["next"] == "16.4.1"
     assert package["devDependencies"]["eslint-config-next"] == "16.4.1"
     console = _section(_text(NOTES_PATH), "The web console and Next.js 16.4.1")
     assert "Next.js moves from 16.3.8 to 16.4.1, and `eslint-config-next` moves with it." in console
     assert "The PyPI package does not include the console" in console
 
-    floors = {marker: body.floor for marker, body in legacy._TOKEN_BODIES.items()}
-    assert floors == {
+    bodies = _tagged_token_bodies()
+    assert {marker: floor for marker, (_chars, floor) in bodies.items()} == {
         "ghp_": 36,
         "gho_": 36,
         "ghs_": 36,
@@ -310,9 +448,9 @@ def test_the_numbers_that_drift_are_the_ones_the_code_and_the_files_have(monkeyp
         "xoxa-": 10,
         "xoxs-": 10,
     }
-    assert legacy._TOKEN_BODIES["ghs_"].chars == legacy._TOKEN_BODIES["ghu_"].chars == "0-9A-Za-z._-"
+    assert bodies["ghs_"][0] == bodies["ghu_"][0] == "0-9A-Za-z._-"
     for marker in ("ghp_", "gho_", "npm_"):
-        assert legacy._TOKEN_BODIES[marker].chars == "0-9A-Za-z", marker
+        assert bodies[marker][0] == "0-9A-Za-z", marker
     markers = _section(_text(NOTES_PATH), "Credential markers")
     for needle in (
         "(`ghp_`, `gho_`, `ghs_`, `ghu_`, `github_pat_`, `glpat-`, `npm_`, `sk-`, `xoxb-`, `xoxp-`, `xoxa-`, `xoxs-`)",
@@ -520,15 +658,29 @@ def test_the_headline_changes_of_the_notes_each_have_a_changelog_entry() -> None
     assert "v0.21.1 refuses or withholds it." in notes
 
 
-def test_the_release_check_accepts_the_notes_and_the_changelog_before_the_tag() -> None:
-    """Mutations, each one alone: set a status of the notes to published; add the checksums file; put an entry under
-    ``## Unreleased``; delete the dated heading; set one version site back to 0.21.0.
+def test_the_release_check_accepts_the_tree_and_its_pre_tag_mode_refuses_the_published_notes() -> None:
+    """Mutations, each one alone: set a status of the notes back to pending; delete the checksums file; delete the
+    dated heading; set one version site back to 0.21.0.
 
-    This runs the release check's own pre-tag rule on the real tree, so a change that the check would refuse at the tag
-    fails on the pull request instead.
+    ``release_check.py`` passes on the tree. Its ``--require-finalized-release-docs`` mode is the pre-tag rule and
+    refuses a published tree on purpose, for the same three reasons as after v0.21.0: both statuses must be pending
+    before the tag, and the checksums file must not exist on the pre-publication tag.
     """
 
     metadata, issues = release_check.validate_metadata(REPO_ROOT)
     assert issues == []
     assert metadata.version == "0.21.1"
-    assert release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=True) == []
+    assert release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=False) == []
+    published = [
+        "release notes alice-release-state publication_status must be pending before tag",
+        "release notes alice-release-state checksums_status must be pending before tag",
+        "docs/release/v0.21.1-checksums.txt must not exist on the pre-publication tag",
+    ]
+    issues = release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=True)
+    assert [issue for issue in issues if issue in published] == published
+    # Once main has an Unreleased CHANGELOG entry, the pre-tag mode also says the section must be empty for a tag.
+    # That is true of every later commit and is the only other issue allowed here.
+    assert [issue for issue in issues if issue not in published] in (
+        [],
+        ["CHANGELOG.md Unreleased section must be empty for the release tag"],
+    )
