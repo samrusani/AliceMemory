@@ -1155,6 +1155,72 @@ def test_alice_capture_embeds_the_note_after_it_commits_and_names_the_counts(tmp
     assert len(_vector_chunk_ids(db)) == 2
 
 
+def test_the_agent_output_tool_embeds_the_note_it_saved_after_it_commits(tmp_path: Path, monkeypatch) -> None:
+    """The legacy agent-output door. Mutation: leave the call out of ``_handle_alice_vnext_ingest_agent_output``.
+
+    The tool does not complete on SQLite today (the SQLite store has no ``create_artifact``), so a stand-in for
+    the connector service saves the source. What is tested is the wiring after the commit: the receipt gains
+    ``chunk_embeddings`` when the opt-in is on, and gains nothing when it is off.
+    """
+
+    from alicebot_api.mcp import capture_automation
+    from alicebot_api.mcp.registry import call_mcp_tool
+    from alicebot_api.mcp_tools import AGENT_API_KEY_ENV, LEGACY_SURFACES_ENV, MCP_LEGACY_TOOLS_ENV, MCPRuntimeContext
+    from alicebot_api.onramp import sqlite_url_for_path
+    from alicebot_api.vnext_connectors import AgentOutputIngestResult
+
+    class StandInConnectorService:
+        def __init__(self, store, **_kwargs) -> None:
+            self.store = store
+
+        def ingest_agent_output(self, payload, *, policy_decision):
+            digest = hashlib.sha256(str(payload["content"]).encode()).hexdigest()
+            source = self.store.create_source(
+                {
+                    "source_type": "agent_output",
+                    "title": payload["title"],
+                    "content_hash": digest,
+                    "domain": payload["domain"],
+                    "sensitivity": payload["sensitivity"],
+                }
+            )
+            self.store.create_source_chunk({"source_id": source["id"], "chunk_index": 0, "text": payload["content"]})
+            return AgentOutputIngestResult("imported", str(source["id"]), None, None, policy_decision)
+
+    monkeypatch.setattr(capture_automation, "VNextConnectorService", StandInConnectorService)
+    monkeypatch.setenv(MCP_LEGACY_TOOLS_ENV, "1")
+    monkeypatch.setenv(LEGACY_SURFACES_ENV, "1")
+    monkeypatch.delenv(AGENT_API_KEY_ENV, raising=False)
+    db = _vault(tmp_path)
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(db), user_id=USER_ID)
+    arguments = {
+        "agent_id": "openclaw",
+        "agent_type": "coding_agent",
+        "permission_profile": "project_scoped_agent",
+        "agent_run_id": "run-1",
+        "project_scope": ["Alice"],
+        "title": "Lantern review",
+        "content": PLAIN,
+        "domain": "project",
+        "sensitivity": "internal",
+    }
+    quiet = call_mcp_tool(context, name="alice_vnext_ingest_agent_output", arguments=arguments)
+    assert quiet["status"] == "imported" and "chunk_embeddings" not in quiet and _vector_chunk_ids(db) == set()
+    with RecordingServer() as server:
+        monkeypatch.setenv(EMBEDDINGS_BASE_URL_ENV, server.base_url)
+        monkeypatch.setenv(EMBEDDINGS_MODEL_ENV, NOMIC)
+        monkeypatch.setenv(SOURCE_EMBEDDINGS_ENV, "on")
+        fresh = call_mcp_tool(
+            context,
+            name="alice_vnext_ingest_agent_output",
+            arguments={**arguments, "title": "Cobalt review", "content": f"{PLAIN} Cobalt edition."},
+        )
+        sent = list(server.texts)
+    assert fresh["chunk_embeddings"]["embedded"] == 1 and fresh["chunk_embeddings"]["pending"] == 0
+    assert len(sent) == 1 and sent[0].startswith("search_document: Cobalt review\n")
+    assert len(_vector_chunk_ids(db)) == 1
+
+
 # -- nothing in the recall path reads the table in this change -----------------------------------------------------------------------
 
 
