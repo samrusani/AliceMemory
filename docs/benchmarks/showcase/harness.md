@@ -10,7 +10,7 @@ Nothing in the harness calls a paid model API.
 Both settings are local Ollama addresses. A host that is not loopback is refused.
 
 - Chat, for mem0 extraction: `qwen2.5:7b` by default. `llama3.2` and `gemma4` are the other accepted models. `--chat-model` selects one, and the run manifest records it.
-- Embeddings, for Alice and for mem0: `nomic-embed-text:v1.5`. Alice reads it as `ALICE_EMBEDDINGS_BASE_URL` set to the Ollama `/v1` prefix and `ALICE_EMBEDDINGS_MODEL` set to that model. Ollama serves an OpenAI-compatible `/v1/embeddings`. `--embed-model` and `--endpoint` are the settings. `--embeddings on` applies those settings during import and during Alice recall, and the import posts the note text to that endpoint. The default is `off`, so a test run does not call Ollama.
+- Embeddings, for Alice and for mem0: `nomic-embed-text:v1.5`. Alice reads it as `ALICE_EMBEDDINGS_BASE_URL` set to the Ollama `/v1` prefix and `ALICE_EMBEDDINGS_MODEL` set to that model. Ollama serves an OpenAI-compatible `/v1/embeddings`. `--embed-model` and `--endpoint` are the settings. `--embeddings on` applies those settings during import and during Alice recall, and the import posts the note text to that endpoint. The vectors from that call are not stored: Alice embeds only memories that recall can return, and a Markdown import creates none, and it stores no vectors for sources or passages. So in a run built this way, including the Phase 0 baseline and the Phase 1 comparison for v0.21.0, every Alice answer came from full-text search over the imported notes, and the vector stage had nothing to search. The default is `off`, so a test run does not call Ollama.
 
 A test run uses `--extractor fake` and does not call Ollama.
 
