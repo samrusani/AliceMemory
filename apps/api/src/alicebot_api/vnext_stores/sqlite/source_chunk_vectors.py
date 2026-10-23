@@ -16,6 +16,7 @@ stored a vector has no such table. Every read here answers "none" for a vault wi
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -143,6 +144,33 @@ def chunk_vector_meta(store: SQLiteVNextStore, source_id: str) -> dict[str, VNex
     return {str(row["chunk_id"]): row for row in rows}
 
 
+def chunk_rows_by_ids(store: SQLiteVNextStore, chunk_ids: Sequence[str]) -> dict[str, VNextRow]:
+    """The stored rows of these chunks of live sources, by id: the columns ``search_source_chunks`` returns, with no score.
+
+    A chunk whose source is deleted, replaced or scrubbed is not returned. The vector stage reads the text of the
+    chunks it picks here, so a vector can name a chunk and never be the way its text is read.
+    """
+
+    from alicebot_api.sqlite_store import SOURCE_CHUNK_COLUMNS
+
+    wanted = list(dict.fromkeys(str(item) for item in chunk_ids))
+    if not wanted:
+        return {}
+    columns = ", ".join(f"c.{column}" for column in SOURCE_CHUNK_COLUMNS)
+    rows = store._fetch_all(
+        f"""
+        SELECT {columns}
+        FROM source_chunks c
+        JOIN sources s ON s.id = c.source_id AND s.user_id = c.user_id
+        WHERE c.user_id = ?
+          AND c.id IN (SELECT value FROM json_each(?))
+          AND s.deleted_at IS NULL
+        """,  # nosec B608 - the column list is a module constant
+        (store.user_id, json.dumps(wanted)),
+    )
+    return {str(row["id"]): row for row in rows}
+
+
 def live_source_ids_after(store: SQLiteVNextStore, after_id: str | None, limit: int) -> list[str]:
     """Ids of live sources in id order, after ``after_id``: the pages a backfill walks."""
 
@@ -259,6 +287,7 @@ def drop_chunk_vector_table(store: SQLiteVNextStore) -> int:
 __all__ = [
     "CHUNK_VECTOR_META_COLUMNS",
     "LIVE_SOURCE_SQL",
+    "chunk_rows_by_ids",
     "chunk_vector_meta",
     "chunk_vector_table_exists",
     "drop_chunk_vector_table",

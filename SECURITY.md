@@ -65,6 +65,30 @@ the code. From v0.15.1 on, each version's release notes list its known gaps.
 The shipped threat model and current evidence boundaries are documented in
 [`docs/security/`](docs/security/README.md).
 
+## What Text Leaves the Machine
+
+Alice sends text to a model or an embeddings endpoint only when the owner has configured one, and it sends nothing to
+an endpoint that is not configured. Memory embeddings send the text of the memories recall can return and the recall
+query. The text of imported and captured notes is a separate opt-in:
+
+- Nothing from a source is sent unless `ALICE_SOURCE_EMBEDDINGS=on`. Setting `ALICE_EMBEDDINGS_BASE_URL` and
+  `ALICE_EMBEDDINGS_MODEL` alone sends no chunk of a note.
+- An endpoint that is not on this machine also needs `ALICE_SOURCE_EMBEDDINGS_REMOTE=on`, and then only chunks of
+  sources whose sensitivity is at or under `ALICE_SOURCE_EMBEDDINGS_MAX_SENSITIVITY` (default `internal`; a source
+  labelled `unknown` is held at `private`) are sent. A proxy in the environment that would carry the request makes an
+  address on this machine count as not on it.
+- What is sent for a chunk is the model's document prefix, the source title, the headings above the chunk and the
+  chunk. Never sent: a chunk the credential check flags (read whole, with the title and headings), a chunk of links or
+  headings only, a chunk with fewer than 32 readable characters, a chunk of a deleted, replaced or scrubbed source, and
+  anything on a `--dry-run`.
+- The text is sent after the import or capture has committed, with no database lock held. `alice-memory
+  reindex-embeddings --sources` sends the same chunks, only when the owner runs it; no tool starts it.
+- With `ALICE_SEARCH_QUALITY=vectors`, each `alice_recall` sends its query to the same endpoint under the same
+  settings, unless the credential check flags the query.
+- A vector can be turned back into much of the text it was made from, so deleting a source (`alice-memory sources
+  delete`, `sources prune`, `import-markdown --supersede`) deletes its chunk vectors, and `reindex-embeddings --sources
+  --drop` deletes them all. A vector the endpoint's operator kept, or a backup of the vault, is outside Alice's reach.
+
 ## Browser Clipper Credentials
 
 Visited-page JavaScript is hostile credential context. The bookmarklet must

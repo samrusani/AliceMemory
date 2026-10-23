@@ -141,6 +141,7 @@ run at all and makes zero network calls.
 | Env vars | Stage | When unset | When set |
 | --- | --- | --- | --- |
 | `ALICE_EMBEDDINGS_BASE_URL`, `ALICE_EMBEDDINGS_MODEL`, optional `ALICE_EMBEDDINGS_API_KEY` | Vector search (hybrid recall) | Full-text-only retrieval; trace `vector_stage` says `disabled: no embedding provider configured`. | Query and memory embeddings via any OpenAI-compatible `/embeddings` endpoint (Ollama, LM Studio, vLLM, OpenAI); vector results join rank fusion. |
+| `ALICE_SOURCE_EMBEDDINGS=on`, with the embeddings variables above | Vectors of imported chunks (`ALICE_SEARCH_QUALITY=vectors`, SQLite) | No chunk text is sent; `alice_recall` ranks passages by words alone. | Chunks are embedded after an import or a capture, and `ALICE_SEARCH_QUALITY=vectors` ranks passages with them. A remote endpoint also needs `ALICE_SOURCE_EMBEDDINGS_REMOTE=on`. See [Embeddings of source chunks](mcp-tools.md#embeddings-of-source-chunks). |
 | `ALICE_RERANKER_BASE_URL`, `ALICE_RERANKER_MODEL`, optional `ALICE_RERANKER_API_KEY` | Rerank (precision) | Dormant: fused order stands, zero provider calls, no `reranker` trace stage — packs are byte-identical to the fusion-only path. | Provider-side listwise relevance scoring of the fused candidate head (up to 48 memories + 24 sources per pack) via any OpenAI-compatible `/chat/completions` endpoint, reordering candidates before slots and token budget are spent. |
 
 Vectors are stamped with provider, model, content digest, and signature

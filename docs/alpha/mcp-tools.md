@@ -126,6 +126,12 @@ Remember, recall, continue. These are the only tools in a default
   keeps document mode unless `ALICE_SEARCH_QUALITY=passage` says otherwise, and
   a PostgreSQL caller whose key has limits still gets one passage per document
   when the switch is `passage`. `ALICE_SEARCH_QUALITY=on` is still refused.
+ `ALICE_SEARCH_QUALITY=vectors`, on the SQLite store only,
+  is passage mode with the vectors of the chunks. It needs
+  `ALICE_SOURCE_EMBEDDINGS=on`, an embeddings endpoint and chunks embedded with
+  the same model ([Embeddings of source chunks](#embeddings-of-source-chunks)),
+  and when any of those is missing it answers exactly as `passage` does and
+  `debug` names the reason. On PostgreSQL it answers as `passage` would there.
   Each passage entry adds `chunk_index`, and `source_count` counts entries. When
   no memory in the result names a source, the extra memories added to
   `results` come from the first source entry, which can be a different
@@ -473,6 +479,50 @@ memory is labelled as made from a cut text. `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` (
 [MCP integration](../integrations/mcp.md). When the endpoint refuses one memory, reindex still embeds the others, lists
 the failed memory ids and the endpoint's reason (at most 300 characters, withheld if it looks like a credential), and
 `alice-memory doctor` prints the `memories without a current vector` count.
+
+### Embeddings of source chunks
+
+The chunks of imported and captured notes can be embedded too. That sends the text of your notes to the embeddings
+endpoint, so it is its own opt-in. Setting `ALICE_EMBEDDINGS_BASE_URL` and `ALICE_EMBEDDINGS_MODEL` embeds memories, as
+before, and sends no chunk.
+
+| Variable | What it does |
+| --- | --- |
+| `ALICE_SOURCE_EMBEDDINGS=on` | Required. Only the value `on` counts. Without it no text of a source is sent by an import, by `alice_capture`, by `alice-memory reindex-embeddings --sources` or by a recall. |
+| `ALICE_SOURCE_EMBEDDINGS_REMOTE=on` | Also required when the endpoint is not on this machine. A host other than `localhost`, a name under `.localhost`, an address in `127.0.0.0/8` or `::1` is not on this machine, and neither is any endpoint a proxy of the environment would carry. |
+| `ALICE_SOURCE_EMBEDDINGS_MAX_SENSITIVITY` | With a remote endpoint, the most sensitive source whose chunks are sent. Default `internal`. In order: `public`, `internal`, `private`, `confidential`, `highly_sensitive`, `sacred` and `regulated`; a source labelled `unknown` is held at `private`. It does not apply to an endpoint on this machine. |
+| `ALICE_SOURCE_EMBEDDINGS_MAX_VECTORS` | The most chunk vectors one vault keeps. Default 250,000. At the cap, chunks stay pending and the receipt says so. |
+| `ALICE_SOURCE_VECTOR_CACHE_MAX_MB` | The most memory the resident copy of the vectors may use in one process. Default 512, about 170,000 vectors of 768 numbers. |
+
+What is sent for a chunk is the model's document prefix (`search_document: ` for `nomic-embed-text`, nothing for a model
+the prefix table does not name), the title of the source, the headings above the chunk and the chunk. The chunk that is
+stored and returned does not change. A chunk is never sent when the credential check flags it (the floor and the commit
+door's check, on the whole chunk and on the whole text sent), when it holds only links and headings, when it has fewer
+than 32 readable characters, when its source is deleted, replaced or scrubbed, or on a `--dry-run`.
+
+`alice-memory import-markdown`, `alice-memory import-chatgpt`, `alice_capture` and `alice_vnext_ingest_agent_output`
+embed the chunks of what they save after they commit and hold no database lock while they do. A failed batch leaves its
+chunks pending and never fails the import or the capture; with the opt-in on, the receipt gains a `chunk_embeddings`
+object with the numbers embedded, pending (and why) and skipped (and why). `alice-memory reindex-embeddings --sources`
+embeds the chunks that have no current vector or whose vector no longer matches the model, the endpoint, the rules or the
+text, and `--sources --drop` deletes every chunk vector and the table. No tool starts that: it is a command on this
+machine. `alice-memory doctor` prints the mode and the counts of chunks with a current vector, pending, with a stale
+vector and skipped. Export does not carry the vectors, and says how many the vault holds.
+
+`ALICE_SEARCH_QUALITY=vectors` uses them. `alice_recall` embeds the query once, with the model's query prefix and a
+two second timeout; after a failure it does not ask again for 30 seconds. Then, inside every document the stage shows,
+the document's chunks are ranked by reciprocal rank fusion of their rank by words and their rank by vector within that
+document, and the document keeps the number of passages it had in passage mode. A third of the head of the result
+(2 of 6 passages at the default limit of 8) is held for documents that only the vectors found. The decision to retry the
+query with any word is made on the words alone. A document the caller may not read is never ranked, scored or counted,
+and no id of a chunk is ever shown. With `debug`, `retrieval.stages.sources.vector` gives a status (`enabled`,
+`disabled: ...`, `skipped: ...`, `none embedded`, `none usable: ...`) and counts of what the caller may read. At the
+minimal depth the vector stage is off.
+
+The cost: one request for the query on each recall; about 3 KB of memory for each chunk vector of 768 numbers, read into
+the process on the first recall and kept; one 4 KB page of disk for each; and the time to embed, once, when a note is
+imported or captured. Above the cache cap the stage is skipped and its status says so; the table is not read row by row
+instead.
 
 ## Explicit memory commits
 
