@@ -261,20 +261,21 @@ seen, and the floor of 20 is a choice below it.
 A token right after an underscore is read too: v0.16.0's boundary was "no
 letter, digit or underscore before the marker", so `_ghs_` and a token,
 `x_ghs_` and 36 characters, and `TOKEN_npm_` and 36 characters were never read
-by the marker rule, and a marker with a floor is now hidden only by a letter
-or a digit before it (a marker glued to a word is part of that word). The
-floor is what keeps `PART_SK-2291` and `deploy_ghu_config` out. The two ssh
-markers keep the bare reading, and v0.16.0's boundary, because they have no
-floor, they name a public key line and the first carve-out excuses it. The two
-FIDO key types are still read at any length, so a token glued onto one is
-still refused. The commit gate's own `sk-` prefix pattern, which read `sk-`
-and 8 characters, takes the floor of the `sk-` marker, so `SK-20260301`,
-`SK-2025-0618` and `SK-2291-REV` are not read as keys. Nothing else moved: the
-commit gate's `ghp_` and `xoxb-` prefix patterns (8 or more characters after
-them), the detector and the carve-outs are unchanged, so a lower-case `sk-`
-code of 8 digits is still refused by the detector, and a body one short of a
-floor can still be read by those. A token of a listed shape has at least its
-floor of such characters right after the marker, so it is read as before.
+by the marker rule. The floor, not the boundary, is what keeps `PART_SK-2291`
+and `deploy_ghu_config` out. The two ssh markers keep the bare reading, and
+v0.16.0's boundary, because they have no floor, they name a public key line
+and the first carve-out excuses it. The two FIDO key types are still read at
+any length, so a token glued onto one is still refused. The commit gate's own
+`sk-` prefix pattern, which read `sk-` and 8 characters, takes the floor of
+the `sk-` marker, so `SK-20260301`, `SK-2025-0618` and `SK-2291-REV` are not
+read as keys. Nothing else moved: the commit gate's `ghp_` and `xoxb-` prefix
+patterns (8 or more characters after them), the detector and the carve-outs
+are unchanged, so a lower-case `sk-` code of 8 digits is still refused by the
+detector, and a body one short of a floor can still be read by those. A token
+of these shapes is withheld or refused when its marker starts the text or
+follows a space, punctuation or an underscore; a marker glued directly onto a
+letter or digit (as in `X` followed by a `ghs_` token) is not read, as in
+v0.21.0.
 
 The carve-outs are the design round's named false positives, and there are
 no others. Each excuses one finding at a time, so a note with an excused
@@ -471,7 +472,8 @@ Stated so nobody reads the table above as "every surface".
   letter or digit, no uppercase or titlecase character, no control, format,
   surrogate, private-use, or unassigned character, and no whitespace other
   than a plain space. A 64-hex scope is not this shape.
-  The label is still read by value, so an `sk-` or `xoxb-` anchor is refused.
+  The label is still read by value, so a label that is a token of the shapes
+  above (an `sk-` or `xoxb-` key, for example) is refused on the same terms.
   The text grammar is unchanged, so `rollup_key=<opaque>` at
   the commit door is still refused. `rollup` is not a structural name, so
   `rollupKey` and the other spellings are refused at the commit door.

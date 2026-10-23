@@ -71,10 +71,10 @@ real token of that kind has (see _TOKEN_BODIES, which states the shape behind
 every number and where it comes from). The two ssh markers keep the bare
 reading: they name a public key line, which the first carve-out excuses.
 Nothing else changed: the commit gate's sk- prefix pattern takes the floor of
-the sk- marker,
-and the other patterns, its other prefix patterns (ghp_, xoxb-, akia) and the
-carve-outs are v0.16.0's, so a token of a listed shape is refused as before and
-only a marker with too little after it to be one is let through.
+the sk- marker, and the other patterns, its other prefix patterns (ghp_,
+xoxb-, akia) and the carve-outs are v0.16.0's, so a marker followed by a body
+of a listed shape is refused as before, and only a marker with too little
+after it to be one is let through.
 
 The second: an underscore before a token marker no longer hides it. v0.16.0's
 lead boundary was "no letter, digit or underscore before", so _ghs_ and a
@@ -83,7 +83,10 @@ never read by the marker rule. With a floor on every token marker the
 underscore is no longer needed to keep ordinary names out, so a marker with a
 floor is hidden only by a letter or a digit before it (a marker glued to a
 word is part of that word). The ssh markers have no floor and keep v0.16.0's
-lead. tests/unit/test_legacy_credential_check.py runs its comparison with
+lead. So a token of these shapes is withheld or refused when its marker starts
+the text or follows a space, punctuation or an underscore; a marker glued
+directly onto a letter or digit (as in X followed by a ghs_ token) is not read,
+as in v0.21.0. tests/unit/test_legacy_credential_check.py runs its comparison with
 v0.16.0's own code with the floors and the lead turned off, to show that these
 are the only differences, and tests/unit/test_credential_marker_lengths.py
 pins the floors and the lead.
@@ -166,8 +169,10 @@ _GITHUB_APP_CHARS = "0-9A-Za-z._-"
 
 # The shape of the token each marker targets, the shortest body such a token
 # has after the marker, and where that number comes from. A floor is no longer
-# than that body, so a token of the listed shape is still read, and long
-# enough that a part code, a ticket id or a variable name is not. A body is
+# than that body, so a marker followed by a body of the listed shape is read
+# (when it starts the text or follows a space, punctuation or an underscore;
+# glued directly onto a letter or digit it is not read, as in v0.21.0), and
+# long enough that a part code, a ticket id or a variable name is not. A body is
 # counted in the characters of the class beside it, which are the characters
 # the real body is made of. Where no provider publishes a minimum, the entry
 # says so, and the floor is a choice below the shortest shape known.
