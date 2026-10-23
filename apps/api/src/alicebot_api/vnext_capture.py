@@ -1356,7 +1356,8 @@ class VNextCaptureService:
                 counts = getattr(self.store, "supersede_source")(str(row['id']), superseded_by=result.source_id,
                     allow_looser_classification=policy.allow_looser_classification, dry_run=policy.dry_run,
                     loop_ids=loop_ids, edge_hits=edge_hits)
-                retired.append({"id": str(row['id']), "title": printed_source_label(row.get('title'))})
+                retired.append({"id": str(row['id']), "title": printed_source_label(row.get('title')),
+                                "chunk_vectors": counts.get('chunk_vectors', 0)})
                 citing.extend(counts['memories_citing_replaced'])
             return replace(result, superseded=tuple(retired), memories_citing_replaced=tuple(dict.fromkeys(citing)))
 

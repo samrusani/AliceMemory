@@ -48,6 +48,7 @@ from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.onramp import main as cli, sqlite_url_for_path
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+from alicebot_api.vnext_stores.sqlite.source_chunk_vectors import put_chunk_vector
 from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_stores.sqlite import source_retirement
 from alicebot_api.vnext_stores.sqlite.source_retirement import edges_naming_sources
@@ -749,9 +750,10 @@ def test_everything_that_links_to_or_copies_a_source_is_covered_or_listed_as_kep
     the candidate memory it produced with its revision, full-text row and edges, its open loops, its mention edges and
     the entities only they held, every other graph edge that names it, and its sleep proposal. Kept on purpose, and
     listed in the receipt or in ``retained_data``: a committed memory that cites it, the events that name it, and the
-    hash columns of the source row. Not a SQLite table at all: generated reports (artifacts), connector cursors, and a
-    separate embedding table (the only embedding column is on a memory). ``entity_relationship_events`` is append-only,
-    and nothing writes its ``source_id`` (see the two tests at the end of this file).
+    hash columns of the source row. Not a SQLite table at all: generated reports (artifacts) and connector cursors.
+    Retired with the source since the chunk vectors exist: its rows of ``source_chunk_embeddings``, the one table that
+    holds a vector of source text (the other vector column belongs to a memory). ``entity_relationship_events`` is
+    append-only, and nothing writes its ``source_id`` (see the two tests at the end of this file).
     """
 
     from tests.unit.test_source_commands import TEXT, seed
@@ -769,6 +771,16 @@ def test_everything_that_links_to_or_copies_a_source_is_covered_or_listed_as_kep
         )
         store.create_provenance_link({"target_type": "memory", "target_id": committed, "source_id": sid, "quote": TEXT})
         entity = _linker_entity(store, "Zorvex Holdings")
+        # The chunks of the source have vectors, and so does a chunk of a source that stays.
+        chunk_ids = [str(chunk["id"]) for chunk in store.list_source_chunks(sid)]
+        for chunk_id in chunk_ids:
+            put_chunk_vector(store, chunk_id=chunk_id, source_id=sid, vector=[0.25, 0.5, 0.75], provider="p", model="m",
+                             endpoint="e", signature_version=1, header_version=1, prefix_version=0, content_sha256="x")
+        kept_source = str(store.create_source({"source_type": "note", "title": "kept", "content_hash": "kept-hash",
+                                               "domain": "personal", "sensitivity": "private"})["id"])
+        kept_chunk = str(store.create_source_chunk({"source_id": kept_source, "chunk_index": 0, "text": "a kept note"})["id"])
+        put_chunk_vector(store, chunk_id=kept_chunk, source_id=kept_source, vector=[1.0, 2.0], provider="p", model="m",
+                         endpoint="e", signature_version=1, header_version=1, prefix_version=0, content_sha256="y")
         edges = [
             _edge(store, ("source", sid, "memory", committed, "supports"), "to a committed memory"),
             _edge(store, ("entity", entity, "source", sid.upper(), "supports"), "from an entity"),
@@ -780,7 +792,11 @@ def test_everything_that_links_to_or_copies_a_source_is_covered_or_listed_as_kep
     assert command(db, "delete", sid, "--yes") == 0
     receipt = json.loads(capsys.readouterr().out)["deleted"][0]
     assert receipt["candidate_memories"] == 1 and receipt["open_loops"] == 1
-    # The only vector column belongs to a memory: the redacted candidate loses it, the kept memory keeps its own.
+    # The vectors of the chunks go with them, and the receipt counts them. The other source keeps its own.
+    assert receipt["chunk_vectors"] == len(chunk_ids) >= 1
+    assert _rows(db, "SELECT count(*) FROM source_chunk_embeddings WHERE source_id = ?", (sid,)) == [(0,)]
+    assert _rows(db, "SELECT chunk_id FROM source_chunk_embeddings") == [(kept_chunk,)]
+    # The other vector column belongs to a memory: the redacted candidate loses it, the kept memory keeps its own.
     assert _rows(db, "SELECT id, embedding IS NULL FROM memories WHERE id IN (?, ?) ORDER BY id", (candidate, committed)) == sorted(
         [(candidate, 1), (committed, 0)])
     assert receipt["memories_citing_replaced"] == [committed]
@@ -807,9 +823,11 @@ def test_everything_that_links_to_or_copies_a_source_is_covered_or_listed_as_kep
     assert _rows(db, "SELECT rowid FROM memories_fts WHERE memories_fts MATCH ?", (KEYWORD,)) == [
         (row[0],) for row in _rows(db, "SELECT rowid FROM memories WHERE id = ?", (committed,))]
     assert not [r for r in _rows(db, "SELECT name FROM vnext_entities WHERE deleted_at IS NULL") if "Bob" in r[0]]
-    # No table for reports, connector cursors or vectors; ``embedding_stamp`` holds one token and no vector.
-    assert [r[0] for r in _rows(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND (name LIKE '%artifact%' "
-                                    "OR name LIKE '%cursor%' OR name LIKE '%embedding%')")] == ["embedding_stamp"]
+    # No table for reports or connector cursors. Two tables match ``embedding``: ``embedding_stamp`` holds one token and no
+    # vector, and ``source_chunk_embeddings`` holds the vectors of chunks, with no row of the retired source (above).
+    assert sorted(r[0] for r in _rows(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND (name LIKE '%artifact%' "
+                                          "OR name LIKE '%cursor%' OR name LIKE '%embedding%')")) == [
+        "embedding_stamp", "source_chunk_embeddings"]
 
 
 def test_an_alias_a_shared_entity_learned_from_the_source_stays_while_another_edge_reaches_it(tmp_path, capsys) -> None:

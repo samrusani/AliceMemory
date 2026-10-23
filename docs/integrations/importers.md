@@ -399,7 +399,7 @@ an integer from 0 through 9223372036854775807 days since replacement. Neither de
 selects its targets again under the writer lock and applies one transaction.
 
 Scrub first removes the source's sleep proposals, then clears source labels and
-metadata, overwrites chunks and provenance quotes, redacts pending or rejected
+metadata, overwrites chunks and provenance quotes, deletes the vectors of the chunks (the receipt's `chunk_vectors`), redacts pending or rejected
 candidates and their revisions, closes and blanks every graph edge that names
 the source, updates entity counts, scrubs unsupported linker entities, and
 closes and blanks source-backed loops.

@@ -46,6 +46,7 @@ from .synthesis import (
     _handle_alice_generate_connections,
     _handle_alice_generate_contradictions,
 )
+from .runtime import _embed_new_source_chunks
 from .types import MCPArgumentError, MCPReferenceNotFoundError
 
 
@@ -104,7 +105,13 @@ def _handle_alice_vnext_capture(context: MCPRuntimeContext, arguments: Mapping[s
         actor_id=capture_actor_id,
         trace_id=capture_trace_id,
     )
-    return _json_object(capture_result.to_record())
+    record = _json_object(capture_result.to_record())
+    if capture_result.source_id and capture_result.status in {"imported", "duplicate"}:
+        # After the transaction above ended: no lock is held while the chunks are sent.
+        receipt = _embed_new_source_chunks(context, [capture_result.source_id])
+        if receipt is not None:
+            record["chunk_embeddings"] = _json_object(receipt.to_record())
+    return record
 
 
 def _handle_alice_vnext_ingest_agent_output(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -164,7 +171,12 @@ def _handle_alice_vnext_ingest_agent_output(context: MCPRuntimeContext, argument
         actor_id=identity.agent_id,
         trace_id=decision.trace_id,
     )
-    return _json_object(ingest_result.to_record())
+    ingest_record = _json_object(ingest_result.to_record())
+    if ingest_result.source_id:
+        receipt = _embed_new_source_chunks(context, [ingest_result.source_id])
+        if receipt is not None:
+            ingest_record["chunk_embeddings"] = _json_object(receipt.to_record())
+    return ingest_record
 
 
 def _handle_alice_vnext_queue_task(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:

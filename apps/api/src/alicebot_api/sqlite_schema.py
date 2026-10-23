@@ -1682,6 +1682,82 @@ def _backfill_source_dedupe_keys(conn: sqlite3.Connection) -> None:
         )
 
 
+# The vectors of source chunks: a table made the first time a vector is stored, not by the bootstrap.
+#
+# A vault that never turns ``ALICE_SOURCE_EMBEDDINGS`` on never gets the table, so a build that does not know it
+# (the export of an older release refuses a table it has never heard of) keeps working on that vault, and a vault
+# that dropped its vectors with ``alice-memory reindex-embeddings --sources --drop`` is back to that state. The step
+# is idempotent and runs inside the transaction of the first write, so it lands with that write or not at all.
+# ``SOURCE_CHUNK_VECTORS_STATE_KEY`` in ``alice_schema_state`` holds the version of the table, for the next change.
+SOURCE_CHUNK_VECTORS_TABLE = "source_chunk_embeddings"
+SOURCE_CHUNK_VECTORS_STATE_KEY = "source_chunk_embeddings_version"
+SOURCE_CHUNK_VECTORS_SCHEMA_VERSION = "1"
+#: Tables a build makes after the bootstrap. An export or import accepts them as this build's own.
+LAZY_TABLE_NAMES: frozenset[str] = frozenset({SOURCE_CHUNK_VECTORS_TABLE})
+
+_SOURCE_CHUNK_VECTORS_STATEMENTS: tuple[str, ...] = (
+    f"""
+    CREATE TABLE IF NOT EXISTS source_chunk_embeddings (
+      chunk_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source_id TEXT NOT NULL,
+      dimensions INTEGER NOT NULL,
+      embedding BLOB NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      endpoint TEXT NOT NULL DEFAULT '',
+      signature_version INTEGER NOT NULL,
+      header_version INTEGER NOT NULL,
+      prefix_version INTEGER NOT NULL,
+      content_sha256 TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT {_NOW_UTC_ISO_SQL},
+      CONSTRAINT source_chunk_embeddings_chunk_fkey
+        FOREIGN KEY (chunk_id, user_id)
+        REFERENCES source_chunks(id, user_id)
+        ON DELETE CASCADE,
+      CONSTRAINT source_chunk_embeddings_dimensions_check
+        CHECK (dimensions > 0),
+      CONSTRAINT source_chunk_embeddings_width_check
+        CHECK (length(embedding) = dimensions * 4)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS source_chunk_embeddings_source_idx
+      ON source_chunk_embeddings (user_id, source_id)
+    """,
+)
+
+
+def source_chunk_vectors_table_exists(conn: sqlite3.Connection) -> bool:
+    cursor = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1", (SOURCE_CHUNK_VECTORS_TABLE,)
+    )
+    try:
+        return cursor.fetchone() is not None
+    finally:
+        cursor.close()
+
+
+def ensure_source_chunk_vectors_table(conn: sqlite3.Connection) -> None:
+    """Make the chunk vector table and record its version. Safe to call repeatedly."""
+
+    if source_chunk_vectors_table_exists(conn):
+        return
+    for statement in _SOURCE_CHUNK_VECTORS_STATEMENTS:
+        conn.execute(statement)
+    conn.execute(
+        "INSERT OR IGNORE INTO alice_schema_state (key, value) VALUES (?, ?)",
+        (SOURCE_CHUNK_VECTORS_STATE_KEY, SOURCE_CHUNK_VECTORS_SCHEMA_VERSION),
+    )
+
+
+def drop_source_chunk_vectors_table(conn: sqlite3.Connection) -> None:
+    """Remove the chunk vector table and its version row: the vault is as a build without it left it."""
+
+    conn.execute(f"DROP TABLE IF EXISTS {SOURCE_CHUNK_VECTORS_TABLE}")  # nosec B608 - a module constant
+    conn.execute("DELETE FROM alice_schema_state WHERE key = ?", (SOURCE_CHUNK_VECTORS_STATE_KEY,))
+
+
 _SOURCE_DEDUPE_IDENTITY_STATE_KEY = "source_dedupe_identity_version"
 _SOURCE_DEDUPE_IDENTITY_VERSION = "6"
 
@@ -2110,6 +2186,13 @@ __all__ = [
     "REVISION_TYPES",
     "ROW_BACKFILL_TABLES",
     "SENSITIVITY_LEVELS",
+    "LAZY_TABLE_NAMES",
+    "SOURCE_CHUNK_VECTORS_SCHEMA_VERSION",
+    "SOURCE_CHUNK_VECTORS_STATE_KEY",
+    "SOURCE_CHUNK_VECTORS_TABLE",
     "apply_row_backfills",
     "bootstrap_sqlite_schema",
+    "drop_source_chunk_vectors_table",
+    "ensure_source_chunk_vectors_table",
+    "source_chunk_vectors_table_exists",
 ]

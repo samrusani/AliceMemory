@@ -338,6 +338,39 @@ def pad_embedding_vector(
     return values
 
 
+# The widest vector kept at the model's own width. Source chunk vectors are not
+# padded to the memory column, so this bound only stops a malformed response.
+MAX_NATIVE_EMBEDDING_DIMENSIONS = 8192
+
+
+def native_embedding_vector(
+    vector: Sequence[float],
+    *,
+    max_dimensions: int = MAX_NATIVE_EMBEDDING_DIMENSIONS,
+) -> list[float]:
+    """The vector as floats at the width the model gave, with no padding.
+
+    Memories are padded to the 1,536 wide column (``pad_embedding_vector``).
+    Source chunk vectors keep the model's own width: a 768 wide vector stays 768
+    wide. The values are checked the same way: only finite numbers, not empty.
+    """
+    values: list[float] = []
+    for value in vector:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise VNextEmbeddingConfigurationError("embedding vectors must contain only numbers")
+        normalized_value = float(value)
+        if not math.isfinite(normalized_value):
+            raise VNextEmbeddingConfigurationError("embedding vectors must contain only finite numbers")
+        values.append(normalized_value)
+    if not values:
+        raise VNextEmbeddingConfigurationError("embedding vectors must not be empty")
+    if len(values) > max_dimensions:
+        raise VNextEmbeddingConfigurationError(
+            f"embedding has {len(values)} dimensions; the most kept is {max_dimensions}"
+        )
+    return values
+
+
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
 
@@ -520,6 +553,14 @@ class OpenAICompatibleEmbeddingProvider:
         return self.embed_batch([text])[0]
 
     def embed_batch(self, texts: Sequence[str]) -> list[list[float]]:
+        return self._embed(texts, pad=True)
+
+    def embed_batch_native(self, texts: Sequence[str]) -> list[list[float]]:
+        """The same request as ``embed_batch``, with each vector at the model's own width."""
+
+        return self._embed(texts, pad=False)
+
+    def _embed(self, texts: Sequence[str], *, pad: bool) -> list[list[float]]:
         if not texts:
             return []
         if len(texts) > MAX_EMBEDDINGS_BATCH_SIZE:
@@ -561,10 +602,10 @@ class OpenAICompatibleEmbeddingProvider:
             raise VNextEmbeddingProviderError(
                 f"embeddings request failed: {self._safe_reason(str(exc)) or type(exc).__name__}"
             ) from exc
-        return _extract_embeddings(response_payload, expected_count=len(texts))
+        return _extract_embeddings(response_payload, expected_count=len(texts), pad=pad)
 
 
-def _extract_embeddings(payload: object, *, expected_count: int) -> list[list[float]]:
+def _extract_embeddings(payload: object, *, expected_count: int, pad: bool = True) -> list[list[float]]:
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
         raise VNextEmbeddingProviderError("embeddings response did not include a data array")
     rows: list[tuple[int | None, list[float]]] = []
@@ -582,7 +623,7 @@ def _extract_embeddings(payload: object, *, expected_count: int) -> list[list[fl
         rows.append(
             (
                 item_index,
-                pad_embedding_vector(item["embedding"]),
+                pad_embedding_vector(item["embedding"]) if pad else native_embedding_vector(item["embedding"]),
             )
         )
     if len(rows) != expected_count:
@@ -881,8 +922,23 @@ def _refuses_input(exc: BaseException) -> bool:
     return isinstance(exc, VNextEmbeddingProviderError) and exc.status in INPUT_REJECTION_HTTP_STATUSES
 
 
-def _embed_checked(provider: EmbeddingProvider, texts: Sequence[str]) -> list[list[float]]:
-    vectors = provider.embed_batch(texts)
+def embed_texts_native(provider: EmbeddingProvider, texts: Sequence[str]) -> list[list[float]]:
+    """One request with each vector at the model's own width.
+
+    A provider without ``embed_batch_native`` (a test double, a future backend)
+    returns its vectors as it makes them, and those are kept as given.
+    """
+
+    native = getattr(provider, "embed_batch_native", None)
+    if callable(native):
+        return list(native(texts))
+    return list(provider.embed_batch(texts))
+
+
+def _embed_checked(
+    provider: EmbeddingProvider, texts: Sequence[str], *, native: bool = False
+) -> list[list[float]]:
+    vectors = embed_texts_native(provider, texts) if native else provider.embed_batch(texts)
     if len(vectors) != len(texts):
         raise VNextEmbeddingProviderError(
             f"embedding provider returned {len(vectors)} vectors for {len(texts)} inputs"
@@ -893,6 +949,8 @@ def _embed_checked(provider: EmbeddingProvider, texts: Sequence[str]) -> list[li
 def embed_batch_isolating(
     provider: EmbeddingProvider,
     texts: Sequence[str],
+    *,
+    native: bool = False,
 ) -> list[list[float] | EmbeddingTextFailure]:
     """Embed a batch so that one refused text cannot sink its neighbours.
 
@@ -910,13 +968,16 @@ def embed_batch_isolating(
     that every request meets with a 400 costs two requests, not hundreds. When
     the probe passes, the failure is about the texts, and splitting a batch of
     ``n`` texts takes fewer than ``2n`` further requests.
+
+    ``native`` asks for vectors at the model's own width, without the padding to
+    the memory column (source chunk vectors).
     """
 
     batch = list(texts)
     if not batch:
         return []
     try:
-        return list(_embed_checked(provider, batch))
+        return list(_embed_checked(provider, batch, native=native))
     except Exception as exc:  # noqa: BLE001 - any provider failure is a failed batch
         first_error = exc
     if len(batch) == 1:
@@ -924,7 +985,7 @@ def embed_batch_isolating(
     if not _refuses_input(first_error):
         return [_text_failure(first_error, isolated=False)] * len(batch)
     try:
-        _embed_checked(provider, [_ISOLATION_PROBE_TEXT])
+        _embed_checked(provider, [_ISOLATION_PROBE_TEXT], native=native)
     except Exception:  # noqa: BLE001 - the endpoint is failing for every input
         return [_text_failure(first_error, isolated=False)] * len(batch)
 
@@ -936,7 +997,7 @@ def embed_batch_isolating(
         middle = (low + high) // 2
         for start, stop in ((low, middle), (middle, high)):
             try:
-                vectors = _embed_checked(provider, batch[start:stop])
+                vectors = _embed_checked(provider, batch[start:stop], native=native)
             except Exception as exc:  # noqa: BLE001 - recorded per text below
                 if stop - start == 1:
                     results[start] = _text_failure(exc, isolated=True)
@@ -1415,8 +1476,10 @@ __all__ = [
     "MemoryEmbeddingPreparation",
     "PreparedMemoryEmbedding",
     "SignedMemoryEmbeddingUpdate",
+    "MAX_NATIVE_EMBEDDING_DIMENSIONS",
     "cut_embedding_text",
     "embed_batch_isolating",
+    "embed_texts_native",
     "embedding_failure_reason",
     "embedding_input_cap",
     "embedding_text_is_cut",
@@ -1434,6 +1497,7 @@ __all__ = [
     "memory_embedding_signature_is_current",
     "memory_embedding_text",
     "memory_embedding_signature",
+    "native_embedding_vector",
     "pad_embedding_vector",
     "persist_deferred_memory_embeddings_outcome",
     "persist_prepared_memory_embeddings",

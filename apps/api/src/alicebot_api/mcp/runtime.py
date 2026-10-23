@@ -10,6 +10,7 @@ from alicebot_api.db import user_connection
 from alicebot_api.json_bounds import durable_unit
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user, sqlite_user_connection
 from alicebot_api.store import ContinuityStore
+from alicebot_api.source_chunk_embeddings import ChunkEmbeddingReceipt, embed_new_sources
 from alicebot_api.vnext_embeddings import (
     DeferredMemoryEmbedding,
     persist_deferred_memory_embeddings_best_effort,
@@ -103,6 +104,29 @@ def _open_vnext_store(context: MCPRuntimeContext):
         if answer is not None and answer[0] == 503:
             raise MCPInvalidRequestError(answer[1] + "; HTTP 503; Retry-After: 2") from None
         raise
+
+
+#: The most seconds one tool call spends sending the chunks of a note it has just saved. What is left is
+#: embedded by the next ``alice-memory reindex-embeddings --sources``.
+SOURCE_EMBEDDING_TOOL_BUDGET_SECONDS = 30.0
+
+
+def _embed_new_source_chunks(
+    context: MCPRuntimeContext, source_ids: Sequence[str]
+) -> ChunkEmbeddingReceipt | None:
+    """Embed the chunks of sources a tool call has committed, after its transaction ended.
+
+    ``None`` unless ``ALICE_SOURCE_EMBEDDINGS`` is on, and always ``None`` on PostgreSQL, where chunks are
+    not embedded. Best effort: it never raises, and a failed batch leaves the chunks pending.
+    """
+
+    if not _is_sqlite_backend(context):
+        return None
+    return embed_new_sources(
+        source_ids,
+        store_context=lambda: _vnext_store_context(context),
+        time_budget_seconds=SOURCE_EMBEDDING_TOOL_BUDGET_SECONDS,
+    )
 
 
 def _persist_vnext_deferred_embedding_inputs(
