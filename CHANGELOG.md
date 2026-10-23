@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.21.1): the web console's lint tooling now pins `zod` to 4.6.6 through a pnpm override, up from 4.4.3. 4.6.6 fixes GHSA-mrhx-c7xc-m3w5 (high: memory exhaustion while validating oversized constrained collections), published on 2026-10-23. `zod` reaches the console only as a dependency of `eslint-plugin-react-hooks`, which runs at lint time; it is not part of the console at runtime, and the PyPI package does not include the console. No migration is required.
+
 ## v0.21.1 — 2026-10-23
 
 - The web console's Next.js moves from 16.3.8 to 16.4.1, and `eslint-config-next` with it. 16.4.1 fixes GHSA-2464-fhr4-w9xw (critical: remote code execution in the Image Optimization API when SVG files are used) and GHSA-p3m5-59mp-jv5r (high: denial of service in the App Router through Server Actions), both published on 2026-10-22. The console in v0.21.0 and earlier uses an affected version. The PyPI package does not include the web console. No migration is required.
