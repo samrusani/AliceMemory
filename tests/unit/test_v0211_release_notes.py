@@ -205,7 +205,8 @@ def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or
 
 def test_the_notes_use_no_dash_and_only_the_allowed_security_wording() -> None:
     """Mutations, each one alone: write a dash into the notes; say "audited" outside the disclosure sentence;
-    write independently, third-party, penetration or adversarial; name an external review tool; write an advisory id.
+    write independently, third-party, penetration or adversarial; name an external review tool; write an advisory id;
+    delete the scanning sentence.
     """
 
     text = _text(NOTES_PATH)
@@ -257,9 +258,9 @@ def test_the_numbers_that_drift_are_the_ones_the_code_and_the_files_have(monkeyp
     """The tool counts, the PostgreSQL revision, the Next.js versions and the token floors are read from the code and
     the files, so a change that leaves the notes behind fails here.
 
-    Mutations, each one alone: add a thirteenth core tool definition (the notes say there is no new tool); add a
-    migration after 20261011_0097; change ``next`` or ``eslint-config-next`` in ``apps/web/package.json``; change a
-    floor in ``legacy_credential_check._TOKEN_BODIES``; change the character class of ``ghs_`` or ``ghu_``.
+    Mutations, each one alone: add a tool to the default surface (the notes say there is no new tool); add a migration
+    after 20261011_0097; change ``next`` or ``eslint-config-next`` in ``apps/web/package.json``; change a floor in
+    ``legacy_credential_check._TOKEN_BODIES``; change the character class of ``ghs_`` or ``ghu_``.
     """
 
     for name in ("ALICE_AGENT_API_KEY", "ALICE_MCP_FULL_TOOLS", "ALICE_MCP_LEGACY_TOOLS", "ALICE_LEGACY_SURFACES"):
@@ -397,7 +398,7 @@ _NOW_REFUSED = {
 @pytest.mark.parametrize("label", sorted(_NOW_REFUSED))
 def test_a_token_right_after_an_underscore_was_accepted_by_v0210_and_is_refused_now(label: str) -> None:
     """Mutations, each one alone: put the lead boundary of the floored markers back to v0.16.0's, which counts an
-    underscore; remove a marker from the table of bodies; move a text between the two lists of the notes.
+    underscore; remove a marker from the table of bodies; flip the commit gate flag of a row of the table.
     """
 
     text, commit_moves = _NOW_REFUSED[label]
@@ -438,8 +439,8 @@ def test_the_boundary_that_stays_and_the_rules_that_do_not_change() -> None:
 
     Mutations, each one alone: drop the letter or digit from the lead boundary (a marker glued onto a word is read);
     take the ``ghs_`` class back to letters and digits (a long dotted body after ``ghs_`` stops being read); change the
-    ``ghp_`` or ``xoxb-`` prefix rule from 8 characters; make the credential detector read upper case ``SK-20260301``
-    or stop reading the lower case code.
+    ``ghp_`` or ``xoxb-`` prefix rule from 8 to 9 characters; raise the minimum of the credential detector's ``sk-`` rule
+    so that it stops reading the lower case code.
     """
 
     body = "ab.cd-ef_gh" * 4
