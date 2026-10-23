@@ -11,9 +11,15 @@ an order history or a ticket log lost lines or could not be captured.
 
 The fix. Each marker counts only when at least a floor of token characters follows
 it, and the floor is no longer than the shortest body a real token of that kind
-has. ``legacy._TOKEN_BODIES`` states the published shape behind each number. The
-table below repeats the numbers independently, so a change to a floor has to change
-a test too.
+has. ``legacy._TOKEN_BODIES`` states the shape behind each number and where it
+comes from. The table below repeats the numbers independently, so a change to a
+floor has to change a test too.
+
+The ``ghs_`` and ``ghu_`` markers read the class GitHub recommends for installation
+tokens (letters, digits, dot, hyphen, underscore), because GitHub's stateless form
+is ``ghs_``, a numeric app id, an underscore and a JWT of about 520 characters. With
+base62 alone, an app id of 1 to 7 digits ended the run before 36 characters and the
+token was not read by the marker rule at all.
 
 What is pinned here:
 
@@ -31,6 +37,15 @@ What is pinned here:
   those two rules alone);
 * a real-shaped ``sk-`` key, at exactly 32 characters after the prefix and in the
   longer forms, is read by the prefix pattern in every placement;
+* a stateless GitHub app token (``ghs_`` and ``ghu_``, an app id of 1, 4, 7 and 10
+  digits, an unsigned JWT shaped body built here from sequential runs) is read in
+  every placement, and refused and not stored at every door: a direct memory commit,
+  ``alice_capture``, ``alice-memory import-markdown``, the ChatGPT import (with
+  ordinary text after the token in the same message, and with the token alone) and
+  the promotion credential floor, with the classic 40 character token beside it;
+  short names such as ``GHS_2291``, ``ghs_12_ab`` and ``ghu_config`` still pass, and
+  a ``ghs_`` followed by 36 or more identifier characters is read, which is the
+  accepted cost of GitHub's own pattern;
 * the two ssh markers keep the bare reading, the ``sk-learn`` word chain and the
   FIDO key types are excused as before, and a token glued onto a FIDO key type is
   still refused;
@@ -50,7 +65,10 @@ alternative removed from the ``sk-`` pattern
 (``test_a_token_glued_onto_a_fido_key_type_is_still_refused_on_both_paths``); the
 floor dropped from the unbounded patterns, which read a spaced-out run
 (``test_a_spaced_out_short_code_is_not_a_credential``); the ``sk-`` prefix pattern
-back to 8 characters (``test_the_sk_prefix_rule_has_the_markers_floor``).
+back to 8 characters (``test_the_sk_prefix_rule_has_the_markers_floor``); the
+``ghs_`` class back to base62 alone, and the same for ``ghu_``
+(``test_a_real_shaped_token_is_still_caught``); the ``ghs_`` floor set to 37
+(the same test, on the classic 40 character token).
 """
 
 from __future__ import annotations
@@ -115,6 +133,21 @@ def _groups(*sizes: int) -> str:
     return "-".join(_seq(size, _DIGITS) for size in sizes)
 
 
+def _jwt_body() -> str:
+    """Three base64url parts and two dots, 510 characters, unsigned: sequential runs, never a real token."""
+
+    return ".".join(("eyJ" + _urlsafe(33), "eyJ" + _urlsafe(127), _urlsafe(342)))
+
+
+def _app_token(marker: str, digits: int) -> str:
+    """GitHub's stateless form: the prefix, a numeric app id, an underscore and a JWT shaped body."""
+
+    return marker + _seq(digits, "1234567890") + "_" + _jwt_body()
+
+
+_APP_ID_DIGITS = (1, 4, 7, 10)
+
+
 # marker -> (shortest body of a real token, floor). The floor is never longer than
 # the shortest real body. The published shape of each is in legacy._TOKEN_BODIES.
 _SHAPE_TABLE: dict[str, tuple[int, int]] = {
@@ -156,6 +189,9 @@ def _real_shapes() -> dict[str, list[tuple[str, str]]]:
     shapes: dict[str, list[tuple[str, str]]] = {}
     for marker in _SHAPE_TABLE:
         shapes[marker] = [("shortest", _shortest_real(marker))]
+    for marker in ("ghs_", "ghu_"):
+        for digits in _APP_ID_DIGITS:
+            shapes[marker].append((f"stateless {digits} digit app id", _app_token(marker, digits)))
     shapes["github_pat_"].append(("93 characters", "github" + "_pat_" + _seq(22) + "_" + _seq(59)))
     shapes["glpat-"].append(("mixed", "glp" + "at-" + _urlsafe(26)))
     shapes["sk-"] += [
@@ -232,6 +268,8 @@ _SHORT_CODES = (
     # Another marker with a short code after it.
     "GHP_2291 is a room code",
     "GHO_12 and GHS_9 and GHU_77",
+    "GHS_2291",
+    "ghs_12_ab",
     "GLPAT-2291 is the glue",
     "NPM_2291 is a bin",
     "XOXB-2291 and XOXP-77 and XOXA-5 and XOXS-1 are stamps",
@@ -239,6 +277,9 @@ _SHORT_CODES = (
 )
 _ORDINARY_WORDS = (
     "npm_config_cache",
+    "ghu_config",
+    "ghs_app_token_cache_dir",
+    "the ghu_release_notes file is old",
     "set npm_config_registry to the mirror",
     "npm_package_version is set by npm",
     "npm_lifecycle_event",
@@ -285,12 +326,16 @@ def test_the_false_positive_list_holds_a_short_code_for_every_floored_marker() -
         assert marker.casefold() in joined, marker
 
 
-def test_a_memory_commit_keeps_a_note_with_short_codes() -> None:
+def _memory_store() -> tuple[sqlite3.Connection, SQLiteVNextStore, str]:
     conn = sqlite3.connect(":memory:")
     bootstrap_sqlite_schema(conn)
     user_id = str(uuid4())
     ensure_sqlite_user(conn, user_id, "marker-lengths@example.com")
-    store = SQLiteVNextStore(conn, user_id)
+    return conn, SQLiteVNextStore(conn, user_id), user_id
+
+
+def test_a_memory_commit_keeps_a_note_with_short_codes() -> None:
+    conn, store, user_id = _memory_store()
     payload = {
         "title": "Seal kit SK-2291",
         "canonical_text": "SK-2291 is the current seal kit; order SK-2192 from stores.",
@@ -417,6 +462,45 @@ def test_a_spaced_out_short_code_is_not_a_credential(text: str) -> None:
     assert marker_hits("".join(text.split()), bounded=False) == []
     assert commit_door_fields_verdict(text) is None
     assert not legacy.promotion_floor_refuses("", text)
+
+
+# ---------------------------------------------------------------------------
+# The GitHub app markers read GitHub's own class.
+# ---------------------------------------------------------------------------
+
+
+def test_ghs_and_ghu_read_the_class_github_recommends_and_ghp_and_gho_stay_base62() -> None:
+    """GitHub's changelog of 2026-05-15 on installation tokens recommends ``ghs_[A-Za-z0-9\\.\\-_]{36,}`` for both
+    formats and announces that ``ghu_`` will change format too. Nothing published says so for ``ghp_`` and ``gho_``."""
+
+    assert legacy._TOKEN_BODIES["ghs_"].chars == legacy._TOKEN_BODIES["ghu_"].chars == "0-9A-Za-z._-"
+    assert legacy._TOKEN_BODIES["ghp_"].chars == legacy._TOKEN_BODIES["gho_"].chars == "0-9A-Za-z"
+    for separator in (".", "-", "_"):
+        body = ("ab" + separator) * 12
+        assert len(body) == 36
+        for marker in ("ghs_", "ghu_"):
+            assert marker in marker_hits(marker + body), (marker, separator)
+        for marker in ("ghp_", "gho_"):
+            assert marker not in marker_hits(marker + body), (marker, separator)
+
+
+@pytest.mark.parametrize("marker", ("ghs_", "ghu_"))
+def test_a_ghs_or_ghu_followed_by_36_identifier_characters_is_read_as_github_reads_it(marker: str) -> None:
+    """The accepted cost of GitHub's pattern: an identifier of 36 or more letters, digits, dots, hyphens and
+    underscores right after the marker is read, whatever it means. A shorter one is not."""
+
+    long_name = "app_installation_token_cache_directory"
+    short_name = "app_installation_token_cache_dir"
+    assert len(long_name) >= 36 > len(short_name)
+    assert marker in marker_hits(f"set {marker}{long_name} first")
+    assert legacy.commit_gate_refuses("", f"set {marker}{long_name} first")
+    assert legacy.promotion_floor_refuses("", f"set {marker}{long_name} first")
+    for text in (f"set {marker}{short_name} first", f"{marker}app_token_cache_dir", f"{marker}config"):
+        assert marker_hits(text) == [], text
+        assert commit_door_fields_verdict(text) is None, text
+    # And exactly at the floor, on the dotted and hyphenated spellings of an identifier.
+    assert marker in marker_hits(marker + ("a.b-c_d" * 6)[:36])
+    assert marker not in marker_hits(marker + ("a.b-c_d" * 6)[:35])
 
 
 # ---------------------------------------------------------------------------
@@ -555,6 +639,10 @@ _LINEAR_UNITS = {
     "ghp_ one short of the floor": "ghp_" + "a" * 35 + "\n",
     "github_pat_ one short of the floor": "github_pat_" + "a" * 81 + "\n",
     "xoxb- one short of the floor": "xoxb-" + "1" * 9 + "\n",
+    "ghs_ one short of the floor, with dots": "ghs_" + "a._-" * 8 + "abc" + "\n",
+    "ghu_ one short of the floor, with dots": "ghu_" + "1_." * 11 + "ab" + "\n",
+    "ghs_ chain": "ghs_",
+    "ghs_ jwt shaped run": "ghs_1234_" + "eyJ" + "a.b-c_" * 20 + "\n",
     "sk- chain": "sk-",
     "github_pat_ chain": "github_pat_",
     "npm_ chain": "npm_",
@@ -616,6 +704,17 @@ _REAL_KEYS = {
     "github_pat_": "github" + "_pat_" + _seq(22) + "_" + _seq(59),
     "xoxb-": "xo" + "xb-" + _groups(10, 10) + "-" + _seq(24),
 }
+# GitHub app tokens: the stateless form (app id of 1, 4, 7 and 10 digits, an underscore and a JWT shaped body) and the
+# classic 40 character form, for both prefixes.
+for _marker in ("ghs_", "ghu_"):
+    for _digits in _APP_ID_DIGITS:
+        _REAL_KEYS[f"{_marker}-stateless-{_digits}-digit-app-id"] = _app_token(_marker, _digits)
+    _REAL_KEYS[f"{_marker}-classic-40"] = _marker + _seq(36)
+_APP_TOKEN_CASES = [
+    pytest.param(token, id=family)
+    for family, token in _REAL_KEYS.items()
+    if family.startswith(("ghs_", "ghu_"))
+]
 
 
 def _db(tmp_path: Path) -> Path:
@@ -780,3 +879,86 @@ def test_alice_capture_still_refuses_a_real_shaped_key(tmp_path: Path, family: s
         )
     assert _counts(database) == before
     assert key not in _blob(database)
+
+
+# ---------------------------------------------------------------------------
+# GitHub app tokens at the doors that did not have them: the stateless form
+# (ghs_, an app id, an underscore and a JWT) and the classic 40 character form.
+# alice_capture and import-markdown take every _REAL_KEYS family above, these
+# included.
+# ---------------------------------------------------------------------------
+
+
+def _rows(conn: sqlite3.Connection, table: str) -> str:
+    return json.dumps([list(row) for row in conn.execute(f"SELECT * FROM {table}")], default=str)
+
+
+@pytest.mark.parametrize("token", _APP_TOKEN_CASES)
+def test_a_direct_memory_commit_refuses_a_github_app_token_and_stores_nothing(token: str) -> None:
+    """At v0.21.0 the bare marker refused a stateless token. With a base62 body alone and an app id of 1 to 7 digits
+    the commit gate read nothing, and the memory was stored verbatim."""
+
+    conn, store, user_id = _memory_store()
+    payload = {"title": "Deploy note", "canonical_text": f"Use app token {token} for the deploy."}
+    result = VNextMemoryCommitService(store).commit(
+        identity=None, request=memory_commit_request_from_payload(payload, user_id=user_id)
+    )
+    assert result["status"] == "rejected", result
+    assert "unsafe_secret_storage" in result["reasons"]
+    assert int(next(iter(conn.execute("SELECT count(*) FROM memories")))[0]) == 0
+    for table in ("memories", "memory_revisions", "event_log"):
+        assert token[-24:] not in _rows(conn, table), table
+
+
+def _chatgpt_export(path: Path, messages: list[str]) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "conversations": [
+                    {
+                        "id": "weekly",
+                        "title": "Weekly",
+                        "messages": [
+                            {"author": {"role": "user"}, "content": {"parts": [message]}} for message in messages
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize("shape", ("ordinary text after the token", "the token alone at the end"))
+@pytest.mark.parametrize("token", _APP_TOKEN_CASES)
+def test_the_chatgpt_import_withholds_a_message_holding_a_github_app_token(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], token: str, shape: str
+) -> None:
+    """With ordinary text after the token in the same message, the cross-field check that catches a token at the end of
+    a transcript does not run on it, so the per-message check is the only door. Fails if that message is stored."""
+
+    message = f"{token} then restart the service and check the logs." if shape.startswith("ordinary") else token
+    export = tmp_path / "chat.json"
+    _chatgpt_export(export, [CLEAN, message])
+    database = _db(tmp_path / "data")
+    assert onramp_main(["import-chatgpt", "--from", str(export), "--db", str(database), "--user-id", USER_ID]) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "ok", receipt
+    assert receipt["imported_count"] == 1
+    assert receipt["failed_count"] == 0
+    assert receipt["skipped_credentials"] == 1
+    assert receipt["skipped_credential_items"] == ["conversation weekly message 2"]
+    stored = _blob(database)
+    assert token[-24:] not in stored
+    assert token[-24:] not in json.dumps(receipt)
+    assert CLEAN in stored
+    assert WITHHELD in stored
+
+
+@pytest.mark.parametrize("token", _APP_TOKEN_CASES)
+def test_the_promotion_credential_floor_holds_back_a_github_app_token(token: str) -> None:
+    assert "credential_material" in hard_floor_hits(_candidate(f"Use app token {token} for the deploy."))
+    assert "credential_material" in hard_floor_hits(_candidate(token))
+    assert legacy.promotion_floor_refuses("Deploy note", f"Use app token {token} for the deploy.")
+    # Guards the guard: the same note with a short name instead of the token is not held back.
+    assert "credential_material" not in hard_floor_hits(_candidate("Use app token ghs_12_ab for the deploy."))

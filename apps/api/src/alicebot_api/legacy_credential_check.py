@@ -66,13 +66,14 @@ v0.16.0 read the bare marker, so a short product code that starts with one,
 SK-2291 or SK-229 or "sk-2291 is current", was a credential, and so was
 npm_config_cache. A marker now counts only when at least a floor of token
 characters follows it, and each floor is no longer than the shortest body a
-real token of that kind has (see _TOKEN_BODIES, which states the published
-shape behind every number). The two ssh markers keep the bare reading: they
-name a public key line, which the first carve-out excuses. Nothing else
-changed: the commit gate's sk- prefix pattern takes the floor of the sk- marker,
+real token of that kind has (see _TOKEN_BODIES, which states the shape behind
+every number and where it comes from). The two ssh markers keep the bare
+reading: they name a public key line, which the first carve-out excuses.
+Nothing else changed: the commit gate's sk- prefix pattern takes the floor of
+the sk- marker,
 and the other patterns, its other prefix patterns (ghp_, xoxb-, akia) and the
-carve-outs are v0.16.0's, so a real token is refused exactly as before and
-only a marker with too little after it to be a token is let through.
+carve-outs are v0.16.0's, so a token of a listed shape is refused as before and
+only a marker with too little after it to be one is let through.
 tests/unit/test_legacy_credential_check.py runs its comparison with
 v0.16.0's own code with the floors turned off, to show that this is the only
 difference, and tests/unit/test_credential_marker_lengths.py pins the floors.
@@ -150,49 +151,75 @@ _BASE62 = "0-9A-Za-z"
 _BASE62_UNDERSCORE = "0-9A-Za-z_"
 _URLSAFE = "0-9A-Za-z_-"
 _SLACK_CHARS = "0-9A-Za-z-"
+# GitHub's own pattern for ghs_ tokens: letters, digits, dots, hyphens and underscores.
+_GITHUB_APP_CHARS = "0-9A-Za-z._-"
 
-# The published shape of the token each marker targets, and the shortest body
-# such a token has after the marker. A floor is no longer than that body, so
-# every real token is still read, and long enough that a part code, a ticket
-# id or a variable name is not. Providers other than GitHub publish no formal
-# length for some of these; where a range is known, the shortest is used. A
-# body is counted in the characters of the class beside it, which are the
-# characters the real body is made of.
+# The shape of the token each marker targets, the shortest body such a token
+# has after the marker, and where that number comes from. A floor is no longer
+# than that body, so a token of the listed shape is still read, and long
+# enough that a part code, a ticket id or a variable name is not. A body is
+# counted in the characters of the class beside it, which are the characters
+# the real body is made of. Where no provider publishes a minimum, the entry
+# says so, and the floor is a choice below the shortest shape known.
 #
-# - ghp_ (personal access token, classic), gho_ (OAuth access token), ghu_
-#   (user-to-server token) and ghs_ (server-to-server token). GitHub's token
-#   format since 2021: the prefix, then 36 base62 characters (30 random and a
-#   6 character checksum), 40 in all. Shortest body: 36. Floor: 36.
+# - ghp_ (personal access token, classic) and gho_ (OAuth access token).
+#   Source: GitHub's 2021 post on its token formats: the prefix, then 36
+#   base62 characters (30 random and a 6 character checksum), 40 in all.
+#   Shortest body: 36. Floor: 36.
+# - ghs_ (installation token) and ghu_ (user-to-server token). Source:
+#   GitHub's changelog of 2026-05-15 on installation tokens, which says to
+#   treat ghs_ tokens as opaque and to match both formats with
+#   ghs_[A-Za-z0-9\.\-_]{36,}, and which announces that ghu_ will change
+#   format too, without details. The classic form is the prefix and 36 base62
+#   characters. The stateless form is the prefix, a numeric app id, an
+#   underscore and a JWT of three base64url parts with two dots, about 520
+#   characters in all, so the underscore and the dots belong to the body: with
+#   base62 alone a short app id ended the run before 36 characters and the
+#   token was not read. ghu_ takes the same class because of the announced
+#   change. Shortest body: 36, which is the number in GitHub's pattern.
+#   Floor: 36. The cost is that a ghs_ or ghu_ followed by 36 or more
+#   identifier characters (letters, digits, dots, hyphens, underscores) is
+#   read, as GitHub's pattern reads it. A snake_case name shorter than that,
+#   GHS_2291 and ghu_config are not.
 # - github_pat_ (fine-grained personal access token). The prefix, then 22
 #   base62 characters, an underscore and 59 base62 characters, 93 in all.
-#   Shortest body: 82. Floor: 82.
-# - glpat- (GitLab personal, project and group access tokens). The fixed
-#   length format is the prefix and 20 characters of [0-9A-Za-z_-]. Newer
-#   routable tokens are longer. Shortest body: 20. Floor: 20.
+#   No GitHub page states the length that this module has found; 82 is the
+#   length public secret scanning rules use. Shortest body: 82. Floor: 82.
+# - glpat- (GitLab personal, project and group access tokens). GitLab
+#   documents the prefix. The 20 characters of [0-9A-Za-z_-] after it are the
+#   length public secret scanning rules use for the fixed length format, and
+#   newer routable tokens are longer. Shortest body: 20. Floor: 20.
 # - npm_ (npm access tokens). The prefix, then 36 base62 characters, 40 in
-#   all. Shortest body: 36. Floor: 36. An environment variable such as
+#   all, the same shape as GitHub's tokens. No npm page states the length that
+#   this module has found; 36 is the length public secret scanning rules use.
+#   Shortest body: 36. Floor: 36. An environment variable such as
 #   npm_config_cache or npm_package_version has underscores, which a base62
 #   body does not, so none is read as a token.
-# - sk- (OpenAI style secret keys). The older keys are the prefix and 48
-#   base62 characters. Project, service account and admin keys (sk-proj-,
-#   sk-svcacct-, sk-admin-) are the prefix, a kind word and 100 or more
-#   characters of [0-9A-Za-z_-]. Anthropic keys (sk-ant-api03-, sk-ant-admin01-)
-#   are the prefix, a kind word and about 90 more of the same characters.
-#   Some OpenAI compatible providers issue the prefix and 32 hex characters.
-#   Shortest body: 32. Floor: 20, below it, so a compatible provider's
-#   shorter key is still read, and far above the 4 to 6 digits of a part
-#   code such as SK-2291 or SK-22910. The commit gate's own prefix pattern
-#   (_PREFIX_SK) is a separate rule with the same floor, taken from here. The two
-#   FIDO key type names (sk-ssh-ed25519@openssh.com and
+# - sk- (OpenAI style secret keys). No provider publishes a minimum length.
+#   The older OpenAI keys are the prefix and 48 base62 characters, and
+#   project, service account and admin keys (sk-proj-, sk-svcacct-, sk-admin-)
+#   are the prefix, a kind word and 100 or more characters of [0-9A-Za-z_-];
+#   both are shapes seen, not shapes documented. Anthropic keys
+#   (sk-ant-api03-, sk-ant-admin01-) show the prefix, a kind word and about 90
+#   more of the same characters in its examples. Some OpenAI compatible
+#   providers issue the prefix and 32 hex characters, also seen and not
+#   documented. Shortest body seen: 32. Floor: 20, a choice below it, so a
+#   compatible provider's shorter key is still read, and far above the 4 to 6
+#   digits of a part code such as SK-2291 or SK-22910. The commit gate's own
+#   prefix pattern (_PREFIX_SK) is a separate rule with the same floor, taken
+#   from here. The two FIDO key type names (sk-ssh-ed25519@openssh.com and
 #   sk-ecdsa-sha2-nistp256@openssh.com) are still read at any length, so that
 #   carve-out a keeps refusing a token glued straight onto one.
-# - xoxb-, xoxp-, xoxa-, xoxs- (Slack bot, user, app and legacy tokens). The
-#   prefix, then groups of digits and hyphens, then an alphanumeric or hex
-#   tail. A bot token is 10 to 13 digits, a hyphen, 10 to 13 digits, a hyphen
-#   and 24 alphanumerics: 46 characters at the shortest. User and legacy
-#   tokens carry a third digit group and a 32 character tail, 65 or more.
-#   Shortest body: 46. Floor: 10, the same floor as the slack rule below
-#   (v0.16.0's own, xox[baprs]- and 10 token characters), so the two agree.
+# - xoxb-, xoxp-, xoxa-, xoxs- (Slack bot, user, app and legacy tokens). Slack
+#   publishes no minimum length and tells integrations to treat tokens as
+#   opaque. The shapes seen: the prefix, then groups of digits and hyphens,
+#   then an alphanumeric or hex tail. A bot token is 10 to 13 digits, a
+#   hyphen, 10 to 13 digits, a hyphen and 24 alphanumerics: 46 characters at
+#   the shortest. User and legacy tokens carry a third digit group and a 32
+#   character tail, 65 or more. Older Slack tokens may be shorter than any of
+#   these and are not covered by a source. Floor: 10, which is not derived
+#   from a real token: it is the floor of the slack rule below (v0.16.0's
+#   own, xox[baprs]- and 10 token characters), so the two agree.
 # - ssh-rsa and ssh-ed25519, each followed by a space. These name a public
 #   key line, not a secret, and carve_out_ssh_public_key excuses the public
 #   key shapes. They keep the bare reading: a space after a key type name is
@@ -201,8 +228,8 @@ _SLACK_CHARS = "0-9A-Za-z-"
 _TOKEN_BODIES: Mapping[str, _TokenBody] = {
     "ghp_": _TokenBody(_BASE62, 36),
     "gho_": _TokenBody(_BASE62, 36),
-    "ghs_": _TokenBody(_BASE62, 36),
-    "ghu_": _TokenBody(_BASE62, 36),
+    "ghs_": _TokenBody(_GITHUB_APP_CHARS, 36),
+    "ghu_": _TokenBody(_GITHUB_APP_CHARS, 36),
     "github_pat_": _TokenBody(_BASE62_UNDERSCORE, 82),
     "glpat-": _TokenBody(_URLSAFE, 20),
     "npm_": _TokenBody(_BASE62, 36),
