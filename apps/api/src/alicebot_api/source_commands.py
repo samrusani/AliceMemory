@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from uuid import UUID
 
+from alicebot_api.source_embedding_policy import CHUNK_VECTOR_RETAINED_DATA
 from alicebot_api.source_supersede import printed_source_label
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vault_sleep import SleepError
@@ -15,6 +16,7 @@ from alicebot_api.vnext_stores.sqlite.source_retirement import (
 RETAINED_DATA = (
     "Source and import events keep prior titles, hashes and import folder paths. "
     "Source hash columns and earlier backups are not erased. Unused space and the write-ahead log can retain old text. "
+    f"{CHUNK_VECTOR_RETAINED_DATA} "
     "Committed memories and all other unredacted memories keep their text. Review every listed memory id; "
     "use alice_memory_manage with action forget for each memory that should leave recall, "
     "or the owner's memory redaction command to overwrite its text. "

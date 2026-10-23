@@ -18,6 +18,9 @@ The rules, in the order a chunk meets them:
   commit door's check, on the whole chunk and on the whole text that would be
   sent), when it holds only links and labels, when it is shorter than a person
   could read as a note, or when its source is deleted, replaced or scrubbed.
+* The rules are applied to the rows as they are when the text is chosen, and again
+  just before each batch is sent. A change committed while a batch is in flight
+  is not seen by the batch.
 
 The text that is sent is the source title, the headings above the chunk, and the
 chunk, behind the model's document prefix. Only that text changes. The chunk text
@@ -60,6 +63,13 @@ HEADER_RULE_VERSION = 1
 #: Longest title and heading path that go in the header, in characters.
 HEADER_TITLE_MAX_CHARS = 200
 HEADER_PATH_MAX_CHARS = 300
+
+#: What a receipt says about deleted chunk vectors. Deleting a vector is a logical deletion, as deleting chunk text is.
+CHUNK_VECTOR_RETAINED_DATA = (
+    "Chunk vectors are deleted with the source and zeroed where the database frees them, but deleting is logical: "
+    "the write-ahead log, unused space in the vault file and earlier backups can keep vector bytes until the vault "
+    "is checkpointed and rebuilt with VACUUM, and a vector can be inverted to approximate the words it was made from."
+)
 
 # Why a chunk is not sent. These strings are what receipts and the doctor print.
 SKIP_SOURCE_RETIRED = "source_retired"
@@ -504,6 +514,7 @@ def skip_reason(
 
 __all__ = [
     "CHUNK_SIGNATURE_VERSION",
+    "CHUNK_VECTOR_RETAINED_DATA",
     "DEFAULT_MAX_SENSITIVITY",
     "DEFAULT_MAX_VECTORS",
     "EGRESS_SENSITIVITY_RANK",

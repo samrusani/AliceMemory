@@ -4593,6 +4593,7 @@ def _run_reindex_source_chunks(args: argparse.Namespace) -> int:
         sqlite_store_context,
     )
     from alicebot_api.source_embedding_policy import (
+        CHUNK_VECTOR_RETAINED_DATA,
         OFF_NO_PROVIDER,
         OFF_REMOTE_NOT_ALLOWED,
         OFF_SOURCE_EMBEDDINGS,
@@ -4613,7 +4614,11 @@ def _run_reindex_source_chunks(args: argparse.Namespace) -> int:
     if args.drop:
         dropped = drop_chunk_vectors(store_context=store_context)
         _secure_sqlite_files(db_path)
-        print(json.dumps({"sources": True, "dropped": dropped}, sort_keys=True))
+        print(
+            json.dumps(
+                {"sources": True, "dropped": dropped, "retained_data": CHUNK_VECTOR_RETAINED_DATA}, sort_keys=True
+            )
+        )
         return 0
     if not source_embedding_settings().enabled:
         _emit_error("source_embeddings_not_enabled")

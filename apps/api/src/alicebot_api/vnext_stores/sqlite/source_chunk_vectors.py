@@ -16,7 +16,8 @@ stored a vector has no such table. Every read here answers "none" for a vault wi
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -52,6 +53,26 @@ CHUNK_VECTOR_META_COLUMNS = (
 
 #: A source that has not been deleted, replaced or scrubbed.
 LIVE_SOURCE_SQL = "deleted_at IS NULL AND COALESCE(json_extract(metadata_json, '$.scrubbed'), 0) != 1"
+
+
+@contextmanager
+def secure_deletion(store: SQLiteVNextStore) -> Iterator[None]:
+    """Zero the pages a statement frees or rewrites, then put the connection's setting back.
+
+    A vector is 3 KB, about a page, and SQLite moves cells between pages when it inserts, overwrites and deletes.
+    With ``secure_delete`` off each move leaves the old bytes in unused space, so deleting a row later does not
+    remove the bytes an earlier move left behind. Scrub turns the setting on for the chunk text for the same
+    reason. The vectors are written and deleted under it, inside the caller's savepoint. The write-ahead log and
+    earlier backups can still hold the bytes until a checkpoint and VACUUM: this is logical deletion.
+    """
+
+    row = store._execute("PRAGMA secure_delete").fetchone()
+    previous = int(row["secure_delete"]) if row is not None else 0
+    store._execute("PRAGMA secure_delete=ON")
+    try:
+        yield
+    finally:
+        store._execute(f"PRAGMA secure_delete={'FAST' if previous == 2 else previous}")
 
 
 def chunk_vector_table_exists(store: SQLiteVNextStore) -> bool:
@@ -231,13 +252,14 @@ def delete_chunk_vectors(store: SQLiteVNextStore, *, source_id: str | None = Non
 
     if not chunk_vector_table_exists(store):
         return 0
-    if source_id is None:
-        cursor = store._execute("DELETE FROM source_chunk_embeddings WHERE user_id = ?", (store.user_id,))
-    else:
-        cursor = store._execute(
-            "DELETE FROM source_chunk_embeddings WHERE user_id = ? AND source_id = ?",
-            (store.user_id, str(source_id)),
-        )
+    with secure_deletion(store):
+        if source_id is None:
+            cursor = store._execute("DELETE FROM source_chunk_embeddings WHERE user_id = ?", (store.user_id,))
+        else:
+            cursor = store._execute(
+                "DELETE FROM source_chunk_embeddings WHERE user_id = ? AND source_id = ?",
+                (store.user_id, str(source_id)),
+            )
     return int(cursor.rowcount)
 
 
@@ -245,7 +267,8 @@ def drop_chunk_vector_table(store: SQLiteVNextStore) -> int:
     """Delete every vector of the user, and remove the table when no vector of anyone is left in it.
 
     The vault is then as a build without chunk vectors left it, which is what lets an older release export it.
-    Returns how many rows the user had.
+    Returns how many rows the user had. The rows go under ``secure_deletion``, so the table is empty of vector bytes
+    before it is dropped.
     """
 
     removed = delete_chunk_vectors(store)
@@ -271,4 +294,5 @@ __all__ = [
     "embedding_source_row",
     "live_source_ids_after",
     "put_chunk_vector",
+    "secure_deletion",
 ]
