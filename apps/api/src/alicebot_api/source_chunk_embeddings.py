@@ -6,8 +6,12 @@ never overlap in time with a database lock held:
 1. **Plan.** A short read of the sources asked for. Each chunk gets one outcome: skipped (with the
    reason), already current, or to be sent (it has no vector, or its vector is stale). The text to
    send is built and hashed here.
-2. **Send.** The texts go to the embeddings endpoint in batches, with no connection open. The
-   provider, the batch size, the timeout, the 400/413/422 split of a refused batch, the redirect
+2. **Send.** The texts go to the embeddings endpoint in batches, with no connection open. Just before
+   each batch a short read judges the batch again: a chunk whose source was deleted, replaced, scrubbed
+   or relabelled above what the endpoint may receive, or whose text changed, since the plan is dropped
+   from the batch and left pending. A change committed after that read, while the request is in
+   flight, can still reach the endpoint; the compare and set below keeps its vector out of the vault.
+   The provider, the batch size, the timeout, the 400/413/422 split of a refused batch, the redirect
    rule and the loopback rule are those of the memory path (``vnext_embeddings``).
 3. **Store.** A short write. For each vector the source and the text are read again and the vector is
    stored only when the source is still live and the text that would be sent now has the hash of the
@@ -315,23 +319,81 @@ def _plan_page(
     return kept
 
 
+def _still_qualifying(
+    store: SQLiteVNextStore, chunks: Sequence[PlannedChunk], egress: Egress
+) -> list[PlannedChunk]:
+    """The chunks of a batch that may be sent now, in their order.
+
+    A chunk qualifies when its source is live, the text that would be sent has the hash it was planned with,
+    and the egress policy lets it go as the source is labelled now (the credential check, the readable-text
+    rules and, for a remote endpoint, the sensitivity ceiling). Everything the plan decided is decided again
+    from the rows as they are now.
+    """
+
+    by_source: dict[str, list[PlannedChunk]] = {}
+    for chunk in chunks:
+        by_source.setdefault(chunk.source_id, []).append(chunk)
+    keep: set[str] = set()
+    for source_id, items in by_source.items():
+        source = vectors.embedding_source_row(store, source_id)
+        if source is None or not source["live"]:
+            continue
+        now = {
+            text.chunk_id: text
+            for text in source_chunk_texts(
+                source, vectors.embedding_source_chunks(store, source_id), egress.model, egress.input_cap
+            )
+        }
+        sensitivity = str(source.get("sensitivity") or "unknown")
+        for chunk in items:
+            current = now.get(chunk.chunk_id)
+            if current is None or text_sha256(current.sent_text) != chunk.sha256:
+                continue
+            reason = skip_reason(
+                chunk_text=current.chunk_text,
+                sent_text_without_prefix=current.body,
+                source_sensitivity=sensitivity,
+                source_live=True,
+                posture=egress.posture,
+            )
+            if reason is None:
+                keep.add(chunk.chunk_id)
+    return [chunk for chunk in chunks if chunk.chunk_id in keep]
+
+
 def _send(
     chunks: Sequence[PlannedChunk],
     egress: Egress,
     receipt: ChunkEmbeddingReceipt,
     deadline: float | None,
+    store_context: StoreContext,
 ) -> list[tuple[PlannedChunk, list[float]]]:
-    """Send the texts in batches, with no connection open. A failed text stays pending."""
+    """Send the texts in batches. A failed text stays pending.
+
+    Each batch is judged again in a short store context that is closed before the request, so no lock is held
+    while the endpoint is called. A chunk that no longer qualifies is counted as changed and is not sent.
+    """
 
     provider = egress.provider
     if provider is None:
         return []
     prepared: list[tuple[PlannedChunk, list[float]]] = []
     for start in range(0, len(chunks), MAX_EMBEDDINGS_BATCH_SIZE):
-        batch = chunks[start : start + MAX_EMBEDDINGS_BATCH_SIZE]
+        planned_batch = chunks[start : start + MAX_EMBEDDINGS_BATCH_SIZE]
         if deadline is not None and time.monotonic() >= deadline:
             receipt.add_pending(PENDING_TIME_BUDGET, len(chunks) - start)
             break
+        try:
+            with store_context() as store:
+                batch = _still_qualifying(store, planned_batch, egress)
+        except Exception as exc:  # noqa: BLE001 - best effort: a batch that cannot be judged is not sent
+            logger.warning("source chunk embedding recheck failed: %s", type(exc).__name__)
+            receipt.add_pending(PENDING_STORAGE_FAILED, len(planned_batch))
+            receipt.failure_reasons[f"recheck: {type(exc).__name__}"] += len(planned_batch)
+            continue
+        receipt.add_pending(PENDING_CHANGED, len(planned_batch) - len(batch))
+        if not batch:
+            continue
         receipt.sent += len(batch)
         try:
             outcomes = embed_batch_isolating(provider, [chunk.sent_text for chunk in batch], native=True)
@@ -376,7 +438,7 @@ def _store_page(
     for item in prepared:
         by_source.setdefault(item[0].source_id, []).append(item)
     tally = ChunkEmbeddingReceipt()
-    with store.savepoint():
+    with store.savepoint(), vectors.secure_deletion(store):
         vectors.ensure_chunk_vector_table(store)
         stored_total = vectors.count_chunk_vectors(store)
         for source_id, items in by_source.items():
@@ -451,7 +513,7 @@ def run_source_embeddings(
             continue
         if not planned:
             continue
-        prepared = _send(planned, egress, receipt, deadline)
+        prepared = _send(planned, egress, receipt, deadline, store_context)
         if not prepared:
             continue
         try:

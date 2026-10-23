@@ -446,7 +446,10 @@ review archive remain soft deletes: their source text and chunks are not
 scrubbed by those routes.
 
 Removed text can remain in the vault file's unused space and write-ahead log
-until the file is rebuilt. To remove that leftover text, stop every program
+until the file is rebuilt. Chunk vectors are in the same position: they are
+zeroed where the database frees them, but deleting a vector is logical
+deletion, and the log, unused space and earlier backups can keep its bytes
+until the same checkpoint and rebuild. To remove that leftover text, stop every program
 that uses the vault, including MCP servers and the session hook, replace
 `<data-dir>` with the vault directory, and run:
 

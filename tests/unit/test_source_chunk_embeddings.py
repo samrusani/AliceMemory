@@ -14,7 +14,9 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import random
 import sqlite3
+import struct
 import threading
 import urllib.request
 from contextlib import closing
@@ -24,19 +26,23 @@ from uuid import UUID
 
 import pytest
 
+from alicebot_api import source_chunk_embeddings as embeddings_module
 from alicebot_api.onramp import _write_export, bootstrap_database, main as onramp_main
 from alicebot_api.source_chunk_embeddings import (
     PENDING_CHANGED,
     PENDING_ENDPOINT_FAILED,
+    PENDING_STORAGE_FAILED,
     PENDING_TIME_BUDGET,
     PENDING_VAULT_CAP,
     ChunkEmbeddingReceipt,
     backfill_source_chunks,
     chunk_vector_doctor_lines,
+    drop_chunk_vectors,
     embed_new_sources,
     sqlite_store_context,
 )
 from alicebot_api.source_embedding_policy import (
+    CHUNK_VECTOR_RETAINED_DATA,
     OFF_DRY_RUN,
     OFF_NO_PROVIDER,
     OFF_REMOTE_NOT_ALLOWED,
@@ -723,6 +729,151 @@ def test_a_title_edited_during_the_send_leaves_no_vector_of_the_old_text(tmp_pat
     assert _embed(db, [source_id], follow).embedded == 1 and "New title" in follow.texts[0]
 
 
+def test_a_source_raised_above_the_remote_ceiling_before_a_later_batch_sends_none_of_its_text(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The recheck before each batch. Mutation: send ``planned_batch`` instead of the rechecked ``batch`` in ``_send``.
+
+    The first batch is in flight when the owner raises the second source to ``private``, above the default ceiling
+    of a remote endpoint. The second batch is judged again, finds the new label and is not sent.
+    """
+
+    monkeypatch.setattr(embeddings_module, "MAX_EMBEDDINGS_BATCH_SIZE", 2)
+    db = _vault(tmp_path)
+    first, first_chunks = _source(db, "First", [PLAN_A, PLAN_B], sensitivity="internal")
+    second, second_chunks = _source(db, "Second", [PLAN_C, PLAN_C + " Again."], sensitivity="internal")
+    provider = FakeProvider(base_url=REMOTE_URL)
+
+    def raise_the_second_source() -> None:
+        if len(provider.requests) == 1:
+            with sqlite_user_connection(db, USER_ID) as conn:
+                conn.execute("UPDATE sources SET sensitivity = 'private' WHERE id = ?", (second,))
+
+    provider.before_reply = raise_the_second_source
+    receipt = _embed(db, [first, second], provider, environ=REMOTE_ON)
+    assert len(provider.requests) == 1 and all("Second" not in text and PLAN_C not in text for text in provider.texts)
+    assert receipt.sent == 2 and receipt.embedded == 2 and receipt.pending_reasons[PENDING_CHANGED] == 2
+    assert _vector_chunk_ids(db) == set(first_chunks)
+    assert second_chunks and not (set(second_chunks) & _vector_chunk_ids(db))
+
+
+def test_a_source_labelled_above_the_ceiling_after_planning_is_not_sent_at_all(tmp_path: Path, monkeypatch) -> None:
+    """Between the plan and the first request. Mutation: leave the recheck out of ``_send``."""
+
+    db = _vault(tmp_path)
+    source_id, _ = _source(db, "Plan", [PLAN_A, PLAN_B], sensitivity="internal")
+    original = embeddings_module._send
+
+    def relabel_then_send(*args, **kwargs):
+        with sqlite_user_connection(db, USER_ID) as conn:
+            conn.execute("UPDATE sources SET sensitivity = 'confidential' WHERE id = ?", (source_id,))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(embeddings_module, "_send", relabel_then_send)
+    provider = FakeProvider(base_url=REMOTE_URL)
+    receipt = _embed(db, [source_id], provider, environ=REMOTE_ON)
+    assert provider.requests == [] and receipt.sent == 0 and receipt.embedded == 0
+    assert receipt.pending_reasons[PENDING_CHANGED] == 2 and _vector_chunk_ids(db) == set()
+
+
+def test_a_label_does_not_stop_the_send_to_an_endpoint_on_this_machine(tmp_path: Path, monkeypatch) -> None:
+    """The recheck applies the same posture as the plan: the ceiling is for a remote endpoint only."""
+
+    db = _vault(tmp_path)
+    source_id, _ = _source(db, "Plan", [PLAN_A], sensitivity="internal")
+    original = embeddings_module._send
+
+    def relabel_then_send(*args, **kwargs):
+        with sqlite_user_connection(db, USER_ID) as conn:
+            conn.execute("UPDATE sources SET sensitivity = 'confidential' WHERE id = ?", (source_id,))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(embeddings_module, "_send", relabel_then_send)
+    receipt = _embed(db, [source_id], FakeProvider())
+    assert receipt.embedded == 1 and receipt.pending == 0
+
+
+def test_a_scrub_after_planning_and_before_the_send_sends_nothing_and_stores_nothing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A scrub changes the text, so the hash differs. Mutation: leave the hash comparison out of ``_still_qualifying``."""
+
+    db = _vault(tmp_path)
+    source_id, _ = _source(db, "Plan", [PLAN_A, PLAN_B])
+    original = embeddings_module._send
+
+    def scrub_then_send(*args, **kwargs):
+        with sqlite_user_connection(db, USER_ID) as conn:
+            SQLiteVNextStore(conn, USER_ID).scrub_source(source_id)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(embeddings_module, "_send", scrub_then_send)
+    provider = FakeProvider(base_url=REMOTE_URL)
+    receipt = _embed(db, [source_id], provider, environ=REMOTE_ON)
+    assert provider.requests == [] and receipt.sent == 0 and receipt.embedded == 0
+    assert receipt.pending_reasons[PENDING_CHANGED] == 2 and _vector_chunk_ids(db) == set()
+
+
+def test_a_replacement_after_planning_and_before_the_send_sends_nothing_of_the_old_text(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Mutation: leave the liveness check out of ``_still_qualifying``."""
+
+    db = _vault(tmp_path)
+    folder = tmp_path / "notes"
+    folder.mkdir()
+    (folder / "plan.md").write_text(f"# Plan\n\n{PLAIN}\n")
+    with sqlite_user_connection(db, USER_ID) as conn:
+        first = VNextCaptureService(SQLiteVNextStore(conn, USER_ID)).import_markdown_folder(folder)
+    (folder / "plan.md").write_text(f"# Plan\n\n{PLAIN} It changed.\n")
+    original = embeddings_module._send
+
+    def replace_then_send(*args, **kwargs):
+        with sqlite_user_connection(db, USER_ID) as conn:
+            result = VNextCaptureService(SQLiteVNextStore(conn, USER_ID)).import_markdown_folder(folder, supersede=True)
+        assert result.superseded
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(embeddings_module, "_send", replace_then_send)
+    provider = FakeProvider()
+    receipt = _embed(db, first.source_ids, provider)
+    assert provider.requests == [] and receipt.embedded == 0 and receipt.pending_reasons[PENDING_CHANGED] >= 1
+    assert _vector_chunk_ids(db) == set()
+
+
+def test_a_title_changed_after_planning_is_sent_as_it_now_reads_or_not_at_all(tmp_path: Path, monkeypatch) -> None:
+    """The hash of the text to send is read again. Mutation: leave the hash comparison out of ``_still_qualifying``."""
+
+    db = _vault(tmp_path)
+    source_id, _ = _source(db, "Old title", [PLAIN])
+    original = embeddings_module._send
+
+    def rename_then_send(*args, **kwargs):
+        with sqlite_user_connection(db, USER_ID) as conn:
+            conn.execute("UPDATE sources SET title = 'New title' WHERE id = ?", (source_id,))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(embeddings_module, "_send", rename_then_send)
+    provider = FakeProvider()
+    receipt = _embed(db, [source_id], provider)
+    assert provider.requests == [] and receipt.pending_reasons[PENDING_CHANGED] == 1 and _vector_chunk_ids(db) == set()
+
+
+def test_a_batch_that_cannot_be_judged_is_not_sent(tmp_path: Path, monkeypatch) -> None:
+    """Mutation: send the batch when the recheck raises."""
+
+    db = _vault(tmp_path)
+    source_id, _ = _source(db, "Plan", [PLAN_A])
+
+    def fail(*_args, **_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(embeddings_module, "_still_qualifying", fail)
+    provider = FakeProvider()
+    receipt = _embed(db, [source_id], provider)
+    assert provider.requests == [] and receipt.embedded == 0 and receipt.pending_reasons[PENDING_STORAGE_FAILED] == 1
+
+
 def test_a_failed_batch_leaves_the_chunks_pending_and_nothing_raises(tmp_path: Path) -> None:
     """Mutation: let the provider's error out of ``embed_new_sources``."""
 
@@ -919,9 +1070,13 @@ def test_scrub_deletes_the_vectors_and_the_receipt_counts_them(tmp_path: Path, c
     other, other_chunks = _source(db, "Other", [PLAIN + " Other."])
     _embed(db, [source_id, other], FakeProvider())
     assert onramp_main(["sources", "delete", source_id, "--yes", "--db", str(db)]) == 0
-    receipt = json.loads(capsys.readouterr().out)["deleted"][0]
+    payload = json.loads(capsys.readouterr().out)
+    receipt = payload["deleted"][0]
     assert receipt["chunk_vectors"] == 2
     assert _vector_chunk_ids(db) == set(other_chunks)
+    # The receipt says that deleting a vector is logical deletion, as it says for chunk text.
+    assert "vectors" in payload["retained_data"] and "logical" in payload["retained_data"]
+    assert "VACUUM" in payload["retained_data"] and "write-ahead log" in payload["retained_data"]
 
 
 def test_supersede_deletes_the_vectors_of_the_replaced_source(tmp_path: Path) -> None:
@@ -960,6 +1115,123 @@ def test_prune_deletes_the_vectors_of_replaced_sources(tmp_path: Path, capsys) -
     assert receipt["chunk_vectors"] == 1 and _vector_chunk_ids(db) == set()
 
 
+# -- deleting a vector is logical deletion; the bytes are zeroed where the database frees them ------------------------
+
+
+class WideProvider(FakeProvider):
+    """Vectors the width of a real model (768 floats, about a page), different for every model and text."""
+
+    def embed_batch(self, texts):  # noqa: ANN001
+        self.requests.append(list(texts))
+        return [wide_vector(self.model, text) for text in texts]
+
+    embed_batch_native = embed_batch
+
+
+def wide_vector(model: str, text: str) -> list[float]:
+    rng = random.Random(f"{model}\x00{text}")
+    return [1.0 + rng.random() for _ in range(768)]
+
+
+def _marker(model: str, text: str) -> bytes:
+    """The first 32 bytes of the stored vector of this text: the bytes to look for in the vault file and its log."""
+
+    return struct.pack("<8f", *wide_vector(model, text)[:8])
+
+
+def _file_bytes(db: Path) -> bytes:
+    return b"".join(path.read_bytes() for path in (db, Path(f"{db}-wal")) if path.exists())
+
+
+def _chunk_texts_sent(provider: FakeProvider) -> list[str]:
+    return provider.texts
+
+
+def _wide_sources(db: Path, count: int) -> tuple[list[str], WideProvider]:
+    ids = [_source(db, f"Plan {index}", [PLAIN + f" Number {index}."])[0] for index in range(count)]
+    provider = WideProvider()
+    assert _embed(db, ids, provider).embedded == count
+    return ids, provider
+
+
+def test_scrub_leaves_no_vector_bytes_in_the_vault_file_or_its_log(tmp_path: Path) -> None:
+    """Vectors are written and deleted under secure deletion. Mutation: leave ``secure_deletion`` out of ``_store_page``."""
+
+    db = _vault(tmp_path)
+    ids, provider = _wide_sources(db, 3)
+    markers = [_marker(NOMIC, text) for text in provider.texts]
+    assert all(marker in _file_bytes(db) for marker in markers)
+    with sqlite_user_connection(db, USER_ID) as conn:
+        SQLiteVNextStore(conn, USER_ID).scrub_source(ids[0])
+    after = _file_bytes(db)
+    assert markers[0] not in after and markers[1] in after and markers[2] in after
+
+
+def test_a_replaced_stale_vector_leaves_no_bytes_of_the_old_vector(tmp_path: Path) -> None:
+    """A vector rewritten for a new model overwrites the old one in place. Mutation: leave ``secure_deletion`` out of ``_store_page``."""
+
+    db = _vault(tmp_path)
+    ids, first = _wide_sources(db, 3)
+    old = [_marker(NOMIC, text) for text in first.texts]
+    second = WideProvider(model="nomic-embed-text:latest")
+    assert _embed(db, ids, second).embedded == 3
+    new = [_marker("nomic-embed-text:latest", text) for text in second.texts]
+    after = _file_bytes(db)
+    assert all(marker not in after for marker in old) and all(marker in after for marker in new)
+
+
+def test_supersede_leaves_no_vector_bytes_of_the_replaced_source(tmp_path: Path) -> None:
+    """Mutation: leave ``secure_deletion`` out of ``delete_chunk_vectors``."""
+
+    db = _vault(tmp_path)
+    folder = tmp_path / "notes"
+    folder.mkdir()
+    (folder / "plan.md").write_text(f"# Plan\n\n{PLAIN}\n")
+    with sqlite_user_connection(db, USER_ID) as conn:
+        first = VNextCaptureService(SQLiteVNextStore(conn, USER_ID)).import_markdown_folder(folder)
+    provider = WideProvider()
+    assert _embed(db, first.source_ids, provider).embedded == 1
+    marker = _marker(NOMIC, provider.texts[0])
+    assert marker in _file_bytes(db)
+    (folder / "plan.md").write_text(f"# Plan\n\n{PLAIN} It changed.\n")
+    with sqlite_user_connection(db, USER_ID) as conn:
+        VNextCaptureService(SQLiteVNextStore(conn, USER_ID)).import_markdown_folder(folder, supersede=True)
+    assert marker not in _file_bytes(db)
+
+
+def test_drop_leaves_no_vector_bytes_and_no_table(tmp_path: Path) -> None:
+    """Mutation: leave ``secure_deletion`` out of ``delete_chunk_vectors``."""
+
+    db = _vault(tmp_path)
+    _ids, provider = _wide_sources(db, 3)
+    markers = [_marker(NOMIC, text) for text in provider.texts]
+    assert drop_chunk_vectors(store_context=_context(db)) == 3
+    after = _file_bytes(db)
+    assert all(marker not in after for marker in markers)
+    assert not _rows(db, "SELECT 1 FROM sqlite_master WHERE name = 'source_chunk_embeddings'")
+
+
+def test_the_setting_is_put_back_after_a_vector_write_or_delete(tmp_path: Path) -> None:
+    """Mutation: leave the ``finally`` that restores the setting out of ``secure_deletion``."""
+
+    from alicebot_api.vnext_stores.sqlite import source_chunk_vectors as vector_store
+
+    db = _vault(tmp_path)
+    with sqlite_user_connection(db, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+
+        def setting() -> int:
+            return int(store._execute("PRAGMA secure_delete").fetchone()["secure_delete"])
+
+        before = setting()
+        with vector_store.secure_deletion(store):
+            assert setting() == 1
+        assert setting() == before
+        with pytest.raises(RuntimeError), vector_store.secure_deletion(store):
+            raise RuntimeError("fails inside")
+        assert setting() == before
+
+
 # -- backfill, drop and the doctor ---------------------------------------------------------------------------------------------
 
 
@@ -991,6 +1263,7 @@ def test_reindex_sources_embeds_missing_and_stale_chunks_and_drop_removes_everyt
     assert _rows(db, "SELECT DISTINCT model FROM source_chunk_embeddings") == [("nomic-embed-text:latest",)]
     assert onramp_main(["reindex-embeddings", "--sources", "--drop", "--db", str(db)]) == 0
     dropped = json.loads(capsys.readouterr().out)
+    assert dropped.pop("retained_data") == CHUNK_VECTOR_RETAINED_DATA
     assert dropped == {"dropped": 2, "sources": True}
     # Dropping every vector leaves the vault as a build without the table left it.
     assert _rows(db, "SELECT name FROM sqlite_master WHERE name = 'source_chunk_embeddings'") == []
