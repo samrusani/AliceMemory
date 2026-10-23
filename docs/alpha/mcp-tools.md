@@ -500,10 +500,11 @@ stored and returned does not change. A chunk is never sent when the credential c
 door's check, on the whole chunk and on the whole text sent), when it holds only links and headings, when it has fewer
 than 32 readable characters, when its source is deleted, replaced or scrubbed, or on a `--dry-run`.
 
-`alice-memory import-markdown`, `alice-memory import-chatgpt`, `alice_capture` and `alice_vnext_ingest_agent_output`
-embed the chunks of what they save after they commit and hold no database lock while they do. A failed batch leaves its
-chunks pending and never fails the import or the capture; with the opt-in on, the receipt gains a `chunk_embeddings`
-object with the numbers embedded, pending (and why) and skipped (and why). `alice-memory reindex-embeddings --sources`
+`alice-memory import-markdown`, `alice-memory import-chatgpt` and `alice_capture` embed the chunks of what they save
+after they commit and hold no database lock while they do. A failed batch leaves its chunks pending and never fails the
+import or the capture; with the opt-in on, the receipt gains a `chunk_embeddings` object with the numbers embedded,
+pending (and why) and skipped (and why). The legacy `alice_vnext_ingest_agent_output` tool is wired the same way, but it
+does not complete on SQLite today, so no SQLite vault reaches that wiring yet. `alice-memory reindex-embeddings --sources`
 embeds the chunks that have no current vector or whose vector no longer matches the model, the endpoint, the rules or the
 text, and `--sources --drop` deletes every chunk vector and the table. No tool starts that: it is a command on this
 machine. `alice-memory doctor` prints the mode and the counts of chunks with a current vector, pending, with a stale
