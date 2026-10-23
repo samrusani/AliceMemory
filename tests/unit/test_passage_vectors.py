@@ -160,6 +160,8 @@ def test_the_edge_runs_vectors_on_sqlite_and_answers_as_passage_elsewhere(monkey
     monkeypatch.setenv(SEARCH_QUALITY_ENV, "vectors")
     assert VECTORS_STORES == frozenset({"SQLiteVNextStore"})
     assert recall_source_ranking(_store_named("SQLiteVNextStore"), None).mode == "vectors"
+    assert recall_source_ranking(_store_named("SQLiteVNextStore"), None, "medium").mode == "vectors"
+    assert recall_source_ranking(_store_named("SQLiteVNextStore"), None, "minimal") == SourceRanking.passage()
     assert recall_source_ranking(_store_named("PostgresVNextStore"), None) == SourceRanking.passage()
     limited = AgentIdentity(agent_id="limited", agent_type="test", permission_profile="read_only_agent", project_scope=("acme",))
     assert recall_source_ranking(_store_named("PostgresVNextStore"), limited) == SourceRanking.document()
@@ -759,10 +761,11 @@ def test_no_chunk_id_and_no_new_id_is_in_what_a_caller_is_shown(tmp_path: Path, 
     assert fixed_id("source", "Semantic") in vectors and fixed_id("source", "Semantic") not in passage
 
 
-def test_the_debug_record_of_the_source_stage_shows_only_counts_and_a_status(tmp_path: Path, monkeypatch) -> None:
-    """``alice_recall`` debug gains the source stage record, with the fields that cannot count a row the caller may not read.
+def test_the_debug_record_of_the_source_stage_is_shown_only_when_vectors_was_asked_for(tmp_path: Path, monkeypatch) -> None:
+    """With the switch at any other value the debug payload is what it was; with ``vectors`` it gains the source stage.
 
-    Mutation: pass the whole stage record through (it counts provenance sources before the fence).
+    The stage shows the fields that cannot count a row the caller may not read. Mutation: show the source stage whatever
+    the switch says; pass the whole stage record through (it counts provenance sources before the fence).
     """
 
     from alicebot_api.mcp.registry import call_mcp_tool
@@ -771,16 +774,19 @@ def test_the_debug_record_of_the_source_stage_shows_only_counts_and_a_status(tmp
     add_note(database, "Almanac", [hit_text("taga", 3)])
     provider = ScriptedProvider({"taga": 0.5})
     embed_vault(database, provider)
-    monkeypatch.setenv(SEARCH_QUALITY_ENV, "passage")
-    payload = call_mcp_tool(mcp_context(database), name="alice_recall", arguments={"query": QUERY, "debug": True})
-    stage = payload["retrieval"]["stages"]["sources"]  # type: ignore[index]
-    assert set(stage) == {"source", "candidate_count", "chunk_fts_source", "passages_per_source"}
-    assert stage["source"] == "passage"
+    for value in (None, "passage", "off"):
+        if value is None:
+            monkeypatch.delenv(SEARCH_QUALITY_ENV, raising=False)
+        else:
+            monkeypatch.setenv(SEARCH_QUALITY_ENV, value)
+        payload = call_mcp_tool(mcp_context(database), name="alice_recall", arguments={"query": QUERY, "debug": True})
+        assert "sources" not in payload["retrieval"]["stages"], value  # type: ignore[index]
     monkeypatch.setenv(SEARCH_QUALITY_ENV, "vectors")
     monkeypatch.setenv(EMBEDDINGS_BASE_URL_ENV, "http://127.0.0.1:9/v1")
     monkeypatch.setenv(EMBEDDINGS_MODEL_ENV, MODEL)
     payload = call_mcp_tool(mcp_context(database), name="alice_recall", arguments={"query": QUERY, "debug": True})
     stage = payload["retrieval"]["stages"]["sources"]  # type: ignore[index]
+    assert set(stage) == {"source", "candidate_count", "chunk_fts_source", "passages_per_source", "vector"}
     assert stage["source"] == "vectors" and set(stage["vector"]) == {
         "status", "readable_chunks", "stale_chunks", "discovered_in_head", "reordered_slots", "filler_picks"}
 

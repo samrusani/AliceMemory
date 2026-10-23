@@ -1202,22 +1202,28 @@ def test_recall_answers_the_same_with_chunk_vectors_stored(tmp_path: Path) -> No
 
 
 def test_no_read_path_names_the_vector_table() -> None:
-    """The table is read only by the modules of this change (store seam, lifecycle, doctor, commands).
+    """The table is read only by the modules of the vector stage, the stores' seam, and the commands.
 
-    Mutation: add a reference to the chunk vectors to ``vnext_retrieval.py`` or to ``mcp/retrieval.py``.
+    The brief, the continuity recall and the ranking switch never name the chunk vectors.
+    Mutation: add a reference to the chunk vectors to ``session_briefing.py`` or to ``continuity_recall.py``.
     """
 
     root = Path(__file__).resolve().parents[2] / "apps/api/src/alicebot_api"
     allowed = {
+        "mcp/retrieval.py",
         "mcp/runtime.py",
         "onramp.py",
         "source_chunk_embeddings.py",
+        "source_chunk_vector_search.py",
         "source_embedding_policy.py",
         "sqlite_schema.py",
         "sqlite_store.py",
         "vault_doctor.py",
         "vnext_capture.py",
+        "vnext_retrieval.py",
+        "vnext_stores/sqlite/chunk_vector_cache.py",
         "vnext_stores/sqlite/source_chunk_vectors.py",
+        "vnext_stores/sqlite/source_readable.py",
         "vnext_stores/sqlite/source_retirement.py",
     }
     holders = {
@@ -1226,5 +1232,5 @@ def test_no_read_path_names_the_vector_table() -> None:
         if any(token in path.read_text(encoding="utf-8") for token in ("source_chunk_embeddings", "source_chunk_vectors", "chunk_vector"))
     }
     assert holders - allowed == set(), holders - allowed
-    for forbidden in ("vnext_retrieval.py", "mcp/retrieval.py", "source_ranking.py", "continuity_recall.py"):
+    for forbidden in ("session_briefing.py", "continuity_recall.py", "continuity_brief.py", "source_ranking.py"):
         assert forbidden not in holders

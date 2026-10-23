@@ -201,7 +201,9 @@ PASSAGE_BY_DEFAULT_STORES: Final[frozenset[str]] = frozenset({"SQLiteVNextStore"
 VECTORS_STORES: Final[frozenset[str]] = frozenset({"SQLiteVNextStore"})
 
 
-def recall_source_ranking(store: object, identity: AgentIdentity | None) -> SourceRanking:
+def recall_source_ranking(
+    store: object, identity: AgentIdentity | None, context_depth: str | None = None
+) -> SourceRanking:
     """The ranking ``alice_recall`` asks for.
 
     Read here, with the store kind and the caller's identity. With the
@@ -212,9 +214,11 @@ def recall_source_ranking(store: object, identity: AgentIdentity | None) -> Sour
     The owner and an unbound admin key have no limits. The service never reads
     the switch.
 
-    ``vectors`` runs on the stores in ``VECTORS_STORES``. On any other store it
-    answers exactly as ``passage`` would there (document mode for a PostgreSQL
-    key with limits, as above), and ``recall_vector_note`` reports why.
+    ``vectors`` runs on the stores in ``VECTORS_STORES``, and not at the
+    ``minimal`` context depth, where the vector stage is off as the memory
+    embedding is. On any other store it answers exactly as ``passage`` would
+    there (document mode for a PostgreSQL key with limits, as above), and
+    ``recall_vector_note`` reports why.
     """
 
     store_name = type(store).__name__
@@ -222,7 +226,7 @@ def recall_source_ranking(store: object, identity: AgentIdentity | None) -> Sour
         return SourceRanking.document()
     unset = SourceRanking.passage() if store_name in PASSAGE_BY_DEFAULT_STORES else SourceRanking.document()
     ranking = SourceRanking.from_environment(unset=unset)
-    if ranking.mode == "vectors" and store_name not in VECTORS_STORES:
+    if ranking.mode == "vectors" and (store_name not in VECTORS_STORES or context_depth == CONTEXT_DEPTH_MINIMAL):
         return SourceRanking.passage()
     return ranking
 
@@ -244,26 +248,22 @@ def recall_vector_note(store: object, context_depth: str) -> str | None:
     return None
 
 
-def _debug_sources_stage(
-    record: Mapping[str, object],
-    note: str | None,
-    *,
-    ranking: SourceRanking,
-    returned: int,
-) -> JsonObject:
-    """The source stage as recall's debug payload shows it.
+def _debug_sources_stage(record: Mapping[str, object], note: str | None, *, returned: int) -> JsonObject:
+    """The source stage as recall's debug payload shows it when ``ALICE_SEARCH_QUALITY=vectors`` was asked for.
 
-    The mode and the cap come from the ranking the recall ran, the count is of the entries it returned, and the chunk
-    query label is the stage's own. The stage record's other counts (the provenance and title lists, the scan) are left
-    out: they are taken before the caller's fence in some modes, and a debug field never counts a row the caller may not
-    read. The vector part is the stage's status and its counts of what the caller may read and what changed, or the
-    reason ``recall_vector_note`` gave when the stage did not run.
+    The mode and the cap are the stage's own, the count is of the entries it returned, and the chunk query label is the
+    stage's. The stage record's other counts (the provenance and title lists, the scan) are left out: they are taken
+    before the caller's fence in some modes, and a debug field never counts a row the caller may not read. The vector
+    part is the stage's status and its counts of what the caller may read and what changed, or the reason
+    ``recall_vector_note`` gave when the stage did not run. With the switch at any other value the debug payload is
+    what it was, so this is not shown.
     """
 
+    mode = record.get("source")
     shown: dict[str, object] = {
-        "source": ranking.mode,
+        "source": mode if mode in {"passage", "vectors"} else "document",
         "candidate_count": returned,
-        "passages_per_source": ranking.passages_per_source,
+        "passages_per_source": record.get("passages_per_source", 1),
     }
     if "chunk_fts_source" in record:
         shown["chunk_fts_source"] = record["chunk_fts_source"]
@@ -383,11 +383,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
         # the note, not the decision text, still names a source. The hop
         # writes into results[], not sources[]. include_sources only gates
         # whether those excerpts are returned.
-        recall_ranking = recall_source_ranking(store, context.agent_identity)
         vector_note = recall_vector_note(store, context_depth)
-        if recall_ranking.mode == "vectors" and context_depth == CONTEXT_DEPTH_MINIMAL:
-            # Vectors are off at the minimal depth, as the memory embedding is: passage mode, and the note says so.
-            recall_ranking = SourceRanking.passage()
         raw_sources, sources_stage = service.search_source_excerpts(
             query=query,
             domains=domains,
@@ -404,7 +400,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             # Written here on purpose. The switch, the default of the store
             # and the PostgreSQL limited-key rule are applied at this edge,
             # not inside the service.
-            ranking=recall_ranking,
+            ranking=recall_source_ranking(store, context.agent_identity, context_depth),
             winning_memories=ordered_rows,
         )
         window_start = retrieval_filters.get("scope_window_start")
@@ -532,14 +528,12 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
                     "matched_entities": matched_entities,
                     "candidate_count": len(graph_rows),
                 },
-                "sources": _debug_sources_stage(
-                    sources_stage,
-                    vector_note,
-                    ranking=recall_ranking,
-                    returned=len(raw_sources) if isinstance(raw_sources, list) else 0,
-                ),
             },
         }
+        if search_quality_requests_vectors():
+            retrieval_payload["stages"]["sources"] = _debug_sources_stage(  # type: ignore[index]
+                sources_stage, vector_note, returned=len(raw_sources) if isinstance(raw_sources, list) else 0
+            )
         if retrieval_filters:
             filter_payload: dict[str, object] = {}
             if "memory_types" in retrieval_filters:
