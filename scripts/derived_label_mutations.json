@@ -21320,10 +21320,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py",
-          "line": 608,
+          "line": 615,
           "before": "            if entry.signature != signature or entry.stamp != stamp:",
           "after": "            if entry.signature != signature:",
-          "sha256": "594c21ca334c8a1df02a07fdc2b9c196f07780e43e365271860c388587f1dea7"
+          "sha256": "29b97a5f7c743317145e34f2d3d5de55e6b554aea1843a201225ae4dc794adbc"
         }
       ],
       "pytest": [
@@ -21337,10 +21337,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py",
-          "line": 607,
+          "line": 614,
           "before": "            stamp = source_chunk_vectors_stamp(conn)",
           "after": "            stamp = str(conn.execute(\"SELECT token FROM embedding_stamp WHERE id = 1\").fetchone()[\"token\"])",
-          "sha256": "594c21ca334c8a1df02a07fdc2b9c196f07780e43e365271860c388587f1dea7"
+          "sha256": "29b97a5f7c743317145e34f2d3d5de55e6b554aea1843a201225ae4dc794adbc"
         }
       ],
       "pytest": [
@@ -21353,17 +21353,17 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py",
-          "line": 279,
+          "line": 286,
           "before": "        if expected * _row_bytes(dims) > max_bytes:",
           "after": "        if False:",
-          "sha256": "594c21ca334c8a1df02a07fdc2b9c196f07780e43e365271860c388587f1dea7"
+          "sha256": "29b97a5f7c743317145e34f2d3d5de55e6b554aea1843a201225ae4dc794adbc"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py",
-          "line": 612,
+          "line": 619,
           "before": "            if entry.resident_bytes > max_bytes:",
           "after": "            if False:",
-          "sha256": "594c21ca334c8a1df02a07fdc2b9c196f07780e43e365271860c388587f1dea7"
+          "sha256": "29b97a5f7c743317145e34f2d3d5de55e6b554aea1843a201225ae4dc794adbc"
         }
       ],
       "pytest": [
@@ -21376,10 +21376,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py",
-          "line": 394,
+          "line": 401,
           "before": "        entry.matrix.resize((start + len(fresh), entry.dims), refcheck=False)",
           "after": "        entry.matrix = np.concatenate([entry.matrix, np.empty((len(fresh), entry.dims), dtype=np.float32)])",
-          "sha256": "594c21ca334c8a1df02a07fdc2b9c196f07780e43e365271860c388587f1dea7"
+          "sha256": "29b97a5f7c743317145e34f2d3d5de55e6b554aea1843a201225ae4dc794adbc"
         }
       ],
       "pytest": [
@@ -21392,10 +21392,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py",
-          "line": 497,
+          "line": 504,
           "before": "        scores = self._scores(mask, mask.indices, query, norm)",
           "after": "        scores = self._scores(mask, np.arange(entry.rows), query, norm)[mask.indices]",
-          "sha256": "594c21ca334c8a1df02a07fdc2b9c196f07780e43e365271860c388587f1dea7"
+          "sha256": "29b97a5f7c743317145e34f2d3d5de55e6b554aea1843a201225ae4dc794adbc"
         }
       ],
       "pytest": [
@@ -21524,17 +21524,17 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py",
-          "line": 268,
+          "line": 275,
           "before": "WHERE user_id = ? AND rowid <= ? AND {_SIGNATURE_SQL}{scope_sql}\n        GROUP BY dimensions",
           "after": "WHERE user_id = ? AND rowid <= ? AND {_SIGNATURE_SQL}\n        GROUP BY dimensions",
-          "sha256": "594c21ca334c8a1df02a07fdc2b9c196f07780e43e365271860c388587f1dea7"
+          "sha256": "29b97a5f7c743317145e34f2d3d5de55e6b554aea1843a201225ae4dc794adbc"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py",
-          "line": 271,
+          "line": 278,
           "before": "        (user_id, watermark, *params, *scope_params),\n    )\n    try:\n        widths = cursor.fetchall()",
           "after": "        (user_id, watermark, *params),\n    )\n    try:\n        widths = cursor.fetchall()",
-          "sha256": "594c21ca334c8a1df02a07fdc2b9c196f07780e43e365271860c388587f1dea7"
+          "sha256": "29b97a5f7c743317145e34f2d3d5de55e6b554aea1843a201225ae4dc794adbc"
         }
       ],
       "pytest": [
@@ -21547,10 +21547,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py",
-          "line": 279,
+          "line": 286,
           "before": "        if expected * _row_bytes(dims) > max_bytes:",
           "after": "        if conn.execute(\"SELECT COUNT(*) FROM source_chunk_embeddings WHERE user_id = ?\", (user_id,)).fetchone()[0] * _row_bytes(dims) > max_bytes:",
-          "sha256": "594c21ca334c8a1df02a07fdc2b9c196f07780e43e365271860c388587f1dea7"
+          "sha256": "29b97a5f7c743317145e34f2d3d5de55e6b554aea1843a201225ae4dc794adbc"
         }
       ],
       "pytest": [
@@ -21563,17 +21563,17 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py",
-          "line": 365,
+          "line": 372,
           "before": "            WHERE user_id = ? AND rowid > ? AND rowid <= ?{scope_sql}\n",
           "after": "            WHERE user_id = ? AND rowid > ? AND rowid <= ?\n",
-          "sha256": "594c21ca334c8a1df02a07fdc2b9c196f07780e43e365271860c388587f1dea7"
+          "sha256": "29b97a5f7c743317145e34f2d3d5de55e6b554aea1843a201225ae4dc794adbc"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py",
-          "line": 368,
+          "line": 375,
           "before": "(*params, user_id, entry.max_rowid, newest, *scope_params, _ROWS_PER_STEP)",
           "after": "(*params, user_id, entry.max_rowid, newest, _ROWS_PER_STEP)",
-          "sha256": "594c21ca334c8a1df02a07fdc2b9c196f07780e43e365271860c388587f1dea7"
+          "sha256": "29b97a5f7c743317145e34f2d3d5de55e6b554aea1843a201225ae4dc794adbc"
         }
       ],
       "pytest": [
@@ -21586,10 +21586,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py",
-          "line": 561,
+          "line": 568,
           "before": "        while len(copies) > MAX_SCOPED_COPIES:",
           "after": "        while False:",
-          "sha256": "594c21ca334c8a1df02a07fdc2b9c196f07780e43e365271860c388587f1dea7"
+          "sha256": "29b97a5f7c743317145e34f2d3d5de55e6b554aea1843a201225ae4dc794adbc"
         }
       ],
       "pytest": [
@@ -21602,10 +21602,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py",
-          "line": 602,
+          "line": 609,
           "before": "    digest, scope_json = scope_digest(scope) if scope is not None else (None, None)",
           "after": "    digest, scope_json = (\"fixed\", scope_digest(scope)[1]) if scope is not None else (None, None)",
-          "sha256": "594c21ca334c8a1df02a07fdc2b9c196f07780e43e365271860c388587f1dea7"
+          "sha256": "29b97a5f7c743317145e34f2d3d5de55e6b554aea1843a201225ae4dc794adbc"
         }
       ],
       "pytest": [
