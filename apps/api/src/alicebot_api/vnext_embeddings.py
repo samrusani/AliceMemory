@@ -17,7 +17,7 @@ from urllib.parse import SplitResult, urlsplit, urlunsplit
 from urllib.request import Request
 
 from alicebot_api.credential_floor import credential_verdict
-from alicebot_api.provider_http import open_provider_url
+from alicebot_api.provider_http import NonLoopbackPeerRefused, open_loopback_url, open_provider_url
 from alicebot_api.provider_security import REDIRECT_STATUS_CODES, redirect_note
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_recall_visibility import memory_is_recall_visible
@@ -113,6 +113,15 @@ class VNextEmbeddingProviderError(RuntimeError):
     def __init__(self, message: str, *, status: int | None = None) -> None:
         super().__init__(message)
         self.status = status
+
+
+class VNextEmbeddingPeerRefusedError(VNextEmbeddingProviderError):
+    """The connection reached a peer that is not on this machine. It was closed before any byte was written.
+
+    Raised only for the calls that carry source text (``embed_batch_native``), which are held to a peer on this
+    machine.
+    """
+
 
 
 class EmbeddingProvider(Protocol):
@@ -556,11 +565,17 @@ class OpenAICompatibleEmbeddingProvider:
         return self._embed(texts, pad=True)
 
     def embed_batch_native(self, texts: Sequence[str]) -> list[list[float]]:
-        """The same request as ``embed_batch``, with each vector at the model's own width."""
+        """The same request as ``embed_batch``, with each vector at the model's own width.
 
-        return self._embed(texts, pad=False)
+        This is the call that carries the text of source chunks and the recall query for them, and it sends them
+        only to a peer on this machine: as soon as the connection is made, and before a byte is written, the
+        connected peer is checked and the request is refused (``VNextEmbeddingPeerRefusedError``) unless it is
+        loopback. The memory path (``embed_batch``) is not held to this and works with any endpoint, as before.
+        """
 
-    def _embed(self, texts: Sequence[str], *, pad: bool) -> list[list[float]]:
+        return self._embed(texts, pad=False, loopback_only=True)
+
+    def _embed(self, texts: Sequence[str], *, pad: bool, loopback_only: bool = False) -> list[list[float]]:
         if not texts:
             return []
         if len(texts) > MAX_EMBEDDINGS_BATCH_SIZE:
@@ -584,7 +599,11 @@ class OpenAICompatibleEmbeddingProvider:
             method="POST",
         )
         try:
-            with open_provider_url(request, timeout=self.timeout_seconds, enforce_public_peer=False) as response:
+            if loopback_only:
+                opened = open_loopback_url(request, timeout=self.timeout_seconds)
+            else:
+                opened = open_provider_url(request, timeout=self.timeout_seconds, enforce_public_peer=False)
+            with opened as response:
                 response_payload = json.loads(response.read())
         except HTTPError as exc:
             # A redirect's body is the endpoint's to write and says nothing the status does not.
@@ -598,7 +617,15 @@ class OpenAICompatibleEmbeddingProvider:
                 + (f": {reason}" if reason else ""),
                 status=exc.code,
             ) from exc
-        except (URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except URLError as exc:
+            if isinstance(exc.reason, NonLoopbackPeerRefused):
+                raise VNextEmbeddingPeerRefusedError(
+                    "embeddings request refused: the peer that was reached is not on this machine"
+                ) from exc
+            raise VNextEmbeddingProviderError(
+                f"embeddings request failed: {self._safe_reason(str(exc)) or type(exc).__name__}"
+            ) from exc
+        except (TimeoutError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise VNextEmbeddingProviderError(
                 f"embeddings request failed: {self._safe_reason(str(exc)) or type(exc).__name__}"
             ) from exc
@@ -899,6 +926,8 @@ class EmbeddingTextFailure:
     reason: str | None
     status: int | None
     isolated: bool
+    #: The connection reached a peer that is not on this machine and was closed before anything was written.
+    peer_refused: bool = False
 
 
 def embedding_failure_reason(exc: BaseException) -> str | None:
@@ -915,7 +944,9 @@ def embedding_failure_reason(exc: BaseException) -> str | None:
 
 def _text_failure(exc: BaseException, *, isolated: bool) -> EmbeddingTextFailure:
     status = exc.status if isinstance(exc, VNextEmbeddingProviderError) else None
-    return EmbeddingTextFailure(embedding_failure_reason(exc), status, isolated)
+    return EmbeddingTextFailure(
+        embedding_failure_reason(exc), status, isolated, peer_refused=isinstance(exc, VNextEmbeddingPeerRefusedError)
+    )
 
 
 def _refuses_input(exc: BaseException) -> bool:
@@ -1488,6 +1519,7 @@ __all__ = [
     "MAX_EMBEDDINGS_BATCH_SIZE",
     "OpenAICompatibleEmbeddingProvider",
     "VNextEmbeddingConfigurationError",
+    "VNextEmbeddingPeerRefusedError",
     "VNextEmbeddingProviderError",
     "attach_memory_embedding",
     "attach_memory_embeddings",

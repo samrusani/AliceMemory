@@ -11,9 +11,11 @@ never overlap in time with a database lock held:
    every chunk that would have been sent is counted pending. Just before each batch one read
    transaction judges the batch again, the source row and its chunk rows from one snapshot: a chunk
    whose source was deleted, replaced or scrubbed, or whose text changed, since the plan is dropped
-   from the batch and left pending. A change committed after that read, while the request is in
-   flight, can still reach the endpoint on this machine; the compare and set below keeps its vector
-   out of the vault. Labels are not an input: a change of sensitivity, domain or project is not an
+   from the batch and left pending. A change committed after that read has read the source, before
+   the request begins or while it is in flight, can still reach the endpoint on this machine; the
+   compare and set below keeps its vector out of the vault. The connection to the endpoint is
+   checked as well: after it is made, and before a byte is written, the connected peer must be
+   loopback, or nothing is sent and the chunks stay pending as if the endpoint were not on this machine. Labels are not an input: a change of sensitivity, domain or project is not an
    egress event. The provider, the batch size, the timeout, the 400/413/422 split of a refused batch
    and the redirect rule are those of the memory path (``vnext_embeddings``).
 3. **Store.** A short write. For each vector the source and the text are read again and the vector is
@@ -402,6 +404,14 @@ def _send(
             receipt.add_pending(PENDING_ENDPOINT_FAILED, len(batch))
             receipt.failure_reasons[type(exc).__name__] += len(batch)
             continue
+        if any(isinstance(outcome, EmbeddingTextFailure) and outcome.peer_refused for outcome in outcomes):
+            # The connection reached a peer that is not on this machine and was closed before a byte was written.
+            # Nothing was sent, so every chunk that has not been embedded stays pending for that reason, and no
+            # further request is made in this pass.
+            receipt.reason = OFF_ENDPOINT_NOT_LOCAL
+            receipt.sent -= len(batch)
+            receipt.add_pending(PENDING_ENDPOINT_NOT_LOCAL, len(batch) + len(chunks) - (start + len(planned_batch)))
+            break
         failed = 0
         for chunk, outcome in zip(batch, outcomes, strict=True):
             if isinstance(outcome, EmbeddingTextFailure):
@@ -528,6 +538,10 @@ def run_source_embeddings(
             _count_pending_for_endpoint(source_pages, store_context, egress, receipt)
         return receipt
     for page in source_pages:
+        if receipt.reason == OFF_ENDPOINT_NOT_LOCAL:
+            # An earlier request met a peer that is not on this machine: the rest only waits.
+            _count_pending_for_endpoint([page], store_context, egress, receipt)
+            continue
         planned: list[PlannedChunk] = []
         try:
             with store_context() as store:
