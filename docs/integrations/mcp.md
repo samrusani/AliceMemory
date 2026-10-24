@@ -47,6 +47,24 @@ Optional:
   model. Changing it makes `alice-memory
   reindex-embeddings` re-embed only the memories whose embedded text changes.
   In v0.19.2 there is no cap.
+- `ALICE_SOURCE_EMBEDDINGS`: `on` lets Alice send the text of imported and
+  captured notes (their chunks) to the embeddings endpoint, so that
+  `ALICE_SEARCH_QUALITY=vectors` can rank passages by meaning. It is separate
+  from the memory embeddings above, which do not turn it on, and it is off
+  unless the value is `on`. The text goes only to an endpoint on this machine
+  (`localhost`, `*.localhost`, `127.0.0.0/8` or `::1`, with no proxy that would
+  carry the request); for any other endpoint nothing is sent and the chunks stay
+  pending, and remote endpoints are not supported for source embeddings in this
+  release. A chunk the credential check flags, a chunk of links and a chunk too
+  short to read are not sent, and the rules are checked again just before each
+  request, so a chunk of a source deleted, replaced or scrubbed since is dropped
+  from it; a scrub committed while a request to the local endpoint is in flight
+  can still reach that local process.
+  `ALICE_SOURCE_EMBEDDINGS_MAX_VECTORS` (default 250,000) caps the vectors of a
+  vault and `ALICE_SOURCE_VECTOR_CACHE_MAX_MB` (default 512) caps the memory of
+  the resident copy. The page [Embeddings of source
+  chunks](../alpha/mcp-tools.md#embeddings-of-source-chunks) has the rules and the
+  cost.
 - `ALICE_MCP_COMMIT_RESULT` (from v0.20.2): `compact`
   or `full`. With `compact`, `alice_memory_commit` answers with the memory `id`,
   the outcome, the `receipt`, the reasons a write was held, and for a held write
@@ -82,7 +100,10 @@ Optional:
   passage per document. PostgreSQL keeps document mode unless
   `ALICE_SEARCH_QUALITY=passage` says otherwise, and a PostgreSQL caller whose
   key has limits still gets one passage per document when the switch is
-  `passage`. `ALICE_SEARCH_QUALITY=on` is still refused. Each passage entry
+  `passage`. `ALICE_SEARCH_QUALITY=on` is still refused.
+  `ALICE_SEARCH_QUALITY=vectors`, on the SQLite store only, is passage mode with
+  the vectors of the chunks (see the embeddings variables above); on PostgreSQL
+  it answers as `passage` would there. Each passage entry
   adds `chunk_index`, and `source_count` counts entries. When no memory in the
   result names a source, the extra memories added to `results` come from the
   first source entry, which can be a different document than the one v0.20.2

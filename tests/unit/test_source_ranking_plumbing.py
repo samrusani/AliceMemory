@@ -392,13 +392,14 @@ _PRODUCT_ROOTS = ("apps/api/src", "scripts", "eval")
 # (file, enclosing function, callee) -> the exact text of the ``ranking`` argument. A site the
 # list does not name makes the inventory test fail, so adding a caller means stopping to say which
 # ranking it wants. The recall handler is the one site the passage slice changes on purpose, and
-# that slice edits this line with its own proof.
+# that slice edits this line with its own proof. The vectors slice adds the context depth, which turns the vector
+# stage off at ``minimal``, so that one function decides the ranking.
 _EXPECTED_CALL_SITES = {
     (
         "apps/api/src/alicebot_api/mcp/retrieval.py",
         "_handle_alice_recall",
         "search_source_excerpts",
-    ): "recall_source_ranking(store, context.agent_identity)",
+    ): "recall_source_ranking(store, context.agent_identity, context_depth)",
     (
         "apps/api/src/alicebot_api/session_briefing.py",
         "compile_session_brief",
