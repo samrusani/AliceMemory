@@ -21463,10 +21463,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_passage_vectors.py::test_a_key_with_limits_cannot_tell_a_hidden_vector_from_none",
+        "tests/unit/test_passage_vectors.py::test_hidden_vectors_do_not_change_what_a_key_with_limits_gets_at_a_cap_of_zero",
         "tests/unit/test_passage_vectors.py::test_every_status_the_stage_can_report_is_either_hidden_from_a_limited_caller_or_free_of_hidden_rows"
       ],
-      "expected_failure": "test_a_key_with_limits_cannot_tell_a_hidden_vector_from_none"
+      "expected_failure": "test_hidden_vectors_do_not_change_what_a_key_with_limits_gets_at_a_cap_of_zero"
     },
     {
       "name": "passage-vectors-limited-none-embedded-shown-detail",
