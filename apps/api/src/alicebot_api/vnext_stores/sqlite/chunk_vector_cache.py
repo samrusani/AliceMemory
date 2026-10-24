@@ -24,10 +24,19 @@ recall is the cost this cache exists to avoid. This module is its own cache:
   from a *scoped* copy that holds only the vectors of the sources that caller may read: its width is chosen, and its
   cap judged, over those rows and no others, so whether the stage runs, what it reports and what it ranks are
   functions of rows the caller may read. A scoped copy is keyed by the ids of those sources (a digest of the sorted
-  list), so a relabel that changes what a caller may read is a different copy, and is valid while the stamp of the
-  vector table is the token it was built at. At most ``MAX_SCOPED_COPIES`` are kept for a user, least recently used
-  first out, each under the same cap. Which copy is evicted depends on other callers' use and never on a row the
-  caller may not read.
+  list), so a relabel that changes what a caller may read is a different copy. It is valid while the *fingerprint* of
+  its own sources is the one it was built at: a digest of the rewrite tokens (``source_chunk_vector_fingerprint``) that
+  the triggers of the vector table keep for each source whose vector was overwritten or deleted, read for the sources
+  of the copy and no others. A vector of a source the caller may not read, overwritten, deleted or added, neither
+  invalidates the copy nor changes the work done for it; the vault-wide stamp is not read for it at all. A vector
+  of a source the copy holds that is added, overwritten or deleted rebuilds it (it is not extended by row number, which
+  can be reused after rows above it were deleted). At most
+  ``max_scoped_copies()`` are kept for a user (default ``DEFAULT_SCOPED_COPIES``, ``ALICE_SOURCE_VECTOR_SCOPED_COPIES``),
+  least recently used first out, each under its own cap (default ``DEFAULT_SCOPED_CACHE_MAX_MB``,
+  ``ALICE_SOURCE_VECTOR_SCOPED_CACHE_MAX_MB``). There is no budget for the size of all of them together, and so no
+  eviction by size: the rows of one scope, which another caller may not read, could otherwise decide whether that
+  caller's copy is kept. The most a process holds for one user is the cap of the user-wide copy plus the number of
+  scoped copies times the cap of one.
 
 A reader holds the entry's lock for as long as it uses the view, so an append cannot change the arrays under it.
 """
@@ -49,6 +58,7 @@ import numpy as np
 
 from alicebot_api.sqlite_schema import (
     SOURCE_CHUNK_VECTORS_TABLE,
+    source_chunk_vector_fingerprint,
     source_chunk_vectors_stamp,
     source_chunk_vectors_table_exists,
 )
@@ -57,6 +67,12 @@ from alicebot_api.vnext_stores.sqlite.vector_scan import _resolve_database_file
 
 CACHE_MAX_MB_ENV = "ALICE_SOURCE_VECTOR_CACHE_MAX_MB"
 DEFAULT_CACHE_MAX_MB = 512
+#: The cap of one scoped copy (a caller with limits), and how many of them are kept for one user.
+SCOPED_CACHE_MAX_MB_ENV = "ALICE_SOURCE_VECTOR_SCOPED_CACHE_MAX_MB"
+DEFAULT_SCOPED_CACHE_MAX_MB = 256
+SCOPED_COPIES_ENV = "ALICE_SOURCE_VECTOR_SCOPED_COPIES"
+DEFAULT_SCOPED_COPIES = 4
+MAX_SCOPED_COPIES_SETTING = 64
 
 #: Why the cache did not serve.
 REFUSED_OVER_CAP = "over_cap"
@@ -64,9 +80,6 @@ REFUSED_UNAVAILABLE = "unavailable"
 
 #: Rows read and decoded in one step of a build or an append, and rows scored in one step of a scan.
 _ROWS_PER_STEP = 2048
-
-#: The scoped copies kept for one user (database file and user), least recently used first out.
-MAX_SCOPED_COPIES = 8
 
 #: Restricts a read of the vector table to the sources of a scope. One JSON array of ids is the only parameter.
 _SCOPE_SQL = " AND source_id IN (SELECT value FROM json_each(?))"
@@ -85,13 +98,36 @@ class ChunkVectorCacheRefused(Exception):
         self.reason = reason
 
 
-def cache_max_bytes() -> int:
-    raw = os.environ.get(CACHE_MAX_MB_ENV, "").strip()
+def _megabytes(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
     try:
-        megabytes = int(raw) if raw else DEFAULT_CACHE_MAX_MB
+        megabytes = int(raw) if raw else default
     except ValueError:
-        megabytes = DEFAULT_CACHE_MAX_MB
+        megabytes = default
     return max(megabytes, 0) * 1024 * 1024
+
+
+def cache_max_bytes() -> int:
+    """The cap of the user-wide copy (the owner's), ``ALICE_SOURCE_VECTOR_CACHE_MAX_MB``, 512 MB by default."""
+
+    return _megabytes(CACHE_MAX_MB_ENV, DEFAULT_CACHE_MAX_MB)
+
+
+def scoped_cache_max_bytes() -> int:
+    """The cap of one scoped copy (a caller with limits), ``ALICE_SOURCE_VECTOR_SCOPED_CACHE_MAX_MB``, 256 MB by default."""
+
+    return _megabytes(SCOPED_CACHE_MAX_MB_ENV, DEFAULT_SCOPED_CACHE_MAX_MB)
+
+
+def max_scoped_copies() -> int:
+    """How many scoped copies are kept for one user, ``ALICE_SOURCE_VECTOR_SCOPED_COPIES``, 4 by default (1 to 64)."""
+
+    raw = os.environ.get(SCOPED_COPIES_ENV, "").strip()
+    try:
+        count = int(raw) if raw else DEFAULT_SCOPED_COPIES
+    except ValueError:
+        count = DEFAULT_SCOPED_COPIES
+    return count if 1 <= count <= MAX_SCOPED_COPIES_SETTING else DEFAULT_SCOPED_COPIES
 
 
 def _signature_params(signature: ChunkSignature) -> tuple[object, ...]:
@@ -338,20 +374,13 @@ def _rebuild(
     entry.stamp = stamp
 
 
-def _append(
-    entry: _Entry,
-    conn: sqlite3.Connection,
-    user_id: str,
-    signature: ChunkSignature,
-    max_bytes: int,
-    scope_json: str | None = None,
-) -> None:
-    """Add the rows written since the entry was built, which a stamp that did not change guarantees are only additions.
+def _append(entry: _Entry, conn: sqlite3.Connection, user_id: str, signature: ChunkSignature, max_bytes: int) -> None:
+    """Add the rows written since the user-wide entry was built, which a stamp that did not change guarantees are only additions.
 
-    A scoped copy adds only the rows of its sources.
+    Only the user-wide copy is extended. A row number can be reused after the rows above it were deleted, which the stamp
+    of the whole table reports and a scoped copy, which does not read it, would not see; a scoped copy is rebuilt.
     """
 
-    scope_sql, scope_params = _scope_parts(scope_json)
     if not source_chunk_vectors_table_exists(conn):
         return
     cursor = _query_rows(conn, f"SELECT COALESCE(MAX(rowid), 0) FROM {SOURCE_CHUNK_VECTORS_TABLE}", ())  # nosec B608
@@ -369,10 +398,10 @@ def _append(
             f"""
             SELECT rowid, chunk_id, source_id, dimensions, embedding, ({_SIGNATURE_SQL}) AS sig_ok
             FROM {SOURCE_CHUNK_VECTORS_TABLE}
-            WHERE user_id = ? AND rowid > ? AND rowid <= ?{scope_sql}
+            WHERE user_id = ? AND rowid > ? AND rowid <= ?
             ORDER BY rowid LIMIT ?
             """,  # nosec B608 - constants and placeholders only
-            (*params, user_id, entry.max_rowid, newest, *scope_params, _ROWS_PER_STEP),
+            (*params, user_id, entry.max_rowid, newest, _ROWS_PER_STEP),
         )
         try:
             page = cursor.fetchall()
@@ -549,7 +578,8 @@ def _entry_for(database_file: str, user_id: str, digest: str | None) -> tuple[_E
     """The entry for the user-wide copy (``digest`` of ``None``) or for the scoped copy with this digest.
 
     A scoped copy that is asked for is the most recently used, and the least recently used one beyond
-    ``MAX_SCOPED_COPIES`` is forgotten. Which one that is depends on which scopes were asked for, never on a row.
+    ``max_scoped_copies()`` is forgotten. Which one that is depends on which scopes were asked for, never on a row
+    and never on the size of any copy.
     """
 
     with _REGISTRY_LOCK:
@@ -565,7 +595,7 @@ def _entry_for(database_file: str, user_id: str, digest: str | None) -> tuple[_E
             entry = _Entry()
             copies[digest] = entry
         copies.move_to_end(digest)
-        while len(copies) > MAX_SCOPED_COPIES:
+        while len(copies) > max_scoped_copies():
             copies.popitem(last=False)
         return entry, digest
 
@@ -608,14 +638,20 @@ def chunk_vector_view(
     user = str(user_id)
     digest, scope_json = scope_digest(scope) if scope is not None else (None, None)
     entry, _key = _entry_for(database_file, user, digest)
-    max_bytes = cache_max_bytes()
+    max_bytes = cache_max_bytes() if scope_json is None else scoped_cache_max_bytes()
     with entry.lock:
         try:
-            stamp = source_chunk_vectors_stamp(conn)
+            # The user-wide copy is valid by the stamp of the whole table. A scoped copy is valid by the fingerprint of
+            # its own sources, so a vector of a source it does not hold cannot invalidate it.
+            stamp = (
+                source_chunk_vectors_stamp(conn)
+                if scope_json is None
+                else source_chunk_vector_fingerprint(conn, user, scope_json)
+            )
             if entry.signature != signature or entry.stamp != stamp:
                 _rebuild(entry, conn, user, signature, stamp, max_bytes, scope_json)
-            else:
-                _append(entry, conn, user, signature, max_bytes, scope_json)
+            elif scope_json is None:
+                _append(entry, conn, user, signature, max_bytes)
             if entry.resident_bytes > max_bytes:
                 entry.reset()
                 raise ChunkVectorCacheRefused(REFUSED_OVER_CAP)
@@ -635,7 +671,11 @@ def chunk_vector_view(
 __all__ = [
     "CACHE_MAX_MB_ENV",
     "DEFAULT_CACHE_MAX_MB",
-    "MAX_SCOPED_COPIES",
+    "DEFAULT_SCOPED_CACHE_MAX_MB",
+    "DEFAULT_SCOPED_COPIES",
+    "MAX_SCOPED_COPIES_SETTING",
+    "SCOPED_CACHE_MAX_MB_ENV",
+    "SCOPED_COPIES_ENV",
     "REFUSED_OVER_CAP",
     "REFUSED_UNAVAILABLE",
     "ChunkVectorCacheRefused",
@@ -646,6 +686,8 @@ __all__ = [
     "chunk_vector_view",
     "clear_registry",
     "entry_counters",
+    "max_scoped_copies",
     "scope_digest",
+    "scoped_cache_max_bytes",
     "scoped_entry_counters",
 ]

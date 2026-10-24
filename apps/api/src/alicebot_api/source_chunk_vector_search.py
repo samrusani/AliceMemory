@@ -52,6 +52,7 @@ from alicebot_api.source_embedding_policy import (
 )
 from alicebot_api.vnext_embeddings import (
     OpenAICompatibleEmbeddingProvider,
+    VNextEmbeddingPeerRefusedError,
     embed_texts_native,
     endpoint_fingerprint,
     native_embedding_vector,
@@ -313,6 +314,12 @@ class ChunkVectorSession:
             text = query_prefix(str(getattr(provider, "model", ""))) + self._query
             vectors = embed_texts_native(_query_provider(provider), [text])
             self._query_vector = native_embedding_vector(vectors[0])
+        except VNextEmbeddingPeerRefusedError:
+            # The connection reached a peer that is not on this machine and was closed before a byte was written.
+            logger.warning("chunk query embedding refused: the peer is not on this machine")
+            trip_breaker(provider)
+            self.status = STATUS_ENDPOINT_NOT_LOCAL
+            return
         except Exception as exc:  # noqa: BLE001 - any failure of the endpoint
             logger.warning("chunk query embedding failed error_type=%s", type(exc).__name__)
             trip_breaker(provider)
