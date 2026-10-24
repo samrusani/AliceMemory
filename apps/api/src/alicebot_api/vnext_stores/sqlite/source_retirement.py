@@ -19,6 +19,7 @@ from alicebot_api.vnext_source_fence import cited_source_ids, memory_cited_sourc
 from alicebot_api.vnext_stores.sqlite.columns import OPEN_LOOP_COLUMNS
 from alicebot_api.vnext_stores.sqlite.open_loop_source_reference import named_source_ids
 from alicebot_api.vnext_stores.sqlite.primitives import _utc_now_iso
+from alicebot_api.vnext_stores.sqlite.source_chunk_vectors import delete_chunk_vectors
 from alicebot_api.vnext_label_writes import takes_label_lock
 
 REMOVAL_MARKER = "[removed by the owner]"
@@ -834,6 +835,8 @@ def supersede_source(self, source_id, *, superseded_by, allow_looser_classificat
 
             raise_source_to_replacement(self, old, new)
         counts = retire_dependents(self, source_id, now=now, loop_ids=loop_ids, edge_hits=edge_hits)
+        # A replaced source is no longer searched, so its chunk vectors go with it, inside this savepoint.
+        counts['chunk_vectors'] = delete_chunk_vectors(self, source_id=source_id)
         metadata = {**old['metadata_json'], 'superseded_by': superseded_by,
                     'superseded_at': now, 'supersede_reason': 'markdown_reimport'}
         self._execute("UPDATE sources SET deleted_at = ?, metadata_json = ? WHERE id = ? AND user_id = ?",
@@ -913,6 +916,8 @@ def scrub_source(self, source_id, *, optimize=True, citing_ids=None, loop_ids=No
         chunks = self._execute(
             "UPDATE source_chunks SET text = ?, metadata_json = '{}' WHERE source_id = ? AND user_id = ?",
             (REMOVAL_MARKER, source_id, self.user_id)).rowcount
+        # A vector can be inverted to the words it was made from, so the vectors of the chunks go with their text.
+        vectors = delete_chunk_vectors(self, source_id=source_id)
         quotes = self._execute(
             """UPDATE provenance_links SET quote = ? WHERE user_id = ? AND (source_id = ?
             OR EXISTS (SELECT 1 FROM source_chunks c WHERE c.user_id = provenance_links.user_id
@@ -920,7 +925,7 @@ def scrub_source(self, source_id, *, optimize=True, citing_ids=None, loop_ids=No
             (REMOVAL_MARKER, self.user_id, source_id, source_id)).rowcount
         counts = retire_dependents(self, source_id, now=now, scrub_candidates=True, citing_ids=citing_ids,
                                    loop_ids=loop_ids, edge_hits=edge_hits)
-        counts.update({'chunks':chunks, 'provenance_quotes':quotes, 'sleep_proposals':sleep_count})
+        counts.update({'chunks':chunks, 'chunk_vectors':vectors, 'provenance_quotes':quotes, 'sleep_proposals':sleep_count})
         self._append_mutation_event(event_type='source.deleted', target_type='source', target_id=source_id,
             actor_type='user', payload={'operation':'scrub', **counts})
         if optimize:

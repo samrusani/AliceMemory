@@ -399,7 +399,7 @@ an integer from 0 through 9223372036854775807 days since replacement. Neither de
 selects its targets again under the writer lock and applies one transaction.
 
 Scrub first removes the source's sleep proposals, then clears source labels and
-metadata, overwrites chunks and provenance quotes, redacts pending or rejected
+metadata, overwrites chunks and provenance quotes, deletes the vectors of the chunks (the receipt's `chunk_vectors`), redacts pending or rejected
 candidates and their revisions, closes and blanks every graph edge that names
 the source, updates entity counts, scrubs unsupported linker entities, and
 closes and blanks source-backed loops.
@@ -445,8 +445,15 @@ folder paths, and source rows retain hash columns. Postgres source deletion and
 review archive remain soft deletes: their source text and chunks are not
 scrubbed by those routes.
 
+A scrub that is committed after the embedding pass has read a source just before sending its text
+can still be followed by that text reaching the embeddings endpoint on this machine, whether the
+request has begun or not; the vector that comes back is not stored.
+
 Removed text can remain in the vault file's unused space and write-ahead log
-until the file is rebuilt. To remove that leftover text, stop every program
+until the file is rebuilt. Chunk vectors are in the same position: they are
+zeroed where the database frees them, but deleting a vector is logical
+deletion, and the log, unused space and earlier backups can keep its bytes
+until the same checkpoint and rebuild. To remove that leftover text, stop every program
 that uses the vault, including MCP servers and the session hook, replace
 `<data-dir>` with the vault directory, and run:
 
