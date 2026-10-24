@@ -20821,10 +20821,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/source_chunk_vectors.py",
-          "line": 305,
+          "line": 306,
           "before": "    with secure_deletion(store):\n        if source_id is None:",
           "after": "    if True:\n        if source_id is None:",
-          "sha256": "015ed09139a50c480e69001594a549256504a7d00e1744923b58434107989e49"
+          "sha256": "b45bb53311ab2dfc608da20876ed2ea7e8257c1fd60e80475fe4ef9324df936c"
         }
       ],
       "pytest": [
@@ -20841,7 +20841,7 @@
           "line": 76,
           "before": "        store._execute(f\"PRAGMA secure_delete={'FAST' if previous == 2 else previous}\")",
           "after": "        pass",
-          "sha256": "015ed09139a50c480e69001594a549256504a7d00e1744923b58434107989e49"
+          "sha256": "b45bb53311ab2dfc608da20876ed2ea7e8257c1fd60e80475fe4ef9324df936c"
         }
       ],
       "pytest": [
