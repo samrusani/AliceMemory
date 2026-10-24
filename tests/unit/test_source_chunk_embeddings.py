@@ -827,21 +827,32 @@ def test_a_proxy_that_would_carry_a_source_request_is_refused_before_a_connectio
 
 
 def test_the_memory_path_is_not_held_to_a_peer_on_this_machine(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Memory embeddings keep working with any endpoint. Mutation: hold ``embed_batch`` to a loopback peer."""
+    """Memory embeddings keep working with any endpoint. Mutation: hold ``embed_batch`` to a loopback peer.
 
+    The socket layer is patched to answer as a peer that is not on this machine would. The memory request is written to
+    it and its answer is read, as before; the same peer is refused for the call that carries source text.
+    """
+
+    body = json.dumps({"data": [{"index": 0, "embedding": [0.25] * 8}]}).encode()
+    response = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s" % (len(body), body)
     peers: list[FakeSocket] = []
 
+    class AnsweringSocket(FakeSocket):
+        def makefile(self, *_args: object, **_kwargs: object):
+            return io.BytesIO(response)
+
     def create_connection(address, timeout=None, source_address=None):  # noqa: ANN001, ANN202
-        fake = FakeSocket(("203.0.113.7", 11434))
-        peers.append(fake)
-        raise OSError("not a real connection")
+        peers.append(AnsweringSocket(("203.0.113.7", 11434)))
+        return peers[-1]
 
     monkeypatch.setattr(socket, "create_connection", create_connection)
     provider = _real_provider("http://embeddings.example.test/v1")
-    with pytest.raises(VNextEmbeddingProviderError) as refused:
-        provider.embed_batch(["a memory"])
-    assert not isinstance(refused.value, VNextEmbeddingPeerRefusedError)
-    assert len(peers) == 1 and peers[0].sent == []
+    vectors = provider.embed_batch(["a memory"])
+    assert len(vectors) == 1 and vectors[0][:8] == [0.25] * 8
+    assert len(peers) == 1 and peers[0].sent, "the memory request was written to the peer"
+    with pytest.raises(VNextEmbeddingPeerRefusedError):
+        provider.embed_batch_native(["a chunk of a source"])
+    assert len(peers) == 2 and peers[1].sent == [] and peers[1].closed
 
 
 # -- what is never sent ---------------------------------------------------------------------------------------------
