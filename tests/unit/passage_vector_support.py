@@ -23,9 +23,7 @@ from alicebot_api.onramp import bootstrap_database, resolve_db_path, sqlite_url_
 from alicebot_api.source_chunk_embeddings import embed_new_sources, sqlite_store_context
 from alicebot_api.source_embedding_policy import (
     SOURCE_EMBEDDINGS_ENV,
-    SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV,
     SOURCE_EMBEDDINGS_MAX_VECTORS_ENV,
-    SOURCE_EMBEDDINGS_REMOTE_ENV,
 )
 from alicebot_api.source_chunk_vector_search import reset_breaker
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
@@ -147,8 +145,6 @@ def quiet_environment(monkeypatch: pytest.MonkeyPatch, *, opt_in: bool = True) -
     """No embedding configuration but the opt-in; no proxy; empty caches and breaker."""
 
     for name in (
-        SOURCE_EMBEDDINGS_REMOTE_ENV,
-        SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV,
         SOURCE_EMBEDDINGS_MAX_VECTORS_ENV,
         EMBEDDINGS_BASE_URL_ENV,
         EMBEDDINGS_MODEL_ENV,

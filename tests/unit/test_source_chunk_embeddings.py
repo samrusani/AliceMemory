@@ -31,6 +31,7 @@ from alicebot_api.onramp import _write_export, bootstrap_database, main as onram
 from alicebot_api.source_chunk_embeddings import (
     PENDING_CHANGED,
     PENDING_ENDPOINT_FAILED,
+    PENDING_ENDPOINT_NOT_LOCAL,
     PENDING_STORAGE_FAILED,
     PENDING_TIME_BUDGET,
     PENDING_VAULT_CAP,
@@ -45,16 +46,14 @@ from alicebot_api.source_embedding_policy import (
     CHUNK_VECTOR_RETAINED_DATA,
     OFF_DRY_RUN,
     OFF_NO_PROVIDER,
-    OFF_REMOTE_NOT_ALLOWED,
+    ENDPOINT_NOT_LOCAL_MESSAGE,
+    OFF_ENDPOINT_NOT_LOCAL,
     SKIP_CREDENTIAL,
     SKIP_LINK_ONLY,
-    SKIP_SENSITIVITY_CEILING,
     SKIP_SOURCE_RETIRED,
     SKIP_TOO_SHORT,
     SOURCE_EMBEDDINGS_ENV,
-    SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV,
     SOURCE_EMBEDDINGS_MAX_VECTORS_ENV,
-    SOURCE_EMBEDDINGS_REMOTE_ENV,
     chunk_embedding_text,
     chunk_heading_paths,
     document_prefix,
@@ -189,8 +188,6 @@ class RecordingServer:
 def _clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
         SOURCE_EMBEDDINGS_ENV,
-        SOURCE_EMBEDDINGS_REMOTE_ENV,
-        SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV,
         SOURCE_EMBEDDINGS_MAX_VECTORS_ENV,
         EMBEDDINGS_BASE_URL_ENV,
         EMBEDDINGS_MODEL_ENV,
@@ -203,7 +200,6 @@ def _clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 ON = {SOURCE_EMBEDDINGS_ENV: "on"}
-REMOTE_ON = {SOURCE_EMBEDDINGS_ENV: "on", SOURCE_EMBEDDINGS_REMOTE_ENV: "on"}
 
 
 def _vault(tmp_path: Path) -> Path:
@@ -278,15 +274,6 @@ def test_only_the_value_on_turns_the_opt_in_on() -> None:
     assert not source_embedding_settings({}).enabled
     # The memory path's variables do not turn it on.
     assert not source_embedding_settings({EMBEDDINGS_BASE_URL_ENV: LOCAL_URL, EMBEDDINGS_MODEL_ENV: NOMIC}).enabled
-    assert not source_embedding_settings({SOURCE_EMBEDDINGS_REMOTE_ENV: "on"}).enabled
-
-
-def test_the_ceiling_defaults_to_internal_and_a_bad_value_falls_back_to_it() -> None:
-    """Mutation: let an unknown ceiling value mean no ceiling."""
-
-    assert source_embedding_settings({}).max_sensitivity == "internal"
-    assert source_embedding_settings({SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV: " Private "}).max_sensitivity == "private"
-    assert source_embedding_settings({SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV: "everything"}).max_sensitivity == "internal"
 
 
 def test_the_vault_cap_defaults_to_250000_and_a_bad_value_falls_back_to_it() -> None:
@@ -302,10 +289,23 @@ def test_the_vault_cap_defaults_to_250000_and_a_bad_value_falls_back_to_it() -> 
         ("http://localhost:11434/v1", True),
         ("http://embeddings.localhost/v1", True),
         ("http://127.0.0.1:11434/v1", True),
-        ("http://127.1:11434/v1", True),
-        ("http://2130706433/v1", True),
-        ("http://[::1]:8080/v1", True),
-        ("http://[::ffff:127.0.0.1]/v1", True),
+        ("http://127.0.0.2:8080/v1", True),
+        ("http://LOCALHOST:11434/v1", True),
+        ("http://[0:0:0:0:0:0:0:1]/v1", True),
+        # Not literals of the rule, or not on this machine: nothing is sent to them.
+        ("http://127.1:11434/v1", False),
+        ("http://2130706433/v1", False),
+        ("http://0x7f.1/v1", False),
+        ("http://127.000.000.001/v1", False),
+        ("http://[::ffff:127.0.0.1]/v1", False),
+        ("http://[::ffff:7f00:1]/v1", False),
+        ("http://[::ffff:192.168.1.20]/v1", False),
+        ("http://[::1%25lo0]/v1", False),
+        ("http://localhost./v1", False),
+        ("http://localtest.me/v1", False),
+        ("http://127.0.0.1.nip.io/v1", False),
+        ("http://[fe80::1]/v1", False),
+        ("http://[::]/v1", False),
         ("https://api.openai.com/v1", False),
         ("http://192.168.1.20:11434/v1", False),
         ("http://embeddings.example.test/v1", False),
@@ -317,12 +317,12 @@ def test_the_vault_cap_defaults_to_250000_and_a_bad_value_falls_back_to_it() -> 
     ],
 )
 def test_a_loopback_endpoint_is_one_whose_requests_stay_on_this_machine(url: str, expected: bool) -> None:
-    """Mutation: read a host name that is not ``localhost`` as loopback; read ``0.0.0.0`` as loopback."""
+    """Mutation: read a host name that is not ``localhost`` as loopback; read ``0.0.0.0`` or a mapped form as loopback."""
 
     assert endpoint_is_loopback(url) is expected
 
 
-def test_a_proxy_that_would_carry_the_request_makes_a_loopback_endpoint_remote(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_proxy_that_would_carry_the_request_takes_a_loopback_endpoint_off_this_machine(monkeypatch: pytest.MonkeyPatch) -> None:
     """A proxy would take the text off the machine. Mutation: leave the proxy check out of ``endpoint_is_loopback``."""
 
     monkeypatch.setattr(urllib.request, "getproxies", lambda: {"http": "http://proxy.example.test:3128"})
@@ -333,18 +333,16 @@ def test_a_proxy_that_would_carry_the_request_makes_a_loopback_endpoint_remote(m
 
 
 def test_the_posture_names_why_nothing_may_be_sent() -> None:
-    """Mutation: let the posture allow a remote endpoint without its own opt-in."""
+    """Mutation: let the posture allow an endpoint that is not on this machine."""
 
     off = source_embedding_settings({})
     assert egress_posture(off, provider_configured=True, base_url=LOCAL_URL).reason == "source_embeddings_off"
     on = source_embedding_settings(ON)
     assert egress_posture(on, provider_configured=False).reason == OFF_NO_PROVIDER
     local = egress_posture(on, provider_configured=True, base_url=LOCAL_URL)
-    assert local.may_send and not local.remote and local.ceiling_rank is None
-    remote = egress_posture(on, provider_configured=True, base_url=REMOTE_URL)
-    assert not remote.may_send and remote.reason == OFF_REMOTE_NOT_ALLOWED
-    allowed = egress_posture(source_embedding_settings(REMOTE_ON), provider_configured=True, base_url=REMOTE_URL)
-    assert allowed.may_send and allowed.remote and allowed.ceiling == "internal"
+    assert local.may_send and local.local and local.reason is None
+    away = egress_posture(on, provider_configured=True, base_url=REMOTE_URL)
+    assert not away.may_send and not away.local and away.reason == OFF_ENDPOINT_NOT_LOCAL
 
 
 # -- the model's prefix and the text that is sent -------------------------------------------------------------------
@@ -439,7 +437,7 @@ def test_a_text_over_the_input_cap_is_cut_before_it_is_hashed_and_a_new_cap_make
     assert _embed(db, [source_id], larger).already_current == 1 and larger.requests == []
 
 
-# -- no send without the opt-in; remote needs its own ---------------------------------------------------------------------
+# -- no send without the opt-in; no send off this machine ---------------------------------------------------------------------
 
 
 def test_nothing_is_sent_unless_the_opt_in_is_on_and_the_receipt_is_unchanged(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -513,50 +511,77 @@ def test_a_dry_run_sends_nothing_and_says_so(tmp_path: Path, monkeypatch, capsys
     assert result is not None and result.reason == OFF_DRY_RUN and direct.requests == []
 
 
-def test_a_remote_endpoint_needs_its_own_opt_in(tmp_path: Path) -> None:
-    """Mutation: let ``ALICE_SOURCE_EMBEDDINGS=on`` alone send to an endpoint that is not on this machine."""
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://192.168.1.20:11434/v1",
+        "http://10.0.0.5:11434/v1",
+        "http://embeddings.example.test/v1",
+        "http://localtest.me:11434/v1",
+        "http://127.0.0.1.nip.io:11434/v1",
+        "http://[::ffff:127.0.0.1]:11434/v1",
+        "http://[::ffff:7f00:1]:11434/v1",
+        "http://[::ffff:192.168.1.20]:11434/v1",
+        "http://127.1:11434/v1",
+        "https://api.example.test/v1",
+    ],
+)
+def test_an_endpoint_that_is_not_on_this_machine_gets_nothing_and_every_chunk_stays_pending(
+    tmp_path: Path, url: str
+) -> None:
+    """A LAN address, a DNS name and a mapped form each get zero requests.
 
-    db = _vault(tmp_path)
-    source_id, _ = _source(db, "Plan", [PLAIN], sensitivity="public")
-    provider = FakeProvider(base_url=REMOTE_URL)
-    receipt = _embed(db, [source_id], provider)
-    assert provider.requests == [] and receipt.reason == OFF_REMOTE_NOT_ALLOWED and receipt.embedded == 0
-    allowed = _embed(db, [source_id], provider, environ=REMOTE_ON)
-    assert allowed.embedded == 1 and len(provider.texts) == 1
-
-
-def test_a_remote_endpoint_gets_only_sources_at_or_under_the_ceiling(tmp_path: Path) -> None:
-    """The ceiling defaults to internal; ``unknown`` is held above it; ``private`` raises it for the three levels below.
-
-    Mutation: remove the ceiling check from ``skip_reason``; rank ``unknown`` with ``internal``.
+    Mutation: let ``egress_posture`` allow an endpoint that ``endpoint_is_loopback`` refuses.
     """
 
     db = _vault(tmp_path)
-    levels = ("public", "internal", "unknown", "private", "confidential", "highly_sensitive", "sacred", "regulated")
-    ids = {level: _source(db, level, [f"{PLAIN} ({level})"], sensitivity=level)[0] for level in levels}
-    provider = FakeProvider(base_url=REMOTE_URL)
-    receipt = _embed(db, list(ids.values()), provider, environ=REMOTE_ON)
-
-    def sent_levels() -> set[str]:
-        return {level for level in levels if any(f"({level})" in text for text in provider.texts)}
-
-    assert sent_levels() == {"public", "internal"}
-    assert receipt.skipped[SKIP_SENSITIVITY_CEILING] == 6 and receipt.embedded == 2
-    provider.requests.clear()
-    _embed(db, list(ids.values()), provider, environ={**REMOTE_ON, SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV: "private"})
-    assert sent_levels() == {"unknown", "private"}  # the two already embedded are current and not sent again
-    provider.requests.clear()
-    _embed(db, list(ids.values()), provider, environ={**REMOTE_ON, SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV: "regulated"})
-    assert sent_levels() == {"confidential", "highly_sensitive", "sacred", "regulated"}
+    source_id, chunk_ids = _source(db, "Plan", [PLAIN, PLAIN + " Two.", "Done."])
+    provider = FakeProvider(base_url=url)
+    receipt = _embed(db, [source_id], provider)
+    assert provider.requests == [] and receipt.sent == 0 and receipt.embedded == 0
+    assert receipt.reason == OFF_ENDPOINT_NOT_LOCAL
+    assert receipt.pending == 2 and receipt.pending_reasons == {PENDING_ENDPOINT_NOT_LOCAL: 2}
+    assert receipt.skipped == {"too_short": 1}
+    record = receipt.to_record()
+    assert record["reason"] == OFF_ENDPOINT_NOT_LOCAL and record["message"] == ENDPOINT_NOT_LOCAL_MESSAGE
+    assert record["pending_reasons"] == {PENDING_ENDPOINT_NOT_LOCAL: 2}
+    assert _vector_chunk_ids(db) == set()
+    assert _rows(db, "SELECT 1 FROM sqlite_master WHERE name = 'source_chunk_embeddings'") == []
 
 
-def test_the_ceiling_does_not_apply_to_an_endpoint_on_this_machine(tmp_path: Path) -> None:
-    """Mutation: apply the ceiling to a loopback endpoint."""
+def test_a_proxy_in_the_environment_takes_a_loopback_endpoint_off_this_machine(tmp_path: Path, monkeypatch) -> None:
+    """The request would leave this machine through the proxy. Mutation: leave the proxy check out of ``endpoint_is_loopback``."""
 
     db = _vault(tmp_path)
-    source_id, _ = _source(db, "Journal", [PLAIN], sensitivity="highly_sensitive")
+    source_id, _ = _source(db, "Plan", [PLAIN])
+    monkeypatch.setattr(urllib.request, "getproxies", lambda: {"http": "http://proxy.example.test:3128"})
+    monkeypatch.setattr(urllib.request, "proxy_bypass", lambda host: False)
     provider = FakeProvider()
-    assert _embed(db, [source_id], provider).embedded == 1
+    receipt = _embed(db, [source_id], provider)
+    assert provider.requests == [] and receipt.reason == OFF_ENDPOINT_NOT_LOCAL
+    assert receipt.pending_reasons == {PENDING_ENDPOINT_NOT_LOCAL: 1} and _vector_chunk_ids(db) == set()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://localhost:11434/v1",
+        "http://embeddings.localhost:11434/v1",
+        "http://127.0.0.1:11434/v1",
+        "http://127.8.9.10:11434/v1",
+        "http://[::1]:11434/v1",
+    ],
+)
+def test_an_endpoint_on_this_machine_is_sent_every_chunk_whatever_its_labels(tmp_path: Path, url: str) -> None:
+    """Labels decide nothing about what goes to an endpoint on this machine. Mutation: let a label hold a chunk back."""
+
+    db = _vault(tmp_path)
+    levels = ("public", "internal", "unknown", "private", "confidential", "highly_sensitive", "sacred", "regulated")
+    ids = [_source(db, level, [f"{PLAIN} ({level})"], sensitivity=level)[0] for level in levels]
+    provider = FakeProvider(base_url=url)
+    receipt = _embed(db, ids, provider)
+    assert receipt.embedded == 8 and receipt.pending == 0 and receipt.reason is None
+    assert len(provider.texts) == 8 and len(_vector_chunk_ids(db)) == 8
 
 
 # -- what is never sent ---------------------------------------------------------------------------------------------
@@ -729,36 +754,36 @@ def test_a_title_edited_during_the_send_leaves_no_vector_of_the_old_text(tmp_pat
     assert _embed(db, [source_id], follow).embedded == 1 and "New title" in follow.texts[0]
 
 
-def test_a_source_raised_above_the_remote_ceiling_before_a_later_batch_sends_none_of_its_text(
+def test_a_scrub_before_a_later_batch_of_a_multi_batch_pass_sends_none_of_its_text(
     tmp_path: Path, monkeypatch
 ) -> None:
     """The recheck before each batch. Mutation: send ``planned_batch`` instead of the rechecked ``batch`` in ``_send``.
 
-    The first batch is in flight when the owner raises the second source to ``private``, above the default ceiling
-    of a remote endpoint. The second batch is judged again, finds the new label and is not sent.
+    The first batch is in flight when the owner scrubs the second source. The second batch is judged again, finds
+    the source scrubbed and is not sent.
     """
 
     monkeypatch.setattr(embeddings_module, "MAX_EMBEDDINGS_BATCH_SIZE", 2)
     db = _vault(tmp_path)
-    first, first_chunks = _source(db, "First", [PLAN_A, PLAN_B], sensitivity="internal")
-    second, second_chunks = _source(db, "Second", [PLAN_C, PLAN_C + " Again."], sensitivity="internal")
-    provider = FakeProvider(base_url=REMOTE_URL)
+    first, first_chunks = _source(db, "First", [PLAN_A, PLAN_B])
+    second, second_chunks = _source(db, "Second", [PLAN_C, PLAN_C + " Again."])
+    provider = FakeProvider()
 
-    def raise_the_second_source() -> None:
+    def scrub_the_second_source() -> None:
         if len(provider.requests) == 1:
             with sqlite_user_connection(db, USER_ID) as conn:
-                conn.execute("UPDATE sources SET sensitivity = 'private' WHERE id = ?", (second,))
+                SQLiteVNextStore(conn, USER_ID).scrub_source(second)
 
-    provider.before_reply = raise_the_second_source
-    receipt = _embed(db, [first, second], provider, environ=REMOTE_ON)
-    assert len(provider.requests) == 1 and all("Second" not in text and PLAN_C not in text for text in provider.texts)
+    provider.before_reply = scrub_the_second_source
+    receipt = _embed(db, [first, second], provider)
+    assert len(provider.requests) == 1 and all(PLAN_C not in text and "Second" not in text for text in provider.texts)
     assert receipt.sent == 2 and receipt.embedded == 2 and receipt.pending_reasons[PENDING_CHANGED] == 2
     assert _vector_chunk_ids(db) == set(first_chunks)
     assert second_chunks and not (set(second_chunks) & _vector_chunk_ids(db))
 
 
-def test_a_source_labelled_above_the_ceiling_after_planning_is_not_sent_at_all(tmp_path: Path, monkeypatch) -> None:
-    """Between the plan and the first request. Mutation: leave the recheck out of ``_send``."""
+def test_a_relabel_after_planning_is_not_an_egress_event(tmp_path: Path, monkeypatch) -> None:
+    """Labels decide nothing for an endpoint on this machine, so the chunk is sent and its vector stored."""
 
     db = _vault(tmp_path)
     source_id, _ = _source(db, "Plan", [PLAN_A, PLAN_B], sensitivity="internal")
@@ -766,31 +791,12 @@ def test_a_source_labelled_above_the_ceiling_after_planning_is_not_sent_at_all(t
 
     def relabel_then_send(*args, **kwargs):
         with sqlite_user_connection(db, USER_ID) as conn:
-            conn.execute("UPDATE sources SET sensitivity = 'confidential' WHERE id = ?", (source_id,))
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(embeddings_module, "_send", relabel_then_send)
-    provider = FakeProvider(base_url=REMOTE_URL)
-    receipt = _embed(db, [source_id], provider, environ=REMOTE_ON)
-    assert provider.requests == [] and receipt.sent == 0 and receipt.embedded == 0
-    assert receipt.pending_reasons[PENDING_CHANGED] == 2 and _vector_chunk_ids(db) == set()
-
-
-def test_a_label_does_not_stop_the_send_to_an_endpoint_on_this_machine(tmp_path: Path, monkeypatch) -> None:
-    """The recheck applies the same posture as the plan: the ceiling is for a remote endpoint only."""
-
-    db = _vault(tmp_path)
-    source_id, _ = _source(db, "Plan", [PLAN_A], sensitivity="internal")
-    original = embeddings_module._send
-
-    def relabel_then_send(*args, **kwargs):
-        with sqlite_user_connection(db, USER_ID) as conn:
-            conn.execute("UPDATE sources SET sensitivity = 'confidential' WHERE id = ?", (source_id,))
+            conn.execute("UPDATE sources SET sensitivity = 'regulated' WHERE id = ?", (source_id,))
         return original(*args, **kwargs)
 
     monkeypatch.setattr(embeddings_module, "_send", relabel_then_send)
     receipt = _embed(db, [source_id], FakeProvider())
-    assert receipt.embedded == 1 and receipt.pending == 0
+    assert receipt.embedded == 2 and receipt.pending == 0
 
 
 def test_a_scrub_after_planning_and_before_the_send_sends_nothing_and_stores_nothing(
@@ -808,8 +814,8 @@ def test_a_scrub_after_planning_and_before_the_send_sends_nothing_and_stores_not
         return original(*args, **kwargs)
 
     monkeypatch.setattr(embeddings_module, "_send", scrub_then_send)
-    provider = FakeProvider(base_url=REMOTE_URL)
-    receipt = _embed(db, [source_id], provider, environ=REMOTE_ON)
+    provider = FakeProvider()
+    receipt = _embed(db, [source_id], provider)
     assert provider.requests == [] and receipt.sent == 0 and receipt.embedded == 0
     assert receipt.pending_reasons[PENDING_CHANGED] == 2 and _vector_chunk_ids(db) == set()
 
@@ -872,6 +878,71 @@ def test_a_batch_that_cannot_be_judged_is_not_sent(tmp_path: Path, monkeypatch) 
     provider = FakeProvider()
     receipt = _embed(db, [source_id], provider)
     assert provider.requests == [] and receipt.embedded == 0 and receipt.pending_reasons[PENDING_STORAGE_FAILED] == 1
+
+
+def test_the_recheck_reads_the_source_and_its_chunks_in_one_transaction(tmp_path: Path, monkeypatch) -> None:
+    """Mutation: read the source row and the chunk rows outside ``vectors.read_snapshot`` in ``_still_qualifying``."""
+
+    db = _vault(tmp_path)
+    source_id, _ = _source(db, "Plan", [PLAN_A, PLAN_B])
+    seen: list[tuple[str, bool]] = []
+    recording = {"on": False}
+    original_send = embeddings_module._send
+    original_row = embeddings_module.vectors.embedding_source_row
+    original_chunks = embeddings_module.vectors.embedding_source_chunks
+
+    def row(store, source):
+        if recording["on"]:
+            seen.append(("row", store.conn.in_transaction))
+        return original_row(store, source)
+
+    def chunks(store, source):
+        if recording["on"]:
+            seen.append(("chunks", store.conn.in_transaction))
+        return original_chunks(store, source)
+
+    def send(*args, **kwargs):
+        recording["on"] = True
+        return original_send(*args, **kwargs)
+
+    monkeypatch.setattr(embeddings_module.vectors, "embedding_source_row", row)
+    monkeypatch.setattr(embeddings_module.vectors, "embedding_source_chunks", chunks)
+    monkeypatch.setattr(embeddings_module, "_send", send)
+    assert _embed(db, [source_id], FakeProvider()).embedded == 2
+    assert [name for name, _ in seen][:2] == ["row", "chunks"]
+    assert seen[0][1] is True and seen[1][1] is True
+
+
+def test_the_recheck_judges_one_snapshot_and_a_scrub_between_its_reads_is_the_window(tmp_path: Path, monkeypatch) -> None:
+    """The source row and the chunk rows are one state of the vault, so a scrub committed between the two reads
+    is not half seen. The chunk is judged as it was when the source was read and goes to the endpoint on this machine,
+    as a scrub committed after the check does; its vector is not stored. Mutation: read outside the transaction (the
+    chunk rows then show the scrub, and a state that never existed is judged).
+    """
+
+    db = _vault(tmp_path)
+    source_id, _ = _source(db, "Plan", [PLAN_A])
+    recording = {"on": False, "done": False}
+    original_send = embeddings_module._send
+    original_chunks = embeddings_module.vectors.embedding_source_chunks
+
+    def chunks(store, source):
+        if recording["on"] and not recording["done"]:
+            recording["done"] = True
+            with sqlite_user_connection(db, USER_ID) as conn:
+                SQLiteVNextStore(conn, USER_ID).scrub_source(source_id)
+        return original_chunks(store, source)
+
+    def send(*args, **kwargs):
+        recording["on"] = True
+        return original_send(*args, **kwargs)
+
+    monkeypatch.setattr(embeddings_module.vectors, "embedding_source_chunks", chunks)
+    monkeypatch.setattr(embeddings_module, "_send", send)
+    provider = FakeProvider()
+    receipt = _embed(db, [source_id], provider)
+    assert recording["done"] and len(provider.requests) == 1
+    assert receipt.embedded == 0 and receipt.pending_reasons[PENDING_CHANGED] == 1 and _vector_chunk_ids(db) == set()
 
 
 def test_a_failed_batch_leaves_the_chunks_pending_and_nothing_raises(tmp_path: Path) -> None:
@@ -1269,13 +1340,13 @@ def test_reindex_sources_embeds_missing_and_stale_chunks_and_drop_removes_everyt
     assert _rows(db, "SELECT name FROM sqlite_master WHERE name = 'source_chunk_embeddings'") == []
 
 
-def test_reindex_sources_needs_the_opt_in_a_provider_and_for_a_remote_endpoint_its_own_opt_in(
+def test_reindex_sources_needs_the_opt_in_a_provider_and_an_endpoint_on_this_machine(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    """Mutation: run the backfill without the opt-in."""
+    """Mutation: run the backfill without the opt-in; let the command send to an endpoint that is not on this machine."""
 
     db = _vault(tmp_path)
-    _source(db, "Plan", [PLAIN], sensitivity="public")
+    _source(db, "Plan", [PLAIN, PLAIN + " Two."])
     assert onramp_main(["reindex-embeddings", "--sources", "--db", str(db)]) == 1
     assert "source_embeddings_not_enabled" in capsys.readouterr().err
     monkeypatch.setenv(SOURCE_EMBEDDINGS_ENV, "on")
@@ -1284,7 +1355,10 @@ def test_reindex_sources_needs_the_opt_in_a_provider_and_for_a_remote_endpoint_i
     monkeypatch.setenv(EMBEDDINGS_BASE_URL_ENV, REMOTE_URL)
     monkeypatch.setenv(EMBEDDINGS_MODEL_ENV, NOMIC)
     assert onramp_main(["reindex-embeddings", "--sources", "--db", str(db)]) == 1
-    assert "source_embeddings_remote_not_allowed" in capsys.readouterr().err
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["reason"] == OFF_ENDPOINT_NOT_LOCAL and receipt["message"] == ENDPOINT_NOT_LOCAL_MESSAGE
+    assert receipt["pending"] == 2 and receipt["pending_reasons"] == {PENDING_ENDPOINT_NOT_LOCAL: 2}
+    assert receipt["embedded"] == 0 and receipt["sent"] == 0
     assert _vector_chunk_ids(db) == set()
     # --drop sends nothing and needs no opt-in, but it needs --sources.
     assert onramp_main(["reindex-embeddings", "--drop", "--db", str(db)]) == 2
@@ -1330,6 +1404,12 @@ def test_doctor_lines_count_current_pending_stale_and_skipped(tmp_path: Path, mo
     assert changed["chunks with a stale vector"] == "2" and changed["chunks with a current vector"] == "0"
     # With the opt-in off the vectors are still counted.
     assert lines({})["chunks with a stale vector"] == "2"
+    # An endpoint that is not on this machine: the mode line says why nothing is sent, and the chunks are pending.
+    monkeypatch.setenv(EMBEDDINGS_BASE_URL_ENV, REMOTE_URL)
+    away = lines(ON)
+    assert away["source embeddings"] == f"on, nothing is sent: {ENDPOINT_NOT_LOCAL_MESSAGE}"
+    assert away["chunks pending a vector"] == "0" or away["chunks pending a vector"].isdigit()
+    monkeypatch.setenv(EMBEDDINGS_BASE_URL_ENV, LOCAL_URL)
     report = compile_local_vault_doctor(db, user_id=USER_ID)
     assert "source embeddings: off" in report and "chunks with a stale vector: 2" in report
 

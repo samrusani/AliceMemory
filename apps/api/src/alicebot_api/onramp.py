@@ -30,9 +30,9 @@ Subcommands:
   is isolated from its batch: the rest still get vectors, and the output
   lists the failed memory ids and the endpoint's reason.
 - ``reindex-embeddings --sources``: the same for the chunks of imported
-  notes, which are embedded only when ``ALICE_SOURCE_EMBEDDINGS=on`` (and, for
-  an endpoint that is not on this machine, ``ALICE_SOURCE_EMBEDDINGS_REMOTE=on``
-  within ``ALICE_SOURCE_EMBEDDINGS_MAX_SENSITIVITY``). ``--sources --drop``
+  notes, which are embedded only when ``ALICE_SOURCE_EMBEDDINGS=on`` and the
+  embeddings endpoint is on this machine. For any other endpoint nothing is
+  sent and the receipt counts the chunks as pending. ``--sources --drop``
   deletes every chunk vector. Imports and ``alice_capture`` embed the chunks of
   what they save, after they commit, under the same rules.
 - ``brief``: print a labelled session brief (committed facts and imported
@@ -277,10 +277,6 @@ _ERROR_CONTRACTS: dict[str, str] = {
     "source_embeddings_not_enabled": (
         "Source chunk embedding is off; set ALICE_SOURCE_EMBEDDINGS=on to send the text of source "
         "chunks to the embeddings endpoint"
-    ),
-    "source_embeddings_remote_not_allowed": (
-        "The embeddings endpoint is not on this machine; set ALICE_SOURCE_EMBEDDINGS_REMOTE=on to "
-        "send the text of source chunks to it"
     ),
     "embedding_batch_failed": "An embedding batch failed",
     "alice_memory_failed": "The alice-memory command could not be completed",
@@ -1316,9 +1312,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Work on the vectors of source chunks instead of memories. Embeds the chunks that have no "
             "current vector or whose vector no longer matches the model, the endpoint, the rules or the "
-            "text. Sends text only when ALICE_SOURCE_EMBEDDINGS=on, and to an endpoint that is not on "
-            "this machine only when ALICE_SOURCE_EMBEDDINGS_REMOTE=on, within "
-            "ALICE_SOURCE_EMBEDDINGS_MAX_SENSITIVITY."
+            "text. Sends text only when ALICE_SOURCE_EMBEDDINGS=on and the embeddings endpoint is on "
+            "this machine; for any other endpoint it sends nothing and counts the chunks as pending."
         ),
     )
     reindex_parser.add_argument(
@@ -4594,8 +4589,8 @@ def _run_reindex_source_chunks(args: argparse.Namespace) -> int:
     )
     from alicebot_api.source_embedding_policy import (
         CHUNK_VECTOR_RETAINED_DATA,
+        OFF_ENDPOINT_NOT_LOCAL,
         OFF_NO_PROVIDER,
-        OFF_REMOTE_NOT_ALLOWED,
         OFF_SOURCE_EMBEDDINGS,
         source_embedding_settings,
     )
@@ -4628,9 +4623,6 @@ def _run_reindex_source_chunks(args: argparse.Namespace) -> int:
     if receipt.reason == OFF_NO_PROVIDER:
         _emit_error("embedding_provider_not_configured")
         return 1
-    if receipt.reason == OFF_REMOTE_NOT_ALLOWED:
-        _emit_error("source_embeddings_remote_not_allowed")
-        return 1
     if receipt.reason == OFF_SOURCE_EMBEDDINGS:  # pragma: no cover - checked above
         _emit_error("source_embeddings_not_enabled")
         return 1
@@ -4646,7 +4638,8 @@ def _run_reindex_source_chunks(args: argparse.Namespace) -> int:
             sort_keys=True,
         )
     )
-    return 1 if receipt.pending else 0
+    # An endpoint that is not on this machine is not a success even when no chunk was waiting.
+    return 1 if receipt.pending or receipt.reason == OFF_ENDPOINT_NOT_LOCAL else 0
 
 
 def _run_reindex_embeddings(args: argparse.Namespace) -> int:

@@ -39,6 +39,7 @@ from alicebot_api.source_chunk_vector_search import (
     STATUS_CACHE_OVER_CAP,
     STATUS_CACHE_UNAVAILABLE,
     STATUS_ENABLED,
+    STATUS_ENDPOINT_NOT_LOCAL,
     STATUS_ERROR,
     STATUS_NONE,
     STATUS_OFF,
@@ -53,7 +54,7 @@ from alicebot_api.source_chunk_vector_search import (
     reserved_discovery_slots,
     reset_breaker,
 )
-from alicebot_api.source_embedding_policy import SOURCE_EMBEDDINGS_ENV, SOURCE_EMBEDDINGS_REMOTE_ENV
+from alicebot_api.source_embedding_policy import SOURCE_EMBEDDINGS_ENV
 from alicebot_api.source_ranking import SOURCE_RANKING_MODES, SourceRanking
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_control import AgentIdentity
@@ -448,20 +449,31 @@ def test_a_query_with_credential_material_is_not_sent(tmp_path: Path) -> None:
     assert record["vector"]["status"] == "skipped: query not sent (credential material)"  # type: ignore[index]
 
 
-def test_a_remote_endpoint_is_not_asked_for_a_query_without_its_own_opt_in(tmp_path: Path, monkeypatch) -> None:
+def test_an_endpoint_that_is_not_on_this_machine_is_not_asked_for_a_query(tmp_path: Path, monkeypatch) -> None:
     """Mutation: leave the posture check out of ``_open``."""
 
     database = make_vault(tmp_path)
     add_note(database, "Almanac", [hit_text("taga", 3)])
     local = ScriptedProvider({"taga": 0.9})
     embed_vault(database, local)
-    remote = ScriptedProvider({"taga": 0.9}, base_url="http://embeddings.example.test/v1")
-    _entries, record = _excerpts(database, SourceRanking.vectors(), remote)
-    assert remote.queries == [] and record["vector"]["status"] == "disabled: remote endpoint not allowed"  # type: ignore[index]
-    monkeypatch.setenv(SOURCE_EMBEDDINGS_REMOTE_ENV, "on")
-    _entries, record = _excerpts(database, SourceRanking.vectors(), remote)
-    # Allowed now, but the vectors in the vault were made at another endpoint: they are not this endpoint's.
-    assert remote.queries == [QUERY] and record["vector"]["status"] == STATUS_STALE  # type: ignore[index]
+    for url in (
+        "http://embeddings.example.test/v1",
+        "http://192.168.1.20:11434/v1",
+        "http://[::ffff:127.0.0.1]:11434/v1",
+        "http://localtest.me:11434/v1",
+    ):
+        away = ScriptedProvider({"taga": 0.9}, base_url=url)
+        _entries, record = _excerpts(database, SourceRanking.vectors(), away)
+        assert away.queries == [], url
+        assert record["vector"]["status"] == STATUS_ENDPOINT_NOT_LOCAL, url  # type: ignore[index]
+    # A proxy in the environment takes an address on this machine off it as well.
+    import urllib.request
+
+    monkeypatch.setattr(urllib.request, "getproxies", lambda: {"http": "http://proxy.example.test:3128"})
+    monkeypatch.setattr(urllib.request, "proxy_bypass", lambda host: False)
+    proxied = ScriptedProvider({"taga": 0.9})
+    _entries, record = _excerpts(database, SourceRanking.vectors(), proxied)
+    assert proxied.queries == [] and record["vector"]["status"] == STATUS_ENDPOINT_NOT_LOCAL  # type: ignore[index]
 
 
 def test_the_circuit_breaker_skips_the_stage_after_a_failure_and_closes_again(tmp_path: Path, monkeypatch) -> None:

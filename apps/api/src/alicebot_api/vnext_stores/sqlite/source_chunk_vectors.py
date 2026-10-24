@@ -76,6 +76,28 @@ def secure_deletion(store: SQLiteVNextStore) -> Iterator[None]:
         store._execute(f"PRAGMA secure_delete={'FAST' if previous == 2 else previous}")
 
 
+@contextmanager
+def read_snapshot(store: SQLiteVNextStore) -> Iterator[None]:
+    """Read inside one transaction, so that every read in the block sees the vault as it was at the first one.
+
+    The store's connection commits each read on its own until it writes, and a source row read, then a commit by
+    another connection, then its chunk rows read, would be two states. A transaction begun here (deferred: it takes no
+    write lock) pins one. A connection that is already inside a transaction is read as it is. The block ends the
+    transaction it began, with a rollback, because it wrote nothing.
+    """
+
+    conn = store.conn
+    began = False
+    if not conn.in_transaction:
+        conn.execute("BEGIN")
+        began = True
+    try:
+        yield
+    finally:
+        if began and conn.in_transaction:
+            conn.rollback()
+
+
 def chunk_vector_table_exists(store: SQLiteVNextStore) -> bool:
     return source_chunk_vectors_table_exists(store.conn)
 
@@ -323,5 +345,6 @@ __all__ = [
     "embedding_source_row",
     "live_source_ids_after",
     "put_chunk_vector",
+    "read_snapshot",
     "secure_deletion",
 ]

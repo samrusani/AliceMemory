@@ -489,22 +489,30 @@ before, and sends no chunk.
 | Variable | What it does |
 | --- | --- |
 | `ALICE_SOURCE_EMBEDDINGS=on` | Required. Only the value `on` counts. Without it no text of a source is sent by an import, by `alice_capture`, by `alice-memory reindex-embeddings --sources` or by a recall. |
-| `ALICE_SOURCE_EMBEDDINGS_REMOTE=on` | Also required when the endpoint is not on this machine. A host other than `localhost`, a name under `.localhost`, an address in `127.0.0.0/8` or `::1` is not on this machine, and neither is any endpoint a proxy of the environment would carry. |
-| `ALICE_SOURCE_EMBEDDINGS_MAX_SENSITIVITY` | With a remote endpoint, the most sensitive source whose chunks are sent. Default `internal`. In order: `public`, `internal`, `private`, `confidential`, `highly_sensitive`, `sacred` and `regulated`; a source labelled `unknown` is held at `private`. It does not apply to an endpoint on this machine. |
 | `ALICE_SOURCE_EMBEDDINGS_MAX_VECTORS` | The most chunk vectors one vault keeps. Default 250,000. At the cap, chunks stay pending and the receipt says so. |
 | `ALICE_SOURCE_VECTOR_CACHE_MAX_MB` | The most memory the resident copy of the vectors may use in one process. Default 512, about 170,000 vectors of 768 numbers. |
+
+The endpoint has to be on this machine: `localhost`, a name under `.localhost`, an IPv4 address in `127.0.0.0/8`
+written as four decimal numbers, or `::1`, with no proxy of the environment that would carry the request. Any other host
+name, including one that resolves to loopback, any other address, any other spelling of an address and every
+IPv4-mapped IPv6 form is not on this machine. Remote endpoints are not supported for source embeddings in this release.
+For such an endpoint nothing is sent: every chunk that would have been sent stays pending with the reason
+`endpoint_not_on_this_machine` ("source embeddings need an endpoint on this machine") in the receipts and in
+`alice-memory doctor`, and a recall does not send its query. Memory embeddings are not affected and still work with any
+endpoint.
 
 What is sent for a chunk is the model's document prefix (`search_document: ` for `nomic-embed-text`, nothing for a model
 the prefix table does not name), the title of the source, the headings above the chunk and the chunk. The chunk that is
 stored and returned does not change. A chunk is not sent when the credential check flags it (the floor and the commit
 door's check, on the whole chunk and on the whole text sent), when it holds only links and headings, when it has fewer
-than 32 readable characters, when its source is deleted, replaced or scrubbed, or on a `--dry-run`. These rules are
-applied when the text is chosen and again, in a short read with no database lock held, just before each request of up
-to 128 texts: a chunk whose source was relabelled above what a remote endpoint may receive, deleted, replaced or
-scrubbed since, or whose text changed, is dropped from the request and left pending. A change committed while a request
-is already in flight can still reach the endpoint, because the text is already on its way; the vector that comes back
-is not stored. The request size is fixed and not set by the owner, so with a remote endpoint do not relabel or scrub
-sources while `alice-memory reindex-embeddings --sources` is running.
+than 32 readable characters, when its source is deleted, replaced or scrubbed, or on a `--dry-run`. The labels of a
+source (sensitivity, domain, project) decide nothing about what goes to an endpoint on this machine, so a change of
+label is not an egress event. These rules are applied when the text is chosen and again just before each request of up
+to 128 texts, in one read transaction that reads the source row and its chunk rows as one state of the vault and holds
+no lock during the request: a chunk whose source was deleted, replaced or scrubbed since, or whose text changed, is
+dropped from the request and left pending. A scrub committed while a request to the endpoint on this machine is in
+flight can still reach that local process, because the text is already on its way; the vector that comes back is not
+stored.
 
 `alice-memory import-markdown`, `alice-memory import-chatgpt` and `alice_capture` embed the chunks of what they save
 after they commit and hold no database lock while they do. A failed batch leaves its chunks pending and never fails the

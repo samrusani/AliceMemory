@@ -13,13 +13,10 @@ from alicebot_api.source_chunk_vector_search import (
     QUERY_EMBEDDING_TIMEOUT_SECONDS,
 )
 from alicebot_api.source_embedding_policy import (
-    DEFAULT_MAX_SENSITIVITY,
     DEFAULT_MAX_VECTORS,
     MIN_READABLE_CHARS,
     SOURCE_EMBEDDINGS_ENV,
-    SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV,
     SOURCE_EMBEDDINGS_MAX_VECTORS_ENV,
-    SOURCE_EMBEDDINGS_REMOTE_ENV,
 )
 from alicebot_api.vnext_stores.sqlite.chunk_vector_cache import CACHE_MAX_MB_ENV, DEFAULT_CACHE_MAX_MB
 
@@ -37,8 +34,6 @@ def test_the_tool_reference_names_every_variable_default_and_rule() -> None:
     section = page[page.index("### Embeddings of source chunks") : page.index("## Explicit memory commits")]
     for name in (
         SOURCE_EMBEDDINGS_ENV,
-        SOURCE_EMBEDDINGS_REMOTE_ENV,
-        SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV,
         SOURCE_EMBEDDINGS_MAX_VECTORS_ENV,
         CACHE_MAX_MB_ENV,
         "ALICE_SEARCH_QUALITY=vectors",
@@ -46,7 +41,10 @@ def test_the_tool_reference_names_every_variable_default_and_rule() -> None:
         "--sources --drop",
     ):
         assert name in section, name
-    assert f"Default `{DEFAULT_MAX_SENSITIVITY}`" in section
+    # Source text goes only to an endpoint on this machine, and no sentence of the page describes a remote path.
+    assert "Remote endpoints are not supported for source embeddings in this release" in section
+    assert "`endpoint_not_on_this_machine`" in section and "source embeddings need an endpoint on this machine" in section
+    assert "ALICE_SOURCE_EMBEDDINGS_REMOTE" not in section and "MAX_SENSITIVITY" not in section
     assert f"Default {DEFAULT_MAX_VECTORS:,}" in section
     assert f"Default {DEFAULT_CACHE_MAX_MB}" in section
     assert f"fewer than {MIN_READABLE_CHARS} readable characters" in section
@@ -55,7 +53,7 @@ def test_the_tool_reference_names_every_variable_default_and_rule() -> None:
     assert DISCOVERY_HEAD_DIVISOR == 3 and "A third of the head" in section
     # The rules are applied again before each request, and the window that is left is stated.
     assert "just before each request of up to 128 texts" in section
-    assert "can still reach the endpoint" in section and "do not relabel or scrub" in section
+    assert "can still reach that local process" in section and "a change of label is not an egress event" in section
     # Deleting a vector is logical deletion, and a caller with limits is told no more than "unavailable".
     assert "logical deletion" in section and "`VACUUM`" in section and "`retained_data`" in section
     assert "`vector search unavailable`" in section
@@ -66,13 +64,14 @@ def test_the_security_page_lists_what_leaves_the_machine_and_when() -> None:
 
     page = _flat("SECURITY.md")
     section = page[page.index("## What Text Leaves the Machine") : page.index("## Browser Clipper Credentials")]
+    assert "ALICE_SOURCE_EMBEDDINGS_REMOTE" not in section and "MAX_SENSITIVITY" not in section
     for needle in (
         "Nothing from a source is sent unless `ALICE_SOURCE_EMBEDDINGS=on`",
-        "`ALICE_SOURCE_EMBEDDINGS_REMOTE=on`",
-        "a source labelled `unknown` is held at `private`",
+        "Source text goes only to an endpoint on this machine",
+        "Remote endpoints are not supported for source embeddings in this release",
         "a chunk the credential check flags",
         "just before each request of up to 128 texts",
-        "can still reach the endpoint",
+        "can still reach that local process",
         "Deleting is logical",
         "`VACUUM`",
         "with no database lock held",
@@ -87,7 +86,8 @@ def test_the_integration_page_and_the_agent_table_name_the_opt_in() -> None:
     """Mutation: delete the variable from either page."""
 
     mcp = _flat("docs/integrations/mcp.md")
-    assert "`ALICE_SOURCE_EMBEDDINGS`" in mcp and "ALICE_SOURCE_EMBEDDINGS_REMOTE=on" in mcp
+    assert "`ALICE_SOURCE_EMBEDDINGS`" in mcp and "remote endpoints are not supported for source embeddings" in mcp
+    assert "ALICE_SOURCE_EMBEDDINGS_REMOTE" not in mcp
     assert "`ALICE_SEARCH_QUALITY=vectors`" in mcp
-    assert "checked again just before each request" in mcp and "can still reach the" in mcp
+    assert "checked again just before each request" in mcp and "can still reach that local process" in mcp
     assert "ALICE_SOURCE_EMBEDDINGS=on" in _flat("docs/alpha/agent-integration.md")

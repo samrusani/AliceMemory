@@ -6,13 +6,16 @@ never overlap in time with a database lock held:
 1. **Plan.** A short read of the sources asked for. Each chunk gets one outcome: skipped (with the
    reason), already current, or to be sent (it has no vector, or its vector is stale). The text to
    send is built and hashed here.
-2. **Send.** The texts go to the embeddings endpoint in batches, with no connection open. Just before
-   each batch a short read judges the batch again: a chunk whose source was deleted, replaced, scrubbed
-   or relabelled above what the endpoint may receive, or whose text changed, since the plan is dropped
+2. **Send.** The texts go to the embeddings endpoint in batches, with no connection open. The endpoint
+   must be on this machine (``source_embedding_policy``): for any other endpoint nothing is sent and
+   every chunk that would have been sent is counted pending. Just before each batch one read
+   transaction judges the batch again, the source row and its chunk rows from one snapshot: a chunk
+   whose source was deleted, replaced or scrubbed, or whose text changed, since the plan is dropped
    from the batch and left pending. A change committed after that read, while the request is in
-   flight, can still reach the endpoint; the compare and set below keeps its vector out of the vault.
-   The provider, the batch size, the timeout, the 400/413/422 split of a refused batch, the redirect
-   rule and the loopback rule are those of the memory path (``vnext_embeddings``).
+   flight, can still reach the endpoint on this machine; the compare and set below keeps its vector
+   out of the vault. Labels are not an input: a change of sensitivity, domain or project is not an
+   egress event. The provider, the batch size, the timeout, the 400/413/422 split of a refused batch
+   and the redirect rule are those of the memory path (``vnext_embeddings``).
 3. **Store.** A short write. For each vector the source and the text are read again and the vector is
    stored only when the source is still live and the text that would be sent now has the hash of the
    text that was sent (a compare and set). A source deleted, replaced or scrubbed while its chunks
@@ -38,6 +41,8 @@ from uuid import UUID
 from alicebot_api.source_embedding_policy import (
     OFF_DRY_RUN,
     ChunkSignature,
+    ENDPOINT_NOT_LOCAL_MESSAGE,
+    OFF_ENDPOINT_NOT_LOCAL,
     EgressPosture,
     SourceEmbeddingSettings,
     chunk_embedding_body,
@@ -74,6 +79,7 @@ SOURCES_PER_PASS = 20
 PENDING_ENDPOINT_FAILED = "endpoint_failed"
 PENDING_VAULT_CAP = "vault_cap"
 PENDING_CHANGED = "changed_while_embedding"
+PENDING_ENDPOINT_NOT_LOCAL = "endpoint_not_on_this_machine"
 PENDING_TIME_BUDGET = "time_budget"
 PENDING_STORAGE_FAILED = "storage_failed"
 
@@ -125,6 +131,8 @@ class ChunkEmbeddingReceipt:
             ]
         if self.reason is not None:
             record["reason"] = self.reason
+        if self.reason == OFF_ENDPOINT_NOT_LOCAL:
+            record["message"] = ENDPOINT_NOT_LOCAL_MESSAGE
         return record
 
 
@@ -194,7 +202,6 @@ def judge_source(
     store: SQLiteVNextStore,
     source_id: str,
     *,
-    posture: EgressPosture,
     model: str,
     signature: ChunkSignature | None,
     input_cap: int | None = None,
@@ -226,13 +233,7 @@ def judge_source(
         ):
             outcome.current += 1
             continue
-        reason = skip_reason(
-            chunk_text=item.chunk_text,
-            sent_text_without_prefix=item.body,
-            source_sensitivity=str(source.get("sensitivity") or "unknown"),
-            source_live=True,
-            posture=posture,
-        )
+        reason = skip_reason(chunk_text=item.chunk_text, sent_text_without_prefix=item.body, source_live=True)
         if reason is not None:
             outcome.skipped[reason] += 1
             continue
@@ -286,24 +287,28 @@ def _pages(source_ids: Sequence[str]) -> Iterator[list[str]]:
         yield unique[start : start + SOURCES_PER_PASS]
 
 
+def _judge_page(
+    store: SQLiteVNextStore, source_ids: Sequence[str], egress: Egress, receipt: ChunkEmbeddingReceipt
+) -> list[PlannedChunk]:
+    """Judge the sources of one page, record the skips and the chunks already current, return the chunks to send."""
+
+    to_send: list[PlannedChunk] = []
+    for source_id in source_ids:
+        outcome = judge_source(
+            store, source_id, model=egress.model, signature=egress.signature, input_cap=egress.input_cap
+        )
+        receipt.skipped.update(outcome.skipped)
+        receipt.already_current += outcome.current
+        to_send.extend(outcome.to_send)
+    return to_send
+
+
 def _plan_page(
     store: SQLiteVNextStore, source_ids: Sequence[str], egress: Egress, receipt: ChunkEmbeddingReceipt
 ) -> list[PlannedChunk]:
     """Judge the sources of one page, record the skips, and return the chunks to send within the cap."""
 
-    to_send: list[PlannedChunk] = []
-    for source_id in source_ids:
-        outcome = judge_source(
-            store,
-            source_id,
-            posture=egress.posture,
-            model=egress.model,
-            signature=egress.signature,
-            input_cap=egress.input_cap,
-        )
-        receipt.skipped.update(outcome.skipped)
-        receipt.already_current += outcome.current
-        to_send.extend(outcome.to_send)
+    to_send = _judge_page(store, source_ids, egress, receipt)
     room = max(0, egress.settings.max_vectors - vectors.count_chunk_vectors(store))
     kept: list[PlannedChunk] = []
     refused = 0
@@ -325,39 +330,34 @@ def _still_qualifying(
     """The chunks of a batch that may be sent now, in their order.
 
     A chunk qualifies when its source is live, the text that would be sent has the hash it was planned with,
-    and the egress policy lets it go as the source is labelled now (the credential check, the readable-text
-    rules and, for a remote endpoint, the sensitivity ceiling). Everything the plan decided is decided again
-    from the rows as they are now.
+    and the text rules still let it go (the credential check and the readable-text rules). Labels are not read:
+    with an endpoint on this machine they decide nothing. The source row and the chunk rows of every source in
+    the batch are read inside one read transaction, so what is judged is one state of the vault and not a mix
+    of two.
     """
 
     by_source: dict[str, list[PlannedChunk]] = {}
     for chunk in chunks:
         by_source.setdefault(chunk.source_id, []).append(chunk)
     keep: set[str] = set()
-    for source_id, items in by_source.items():
-        source = vectors.embedding_source_row(store, source_id)
-        if source is None or not source["live"]:
-            continue
-        now = {
-            text.chunk_id: text
-            for text in source_chunk_texts(
-                source, vectors.embedding_source_chunks(store, source_id), egress.model, egress.input_cap
-            )
-        }
-        sensitivity = str(source.get("sensitivity") or "unknown")
-        for chunk in items:
-            current = now.get(chunk.chunk_id)
-            if current is None or text_sha256(current.sent_text) != chunk.sha256:
+    with vectors.read_snapshot(store):
+        for source_id, items in by_source.items():
+            source = vectors.embedding_source_row(store, source_id)
+            if source is None or not source["live"]:
                 continue
-            reason = skip_reason(
-                chunk_text=current.chunk_text,
-                sent_text_without_prefix=current.body,
-                source_sensitivity=sensitivity,
-                source_live=True,
-                posture=egress.posture,
-            )
-            if reason is None:
-                keep.add(chunk.chunk_id)
+            now = {
+                text.chunk_id: text
+                for text in source_chunk_texts(
+                    source, vectors.embedding_source_chunks(store, source_id), egress.model, egress.input_cap
+                )
+            }
+            for chunk in items:
+                current = now.get(chunk.chunk_id)
+                if current is None or text_sha256(current.sent_text) != chunk.sha256:
+                    continue
+                reason = skip_reason(chunk_text=current.chunk_text, sent_text_without_prefix=current.body, source_live=True)
+                if reason is None:
+                    keep.add(chunk.chunk_id)
     return [chunk for chunk in chunks if chunk.chunk_id in keep]
 
 
@@ -489,6 +489,29 @@ def _store_page(
         receipt.add_pending(reason, count)
 
 
+def _count_pending_for_endpoint(
+    source_pages: Iterator[list[str]] | Sequence[list[str]],
+    store_context: StoreContext,
+    egress: Egress,
+    receipt: ChunkEmbeddingReceipt,
+) -> None:
+    """The endpoint is not on this machine: send nothing, and count every chunk that would have been sent as pending.
+
+    The count is the chunks the plan would send, so the receipt says how much waits for an endpoint on this machine.
+    A read that fails is counted and the pass goes on. Nothing is sent and nothing is written.
+    """
+
+    for page in source_pages:
+        try:
+            with store_context() as store:
+                waiting = _judge_page(store, page, egress, receipt)
+        except Exception as exc:  # noqa: BLE001 - best effort
+            logger.warning("source chunk embedding count failed: %s", type(exc).__name__)
+            receipt.failure_reasons[f"plan: {type(exc).__name__}"] += 1
+            continue
+        receipt.add_pending(PENDING_ENDPOINT_NOT_LOCAL, len(waiting))
+
+
 def run_source_embeddings(
     source_pages: Iterator[list[str]] | Sequence[list[str]],
     *,
@@ -501,6 +524,8 @@ def run_source_embeddings(
     receipt = ChunkEmbeddingReceipt()
     if not egress.posture.may_send:
         receipt.reason = egress.posture.reason
+        if egress.posture.reason == OFF_ENDPOINT_NOT_LOCAL:
+            _count_pending_for_endpoint(source_pages, store_context, egress, receipt)
         return receipt
     for page in source_pages:
         planned: list[PlannedChunk] = []
@@ -539,7 +564,7 @@ def embed_new_sources(
 
     Returns ``None`` when the opt-in is off: nothing is read, nothing is sent, and a door adds nothing to
     its receipt. With the opt-in on, a receipt always comes back, and ``reason`` says why nothing was sent
-    when nothing was (no provider, a remote endpoint without its own opt-in, a dry run). Called after the
+    when nothing was (no provider, an endpoint that is not on this machine, a dry run). Called after the
     door's transaction has committed, so no lock is held during a request. Never raises.
     """
 
@@ -607,23 +632,16 @@ class ChunkVectorCensus:
 def census_egress(
     environ: Mapping[str, str] | None = None, *, provider: EmbeddingProvider | None = None
 ) -> Egress:
-    """The egress a census judges by: what a pass would send if the opt-ins allowed it.
+    """The egress a census judges by: what a pass would send if the opt-in and the endpoint allowed it.
 
-    ``resolve_egress`` answers "may anything be sent now"; a census answers "what would be sent", so a remote
-    endpoint that the second opt-in has not allowed still carries the sensitivity ceiling here.
+    ``resolve_egress`` answers "may anything be sent now"; a census answers "what would be sent", so a chunk is
+    counted pending whether or not the endpoint is on this machine, and the mode line says why nothing goes.
     """
 
     settings = source_embedding_settings(environ)
     resolved = provider if provider is not None else get_embedding_provider()
-    remote = resolved is not None and not endpoint_is_loopback(str(getattr(resolved, "base_url", "")))
-    posture = EgressPosture(
-        may_send=True,
-        reason=None,
-        remote=remote,
-        ceiling_rank=settings.max_sensitivity_rank if remote else None,
-        ceiling=settings.max_sensitivity if remote else None,
-    )
-    return Egress(settings, resolved, posture)
+    local = resolved is not None and endpoint_is_loopback(str(getattr(resolved, "base_url", "")))
+    return Egress(settings, resolved, EgressPosture(may_send=True, reason=None, local=local))
 
 
 def chunk_vector_census(store: SQLiteVNextStore, *, egress: Egress) -> ChunkVectorCensus:
@@ -644,12 +662,7 @@ def chunk_vector_census(store: SQLiteVNextStore, *, egress: Egress) -> ChunkVect
         after = ids[-1]
         for source_id in ids:
             outcome = judge_source(
-                store,
-                source_id,
-                posture=egress.posture,
-                model=egress.model,
-                signature=egress.signature,
-                input_cap=egress.input_cap,
+                store, source_id, model=egress.model, signature=egress.signature, input_cap=egress.input_cap
             )
             census.skipped.update(outcome.skipped)
             census.current += outcome.current
@@ -663,11 +676,9 @@ def _mode_line(egress: Egress) -> str:
         return "source embeddings: off"
     if egress.provider is None:
         return "source embeddings: on, no embedding provider configured"
-    if not egress.posture.remote:
+    if egress.posture.local:
         return "source embeddings: on, endpoint on this machine"
-    if not settings.remote_allowed:
-        return "source embeddings: on, remote endpoint not allowed (ALICE_SOURCE_EMBEDDINGS_REMOTE is not on)"
-    return f"source embeddings: on, remote endpoint, sensitivity ceiling {settings.max_sensitivity}"
+    return f"source embeddings: on, nothing is sent: {ENDPOINT_NOT_LOCAL_MESSAGE}"
 
 
 def chunk_vector_doctor_lines(store: SQLiteVNextStore, *, environ: Mapping[str, str] | None = None) -> list[str]:
@@ -718,6 +729,7 @@ def sqlite_store_context(db_path: str | Path, user_id: UUID | str) -> Iterator["
 __all__ = [
     "PENDING_CHANGED",
     "PENDING_ENDPOINT_FAILED",
+    "PENDING_ENDPOINT_NOT_LOCAL",
     "PENDING_STORAGE_FAILED",
     "PENDING_TIME_BUDGET",
     "PENDING_VAULT_CAP",

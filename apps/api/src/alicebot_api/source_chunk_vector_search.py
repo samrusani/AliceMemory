@@ -15,9 +15,9 @@ byte. The strict-then-OR decision of the lexical query reads the lexical list on
 
 Safety, in the order a recall meets it:
 
-* **Egress.** The query is sent to the embeddings endpoint, so the same opt-ins that govern the chunks govern the
-  query: ``ALICE_SOURCE_EMBEDDINGS=on``, and for an endpoint that is not on this machine
-  ``ALICE_SOURCE_EMBEDDINGS_REMOTE=on``. A query the credential check flags is not sent.
+* **Egress.** The query is sent to the embeddings endpoint, so the rules that govern the chunks govern the query:
+  ``ALICE_SOURCE_EMBEDDINGS=on`` and an endpoint on this machine. For any other endpoint the stage is off and the
+  query is not sent. A query the credential check flags is not sent.
 * **Failure.** Every error is caught and logged, and the status says why. The query embedding has a short timeout
   (about two seconds) and a circuit breaker: after a failure the stage is skipped for a short time instead of waiting
   for the endpoint on every recall.
@@ -43,7 +43,7 @@ from typing import Any
 from alicebot_api.credential_floor import credential_verdict
 from alicebot_api.source_embedding_policy import (
     OFF_NO_PROVIDER,
-    OFF_REMOTE_NOT_ALLOWED,
+    OFF_ENDPOINT_NOT_LOCAL,
     OFF_SOURCE_EMBEDDINGS,
     chunk_signature,
     egress_posture,
@@ -73,7 +73,7 @@ logger = logging.getLogger(__name__)
 STATUS_ENABLED = "enabled"
 STATUS_OFF = "disabled: source embeddings are off"
 STATUS_NO_PROVIDER = "disabled: no embedding provider configured"
-STATUS_REMOTE_NOT_ALLOWED = "disabled: remote endpoint not allowed"
+STATUS_ENDPOINT_NOT_LOCAL = "disabled: source embeddings need an endpoint on this machine"
 STATUS_NO_STORE_SUPPORT = "disabled: store does not support chunk vectors"
 STATUS_CACHE_OVER_CAP = "skipped: resident vector cache over its cap"
 STATUS_CACHE_UNAVAILABLE = "skipped: no resident vector cache for this database"
@@ -110,7 +110,7 @@ WITHIN_SOURCE_RRF_K = 60
 _OFF_STATUS = {
     OFF_SOURCE_EMBEDDINGS: STATUS_OFF,
     OFF_NO_PROVIDER: STATUS_NO_PROVIDER,
-    OFF_REMOTE_NOT_ALLOWED: STATUS_REMOTE_NOT_ALLOWED,
+    OFF_ENDPOINT_NOT_LOCAL: STATUS_ENDPOINT_NOT_LOCAL,
 }
 
 
@@ -464,6 +464,7 @@ __all__ = [
     "STATUS_CACHE_OVER_CAP",
     "STATUS_CACHE_UNAVAILABLE",
     "STATUS_ENABLED",
+    "STATUS_ENDPOINT_NOT_LOCAL",
     "STATUS_ERROR",
     "STATUS_NONE",
     "STATUS_NO_PROVIDER",
@@ -471,7 +472,6 @@ __all__ = [
     "STATUS_OFF",
     "STATUS_QUERY_FAILED",
     "STATUS_QUERY_WITHHELD",
-    "STATUS_REMOTE_NOT_ALLOWED",
     "STATUS_STALE",
     "STATUS_UNAVAILABLE",
     "ScoredChunk",
