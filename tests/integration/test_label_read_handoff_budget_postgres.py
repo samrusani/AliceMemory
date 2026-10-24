@@ -45,7 +45,7 @@ def close_probe(process):
 
 
 def interleaved_medians(base_process, head_process, actions, samples=PAIRED_SAMPLES):
-    """Wall and CPU time of ``samples`` interleaved calls, after one unmeasured call each, as ``paired_summary`` gives them."""
+    """Wall and CPU time of ``samples`` interleaved calls, after one unmeasured call each, and their ``paired_summary``."""
 
     measured = {"merge_base": {}, "head": {}}
     for action in actions:
@@ -63,7 +63,9 @@ def interleaved_medians(base_process, head_process, actions, samples=PAIRED_SAMP
                 arrays[index]["wall"].append(result["wall"])
                 arrays[index]["cpu"].append(result["cpu"])
         for index, revision in enumerate(("merge_base", "head")):
-            measured[revision][action] = paired_summary(arrays[index]["wall"], arrays[index]["cpu"])
+            walls, cpus = arrays[index]["wall"], arrays[index]["cpu"]
+            measured[revision][action] = {"median": statistics.median(walls), "samples": walls, "cpu": cpus,
+                                          **paired_summary(walls, cpus)}
     return measured
 
 

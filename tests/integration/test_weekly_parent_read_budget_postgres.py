@@ -1,7 +1,9 @@
 """A vault of 5,000 weekly memories and 10,000 artifacts stays inside the pre-parent-lookup gate.
 
-The comparison checkout is ``7c77c778``, the commit before the per-memory parent query. The head
-passes when each measured time is at most 1.25 times that checkout plus 0.05 seconds.
+The comparison checkout is ``7c77c778``, the commit before the per-memory parent query. Each action
+is called ten times on each checkout, interleaved, and the head passes when its median CPU time and
+its smallest wall time are each at most 1.25 times that checkout's plus 0.05 seconds
+(``read_budget_gate.paired_over_merge_base``).
 """
 from __future__ import annotations
 
@@ -19,13 +21,13 @@ from alicebot_api.migrations import make_alembic_config
 from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_agent_keys import create_agent_key
 from tests.integration.conftest import database_urls  # noqa: F401
-from tests.performance.read_budget_gate import over_merge_base
+from tests.performance.read_budget_gate import PAIRED_SAMPLES, paired_over_merge_base, paired_summary
 
 BASE = "7c77c77842ba8a9a85034f9c5a7d252b5048dbe4"
 TOKEN = "weeklynesttoken"
 WEEKLY_MEMORIES = 5000
 ARTIFACTS = 10000
-SAMPLES = 3
+SAMPLES = PAIRED_SAMPLES
 ACTIONS = ("workspace", "recall", "pack", "count")
 
 
@@ -127,7 +129,7 @@ def test_weekly_parent_reads_stay_within_the_pre_lookup_gate(database_urls, tmp_
         for action in ACTIONS:
             for process in processes:
                 _ask(process, action)
-        walls = {action: {"base": [], "head": []} for action in ACTIONS}
+        taken = {action: {side: {"wall": [], "cpu": []} for side in ("base", "head")} for action in ACTIONS}
         queries = []
         for sample in range(SAMPLES):
             order = (0, 1) if sample % 2 == 0 else (1, 0)
@@ -135,16 +137,20 @@ def test_weekly_parent_reads_stay_within_the_pre_lookup_gate(database_urls, tmp_
                 for index in order:
                     measured = _ask(processes[index], action)
                     side = "base" if index == 0 else "head"
-                    walls[action][side].append(measured["wall"])
+                    taken[action][side]["wall"].append(measured["wall"])
+                    taken[action][side]["cpu"].append(measured["cpu"])
                     if action == "count" and side == "head":
                         queries.append(measured["queries"])
-        print(json.dumps({"base": str(base), "samples": SAMPLES, "walls": walls, "queries": queries}), flush=True)
-        assert queries == [1, 1, 1]
+        summaries = {
+            action: {side: paired_summary(samples["wall"], samples["cpu"]) for side, samples in sides.items()}
+            for action, sides in taken.items()
+        }
+        print(json.dumps({"base": str(base), "samples": SAMPLES, "taken": taken, "summaries": summaries, "queries": queries}),
+              flush=True)
+        assert queries == [1] * SAMPLES
         for action in ACTIONS:
-            assert not over_merge_base(min(walls[action]["head"]), min(walls[action]["base"])), (
-                action,
-                walls[action],
-            )
+            over = paired_over_merge_base(summaries[action]["head"], summaries[action]["base"])
+            assert not over, (action, over, taken[action])
     finally:
         for process in processes:
             if process.poll() is None and process.stdin is not None:
