@@ -1,8 +1,9 @@
 """Time one vector read of 10,000 hidden nearest rows, on the checkout named on the command line.
 
 The checkout is put on the path before Alice is imported, so this file can time the merge base and the head with the
-same rows. It prints one JSON object: the minimum wall and CPU seconds of ten calls, the ids returned, and the limits
-the store was asked for.
+same rows. Each line on stdin is one call, and each call prints one JSON object: its wall and CPU seconds, the ids
+returned, the limits the store was asked for in that call, and whether the checkout has the refill. ``stop`` or an
+empty line ends it.
 
 The rows carry plain labels and the store is a stub, so the numbers do not include the label walk of a row that has
 inputs.
@@ -50,6 +51,7 @@ def main() -> None:
     refill = "label_refill" in inspect.signature(service._memory_vector_rows).parameters
 
     def once():
+        store.limits.clear()
         started = time.perf_counter()
         cpu = time.process_time()
         found, _stage = service._memory_vector_rows(
@@ -61,11 +63,13 @@ def main() -> None:
             query_embedding_status=VECTOR_STAGE_ENABLED,
             **({"label_refill": True} if refill else {}),
         )
-        return time.perf_counter() - started, time.process_time() - cpu, [row["id"] for row in found]
+        wall, cpu = time.perf_counter() - started, time.process_time() - cpu
+        return {"wall": wall, "cpu": cpu, "ids": [row["id"] for row in found], "limits": list(store.limits), "refill": refill}
 
-    samples = [once() for _ in range(10)]
-    wall, cpu, ids = min(samples, key=lambda item: item[0])
-    json.dump({"wall": wall, "cpu": cpu, "ids": ids, "limits": store.limits, "refill": refill}, sys.stdout)
+    for line in sys.stdin:
+        if line.strip() in ("stop", ""):
+            break
+        print(json.dumps(once()), flush=True)
 
 
 if __name__ == "__main__":
