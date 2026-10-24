@@ -61,9 +61,9 @@ def main() -> None:
         name = line.strip()
         if name == "stop":
             break
-        started = time.perf_counter()
+        started, cpu_started = time.perf_counter(), time.process_time()
         result = actions[name]()
-        measurement = {"wall": time.perf_counter() - started}
+        measurement = {"wall": time.perf_counter() - started, "cpu": time.process_time() - cpu_started}
         if name == "recall":
             measurement["memories"] = len(result["results"])
         elif name == "count":

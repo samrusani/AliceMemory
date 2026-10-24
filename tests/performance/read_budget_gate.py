@@ -20,6 +20,31 @@ fails while the merge base is under 0.6 seconds, which covers these fixtures.
 A move of 0.02 seconds passes on a read of 0.32 seconds and on a read of
 0.05 seconds.
 
+Every paired budget takes ``PAIRED_SAMPLES`` interleaved calls a revision and
+compares them through ``paired_summary`` and ``paired_over_merge_base``: the
+handoff, round-two, round-three and resume budgets (SQLite and PostgreSQL), the
+vector refill check and the weekly parent check. On the shared runners the noise is time a read
+spends off the processor. In run 39746461326 (the round-two SQLite budget,
+attempt 1) every head recall took 0.18 to 0.30 seconds of wall time and 0.055
+to 0.058 seconds of CPU time, where a quiet sample took 0.059 seconds of wall
+time. A SQLite read also commits writes to the vault file, so a slow disk
+flush can add wall time as well. CPU time counts neither, so the median CPU
+time is the comparison for the work a read does, and it fails a slowdown in
+most of the calls, as the wall median did. It cannot see a read that waits (a
+sleep, a lock, a flush, a child process), so the smallest wall time is
+compared too. Noise only adds time and has to reach every sample to move the
+smallest, while a wait in every call raises every sample. A wait in only some
+of the calls passes. The handoff budgets compared the median wall time of five
+samples before, and in 100 runs of the required SQLite job (2026-10-10 to
+2026-10-24) that failed three times with no change to the read path (run
+40035434435, and run 40078278634 in both attempts): three of the five head
+samples took 0.10 to 0.25 seconds where the quiet ones took 0.042 to 0.046.
+The round-two budget compared the smallest wall and CPU time of five samples
+and failed once, in run 39746461326 above. The round-three budgets compared the
+smallest of ten and did not fail in those 100 runs. The weekly parent check
+compared the smallest wall time of three samples, and the vector refill check
+the fastest of ten calls taken one revision after the other.
+
 The comparison with the pre-labels commit (``ALICE_READ_MAIN_CHECKOUT``,
 pinned at 48873b03) is a ratio only when that variable is set. The required
 jobs do not set it. The maximum-workload smoke job does, and it is not a gate.
@@ -31,11 +56,15 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import statistics
 
 MERGE_BASE_ENV = "ALICE_READ_MERGE_BASE_CHECKOUT"
 PRELABELS_ENV = "ALICE_READ_MAIN_CHECKOUT"
 MERGE_BASE_FACTOR = 1.25
 MERGE_BASE_SLACK_SECONDS = 0.05
+# Measured calls a revision and action, and the statistics of them the gate compares.
+PAIRED_SAMPLES = 10
+PAIRED_STATISTICS = ("median_cpu", "minimum_wall")
 
 
 def merge_base_checkout() -> str:
@@ -61,6 +90,24 @@ def over_merge_base(head: float, base: float) -> bool:
     """
 
     return head > MERGE_BASE_FACTOR * base + MERGE_BASE_SLACK_SECONDS
+
+
+def paired_summary(walls: list[float], cpus: list[float]) -> dict[str, float]:
+    """The statistics of one revision's samples of one action: the two ``paired_over_merge_base`` reads, and the
+    smallest CPU time, which the evidence and the pre-labels report keep. Each caller keeps its samples beside them.
+    """
+
+    return {
+        "minimum_wall": min(walls),
+        "median_cpu": statistics.median(cpus),
+        "minimum_cpu": min(cpus),
+    }
+
+
+def paired_over_merge_base(head: dict, base: dict) -> list[str]:
+    """The statistics of ``PAIRED_STATISTICS`` on which ``head`` is past the limit of ``base``. Empty passes."""
+
+    return [name for name in PAIRED_STATISTICS if over_merge_base(head[name], base[name])]
 
 
 def ratio(head: float, base: float) -> float | None:

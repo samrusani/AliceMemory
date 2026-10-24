@@ -302,9 +302,9 @@ def slow_head(action, *, wall=.1, cpu=.1):
 
 
 @pytest.mark.parametrize("action", ["pack", "recall"])
-@pytest.mark.parametrize("clock,slow", [("minimum_wall", {"wall": .31}), ("minimum_cpu", {"cpu": .31})])
+@pytest.mark.parametrize("clock,slow", [("minimum_wall", {"wall": .31}), ("median_cpu", {"cpu": .31})])
 def test_each_clock_of_pack_and_recall_has_its_own_relative_gate(monkeypatch, tmp_path, action, clock, slow):
-    """Mutations: read the wall clock for both, read the CPU clock for both, skip recall."""
+    """Mutations: drop either statistic from ``PAIRED_STATISTICS`` in ``read_budget_gate``; skip recall."""
     failed = measured_failures(monkeypatch, tmp_path, timings=slow_head(action, **slow))
     assert failed == {(profile, action, clock) for profile in KEYS}
 
