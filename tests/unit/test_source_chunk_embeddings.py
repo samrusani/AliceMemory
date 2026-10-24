@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import random
+import socket
 import sqlite3
 import struct
 import threading
@@ -27,6 +28,7 @@ from uuid import UUID
 import pytest
 
 from alicebot_api import source_chunk_embeddings as embeddings_module
+from alicebot_api import sqlite_schema
 from alicebot_api.onramp import _write_export, bootstrap_database, main as onramp_main
 from alicebot_api.source_chunk_embeddings import (
     PENDING_CHANGED,
@@ -72,6 +74,7 @@ from alicebot_api.vnext_embeddings import (
     EMBEDDINGS_MAX_INPUT_CHARS_ENV,
     EMBEDDINGS_MODEL_ENV,
     OpenAICompatibleEmbeddingProvider,
+    VNextEmbeddingPeerRefusedError,
     VNextEmbeddingProviderError,
 )
 
@@ -141,9 +144,10 @@ class FakeProvider:
 class RecordingServer:
     """An OpenAI-shaped ``/v1/embeddings`` endpoint on 127.0.0.1 that records every text it gets."""
 
-    def __init__(self, *, status: int = 200) -> None:
+    def __init__(self, *, status: int = 200, bind: str = "127.0.0.1") -> None:
         self.texts: list[str] = []
         self.status = status
+        self.bind = bind
         server = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -167,12 +171,20 @@ class RecordingServer:
                 self.end_headers()
                 self.wfile.write(body)
 
-        self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        class V6Server(ThreadingHTTPServer):
+            address_family = socket.AF_INET6
+
+        self._httpd = (V6Server if ":" in bind else ThreadingHTTPServer)((bind, 0), Handler)
         self._thread = threading.Thread(target=self._httpd.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
 
     @property
+    def port(self) -> int:
+        return int(self._httpd.server_address[1])
+
+    @property
     def base_url(self) -> str:
-        return f"http://127.0.0.1:{self._httpd.server_address[1]}/v1"
+        host = f"[{self.bind}]" if ":" in self.bind else self.bind
+        return f"http://{host}:{self.port}/v1"
 
     def __enter__(self) -> "RecordingServer":
         self._thread.start()
@@ -582,6 +594,254 @@ def test_an_endpoint_on_this_machine_is_sent_every_chunk_whatever_its_labels(tmp
     receipt = _embed(db, ids, provider)
     assert receipt.embedded == 8 and receipt.pending == 0 and receipt.reason is None
     assert len(provider.texts) == 8 and len(_vector_chunk_ids(db)) == 8
+
+
+# -- the peer that is reached must be on this machine --------------------------------------------------------------------
+
+
+class FakeSocket:
+    """A connected socket that answers ``getpeername`` as told and records every byte it is asked to send."""
+
+    def __init__(self, peer: tuple) -> None:
+        self.peer = peer
+        self.sent: list[bytes] = []
+        self.closed = False
+
+    def getpeername(self) -> tuple:
+        return self.peer
+
+    def settimeout(self, _value: object) -> None:
+        return None
+
+    def setsockopt(self, *_args: object) -> None:
+        return None
+
+    def sendall(self, data: bytes, *_args: object) -> None:
+        self.sent.append(bytes(data))
+
+    def send(self, data: bytes, *_args: object) -> int:
+        self.sent.append(bytes(data))
+        return len(data)
+
+    def makefile(self, *_args: object, **_kwargs: object):
+        raise AssertionError("a response was read from a peer that is not on this machine")
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _real_provider(base_url: str):
+    return OpenAICompatibleEmbeddingProvider(base_url=base_url, model=NOMIC)
+
+
+@pytest.mark.parametrize(
+    "peer",
+    [
+        ("203.0.113.7", 11434),
+        ("192.168.1.20", 11434),
+        ("0.0.0.0", 11434),
+        ("::ffff:127.0.0.1", 11434, 0, 0),
+        ("::ffff:7f00:1", 11434, 0, 0),
+        ("fe80::1", 11434, 0, 1),
+        ("2001:db8::1", 11434, 0, 0),
+    ],
+    ids=["documentation-v4", "lan", "any", "mapped-loopback", "mapped-loopback-hex", "link-local", "documentation-v6"],
+)
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_a_name_under_localhost_that_reaches_a_peer_off_this_machine_gets_no_byte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, peer: tuple, scheme: str
+) -> None:
+    """The policy lets the name through; the connection decides. Mutation: leave the peer check out of the connection.
+
+    The socket layer is patched, so no connection leaves this machine: ``create_connection`` returns a socket whose
+    peer is the address under test. Nothing is written to it (for https not even a TLS handshake), it is closed, no
+    response is read, and every chunk stays pending with the reason of an endpoint that is not on this machine.
+    """
+
+    sockets: list[FakeSocket] = []
+
+    def create_connection(address, timeout=None, source_address=None):  # noqa: ANN001, ANN202
+        fake = FakeSocket(peer)
+        sockets.append(fake)
+        return fake
+
+    monkeypatch.setattr(socket, "create_connection", create_connection)
+    db = _vault(tmp_path)
+    ids = [_source(db, f"Note {index}", [f"{PLAIN} Note {index}.", f"{PLAIN} Note {index} again."])[0] for index in range(25)]
+    provider = _real_provider(f"{scheme}://rebind.localhost:11434/v1")
+    assert endpoint_is_loopback(provider.base_url)  # the name and the proxy rules are the first gate, and it passes
+    receipt = _embed(db, ids, provider)
+    assert len(sockets) == 1, "one connection was made, and no further request after it was refused"
+    assert sockets[0].sent == [] and sockets[0].closed
+    assert receipt.reason == OFF_ENDPOINT_NOT_LOCAL and receipt.sent == 0 and receipt.embedded == 0
+    assert receipt.pending == 50 and receipt.pending_reasons == {PENDING_ENDPOINT_NOT_LOCAL: 50}
+    assert receipt.to_record()["message"] == ENDPOINT_NOT_LOCAL_MESSAGE
+    assert _rows(db, "SELECT 1 FROM sqlite_master WHERE name = 'source_chunk_embeddings'") == []
+
+
+class RawListener:
+    """A listener that records the bytes it receives, on a given local address."""
+
+    def __init__(self, bind: str) -> None:
+        self.received = b""
+        self.accepted = 0
+        family = socket.AF_INET6 if ":" in bind else socket.AF_INET
+        self._listener = socket.socket(family, socket.SOCK_STREAM)
+        self._listener.bind((bind, 0))
+        self._listener.listen(4)
+        self._listener.settimeout(0.2)
+        self._stop = False
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    @property
+    def port(self) -> int:
+        return int(self._listener.getsockname()[1])
+
+    def _run(self) -> None:
+        while not self._stop:
+            try:
+                connection, _peer = self._listener.accept()
+            except (TimeoutError, OSError):
+                continue
+            self.accepted += 1
+            connection.settimeout(0.5)
+            try:
+                while True:
+                    data = connection.recv(65536)
+                    if not data:
+                        break
+                    self.received += data
+            except (TimeoutError, OSError):
+                pass
+            finally:
+                connection.close()
+
+    def __enter__(self) -> "RawListener":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._stop = True
+        self._thread.join(timeout=5)
+        self._listener.close()
+
+
+def _local_non_loopback_address() -> str | None:
+    """An address of this machine that is not loopback, found without sending a packet; ``None`` when there is none."""
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("203.0.113.1", 9))  # a UDP connect only picks a route
+        address = probe.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        probe.close()
+    if address.startswith("127.") or address == "0.0.0.0":
+        return None
+    # The address has to be one a listener on this machine can be reached at.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        try:
+            listener.bind((address, 0))
+            listener.listen(1)
+            with socket.create_connection((address, listener.getsockname()[1]), timeout=1.0):
+                return address
+        except OSError:
+            return None
+
+
+def _resolve_name_to(monkeypatch: pytest.MonkeyPatch, name: str, address: str) -> None:
+    real = socket.getaddrinfo
+
+    def getaddrinfo(host, port, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
+        if host == name:
+            family = socket.AF_INET6 if ":" in address else socket.AF_INET
+            sockaddr = (address, port, 0, 0) if family == socket.AF_INET6 else (address, port)
+            return [(family, socket.SOCK_STREAM, 6, "", sockaddr)]
+        return real(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+
+
+def test_a_name_under_localhost_that_resolves_to_a_listener_off_loopback_gets_zero_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real listener on an address of this machine that is not loopback receives the connection and no byte.
+
+    Mutation: leave the peer check out of the connection.
+    """
+
+    lan = _local_non_loopback_address()
+    if lan is None:
+        pytest.skip("this machine has no address that is not loopback")
+    _resolve_name_to(monkeypatch, "rebind.localhost", lan)
+    db = _vault(tmp_path)
+    source_id, _ = _source(db, "Plan", [PLAN_A, PLAN_B])
+    with RawListener(lan) as listener:
+        receipt = _embed(db, [source_id], _real_provider(f"http://rebind.localhost:{listener.port}/v1"))
+    assert listener.received == b""
+    assert receipt.reason == OFF_ENDPOINT_NOT_LOCAL and receipt.pending_reasons == {PENDING_ENDPOINT_NOT_LOCAL: 2}
+    assert _vector_chunk_ids(db) == set()
+
+
+def test_a_name_under_localhost_that_resolves_to_loopback_still_works(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _vault(tmp_path)
+    source_id, _ = _source(db, "Plan", [PLAN_A, PLAN_B])
+    _resolve_name_to(monkeypatch, "alias.localhost", "127.0.0.1")
+    with RecordingServer() as server:
+        receipt = _embed(db, [source_id], _real_provider(f"http://alias.localhost:{server.port}/v1"))
+        sent = list(server.texts)
+    assert receipt.embedded == 2 and receipt.pending == 0 and receipt.reason is None
+    assert len(sent) == 2 and len(_vector_chunk_ids(db)) == 2
+
+
+def test_a_listener_on_ipv6_loopback_works(tmp_path: Path) -> None:
+    try:
+        server = RecordingServer(bind="::1")
+    except OSError:
+        pytest.skip("this machine has no IPv6 loopback")
+    db = _vault(tmp_path)
+    source_id, _ = _source(db, "Plan", [PLAN_A])
+    with server:
+        receipt = _embed(db, [source_id], _real_provider(server.base_url))
+        sent = list(server.texts)
+    assert receipt.embedded == 1 and len(sent) == 1
+
+
+def test_a_proxy_that_would_carry_a_source_request_is_refused_before_a_connection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defence behind the policy gate: a request a proxy would carry has the proxy as its peer.
+
+    Mutation: leave the proxy refusal out of ``_HTTPHandler.http_open``.
+    """
+
+    sockets: list[FakeSocket] = []
+    monkeypatch.setattr(socket, "create_connection", lambda *a, **k: sockets.append(FakeSocket(("127.0.0.1", 3128))) or sockets[-1])
+    provider = _real_provider("http://127.0.0.1:11434/v1")
+    monkeypatch.setattr(urllib.request, "getproxies", lambda: {"http": "http://proxy.example.test:3128"})
+    monkeypatch.setattr(urllib.request, "proxy_bypass", lambda host: False)
+    with pytest.raises(VNextEmbeddingPeerRefusedError):
+        provider.embed_batch_native(["a text of the kind that is sent"])
+    assert sockets == []
+
+
+def test_the_memory_path_is_not_held_to_a_peer_on_this_machine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Memory embeddings keep working with any endpoint. Mutation: hold ``embed_batch`` to a loopback peer."""
+
+    peers: list[FakeSocket] = []
+
+    def create_connection(address, timeout=None, source_address=None):  # noqa: ANN001, ANN202
+        fake = FakeSocket(("203.0.113.7", 11434))
+        peers.append(fake)
+        raise OSError("not a real connection")
+
+    monkeypatch.setattr(socket, "create_connection", create_connection)
+    provider = _real_provider("http://embeddings.example.test/v1")
+    with pytest.raises(VNextEmbeddingProviderError) as refused:
+        provider.embed_batch(["a memory"])
+    assert not isinstance(refused.value, VNextEmbeddingPeerRefusedError)
+    assert len(peers) == 1 and peers[0].sent == []
 
 
 # -- what is never sent ---------------------------------------------------------------------------------------------
@@ -1062,7 +1322,9 @@ def test_a_vault_without_the_table_opens_and_the_first_vector_makes_it(tmp_path:
     assert compile_local_vault_doctor(db, user_id=USER_ID)  # reads a vault that has no such table
     assert _embed(db, [source_id], FakeProvider()).embedded == 1
     assert _rows(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'source_chunk_embeddings'")
-    assert _rows(db, "SELECT value FROM alice_schema_state WHERE key = 'source_chunk_embeddings_version'") == [("1",)]
+    assert _rows(db, "SELECT value FROM alice_schema_state WHERE key = 'source_chunk_embeddings_version'") == [
+        (sqlite_schema.SOURCE_CHUNK_VECTORS_SCHEMA_VERSION,)
+    ]
     # The export accepts the table as this build's own, and does not export it.
     stream = io.StringIO()
     _write_export(stream, db_path=db, user_id=UUID(USER_ID))
@@ -1119,6 +1381,74 @@ def test_the_stamp_changes_when_a_vector_is_overwritten_or_removed_and_not_when_
         assert fourth != third
         assert drop_chunk_vector_table(store) == 0
         assert source_chunk_vectors_stamp(conn) != fourth  # the table is gone, and a copy must know
+
+
+def _fingerprint(db: Path, *source_ids: str) -> str:
+    with sqlite_user_connection(db, USER_ID) as conn:
+        return sqlite_schema.source_chunk_vector_fingerprint(conn, USER_ID, json.dumps(sorted(source_ids)))
+
+
+def test_a_source_has_a_token_that_moves_when_its_own_vector_is_overwritten_or_removed_and_for_nothing_else(
+    tmp_path: Path,
+) -> None:
+    """The fingerprint of a set of sources reads their tokens and no others.
+
+    Mutation: leave the token out of the update trigger; leave it out of the delete trigger; read every token.
+    """
+
+    db = _vault(tmp_path)
+    one, _ = _source(db, "One", [PLAN_A, PLAN_B])
+    two, _ = _source(db, "Two", [PLAN_C, PLAN_C + " Again."])
+    assert _embed(db, [one, two], FakeProvider()).embedded == 4
+    # Rows that were added change no token: a copy finds them by row number.
+    assert _fingerprint(db, one) == "" and _fingerprint(db, two) == "" and _fingerprint(db, one, two) == ""
+    # A vector of One is overwritten (another model of the same family makes it stale, and it is replaced in place).
+    assert _embed(db, [one], FakeProvider(model="nomic-embed-text:latest")).embedded == 2
+    after_overwrite = _fingerprint(db, one)
+    assert after_overwrite != "" and _fingerprint(db, two) == ""
+    # The vectors of Two go with a scrub: only Two's token moves, and One's fingerprint is what it was.
+    with sqlite_user_connection(db, USER_ID) as conn:
+        SQLiteVNextStore(conn, USER_ID).scrub_source(two)
+    assert _fingerprint(db, one) == after_overwrite
+    after_scrub = _fingerprint(db, two)
+    assert after_scrub != "" and _fingerprint(db, one, two) not in {after_overwrite, after_scrub}
+    # A source that is not in the set cannot be seen through it, and a set of unknown ids has none.
+    assert _fingerprint(db, "an-unknown-source") == ""
+    # A new chunk with a vector changes no token.
+    with sqlite_user_connection(db, USER_ID) as conn:
+        SQLiteVNextStore(conn, USER_ID).create_source_chunk(
+            {"id": fixed_chunk_id("One", 2), "source_id": one, "chunk_index": 2, "text": PLAIN}
+        )
+    assert _embed(db, [one], FakeProvider(model="nomic-embed-text:latest")).embedded == 1
+    assert _fingerprint(db, one) == after_overwrite
+
+
+def fixed_chunk_id(name: str, index: int) -> str:
+    import uuid
+
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"chunk|{name}|{index}"))
+
+
+def test_a_table_made_before_the_tokens_gets_their_triggers_the_next_time_a_vector_is_stored(tmp_path: Path) -> None:
+    """Mutation: skip the upgrade in ``ensure_source_chunk_vectors_table``."""
+
+    db = _vault(tmp_path)
+    source_id, _ = _source(db, "One", [PLAN_A])
+    assert _embed(db, [source_id], FakeProvider()).embedded == 1
+    with sqlite_user_connection(db, USER_ID) as conn:
+        conn.execute("DROP TRIGGER source_chunk_embeddings_source_token_after_update")
+        conn.execute("DROP TRIGGER source_chunk_embeddings_source_token_after_delete")
+        conn.execute(
+            "UPDATE alice_schema_state SET value = '1' WHERE key = ?", (sqlite_schema.SOURCE_CHUNK_VECTORS_STATE_KEY,)
+        )
+    assert _rows(db, "SELECT name FROM sqlite_master WHERE name LIKE 'source_chunk_embeddings_source_token%'") == []
+    # The next write that needs the table brings it up to date.
+    other, _ = _source(db, "Two", [PLAN_B])
+    assert _embed(db, [other], FakeProvider()).embedded == 1
+    assert len(_rows(db, "SELECT name FROM sqlite_master WHERE name LIKE 'source_chunk_embeddings_source_token%'")) == 2
+    assert _rows(
+        db, "SELECT value FROM alice_schema_state WHERE key = ?", (sqlite_schema.SOURCE_CHUNK_VECTORS_STATE_KEY,)
+    ) == [(sqlite_schema.SOURCE_CHUNK_VECTORS_SCHEMA_VERSION,)]
 
 
 def test_the_vector_row_refuses_a_width_that_is_not_its_dimensions(tmp_path: Path) -> None:

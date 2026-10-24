@@ -445,6 +445,10 @@ folder paths, and source rows retain hash columns. Postgres source deletion and
 review archive remain soft deletes: their source text and chunks are not
 scrubbed by those routes.
 
+A scrub that is committed after the embedding pass has read a source just before sending its text
+can still be followed by that text reaching the embeddings endpoint on this machine, whether the
+request has begun or not; the vector that comes back is not stored.
+
 Removed text can remain in the vault file's unused space and write-ahead log
 until the file is rebuilt. Chunk vectors are in the same position: they are
 zeroed where the database frees them, but deleting a vector is logical

@@ -47,6 +47,7 @@ Conventions:
 from __future__ import annotations
 
 from hashlib import md5
+import hashlib
 import json
 import sqlite3
 from uuid import uuid4
@@ -1695,13 +1696,26 @@ def _backfill_source_dedupe_keys(conn: sqlite3.Connection) -> None:
 # counts), and never when a row is added. A resident copy of the vectors in any process reads the token to know it
 # must be rebuilt; new rows it finds by their row number. The token is rewritten and never counted up, so a restored
 # copy of the database cannot show a token that a live cache was built at.
+#
+# The stamp is vault wide, so a copy built from some of the sources cannot use it: it would rebuild whenever a vector of
+# a source it does not hold was overwritten or deleted. For such a copy the same triggers also rewrite a token of the
+# source whose row changed, in ``alice_schema_state`` under ``SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX`` + user id + ``:`` +
+# source id. A copy of a set of sources is valid while the tokens of those sources, and of no others, are the ones it
+# was built at (``source_chunk_vector_fingerprint``). The tokens are never removed, not even when the table is dropped:
+# a removed token could repeat the fingerprint a live cache was built at.
 SOURCE_CHUNK_VECTORS_TABLE = "source_chunk_embeddings"
+SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX = "source_chunk_vector_rewrite:"
 SOURCE_CHUNK_VECTORS_STATE_KEY = "source_chunk_embeddings_version"
 SOURCE_CHUNK_VECTORS_STAMP_KEY = "source_chunk_vector_stamp"
-SOURCE_CHUNK_VECTORS_SCHEMA_VERSION = "1"
+SOURCE_CHUNK_VECTORS_SCHEMA_VERSION = "2"
 _REWRITE_STAMP_SQL = (
     "INSERT INTO alice_schema_state (key, value) "
     f"VALUES ('{SOURCE_CHUNK_VECTORS_STAMP_KEY}', lower(hex(randomblob(16)))) "
+    "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+)
+_REWRITE_SOURCE_SQL = (
+    "INSERT INTO alice_schema_state (key, value) "
+    "VALUES ('{prefix}' || {row}.user_id || ':' || {row}.source_id, lower(hex(randomblob(16)))) "
     "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
 )
 #: Tables a build makes after the bootstrap. An export or import accepts them as this build's own.
@@ -1737,6 +1751,8 @@ _SOURCE_CHUNK_VECTORS_STATEMENTS: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS source_chunk_embeddings_source_idx
       ON source_chunk_embeddings (user_id, source_id)
     """,
+)
+_SOURCE_CHUNK_VECTORS_TRIGGERS: tuple[str, ...] = (
     f"""
     CREATE TRIGGER IF NOT EXISTS source_chunk_embeddings_stamp_after_update
     AFTER UPDATE ON source_chunk_embeddings
@@ -1749,6 +1765,21 @@ _SOURCE_CHUNK_VECTORS_STATEMENTS: tuple[str, ...] = (
     AFTER DELETE ON source_chunk_embeddings
     BEGIN
       {_REWRITE_STAMP_SQL};
+    END
+    """,
+    f"""
+    CREATE TRIGGER IF NOT EXISTS source_chunk_embeddings_source_token_after_update
+    AFTER UPDATE ON source_chunk_embeddings
+    BEGIN
+      {_REWRITE_SOURCE_SQL.format(prefix=SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX, row="OLD")};
+      {_REWRITE_SOURCE_SQL.format(prefix=SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX, row="NEW")};
+    END
+    """,
+    f"""
+    CREATE TRIGGER IF NOT EXISTS source_chunk_embeddings_source_token_after_delete
+    AFTER DELETE ON source_chunk_embeddings
+    BEGIN
+      {_REWRITE_SOURCE_SQL.format(prefix=SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX, row="OLD")};
     END
     """,
 )
@@ -1768,17 +1799,63 @@ def ensure_source_chunk_vectors_table(conn: sqlite3.Connection) -> None:
     """Make the chunk vector table and record its version. Safe to call repeatedly."""
 
     if source_chunk_vectors_table_exists(conn):
+        _upgrade_source_chunk_vectors_table(conn)
         return
-    for statement in _SOURCE_CHUNK_VECTORS_STATEMENTS:
+    for statement in (*_SOURCE_CHUNK_VECTORS_STATEMENTS, *_SOURCE_CHUNK_VECTORS_TRIGGERS):
         conn.execute(statement)
     conn.execute(
-        "INSERT OR IGNORE INTO alice_schema_state (key, value) VALUES (?, ?)",
+        "INSERT OR REPLACE INTO alice_schema_state (key, value) VALUES (?, ?)",
         (SOURCE_CHUNK_VECTORS_STATE_KEY, SOURCE_CHUNK_VECTORS_SCHEMA_VERSION),
     )
     conn.execute(
         "INSERT OR IGNORE INTO alice_schema_state (key, value) VALUES (?, lower(hex(randomblob(16))))",
         (SOURCE_CHUNK_VECTORS_STAMP_KEY,),
     )
+
+
+def _upgrade_source_chunk_vectors_table(conn: sqlite3.Connection) -> None:
+    """Bring a table made by an earlier version of this build up to date: the triggers it lacks, and its version row."""
+
+    cursor = conn.execute("SELECT value FROM alice_schema_state WHERE key = ?", (SOURCE_CHUNK_VECTORS_STATE_KEY,))
+    try:
+        row = cursor.fetchone()
+    finally:
+        cursor.close()
+    held = None if row is None else str(row["value"] if isinstance(row, dict) else row[0])
+    if held == SOURCE_CHUNK_VECTORS_SCHEMA_VERSION:
+        return
+    for statement in _SOURCE_CHUNK_VECTORS_TRIGGERS:
+        conn.execute(statement)
+    conn.execute(
+        "INSERT OR REPLACE INTO alice_schema_state (key, value) VALUES (?, ?)",
+        (SOURCE_CHUNK_VECTORS_STATE_KEY, SOURCE_CHUNK_VECTORS_SCHEMA_VERSION),
+    )
+
+
+def source_chunk_vector_fingerprint(conn: sqlite3.Connection, user_id: str, scope_json: str) -> str:
+    """A digest of the rewrite tokens of the sources in ``scope_json`` (a JSON array of source ids), and of no others.
+
+    It changes when a vector of one of those sources is overwritten or deleted, and never because of a vector of
+    another source: the read is a lookup of the keys of the sources in scope, and the digest covers only what it finds.
+    Rows that were added change nothing here (the copy finds them by row number). The empty string is the fingerprint
+    of a scope none of whose sources has had a vector rewritten.
+    """
+
+    prefix = f"{SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX}{user_id}:"
+    cursor = conn.execute(
+        "SELECT key, value FROM alice_schema_state WHERE key IN (SELECT ? || value FROM json_each(?)) ORDER BY key",
+        (prefix, scope_json),
+    )
+    cursor.row_factory = None
+    digest = hashlib.blake2b(digest_size=16)
+    found = False
+    try:
+        for key, value in cursor:
+            found = True
+            digest.update(f"{key}={value}\n".encode())
+    finally:
+        cursor.close()
+    return digest.hexdigest() if found else ""
 
 
 def source_chunk_vectors_stamp(conn: sqlite3.Connection) -> str | None:
@@ -2233,6 +2310,7 @@ __all__ = [
     "SENSITIVITY_LEVELS",
     "LAZY_TABLE_NAMES",
     "SOURCE_CHUNK_VECTORS_SCHEMA_VERSION",
+    "SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX",
     "SOURCE_CHUNK_VECTORS_STAMP_KEY",
     "SOURCE_CHUNK_VECTORS_STATE_KEY",
     "SOURCE_CHUNK_VECTORS_TABLE",
@@ -2240,6 +2318,7 @@ __all__ = [
     "bootstrap_sqlite_schema",
     "drop_source_chunk_vectors_table",
     "ensure_source_chunk_vectors_table",
+    "source_chunk_vector_fingerprint",
     "source_chunk_vectors_stamp",
     "source_chunk_vectors_table_exists",
 ]

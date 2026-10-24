@@ -24,8 +24,11 @@ The rules, in the order a chunk meets them:
   source do not decide whether its chunks are sent to an endpoint on this machine,
   so a change of label is not an egress event.
 * The rules are applied to the rows as they are when the text is chosen, and again
-  just before each batch is sent. A change committed while a batch is in flight
-  is not seen by the batch.
+  just before each batch is sent. A change committed after that last read has
+  read the source, whether the request has begun or not, is not seen by the batch.
+* The connection is the last gate: once it is made, and before anything is
+  written, the address of the connected socket must be loopback (``provider_http``),
+  so a name under ``.localhost`` that resolves elsewhere gets no byte.
 
 The text that is sent is the source title, the headings above the chunk, and the
 chunk, behind the model's document prefix. Only that text changes. The chunk text
