@@ -15,6 +15,7 @@ import sys
 from uuid import uuid4
 
 from alembic import command
+import pytest
 
 from alicebot_api.db import user_connection
 from alicebot_api.migrations import make_alembic_config
@@ -117,6 +118,9 @@ def _ask(process: subprocess.Popen, action: str) -> dict:
     return json.loads(line)
 
 
+# Ten interleaved calls of four actions on two checkouts took 159 seconds on the required job (run 40095189438),
+# close to the 180 second limit the integration shards give each test, so this test has its own.
+@pytest.mark.timeout(600)
 def test_weekly_parent_reads_stay_within_the_pre_lookup_gate(database_urls, tmp_path) -> None:
     command.upgrade(make_alembic_config(database_urls["admin"]), "head")
     user_id = uuid4()
