@@ -22,8 +22,8 @@ from pathlib import Path
 import random
 import re
 import shutil
+import time
 from typing import Any
-from urllib.parse import urlsplit
 
 import scripts.alice_bench as bench
 import scripts.showcase_visibility as visibility
@@ -38,8 +38,8 @@ from tests.fixtures.showcase_company.company import (
 
 CHAT_MODELS = ("qwen2.5:7b", "llama3.2", "gemma4")
 DEFAULT_CHAT_MODEL = "qwen2.5:7b"
-DEFAULT_EMBED_MODEL = "nomic-embed-text:v1.5"
-DEFAULT_OLLAMA_BASE = "http://127.0.0.1:11434"
+DEFAULT_EMBED_MODEL = bench.DEFAULT_EMBED_MODEL
+DEFAULT_OLLAMA_BASE = bench.DEFAULT_OLLAMA_BASE
 ARMS = ("alice", "grep", "notes", "fake-separated", "mem0-separated", "mem0-shared", "none")
 TEAMS = visibility.TEAMS
 # Support records decisions, so the key must be allowed to commit a memory.
@@ -73,7 +73,7 @@ QUESTION_KINDS = ("demonstration", "development", "hidden")
 PHASE0_SIZE = 1000
 SHOWCASE_SCHEMA = "showcase-run/1"
 GRADE_SCHEMA = "showcase-grade-packet/1"
-LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1"})
+LOOPBACK = bench.LOOPBACK
 KEYED_RECALL_PATH = "/v0/vnext/context-packs"
 FAILURE_CLASSES = (
     "needed note not captured",
@@ -218,23 +218,13 @@ _PERMISSION = (
 def require_local_endpoint(url: str) -> str:
     """A loopback Ollama address. A cloud host is refused before any call."""
 
-    parts = urlsplit(url.strip())
-    host = (parts.hostname or "").lower()
-    if parts.scheme not in {"http", "https"} or host not in LOOPBACK:
-        raise bench.BenchError("the model endpoint must be a loopback Ollama address")
-    return url.strip().rstrip("/")
+    return bench.require_local_endpoint(url)
 
 
 def embedding_settings(base: str, model: str) -> dict[str, str]:
     """The env Alice's embedding client reads. Ollama serves ``/v1/embeddings``."""
 
-    local = require_local_endpoint(base)
-    if not model.strip():
-        raise bench.BenchError("the embedding model must be set")
-    return {
-        "ALICE_EMBEDDINGS_BASE_URL": local + "/v1",
-        "ALICE_EMBEDDINGS_MODEL": model.strip(),
-    }
+    return bench.embedding_settings(base, model)
 
 
 def mem0_config(*, chat_model: str, embed_model: str, base: str, store_path: Path) -> dict[str, Any]:
@@ -928,12 +918,12 @@ def notes_from_folder(corpus: Path) -> list[_FolderNote]:
 
 
 def recorded_search_quality(value: str | None) -> str:
-    """``unset`` when the command leaves the quality alone. Otherwise off, passage or on."""
+    """``unset`` when the command leaves the quality alone. Otherwise off, passage, vectors or on."""
 
     if value is None:
         return "unset"
-    if value not in {"off", "passage", "on"}:
-        raise bench.BenchError("search quality must be off, passage, or on")
+    if value not in bench.SEARCH_QUALITY_CHOICES:
+        raise bench.BenchError("search quality must be off, passage, vectors, or on")
     return value
 
 
@@ -949,14 +939,26 @@ def _install_imported_corpus(
     embeddings: bool,
     search_quality: str | None = None,
 ) -> dict[str, Any]:
-    """Snapshot, import, team keys, capture report and the memory index."""
+    """Snapshot, import, team keys, capture report and the memory index.
 
+    A run of search quality ``vectors`` needs ``embeddings`` on. Its notes are imported with the vectors environment
+    and the product's backfill runs after the last one (``bench.embed_vault_chunks``), so the manifest records the
+    ``chunk_vectors`` the build made and the build fails if any chunk is left pending. A run of any other quality
+    embeds nothing at build time.
+    """
+
+    # Asked first, so a checkout that cannot rank by vectors is refused before anything is imported.
+    ranking_mode = bench.resolved_ranking_mode(search_quality)
+    vectors: dict[str, str] | None = None
+    if search_quality == bench.VECTORS:
+        if not embeddings:
+            raise bench.BenchError("--search-quality vectors needs --embeddings on")
+        vectors = embedding_settings(local, embed_model)
     snapshot = prepared / bench.SNAPSHOT_DIRNAME
     if snapshot.exists():
         shutil.rmtree(snapshot)
     shutil.copytree(corpus, snapshot)
-    embed = embedding_settings(local, embed_model) if embeddings else None
-    db_path = import_corpus(prepared, corpus, embeddings=embed)
+    db_path, chunk_vectors = _import_corpus(prepared, corpus, vectors=vectors)
     keys = _create_keys(db_path)
     capture_path = prepared / "capture.json"
     capture = json.loads(capture_path.read_text(encoding="utf-8")) if capture_path.is_file() else {}
@@ -970,7 +972,7 @@ def _install_imported_corpus(
         store_path=prepared / "mem0",
     )
     (prepared / "memory.json").write_text(json.dumps(memory, indent=1) + "\n", encoding="utf-8")
-    return {
+    installed: dict[str, Any] = {
         "notes": len(notes),
         "models": {"chat": chat_model, "embed": embed_model, "endpoint": local},
         "embedding_env": embedding_settings(local, embed_model),
@@ -980,8 +982,11 @@ def _install_imported_corpus(
         "capture": capture,
         "search_quality": recorded_search_quality(search_quality),
         # What the setting resolves to on this SQLite vault. ``unset`` is passage mode from v0.21.0, not document mode.
-        "ranking_mode": bench.resolved_ranking_mode(search_quality),
+        "ranking_mode": ranking_mode,
     }
+    if chunk_vectors is not None:
+        installed["chunk_vectors"] = chunk_vectors
+    return installed
 
 
 def build_company(
@@ -1088,39 +1093,26 @@ def _restore_environment(previous: Mapping[str, str | None]) -> None:
             os.environ[name] = value
 
 
-def embed_note_texts(texts: Sequence[str], settings: Mapping[str, str]) -> int:
-    """Send note text to the configured loopback embeddings endpoint.
-
-    Markdown import does not embed. This is the call that uses the endpoint.
-    """
-
-    from alicebot_api.vnext_embeddings import MAX_EMBEDDINGS_BATCH_SIZE, get_embedding_provider
-
-    pending_texts = [text for text in texts if text.strip()]
-    if not pending_texts:
-        raise bench.BenchError("there is no note text to embed")
-    previous = _apply_embedding_settings(settings)
-    try:
-        provider = get_embedding_provider()
-        if provider is None:
-            raise bench.BenchError("the embedding provider is not configured")
-        sent = 0
-        for start in range(0, len(pending_texts), MAX_EMBEDDINGS_BATCH_SIZE):
-            batch = pending_texts[start : start + MAX_EMBEDDINGS_BATCH_SIZE]
-            vectors = provider.embed_batch(batch)
-            if len(vectors) != len(batch):
-                raise bench.BenchError("the embedding endpoint returned the wrong number of vectors")
-            sent += len(vectors)
-        return sent
-    finally:
-        _restore_environment(previous)
-
-
-def import_corpus(run_dir: Path, corpus: Path, *, embeddings: Mapping[str, str] | None = None) -> Path:
+def import_corpus(run_dir: Path, corpus: Path, *, vectors: Mapping[str, str] | None = None) -> Path:
     """Import each note with the domain and sensitivity in its front matter.
 
     The vault directory belongs to the harness. It is removed on every import,
-    so a note that left the folder cannot stay in the vault.
+    so a note that left the folder cannot stay in the vault. ``vectors`` is the
+    embedding settings of a run of search quality ``vectors``; see ``_import_corpus``.
+    """
+
+    return _import_corpus(run_dir, corpus, vectors=vectors)[0]
+
+
+def _import_corpus(
+    run_dir: Path, corpus: Path, *, vectors: Mapping[str, str] | None = None
+) -> tuple[Path, dict[str, Any] | None]:
+    """``import_corpus`` and the ``chunk_vectors`` record of a vectors run (None for any other).
+
+    Markdown import itself embeds nothing. With ``vectors``, the product is run with ``ALICE_SOURCE_EMBEDDINGS=on`` and the
+    loopback endpoint and model around each import, so it embeds the chunks of each note as it arrives, and then its
+    backfill (``alice-memory reindex-embeddings --sources``) embeds what an import left pending. The build fails unless
+    nothing is pending. Without ``vectors`` no variable is set and nothing is sent to an endpoint.
     """
 
     from alicebot_api.markdown_import import _parse_frontmatter
@@ -1136,21 +1128,22 @@ def import_corpus(run_dir: Path, corpus: Path, *, embeddings: Mapping[str, str] 
         raise bench.BenchError("the notes folder has no markdown files")
     texts: list[str] = []
     failed: list[dict[str, str]] = []
-    for path in files:
-        relative = path.relative_to(corpus).as_posix()
-        try:
-            raw = path.read_text(encoding="utf-8")
-            meta, _lines = _parse_frontmatter(raw)
-            bench._import_one(
-                db_path,
-                path,
-                domain=meta.get("domain", "professional"),
-                sensitivity=meta.get("sensitivity", "internal"),
-            )
-        except Exception as exc:
-            failed.append({"path": relative, "error": str(exc)})
-            continue
-        texts.append(raw)
+    with bench.applied_environment({} if vectors is None else bench.vector_environment(vectors)):
+        for path in files:
+            relative = path.relative_to(corpus).as_posix()
+            try:
+                raw = path.read_text(encoding="utf-8")
+                meta, _lines = _parse_frontmatter(raw)
+                bench._import_one(
+                    db_path,
+                    path,
+                    domain=meta.get("domain", "professional"),
+                    sensitivity=meta.get("sensitivity", "internal"),
+                )
+            except Exception as exc:
+                failed.append({"path": relative, "error": str(exc)})
+                continue
+            texts.append(raw)
     indexed = _indexed_notes(db_path)
     report = capture_report(discovered=len(files), captured=len(texts), failed=failed, indexed=indexed)
     (prepared / "capture.json").write_text(json.dumps(report, indent=1) + "\n", encoding="utf-8")
@@ -1162,9 +1155,8 @@ def import_corpus(run_dir: Path, corpus: Path, *, embeddings: Mapping[str, str] 
             "capture is short of the notes discovered: "
             f"discovered {report['discovered']}, captured {report['captured']}, indexed {report['indexed']}"
         )
-    if embeddings is not None:
-        embed_note_texts(texts, embeddings)
-    return db_path
+    chunk_vectors = None if vectors is None else bench.embed_vault_chunks(db_path, vectors)
+    return db_path, chunk_vectors
 
 
 def capture_report(
@@ -1315,6 +1307,19 @@ def without_echoed_query(text: str) -> str:
 def alice_search(run_dir: Path, *, team: str, query: str) -> str:
     """Recall with the team key. The echoed query is removed from what the answering agent sees."""
 
+    return alice_search_with_status(run_dir, team=team, query=query)[0]
+
+
+def alice_search_with_status(run_dir: Path, *, team: str, query: str) -> tuple[str, dict[str, Any] | None]:
+    """``alice_search`` and, for a run of search quality ``vectors``, the status of the vector stage of that recall.
+
+    The text is the agent's text and nothing else. A vectors run asks the server for its trace (``debug``), and the
+    session takes the trace out again before the text is returned, so the agent reads what it would have read without
+    it. The status is the product's own record of the vector stage (``enabled``, or the reason it did not run) with
+    the seconds the recall took; it is None for every other run. A vectors run whose process does not carry the
+    vectors environment is refused here, not recalled as passage mode.
+    """
+
     if team not in TEAM_PROFILES:
         raise bench.BenchError("unknown team")
     from alicebot_api.vnext_agent_control import _profile_sensitivity
@@ -1324,28 +1329,83 @@ def alice_search(run_dir: Path, *, team: str, query: str) -> str:
     db_path = bench.vault_path(prepared / bench.VAULT_DIRNAME)
     identity = _identity(db_path, keys[team])
     manifest_path = prepared / "showcase.json"
-    embedding_env: dict[str, str] | None = None
+    manifest: dict[str, Any] = {}
     if manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if manifest.get("embeddings") == "on":
-            embedding_env = dict(manifest["embedding_env"])
+    vectors = manifest.get("search_quality") == bench.VECTORS
+    embedding_env: dict[str, str] | None = None
+    if vectors:
+        recorded = manifest.get("embedding_env")
+        if not isinstance(recorded, dict):
+            raise bench.BenchError("this vectors run recorded no embedding settings")
+        bench.require_vector_environment(recorded)
+    elif manifest.get("embeddings") == "on":
+        embedding_env = dict(manifest["embedding_env"])
     previous: dict[str, str | None] = {}
     if embedding_env is not None:
-        embed_note_texts([query], embedding_env)
         previous = _apply_embedding_settings(embedding_env)
     is_error = False
     text = ""
+    status: dict[str, Any] | None = None
     try:
-        session = bench.McpSession(db_path, agent_identity=identity)
-        arguments = bench.alice_arm_arguments(query)
+        session = bench.McpSession(db_path, agent_identity=identity, trace_vectors=vectors)
+        arguments = bench.alice_arm_arguments(query, trace=vectors)
         arguments["sensitivity_allowed"] = list(_profile_sensitivity(TEAM_PROFILES[team]))
-        is_error, text = session.call(bench.RECALL_TOOL, arguments)
+        started = time.monotonic()
+        is_error, text, status = session.call_recall(arguments)
+        if status is not None:
+            status = {**status, "seconds": round(time.monotonic() - started, 3)}
     finally:
         if embedding_env is not None:
             _restore_environment(previous)
     if is_error:
         raise bench.BenchError("alice_recall returned an error: " + text[:200])
-    return without_echoed_query(text)
+    return without_echoed_query(text), status
+
+
+def require_vectors_ready(run_dir: Path) -> None:
+    """Refuse a search of a vectors run whose vault does not hold the vectors the build recorded.
+
+    Every arm is held to it, not only the Alice arm, so that the answers of all arms in a run come from a run whose
+    vectors were whole. A run of any other quality is not looked at. The checks are ``bench.require_vector_readiness``: nothing
+    pending or stale, as many stored vectors as the manifest says, the recorded width and signature, and the
+    model digest the build read. A refusal is one line and spends none of the searches.
+    """
+
+    manifest_path = run_dir / "showcase.json"
+    if not manifest_path.is_file():
+        return
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("search_quality") != bench.VECTORS:
+        return
+    settings = manifest.get("embedding_env")
+    if not isinstance(settings, dict):
+        raise bench.BenchError("this vectors run recorded no embedding settings; build it again with --embeddings on")
+    bench.require_vector_readiness(
+        bench.vault_path(run_dir / bench.VAULT_DIRNAME), manifest.get("chunk_vectors"), settings
+    )
+
+
+def vector_use_text(run_dir: Path) -> str:
+    """How many Alice searches of a vectors run were recorded and how many ran the vector stage, by status.
+
+    Empty for a run of any other quality, so the report of such a run is what it was.
+    """
+
+    prepared = bench.require_run_dir(run_dir)
+    manifest_path = prepared / "showcase.json"
+    if not manifest_path.is_file():
+        return ""
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("search_quality") != bench.VECTORS:
+        return ""
+    calls: list[dict[str, Any]] = []
+    for path in sorted((prepared / bench.STATE_DIRNAME).glob(f"*/{bench.VECTOR_STATUS_FILENAME}")):
+        calls.extend(json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+    summary = bench.vector_stage_summary(calls)
+    lines = [f"vector searches {summary['calls']}, used vectors {summary['used']}"]
+    lines.extend(f"  {status}: {count}" for status, count in summary["statuses"].items())
+    return "\n".join(lines) + "\n"
 
 
 def _identity(db_path: Path, raw_key: str):
@@ -1735,7 +1795,7 @@ def add_showcase_commands(sub: argparse._SubParsersAction, commands: dict[str, A
     build.add_argument("--endpoint", default=DEFAULT_OLLAMA_BASE)
     build.add_argument("--embeddings", default="off", choices=("off", "on"))
     build.add_argument("--extractor", default="fake", choices=("fake", "mem0"))
-    build.add_argument("--search-quality", default=None, choices=("off", "passage", "on"))
+    build.add_argument("--search-quality", default=None, choices=bench.SEARCH_QUALITY_CHOICES)
 
     questions = sub.add_parser("showcase-questions", help="Write 15 questions per task for one size.")
     questions.add_argument("--size", type=int, required=True, choices=SIZES)
@@ -1751,7 +1811,7 @@ def add_showcase_commands(sub: argparse._SubParsersAction, commands: dict[str, A
     search.add_argument("--action", default="search")
     search.add_argument("--path", default="")
     search.add_argument("--state-dir", default=None)
-    search.add_argument("--search-quality", default=None, choices=("off", "passage", "on"))
+    search.add_argument("--search-quality", default=None, choices=bench.SEARCH_QUALITY_CHOICES)
     search.add_argument("--budget", type=int, default=None)
 
     record = sub.add_parser(
@@ -1795,7 +1855,7 @@ def add_showcase_commands(sub: argparse._SubParsersAction, commands: dict[str, A
     held.add_argument("--endpoint", default=DEFAULT_OLLAMA_BASE)
     held.add_argument("--embeddings", default="off", choices=("off", "on"))
     held.add_argument("--extractor", default="fake", choices=("fake", "mem0"))
-    held.add_argument("--search-quality", default=None, choices=("off", "passage", "on"))
+    held.add_argument("--search-quality", default=None, choices=bench.SEARCH_QUALITY_CHOICES)
 
     keyed = sub.add_parser(
         "showcase-keyed-permission",
@@ -1846,6 +1906,8 @@ def _cmd_build(args: argparse.Namespace) -> int:
     capture = manifest.get("capture")
     if isinstance(capture, dict) and capture:
         print(format_capture(capture))
+    if "chunk_vectors" in manifest:
+        print(bench.format_chunk_vectors(manifest["chunk_vectors"]))
     return bench.EXIT_OK
 
 
@@ -1901,6 +1963,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
         none_search()
     run_dir = bench.require_run_dir(Path(args.run_dir))
     assert_search_quality(run_dir, args.search_quality)
+    require_vectors_ready(run_dir)
     state = bench.resolve_inside(
         run_dir,
         args.state_dir,
@@ -1911,8 +1974,9 @@ def _cmd_search(args: argparse.Namespace) -> int:
     gates = bench.load_gates(None)
 
     def runner() -> bench.SearchResult:
+        vector: dict[str, Any] | None = None
         if args.arm == "alice":
-            text = alice_search(run_dir, team=args.team, query=args.query)
+            text, vector = alice_search_with_status(run_dir, team=args.team, query=args.query)
         elif args.arm == "grep":
             text = bench.grep_search(
                 run_dir / bench.SNAPSHOT_DIRNAME,
@@ -1936,7 +2000,9 @@ def _cmd_search(args: argparse.Namespace) -> int:
             text = mem0_search(run_dir, team=args.team, query=args.query, setup="shared")
         else:
             raise bench.BenchError("unknown arm")
-        return bench.SearchResult(text=text, status="ok", truncated=False, raw_bytes=len(text.encode("utf-8")))
+        return bench.SearchResult(
+            text=text, status="ok", truncated=False, raw_bytes=len(text.encode("utf-8")), vector=vector
+        )
 
     result = bench.run_budgeted_search(
         state,
@@ -2043,6 +2109,8 @@ def _cmd_report(args: argparse.Namespace) -> int:
     if args.run_dir:
         assert_heldout_notes_match_run(rows, Path(args.run_dir))
     print(render_report(rows, heldout=bool(args.heldout)), end="")
+    if args.run_dir:
+        print(vector_use_text(Path(args.run_dir)), end="")
     return bench.EXIT_OK
 
 
@@ -2064,6 +2132,8 @@ def _cmd_heldout(args: argparse.Namespace) -> int:
     capture = manifest.get("capture")
     if isinstance(capture, dict) and capture:
         print(format_capture(capture))
+    if "chunk_vectors" in manifest:
+        print(bench.format_chunk_vectors(manifest["chunk_vectors"]))
     return bench.EXIT_OK
 
 

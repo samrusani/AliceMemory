@@ -397,7 +397,15 @@ def test_the_report_names_the_development_set_and_who_enforced_mem0() -> None:
     assert "mem0 arms are not reported in Phase 0." in held
 
 
-def test_import_posts_note_text_to_the_configured_endpoint(tmp_path: Path) -> None:
+def test_import_sends_no_note_text_and_a_search_gives_the_product_the_endpoint(tmp_path: Path) -> None:
+    """A run that is not ``vectors`` embeds nothing at import: the harness no longer posts note text and drops the vectors.
+
+    The endpoint settings of a run built with ``--embeddings on`` are still applied while Alice recalls, so the product's own
+    query embedding for memories reaches the endpoint. A vault of imported notes holds no memory to compare it with.
+
+    Mutation: post the note text to the endpoint at import again.
+    """
+
     seen: dict[str, str] = {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -424,24 +432,21 @@ def test_import_posts_note_text_to_the_configured_endpoint(tmp_path: Path) -> No
         corpus = tmp_path / "notes"
         _note(corpus, "sales/note.md", "sales", "internal", "professional", "quarry note for the embedder")
         settings = showcase.embedding_settings(f"http://127.0.0.1:{port}", "nomic-embed-text:v1.5")
-        showcase.import_corpus(tmp_path / "run", corpus, embeddings=settings)
-        assert seen.get("path") == "/v1/embeddings"
-        assert "quarry note" in seen.get("body", "")
         run = tmp_path / "recall"
         db_path = showcase.import_corpus(run, corpus)
+        assert seen == {}, "the import sent nothing to the endpoint"
         keys = showcase._create_keys(db_path)
         (run / "keys.json").write_text(json.dumps(keys), encoding="utf-8")
         (run / "showcase.json").write_text(
             json.dumps({"embeddings": "on", "embedding_env": settings}),
             encoding="utf-8",
         )
-        seen.clear()
         text = showcase.alice_search(run, team="leadership", query="quarry")
     finally:
         server.shutdown()
-    assert seen["path"] == "/v1/embeddings"
-    assert "quarry" in seen["body"]
     assert "quarry note" in text
+    assert seen.get("path", "/v1/embeddings") == "/v1/embeddings"
+    assert "ALICE_EMBEDDINGS_BASE_URL" not in os.environ, "the search put the settings back"
 
 
 def test_the_team_table_in_the_harness_matches_a_live_run(tmp_path: Path) -> None:
