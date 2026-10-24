@@ -65,6 +65,38 @@ the code. From v0.15.1 on, each version's release notes list its known gaps.
 The shipped threat model and current evidence boundaries are documented in
 [`docs/security/`](docs/security/README.md).
 
+## What Text Leaves the Machine
+
+Alice sends text to a model or an embeddings endpoint only when the owner has configured one, and it sends nothing to
+an endpoint that is not configured. Memory embeddings send the text of the memories recall can return and the recall
+query. The text of imported and captured notes is a separate opt-in:
+
+- Nothing from a source is sent unless `ALICE_SOURCE_EMBEDDINGS=on`. Setting `ALICE_EMBEDDINGS_BASE_URL` and
+  `ALICE_EMBEDDINGS_MODEL` alone sends no chunk of a note.
+- Source text goes only to an endpoint on this machine: `localhost`, a name under `.localhost`, an IPv4 address in
+  `127.0.0.0/8` written as four decimal numbers, or `::1`, with no proxy of the environment that would carry the
+  request. Any other host name (one that resolves to loopback included), any other address and every IPv4-mapped IPv6
+  form is not on this machine. Remote endpoints are not supported for source embeddings in this release: for such an
+  endpoint nothing is sent and the chunks stay pending. Memory embeddings are not affected.
+- What is sent for a chunk is the model's document prefix, the source title, the headings above the chunk and the
+  chunk. Not sent: a chunk the credential check flags (read whole, with the title and headings), a chunk of links or
+  headings only, a chunk with fewer than 32 readable characters, and anything on a `--dry-run`. The labels of a source
+  decide nothing about what goes to an endpoint on this machine, so a change of label is not an egress event. A chunk of
+  a source that is deleted, replaced or scrubbed since the text was chosen is judged again in one read transaction just
+  before each request of up to 128 texts and dropped from it, and the connection is checked once it is made and before
+  anything is written: the connected peer has to be loopback, whatever the name resolved to. A scrub committed after
+  that pre-send read has read the source, whether the request has begun or not, can still reach the endpoint on this
+  machine, because the text has already been chosen; its vector is not stored.
+- The text is sent after the import or capture has committed, with no database lock held. `alice-memory
+  reindex-embeddings --sources` sends the same chunks, only when the owner runs it; no tool starts it.
+- With `ALICE_SEARCH_QUALITY=vectors`, each `alice_recall` sends its query to the same endpoint on this machine, under
+  the same opt-in, unless the credential check flags the query.
+- A vector can be turned back into much of the text it was made from, so deleting a source (`alice-memory sources
+  delete`, `sources prune`, `import-markdown --supersede`) deletes its chunk vectors, and `reindex-embeddings --sources
+  --drop` deletes them all. Deleting is logical, as it is for chunk text: the vectors are zeroed where the database
+  frees them, but the write-ahead log, unused space in the vault file and earlier backups can keep vector bytes until a
+  checkpoint and `VACUUM`. A vector the endpoint's operator kept, or a backup of the vault, is outside Alice's reach.
+
 ## Browser Clipper Credentials
 
 Visited-page JavaScript is hostile credential context. The bookmarklet must

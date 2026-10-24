@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, Final, Protocol, cast
 from alicebot_api.continuity_brief import compile_continuity_brief
@@ -34,7 +35,12 @@ from alicebot_api.project_view import (
     readable_prefix,
 )
 from alicebot_api.session_briefing import sensitive_global_exclusion
-from alicebot_api.source_ranking import SourceRanking
+from alicebot_api.source_chunk_vector_search import (
+    STATUS_NO_STORE_SUPPORT as VECTOR_STATUS_NO_STORE_SUPPORT,
+    disabled_record as disabled_vector_record,
+    limited_record as limited_vector_record,
+)
+from alicebot_api.source_ranking import SourceRanking, search_quality_requests_vectors
 from alicebot_api.store import JsonObject
 from alicebot_api.temporal_state import (
     get_temporal_state_at,
@@ -192,8 +198,14 @@ def _recall_source_scope(retrieval_filters: Mapping[str, object]) -> _ResolvedRe
 #: ``recall_source_ranking``, so this edge imports neither store.
 PASSAGE_BY_DEFAULT_STORES: Final[frozenset[str]] = frozenset({"SQLiteVNextStore"})
 
+#: The store classes that keep chunk vectors, so that ``ALICE_SEARCH_QUALITY=vectors`` can run on them. Every
+#: other store answers as passage mode does there, and the debug record says why.
+VECTORS_STORES: Final[frozenset[str]] = frozenset({"SQLiteVNextStore"})
 
-def recall_source_ranking(store: object, identity: AgentIdentity | None) -> SourceRanking:
+
+def recall_source_ranking(
+    store: object, identity: AgentIdentity | None, context_depth: str | None = None
+) -> SourceRanking:
     """The ranking ``alice_recall`` asks for.
 
     Read here, with the store kind and the caller's identity. With the
@@ -203,13 +215,73 @@ def recall_source_ranking(store: object, identity: AgentIdentity | None) -> Sour
     has limits stays on document mode even when ``ALICE_SEARCH_QUALITY=passage``.
     The owner and an unbound admin key have no limits. The service never reads
     the switch.
+
+    ``vectors`` runs on the stores in ``VECTORS_STORES``, and not at the
+    ``minimal`` context depth, where the vector stage is off as the memory
+    embedding is. On any other store it answers exactly as ``passage`` would
+    there (document mode for a PostgreSQL key with limits, as above), and
+    ``recall_vector_note`` reports why.
     """
 
     store_name = type(store).__name__
     if store_name == "PostgresVNextStore" and SourceReadFence.for_identity(identity).entity_read_fenced:
         return SourceRanking.document()
     unset = SourceRanking.passage() if store_name in PASSAGE_BY_DEFAULT_STORES else SourceRanking.document()
-    return SourceRanking.from_environment(unset=unset)
+    ranking = SourceRanking.from_environment(unset=unset)
+    if ranking.mode == "vectors" and (store_name not in VECTORS_STORES or context_depth == CONTEXT_DEPTH_MINIMAL):
+        return SourceRanking.passage()
+    if ranking.mode == "vectors" and SourceReadFence.for_identity(identity).entity_read_fenced:
+        # A caller with limits is served from vectors of the sources it may read only (``scoped_vectors``).
+        return replace(ranking, scoped_vectors=True)
+    return ranking
+
+
+def recall_vector_note(store: object, context_depth: str) -> str | None:
+    """Why the vector stage will not run for this recall, when ``ALICE_SEARCH_QUALITY=vectors`` asked for it.
+
+    ``None`` when the variable did not ask for ``vectors``, and ``None`` when the stage will run (it then reports its
+    own status). The two reasons the edge knows: the store keeps no chunk vectors, and ``context_depth`` is
+    ``minimal``, where the vector stage is off as the memory embedding is.
+    """
+
+    if not search_quality_requests_vectors():
+        return None
+    if type(store).__name__ not in VECTORS_STORES:
+        return VECTOR_STATUS_NO_STORE_SUPPORT
+    if context_depth == CONTEXT_DEPTH_MINIMAL:
+        return STAGE_DISABLED_MINIMAL
+    return None
+
+
+def _debug_sources_stage(
+    record: Mapping[str, object], note: str | None, *, returned: int, limited: bool = False
+) -> JsonObject:
+    """The source stage as recall's debug payload shows it when ``ALICE_SEARCH_QUALITY=vectors`` was asked for.
+
+    The mode and the cap are the stage's own, the count is of the entries it returned, and the chunk query label is the
+    stage's. The stage record's other counts (the provenance and title lists, the scan) are left out: they are taken
+    before the caller's fence in some modes, and a debug field never counts a row the caller may not read. The vector
+    part is the stage's status and its counts of what the caller may read and what changed, or the reason
+    ``recall_vector_note`` gave when the stage did not run. For a caller with limits (``limited``) a status that rows
+    the caller may not read can decide is one generic status with no counts (``limited_record``); the owner and an
+    unbound admin key are shown the detail. With the switch at any other value the debug payload is what it was, so
+    this is not shown.
+    """
+
+    mode = record.get("source")
+    shown: dict[str, object] = {
+        "source": mode if mode in {"passage", "vectors"} else "document",
+        "candidate_count": returned,
+        "passages_per_source": record.get("passages_per_source", 1),
+    }
+    if "chunk_fts_source" in record:
+        shown["chunk_fts_source"] = record["chunk_fts_source"]
+    vector = record.get("vector")
+    if note is not None:
+        shown["vector"] = disabled_vector_record(note)
+    elif isinstance(vector, Mapping):
+        shown["vector"] = limited_vector_record(vector) if limited else dict(vector)
+    return _json_object(shown)
 
 
 def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -320,7 +392,8 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
         # the note, not the decision text, still names a source. The hop
         # writes into results[], not sources[]. include_sources only gates
         # whether those excerpts are returned.
-        raw_sources, _sources_stage = service.search_source_excerpts(
+        vector_note = recall_vector_note(store, context_depth)
+        raw_sources, sources_stage = service.search_source_excerpts(
             query=query,
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
@@ -336,7 +409,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             # Written here on purpose. The switch, the default of the store
             # and the PostgreSQL limited-key rule are applied at this edge,
             # not inside the service.
-            ranking=recall_source_ranking(store, context.agent_identity),
+            ranking=recall_source_ranking(store, context.agent_identity, context_depth),
             winning_memories=ordered_rows,
         )
         window_start = retrieval_filters.get("scope_window_start")
@@ -466,6 +539,13 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
                 },
             },
         }
+        if search_quality_requests_vectors():
+            retrieval_payload["stages"]["sources"] = _debug_sources_stage(  # type: ignore[index]
+                sources_stage,
+                vector_note,
+                returned=len(raw_sources) if isinstance(raw_sources, list) else 0,
+                limited=source_fence.entity_read_fenced,
+            )
         if retrieval_filters:
             filter_payload: dict[str, object] = {}
             if "memory_types" in retrieval_filters:

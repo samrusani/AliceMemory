@@ -39,6 +39,7 @@ tier default — the caller wins.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 import hashlib
@@ -91,6 +92,13 @@ from alicebot_api import vnext_currency
 from alicebot_api import vnext_reranker
 from alicebot_api.vnext_reranker import RerankProvider, get_reranker_provider
 from alicebot_api.credential_floor import credential_verdict
+from alicebot_api.source_chunk_vector_search import (
+    STATUS_NO_STORE_SUPPORT as VECTOR_STATUS_NO_STORE_SUPPORT,
+    ChunkVectorSession,
+    VectorOutcome,
+    disabled_record as disabled_vector_record,
+    reserved_discovery_slots,
+)
 from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.vnext_entity_names import normalize_entity_name
 from alicebot_api.vnext_embeddings import (
@@ -461,7 +469,7 @@ def _require_document_ranking(ranking: object) -> None:
 
 
 def _require_supported_ranking(ranking: object) -> SourceRanking:
-    """The rankings this build runs: document mode, or passage mode on the legacy query.
+    """The rankings this build runs: document mode, or passage mode (with or without the chunk vectors) on the legacy query.
 
     ``lexical="improved"`` (what ``ALICE_SEARCH_QUALITY=on`` asks for) stays
     refused. A value that is not a ``SourceRanking`` is refused before any
@@ -478,7 +486,7 @@ def _require_supported_ranking(ranking: object) -> SourceRanking:
     if ranking.mode == "document":
         _require_document_ranking(ranking)
         return ranking
-    if ranking.mode == "passage":
+    if ranking.mode in {"passage", "vectors"}:
         return ranking
     raise VNextRetrievalValidationError("ranking must be a SourceRanking value")
 
@@ -3682,7 +3690,7 @@ class VNextRetrievalService:
         excerpts. ``lexical="improved"`` is refused before a store is touched.
         """
         checked = _require_supported_ranking(ranking)
-        if checked.mode == "passage":
+        if checked.mode in {"passage", "vectors"}:
             excerpts, record = self._passage_excerpts(
                 query=query,
                 domains=domains,
@@ -4194,6 +4202,8 @@ class VNextRetrievalService:
         depth = max(limit * SOURCE_CHUNK_CANDIDATE_MULTIPLIER, SOURCE_PASSAGE_CANDIDATE_FLOOR)
         incomplete = [False]
         capped: list[tuple[JsonObject, JsonObject]] = []
+        lexical_cleared: list[tuple[JsonObject, JsonObject]] = []
+        chunk_scope_filters: dict[str, object] = {}
         credential_dropped = 0
         search_source_chunks = getattr(self.store, "search_source_chunks", None)
         if callable(search_source_chunks) and has_source_resolver:
@@ -4236,7 +4246,9 @@ class VNextRetrievalService:
                     visible.append(row)
                 return visible
 
-            def _usable(raw_rows: Sequence[JsonObject]) -> tuple[list[tuple[JsonObject, JsonObject]], int]:
+            def _clear(raw_rows: Sequence[JsonObject]) -> tuple[list[tuple[JsonObject, JsonObject]], int]:
+                """Steps 1 to 3: the parent resolved and allowed, duplicates collapsed, flagged passages dropped."""
+
                 visible_rows = _select(raw_rows)
                 ordered = [str(row.get("source_id")) for row in visible_rows if row.get("source_id") is not None]
                 resolved = {
@@ -4267,6 +4279,11 @@ class VNextRetrievalService:
                         dropped += 1
                         continue
                     cleared.append((parent, chunk))
+                return cleared, dropped
+
+            def _cap(cleared: Sequence[tuple[JsonObject, JsonObject]]) -> list[tuple[JsonObject, JsonObject]]:
+                """Step 4: at most ``passages_per_source`` passages of each source, in the order given."""
+
                 per_source: dict[str, int] = {}
                 kept: list[tuple[JsonObject, JsonObject]] = []
                 for parent, chunk in cleared:
@@ -4275,19 +4292,30 @@ class VNextRetrievalService:
                         continue
                     per_source[source_id] = per_source.get(source_id, 0) + 1
                     kept.append((parent, chunk))
-                return kept, dropped
+                return kept
 
-            def _scan(match_any: bool) -> tuple[list[tuple[JsonObject, JsonObject]], int, bool]:
-                """One pass of the chunk query: the usable passages, the credential drops, and whether the scan was capped."""
+            def _usable(raw_rows: Sequence[JsonObject]) -> tuple[list[tuple[JsonObject, JsonObject]], int]:
+                cleared, dropped = _clear(raw_rows)
+                return _cap(cleared), dropped
+
+            def _scan(
+                match_any: bool,
+            ) -> tuple[list[tuple[JsonObject, JsonObject]], int, bool, list[tuple[JsonObject, JsonObject]]]:
+                """One pass of the chunk query.
+
+                The usable passages, the credential drops, whether the scan was capped, and the passages before the
+                per-source cap (the lexical hits of each source, best first, which the vector stage ranks within).
+                """
 
                 scan_limit = min(depth, SOURCE_PASSAGE_SCAN_MAX_ROWS)
                 while True:
                     raw_rows, _chunk_source = _fetch(scan_limit, match_any=match_any)
-                    usable, dropped = _usable(raw_rows)
+                    cleared, dropped = _clear(raw_rows)
+                    usable = _cap(cleared)
                     if len(usable) >= limit or len(raw_rows) < scan_limit:
-                        return usable, dropped, False
+                        return usable, dropped, False, cleared
                     if scan_limit >= SOURCE_PASSAGE_SCAN_MAX_ROWS:
-                        return usable, dropped, True
+                        return usable, dropped, True, cleared
                     scan_limit = min(scan_limit * 2, SOURCE_PASSAGE_SCAN_MAX_ROWS)
 
             # The strict query first. When it leaves no passage the caller may read, the OR query runs the same
@@ -4298,7 +4326,7 @@ class VNextRetrievalService:
                 source=chunk_fts_source,
                 found=lambda scan: bool(scan[0]),
             )
-            capped, credential_dropped, incomplete[0] = scanned
+            capped, credential_dropped, incomplete[0], lexical_cleared = scanned
         else:
             chunk_fts_source = SOURCE_CHUNK_STAGE_DISABLED_NO_STORE_SUPPORT
 
@@ -4369,8 +4397,7 @@ class VNextRetrievalService:
             fill_lists[SOURCE_STAGE_TITLE_RECENCY] = lexical_rows
         if temporal_sources:
             fill_lists[SOURCE_STAGE_TEMPORAL] = temporal_sources
-        sources_with_passages = {str(parent.get("id")) for parent, _chunk in capped}
-        fillers: list[JsonObject] = []
+        fillers_all: list[JsonObject] = []
         if fill_lists:
             fused = _fused_candidates(
                 fill_lists,
@@ -4379,16 +4406,96 @@ class VNextRetrievalService:
                 sensitivity_allowed=sensitivity_allowed,
                 limit=max(sum(len(rows) for rows in fill_lists.values()), 1),
             )
-            fillers = [
-                candidate.item
-                for candidate in fused
-                if candidate.selected and str(candidate.item.get("id")) not in sources_with_passages
-            ]
+            fillers_all = [candidate.item for candidate in fused if candidate.selected]
 
         reserve = limit // 4 if limit > 0 else 0
         head_n = max(limit - reserve, 0)
-        head = capped[:head_n]
-        overflow = capped[head_n:]
+
+        # ---- chunk vectors (ALICE_SEARCH_QUALITY=vectors) begin ----------------------------------------------
+        # Passage mode with the vectors of the chunks. Everything above is passage mode's, and the strict-then-OR
+        # decision was made on the lexical list alone. The vectors may change which passage fills a document's
+        # slots (the fused order inside the document, for a lexical, a discovered and a filler document alike) and
+        # which documents hold the reserved share of the head. They compute all they will say first, in
+        # ``ChunkVectorSession.compute``, which never raises: when it returns nothing, the code below changes
+        # nothing and the result is passage mode's.
+        vector_record: JsonObject | None = None
+        discovered: list[tuple[JsonObject, JsonObject]] = []
+        reordered_slots = 0
+        filler_pick_count = 0
+        vector_outcome: VectorOutcome | None = None
+        if ranking.mode == "vectors":
+            if callable(search_source_chunks) and has_source_resolver:
+                lexical_hits: dict[str, list[JsonObject]] = {}
+                for parent, chunk in lexical_cleared:
+                    lexical_hits.setdefault(str(parent.get("id")), []).append(chunk)
+                session = ChunkVectorSession(
+                    store=self.store,
+                    provider=self.embedding_provider,
+                    query=query,
+                    limit=limit,
+                    domains=domains or None,
+                    sensitivity_allowed=sensitivity_allowed,
+                    scope_projects=cast(tuple[str, ...], chunk_scope_filters.get("scope_projects", ())),
+                    scope_people=cast(tuple[str, ...], chunk_scope_filters.get("scope_people", ())),
+                    scope_window_start=cast("datetime | None", chunk_scope_filters.get("scope_window_start")),
+                    scope_window_end=cast("datetime | None", chunk_scope_filters.get("scope_window_end")),
+                    scoped=ranking.scoped_vectors,
+                )
+                with session:
+                    vector_outcome = session.compute(
+                        lexical_hits=lexical_hits,
+                        slots=Counter(str(parent.get("id")) for parent, _chunk in capped),
+                        filler_ids=[str(item.get("id")) for item in fillers_all],
+                    )
+                if vector_outcome is not None:
+                    taken: Counter[str] = Counter()
+                    picked_rows: list[JsonObject] = []
+                    for parent, chunk in capped:
+                        source_id = str(parent.get("id"))
+                        position = taken[source_id]
+                        taken[source_id] += 1
+                        picks = vector_outcome.picks.get(source_id, [])
+                        row = picks[position] if position < len(picks) else chunk
+                        if str(row.get("id")) != str(chunk.get("id")):
+                            reordered_slots += 1
+                        # No score: the order given is the order kept (``_select`` reorders only scored rows).
+                        picked_rows.append({key: value for key, value in row.items() if key != "fts_score"})
+                    found_rows = [
+                        {key: value for key, value in row.items() if key != "fts_score"}
+                        for _source_id, row in vector_outcome.discovered
+                    ]
+                    if reordered_slots or found_rows:
+                        # The same path every lexical passage took: parent resolved and allowed again, duplicates
+                        # collapsed, flagged passages dropped, the per-source cap applied.
+                        kept_pairs, vector_dropped = _usable([*picked_rows, *found_rows])
+                        credential_dropped += vector_dropped
+                        found_ids = {str(row.get("id")) for row in found_rows}
+                        capped = [pair for pair in kept_pairs if str(pair[1].get("id")) not in found_ids]
+                        discovered = [pair for pair in kept_pairs if str(pair[1].get("id")) in found_ids]
+                vector_record = session.record()
+            else:
+                vector_record = disabled_vector_record(VECTOR_STATUS_NO_STORE_SUPPORT)
+        # ---- chunk vectors end ---------------------------------------------------------------------------------
+
+        sources_with_passages = {str(parent.get("id")) for parent, _chunk in [*capped, *discovered]}
+        fillers = [item for item in fillers_all if str(item.get("id")) not in sources_with_passages]
+        if vector_outcome is not None:
+            for filler in fillers:
+                pick = vector_outcome.filler_picks.get(str(filler.get("id")))
+                pick_text = pick.get("text") if pick is not None else None
+                if (
+                    isinstance(pick_text, str)
+                    and _has_readable_line(pick_text)
+                    and credential_verdict(pick_text) is None
+                ):
+                    self._winning_chunk_text[str(filler.get("id"))] = pick_text
+                    filler_pick_count += 1
+
+        # Documents only the vectors found take the reserved share of the head and no more: a vector search always
+        # has neighbours, so the ones past the share would pad a sparse result with the nearest unrelated passages.
+        discovery_slots = min(reserved_discovery_slots(head_n), len(discovered))
+        head = [*capped[: head_n - discovery_slots], *discovered[:discovery_slots]]
+        overflow = capped[head_n - discovery_slots :]
         chosen: list[tuple[str, object]] = [("passage", item) for item in head]
         filler_at = 0
         overflow_at = 0
@@ -4415,7 +4522,7 @@ class VNextRetrievalService:
         annotate_derived_memory_corrections(self.store, entries, memory_visible=memory_visible)
 
         stage_record: JsonObject = {
-            "source": "passage",
+            "source": ranking.mode,
             "candidate_count": len(entries),
             SOURCE_STAGE_CHUNK_FTS: len(capped),
             SOURCE_STAGE_PROVENANCE: len(provenance_sources),
@@ -4427,6 +4534,14 @@ class VNextRetrievalService:
         }
         if anchor is not None:
             stage_record[SOURCE_STAGE_TEMPORAL] = len(temporal_sources)
+        if vector_record is not None:
+            vector_record = {
+                **vector_record,
+                "discovered_in_head": discovery_slots,
+                "reordered_slots": reordered_slots,
+                "filler_picks": filler_pick_count,
+            }
+            stage_record["vector"] = vector_record
         return entries, stage_record
 
     def _passage_entry(self, parent: JsonObject, chunk: JsonObject, *, query: str) -> JsonObject:
@@ -4505,7 +4620,7 @@ class VNextRetrievalService:
         """
 
         checked = _require_supported_ranking(ranking)
-        if checked.mode == "passage":
+        if checked.mode in {"passage", "vectors"}:
             return self._passage_excerpts(
                 query=query,
                 domains=domains,
