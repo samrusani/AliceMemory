@@ -1366,10 +1366,12 @@ def alice_search_with_status(run_dir: Path, *, team: str, query: str) -> tuple[s
 def require_vectors_ready(run_dir: Path) -> None:
     """Refuse a search of a vectors run whose vault does not hold the vectors the build recorded.
 
-    Every arm is held to it, not only the Alice arm, so that the answers of all arms in a run come from a run whose
-    vectors were whole. A run of any other quality is not looked at. The checks are ``bench.require_vector_readiness``: nothing
-    pending or stale, as many stored vectors as the manifest says, the recorded width and signature, and the
-    model digest the build read. A refusal is one line and spends none of the searches.
+    Only the Alice arm is held to it. The other arms read no vector, so they are never refused for the state of the
+    vectors or of the endpoint. A run of any other quality is not looked at. The checks are
+    ``bench.require_vector_readiness``: nothing pending or stale, as many stored vectors as the manifest says, the
+    recorded width and signature, and the model digest the build read. The count of the vault is kept in
+    ``vector_census.json`` in the run folder and made again when the vault changes. A refusal is one line and spends
+    none of the searches.
     """
 
     manifest_path = run_dir / "showcase.json"
@@ -1382,7 +1384,10 @@ def require_vectors_ready(run_dir: Path) -> None:
     if not isinstance(settings, dict):
         raise bench.BenchError("this vectors run recorded no embedding settings; build it again with --embeddings on")
     bench.require_vector_readiness(
-        bench.vault_path(run_dir / bench.VAULT_DIRNAME), manifest.get("chunk_vectors"), settings
+        bench.vault_path(run_dir / bench.VAULT_DIRNAME),
+        manifest.get("chunk_vectors"),
+        settings,
+        cache_path=run_dir / bench.VECTOR_CENSUS_FILENAME,
     )
 
 
@@ -1963,7 +1968,8 @@ def _cmd_search(args: argparse.Namespace) -> int:
         none_search()
     run_dir = bench.require_run_dir(Path(args.run_dir))
     assert_search_quality(run_dir, args.search_quality)
-    require_vectors_ready(run_dir)
+    if args.arm == "alice":
+        require_vectors_ready(run_dir)
     state = bench.resolve_inside(
         run_dir,
         args.state_dir,

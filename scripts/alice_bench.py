@@ -75,6 +75,9 @@ STATE_DIRNAME = "state"
 MANIFEST_FILENAME = "manifest.json"
 # One line per search of a vectors run, in the state folder: the status of the vector stage of that recall.
 VECTOR_STATUS_FILENAME = "vector_status.jsonl"
+# The count of the chunk vectors a readiness check made, kept in the run folder (``vector_census_key``).
+VECTOR_CENSUS_FILENAME = "vector_census.json"
+VECTOR_CENSUS_SCHEMA = "alice-bench-vector-census/1"
 
 # Every variable whose name starts with this is removed from a run. The prefix
 # covers ALICE_* (the product switches, the embeddings endpoint, the agent key)
@@ -627,7 +630,87 @@ def require_vector_environment(settings: Mapping[str, str]) -> None:
         raise BenchError("the vectors environment is not applied to this run (" + ", ".join(missing) + ")")
 
 
-def require_vector_readiness(db_path: Path, recorded: Mapping[str, Any] | None, settings: Mapping[str, str]) -> None:
+def vector_census_key(db_path: Path, recorded: Mapping[str, Any]) -> dict[str, Any]:
+    """What a count of the chunk vectors is true for, read from the vault in a few queries and without writing to it.
+
+    The product's own stamp (``source_chunk_vector_stamp``, which its triggers rewrite when a vector is overwritten or
+    deleted) does not move when a vector is added, because the product finds additions by row number. So the key also
+    holds the number of vector rows and the highest row number, the same two numbers for the chunks and the sources,
+    how many sources are live and how many are scrubbed, the signature of the provider in force, and the digest the
+    build recorded. A vector deleted, overwritten or added, a note imported or retired, and a change of model or
+    endpoint each change the key. An edit of the text of a chunk in place, with no write to any of those, does not;
+    the commands that read a vault whole (``require_matching_vault``) still see that.
+    """
+
+    from alicebot_api.source_embedding_policy import chunk_signature
+    from alicebot_api.sqlite_schema import source_chunk_vectors_stamp
+    from alicebot_api.vnext_embeddings import get_embedding_provider
+
+    provider = get_embedding_provider()
+    if provider is None:
+        raise BenchError("no embedding provider is configured for this run")
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        stamp = source_chunk_vectors_stamp(conn)
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        vectors = (
+            conn.execute("SELECT COUNT(*), COALESCE(MAX(rowid), 0) FROM source_chunk_embeddings").fetchone()
+            if "source_chunk_embeddings" in tables
+            else (0, 0)
+        )
+        chunks = conn.execute("SELECT COUNT(*), COALESCE(MAX(rowid), 0) FROM source_chunks").fetchone()
+        sources = conn.execute(
+            "SELECT COUNT(*), COALESCE(MAX(rowid), 0), COALESCE(SUM(deleted_at IS NULL), 0), "
+            "COALESCE(SUM(COALESCE(json_extract(metadata_json, '$.scrubbed'), 0) = 1), 0) FROM sources"
+        ).fetchone()
+    finally:
+        conn.close()
+    return {
+        "stamp": stamp or "",
+        "vectors": [int(value) for value in vectors],
+        "chunks": [int(value) for value in chunks],
+        "sources": [int(value) for value in sources],
+        "signature": asdict(chunk_signature(provider)),
+        "model_digest": recorded.get("model_digest"),
+    }
+
+
+def _cached_vector_census(cache_path: Path | None, key: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The count kept in ``cache_path`` when it was made for ``key``, else None. A file that cannot be read is no cache."""
+
+    if cache_path is None:
+        return None
+    try:
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if isinstance(cached, dict) and cached.get("schema") == VECTOR_CENSUS_SCHEMA and cached.get("key") == key:
+        state = cached.get("state")
+        return dict(state) if isinstance(state, dict) else None
+    return None
+
+
+def _store_vector_census(cache_path: Path | None, key: Mapping[str, Any], state: Mapping[str, Any]) -> None:
+    """Keep ``state`` for ``key``. The file is replaced whole, so a search running at the same time reads either one."""
+
+    if cache_path is None:
+        return
+    document = {"schema": VECTOR_CENSUS_SCHEMA, "key": key, "state": state}
+    temporary = cache_path.with_name(f"{cache_path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temporary, cache_path)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+
+
+def require_vector_readiness(
+    db_path: Path,
+    recorded: Mapping[str, Any] | None,
+    settings: Mapping[str, str],
+    *,
+    cache_path: Path | None = None,
+) -> None:
     """Refuse to read a vectors run whose vault no longer holds the vectors its build recorded.
 
     The environment has to be the run's (``require_vector_environment``). The product's census must then find
@@ -635,12 +718,21 @@ def require_vector_readiness(db_path: Path, recorded: Mapping[str, Any] | None, 
     the build recorded. The digest Ollama reports for the model must still be the recorded one, because a model
     pulled again under the same name embeds a query where the stored vectors do not live. Each is a refusal and none
     is repaired. Every message is one line.
+
+    The census reads every live chunk, so with a ``cache_path`` it is made once and kept for the key of
+    ``vector_census_key``; a later check that finds the same key uses it and reads the vault in a few queries. What
+    the build recorded is compared on every check, and the digest is asked of the endpoint on every check.
     """
 
     if not isinstance(recorded, Mapping) or not isinstance(recorded.get("chunks_embedded"), int):
         raise BenchError("this vectors run recorded no chunk vectors; build it again with --embeddings on")
     require_vector_environment(settings)
-    state = chunk_vector_state(db_path)
+    key = vector_census_key(db_path, recorded) if cache_path is not None else None
+    state = _cached_vector_census(cache_path, key) if key is not None else None
+    if state is None:
+        state = chunk_vector_state(db_path)
+        if key is not None:
+            _store_vector_census(cache_path, key, state)
     wrong: list[str] = []
     if state["pending"]:
         wrong.append(f"{state['pending']} chunks are pending a vector")
@@ -2456,11 +2548,16 @@ def _context(args: argparse.Namespace, *, create: bool = False) -> tuple[Path, P
         manifest = require_matching_build(_read_manifest(run_dir), repo)
         require_matching_vault(manifest, run_dir, data_dir)
         require_quality_of_build(manifest, getattr(args, "search_quality", None))
-        if getattr(args, "search_quality", None) == VECTORS:
+        if getattr(args, "search_quality", None) == VECTORS and getattr(args, "arm", "alice") == "alice":
             settings = manifest.get("embedding_env")
             if not isinstance(settings, dict):
                 raise BenchError("this vectors run recorded no embedding settings; build it again with --embeddings on")
-            require_vector_readiness(vault_path(data_dir), manifest.get("chunk_vectors"), settings)
+            require_vector_readiness(
+                vault_path(data_dir),
+                manifest.get("chunk_vectors"),
+                settings,
+                cache_path=run_dir / VECTOR_CENSUS_FILENAME,
+            )
     return run_dir, data_dir, repo, gates
 
 
@@ -2479,13 +2576,16 @@ def require_quality_of_build(manifest: Mapping[str, Any], asked: str | None) -> 
 
 
 def vector_settings_of(args: argparse.Namespace) -> dict[str, str] | None:
-    """The embedding settings of a command of search quality ``vectors``, and None for any other command.
+    """The embedding settings of a command of search quality ``vectors``, and None for any other command or arm.
 
     A command that builds (it has ``--embeddings``) takes them from ``--endpoint`` and ``--embed-model`` and
     refuses to go on without ``--embeddings on``. A command that reads a run takes the ones its build recorded.
     """
 
     if getattr(args, "search_quality", None) != VECTORS:
+        return None
+    if getattr(args, "arm", "alice") != "alice":
+        # An arm that reads no vector (a grep, a note folder, a keyword stand-in) carries the quality and no endpoint.
         return None
     embeddings = getattr(args, "embeddings", None)
     if embeddings is not None:

@@ -359,32 +359,127 @@ def test_a_vectors_search_refuses_when_anything_is_pending_or_the_counts_differ(
         assert err.count("\n") == 1 and err.startswith("refused: this vectors run is not ready")
         assert {"pending": "pending", "stale": "stale", "digest": "digest"}.get(damage, "build recorded") in err
         assert (run / "state" / "alice-leadership" / "search.count").read_text(encoding="utf-8") == "1"
-        # No arm is searched in a run whose vectors are not whole.
+        # An arm that reads no vector is not refused for the state of the vectors.
         grep = ["showcase-search", "--run-dir", str(run), "--arm", "grep", "--pattern", "harbor", "--search-quality", "vectors"]
-        assert bench.main(grep) == bench.EXIT_REFUSED
-        assert capsys.readouterr().err.startswith("refused: this vectors run is not ready")
-        assert not (run / "state" / "grep-sales").exists()
+        assert bench.main(grep) == 0
+
+
+def test_only_the_alice_arm_of_a_vectors_run_needs_the_endpoint(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With the embeddings endpoint gone, a grep search and a note-folder search of the run succeed. The Alice search is refused.
+
+    Mutation: apply the readiness gate to every arm (the ``args.arm == "alice"`` test in ``showcase-search``), or carry the
+    embedding variables into every arm (the arm test in ``vector_settings_of``).
+    """
+
+    with FakeEmbeddingsServer() as server:
+        run = _vectors_run(tmp_path, server, capsys)
+        assert _search(run, "--search-quality", "vectors") == 0
+        capsys.readouterr()
+    # The server is shut down here: nothing answers at the recorded endpoint any more.
+    base = ["showcase-search", "--run-dir", str(run), "--team", "sales", "--search-quality", "vectors"]
+    assert bench.main([*base, "--arm", "grep", "--pattern", "harborlatchtoken"]) == 0
+    assert "harborlatchtoken" in capsys.readouterr().out
+    assert bench.main([*base, "--arm", "notes", "--action", "list"]) == 0
+    assert "shared/harbor.md" in capsys.readouterr().out
+    assert bench.main([*base, "--arm", "alice", "--query", "harborlatchtoken"]) == bench.EXIT_REFUSED
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1 and err.startswith("refused: ")
+    assert (run / "state" / "alice-sales" / "search.count").exists() is False, "the refusal spent no search"
+    assert (run / "state" / "grep-sales" / "search.count").read_text(encoding="utf-8") == "1"
+
+
+def test_the_readiness_census_is_cached_until_the_vault_changes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The count of the vectors is made once and kept in the run folder. A vector deleted or added makes it again.
+
+    The digest is asked of the endpoint on every search, cached or not.
+
+    Mutation: keep the cached count whatever the vault holds (the key test in ``require_vector_readiness``).
+    """
+
+    calls: list[int] = []
+    real = bench.chunk_vector_state
+
+    def counting(db_path: Path) -> dict[str, Any]:
+        calls.append(1)
+        return real(db_path)
+
+    with FakeEmbeddingsServer() as server:
+        run = _vectors_run(tmp_path, server, capsys)
+        monkeypatch.setattr(bench, "chunk_vector_state", counting)
+
+        def search(**kwargs: str) -> int:
+            return _search(run, "--search-quality", "vectors", "--budget", "10", **kwargs)
+
+        cache = run / bench.VECTOR_CENSUS_FILENAME
+        assert not cache.exists()
+        digests = server.tag_requests
+
+        assert search() == 0
+        assert len(calls) == 1 and cache.is_file()
+        document = json.loads(cache.read_text(encoding="utf-8"))
+        assert document["key"]["model_digest"] == DIGEST and document["state"]["pending"] == 0
+        assert set(document["key"]) == {"stamp", "vectors", "chunks", "sources", "signature", "model_digest"}
+        assert search(query="kiln") == 0
+        assert len(calls) == 1, "the second search used the kept count"
+        assert server.tag_requests == digests + 2, "and still asked the endpoint for the digest"
+
+        conn = sqlite3.connect(_vault(run))
+        try:
+            row = conn.execute("SELECT * FROM source_chunk_embeddings WHERE rowid = 1").fetchone()
+            columns = [item[0] for item in conn.execute("SELECT * FROM source_chunk_embeddings LIMIT 0").description]
+            conn.execute("DELETE FROM source_chunk_embeddings WHERE rowid = 1")
+            conn.commit()
+            capsys.readouterr()
+            assert search() == bench.EXIT_REFUSED
+            assert "1 chunks are pending a vector" in capsys.readouterr().err
+            assert len(calls) == 2, "a deleted vector made the count again"
+            assert search() == bench.EXIT_REFUSED
+            assert len(calls) == 2, "and the new count is kept as well"
+
+            marks = ", ".join("?" for _ in columns)
+            conn.execute(f"INSERT INTO source_chunk_embeddings ({', '.join(columns)}) VALUES ({marks})", row)
+            conn.commit()
+        finally:
+            conn.close()
+        assert search() == 0
+        assert len(calls) == 3, "an added vector made the count again, and the search is served"
+        assert search() == 0
+        assert len(calls) == 3
 
 
 def test_a_vectors_search_carries_the_embedding_environment_and_no_other_run_does(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The opt-in, the endpoint and the model reach a vectors run and nothing else that starts with ALICE does.
+    """The opt-in, the endpoint and the model reach the Alice arm of a vectors run and nothing else that starts with ALICE does.
 
-    The parent holds an agent key, an API key, another endpoint and the opt-in. A passage run sees the search quality only.
+    The parent holds an agent key, an API key, another endpoint and the opt-in. The other arms of a vectors run, and a
+    passage run, see the search quality only.
 
     Mutation: leave the embedding variables out of ``arm_environment`` for a vectors run (the search is then refused),
-    or let them through for any other quality.
+    let them through for any other quality, or carry them into an arm that reads no vector.
     """
 
     seen: list[dict[str, str]] = []
 
+    def record() -> None:
+        seen.append({name: value for name, value in os.environ.items() if name.startswith("ALICE")})
+
     def spy(_run_dir: Path, *, team: str, query: str) -> str:
         del team, query
-        seen.append({name: value for name, value in os.environ.items() if name.startswith("ALICE")})
+        record()
         return "harborlatchtoken"
 
+    def alice_spy(_run_dir: Path, *, team: str, query: str) -> tuple[str, None]:
+        del team, query
+        record()
+        return "harborlatchtoken", None
+
     monkeypatch.setattr(showcase, "fake_separated_search", spy)
+    monkeypatch.setattr(showcase, "alice_search_with_status", alice_spy)
     with FakeEmbeddingsServer() as server:
         run = _vectors_run(tmp_path, server, capsys)
         passage = tmp_path / "passage"
@@ -401,18 +496,23 @@ def test_a_vectors_search_carries_the_embedding_environment_and_no_other_run_doe
         monkeypatch.setenv("ALICE_EMBEDDINGS_API_KEY", "a-parent-api-key")
         monkeypatch.setenv("ALICE_EMBEDDINGS_BASE_URL", "http://example.com/v1")
         monkeypatch.setenv("ALICE_SOURCE_EMBEDDINGS", "off")
-        for target, quality in ((run, "vectors"), (passage, "passage")):
+        for target, arm, quality in (
+            (run, "alice", "vectors"),
+            (run, "fake-separated", "vectors"),
+            (passage, "fake-separated", "passage"),
+        ):
             code = bench.main(
-                ["showcase-search", "--run-dir", str(target), "--arm", "fake-separated", "--search-quality", quality]
+                ["showcase-search", "--run-dir", str(target), "--arm", arm, "--search-quality", quality]
             )
             assert code == 0
-    vectors_env, passage_env = seen
-    assert vectors_env == {
+    alice_env, other_arm_env, passage_env = seen
+    assert alice_env == {
         "ALICE_SEARCH_QUALITY": "vectors",
         "ALICE_SOURCE_EMBEDDINGS": "on",
         "ALICE_EMBEDDINGS_BASE_URL": server.endpoint + "/v1",
         "ALICE_EMBEDDINGS_MODEL": MODEL,
     }
+    assert other_arm_env == {"ALICE_SEARCH_QUALITY": "vectors"}
     assert passage_env == {"ALICE_SEARCH_QUALITY": "passage"}
     assert os.environ["ALICE_EMBEDDINGS_BASE_URL"] == "http://example.com/v1", "the parent's value came back"
 
