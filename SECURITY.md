@@ -83,8 +83,10 @@ query. The text of imported and captured notes is a separate opt-in:
   headings only, a chunk with fewer than 32 readable characters, and anything on a `--dry-run`. The labels of a source
   decide nothing about what goes to an endpoint on this machine, so a change of label is not an egress event. A chunk of
   a source that is deleted, replaced or scrubbed since the text was chosen is judged again in one read transaction just
-  before each request of up to 128 texts and dropped from it. A scrub committed while a request to the endpoint on this
-  machine is in flight can still reach that local process, because the text is on its way; its vector is not stored.
+  before each request of up to 128 texts and dropped from it, and the connection is checked once it is made and before
+  anything is written: the connected peer has to be loopback, whatever the name resolved to. A scrub committed after
+  that pre-send read has read the source, whether the request has begun or not, can still reach the endpoint on this
+  machine, because the text has already been chosen; its vector is not stored.
 - The text is sent after the import or capture has committed, with no database lock held. `alice-memory
   reindex-embeddings --sources` sends the same chunks, only when the owner runs it; no tool starts it.
 - With `ALICE_SEARCH_QUALITY=vectors`, each `alice_recall` sends its query to the same endpoint on this machine, under

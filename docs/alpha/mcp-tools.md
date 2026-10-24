@@ -490,7 +490,9 @@ before, and sends no chunk.
 | --- | --- |
 | `ALICE_SOURCE_EMBEDDINGS=on` | Required. Only the value `on` counts. Without it no text of a source is sent by an import, by `alice_capture`, by `alice-memory reindex-embeddings --sources` or by a recall. |
 | `ALICE_SOURCE_EMBEDDINGS_MAX_VECTORS` | The most chunk vectors one vault keeps. Default 250,000. At the cap, chunks stay pending and the receipt says so. |
-| `ALICE_SOURCE_VECTOR_CACHE_MAX_MB` | The most memory one resident copy of the vectors may use in one process. Default 512, about 170,000 vectors of 768 numbers. A caller with limits has copies of its own, each under the same cap. |
+| `ALICE_SOURCE_VECTOR_CACHE_MAX_MB` | The most memory the resident copy of every vector (the owner's) may use in one process. Default 512, about 170,000 vectors of 768 numbers. |
+| `ALICE_SOURCE_VECTOR_SCOPED_CACHE_MAX_MB` | The most memory one scoped copy (the vectors of the sources a caller with limits may read) may use. Default 256, about 85,000 vectors of 768 numbers. |
+| `ALICE_SOURCE_VECTOR_SCOPED_COPIES` | How many scoped copies are kept for one user. Default 4; from 1 to 64. The least recently used goes first. |
 
 The endpoint has to be on this machine: `localhost`, a name under `.localhost`, an IPv4 address in `127.0.0.0/8`
 written as four decimal numbers, or `::1`, with no proxy of the environment that would carry the request. Any other host
@@ -510,9 +512,12 @@ source (sensitivity, domain, project) decide nothing about what goes to an endpo
 label is not an egress event. These rules are applied when the text is chosen and again just before each request of up
 to 128 texts, in one read transaction that reads the source row and its chunk rows as one state of the vault and holds
 no lock during the request: a chunk whose source was deleted, replaced or scrubbed since, or whose text changed, is
-dropped from the request and left pending. A scrub committed while a request to the endpoint on this machine is in
-flight can still reach that local process, because the text is already on its way; the vector that comes back is not
-stored.
+dropped from the request and left pending. The connection is checked as well: once it is made, and before a byte or a
+TLS handshake is written, the address of the connected socket has to be in `127.0.0.0/8` or be `::1` (an IPv4-mapped
+form is refused), so a name under `.localhost` that resolves to another address gets no byte and its chunks stay pending
+with the same reason. The name is not resolved first; the check is on the peer that was reached. A scrub committed after
+that pre-send read has read the source, whether the request has begun or not, can still reach the endpoint on this
+machine, because the text has already been chosen; the vector that comes back is not stored.
 
 `alice-memory import-markdown`, `alice-memory import-chatgpt` and `alice_capture` embed the chunks of what they save
 after they commit and hold no database lock while they do. A failed batch leaves its chunks pending and never fails the
@@ -547,9 +552,17 @@ depth the vector stage is off.
 The cost: one request for the query on each recall; about 3 KB of memory for each chunk vector of 768 numbers, read into
 the process on the first recall and kept; one 4 KB page of disk for each; and the time to embed, once, when a note is
 imported or captured. Above the cache cap the stage is skipped and its status says so; the table is not read row by row
-instead. A caller with limits adds a copy of its own for each distinct set of sources it may read (at most eight for a
-user, the least recently used dropped first, each under the same cap); the copy is built again when that set or any
-vector of the vault changes, which costs time and never changes what the caller is told.
+instead. A caller with limits adds a copy of its own for each distinct set of sources it may read: at most four for a
+user by default (`ALICE_SOURCE_VECTOR_SCOPED_COPIES`), the least recently used dropped first, each under its own cap of
+256 MB by default (`ALICE_SOURCE_VECTOR_SCOPED_CACHE_MAX_MB`). A copy is built again when a vector of one of its own
+sources is added, overwritten or deleted, or when the set of sources the caller may read changes; a vector of a source
+the caller may not read neither rebuilds it nor changes the work done for it. A scoped copy over its cap reports the
+generic status, judged on the rows its caller may read.
+
+The most memory a process holds for the vectors of one user is the cap of the owner's copy plus the number of scoped
+copies times the cap of one, 512 + 4 × 256 = 1,536 MB with the defaults. Copies are kept by count and never by size.
+There is no budget for all the scoped copies together because one would let the rows of one scope, which another caller
+may not read, decide whether that caller's copy is kept; lower the count or the cap of a copy to lower the worst case.
 
 ## Explicit memory commits
 

@@ -58,11 +58,14 @@ Optional:
   release. A chunk the credential check flags, a chunk of links and a chunk too
   short to read are not sent, and the rules are checked again just before each
   request, so a chunk of a source deleted, replaced or scrubbed since is dropped
-  from it; a scrub committed while a request to the local endpoint is in flight
-  can still reach that local process.
+  from it, and the connected peer has to be loopback before anything is written;
+  a scrub committed after that pre-send read has read the source can still reach
+  the local endpoint, whether or not the request has begun.
   `ALICE_SOURCE_EMBEDDINGS_MAX_VECTORS` (default 250,000) caps the vectors of a
-  vault and `ALICE_SOURCE_VECTOR_CACHE_MAX_MB` (default 512) caps the memory of
-  the resident copy. The page [Embeddings of source
+  vault, `ALICE_SOURCE_VECTOR_CACHE_MAX_MB` (default 512) caps the memory of
+  the resident copy of every vector, and `ALICE_SOURCE_VECTOR_SCOPED_CACHE_MAX_MB`
+  (default 256) and `ALICE_SOURCE_VECTOR_SCOPED_COPIES` (default 4) cap each copy
+  held for a caller with limits and how many are kept. The page [Embeddings of source
   chunks](../alpha/mcp-tools.md#embeddings-of-source-chunks) has the rules and the
   cost.
 - `ALICE_MCP_COMMIT_RESULT` (from v0.20.2): `compact`

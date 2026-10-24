@@ -486,6 +486,60 @@ def test_an_endpoint_that_is_not_on_this_machine_is_not_asked_for_a_query(tmp_pa
     assert proxied.queries == [] and record["vector"]["status"] == STATUS_ENDPOINT_NOT_LOCAL  # type: ignore[index]
 
 
+class _PeerSocket:
+    """A connected socket whose peer is not on this machine; it records every byte it is asked to send."""
+
+    def __init__(self, peer: tuple) -> None:
+        self.peer = peer
+        self.sent: list[bytes] = []
+        self.closed = False
+
+    def getpeername(self) -> tuple:
+        return self.peer
+
+    def settimeout(self, _value: object) -> None:
+        return None
+
+    def sendall(self, data: bytes, *_args: object) -> None:
+        self.sent.append(bytes(data))
+
+    def send(self, data: bytes, *_args: object) -> int:
+        self.sent.append(bytes(data))
+        return len(data)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_a_query_is_not_written_to_a_peer_that_is_not_on_this_machine(tmp_path: Path, monkeypatch) -> None:
+    """A name under ``.localhost`` that resolves elsewhere passes the name gate and is refused at the connection.
+
+    Mutation: handle a refused peer as an ordinary failure of the query.
+    """
+
+    import socket
+
+    from alicebot_api.vnext_embeddings import OpenAICompatibleEmbeddingProvider
+
+    database = make_vault(tmp_path)
+    add_note(database, "Almanac", [hit_text("taga", 3)])
+    embed_vault(database, ScriptedProvider({"taga": 0.9}))
+    sockets: list[_PeerSocket] = []
+
+    def create_connection(address, timeout=None, source_address=None):  # noqa: ANN001, ANN202
+        sockets.append(_PeerSocket(("203.0.113.7", 11434)))
+        return sockets[-1]
+
+    monkeypatch.setattr(socket, "create_connection", create_connection)
+    provider = OpenAICompatibleEmbeddingProvider(base_url="http://rebind.localhost:11434/v1", model=MODEL)
+    first = _excerpts(database, SourceRanking.vectors(), provider)  # type: ignore[arg-type]
+    assert first[1]["vector"]["status"] == STATUS_ENDPOINT_NOT_LOCAL  # type: ignore[index]
+    assert len(sockets) == 1 and sockets[0].sent == [] and sockets[0].closed
+    # The breaker is open: the next recall does not connect again.
+    second = _excerpts(database, SourceRanking.vectors(), provider)  # type: ignore[arg-type]
+    assert second[1]["vector"]["status"] == STATUS_BREAKER_OPEN and len(sockets) == 1  # type: ignore[index]
+
+
 def test_the_circuit_breaker_skips_the_stage_after_a_failure_and_closes_again(tmp_path: Path, monkeypatch) -> None:
     """After a failed query embedding the endpoint is not asked again for BREAKER_SECONDS.
 
@@ -1102,11 +1156,9 @@ def test_a_scoped_copy_is_valid_by_its_own_sources_and_a_hidden_vector_never_tou
                 )
         _recall_as(database, monkeypatch, limited=True)
         assert (copy_now()["rows"], copy_now()["rebuilds"]) == (4, 3)
-        # The vectors of a readable note are deleted: the copy is built again from what is left.
+        # The vector of one chunk of a readable note is deleted: the copy is built again from what is left.
         with sqlite_user_connection(database, USER_ID) as conn:
-            store = SQLiteVNextStore(conn, USER_ID)
-            with store.savepoint():
-                vector_store.delete_chunk_vectors(store, source_id=fixed_id("source", "Visible"))
+            conn.execute("DELETE FROM source_chunk_embeddings WHERE chunk_id = ?", (held["chunk_id"],))
         after = _recall_as(database, monkeypatch, limited=True)
         assert (copy_now()["rows"], copy_now()["rebuilds"]) == (3, 4)
         assert _debug_vector_record(after)["readable_chunks"] == 3
@@ -1114,12 +1166,13 @@ def test_a_scoped_copy_is_valid_by_its_own_sources_and_a_hidden_vector_never_tou
         with sqlite_user_connection(database, USER_ID) as conn:
             conn.execute(
                 "UPDATE sources SET metadata_json = ? WHERE id = ?",
-                (json.dumps({"project_scope": ["other"]}), fixed_id("source", "Almanac")),
+                (json.dumps({"project_scope": ["other"]}), fixed_id("source", "Visible")),
             )
         relabelled = _recall_as(database, monkeypatch, limited=True)
         copies = scoped_entry_counters(file, USER_ID)
-        assert len(copies) == 2 and list(copies.values())[-1]["rows"] == 0
-        assert "Almanac" not in _blob(relabelled)
+        assert len(copies) == 2 and list(copies.values())[-1]["rows"] == 2
+        assert _debug_vector_record(relabelled)["readable_chunks"] == 2
+        assert "Visible" not in _blob(relabelled)
 
 
 def _tiny_vault_signature(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
