@@ -17503,8 +17503,8 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "MERGE_BASE_FACTOR = 1.25\n",
           "after": "MERGE_BASE_FACTOR = 100.0\n",
-          "sha256": "a8d7cb1800e15e07e8ddee491d39545290c6d997cf96d532b30ddd5d84c69dcc",
-          "line": 37
+          "sha256": "a042e85eaf425704f795d56b74cb2916e41cf088779f66ae73e8f314b283a924",
+          "line": 59
         }
       ],
       "pytest": [
@@ -17519,8 +17519,8 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "    return head > MERGE_BASE_FACTOR * base + MERGE_BASE_SLACK_SECONDS\n",
           "after": "    return True\n",
-          "sha256": "a8d7cb1800e15e07e8ddee491d39545290c6d997cf96d532b30ddd5d84c69dcc",
-          "line": 63
+          "sha256": "a042e85eaf425704f795d56b74cb2916e41cf088779f66ae73e8f314b283a924",
+          "line": 88
         }
       ],
       "pytest": [
@@ -17695,8 +17695,8 @@
           "file": "tests/integration/test_label_read_handoff_budget_postgres.py",
           "before": "    actions = (\"pack\", \"recall\")\n    if os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n        actions = (\"pack\", \"recall\", \"workspace\", \"dogfooding\")\n",
           "after": "    actions = (\"pack\", \"recall\", \"workspace\", \"dogfooding\")\n",
-          "sha256": "87776a025c5a2c5f2ecb7b2cd7fd05e72e61b0cd3addb5bf4a89e115cdbb2bc4",
-          "line": 110
+          "sha256": "4be7a29f6ef484ab53e7694c9031656919d63af49d5658244e2e90997139135c",
+          "line": 114
         }
       ],
       "pytest": [
@@ -17711,8 +17711,8 @@
           "file": "tests/integration/test_label_read_handoff_budget_postgres.py",
           "before": "            assert head[action][\"median\"] <= limit, (action, head[action])\n",
           "after": "            assert head[action][\"median\"] <= 1, (action, head[action])\n",
-          "sha256": "87776a025c5a2c5f2ecb7b2cd7fd05e72e61b0cd3addb5bf4a89e115cdbb2bc4",
-          "line": 150
+          "sha256": "4be7a29f6ef484ab53e7694c9031656919d63af49d5658244e2e90997139135c",
+          "line": 155
         }
       ],
       "pytest": [
@@ -17727,8 +17727,8 @@
           "file": "tests/integration/test_label_read_handoff_budget_postgres.py",
           "before": "        for action in (\"workspace\", \"dogfooding\"):\n",
           "after": "        for action in (\"workspace\",):\n",
-          "sha256": "87776a025c5a2c5f2ecb7b2cd7fd05e72e61b0cd3addb5bf4a89e115cdbb2bc4",
-          "line": 149
+          "sha256": "4be7a29f6ef484ab53e7694c9031656919d63af49d5658244e2e90997139135c",
+          "line": 154
         }
       ],
       "pytest": [
@@ -17743,7 +17743,7 @@
           "file": "tests/performance/test_label_read_handoff_budget.py",
           "before": "        if os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n            assert counted <= 1.0, counted\n",
           "after": "        assert counted <= 1.0, counted\n",
-          "sha256": "204a76bdb35af76d68568a6cfbc7c4d1b59513d628a826b0fcdf6bdb926abfb7",
+          "sha256": "a7f72b2166573597907e3858006ffc6869119a3f150f10d23e1a94511d104ebe",
           "line": 66
         }
       ],
@@ -17759,7 +17759,7 @@
           "file": "tests/performance/test_label_read_handoff_budget.py",
           "before": "        if os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n            assert counted <= 1.0, counted\n",
           "after": "",
-          "sha256": "204a76bdb35af76d68568a6cfbc7c4d1b59513d628a826b0fcdf6bdb926abfb7",
+          "sha256": "a7f72b2166573597907e3858006ffc6869119a3f150f10d23e1a94511d104ebe",
           "line": 66
         }
       ],
@@ -17775,7 +17775,7 @@
           "file": "tests/performance/test_label_read_handoff_budget.py",
           "before": "        if os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n            assert elapsed <= 0.15, elapsed\n",
           "after": "        assert elapsed <= 0.15, elapsed\n",
-          "sha256": "204a76bdb35af76d68568a6cfbc7c4d1b59513d628a826b0fcdf6bdb926abfb7",
+          "sha256": "a7f72b2166573597907e3858006ffc6869119a3f150f10d23e1a94511d104ebe",
           "line": 73
         }
       ],
@@ -17791,7 +17791,7 @@
           "file": "tests/performance/test_label_read_handoff_budget.py",
           "before": "        if os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n            assert elapsed <= 0.15, elapsed\n",
           "after": "",
-          "sha256": "204a76bdb35af76d68568a6cfbc7c4d1b59513d628a826b0fcdf6bdb926abfb7",
+          "sha256": "a7f72b2166573597907e3858006ffc6869119a3f150f10d23e1a94511d104ebe",
           "line": 73
         }
       ],
@@ -17807,8 +17807,8 @@
           "file": "tests/integration/test_label_read_handoff_budget_postgres.py",
           "before": "        for action in (\"pack\", \"recall\"):\n            assert head[action][\"median\"] <= .15, (action, head)\n",
           "after": "",
-          "sha256": "87776a025c5a2c5f2ecb7b2cd7fd05e72e61b0cd3addb5bf4a89e115cdbb2bc4",
-          "line": 144
+          "sha256": "4be7a29f6ef484ab53e7694c9031656919d63af49d5658244e2e90997139135c",
+          "line": 149
         }
       ],
       "pytest": [
@@ -17823,8 +17823,8 @@
           "file": "tests/performance/test_label_read_handoff_budget.py",
           "before": "        assert head[\"pack\"][\"median\"] <= .15, head\n        assert head[\"recall\"][\"median\"] <= .15, head\n",
           "after": "",
-          "sha256": "204a76bdb35af76d68568a6cfbc7c4d1b59513d628a826b0fcdf6bdb926abfb7",
-          "line": 111
+          "sha256": "a7f72b2166573597907e3858006ffc6869119a3f150f10d23e1a94511d104ebe",
+          "line": 112
         }
       ],
       "pytest": [
@@ -20574,6 +20574,118 @@
         "tests/unit/test_credential_marker_lengths.py::test_a_real_shaped_token_is_still_caught"
       ],
       "expected_failure": "test_a_real_shaped_token_is_still_caught"
+    },
+    {
+      "name": "handoff-read-budget-wall-median",
+      "edits": [
+        {
+          "file": "tests/performance/read_budget_gate.py",
+          "before": "        \"minimum_wall\": min(walls),\n",
+          "after": "        \"minimum_wall\": statistics.median(walls),\n",
+          "sha256": "a042e85eaf425704f795d56b74cb2916e41cf088779f66ae73e8f314b283a924",
+          "line": 101
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_merge_base_gate.py::test_the_noise_that_failed_the_wall_median_passes_the_paired_gate"
+      ],
+      "expected_failure": "test_the_noise_that_failed_the_wall_median_passes_the_paired_gate"
+    },
+    {
+      "name": "handoff-read-budget-smallest-cpu",
+      "edits": [
+        {
+          "file": "tests/performance/read_budget_gate.py",
+          "before": "        \"median_cpu\": statistics.median(cpus),\n",
+          "after": "        \"median_cpu\": min(cpus),\n",
+          "sha256": "a042e85eaf425704f795d56b74cb2916e41cf088779f66ae73e8f314b283a924",
+          "line": 103
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_merge_base_gate.py::test_more_work_fails_on_the_cpu_time_also_when_some_calls_are_quick"
+      ],
+      "expected_failure": "test_more_work_fails_on_the_cpu_time_also_when_some_calls_are_quick"
+    },
+    {
+      "name": "handoff-read-budget-no-wall-clock",
+      "edits": [
+        {
+          "file": "tests/performance/read_budget_gate.py",
+          "before": "PAIRED_STATISTICS = (\"median_cpu\", \"minimum_wall\")\n",
+          "after": "PAIRED_STATISTICS = (\"median_cpu\",)\n",
+          "sha256": "a042e85eaf425704f795d56b74cb2916e41cf088779f66ae73e8f314b283a924",
+          "line": 63
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_merge_base_gate.py::test_a_wait_in_every_call_fails_on_the_wall_time"
+      ],
+      "expected_failure": "test_a_wait_in_every_call_fails_on_the_wall_time"
+    },
+    {
+      "name": "handoff-read-budget-no-cpu-clock",
+      "edits": [
+        {
+          "file": "tests/performance/read_budget_gate.py",
+          "before": "PAIRED_STATISTICS = (\"median_cpu\", \"minimum_wall\")\n",
+          "after": "PAIRED_STATISTICS = (\"minimum_wall\",)\n",
+          "sha256": "a042e85eaf425704f795d56b74cb2916e41cf088779f66ae73e8f314b283a924",
+          "line": 63
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_merge_base_gate.py::test_more_work_fails_on_the_cpu_time_also_when_some_calls_are_quick"
+      ],
+      "expected_failure": "test_more_work_fails_on_the_cpu_time_also_when_some_calls_are_quick"
+    },
+    {
+      "name": "handoff-read-budget-five-samples",
+      "edits": [
+        {
+          "file": "tests/performance/read_budget_gate.py",
+          "before": "PAIRED_SAMPLES = 10\n",
+          "after": "PAIRED_SAMPLES = 5\n",
+          "sha256": "a042e85eaf425704f795d56b74cb2916e41cf088779f66ae73e8f314b283a924",
+          "line": 62
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_absolute_gate.py::test_a_handoff_head_with_noisy_wall_times_passes_the_merge_base_gate"
+      ],
+      "expected_failure": "test_a_handoff_head_with_noisy_wall_times_passes_the_merge_base_gate"
+    },
+    {
+      "name": "handoff-sqlite-read-budget-ignores-the-gate",
+      "edits": [
+        {
+          "file": "tests/performance/test_label_read_handoff_budget.py",
+          "before": "            over = paired_over_merge_base(head[action], measured[\"merge_base\"][action])\n",
+          "after": "            over = []\n",
+          "sha256": "a7f72b2166573597907e3858006ffc6869119a3f150f10d23e1a94511d104ebe",
+          "line": 103
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_absolute_gate.py::test_a_handoff_head_that_waits_in_every_call_fails_on_the_wall_time"
+      ],
+      "expected_failure": "test_a_handoff_head_that_waits_in_every_call_fails_on_the_wall_time"
+    },
+    {
+      "name": "handoff-postgres-read-budget-ignores-the-gate",
+      "edits": [
+        {
+          "file": "tests/integration/test_label_read_handoff_budget_postgres.py",
+          "before": "            over = paired_over_merge_base(head[action], measured[\"merge_base\"][action])\n",
+          "after": "            over = []\n",
+          "sha256": "4be7a29f6ef484ab53e7694c9031656919d63af49d5658244e2e90997139135c",
+          "line": 140
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_absolute_gate.py::test_a_handoff_head_that_waits_in_every_call_fails_on_the_wall_time"
+      ],
+      "expected_failure": "test_a_handoff_head_that_waits_in_every_call_fails_on_the_wall_time"
     }
   ]
 }
