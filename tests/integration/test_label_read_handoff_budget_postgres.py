@@ -11,9 +11,11 @@ import psycopg
 
 from tests.integration.derived_labels_postgres_support import label_harness
 from tests.performance.read_budget_gate import (
+    PAIRED_SAMPLES,
     append_evidence,
     merge_base_checkout,
-    over_merge_base,
+    paired_over_merge_base,
+    paired_summary,
     prelabels_action,
     prelabels_checkout,
 )
@@ -42,8 +44,8 @@ def close_probe(process):
     process.communicate(timeout=30)
 
 
-def interleaved_medians(base_process, head_process, actions, samples=5):
-    """Median wall time of ``samples`` interleaved calls, after one unmeasured call each."""
+def interleaved_medians(base_process, head_process, actions, samples=PAIRED_SAMPLES):
+    """Wall and CPU time of ``samples`` interleaved calls, after one unmeasured call each, as ``paired_summary`` gives them."""
 
     measured = {"merge_base": {}, "head": {}}
     for action in actions:
@@ -51,15 +53,17 @@ def interleaved_medians(base_process, head_process, actions, samples=5):
             process.stdin.write(action + "\n")
             process.stdin.flush()
             _read_sample(process)
-        arrays = [[], []]
+        arrays = [{"wall": [], "cpu": []} for _ in range(2)]
         for sample in range(samples):
             for index in (0, 1) if sample % 2 == 0 else (1, 0):
                 process = (base_process, head_process)[index]
                 process.stdin.write(action + "\n")
                 process.stdin.flush()
-                arrays[index].append(_read_sample(process)["wall"])
+                result = _read_sample(process)
+                arrays[index]["wall"].append(result["wall"])
+                arrays[index]["cpu"].append(result["cpu"])
         for index, revision in enumerate(("merge_base", "head")):
-            measured[revision][action] = {"median": statistics.median(arrays[index]), "samples": arrays[index]}
+            measured[revision][action] = paired_summary(arrays[index]["wall"], arrays[index]["cpu"])
     return measured
 
 
@@ -133,7 +137,8 @@ def test_postgres_five_thousand_native_read_budgets(label_harness, hidden):
         print(json.dumps(row), flush=True)
         append_evidence(row)
         for action in ("pack", "recall"):
-            assert not over_merge_base(head[action]["median"], measured["merge_base"][action]["median"]), (action, row)
+            over = paired_over_merge_base(head[action], measured["merge_base"][action])
+            assert not over, (action, over, row)
     else:
         process = open_probe(repo, "postgres", h.urls["app"], h.user_id)
         try:

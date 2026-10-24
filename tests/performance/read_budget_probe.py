@@ -58,9 +58,9 @@ def measure(name):
         profile = cProfile.Profile()
         profile.runcall(action)
         profile.dump_stats(os.environ["ALICE_BUDGET_PROFILE_PATH"] + "." + Path(repo).name)
-    start = time.perf_counter()
+    wall_start, cpu_start = time.perf_counter(), time.process_time()
     action()
-    return {"wall": time.perf_counter() - start}
+    return {"wall": time.perf_counter() - wall_start, "cpu": time.process_time() - cpu_start}
 
 
 for line in sys.stdin:
