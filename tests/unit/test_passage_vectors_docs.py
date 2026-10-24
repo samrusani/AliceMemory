@@ -57,6 +57,9 @@ def test_the_tool_reference_names_every_variable_default_and_rule() -> None:
     # Deleting a vector is logical deletion, and a caller with limits is told no more than "unavailable".
     assert "logical deletion" in section and "`VACUUM`" in section and "`retained_data`" in section
     assert "`vector search unavailable`" in section
+    # A caller with limits is served from a copy of the rows it may read, and the pages say what that costs.
+    assert "a copy of the vectors of the sources it may read and of no others" in section
+    assert "at most eight for a user" in section and "each under the same cap" in section
 
 
 def test_the_security_page_lists_what_leaves_the_machine_and_when() -> None:

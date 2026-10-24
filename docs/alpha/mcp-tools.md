@@ -490,7 +490,7 @@ before, and sends no chunk.
 | --- | --- |
 | `ALICE_SOURCE_EMBEDDINGS=on` | Required. Only the value `on` counts. Without it no text of a source is sent by an import, by `alice_capture`, by `alice-memory reindex-embeddings --sources` or by a recall. |
 | `ALICE_SOURCE_EMBEDDINGS_MAX_VECTORS` | The most chunk vectors one vault keeps. Default 250,000. At the cap, chunks stay pending and the receipt says so. |
-| `ALICE_SOURCE_VECTOR_CACHE_MAX_MB` | The most memory the resident copy of the vectors may use in one process. Default 512, about 170,000 vectors of 768 numbers. |
+| `ALICE_SOURCE_VECTOR_CACHE_MAX_MB` | The most memory one resident copy of the vectors may use in one process. Default 512, about 170,000 vectors of 768 numbers. A caller with limits has copies of its own, each under the same cap. |
 
 The endpoint has to be on this machine: `localhost`, a name under `.localhost`, an IPv4 address in `127.0.0.0/8`
 written as four decimal numbers, or `::1`, with no proxy of the environment that would carry the request. Any other host
@@ -535,18 +535,21 @@ document, and the document keeps the number of passages it had in passage mode. 
 (2 of 6 passages at the default limit of 8) is held for documents that only the vectors found, and they take that share and no more. The decision to retry the
 query with any word is made on the words alone. A document the caller may not read is never ranked, scored or counted,
 and no id of a chunk is ever shown. With `debug`, `retrieval.stages.sources.vector` gives a status (`enabled`,
-`disabled: ...`, `skipped: ...`, `none embedded`, `none usable: ...`) and counts of what the caller may read. A caller
-whose key has limits is shown `vector search unavailable`, with no counts, in place of `none embedded`, `none usable:
-...` and the three cache statuses (over its cap, no resident copy, stage error), because the cap on the resident copy
-counts every vector of the vault and an error can come from any of them, and some of those belong to sources that
-caller may not read; the owner and an unbound admin key are shown the detail. The cap is a limit on the whole vault, so a
-caller with limits can still tell from the results it gets back that the stage did not run. At the minimal depth the
-vector stage is off.
+`disabled: ...`, `skipped: ...`, `none embedded`, `none usable: ...`) and counts of what the caller may read. The
+owner and an unbound admin key are served from a copy of every vector of the vault. A caller whose key has limits is
+served from a copy of the vectors of the sources it may read and of no others: the width of that copy and the cap on
+its memory are judged on those rows only, so whether the stage runs, what it reports, how it ranks and which excerpts
+it returns do not depend on any vector the caller may not read, and are the same whether such a vector exists or not.
+Such a caller is shown `vector search unavailable`, with no counts, in place of `none embedded`, `none usable: ...` and
+the three cache statuses (over its cap, no resident copy, stage error); the owner is shown the detail. At the minimal
+depth the vector stage is off.
 
 The cost: one request for the query on each recall; about 3 KB of memory for each chunk vector of 768 numbers, read into
 the process on the first recall and kept; one 4 KB page of disk for each; and the time to embed, once, when a note is
 imported or captured. Above the cache cap the stage is skipped and its status says so; the table is not read row by row
-instead.
+instead. A caller with limits adds a copy of its own for each distinct set of sources it may read (at most eight for a
+user, the least recently used dropped first, each under the same cap); the copy is built again when that set or any
+vector of the vault changes, which costs time and never changes what the caller is told.
 
 ## Explicit memory commits
 

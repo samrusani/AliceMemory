@@ -28,6 +28,12 @@ Fields
     The most passages one document may contribute in ``passage`` mode. Document
     mode shows one chunk per document, so its value there is 1.
 
+``scoped_vectors``
+    Only read in ``vectors`` mode. True for a caller whose key has limits: the vector stage then reads a copy of the
+    chunk vectors built from the sources that caller may read, so that whether the stage runs, what it reports and
+    what it ranks are functions of rows the caller may read. False for the owner and an unbound admin key, who are
+    served from the copy of every vector of the user. The edge sets it (``recall_source_ranking``); no library code does.
+
 ``lexical``
     ``legacy`` is today's strict-then-fallback chunk query. ``improved`` is the
     long-question change of the lexical slice. Nothing builds or runs it yet.
@@ -82,6 +88,7 @@ class SourceRanking:
     mode: SourceRankingMode
     passages_per_source: int
     lexical: SourceLexicalMode
+    scoped_vectors: bool = False
 
     def __post_init__(self) -> None:
         if self.mode not in SOURCE_RANKING_MODES:

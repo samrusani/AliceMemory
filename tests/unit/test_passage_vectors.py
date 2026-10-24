@@ -65,9 +65,12 @@ from alicebot_api.vnext_embeddings import (
 from alicebot_api.vnext_retrieval import STAGE_DISABLED_MINIMAL, VNextRetrievalService
 from alicebot_api.vnext_stores.sqlite.chunk_vector_cache import (
     CACHE_MAX_MB_ENV,
+    MAX_SCOPED_COPIES,
     chunk_vector_view,
     clear_registry,
     entry_counters,
+    scope_digest,
+    scoped_entry_counters,
 )
 from tests.unit.passage_vector_support import (
     MODEL,
@@ -810,6 +813,293 @@ def test_every_status_the_stage_can_report_is_either_hidden_from_a_limited_calle
     for status in (STATUS_ENABLED, STATUS_OFF, STATUS_QUERY_FAILED, STATUS_BREAKER_OPEN):
         record = {**counted, "status": status}
         assert limited_record(record) == record
+
+
+# -- a caller with limits is served from vectors it may read, and from no others ---------------------------------------
+
+
+COSINES = {"taga": 0.2, "tagb": 0.3, "tagc": 0.4, "tagvis": 0.7}
+
+
+def _scoped_vault(root: Path, *, hidden_rows: int) -> Path:
+    """Almanac (two chunks) and Visible (one) belong to project ``acme``; Secret, with ``hidden_rows`` chunks, to ``other``."""
+
+    database = make_vault(root)
+    add_note(database, "Almanac", [hit_text("taga", 4), hit_text("tagb", 3)], metadata={"project_scope": ["acme"]})
+    add_note(database, "Visible", [plain_text("tagvis")], metadata={"project_scope": ["acme"]})
+    if hidden_rows:
+        add_note(
+            database,
+            "Secret",
+            [plain_text(f"tagfill{index}") for index in range(hidden_rows)],
+            metadata={"project_scope": ["other"]},
+        )
+    return database
+
+
+def _embed_readable(database: Path) -> None:
+    from alicebot_api.source_chunk_embeddings import embed_new_sources, sqlite_store_context
+
+    receipt = embed_new_sources(
+        [fixed_id("source", "Almanac"), fixed_id("source", "Visible")],
+        store_context=lambda: sqlite_store_context(database, USER_ID),
+    )
+    assert receipt is not None and receipt.pending == 0 and receipt.embedded > 0
+
+
+def _put_hidden_vectors(database: Path, *, dims: int, names: list[str] | None = None) -> None:
+    """Vectors for the chunks of Secret, made as the readable ones were (same signature) at width ``dims``."""
+
+    from alicebot_api.vnext_stores.sqlite import source_chunk_vectors as vector_store
+
+    secret = fixed_id("source", "Secret")
+    with sqlite_user_connection(database, USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        held = conn.execute(
+            "SELECT provider, model, endpoint, signature_version, header_version, prefix_version "
+            "FROM source_chunk_embeddings LIMIT 1"
+        ).fetchone()
+        wanted = conn.execute(
+            "SELECT c.id FROM source_chunks c WHERE c.source_id = ? "
+            "AND NOT EXISTS (SELECT 1 FROM source_chunk_embeddings e WHERE e.chunk_id = c.id) ORDER BY c.chunk_index",
+            (secret,),
+        ).fetchall()
+        for index, row in enumerate(wanted):
+            with store.savepoint():
+                vector_store.put_chunk_vector(
+                    store,
+                    chunk_id=row["id"],
+                    source_id=secret,
+                    vector=[0.5 + (index % 7) / 10.0] * dims,
+                    provider=held["provider"],
+                    model=held["model"],
+                    endpoint=held["endpoint"],
+                    signature_version=held["signature_version"],
+                    header_version=held["header_version"],
+                    prefix_version=held["prefix_version"],
+                    content_sha256="0" * 64,
+                )
+
+
+def _recall_as(database: Path, monkeypatch: pytest.MonkeyPatch, *, limited: bool) -> dict:
+    """``alice_recall`` with ``debug``, as the owner or as a read-only key bound to project ``acme``."""
+
+    from alicebot_api.mcp.registry import call_mcp_tool
+    from alicebot_api.vnext_agent_keys import create_agent_key
+
+    if limited:
+        with sqlite_user_connection(database, USER_ID) as conn:
+            _record, raw_key = create_agent_key(
+                SQLiteVNextStore(conn, USER_ID),
+                user_id=USER_ID,
+                agent_id="reader",
+                permission_profile="read_only_agent",
+                project_scope="acme",
+            )
+        monkeypatch.setenv("ALICE_AGENT_API_KEY", raw_key)
+    try:
+        return call_mcp_tool(  # type: ignore[no-any-return]
+            mcp_context(database), name="alice_recall", arguments={"query": QUERY, "debug": True, "limit": 8}
+        )
+    finally:
+        monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+
+
+def _scoped_run(
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    hidden_rows: int,
+    hidden_dims: int,
+    cap_mb: str | None,
+    limited: bool,
+    dims: int = 768,
+) -> tuple[Path, dict]:
+    database = _scoped_vault(root, hidden_rows=hidden_rows)
+    with ScriptedServer(COSINES, dims=dims) as server:
+        monkeypatch.setenv(EMBEDDINGS_BASE_URL_ENV, server.base_url)
+        monkeypatch.setenv(EMBEDDINGS_MODEL_ENV, MODEL)
+        monkeypatch.setenv(SEARCH_QUALITY_ENV, "vectors")
+        _embed_readable(database)
+        if hidden_rows:
+            _put_hidden_vectors(database, dims=hidden_dims)
+        if cap_mb is not None:
+            monkeypatch.setenv(CACHE_MAX_MB_ENV, cap_mb)
+        clear_registry()
+        return database, _recall_as(database, monkeypatch, limited=limited)
+
+
+def _database_file(database: Path) -> str:
+    return str(database.resolve())
+
+
+def test_hidden_vectors_that_push_the_vault_over_the_cap_do_not_change_what_a_key_with_limits_gets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The readable rows fit in 1 MB and the vault does not. Mutation: build the scoped copy from every vector.
+
+    Vectors of 768 numbers are 3,080 bytes a row in the copy, so 400 hidden rows are over 1 MB with the three
+    readable ones. The key bound to ``acme`` gets the stage, the third excerpt and the same bytes whether the hidden
+    rows exist or not, and the copy built for it holds its three rows. The owner, who may read the hidden rows,
+    is told the vault is over the cap.
+    """
+
+    database_with, with_hidden = _scoped_run(
+        tmp_path / "with", monkeypatch, hidden_rows=400, hidden_dims=768, cap_mb="1", limited=True
+    )
+    (copy,) = scoped_entry_counters(_database_file(database_with), USER_ID).values()
+    assert copy["rows"] == 3 and copy["dims"] == 768
+    # The user-wide copy was never built for this caller.
+    assert entry_counters(_database_file(database_with), USER_ID)["rebuilds"] == 0
+    _database_without, without = _scoped_run(
+        tmp_path / "without", monkeypatch, hidden_rows=0, hidden_dims=768, cap_mb="1", limited=True
+    )
+    assert _blob(with_hidden) == _blob(without)
+    record = _debug_vector_record(with_hidden)
+    assert record["status"] == STATUS_ENABLED and record["readable_chunks"] == 3
+    assert "Visible" in _blob(with_hidden)
+    _owner_vault, owner = _scoped_run(
+        tmp_path / "owner", monkeypatch, hidden_rows=400, hidden_dims=768, cap_mb="1", limited=False
+    )
+    assert _debug_vector_record(owner)["status"] == STATUS_CACHE_OVER_CAP
+
+
+def test_hidden_vectors_of_another_width_do_not_change_what_a_key_with_limits_gets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Five hidden rows of 3 numbers outnumber the three readable rows of 768. Mutation: choose the width over all rows.
+
+    In the copy of every vector the commonest width is 3 and the readable rows are stale. The key bound to ``acme`` is
+    served from its own rows and gets the stage and the same bytes whether the hidden rows exist or not.
+    """
+
+    _database, with_hidden = _scoped_run(
+        tmp_path / "with", monkeypatch, hidden_rows=5, hidden_dims=3, cap_mb=None, limited=True
+    )
+    _database, without = _scoped_run(
+        tmp_path / "without", monkeypatch, hidden_rows=0, hidden_dims=3, cap_mb=None, limited=True
+    )
+    assert _blob(with_hidden) == _blob(without)
+    assert _debug_vector_record(with_hidden)["status"] == STATUS_ENABLED and "Visible" in _blob(with_hidden)
+    _owner_database, owner = _scoped_run(
+        tmp_path / "owner", monkeypatch, hidden_rows=5, hidden_dims=3, cap_mb=None, limited=False
+    )
+    assert _debug_vector_record(owner)["status"] == STATUS_STALE  # the owner's copy is the user-wide one, as before
+
+
+def test_hidden_vectors_do_not_change_what_a_key_with_limits_gets_at_a_cap_of_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Over the cap on its own rows, both vaults say the same thing. Mutation: judge the cap on every vector."""
+
+    _database, with_hidden = _scoped_run(
+        tmp_path / "with", monkeypatch, hidden_rows=5, hidden_dims=768, cap_mb="0", limited=True
+    )
+    _database, without = _scoped_run(
+        tmp_path / "without", monkeypatch, hidden_rows=0, hidden_dims=768, cap_mb="0", limited=True
+    )
+    assert _blob(with_hidden) == _blob(without)
+    assert _debug_vector_record(with_hidden)["status"] == STATUS_UNAVAILABLE
+    assert "Visible" not in _blob(with_hidden)
+
+
+def test_the_scoped_copy_follows_the_rows_the_caller_may_read_and_nothing_else(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A chunk added to a readable note is appended; a hidden vector added or removed does not change the bytes.
+
+    Mutation: leave the scope out of the append; key the copy by something other than the readable ids.
+    """
+
+    from alicebot_api.source_chunk_embeddings import embed_new_sources, sqlite_store_context
+    from alicebot_api.vnext_stores.sqlite import source_chunk_vectors as vector_store
+
+    database = _scoped_vault(tmp_path, hidden_rows=3)
+    file = _database_file(database)
+    with ScriptedServer(COSINES, dims=3) as server:
+        monkeypatch.setenv(EMBEDDINGS_BASE_URL_ENV, server.base_url)
+        monkeypatch.setenv(EMBEDDINGS_MODEL_ENV, MODEL)
+        monkeypatch.setenv(SEARCH_QUALITY_ENV, "vectors")
+        _embed_readable(database)
+        clear_registry()
+        first = _recall_as(database, monkeypatch, limited=True)
+        (copy,) = scoped_entry_counters(file, USER_ID).values()
+        assert copy["rows"] == 3 and copy["rebuilds"] == 1 and copy["appends"] == 0
+        # A hidden vector is added: the copy is not touched in any way the caller can see.
+        _put_hidden_vectors(database, dims=3)
+        again = _recall_as(database, monkeypatch, limited=True)
+        (copy,) = scoped_entry_counters(file, USER_ID).values()
+        assert _blob(again) == _blob(first) and copy["rows"] == 3 and copy["rebuilds"] == 1
+        # A chunk of a readable note gets a vector: found by row number, appended, no rebuild.
+        with sqlite_user_connection(database, USER_ID) as conn:
+            SQLiteVNextStore(conn, USER_ID).create_source_chunk(
+                {
+                    "id": fixed_id("chunk", "Almanac", 2),
+                    "source_id": fixed_id("source", "Almanac"),
+                    "chunk_index": 2,
+                    "text": hit_text("tagc", 2),
+                }
+            )
+        embed_new_sources([fixed_id("source", "Almanac")], store_context=lambda: sqlite_store_context(database, USER_ID))
+        _recall_as(database, monkeypatch, limited=True)
+        (copy,) = scoped_entry_counters(file, USER_ID).values()
+        assert copy["rows"] == 4 and copy["rebuilds"] == 1 and copy["appends"] >= 1
+        # The hidden vectors are removed: the stamp moves, the copy is built again from the same rows, the bytes hold.
+        with sqlite_user_connection(database, USER_ID) as conn:
+            store = SQLiteVNextStore(conn, USER_ID)
+            with store.savepoint():
+                vector_store.delete_chunk_vectors(store, source_id=fixed_id("source", "Secret"))
+        after = _recall_as(database, monkeypatch, limited=True)
+        (copy,) = scoped_entry_counters(file, USER_ID).values()
+        assert copy["rows"] == 4 and copy["rebuilds"] == 2
+        assert _debug_vector_record(after)["readable_chunks"] == 4
+        # A relabel that changes what the key may read is another copy, built from the rows it may read now.
+        with sqlite_user_connection(database, USER_ID) as conn:
+            conn.execute(
+                "UPDATE sources SET metadata_json = ? WHERE id = ?",
+                (json.dumps({"project_scope": ["other"]}), fixed_id("source", "Visible")),
+            )
+        relabelled = _recall_as(database, monkeypatch, limited=True)
+        copies = scoped_entry_counters(file, USER_ID)
+        assert len(copies) == 2 and list(copies.values())[-1]["rows"] == 3
+        assert _debug_vector_record(relabelled)["readable_chunks"] == 3
+        assert "Visible" not in _blob(relabelled)
+
+
+def test_at_most_eight_scoped_copies_are_kept_and_the_least_recently_used_goes_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mutation: leave the eviction out of ``_entry_for``."""
+
+    database = _scoped_vault(tmp_path, hidden_rows=0)
+    with ScriptedServer(COSINES, dims=3) as server:
+        monkeypatch.setenv(EMBEDDINGS_BASE_URL_ENV, server.base_url)
+        monkeypatch.setenv(EMBEDDINGS_MODEL_ENV, MODEL)
+        _embed_readable(database)
+    from alicebot_api.source_chunk_vector_search import chunk_signature  # noqa: F401 - the signature the view is asked for
+    from alicebot_api.source_embedding_policy import chunk_signature as signature_of
+    from alicebot_api.vnext_embeddings import OpenAICompatibleEmbeddingProvider
+
+    provider = OpenAICompatibleEmbeddingProvider(base_url="http://127.0.0.1:1/v1", model=MODEL)
+    signature = signature_of(provider)
+    file = _database_file(database)
+    scopes = [{f"source-{index}"} for index in range(MAX_SCOPED_COPIES + 2)]
+    clear_registry()
+    with sqlite_user_connection(database, USER_ID) as conn:
+        for scope in scopes:
+            with chunk_vector_view(conn, USER_ID, signature, scope=scope):
+                pass
+        kept = list(scoped_entry_counters(file, USER_ID))
+        assert len(kept) == MAX_SCOPED_COPIES
+        assert kept == [scope_digest(scope)[0] for scope in scopes[2:]]
+        # Asking for the oldest again makes it the newest, and the next oldest goes when another is asked for.
+        with chunk_vector_view(conn, USER_ID, signature, scope=scopes[2]):
+            pass
+        with chunk_vector_view(conn, USER_ID, signature, scope={"another"}):
+            pass
+        kept = list(scoped_entry_counters(file, USER_ID))
+        assert len(kept) == MAX_SCOPED_COPIES and scope_digest(scopes[2])[0] in kept
+        assert scope_digest(scopes[3])[0] not in kept
 
 
 # -- cost ---------------------------------------------------------------------------------------------------------------------

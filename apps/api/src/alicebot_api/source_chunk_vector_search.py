@@ -241,6 +241,7 @@ class ChunkVectorSession:
         scope_people: tuple[str, ...] = (),
         scope_window_start: datetime | None = None,
         scope_window_end: datetime | None = None,
+        scoped: bool = False,
     ) -> None:
         self.status = STATUS_ENABLED
         self.readable_chunks = 0
@@ -255,6 +256,7 @@ class ChunkVectorSession:
         self._scope_people = scope_people
         self._scope_window_start = scope_window_start
         self._scope_window_end = scope_window_end
+        self._scoped = scoped
         self._stack = ExitStack()
         self._view: ChunkVectorView | None = None
         self._mask: ChunkVectorMask | None = None
@@ -326,7 +328,13 @@ class ChunkVectorSession:
             scope_window_end=self._scope_window_end,
             with_vectors=True,
         )
-        view = self._stack.enter_context(chunk_vector_view(store.conn, store.user_id, chunk_signature(provider)))
+        # A caller with limits is served from a copy built from the sources it may read: its width, its cap and
+        # everything it is told are then functions of those rows. The owner is served from the copy of every vector.
+        view = self._stack.enter_context(
+            chunk_vector_view(
+                store.conn, store.user_id, chunk_signature(provider), scope=readable if self._scoped else None
+            )
+        )
         mask = view.mask(readable)
         self._view = view
         self._mask = mask

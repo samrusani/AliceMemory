@@ -4439,6 +4439,7 @@ class VNextRetrievalService:
                     scope_people=cast(tuple[str, ...], chunk_scope_filters.get("scope_people", ())),
                     scope_window_start=cast("datetime | None", chunk_scope_filters.get("scope_window_start")),
                     scope_window_end=cast("datetime | None", chunk_scope_filters.get("scope_window_end")),
+                    scoped=ranking.scoped_vectors,
                 )
                 with session:
                     vector_outcome = session.compute(

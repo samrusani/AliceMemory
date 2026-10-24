@@ -43,15 +43,19 @@ OPEN = ["public", "internal", "private", "unknown"]
 QUERY = "zephyr"
 
 
-def scripted_vector(text: str, cosines: Mapping[str, float], query_text: str) -> list[float]:
-    """The vector with the cosine a tag in ``text`` names against the query vector ``[1, 0, 0]``."""
+def scripted_vector(text: str, cosines: Mapping[str, float], query_text: str, dims: int = 3) -> list[float]:
+    """The vector with the cosine a tag in ``text`` names against the query vector ``[1, 0, 0]``.
 
+    ``dims`` pads the vector with zeros to the width of a real model; the cosines do not change.
+    """
+
+    padding = [0.0] * max(dims - 3, 0)
     if text.strip() == query_text:
-        return [1.0, 0.0, 0.0]
+        return [1.0, 0.0, 0.0, *padding]
     for tag, cosine in cosines.items():
         if tag in text:
-            return [cosine, math.sqrt(max(1.0 - cosine * cosine, 0.0)), 0.0]
-    return [0.0, 0.0, 1.0]
+            return [cosine, math.sqrt(max(1.0 - cosine * cosine, 0.0)), 0.0, *padding]
+    return [0.0, 0.0, 1.0, *padding]
 
 
 class ScriptedProvider:
@@ -96,9 +100,10 @@ class ScriptedProvider:
 class ScriptedServer:
     """The same scripted vectors behind a ``/v1/embeddings`` endpoint on 127.0.0.1."""
 
-    def __init__(self, cosines: Mapping[str, float] | None = None, *, query_text: str = QUERY) -> None:
+    def __init__(self, cosines: Mapping[str, float] | None = None, *, query_text: str = QUERY, dims: int = 3) -> None:
         self.cosines = dict(cosines or {})
         self.query_text = query_text
+        self.dims = dims
         self.texts: list[str] = []
         server = self
 
@@ -113,7 +118,7 @@ class ScriptedServer:
                 body = json.dumps(
                     {
                         "data": [
-                            {"index": index, "embedding": scripted_vector(text, server.cosines, server.query_text)}
+                            {"index": index, "embedding": scripted_vector(text, server.cosines, server.query_text, server.dims)}
                             for index, text in enumerate(inputs)
                         ]
                     }

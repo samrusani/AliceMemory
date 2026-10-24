@@ -20,15 +20,26 @@ recall is the cost this cache exists to avoid. This module is its own cache:
 * **The mask.** What a caller may read is decided outside, by ``readable_source_ids``, and handed in per call as a
   set of source ids. The cache ranks only the rows of those sources, and counts only those rows, so a row the caller
   may not read cannot take a rank or change a count.
+* **Scoped copies.** The user-wide copy above is for the owner and an unbound admin key. A caller with limits is served
+  from a *scoped* copy that holds only the vectors of the sources that caller may read: its width is chosen, and its
+  cap judged, over those rows and no others, so whether the stage runs, what it reports and what it ranks are
+  functions of rows the caller may read. A scoped copy is keyed by the ids of those sources (a digest of the sorted
+  list), so a relabel that changes what a caller may read is a different copy, and is valid while the stamp of the
+  vector table is the token it was built at. At most ``MAX_SCOPED_COPIES`` are kept for a user, least recently used
+  first out, each under the same cap. Which copy is evicted depends on other callers' use and never on a row the
+  caller may not read.
 
 A reader holds the entry's lock for as long as it uses the view, so an append cannot change the arrays under it.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import sqlite3
 import threading
+from collections import OrderedDict
 from collections.abc import Collection, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -53,6 +64,12 @@ REFUSED_UNAVAILABLE = "unavailable"
 
 #: Rows read and decoded in one step of a build or an append, and rows scored in one step of a scan.
 _ROWS_PER_STEP = 2048
+
+#: The scoped copies kept for one user (database file and user), least recently used first out.
+MAX_SCOPED_COPIES = 8
+
+#: Restricts a read of the vector table to the sources of a scope. One JSON array of ids is the only parameter.
+_SCOPE_SQL = " AND source_id IN (SELECT value FROM json_each(?))"
 
 _SIGNATURE_SQL = (
     "provider = ? AND model = ? AND endpoint = ? AND signature_version = ? "
@@ -149,20 +166,45 @@ _REGISTRY_LOCK = threading.Lock()
 
 
 def clear_registry() -> None:
-    """Forget every entry (tests, and a process that wants the memory back)."""
+    """Forget every entry, scoped ones included (tests, and a process that wants the memory back)."""
 
     with _REGISTRY_LOCK:
         _REGISTRY.clear()
+        _SCOPED.clear()
 
 
 def entry_counters(database_file: str, user_id: str) -> dict[str, int]:
-    """Builds and appends of one entry, for the tests that prove a write did or did not rebuild it."""
+    """Builds, appends, rows, width and resident bytes of the user-wide copy, for the tests that prove a write did or did
+    not rebuild it and for measuring it."""
 
     with _REGISTRY_LOCK:
         entry = _REGISTRY.get((database_file, str(user_id)))
     if entry is None:
-        return {"rebuilds": 0, "appends": 0, "rows": 0}
-    return {"rebuilds": entry.rebuilds, "appends": entry.appends, "rows": entry.rows}
+        return {"rebuilds": 0, "appends": 0, "rows": 0, "dims": 0, "bytes": 0}
+    return {
+        "rebuilds": entry.rebuilds,
+        "appends": entry.appends,
+        "rows": entry.rows,
+        "dims": entry.dims,
+        "bytes": entry.resident_bytes,
+    }
+
+
+def scoped_entry_counters(database_file: str, user_id: str) -> dict[str, dict[str, int]]:
+    """Builds, appends, rows, width and resident bytes of each scoped copy of one user, oldest first, by digest."""
+
+    with _REGISTRY_LOCK:
+        copies = list(_SCOPED.get((database_file, str(user_id)), OrderedDict()).items())
+    return {
+        digest: {
+            "rebuilds": entry.rebuilds,
+            "appends": entry.appends,
+            "rows": entry.rows,
+            "dims": entry.dims,
+            "bytes": entry.resident_bytes,
+        }
+        for digest, entry in copies
+    }
 
 
 def _row_bytes(dims: int) -> int:
@@ -191,9 +233,28 @@ def _query_rows(conn: sqlite3.Connection, sql: str, params: tuple[object, ...]) 
     return cursor
 
 
-def _rebuild(entry: _Entry, conn: sqlite3.Connection, user_id: str, signature: ChunkSignature, stamp: str | None, max_bytes: int) -> None:
-    """Read every vector of the user that carries ``signature`` into one matrix, and the source codes of the rest."""
+def _scope_parts(scope_json: str | None) -> tuple[str, tuple[object, ...]]:
+    """The SQL that restricts a read of the vector table to a scope, and its parameter; nothing for the user-wide copy."""
 
+    return ("", ()) if scope_json is None else (_SCOPE_SQL, (scope_json,))
+
+
+def _rebuild(
+    entry: _Entry,
+    conn: sqlite3.Connection,
+    user_id: str,
+    signature: ChunkSignature,
+    stamp: str | None,
+    max_bytes: int,
+    scope_json: str | None = None,
+) -> None:
+    """Read every vector that carries ``signature`` into one matrix, and the source codes of the rest.
+
+    With ``scope_json`` (a JSON array of source ids) only the vectors of those sources are read: the width is the
+    commonest width among them, and the cap is judged on their count, so the copy is a function of those rows alone.
+    """
+
+    scope_sql, scope_params = _scope_parts(scope_json)
     entry.reset()
     entry.rebuilds += 1
     # The signature and the stamp are set last: an entry that stopped half way matches nothing and is built again.
@@ -211,10 +272,10 @@ def _rebuild(entry: _Entry, conn: sqlite3.Connection, user_id: str, signature: C
         conn,
         f"""
         SELECT dimensions, COUNT(*) FROM {SOURCE_CHUNK_VECTORS_TABLE}
-        WHERE user_id = ? AND rowid <= ? AND {_SIGNATURE_SQL}
+        WHERE user_id = ? AND rowid <= ? AND {_SIGNATURE_SQL}{scope_sql}
         GROUP BY dimensions ORDER BY COUNT(*) DESC, dimensions DESC
         """,  # nosec B608 - constants and placeholders only
-        (user_id, watermark, *params),
+        (user_id, watermark, *params, *scope_params),
     )
     try:
         widths = cursor.fetchall()
@@ -233,10 +294,10 @@ def _rebuild(entry: _Entry, conn: sqlite3.Connection, user_id: str, signature: C
             conn,
             f"""
             SELECT chunk_id, source_id, embedding FROM {SOURCE_CHUNK_VECTORS_TABLE}
-            WHERE user_id = ? AND rowid <= ? AND dimensions = ? AND {_SIGNATURE_SQL}
+            WHERE user_id = ? AND rowid <= ? AND dimensions = ? AND {_SIGNATURE_SQL}{scope_sql}
             ORDER BY rowid
             """,  # nosec B608 - constants and placeholders only
-            (user_id, watermark, dims, *params),
+            (user_id, watermark, dims, *params, *scope_params),
         )
         try:
             while filled < expected:
@@ -263,9 +324,9 @@ def _rebuild(entry: _Entry, conn: sqlite3.Connection, user_id: str, signature: C
         conn,
         f"""
         SELECT source_id FROM {SOURCE_CHUNK_VECTORS_TABLE}
-        WHERE user_id = ? AND rowid <= ? AND NOT ({_SIGNATURE_SQL} AND dimensions = ?)
+        WHERE user_id = ? AND rowid <= ? AND NOT ({_SIGNATURE_SQL} AND dimensions = ?){scope_sql}
         """,  # nosec B608 - constants and placeholders only
-        (user_id, watermark, *params, entry.dims),
+        (user_id, watermark, *params, entry.dims, *scope_params),
     )
     try:
         for (source_id,) in cursor:
@@ -277,9 +338,20 @@ def _rebuild(entry: _Entry, conn: sqlite3.Connection, user_id: str, signature: C
     entry.stamp = stamp
 
 
-def _append(entry: _Entry, conn: sqlite3.Connection, user_id: str, signature: ChunkSignature, max_bytes: int) -> None:
-    """Add the rows written since the entry was built, which a stamp that did not change guarantees are only additions."""
+def _append(
+    entry: _Entry,
+    conn: sqlite3.Connection,
+    user_id: str,
+    signature: ChunkSignature,
+    max_bytes: int,
+    scope_json: str | None = None,
+) -> None:
+    """Add the rows written since the entry was built, which a stamp that did not change guarantees are only additions.
 
+    A scoped copy adds only the rows of its sources.
+    """
+
+    scope_sql, scope_params = _scope_parts(scope_json)
     if not source_chunk_vectors_table_exists(conn):
         return
     cursor = _query_rows(conn, f"SELECT COALESCE(MAX(rowid), 0) FROM {SOURCE_CHUNK_VECTORS_TABLE}", ())  # nosec B608
@@ -297,10 +369,10 @@ def _append(entry: _Entry, conn: sqlite3.Connection, user_id: str, signature: Ch
             f"""
             SELECT rowid, chunk_id, source_id, dimensions, embedding, ({_SIGNATURE_SQL}) AS sig_ok
             FROM {SOURCE_CHUNK_VECTORS_TABLE}
-            WHERE user_id = ? AND rowid > ? AND rowid <= ?
+            WHERE user_id = ? AND rowid > ? AND rowid <= ?{scope_sql}
             ORDER BY rowid LIMIT ?
             """,  # nosec B608 - constants and placeholders only
-            (*params, user_id, entry.max_rowid, newest, _ROWS_PER_STEP),
+            (*params, user_id, entry.max_rowid, newest, *scope_params, _ROWS_PER_STEP),
         )
         try:
             page = cursor.fetchall()
@@ -462,9 +534,66 @@ class ChunkVectorView:
         return [ScoredChunk(chunk_id, str(source_id), score) for score, chunk_id in ranked]
 
 
+def scope_digest(scope: Collection[str]) -> tuple[str, str]:
+    """The key of a scoped copy and the JSON array its builds read by: both are functions of the ids and nothing else."""
+
+    ordered = sorted({str(source_id) for source_id in scope})
+    payload = json.dumps(ordered, separators=(",", ":"))
+    return hashlib.blake2b(payload.encode("utf-8"), digest_size=16).hexdigest(), payload
+
+
+_SCOPED: dict[tuple[str, str], OrderedDict[str, _Entry]] = {}
+
+
+def _entry_for(database_file: str, user_id: str, digest: str | None) -> tuple[_Entry, str]:
+    """The entry for the user-wide copy (``digest`` of ``None``) or for the scoped copy with this digest.
+
+    A scoped copy that is asked for is the most recently used, and the least recently used one beyond
+    ``MAX_SCOPED_COPIES`` is forgotten. Which one that is depends on which scopes were asked for, never on a row.
+    """
+
+    with _REGISTRY_LOCK:
+        if digest is None:
+            entry = _REGISTRY.get((database_file, user_id))
+            if entry is None:
+                entry = _Entry()
+                _REGISTRY[(database_file, user_id)] = entry
+            return entry, ""
+        copies = _SCOPED.setdefault((database_file, user_id), OrderedDict())
+        entry = copies.get(digest)
+        if entry is None:
+            entry = _Entry()
+            copies[digest] = entry
+        copies.move_to_end(digest)
+        while len(copies) > MAX_SCOPED_COPIES:
+            copies.popitem(last=False)
+        return entry, digest
+
+
+def _forget(database_file: str, user_id: str, digest: str | None, entry: _Entry) -> None:
+    with _REGISTRY_LOCK:
+        if digest is None:
+            if _REGISTRY.get((database_file, user_id)) is entry:
+                del _REGISTRY[(database_file, user_id)]
+            return
+        copies = _SCOPED.get((database_file, user_id))
+        if copies is not None and copies.get(digest) is entry:
+            del copies[digest]
+
+
 @contextmanager
-def chunk_vector_view(conn: sqlite3.Connection, user_id: str, signature: ChunkSignature) -> Iterator[ChunkVectorView]:
+def chunk_vector_view(
+    conn: sqlite3.Connection,
+    user_id: str,
+    signature: ChunkSignature,
+    *,
+    scope: Collection[str] | None = None,
+) -> Iterator[ChunkVectorView]:
     """Validate the resident copy against the database, build or extend it as needed, and hold it for the caller.
+
+    Without ``scope`` the copy is the user-wide one, built from every vector of the user, for the owner and an unbound
+    admin key. With ``scope`` (the ids of the sources a caller with limits may read) the copy is a scoped one built
+    from the vectors of those sources only, so its width and its cap are judged on rows the caller may read.
 
     Raises ``ChunkVectorCacheRefused`` when the copy would be over its cap, or when the database has no stable file
     to key a copy by (an in-memory database). The caller reports that and does not read the table instead.
@@ -476,35 +605,29 @@ def chunk_vector_view(conn: sqlite3.Connection, user_id: str, signature: ChunkSi
         raise ChunkVectorCacheRefused(REFUSED_UNAVAILABLE) from exc
     if database_file is None:
         raise ChunkVectorCacheRefused(REFUSED_UNAVAILABLE)
-    key = (database_file, str(user_id))
-    with _REGISTRY_LOCK:
-        entry = _REGISTRY.get(key)
-        if entry is None:
-            entry = _Entry()
-            _REGISTRY[key] = entry
+    user = str(user_id)
+    digest, scope_json = scope_digest(scope) if scope is not None else (None, None)
+    entry, _key = _entry_for(database_file, user, digest)
     max_bytes = cache_max_bytes()
     with entry.lock:
         try:
             stamp = source_chunk_vectors_stamp(conn)
             if entry.signature != signature or entry.stamp != stamp:
-                _rebuild(entry, conn, str(user_id), signature, stamp, max_bytes)
+                _rebuild(entry, conn, user, signature, stamp, max_bytes, scope_json)
             else:
-                _append(entry, conn, str(user_id), signature, max_bytes)
+                _append(entry, conn, user, signature, max_bytes, scope_json)
             if entry.resident_bytes > max_bytes:
                 entry.reset()
                 raise ChunkVectorCacheRefused(REFUSED_OVER_CAP)
         except ChunkVectorCacheRefused:
-            with _REGISTRY_LOCK:
-                _REGISTRY.pop(key, None)
+            _forget(database_file, user, digest, entry)
             raise
         except sqlite3.Error as exc:
-            with _REGISTRY_LOCK:
-                _REGISTRY.pop(key, None)
+            _forget(database_file, user, digest, entry)
             raise ChunkVectorCacheRefused(REFUSED_UNAVAILABLE) from exc
         except Exception:
             # Whatever else broke may have left the entry half built: it is dropped and built again next time.
-            with _REGISTRY_LOCK:
-                _REGISTRY.pop(key, None)
+            _forget(database_file, user, digest, entry)
             raise
         yield ChunkVectorView(entry)
 
@@ -512,6 +635,7 @@ def chunk_vector_view(conn: sqlite3.Connection, user_id: str, signature: ChunkSi
 __all__ = [
     "CACHE_MAX_MB_ENV",
     "DEFAULT_CACHE_MAX_MB",
+    "MAX_SCOPED_COPIES",
     "REFUSED_OVER_CAP",
     "REFUSED_UNAVAILABLE",
     "ChunkVectorCacheRefused",
@@ -522,4 +646,6 @@ __all__ = [
     "chunk_vector_view",
     "clear_registry",
     "entry_counters",
+    "scope_digest",
+    "scoped_entry_counters",
 ]

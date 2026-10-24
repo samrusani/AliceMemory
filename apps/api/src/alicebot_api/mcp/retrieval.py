@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, Final, Protocol, cast
 from alicebot_api.continuity_brief import compile_continuity_brief
@@ -229,6 +230,9 @@ def recall_source_ranking(
     ranking = SourceRanking.from_environment(unset=unset)
     if ranking.mode == "vectors" and (store_name not in VECTORS_STORES or context_depth == CONTEXT_DEPTH_MINIMAL):
         return SourceRanking.passage()
+    if ranking.mode == "vectors" and SourceReadFence.for_identity(identity).entity_read_fenced:
+        # A caller with limits is served from vectors of the sources it may read only (``scoped_vectors``).
+        return replace(ranking, scoped_vectors=True)
     return ranking
 
 
