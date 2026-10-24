@@ -62,7 +62,9 @@ def test_the_tool_reference_names_every_variable_default_and_rule() -> None:
     # A caller with limits is served from a copy of the rows it may read, and the pages say what that costs.
     assert "a copy of the vectors of the sources it may read and of no others" in section
     assert "at most four for a user by default" in section and "256 MB by default" in section
-    assert "Copies are kept by count and never by size" in section and "512 + 4 × 256 = 1,536 MB" in section
+    assert "Copies are kept by count and never by size" in section and "512 + 4 × 256 = 1,536 MB of vector arrays" in section
+    assert "It is not the most memory the process holds" in section and "are not counted" in section
+    assert "most memory a process holds" not in section
     assert "ALICE_SOURCE_VECTOR_SCOPED_CACHE_MAX_MB" in section and "ALICE_SOURCE_VECTOR_SCOPED_COPIES" in section
     assert "A scoped copy over its cap reports the generic status" in section
 
@@ -100,4 +102,5 @@ def test_the_integration_page_and_the_agent_table_name_the_opt_in() -> None:
     assert "`ALICE_SEARCH_QUALITY=vectors`" in mcp
     assert "checked again just before each request" in mcp and "pre-send read has read the source" in mcp
     assert "ALICE_SOURCE_VECTOR_SCOPED_CACHE_MAX_MB" in mcp and "ALICE_SOURCE_VECTOR_SCOPED_COPIES" in mcp
+    assert "limit the vector" in mcp and "memory of the process is" in mcp
     assert "ALICE_SOURCE_EMBEDDINGS=on" in _flat("docs/alpha/agent-integration.md")

@@ -14,8 +14,9 @@ recall is the cost this cache exists to avoid. This module is its own cache:
   ``embedding_stamp``, so a memory re-embed leaves this cache alone.
 * **No doubling.** The matrix, the norms and the source codes grow in place (``ndarray.resize``), so an append never
   holds the old and the new array at once.
-* **Cap.** ``ALICE_SOURCE_VECTOR_CACHE_MAX_MB`` (default 512, about 170,000 vectors of 768 floats) bounds the
-  resident bytes. Over it the cache refuses with ``over_cap`` and the vector stage reports that status and is
+* **Cap.** ``ALICE_SOURCE_VECTOR_CACHE_MAX_MB`` (default 512, about 170,000 vectors of 768 floats) limits the
+  vector arrays of the copy (``resident_bytes``: the matrix, the norms and the source codes; the ids, the indexes and the
+  temporary buffers of a build or a scan are not counted). Over it the cache refuses with ``over_cap`` and the vector stage reports that status and is
   skipped: it never reads the table row by row instead.
 * **The mask.** What a caller may read is decided outside, by ``readable_source_ids``, and handed in per call as a
   set of source ids. The cache ranks only the rows of those sources, and counts only those rows, so a row the caller
@@ -35,8 +36,9 @@ recall is the cost this cache exists to avoid. This module is its own cache:
   least recently used first out, each under its own cap (default ``DEFAULT_SCOPED_CACHE_MAX_MB``,
   ``ALICE_SOURCE_VECTOR_SCOPED_CACHE_MAX_MB``). There is no budget for the size of all of them together, and so no
   eviction by size: the rows of one scope, which another caller may not read, could otherwise decide whether that
-  caller's copy is kept. The most a process holds for one user is the cap of the user-wide copy plus the number of
-  scoped copies times the cap of one.
+  caller's copy is kept. With the defaults the sum of the limits for one user in one process is the limit of the
+  user-wide copy plus the number of scoped copies times the limit of one (512 + 4 x 256 = 1,536 MB of vector arrays);
+  the memory of the process is higher, because what ``resident_bytes`` does not count is not limited.
 
 A reader holds the entry's lock for as long as it uses the view, so an append cannot change the arrays under it.
 """

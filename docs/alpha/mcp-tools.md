@@ -490,8 +490,8 @@ before, and sends no chunk.
 | --- | --- |
 | `ALICE_SOURCE_EMBEDDINGS=on` | Required. Only the value `on` counts. Without it no text of a source is sent by an import, by `alice_capture`, by `alice-memory reindex-embeddings --sources` or by a recall. |
 | `ALICE_SOURCE_EMBEDDINGS_MAX_VECTORS` | The most chunk vectors one vault keeps. Default 250,000. At the cap, chunks stay pending and the receipt says so. |
-| `ALICE_SOURCE_VECTOR_CACHE_MAX_MB` | The most memory the resident copy of every vector (the owner's) may use in one process. Default 512, about 170,000 vectors of 768 numbers. |
-| `ALICE_SOURCE_VECTOR_SCOPED_CACHE_MAX_MB` | The most memory one scoped copy (the vectors of the sources a caller with limits may read) may use. Default 256, about 85,000 vectors of 768 numbers. |
+| `ALICE_SOURCE_VECTOR_CACHE_MAX_MB` | The limit on the vector arrays of the resident copy of every vector (the owner's) in one process. Default 512, about 170,000 vectors of 768 numbers. |
+| `ALICE_SOURCE_VECTOR_SCOPED_CACHE_MAX_MB` | The limit on the vector arrays of one scoped copy (the vectors of the sources a caller with limits may read). Default 256, about 85,000 vectors of 768 numbers. |
 | `ALICE_SOURCE_VECTOR_SCOPED_COPIES` | How many scoped copies are kept for one user. Default 4; from 1 to 64. The least recently used goes first. |
 
 The endpoint has to be on this machine: `localhost`, a name under `.localhost`, an IPv4 address in `127.0.0.0/8`
@@ -559,10 +559,13 @@ sources is added, overwritten or deleted, or when the set of sources the caller 
 the caller may not read neither rebuilds it nor changes the work done for it. A scoped copy over its cap reports the
 generic status, judged on the rows its caller may read.
 
-The most memory a process holds for the vectors of one user is the cap of the owner's copy plus the number of scoped
-copies times the cap of one, 512 + 4 × 256 = 1,536 MB with the defaults. Copies are kept by count and never by size.
-There is no budget for all the scoped copies together because one would let the rows of one scope, which another caller
-may not read, decide whether that caller's copy is kept; lower the count or the cap of a copy to lower the worst case.
+The limits cap the vector arrays of each copy: the matrix, the norms and the source codes. With the defaults the sum of
+the limits for one user in one process is the limit of the owner's copy plus the number of scoped copies times the limit
+of one, 512 + 4 × 256 = 1,536 MB of vector arrays. It is not the most memory the process holds: the ids and indexes of
+each copy and the temporary buffers of a build or a scan are not counted, and the memory of the process is higher.
+Copies are kept by count and never by size. There is no budget for all the scoped copies together because one would let
+the rows of one scope, which another caller may not read, decide whether that caller's copy is kept; lower the count or
+the limit of a copy to lower the sum.
 
 ## Explicit memory commits
 
