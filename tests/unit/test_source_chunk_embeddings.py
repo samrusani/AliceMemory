@@ -1393,34 +1393,37 @@ def test_a_source_has_a_token_that_moves_when_its_own_vector_is_overwritten_or_r
 ) -> None:
     """The fingerprint of a set of sources reads their tokens and no others.
 
-    Mutation: leave the token out of the update trigger; leave it out of the delete trigger; read every token.
+    Mutation: leave the token out of the insert, the update or the delete trigger; read every token.
     """
 
     db = _vault(tmp_path)
     one, _ = _source(db, "One", [PLAN_A, PLAN_B])
     two, _ = _source(db, "Two", [PLAN_C, PLAN_C + " Again."])
     assert _embed(db, [one, two], FakeProvider()).embedded == 4
-    # Rows that were added change no token: a copy finds them by row number.
-    assert _fingerprint(db, one) == "" and _fingerprint(db, two) == "" and _fingerprint(db, one, two) == ""
+    # Rows that were added are written to the token of their own source.
+    added_one, added_two = _fingerprint(db, one), _fingerprint(db, two)
+    assert added_one != "" and added_two != "" and added_one != added_two
+    assert _fingerprint(db, one, two) not in {"", added_one, added_two}
     # A vector of One is overwritten (another model of the same family makes it stale, and it is replaced in place).
     assert _embed(db, [one], FakeProvider(model="nomic-embed-text:latest")).embedded == 2
     after_overwrite = _fingerprint(db, one)
-    assert after_overwrite != "" and _fingerprint(db, two) == ""
+    assert after_overwrite not in {"", added_one} and _fingerprint(db, two) == added_two
     # The vectors of Two go with a scrub: only Two's token moves, and One's fingerprint is what it was.
     with sqlite_user_connection(db, USER_ID) as conn:
         SQLiteVNextStore(conn, USER_ID).scrub_source(two)
     assert _fingerprint(db, one) == after_overwrite
     after_scrub = _fingerprint(db, two)
-    assert after_scrub != "" and _fingerprint(db, one, two) not in {after_overwrite, after_scrub}
+    assert after_scrub not in {"", added_two} and _fingerprint(db, one, two) not in {after_overwrite, after_scrub}
     # A source that is not in the set cannot be seen through it, and a set of unknown ids has none.
     assert _fingerprint(db, "an-unknown-source") == ""
-    # A new chunk with a vector changes no token.
+    # A new chunk with a vector moves the token of its own source and of no other.
     with sqlite_user_connection(db, USER_ID) as conn:
         SQLiteVNextStore(conn, USER_ID).create_source_chunk(
             {"id": fixed_chunk_id("One", 2), "source_id": one, "chunk_index": 2, "text": PLAIN}
         )
+    before_two = _fingerprint(db, two)
     assert _embed(db, [one], FakeProvider(model="nomic-embed-text:latest")).embedded == 1
-    assert _fingerprint(db, one) == after_overwrite
+    assert _fingerprint(db, one) != after_overwrite and _fingerprint(db, two) == before_two
 
 
 def fixed_chunk_id(name: str, index: int) -> str:
@@ -1436,6 +1439,7 @@ def test_a_table_made_before_the_tokens_gets_their_triggers_the_next_time_a_vect
     source_id, _ = _source(db, "One", [PLAN_A])
     assert _embed(db, [source_id], FakeProvider()).embedded == 1
     with sqlite_user_connection(db, USER_ID) as conn:
+        conn.execute("DROP TRIGGER source_chunk_embeddings_source_token_after_insert")
         conn.execute("DROP TRIGGER source_chunk_embeddings_source_token_after_update")
         conn.execute("DROP TRIGGER source_chunk_embeddings_source_token_after_delete")
         conn.execute(
@@ -1445,7 +1449,7 @@ def test_a_table_made_before_the_tokens_gets_their_triggers_the_next_time_a_vect
     # The next write that needs the table brings it up to date.
     other, _ = _source(db, "Two", [PLAN_B])
     assert _embed(db, [other], FakeProvider()).embedded == 1
-    assert len(_rows(db, "SELECT name FROM sqlite_master WHERE name LIKE 'source_chunk_embeddings_source_token%'")) == 2
+    assert len(_rows(db, "SELECT name FROM sqlite_master WHERE name LIKE 'source_chunk_embeddings_source_token%'")) == 3
     assert _rows(
         db, "SELECT value FROM alice_schema_state WHERE key = ?", (sqlite_schema.SOURCE_CHUNK_VECTORS_STATE_KEY,)
     ) == [(sqlite_schema.SOURCE_CHUNK_VECTORS_SCHEMA_VERSION,)]

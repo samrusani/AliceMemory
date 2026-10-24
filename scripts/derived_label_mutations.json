@@ -18314,10 +18314,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_schema.py",
-          "line": 2239,
+          "line": 2247,
           "before": "    # label state: none, this ends the savepoint above and rolls nothing back.\n    conn.execute(\"RELEASE SAVEPOINT alice_derived_labels_v4\")\n",
           "after": "    conn.execute(\"RELEASE SAVEPOINT alice_derived_labels_v4\")\n",
-          "sha256": "29cd655205dd700ef5a32dab64dbb1f163954d9490d2c1157205b8f01bd5cd9a"
+          "sha256": "da2f21ba5f5201f5e9e662a9b0c7c8be1eabcb59b13ce0e9aecf7996ce5f77a2"
         }
       ],
       "pytest": [
@@ -21716,10 +21716,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_schema.py",
-          "line": 1780,
+          "line": 1788,
           "before": "AFTER DELETE ON source_chunk_embeddings\n    BEGIN\n      {_REWRITE_SOURCE_SQL.format(prefix=SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX, row=\"OLD\")};",
           "after": "AFTER DELETE ON source_chunk_embeddings\n    BEGIN\n      SELECT 1;",
-          "sha256": "29cd655205dd700ef5a32dab64dbb1f163954d9490d2c1157205b8f01bd5cd9a"
+          "sha256": "da2f21ba5f5201f5e9e662a9b0c7c8be1eabcb59b13ce0e9aecf7996ce5f77a2"
         }
       ],
       "pytest": [
@@ -21732,10 +21732,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_schema.py",
-          "line": 1772,
+          "line": 1780,
           "before": "AFTER UPDATE ON source_chunk_embeddings\n    BEGIN\n      {_REWRITE_SOURCE_SQL.format(prefix=SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX, row=\"OLD\")};\n      {_REWRITE_SOURCE_SQL.format(prefix=SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX, row=\"NEW\")};",
           "after": "AFTER UPDATE ON source_chunk_embeddings\n    BEGIN\n      SELECT 1;",
-          "sha256": "29cd655205dd700ef5a32dab64dbb1f163954d9490d2c1157205b8f01bd5cd9a"
+          "sha256": "da2f21ba5f5201f5e9e662a9b0c7c8be1eabcb59b13ce0e9aecf7996ce5f77a2"
         }
       ],
       "pytest": [
@@ -21748,10 +21748,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_schema.py",
-          "line": 1846,
+          "line": 1854,
           "before": "WHERE key IN (SELECT ? || value FROM json_each(?)) ORDER BY key\",\n        (prefix, scope_json),",
           "after": "WHERE key LIKE ? || '%' ORDER BY key\",\n        (prefix,),",
-          "sha256": "29cd655205dd700ef5a32dab64dbb1f163954d9490d2c1157205b8f01bd5cd9a"
+          "sha256": "da2f21ba5f5201f5e9e662a9b0c7c8be1eabcb59b13ce0e9aecf7996ce5f77a2"
         }
       ],
       "pytest": [
@@ -21764,10 +21764,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_schema.py",
-          "line": 1802,
+          "line": 1810,
           "before": "        _upgrade_source_chunk_vectors_table(conn)\n        return",
           "after": "        return",
-          "sha256": "29cd655205dd700ef5a32dab64dbb1f163954d9490d2c1157205b8f01bd5cd9a"
+          "sha256": "da2f21ba5f5201f5e9e662a9b0c7c8be1eabcb59b13ce0e9aecf7996ce5f77a2"
         }
       ],
       "pytest": [
@@ -21780,10 +21780,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_schema.py",
-          "line": 1765,
+          "line": 1766,
           "before": "    AFTER DELETE ON source_chunk_embeddings\n    BEGIN\n      {_REWRITE_STAMP_SQL};",
           "after": "    AFTER INSERT ON source_chunk_embeddings\n    BEGIN\n      {_REWRITE_STAMP_SQL};",
-          "sha256": "29cd655205dd700ef5a32dab64dbb1f163954d9490d2c1157205b8f01bd5cd9a"
+          "sha256": "da2f21ba5f5201f5e9e662a9b0c7c8be1eabcb59b13ce0e9aecf7996ce5f77a2"
         }
       ],
       "pytest": [
@@ -21796,16 +21796,32 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_schema.py",
-          "line": 1758,
+          "line": 1759,
           "before": "    AFTER UPDATE ON source_chunk_embeddings\n    BEGIN\n      {_REWRITE_STAMP_SQL};",
           "after": "    AFTER INSERT ON source_chunk_embeddings\n    BEGIN\n      {_REWRITE_STAMP_SQL};",
-          "sha256": "29cd655205dd700ef5a32dab64dbb1f163954d9490d2c1157205b8f01bd5cd9a"
+          "sha256": "da2f21ba5f5201f5e9e662a9b0c7c8be1eabcb59b13ce0e9aecf7996ce5f77a2"
         }
       ],
       "pytest": [
         "tests/unit/test_source_chunk_embeddings.py::test_the_stamp_changes_when_a_vector_is_overwritten_or_removed_and_not_when_one_is_added"
       ],
       "expected_failure": "test_the_stamp_changes_when_a_vector_is_overwritten_or_removed_and_not_when_one_is_added"
+    },
+    {
+      "name": "chunk-vectors-source-token-not-rewritten-on-insert",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/sqlite_schema.py",
+          "line": 1773,
+          "before": "AFTER INSERT ON source_chunk_embeddings\n    BEGIN\n      {_REWRITE_SOURCE_SQL.format(prefix=SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX, row=\"NEW\")};",
+          "after": "AFTER INSERT ON source_chunk_embeddings\n    BEGIN\n      SELECT 1;",
+          "sha256": "da2f21ba5f5201f5e9e662a9b0c7c8be1eabcb59b13ce0e9aecf7996ce5f77a2"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_source_chunk_embeddings.py::test_a_source_has_a_token_that_moves_when_its_own_vector_is_overwritten_or_removed_and_for_nothing_else"
+      ],
+      "expected_failure": "test_a_source_has_a_token_that_moves_when_its_own_vector_is_overwritten_or_removed_and_for_nothing_else"
     }
   ]
 }

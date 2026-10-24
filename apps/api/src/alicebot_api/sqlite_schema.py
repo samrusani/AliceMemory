@@ -1698,11 +1698,12 @@ def _backfill_source_dedupe_keys(conn: sqlite3.Connection) -> None:
 # copy of the database cannot show a token that a live cache was built at.
 #
 # The stamp is vault wide, so a copy built from some of the sources cannot use it: it would rebuild whenever a vector of
-# a source it does not hold was overwritten or deleted. For such a copy the same triggers also rewrite a token of the
-# source whose row changed, in ``alice_schema_state`` under ``SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX`` + user id + ``:`` +
-# source id. A copy of a set of sources is valid while the tokens of those sources, and of no others, are the ones it
-# was built at (``source_chunk_vector_fingerprint``). The tokens are never removed, not even when the table is dropped:
-# a removed token could repeat the fingerprint a live cache was built at.
+# a source it does not hold was overwritten or deleted. For such a copy triggers also rewrite a token of the source whose
+# row was added, overwritten or deleted, in ``alice_schema_state`` under ``SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX`` + user
+# id + ``:`` + source id. A copy of a set of sources is valid while the tokens of those sources, and of no others, are
+# the ones it was built at (``source_chunk_vector_fingerprint``); it is not extended by row number, because a row number
+# can be reused after the rows above it were deleted, and a copy cannot tell whose rows those were. The tokens are never
+# removed, not even when the table is dropped: a removed token could repeat the fingerprint a live cache was built at.
 SOURCE_CHUNK_VECTORS_TABLE = "source_chunk_embeddings"
 SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX = "source_chunk_vector_rewrite:"
 SOURCE_CHUNK_VECTORS_STATE_KEY = "source_chunk_embeddings_version"
@@ -1765,6 +1766,13 @@ _SOURCE_CHUNK_VECTORS_TRIGGERS: tuple[str, ...] = (
     AFTER DELETE ON source_chunk_embeddings
     BEGIN
       {_REWRITE_STAMP_SQL};
+    END
+    """,
+    f"""
+    CREATE TRIGGER IF NOT EXISTS source_chunk_embeddings_source_token_after_insert
+    AFTER INSERT ON source_chunk_embeddings
+    BEGIN
+      {_REWRITE_SOURCE_SQL.format(prefix=SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX, row="NEW")};
     END
     """,
     f"""
@@ -1835,10 +1843,10 @@ def _upgrade_source_chunk_vectors_table(conn: sqlite3.Connection) -> None:
 def source_chunk_vector_fingerprint(conn: sqlite3.Connection, user_id: str, scope_json: str) -> str:
     """A digest of the rewrite tokens of the sources in ``scope_json`` (a JSON array of source ids), and of no others.
 
-    It changes when a vector of one of those sources is overwritten or deleted, and never because of a vector of
+    It changes when a vector of one of those sources is added, overwritten or deleted, and never because of a vector of
     another source: the read is a lookup of the keys of the sources in scope, and the digest covers only what it finds.
-    Rows that were added change nothing here (the copy finds them by row number). The empty string is the fingerprint
-    of a scope none of whose sources has had a vector rewritten.
+    The empty string is the fingerprint of a scope none of whose sources has had a vector written since its tokens
+    were made.
     """
 
     prefix = f"{SOURCE_CHUNK_VECTORS_SOURCE_KEY_PREFIX}{user_id}:"
