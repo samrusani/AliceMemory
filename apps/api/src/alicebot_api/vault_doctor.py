@@ -28,6 +28,7 @@ from alicebot_api.session_briefing import (
     brief_char_len,
     compile_local_session_brief,
 )
+from alicebot_api.source_chunk_embeddings import chunk_vector_doctor_lines
 from alicebot_api.vnext_stores.sqlite.source_retirement import count_prunable_sources
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vault_sleep import SleepError, count_sleep_proposals, sleep_proposals_path
@@ -110,6 +111,7 @@ def compile_local_vault_doctor(
             (uid, CANDIDATE_STATUS),
         )
         missing_vector_line = _missing_vector_line(store)
+        chunk_vector_lines = chunk_vector_doctor_lines(store)
         from alicebot_api.vnext_label_repair import REDACTED_INPUT_ADVICE, LabelCheckUnavailable, label_gap_report
 
         try:
@@ -153,6 +155,7 @@ def compile_local_vault_doctor(
             f"candidates waiting: {candidate_count}",
             proposal_line,
             *([f"superseded sources: {superseded_count}"] if superseded_count else []),
+            *chunk_vector_lines,
             *(["Remove flagged sources with alice-memory sources delete <id>."] if flagged_ids else []),
             f"flagged sources: {len(flagged_ids)}",
             "flagged source ids: " + ", ".join(flagged_ids),
