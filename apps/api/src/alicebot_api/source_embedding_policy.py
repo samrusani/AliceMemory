@@ -10,14 +10,19 @@ connection and makes no request, so every rule here is testable on its own.
 The rules, in the order a chunk meets them:
 
 * Nothing is sent unless ``ALICE_SOURCE_EMBEDDINGS`` is ``on``.
-* An endpoint that is not on this machine also needs
-  ``ALICE_SOURCE_EMBEDDINGS_REMOTE=on``. With it, only a chunk of a source whose
-  sensitivity is at or under ``ALICE_SOURCE_EMBEDDINGS_MAX_SENSITIVITY`` (default
-  ``internal``) is sent. On this machine the ceiling does not apply.
-* A chunk is never sent when the credential check flags it (the floor and the
+* Source text goes only to an endpoint on this machine: ``localhost``, a name under ``.localhost``, an
+  IPv4 address in 127.0.0.0/8 written as four decimal numbers, or ``::1``, with no proxy of the
+  environment that would carry the request. Any other host name, including one that resolves to
+  loopback, any other address and every IPv4-mapped IPv6 form is not on this machine. For such an
+  endpoint nothing is sent and every chunk stays pending. Remote endpoints are not supported for
+  source embeddings; memory embeddings are not governed by this module.
+* A chunk is not sent when the credential check flags it (the floor and the
   commit door's check, on the whole chunk and on the whole text that would be
   sent), when it holds only links and labels, when it is shorter than a person
   could read as a note, or when its source is deleted, replaced or scrubbed.
+* A label is not a rule of this module. The sensitivity, domain and project of a
+  source do not decide whether its chunks are sent to an endpoint on this machine,
+  so a change of label is not an egress event.
 * The rules are applied to the rows as they are when the text is chosen, and again
   just before each batch is sent. A change committed while a batch is in flight
   is not seen by the batch.
@@ -33,7 +38,6 @@ import ipaddress
 import logging
 import os
 import re
-import socket
 import urllib.request
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -43,11 +47,8 @@ from urllib.parse import urlsplit
 logger = logging.getLogger(__name__)
 
 SOURCE_EMBEDDINGS_ENV = "ALICE_SOURCE_EMBEDDINGS"
-SOURCE_EMBEDDINGS_REMOTE_ENV = "ALICE_SOURCE_EMBEDDINGS_REMOTE"
-SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV = "ALICE_SOURCE_EMBEDDINGS_MAX_SENSITIVITY"
 SOURCE_EMBEDDINGS_MAX_VECTORS_ENV = "ALICE_SOURCE_EMBEDDINGS_MAX_VECTORS"
 
-DEFAULT_MAX_SENSITIVITY = "internal"
 #: The most chunk vectors one vault keeps. 250,000 vectors of 768 floats are about 750 MB on disk.
 DEFAULT_MAX_VECTORS = 250_000
 MIN_MAX_VECTORS = 1
@@ -74,13 +75,11 @@ CHUNK_VECTOR_RETAINED_DATA = (
 # Why a chunk is not sent. These strings are what receipts and the doctor print.
 SKIP_SOURCE_RETIRED = "source_retired"
 SKIP_CREDENTIAL = "credential"
-SKIP_SENSITIVITY_CEILING = "sensitivity_ceiling"
 SKIP_LINK_ONLY = "link_only"
 SKIP_TOO_SHORT = "too_short"
 SKIP_REASONS: tuple[str, ...] = (
     SKIP_SOURCE_RETIRED,
     SKIP_CREDENTIAL,
-    SKIP_SENSITIVITY_CEILING,
     SKIP_LINK_ONLY,
     SKIP_TOO_SHORT,
 )
@@ -88,22 +87,11 @@ SKIP_REASONS: tuple[str, ...] = (
 # Why nothing was sent at all.
 OFF_SOURCE_EMBEDDINGS = "source_embeddings_off"
 OFF_NO_PROVIDER = "no_embedding_provider"
-OFF_REMOTE_NOT_ALLOWED = "remote_endpoint_not_allowed"
+OFF_ENDPOINT_NOT_LOCAL = "endpoint_not_on_this_machine"
 OFF_DRY_RUN = "dry_run"
 
-#: How sensitive a source is, for the ceiling. ``unknown`` is held at ``private``: a label that
-#: nobody set cannot be shown to be at or under ``internal``. (Other reads give ``unknown`` the
-#: rank of ``internal``; this table is the one place the egress rule differs.)
-EGRESS_SENSITIVITY_RANK: Mapping[str, int] = {
-    "public": 1,
-    "internal": 2,
-    "unknown": 3,
-    "private": 3,
-    "confidential": 4,
-    "highly_sensitive": 5,
-    "sacred": 6,
-    "regulated": 6,
-}
+#: What a receipt, the doctor and the vector stage say when the endpoint is not on this machine.
+ENDPOINT_NOT_LOCAL_MESSAGE = "source embeddings need an endpoint on this machine"
 
 _WARNED: set[tuple[str, str]] = set()
 
@@ -121,39 +109,20 @@ def _is_on(raw: str | None) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class SourceEmbeddingSettings:
-    """The four settings of the source embedding opt-in, read from the environment."""
+    """The two settings of the source embedding opt-in, read from the environment."""
 
     enabled: bool
-    remote_allowed: bool
-    max_sensitivity: str
     max_vectors: int
-
-    @property
-    def max_sensitivity_rank(self) -> int:
-        return EGRESS_SENSITIVITY_RANK[self.max_sensitivity]
 
 
 def source_embedding_settings(environ: Mapping[str, str] | None = None) -> SourceEmbeddingSettings:
-    """The settings the environment gives. Only the value ``on`` turns an opt-in on.
+    """The settings the environment gives. Only the value ``on`` turns the opt-in on.
 
-    A ceiling that names no sensitivity level is ignored with a warning and the default,
-    ``internal``, is used. A vault cap that is not a whole number from 1 to 100,000,000 is
-    ignored the same way.
+    A vault cap that is not a whole number from 1 to 100,000,000 is ignored with a warning and the
+    default is used.
     """
 
     source = os.environ if environ is None else environ
-    ceiling_raw = source.get(SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV)
-    ceiling = DEFAULT_MAX_SENSITIVITY
-    if ceiling_raw is not None and ceiling_raw.strip():
-        candidate = ceiling_raw.strip().casefold()
-        if candidate in EGRESS_SENSITIVITY_RANK:
-            ceiling = candidate
-        else:
-            _warn_once(
-                SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV,
-                ceiling_raw,
-                f"{SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV} names no sensitivity level; using {DEFAULT_MAX_SENSITIVITY}",
-            )
     cap_raw = source.get(SOURCE_EMBEDDINGS_MAX_VECTORS_ENV)
     cap = DEFAULT_MAX_VECTORS
     if cap_raw is not None and cap_raw.strip():
@@ -170,12 +139,7 @@ def source_embedding_settings(environ: Mapping[str, str] | None = None) -> Sourc
                 f"{SOURCE_EMBEDDINGS_MAX_VECTORS_ENV} must be a whole number from {MIN_MAX_VECTORS} to "
                 f"{MAX_MAX_VECTORS}; using {DEFAULT_MAX_VECTORS}",
             )
-    return SourceEmbeddingSettings(
-        enabled=_is_on(source.get(SOURCE_EMBEDDINGS_ENV)),
-        remote_allowed=_is_on(source.get(SOURCE_EMBEDDINGS_REMOTE_ENV)),
-        max_sensitivity=ceiling,
-        max_vectors=cap,
-    )
+    return SourceEmbeddingSettings(enabled=_is_on(source.get(SOURCE_EMBEDDINGS_ENV)), max_vectors=cap)
 
 
 def source_embeddings_enabled(environ: Mapping[str, str] | None = None) -> bool:
@@ -185,17 +149,24 @@ def source_embeddings_enabled(environ: Mapping[str, str] | None = None) -> bool:
 # -- the endpoint --------------------------------------------------------------------------------
 
 
-def _parse_ip(hostname: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
-    candidate = hostname.split("%", 1)[0]
+def _is_loopback_literal(host: str) -> bool:
+    """True for an IPv4 address in 127.0.0.0/8 written as four decimal numbers, and for ``::1``.
+
+    Only those spellings count. An address written another way (``127.1``, ``2130706433``, ``0x7f000001``), a zone
+    id, and an IPv4-mapped IPv6 form such as ``::ffff:127.0.0.1`` are not literals of this rule and are not on this
+    machine as far as it is concerned: they are read by a person as loopback and by a resolver as whatever it makes
+    of them, and a rule that sends note text should not depend on the difference.
+    """
+
+    if "%" in host:
+        return False
     try:
-        return ipaddress.ip_address(candidate)
+        address = ipaddress.ip_address(host)
     except ValueError:
-        pass
-    try:
-        # The IPv4 spellings a socket accepts: 2130706433, 0x7f000001, 017700000001, 127.1.
-        return ipaddress.IPv4Address(socket.inet_aton(candidate))
-    except (OSError, ipaddress.AddressValueError):
-        return None
+        return False
+    if isinstance(address, ipaddress.IPv6Address):
+        return address == ipaddress.IPv6Address("::1")
+    return address.is_loopback and host.count(".") == 3 and all(part.isdigit() for part in host.split("."))
 
 
 def _carried_by_proxy(base_url: str) -> bool:
@@ -215,10 +186,10 @@ def _carried_by_proxy(base_url: str) -> bool:
 def endpoint_is_loopback(base_url: str) -> bool:
     """True only when requests to ``base_url`` stay on this machine.
 
-    The host is ``localhost``, a name under ``.localhost``, or an address in 127.0.0.0/8 or
-    ``::1``, in any spelling a socket reads, and no proxy of the environment carries the
-    request (a proxy would take the text off the machine). A host name is not resolved: any
-    other name is a remote endpoint, whatever it points at today.
+    The host is ``localhost``, a name under ``.localhost``, an IPv4 address in 127.0.0.0/8 written as four decimal
+    numbers, or ``::1``, and no proxy of the environment would carry the request (a proxy would take the text off the
+    machine). A host name is not resolved: any other name is not on this machine, whatever it points at today, and
+    neither is any other spelling of an address, an IPv4-mapped IPv6 form included.
     """
 
     try:
@@ -229,31 +200,22 @@ def endpoint_is_loopback(base_url: str) -> bool:
         return False
     if parts.scheme not in {"http", "https"} or not hostname:
         return False
-    host = hostname.casefold().rstrip(".")
-    loopback = host == "localhost" or host.endswith(".localhost")
-    if not loopback:
-        address = _parse_ip(host)
-        if address is None:
-            return False
-        mapped = getattr(address, "ipv4_mapped", None)
-        loopback = (mapped or address).is_loopback
+    host = hostname.casefold()
+    loopback = host == "localhost" or host.endswith(".localhost") or _is_loopback_literal(host)
     return loopback and not _carried_by_proxy(base_url)
 
 
 @dataclass(frozen=True, slots=True)
 class EgressPosture:
-    """Whether source text may be sent to the configured endpoint, and under which ceiling.
+    """Whether source text may be sent to the configured endpoint.
 
-    ``reason`` is set when nothing may be sent at all (one of the ``OFF_*`` strings).
-    ``ceiling_rank`` is ``None`` when the endpoint is on this machine and the sensitivity
-    ceiling does not apply.
+    ``reason`` is set when nothing may be sent at all (one of the ``OFF_*`` strings). ``local`` is whether the
+    endpoint is on this machine.
     """
 
     may_send: bool
     reason: str | None
-    remote: bool
-    ceiling_rank: int | None
-    ceiling: str | None
+    local: bool = False
 
 
 def egress_posture(
@@ -262,15 +224,15 @@ def egress_posture(
     provider_configured: bool,
     base_url: str = "",
 ) -> EgressPosture:
+    """May source text be sent now? Only with the opt-in on, a provider, and an endpoint on this machine."""
+
     if not settings.enabled:
-        return EgressPosture(False, OFF_SOURCE_EMBEDDINGS, False, None, None)
+        return EgressPosture(False, OFF_SOURCE_EMBEDDINGS)
     if not provider_configured:
-        return EgressPosture(False, OFF_NO_PROVIDER, False, None, None)
-    if endpoint_is_loopback(base_url):
-        return EgressPosture(True, None, False, None, None)
-    if not settings.remote_allowed:
-        return EgressPosture(False, OFF_REMOTE_NOT_ALLOWED, True, None, None)
-    return EgressPosture(True, None, True, settings.max_sensitivity_rank, settings.max_sensitivity)
+        return EgressPosture(False, OFF_NO_PROVIDER)
+    if not endpoint_is_loopback(base_url):
+        return EgressPosture(False, OFF_ENDPOINT_NOT_LOCAL)
+    return EgressPosture(True, None, local=True)
 
 
 # -- the model's prefixes -------------------------------------------------------------------------
@@ -485,14 +447,13 @@ def skip_reason(
     *,
     chunk_text: str,
     sent_text_without_prefix: str,
-    source_sensitivity: str | None,
     source_live: bool,
-    posture: EgressPosture,
 ) -> str | None:
     """Why this chunk is not sent, or ``None`` when it may be.
 
     One reason, the first that applies in the order of ``SKIP_REASONS``. The credential check reads
     the whole chunk, the text that would be sent (title and headings included), and the two joined.
+    The labels of the source are not an input: they do not decide what goes to an endpoint on this machine.
     """
 
     from alicebot_api.vnext_retrieval import _has_readable_line
@@ -501,10 +462,6 @@ def skip_reason(
         return SKIP_SOURCE_RETIRED
     if _flagged(chunk_text, sent_text_without_prefix):
         return SKIP_CREDENTIAL
-    if posture.ceiling_rank is not None:
-        rank = EGRESS_SENSITIVITY_RANK.get(str(source_sensitivity or "unknown"), EGRESS_SENSITIVITY_RANK["unknown"])
-        if rank > posture.ceiling_rank:
-            return SKIP_SENSITIVITY_CEILING
     if not _has_readable_line(chunk_text):
         return SKIP_LINK_ONLY
     if readable_chars(chunk_text) < MIN_READABLE_CHARS:
@@ -515,26 +472,22 @@ def skip_reason(
 __all__ = [
     "CHUNK_SIGNATURE_VERSION",
     "CHUNK_VECTOR_RETAINED_DATA",
-    "DEFAULT_MAX_SENSITIVITY",
+    "ENDPOINT_NOT_LOCAL_MESSAGE",
     "DEFAULT_MAX_VECTORS",
-    "EGRESS_SENSITIVITY_RANK",
     "HEADER_RULE_VERSION",
     "MIN_READABLE_CHARS",
     "OFF_DRY_RUN",
     "OFF_NO_PROVIDER",
-    "OFF_REMOTE_NOT_ALLOWED",
+    "OFF_ENDPOINT_NOT_LOCAL",
     "OFF_SOURCE_EMBEDDINGS",
     "PREFIX_RULES",
     "SKIP_CREDENTIAL",
     "SKIP_LINK_ONLY",
     "SKIP_REASONS",
-    "SKIP_SENSITIVITY_CEILING",
     "SKIP_SOURCE_RETIRED",
     "SKIP_TOO_SHORT",
     "SOURCE_EMBEDDINGS_ENV",
-    "SOURCE_EMBEDDINGS_MAX_SENSITIVITY_ENV",
     "SOURCE_EMBEDDINGS_MAX_VECTORS_ENV",
-    "SOURCE_EMBEDDINGS_REMOTE_ENV",
     "ChunkSignature",
     "EgressPosture",
     "PrefixRule",
