@@ -21451,7 +21451,7 @@
       "pytest": [
         "tests/unit/test_passage_vectors.py::test_hidden_vectors_that_push_the_vault_over_the_cap_do_not_change_what_a_key_with_limits_gets",
         "tests/unit/test_passage_vectors.py::test_hidden_vectors_of_another_width_do_not_change_what_a_key_with_limits_gets",
-        "tests/unit/test_passage_vectors.py::test_the_scoped_copy_follows_the_rows_the_caller_may_read_and_nothing_else"
+        "tests/unit/test_passage_vectors.py::test_a_scoped_copy_is_valid_by_its_own_sources_and_a_hidden_vector_never_touches_it"
       ],
       "expected_failure": "test_hidden_vectors_that_push_the_vault_over_the_cap_do_not_change_what_a_key_with_limits_gets"
     },
@@ -21506,9 +21506,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_passage_vectors.py::test_the_scoped_copy_follows_the_rows_the_caller_may_read_and_nothing_else"
+        "tests/unit/test_passage_vectors.py::test_a_scoped_copy_is_valid_by_its_own_sources_and_a_hidden_vector_never_touches_it"
       ],
-      "expected_failure": "test_the_scoped_copy_follows_the_rows_the_caller_may_read_and_nothing_else"
+      "expected_failure": "test_a_scoped_copy_is_valid_by_its_own_sources_and_a_hidden_vector_never_touches_it"
     },
     {
       "name": "passage-vectors-edge-does-not-scope-a-key-with-limits",
@@ -21957,9 +21957,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_passage_vectors.py::test_an_endpoint_that_is_not_on_this_machine_is_not_asked_for_a_query"
+        "tests/unit/test_passage_vectors.py::test_a_query_is_not_written_to_a_peer_that_is_not_on_this_machine"
       ],
-      "expected_failure": "test_an_endpoint_that_is_not_on_this_machine_is_not_asked_for_a_query"
+      "expected_failure": "test_a_query_is_not_written_to_a_peer_that_is_not_on_this_machine"
     }
   ]
 }

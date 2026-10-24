@@ -1250,8 +1250,9 @@ def test_scoped_copies_are_kept_by_count_and_the_least_recently_used_goes_first(
 def test_a_big_scope_does_not_decide_whether_another_scope_is_kept(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """There is no budget for the size of all the copies together, so the rows of one scope cannot evict another's.
 
-    The copy of the sources that are embedded here is the largest; asking for four small scopes after it keeps it
-    when it is among the four most recently used, and the order of use alone decides. Mutation: evict the largest.
+    The copy of the embedded sources is the only one with rows and is not the least recently used: the oldest is a
+    small one. When one copy too many is asked for, the oldest goes, and the large copy stays. Mutation: evict the
+    largest copy, or any copy chosen by size.
     """
 
     database, signature = _tiny_vault_signature(tmp_path, monkeypatch)
@@ -1259,17 +1260,20 @@ def test_a_big_scope_does_not_decide_whether_another_scope_is_kept(tmp_path: Pat
     readable = [fixed_id("source", "Almanac"), fixed_id("source", "Visible")]
     clear_registry()
     with sqlite_user_connection(database, USER_ID) as conn:
+        with chunk_vector_view(conn, USER_ID, signature, scope={"small-oldest"}):
+            pass
         with chunk_vector_view(conn, USER_ID, signature, scope=readable):
             pass
         big = scope_digest(readable)[0]
-        assert list(scoped_entry_counters(file, USER_ID).values())[0]["rows"] == 3
-        for index in range(DEFAULT_SCOPED_COPIES - 1):
+        assert scoped_entry_counters(file, USER_ID)[big]["rows"] == 3
+        for index in range(DEFAULT_SCOPED_COPIES - 2):
             with chunk_vector_view(conn, USER_ID, signature, scope={f"small-{index}"}):
                 pass
-        assert big in scoped_entry_counters(file, USER_ID)
+        assert len(scoped_entry_counters(file, USER_ID)) == DEFAULT_SCOPED_COPIES
         with chunk_vector_view(conn, USER_ID, signature, scope={"one-more"}):
             pass
-        assert big not in scoped_entry_counters(file, USER_ID)  # the least recently used went, the biggest or not
+        kept = scoped_entry_counters(file, USER_ID)
+        assert big in kept and scope_digest({"small-oldest"})[0] not in kept and len(kept) == DEFAULT_SCOPED_COPIES
 
 
 @pytest.mark.parametrize(
