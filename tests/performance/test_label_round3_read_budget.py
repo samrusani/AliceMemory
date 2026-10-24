@@ -17,9 +17,11 @@ from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_derived_labels import with_derived_from, is_derived, dependencies_of
 from alicebot_api.vnext_label_repair import label_gap_counts, relabel_labels_sqlite
 from tests.performance.read_budget_gate import (
+    PAIRED_SAMPLES,
     append_evidence,
     merge_base_checkout,
-    over_merge_base,
+    paired_over_merge_base,
+    paired_summary,
     prelabels_action,
     prelabels_checkout,
 )
@@ -292,8 +294,8 @@ def _prelabels_report(script, checkout, backend, location, user, profile, key, a
         _stop_process(process)
 
 
-def paired_budgets(backend, location, user, keys, *, case, source_count, repaired, samples=10, assert_budget=True):
-    assert samples >= 10
+def paired_budgets(backend, location, user, keys, *, case, source_count, repaired, samples=PAIRED_SAMPLES, assert_budget=True):
+    assert samples >= PAIRED_SAMPLES
     repo = Path(__file__).resolve().parents[2]
     merge_base = merge_base_checkout()
     prelabels = prelabels_checkout()
@@ -332,8 +334,7 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
                         if "memories" in result:
                             arrays[index]["returned_memories"].append(result["memories"])
                 for index, revision in enumerate(("merge_base", "head")):
-                    measurements[revision][action] = {**arrays[index], "minimum_wall": min(arrays[index]["wall"]),
-                                                     "minimum_cpu": min(arrays[index]["cpu"])}
+                    measurements[revision][action] = {**arrays[index], **paired_summary(arrays[index]["wall"], arrays[index]["cpu"])}
             report = _prelabels_report(script, prelabels, backend, location, user, profile, key, actions, measurements)
             row = {"store": backend, "case": case, "source_count": source_count, "repaired": repaired,
                    "profile": profile, "revisions": revisions, "samples": samples, "seed": 20261007,
@@ -348,9 +349,8 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
             print(json.dumps(row), flush=True)
             append_evidence(row)
             for action in ("pack", "recall"):
-                for clock in ("minimum_wall", "minimum_cpu"):
-                    if over_merge_base(measurements["head"][action][clock], measurements["merge_base"][action][clock]):
-                        failures.append((profile, action, clock, row))
+                for name in paired_over_merge_base(measurements["head"][action], measurements["merge_base"][action]):
+                    failures.append((profile, action, name, row))
                 if not returned_memories_ok(profile, action, case, measurements):
                     failures.append((profile, action, "returned_memories", row))
             # The wall gate for the operator screens is an absolute number (one

@@ -2,12 +2,16 @@
 
 The round-two and handoff suites time the workspace and dogfooding screens, and apply their
 fixed-second limits, only when ``ALICE_READ_ABSOLUTE_GATE`` is ``1``. A local run with no
-merge-base checkout still holds handoff pack and recall to 0.15 seconds.
+merge-base checkout still holds handoff pack and recall to 0.15 seconds. The handoff merge-base
+comparison, like every paired budget (round two, resume, the vector refill check), reads the
+median CPU time and the smallest wall time of ten calls a revision: wall noise passes it, and a
+wait in every call or more work in most calls fails it.
 """
 
 from __future__ import annotations
 
 import json
+import statistics
 
 import pytest
 
@@ -15,6 +19,8 @@ from alicebot_api.vnext_agent_control import ALL_SENSITIVITY, DEFAULT_AGENT_SENS
 from tests.integration import test_label_read_handoff_budget_postgres as handoff_postgres
 from tests.performance import test_label_read_handoff_budget as handoff_sqlite
 from tests.performance import test_label_round2_read_budget as round2
+from tests.performance import test_resume_hidden_rows_budget as resume
+from tests.performance.read_budget_gate import PAIRED_SAMPLES, over_merge_base
 
 ROUND2_ASSERT_BUDGETS = round2.assert_budgets
 
@@ -111,13 +117,16 @@ def _round2_timings(screens, head_wall, base_wall):
     return timings
 
 
-def run_round2(monkeypatch, *, gate, limit=None, screens=None, head_wall=0.05, base_wall=0.05):
-    """One postgres round-two budget run against stand-in probes. Returns the commands sent."""
+def run_round2(monkeypatch, *, gate, limit=None, screens=None, head_wall=0.05, base_wall=0.05, timings=None):
+    """One postgres round-two budget run against stand-in probes. Returns the commands sent.
+
+    ``timings``, when given, answers every probe call in place of the fixed walls: ``(checkout, action) -> (wall, cpu)``.
+    """
 
     _prepare(monkeypatch, gate=gate, limit=limit, merge_base=True)
     screens = screens or {}
     seen = _install(
-        monkeypatch, round2, "_open_probe", _round2_timings(screens, head_wall, base_wall)
+        monkeypatch, round2, "_open_probe", timings or _round2_timings(screens, head_wall, base_wall)
     )
     ROUND2_ASSERT_BUDGETS(
         "postgres", "postgresql://app", round2.USER, {"trusted_local_agent": "synthetic-credential"}
@@ -188,15 +197,18 @@ def _handoff_timings(screens, head_wall, base_wall, head_walls=None):
 
 
 def run_handoff_postgres(
-    monkeypatch, *, gate, limit=None, merge_base=True, screens=None, head_wall=0.05, base_wall=0.05, head_walls=None
+    monkeypatch, *, gate, limit=None, merge_base=True, screens=None, head_wall=0.05, base_wall=0.05, head_walls=None,
+    timings=None,
 ):
+    """``timings``, when given, answers every probe call in place of the fixed walls: ``(checkout, action) -> (wall, cpu)``."""
+
     _prepare(monkeypatch, gate=gate, limit=limit, merge_base=merge_base)
     screens = screens or {}
     seen = _install(
         monkeypatch,
         handoff_postgres,
         "open_probe",
-        _handoff_timings(screens, head_wall, base_wall, head_walls),
+        timings or _handoff_timings(screens, head_wall, base_wall, head_walls),
     )
     monkeypatch.setattr(handoff_postgres, "seed_copies", lambda store, count=5000, postgres=False: ({"id": "source"}, ["row"]))
     monkeypatch.setattr(handoff_postgres.psycopg, "connect", lambda *args, **kwargs: _Quiet())
@@ -205,8 +217,11 @@ def run_handoff_postgres(
 
 
 def run_handoff_sqlite(
-    monkeypatch, tmp_path, *, gate, merge_base=True, counted=0.01, elapsed=0.01, head_wall=0.05, base_wall=0.05, head_walls=None
+    monkeypatch, tmp_path, *, gate, merge_base=True, counted=0.01, elapsed=0.01, head_wall=0.05, base_wall=0.05, head_walls=None,
+    timings=None,
 ):
+    """``timings`` as for ``run_handoff_postgres``."""
+
     _prepare(monkeypatch, gate=gate, limit=None, merge_base=merge_base)
     monkeypatch.setattr(handoff_sqlite, "bootstrap_database", lambda *args, **kwargs: None)
     monkeypatch.setattr(handoff_sqlite, "sqlite_user_connection", lambda *args, **kwargs: _Quiet())
@@ -222,7 +237,7 @@ def run_handoff_sqlite(
         monkeypatch,
         handoff_postgres,
         "open_probe",
-        _handoff_timings({}, head_wall, base_wall, head_walls),
+        timings or _handoff_timings({}, head_wall, base_wall, head_walls),
     )
     handoff_sqlite.test_sqlite_five_thousand_derived_rows_budget(tmp_path)
     return _commands(seen)
@@ -349,3 +364,135 @@ def test_a_handoff_local_run_keeps_the_pack_and_recall_limits(monkeypatch, tmp_p
         run_handoff_sqlite(monkeypatch, tmp_path, gate=False, merge_base=False, head_walls=slow_pack)
     with pytest.raises(AssertionError, match="0.2"):
         run_handoff_sqlite(monkeypatch, tmp_path, gate=False, merge_base=False, head_walls=slow_recall)
+
+
+# A quiet call on the required SQLite job: about 0.045 seconds of wall time and 0.044 of CPU time.
+QUIET = (0.045, 0.044)
+# Six of ten head calls kept off the processor for 0.06 to 0.20 seconds, the shape of the failed runs
+# named in read_budget_gate, with the CPU time of a quiet call.
+NOISY_HEAD = [(0.105, 0.044), QUIET, (0.121, 0.044), (0.165, 0.044), QUIET, (0.138, 0.044), (0.245, 0.044), QUIET,
+              (0.108, 0.044), QUIET]
+# A wait of 0.08 seconds in every head call. The limit on a 0.045 second read is 0.106 seconds.
+WAITING_HEAD = [(0.125, 0.044)] * PAIRED_SAMPLES
+# Three times the work in six of ten head calls.
+WORKING_HEAD = [(0.134, 0.132), QUIET, (0.134, 0.132), (0.134, 0.132), QUIET, (0.134, 0.132), QUIET, (0.134, 0.132),
+                (0.134, 0.132), QUIET]
+# Every caller of the paired gate, and the probe commands each one measures.
+CALLERS = {
+    "handoff-sqlite": ("pack", "recall"),
+    "handoff-postgres": ("pack", "recall"),
+    "round2": ("pack", "recall"),
+    "resume": ("resume_query",),
+    "vector-refill": ("read",),
+}
+GATED_MODULES = (handoff_sqlite, handoff_postgres, round2, resume)
+
+
+def _scripted(head_samples):
+    """Probe answers: the merge base is always quiet, and the head's measured calls of each action take the samples in order.
+
+    The first call of each checkout and action is the unmeasured one and is quiet, and so is any call after the samples.
+    """
+
+    calls = {}
+
+    def timings(checkout, action):
+        index = calls.get((checkout, action), 0)
+        calls[(checkout, action)] = index + 1
+        if checkout == "merge-base-checkout" or index == 0 or index > len(head_samples):
+            return QUIET
+        return head_samples[index - 1]
+
+    return timings
+
+
+def _run_spawned(caller, monkeypatch, timings):
+    """The resume budget or the vector refill check, with each ``subprocess.Popen`` probe replaced by a stand-in."""
+
+    _prepare(monkeypatch, gate=False, limit=None, merge_base=True)
+    seen = []
+    answer = {"decision": None} if caller == "resume" else {"ids": [], "limits": [resume.READABLE_SCAN_CAP], "refill": True}
+
+    class Spawned(_Probe):
+        def __init__(self, args, **kwargs):
+            super().__init__(args[2], timings, seen)
+
+        def readline(self):
+            return json.dumps({**json.loads(super().readline()), **answer}) + "\n"
+
+    monkeypatch.setattr(resume.subprocess, "Popen", Spawned)
+    if caller == "resume":
+        resume.paired_resume_budgets("sqlite", "sqlite:///synthetic", resume.USER, "synthetic-key", case="derived",
+                                     actions=CALLERS["resume"])
+    else:
+        resume.test_ten_thousand_hidden_nearest_vector_rows_stay_within_the_merge_base_gate()
+    return _commands(seen)
+
+
+def _run_caller(caller, monkeypatch, tmp_path, head_samples, verdicts):
+    """One run of ``caller`` against stand-in probes. Returns the commands sent; ``verdicts`` gets what each call of the
+    gate returned, also when the run fails."""
+
+    for module in GATED_MODULES:
+        gate = module.paired_over_merge_base
+
+        def recorded(head, base, gate=gate):
+            verdict = gate(head, base)
+            verdicts.append(verdict)
+            return verdict
+
+        monkeypatch.setattr(module, "paired_over_merge_base", recorded)
+    timings = _scripted(head_samples)
+    if caller == "handoff-sqlite":
+        commands = run_handoff_sqlite(monkeypatch, tmp_path, gate=False, timings=timings)
+    elif caller == "handoff-postgres":
+        commands = run_handoff_postgres(monkeypatch, gate=False, timings=timings)
+    elif caller == "round2":
+        commands = run_round2(monkeypatch, gate=False, timings=timings)
+    else:
+        commands = _run_spawned(caller, monkeypatch, timings)
+    return commands
+
+
+@pytest.mark.parametrize("caller", sorted(CALLERS))
+def test_a_head_with_noisy_wall_times_passes_every_paired_budget(monkeypatch, tmp_path, caller):
+    """Six of ten head calls off the processor, no more CPU time: the run passes, and each revision got ten measured calls.
+
+    The median wall time of these samples is past the limit, as it was in the failed runs.
+
+    Mutations: compare the median wall time (``minimum_wall`` from ``statistics.median`` in ``paired_summary``, or the
+    old assert on ``median``); take five samples (``PAIRED_SAMPLES = 5``).
+    """
+
+    assert over_merge_base(statistics.median(wall for wall, _cpu in NOISY_HEAD), QUIET[0])
+    verdicts = []
+    commands = _run_caller(caller, monkeypatch, tmp_path, NOISY_HEAD, verdicts)
+    assert len(verdicts) == len(CALLERS[caller]) and not any(verdicts), verdicts
+    for action in CALLERS[caller]:
+        assert commands.count(action) == 2 * (1 + 10), (action, commands)
+
+
+@pytest.mark.parametrize("caller", sorted(CALLERS))
+def test_a_head_that_waits_in_every_call_fails_every_paired_budget_on_the_wall_time(monkeypatch, tmp_path, caller):
+    """A wait the CPU clock cannot see fails each caller, on the wall time alone.
+
+    Mutations: drop ``minimum_wall`` from ``PAIRED_STATISTICS``; make the caller ignore the gate (``over = []``).
+    """
+
+    verdicts = []
+    with pytest.raises(AssertionError):
+        _run_caller(caller, monkeypatch, tmp_path, WAITING_HEAD, verdicts)
+    assert verdicts and all(verdict == ["minimum_wall"] for verdict in verdicts), verdicts
+
+
+@pytest.mark.parametrize("caller", sorted(CALLERS))
+def test_more_work_in_most_calls_fails_every_paired_budget_on_the_cpu_time(monkeypatch, tmp_path, caller):
+    """Three times the work in six of ten calls fails each caller, though the smallest wall time is a quiet call's.
+
+    Mutations: drop ``median_cpu`` from ``PAIRED_STATISTICS``; give the smallest CPU time as ``median_cpu``.
+    """
+
+    verdicts = []
+    with pytest.raises(AssertionError):
+        _run_caller(caller, monkeypatch, tmp_path, WORKING_HEAD, verdicts)
+    assert verdicts and all(verdict == ["median_cpu"] for verdict in verdicts), verdicts

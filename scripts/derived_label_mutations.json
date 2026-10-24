@@ -4134,8 +4134,8 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "    if not head or not base or min(head) < min(READ_LIMIT, VISIBLE_ORIGINALS):",
           "after": "    if not head or not base:",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed",
-          "line": 242
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb",
+          "line": 244
         }
       ],
       "pytest": [
@@ -4150,8 +4150,8 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "    return len(set(head)) == len(set(base)) == 1 and head == base",
           "after": "    return True",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed",
-          "line": 247
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb",
+          "line": 249
         }
       ],
       "pytest": [
@@ -4163,11 +4163,11 @@
       "name": "budget-cpu-clock-gate",
       "edits": [
         {
-          "file": "tests/performance/test_label_round3_read_budget.py",
-          "before": "                for clock in (\"minimum_wall\", \"minimum_cpu\"):\n                    if over_merge_base(measurements[\"head\"][action][clock], measurements[\"merge_base\"][action][clock]):",
-          "after": "                for clock in (\"minimum_wall\",):\n                    if over_merge_base(measurements[\"head\"][action][clock], measurements[\"merge_base\"][action][clock]):",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed",
-          "line": 351
+          "file": "tests/performance/read_budget_gate.py",
+          "before": "PAIRED_STATISTICS = (\"median_cpu\", \"minimum_wall\")\n",
+          "after": "PAIRED_STATISTICS = (\"minimum_wall\",)\n",
+          "sha256": "d7a99bbd008dc1ccae42b8ccbc3f0165fc486d7ff6e5e70025c6ae8e1293aaed",
+          "line": 67
         }
       ],
       "pytest": [
@@ -4180,10 +4180,10 @@
       "edits": [
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
-          "before": "            for action in (\"pack\", \"recall\"):\n                for clock in (\"minimum_wall\", \"minimum_cpu\"):",
-          "after": "            for action in (\"pack\",):\n                for clock in (\"minimum_wall\", \"minimum_cpu\"):",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed",
-          "line": 350
+          "before": "            for action in (\"pack\", \"recall\"):\n                for name in paired_over_merge_base(",
+          "after": "            for action in (\"pack\",):\n                for name in paired_over_merge_base(",
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb",
+          "line": 351
         }
       ],
       "pytest": [
@@ -4198,7 +4198,7 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "                for action in (\"workspace\", \"dogfooding\"):\n                    if measurements[\"head\"][action][\"minimum_wall\"] > limit:",
           "after": "                for action in (\"workspace\",):\n                    if measurements[\"head\"][action][\"minimum_wall\"] > limit:",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed",
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb",
           "line": 364
         }
       ],
@@ -4214,7 +4214,7 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "    failures.extend(paired_budgets(\"sqlite\", location, USER, keys, case=case, source_count=source_count, repaired=repaired, assert_budget=False))\n    assert not failures, failures",
           "after": "    failures.extend(paired_budgets(\"sqlite\", location, USER, keys, case=case, source_count=source_count, repaired=repaired, assert_budget=False))",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed",
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb",
           "line": 395
         }
       ],
@@ -4262,8 +4262,8 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "        metadata = {\"project_scope\": [], \"project_floor\": [], \"discovered_by\": \"vnext_project_open_loop_extraction\",\n                    **unique_metadata(rng, i)}",
           "after": "        metadata = {\"project_scope\": [], \"project_floor\": [], \"discovered_by\": \"vnext_project_open_loop_extraction\",\n                    \"observation_index\": i}",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed",
-          "line": 144
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb",
+          "line": 146
         }
       ],
       "pytest": [
@@ -4278,8 +4278,8 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "                        \"candidate_memory_ids\": [rng.choice(weekly) for _ in range(2)],",
           "after": "                        \"candidate_memory_ids\": [],",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed",
-          "line": 162
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb",
+          "line": 164
         }
       ],
       "pytest": [
@@ -4294,8 +4294,8 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "VISIBLE_ORIGINALS = 12",
           "after": "VISIBLE_ORIGINALS = 0",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed",
-          "line": 32
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb",
+          "line": 34
         }
       ],
       "pytest": [
@@ -12388,10 +12388,10 @@
       "edits": [
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
-          "line": 36,
+          "line": 38,
           "before": "DEFAULT_ABSOLUTE_LIMIT_SECONDS = 1.0\n",
           "after": "DEFAULT_ABSOLUTE_LIMIT_SECONDS = 1.5\n",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed"
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb"
         }
       ],
       "pytest": [
@@ -12404,10 +12404,10 @@
       "edits": [
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
-          "line": 49,
+          "line": 51,
           "before": "    limit = float(raw)\n",
           "after": "    limit = DEFAULT_ABSOLUTE_LIMIT_SECONDS\n",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed"
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb"
         }
       ],
       "pytest": [
@@ -12420,10 +12420,10 @@
       "edits": [
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
-          "line": 50,
+          "line": 52,
           "before": "    if not (math.isfinite(limit) and limit > 0):\n",
           "after": "    if False:\n",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed"
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb"
         }
       ],
       "pytest": [
@@ -12439,7 +12439,7 @@
           "line": 365,
           "before": "                    if measurements[\"head\"][action][\"minimum_wall\"] > limit:\n",
           "after": "                    if measurements[\"head\"][action][\"minimum_wall\"] > 1:\n",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed"
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb"
         }
       ],
       "pytest": [
@@ -17503,8 +17503,8 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "MERGE_BASE_FACTOR = 1.25\n",
           "after": "MERGE_BASE_FACTOR = 100.0\n",
-          "sha256": "a8d7cb1800e15e07e8ddee491d39545290c6d997cf96d532b30ddd5d84c69dcc",
-          "line": 37
+          "sha256": "d7a99bbd008dc1ccae42b8ccbc3f0165fc486d7ff6e5e70025c6ae8e1293aaed",
+          "line": 63
         }
       ],
       "pytest": [
@@ -17519,8 +17519,8 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "    return head > MERGE_BASE_FACTOR * base + MERGE_BASE_SLACK_SECONDS\n",
           "after": "    return True\n",
-          "sha256": "a8d7cb1800e15e07e8ddee491d39545290c6d997cf96d532b30ddd5d84c69dcc",
-          "line": 63
+          "sha256": "d7a99bbd008dc1ccae42b8ccbc3f0165fc486d7ff6e5e70025c6ae8e1293aaed",
+          "line": 92
         }
       ],
       "pytest": [
@@ -17535,8 +17535,8 @@
           "file": "tests/performance/test_label_round2_read_budget.py",
           "before": "            _profile_actions(processes, actions)\n",
           "after": "\n",
-          "sha256": "8f95e7f843f7d2437da3b963caf18051ebdf5b60cafc479c26f9eea988974ff2",
-          "line": 164
+          "sha256": "df3dff2768a20137499370b08f7f6174412916106aa92633b1bd531a33045811",
+          "line": 165
         }
       ],
       "pytest": [
@@ -17583,8 +17583,8 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "    actions = (\"pack\", \"recall\")\n    if backend == \"postgres\" and os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n        actions = (\"pack\", \"recall\", \"workspace\", \"dogfooding\")\n",
           "after": "    actions = (\"pack\", \"recall\", \"workspace\", \"dogfooding\") if backend == \"postgres\" else (\"pack\", \"recall\")\n",
-          "sha256": "474d798e7b0eadc3db8aeb14f8f2971a67e26ed64c661d40bb4cf8c364594aed",
-          "line": 306
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb",
+          "line": 308
         }
       ],
       "pytest": [
@@ -17615,8 +17615,8 @@
           "file": "tests/performance/test_label_round2_read_budget.py",
           "before": "    actions = (\"pack\", \"recall\")\n    if backend == \"postgres\" and os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n        actions = (\"pack\", \"recall\", \"workspace\", \"dogfooding\")\n",
           "after": "    actions = (\"pack\", \"recall\", \"workspace\", \"dogfooding\") if backend == \"postgres\" else (\"pack\", \"recall\")\n",
-          "sha256": "8f95e7f843f7d2437da3b963caf18051ebdf5b60cafc479c26f9eea988974ff2",
-          "line": 157
+          "sha256": "df3dff2768a20137499370b08f7f6174412916106aa92633b1bd531a33045811",
+          "line": 158
         }
       ],
       "pytest": [
@@ -17631,8 +17631,8 @@
           "file": "tests/performance/test_label_round2_read_budget.py",
           "before": "                assert measured[\"head\"][action][\"minimum_wall\"] <= limit, (action, measured[\"head\"])\n",
           "after": "                assert measured[\"head\"][action][\"minimum_wall\"] <= 1, (action, measured[\"head\"])\n",
-          "sha256": "8f95e7f843f7d2437da3b963caf18051ebdf5b60cafc479c26f9eea988974ff2",
-          "line": 200
+          "sha256": "df3dff2768a20137499370b08f7f6174412916106aa92633b1bd531a33045811",
+          "line": 199
         }
       ],
       "pytest": [
@@ -17647,8 +17647,8 @@
           "file": "tests/performance/test_label_round2_read_budget.py",
           "before": "            for action in (\"workspace\", \"dogfooding\"):\n",
           "after": "            for action in (\"workspace\",):\n",
-          "sha256": "8f95e7f843f7d2437da3b963caf18051ebdf5b60cafc479c26f9eea988974ff2",
-          "line": 199
+          "sha256": "df3dff2768a20137499370b08f7f6174412916106aa92633b1bd531a33045811",
+          "line": 198
         }
       ],
       "pytest": [
@@ -17663,8 +17663,8 @@
           "file": "tests/performance/test_label_round2_read_budget.py",
           "before": "            if os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n                assert min(walls) <= 1 and min(cpus) <= 1\n",
           "after": "            assert min(walls) <= 1 and min(cpus) <= 1\n",
-          "sha256": "8f95e7f843f7d2437da3b963caf18051ebdf5b60cafc479c26f9eea988974ff2",
-          "line": 233
+          "sha256": "df3dff2768a20137499370b08f7f6174412916106aa92633b1bd531a33045811",
+          "line": 232
         }
       ],
       "pytest": [
@@ -17679,8 +17679,8 @@
           "file": "tests/performance/test_label_round2_read_budget.py",
           "before": "            if os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n                assert min(walls) <= 1 and min(cpus) <= 1\n",
           "after": "",
-          "sha256": "8f95e7f843f7d2437da3b963caf18051ebdf5b60cafc479c26f9eea988974ff2",
-          "line": 233
+          "sha256": "df3dff2768a20137499370b08f7f6174412916106aa92633b1bd531a33045811",
+          "line": 232
         }
       ],
       "pytest": [
@@ -17695,8 +17695,8 @@
           "file": "tests/integration/test_label_read_handoff_budget_postgres.py",
           "before": "    actions = (\"pack\", \"recall\")\n    if os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n        actions = (\"pack\", \"recall\", \"workspace\", \"dogfooding\")\n",
           "after": "    actions = (\"pack\", \"recall\", \"workspace\", \"dogfooding\")\n",
-          "sha256": "87776a025c5a2c5f2ecb7b2cd7fd05e72e61b0cd3addb5bf4a89e115cdbb2bc4",
-          "line": 110
+          "sha256": "938ae521bd1489a45646e6c5559f49b7f5fa9be6856b4d6e88ce7084f300d050",
+          "line": 116
         }
       ],
       "pytest": [
@@ -17711,8 +17711,8 @@
           "file": "tests/integration/test_label_read_handoff_budget_postgres.py",
           "before": "            assert head[action][\"median\"] <= limit, (action, head[action])\n",
           "after": "            assert head[action][\"median\"] <= 1, (action, head[action])\n",
-          "sha256": "87776a025c5a2c5f2ecb7b2cd7fd05e72e61b0cd3addb5bf4a89e115cdbb2bc4",
-          "line": 150
+          "sha256": "938ae521bd1489a45646e6c5559f49b7f5fa9be6856b4d6e88ce7084f300d050",
+          "line": 157
         }
       ],
       "pytest": [
@@ -17727,8 +17727,8 @@
           "file": "tests/integration/test_label_read_handoff_budget_postgres.py",
           "before": "        for action in (\"workspace\", \"dogfooding\"):\n",
           "after": "        for action in (\"workspace\",):\n",
-          "sha256": "87776a025c5a2c5f2ecb7b2cd7fd05e72e61b0cd3addb5bf4a89e115cdbb2bc4",
-          "line": 149
+          "sha256": "938ae521bd1489a45646e6c5559f49b7f5fa9be6856b4d6e88ce7084f300d050",
+          "line": 156
         }
       ],
       "pytest": [
@@ -17743,7 +17743,7 @@
           "file": "tests/performance/test_label_read_handoff_budget.py",
           "before": "        if os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n            assert counted <= 1.0, counted\n",
           "after": "        assert counted <= 1.0, counted\n",
-          "sha256": "204a76bdb35af76d68568a6cfbc7c4d1b59513d628a826b0fcdf6bdb926abfb7",
+          "sha256": "a7f72b2166573597907e3858006ffc6869119a3f150f10d23e1a94511d104ebe",
           "line": 66
         }
       ],
@@ -17759,7 +17759,7 @@
           "file": "tests/performance/test_label_read_handoff_budget.py",
           "before": "        if os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n            assert counted <= 1.0, counted\n",
           "after": "",
-          "sha256": "204a76bdb35af76d68568a6cfbc7c4d1b59513d628a826b0fcdf6bdb926abfb7",
+          "sha256": "a7f72b2166573597907e3858006ffc6869119a3f150f10d23e1a94511d104ebe",
           "line": 66
         }
       ],
@@ -17775,7 +17775,7 @@
           "file": "tests/performance/test_label_read_handoff_budget.py",
           "before": "        if os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n            assert elapsed <= 0.15, elapsed\n",
           "after": "        assert elapsed <= 0.15, elapsed\n",
-          "sha256": "204a76bdb35af76d68568a6cfbc7c4d1b59513d628a826b0fcdf6bdb926abfb7",
+          "sha256": "a7f72b2166573597907e3858006ffc6869119a3f150f10d23e1a94511d104ebe",
           "line": 73
         }
       ],
@@ -17791,7 +17791,7 @@
           "file": "tests/performance/test_label_read_handoff_budget.py",
           "before": "        if os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n            assert elapsed <= 0.15, elapsed\n",
           "after": "",
-          "sha256": "204a76bdb35af76d68568a6cfbc7c4d1b59513d628a826b0fcdf6bdb926abfb7",
+          "sha256": "a7f72b2166573597907e3858006ffc6869119a3f150f10d23e1a94511d104ebe",
           "line": 73
         }
       ],
@@ -17807,8 +17807,8 @@
           "file": "tests/integration/test_label_read_handoff_budget_postgres.py",
           "before": "        for action in (\"pack\", \"recall\"):\n            assert head[action][\"median\"] <= .15, (action, head)\n",
           "after": "",
-          "sha256": "87776a025c5a2c5f2ecb7b2cd7fd05e72e61b0cd3addb5bf4a89e115cdbb2bc4",
-          "line": 144
+          "sha256": "938ae521bd1489a45646e6c5559f49b7f5fa9be6856b4d6e88ce7084f300d050",
+          "line": 151
         }
       ],
       "pytest": [
@@ -17823,8 +17823,8 @@
           "file": "tests/performance/test_label_read_handoff_budget.py",
           "before": "        assert head[\"pack\"][\"median\"] <= .15, head\n        assert head[\"recall\"][\"median\"] <= .15, head\n",
           "after": "",
-          "sha256": "204a76bdb35af76d68568a6cfbc7c4d1b59513d628a826b0fcdf6bdb926abfb7",
-          "line": 111
+          "sha256": "a7f72b2166573597907e3858006ffc6869119a3f150f10d23e1a94511d104ebe",
+          "line": 112
         }
       ],
       "pytest": [
@@ -20574,6 +20574,182 @@
         "tests/unit/test_credential_marker_lengths.py::test_a_real_shaped_token_is_still_caught"
       ],
       "expected_failure": "test_a_real_shaped_token_is_still_caught"
+    },
+    {
+      "name": "handoff-read-budget-wall-median",
+      "edits": [
+        {
+          "file": "tests/performance/read_budget_gate.py",
+          "before": "        \"minimum_wall\": min(walls),\n",
+          "after": "        \"minimum_wall\": statistics.median(walls),\n",
+          "sha256": "d7a99bbd008dc1ccae42b8ccbc3f0165fc486d7ff6e5e70025c6ae8e1293aaed",
+          "line": 101
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_merge_base_gate.py::test_the_noise_that_failed_the_wall_median_passes_the_paired_gate"
+      ],
+      "expected_failure": "test_the_noise_that_failed_the_wall_median_passes_the_paired_gate"
+    },
+    {
+      "name": "handoff-read-budget-smallest-cpu",
+      "edits": [
+        {
+          "file": "tests/performance/read_budget_gate.py",
+          "before": "        \"median_cpu\": statistics.median(cpus),\n",
+          "after": "        \"median_cpu\": min(cpus),\n",
+          "sha256": "d7a99bbd008dc1ccae42b8ccbc3f0165fc486d7ff6e5e70025c6ae8e1293aaed",
+          "line": 102
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_merge_base_gate.py::test_more_work_fails_on_the_cpu_time_also_when_some_calls_are_quick"
+      ],
+      "expected_failure": "test_more_work_fails_on_the_cpu_time_also_when_some_calls_are_quick"
+    },
+    {
+      "name": "handoff-read-budget-no-wall-clock",
+      "edits": [
+        {
+          "file": "tests/performance/read_budget_gate.py",
+          "before": "PAIRED_STATISTICS = (\"median_cpu\", \"minimum_wall\")\n",
+          "after": "PAIRED_STATISTICS = (\"median_cpu\",)\n",
+          "sha256": "d7a99bbd008dc1ccae42b8ccbc3f0165fc486d7ff6e5e70025c6ae8e1293aaed",
+          "line": 67
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_merge_base_gate.py::test_a_wait_in_every_call_fails_on_the_wall_time"
+      ],
+      "expected_failure": "test_a_wait_in_every_call_fails_on_the_wall_time"
+    },
+    {
+      "name": "handoff-read-budget-no-cpu-clock",
+      "edits": [
+        {
+          "file": "tests/performance/read_budget_gate.py",
+          "before": "PAIRED_STATISTICS = (\"median_cpu\", \"minimum_wall\")\n",
+          "after": "PAIRED_STATISTICS = (\"minimum_wall\",)\n",
+          "sha256": "d7a99bbd008dc1ccae42b8ccbc3f0165fc486d7ff6e5e70025c6ae8e1293aaed",
+          "line": 67
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_merge_base_gate.py::test_more_work_fails_on_the_cpu_time_also_when_some_calls_are_quick"
+      ],
+      "expected_failure": "test_more_work_fails_on_the_cpu_time_also_when_some_calls_are_quick"
+    },
+    {
+      "name": "handoff-read-budget-five-samples",
+      "edits": [
+        {
+          "file": "tests/performance/read_budget_gate.py",
+          "before": "PAIRED_SAMPLES = 10\n",
+          "after": "PAIRED_SAMPLES = 5\n",
+          "sha256": "d7a99bbd008dc1ccae42b8ccbc3f0165fc486d7ff6e5e70025c6ae8e1293aaed",
+          "line": 66
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_absolute_gate.py::test_a_head_with_noisy_wall_times_passes_every_paired_budget"
+      ],
+      "expected_failure": "test_a_head_with_noisy_wall_times_passes_every_paired_budget"
+    },
+    {
+      "name": "handoff-sqlite-read-budget-ignores-the-gate",
+      "edits": [
+        {
+          "file": "tests/performance/test_label_read_handoff_budget.py",
+          "before": "            over = paired_over_merge_base(head[action], measured[\"merge_base\"][action])\n",
+          "after": "            over = []\n",
+          "sha256": "a7f72b2166573597907e3858006ffc6869119a3f150f10d23e1a94511d104ebe",
+          "line": 103
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_absolute_gate.py::test_a_head_that_waits_in_every_call_fails_every_paired_budget_on_the_wall_time"
+      ],
+      "expected_failure": "test_a_head_that_waits_in_every_call_fails_every_paired_budget_on_the_wall_time"
+    },
+    {
+      "name": "handoff-postgres-read-budget-ignores-the-gate",
+      "edits": [
+        {
+          "file": "tests/integration/test_label_read_handoff_budget_postgres.py",
+          "before": "            over = paired_over_merge_base(head[action], measured[\"merge_base\"][action])\n",
+          "after": "            over = []\n",
+          "sha256": "938ae521bd1489a45646e6c5559f49b7f5fa9be6856b4d6e88ce7084f300d050",
+          "line": 142
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_absolute_gate.py::test_a_head_that_waits_in_every_call_fails_every_paired_budget_on_the_wall_time"
+      ],
+      "expected_failure": "test_a_head_that_waits_in_every_call_fails_every_paired_budget_on_the_wall_time"
+    },
+    {
+      "name": "round2-read-budget-ignores-the-gate",
+      "edits": [
+        {
+          "file": "tests/performance/test_label_round2_read_budget.py",
+          "before": "            over = paired_over_merge_base(measured[\"head\"][action], measured[\"merge_base\"][action])\n",
+          "after": "            over = []\n",
+          "sha256": "df3dff2768a20137499370b08f7f6174412916106aa92633b1bd531a33045811",
+          "line": 193
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_absolute_gate.py::test_a_head_that_waits_in_every_call_fails_every_paired_budget_on_the_wall_time"
+      ],
+      "expected_failure": "test_a_head_that_waits_in_every_call_fails_every_paired_budget_on_the_wall_time"
+    },
+    {
+      "name": "round3-read-budget-ignores-the-gate",
+      "edits": [
+        {
+          "file": "tests/performance/test_label_round3_read_budget.py",
+          "before": "                for name in paired_over_merge_base(measurements[\"head\"][action], measurements[\"merge_base\"][action]):\n",
+          "after": "                for name in []:\n",
+          "sha256": "29b13fe92e7dae398a6139c3a75e4019a1cb8257eebff489085a7a849150e3cb",
+          "line": 352
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_round3_budget_profile_protocol.py::test_each_clock_of_pack_and_recall_has_its_own_relative_gate"
+      ],
+      "expected_failure": "test_each_clock_of_pack_and_recall_has_its_own_relative_gate"
+    },
+    {
+      "name": "resume-read-budget-ignores-the-gate",
+      "edits": [
+        {
+          "file": "tests/performance/test_resume_hidden_rows_budget.py",
+          "before": "            for name in paired_over_merge_base(measured[\"head\"], measured[\"merge_base\"]):\n",
+          "after": "            for name in []:\n",
+          "sha256": "6aa9dcd5888b4596b2cdcddeef615d44beda86ccbb9849a9fc6431b610df849d",
+          "line": 171
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_absolute_gate.py::test_a_head_that_waits_in_every_call_fails_every_paired_budget_on_the_wall_time"
+      ],
+      "expected_failure": "test_a_head_that_waits_in_every_call_fails_every_paired_budget_on_the_wall_time"
+    },
+    {
+      "name": "vector-refill-read-budget-ignores-the-gate",
+      "edits": [
+        {
+          "file": "tests/performance/test_resume_hidden_rows_budget.py",
+          "before": "    over = paired_over_merge_base(head, base)\n",
+          "after": "    over = []\n",
+          "sha256": "6aa9dcd5888b4596b2cdcddeef615d44beda86ccbb9849a9fc6431b610df849d",
+          "line": 280
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_read_budget_absolute_gate.py::test_a_head_that_waits_in_every_call_fails_every_paired_budget_on_the_wall_time"
+      ],
+      "expected_failure": "test_a_head_that_waits_in_every_call_fails_every_paired_budget_on_the_wall_time"
     },
     {
       "name": "chunk-vectors-credential-skip-removed",

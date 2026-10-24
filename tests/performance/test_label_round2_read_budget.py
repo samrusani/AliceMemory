@@ -17,9 +17,11 @@ from alicebot_api.vnext_label_repair import label_gap_counts
 from alicebot_api.vnext_label_guard import LabelGuard, label_read_request
 from alicebot_api.vnext_agent_control import ALL_SENSITIVITY, DEFAULT_AGENT_SENSITIVITY
 from tests.performance.read_budget_gate import (
+    PAIRED_SAMPLES,
     append_evidence,
     merge_base_checkout,
-    over_merge_base,
+    paired_over_merge_base,
+    paired_summary,
     prelabels_action,
     prelabels_checkout,
 )
@@ -122,7 +124,7 @@ def _samples(process, action, count):
     return {"minimum_wall": min(walls), "minimum_cpu": min(cpus), "wall": walls, "cpu": cpus}
 
 
-def _interleaved(base_process, head_process, actions, samples=5):
+def _interleaved(base_process, head_process, actions, samples=PAIRED_SAMPLES):
     measured = {"merge_base": {}, "head": {}}
     for action in actions:
         for process in (base_process, head_process):
@@ -140,8 +142,7 @@ def _interleaved(base_process, head_process, actions, samples=5):
                 arrays[index]["cpu"].append(result["cpu"])
         for index, revision in enumerate(("merge_base", "head")):
             measured[revision][action] = {
-                "minimum_wall": min(arrays[index]["wall"]),
-                "minimum_cpu": min(arrays[index]["cpu"]),
+                **paired_summary(arrays[index]["wall"], arrays[index]["cpu"]),
                 "wall": arrays[index]["wall"],
                 "cpu": arrays[index]["cpu"],
             }
@@ -189,10 +190,8 @@ def assert_budgets(backend, location, user, keys):
         print(json.dumps(row), flush=True)
         append_evidence(row)
         for action in ("pack", "recall"):
-            for clock in ("minimum_wall", "minimum_cpu"):
-                assert not over_merge_base(measured["head"][action][clock], measured["merge_base"][action][clock]), (
-                    action, clock, measured["head"], measured["merge_base"],
-                )
+            over = paired_over_merge_base(measured["head"][action], measured["merge_base"][action])
+            assert not over, (action, over, measured["head"], measured["merge_base"])
         # The screen wall limit is absolute_limit_seconds(), and only when the absolute gate is on.
         if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
             limit = absolute_limit_seconds()
