@@ -94,6 +94,7 @@ def read_snapshot(store: SQLiteVNextStore) -> Iterator[None]:
         yield
     finally:
         if began and conn.in_transaction:
+            # label state: none, this block only read, so it wrote no label that the request's label state could hold.
             conn.rollback()
 
 
