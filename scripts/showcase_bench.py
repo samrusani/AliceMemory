@@ -1714,7 +1714,7 @@ def keyed_section(keyed: Mapping[str, Any] | None, rows: Sequence[Mapping[str, A
         reason = str((keyed or {}).get("reason") or "")
         if not reason:
             reason = (
-                "The tower names the disposable local PostgreSQL. "
+                "The operator names the disposable local PostgreSQL. "
                 "None is configured, and no Docker image was pulled."
             )
         return "Keyed PostgreSQL permission path: not run. " + reason + " No leak rate is reported for that path." + sqlite_bit

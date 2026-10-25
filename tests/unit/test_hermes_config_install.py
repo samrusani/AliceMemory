@@ -145,7 +145,7 @@ def _single_insertion(before: str, after: str) -> str:
 def _backups(config: Path, data_dir: Path | None = None) -> list[Path]:
     """Backups of config.yaml: in <data dir>/backups/host-configs, and never beside it.
 
-    Since review round 4 (tower decision) every backup goes to one 0700
+    Since review round 4 (maintainer decision) every backup goes to one 0700
     directory under the data dir. Without ``data_dir`` this lists what
     sits next to the file, which must stay empty.
     """

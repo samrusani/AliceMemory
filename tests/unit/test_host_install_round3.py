@@ -1,7 +1,7 @@
 """alice-memory install on JSON hosts: review round 3 findings, 2026-09-23.
 
 Why this exists. The round-3 review of the S4 install work found, and the
-tower reproduced:
+maintainers reproduced:
 
 - 1: the data dir was read from env ALICE_MEMORY_DATA_DIR when args had
   none, but ``alice-memory mcp`` never reads that env, so the hook moved to
@@ -418,7 +418,7 @@ def test_deeply_nested_json_refuses_only_its_host(tmp_path: Path, capsys) -> Non
 def test_symlinked_host_files_are_written_through(tmp_path: Path, capsys) -> None:
     """The link stays a link; the target is edited; the backup is in the data dir.
 
-    Since review round 4 (tower decision) no backup goes next to the target,
+    Since review round 4 (maintainer decision) no backup goes next to the target,
     which can sit in a dotfiles git repo. Mutation: write to the link path.
     This test fails.
     """

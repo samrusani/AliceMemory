@@ -6,7 +6,7 @@ stored them. Dotted values under secret names (ya29., Discord, Mapbox sk.,
 DB_PASSWORD=Winter.Is.Coming2024), Telegram bot tokens, xxd hex dumps of key
 files, unarmored DER under PRIVATE_KEY_DATA and its siblings, numeric prose
 passwords, primary and routing keys, hex AES keys, and Django SECRET_KEY
-values with symbols. The tower confirmed the class is structural: v0.16.0
+values with symbols. A maintainer confirmed the class is structural: v0.16.0
 also refused PASSWORD_DB=, TOKEN_GITHUB=, API_KEY_RAW=, GITHUB_TOKEN_WRITE=
 and VAULT_TOKEN=hvs., and the branch stored all five.
 
@@ -562,7 +562,7 @@ def test_round6_the_generator_makes_the_three_shapes() -> None:
     assert sum(1 for text in texts if text.count("eyJ") >= 2) > 5
 
 
-# Reversed word order and trailing segments: the class the tower confirmed.
+# Reversed word order and trailing segments: the class a maintainer confirmed.
 _NAME_ORDER_CASES = (
     "PASSWORD_DB", "TOKEN_GITHUB", "API_KEY_RAW", "GITHUB_TOKEN_WRITE", "VAULT_TOKEN", "SLACK_TOKEN_BOT",
     "KEY_DATA", "SECRET_GITHUB_DEPLOY", "PRIVATE_KEY_MATERIAL", "apikey-raw", "token-github-write",

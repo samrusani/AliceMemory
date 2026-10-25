@@ -236,7 +236,7 @@ def test_a_hook_with_backslash_escapes_keeps_its_own_command(
 
 
 def test_a_dollar_home_hook_does_not_move_a_new_entry_under_home(tmp_path: Path, capsys) -> None:
-    """The tower's case: a hand-written ``--data-dir $HOME/.alice`` hook, no entry yet.
+    """A maintainer's case: a hand-written ``--data-dir $HOME/.alice`` hook, no entry yet.
 
     Round 3 wrote the new entry on <home>/$HOME/.alice. Now the entry takes
     ~/.alice with a warning, and the hook keeps its own text. Mutation:

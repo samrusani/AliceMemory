@@ -1,6 +1,6 @@
 """The 28 held-out records the design round released as regressions (S4.4 round 2, T8).
 
-Copied exactly, with their ids, fields and labels, from the tower's
+Copied exactly, with their ids, fields and labels, from the maintainers'
 heldout_regressions_28.jsonl. Every other held-out record stays held out.
 The credential records carry synthetic keys in the shape of real ones (Stripe
 live and test keys, connection strings), so the file is stored compressed and

@@ -529,7 +529,7 @@ def _reference_hit_flags(text: str, facts: list[bench.Fact], budget: int) -> tup
 def test_the_repo_scorer_and_an_independent_scorer_agree_on_committed_outputs(tmp_path: Path) -> None:
     """TH12. Two implementations, one answer, on outputs that sit in the repository.
 
-    The repository scorer and the stdlib scorer the tower keeps are separate programs, and a
+    The repository scorer and the stdlib scorer the operator keeps are separate programs, and a
     reviewer reading a scorer that "agrees" has no evidence. This runs the repository scorer against
     a second implementation (above) on the committed outputs, on the same outputs with each question
     scored against its neighbour's, and on hand-made edge cases, at several budgets.
