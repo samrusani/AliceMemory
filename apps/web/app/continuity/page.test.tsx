@@ -987,4 +987,110 @@ describe("ContinuityPage", () => {
     expect(disputed).toHaveTextContent("the disputed lantern rule");
     expect(screen.queryByText(/gap/i)).not.toBeInTheDocument();
   });
+
+  function configureLiveApi() {
+    getApiConfigMock.mockReturnValue({
+      apiBaseUrl: "https://api.example.com",
+      userId: "user-1",
+      defaultThreadId: "",
+      defaultToolId: "",
+    });
+    hasLiveApiConfigMock.mockReturnValue(true);
+    for (const mock of [
+      listContinuityCapturesMock,
+      queryContinuityRecallMock,
+      getContinuityResumptionBriefMock,
+      getContinuityOpenLoopDashboardMock,
+      getContinuityDailyBriefMock,
+      getContinuityWeeklyReviewMock,
+      getThreadHealthDashboardMock,
+      listContinuityReviewQueueMock,
+    ]) {
+      mock.mockRejectedValue(new Error("offline"));
+    }
+  }
+
+  function step(id: string, change: string) {
+    return {
+      id,
+      kind: "memory",
+      chain: "memory-a",
+      date: "2026-03-01",
+      change,
+      reason: null,
+      replaced: null,
+      disagrees_with: null,
+      sources: [],
+      author: "showcase-sales",
+      review_state: "active",
+    };
+  }
+
+  it("offers the topic box and asks nothing until a topic is given", async () => {
+    configureLiveApi();
+    render(await ContinuityPage({ searchParams: Promise.resolve({}) }));
+    const box = screen.getByLabelText("Topic");
+    expect(box).toHaveValue("");
+    expect(box).toHaveAttribute("name", "what_changed");
+    const form = box.closest("form");
+    expect(form).not.toBeNull();
+    expect(form).toHaveAttribute("method", "get");
+    expect(form).toHaveAttribute("action", "/continuity");
+    expect(screen.getByRole("button", { name: "Show what changed" })).toBeInTheDocument();
+    expect(postWhatChangedMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Upcoming" })).not.toBeInTheDocument();
+  });
+
+  it("shows nothing for a step the route did not return", async () => {
+    configureLiveApi();
+    postWhatChangedMock.mockResolvedValue({
+      notice: "This covers the recorded decisions the caller may read. It is not a company-wide statement.",
+      topic: "lantern policy",
+      chains: [
+        {
+          start: "memory-a",
+          current: step("memory-a", "the lantern stays lit"),
+          upcoming: ["memory-hidden-up"],
+          disputed: ["memory-hidden-disputed"],
+          history: [step("memory-a", "the lantern stays lit")],
+        },
+      ],
+    });
+    const { container } = render(
+      await ContinuityPage({ searchParams: Promise.resolve({ what_changed: "lantern policy" }) }),
+    );
+    const pageText = container.textContent ?? "";
+    expect(pageText).not.toContain("memory-hidden-up");
+    expect(pageText).not.toContain("memory-hidden-disputed");
+    expect(screen.getByText("No upcoming step.")).toBeInTheDocument();
+    expect(screen.getByText("No disputed step.")).toBeInTheDocument();
+    const answer = screen.getByText(/This covers the recorded decisions the caller may read/).parentElement;
+    expect(answer).not.toBeNull();
+    expect(answer?.textContent ?? "").not.toMatch(/hidden|withheld|omitted|gap|\d+ (more|other|further|step)/i);
+    expect(screen.getAllByText(/the lantern stays lit/).length).toBeGreaterThan(0);
+  });
+
+  it("says no recorded decision history was found when the route finds none", async () => {
+    configureLiveApi();
+    postWhatChangedMock.mockResolvedValue({
+      notice: "This covers the recorded decisions the caller may read. It is not a company-wide statement.",
+      topic: "lantern policy",
+      chains: [],
+      message: "No recorded decision history was found",
+      search: "alice_recall",
+    });
+    render(await ContinuityPage({ searchParams: Promise.resolve({ what_changed: "lantern policy" }) }));
+    expect(screen.getByText(/No recorded decision history was found/)).toBeInTheDocument();
+    expect(screen.getByText(/Search with alice_recall/)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Current" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "History" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the topic box and shows the refusal when the route refuses the topic", async () => {
+    configureLiveApi();
+    postWhatChangedMock.mockRejectedValue(new Error("The topic is too long"));
+    render(await ContinuityPage({ searchParams: Promise.resolve({ what_changed: "lantern policy" }) }));
+    expect(screen.getByText("The topic is too long")).toBeInTheDocument();
+    expect(screen.getByLabelText("Topic")).toHaveValue("lantern policy");
+  });
 });

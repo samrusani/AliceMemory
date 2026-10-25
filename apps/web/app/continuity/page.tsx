@@ -136,6 +136,12 @@ function WhatChangedChain({ chain }: { chain: WhatChangedAnswer["chains"][number
   );
 }
 
+type WhatChangedStepData = WhatChangedAnswer["chains"][number]["history"][number];
+
+// Upcoming and disputed name steps by id. A step is shown only when the same
+// answer carries it in its history. An id with no step in the history is left
+// out, and it is not shown as text, so the page never prints an id of a step
+// the route did not return.
 function WhatChangedIdList({
   chain,
   ids,
@@ -145,22 +151,24 @@ function WhatChangedIdList({
   ids: string[];
   empty: string;
 }) {
-  if (ids.length === 0) {
+  const steps = ids
+    .map((id) => chain.history.find((item) => item.id === id))
+    .filter((step): step is WhatChangedStepData => step !== undefined);
+  if (steps.length === 0) {
     return <p>{empty}</p>;
   }
   return (
     <ul>
-      {ids.map((id) => {
-        const step = chain.history.find((item) => item.id === id);
-        return (
-          <li key={id}>{step ? <WhatChangedStepView step={step} /> : id}</li>
-        );
-      })}
+      {steps.map((step) => (
+        <li key={step.id}>
+          <WhatChangedStepView step={step} />
+        </li>
+      ))}
     </ul>
   );
 }
 
-function WhatChangedStepView({ step }: { step: WhatChangedAnswer["chains"][number]["history"][number] }) {
+function WhatChangedStepView({ step }: { step: WhatChangedStepData }) {
   return (
     <div>
       <p>
