@@ -2,7 +2,7 @@
 
 Why this file exists (2026-09-23). The independent adversary review of
 8e00cc5 found two regressions against v0.16.0 at the commit door, and the
-tower reproduced both with its own throwaway keys. Round 2 dropped the
+maintainers reproduced both with their own throwaway keys. Round 2 dropped the
 dashed armor-line refusal and read a header only with a key body after it,
 so real keys behind "> " or "# ", double-escaped JSON, a JSON array of lines
 and <br>-joined lines all passed. And base64 was decoded only in tokens of

@@ -674,7 +674,7 @@ def _armor(kind: str, body: str | None = None) -> str:
     ],
 )
 def test_round3_the_dashed_armor_line_is_refused_on_its_own(text: str) -> None:
-    """S4.4 round 3 (tower ruling, 2026-09-23): for private key material,
+    """S4.4 round 3 (maintainer ruling, 2026-09-23): for private key material,
     recall wins over precision. Round 2 read a header only with a key body
     after it, and the adversary review passed real keys behind "> " and
     "# ", double-escaped, as a JSON array of lines and joined with <br>. The

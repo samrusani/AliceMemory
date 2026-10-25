@@ -2471,7 +2471,7 @@ Prepare open-source launch.
 
 ## 28. Agent Build Instructions
 
-## 28.1 Control Tower Agent
+## 28.1 Coordinator Agent
 
 Responsibilities:
 
@@ -2489,7 +2489,7 @@ Responsibilities:
 - Ensure clean migrations.
 - Run tests/lint/typecheck.
 - Commit and prepare PR summary.
-- Do not merge unless Control Tower gives `merge_approved`.
+- Do not merge unless the Coordinator Agent gives `merge_approved`.
 
 ## 28.3 Builder Agent
 

@@ -139,10 +139,10 @@ def test_the_thresholds_are_the_ones_the_spec_locks() -> None:
     assert counts["baseline"]["judge_calls"] == counts["candidate"]["judge_calls"] == 184
 
 
-def test_the_hash_fields_are_filled_by_the_tower_or_empty_and_say_so() -> None:
+def test_the_hash_fields_are_filled_by_the_operator_or_empty_and_say_so() -> None:
     """The scorer and question-set hashes are filled, well formed, and dated; the prompt hashes stay empty until filled.
 
-    The tower fills each field before the run that needs it and records when and from what in the
+    The operator fills each field before the run that needs it and records when and from what in the
     comment. A filled field must be a sha256 (64 lowercase hex characters); an unfilled one must be
     empty, never a placeholder.
 
@@ -153,7 +153,7 @@ def test_the_hash_fields_are_filled_by_the_tower_or_empty_and_say_so() -> None:
     hashes = _thresholds()["hashes"]
     assert isinstance(hashes, dict)
     comment = hashes["_comment"]
-    assert "tower fills each field" in comment
+    assert "operator fills each field" in comment
     assert "Filled 2026-10-03, before the first held-out run" in comment
     sha256 = re.compile(r"[0-9a-f]{64}")
     assert sha256.fullmatch(hashes["scorer_sha256"])
