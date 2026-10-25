@@ -804,6 +804,10 @@ def ingest_vnext_agent_output(
                 target_id="agent_output",
                 write_policy="proposal_only" if request.propose_memory else None,
             )
+            # A blocked decision ends the request before the service writes a source or an artifact. It is returned
+            # inside the connection, as the other write routes return it, so the policy events of the refusal commit.
+            if decision.decision == "blocked":
+                return _vnext_permission_response(decision)
             ingest_payload = request.model_dump(mode="json")
             ingest_payload["project_scope"] = list(decision.effective_project_scope)
             result = VNextConnectorService(store, defer_embeddings=True).ingest_agent_output(
@@ -823,7 +827,9 @@ def ingest_vnext_agent_output(
         return _vnext_agent_auth_error_response(exc)
     except AgentPolicyBlockedError as exc:
         return _vnext_permission_response(exc.decision)
-    except (AgentIdentityValidationError, VNextConnectorValidationError):
+    except (AgentIdentityValidationError, VNextCaptureValidationError, VNextConnectorValidationError):
+        # Credential material in the title, the content or the source refs is a capture validation error. The answer
+        # is the route's fixed text and repeats none of the request.
         return _vnext_public_error_response(status_code=400, detail="vNext agent output ingest request is invalid")
     return JSONResponse(status_code=201, content=jsonable_encoder(payload))
 
