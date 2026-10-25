@@ -158,6 +158,26 @@ def test_the_recorded_prices_shown_to_support_stop_the_meeting(tmp_path: Path, m
         meeting_text(database, keys)
 
 
+def test_the_transcript_prints_a_step_by_its_words_and_never_an_id_the_history_does_not_carry() -> None:
+    step = {"id": "step-later", "date": "2026-12-01", "change": '"the later rule"'}
+    payload = {
+        "notice": "This covers the recorded decisions the caller may read.",
+        "chains": [
+            {
+                "current": None,
+                "upcoming": ["step-later", "step-not-in-history"],
+                "disputed": ["step-also-not-in-history"],
+                "history": [step],
+            }
+        ],
+    }
+    text = walkthrough._changed(payload)
+    assert 'Upcoming: 2026-12-01 "the later rule"' in text
+    assert "step-later" not in text
+    assert "not-in-history" not in text
+    assert "Disputed" not in text
+
+
 def _grade(arm: str, task: str, correct: bool, leak: bool, **extra: object) -> dict[str, object]:
     return {"corpus": "generated", "size": 1000, "arm": arm, "task": task, "correct": correct, "leak": leak, **extra}
 

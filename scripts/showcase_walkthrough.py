@@ -242,14 +242,22 @@ def _changed(payload: dict[str, object]) -> str:
                 if isinstance(reason, dict) and reason.get("text"):
                     lines.append(f"Reason: {reason.get('text')}")
             history = chain.get("history")
+            steps: dict[str, dict[str, object]] = {}
             if isinstance(history, list):
                 for step in history:
                     if isinstance(step, dict):
+                        steps[str(step.get("id"))] = step
                         lines.append(f"History: {step.get('date')} {step.get('change')}")
+            # Upcoming and disputed name steps by id. A step is printed by its words, and only when the history
+            # carries it. An id with no step in the history is left out and is never printed.
             for label in ("upcoming", "disputed"):
                 values = chain.get(label)
-                if isinstance(values, list) and values:
-                    lines.append(f"{label}: {', '.join(str(item) for item in values)}")
+                if not isinstance(values, list):
+                    continue
+                for item in values:
+                    step = steps.get(str(item))
+                    if step is not None:
+                        lines.append(f"{label.capitalize()}: {step.get('date')} {step.get('change')}")
     return "\n".join(lines)
 
 
