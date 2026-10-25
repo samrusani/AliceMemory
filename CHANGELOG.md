@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.21.1): the full web dependency audit no longer carries an exception for `braces`. GitHub withdrew advisory GHSA-vfj7-8cjw-p6xm on 2026-10-23, so the audit no longer matches it and reported the exception as stale; left in place, the entry would have failed the audit once it expired on 2026-11-03. `apps/web/security-advisory-exceptions.json` stays, with no entries. The console and the PyPI package are unchanged, and no migration is required.
+
 - Unreleased (on main, not in v0.21.1): the web console's test tooling now pins `undici` to 8.12.2 through a pnpm override, up from 8.11.2. 8.12.2 fixes a high advisory published on 2026-10-24 (denial of service through an unhandled error on excessive content-encodings). `undici` reaches the console only as a dependency of `jsdom`, which the console's tests use; it is not part of the console at runtime, and the PyPI package does not include the console. No migration is required.
 
 - Unreleased (on main, not in v0.21.1): the web console's lint tooling now pins `zod` to 4.6.6 through a pnpm override, up from 4.4.3. 4.6.6 fixes GHSA-mrhx-c7xc-m3w5 (high: memory exhaustion while validating oversized constrained collections), published on 2026-10-23. `zod` reaches the console only as a dependency of `eslint-plugin-react-hooks`, which runs at lint time; it is not part of the console at runtime, and the PyPI package does not include the console. No migration is required.
