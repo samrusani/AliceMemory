@@ -249,6 +249,7 @@ def relabel_labels_sqlite(conn, *, restoring: bool = False, explicit: bool = Fal
         return len(changes)
     except Exception:
         if owns:
+            # label state: none, this runs on a bare connection when the vault opens, restores or repairs, and no store reads labels through it.
             conn.rollback()
         raise
 
@@ -384,6 +385,7 @@ def label_gap_report(store: object) -> LabelGap:
         if module.startswith("sqlite3"):
             tables = _load_tables(conn)
         elif module.startswith("psycopg"):
+            # label state: none, this block only reads.
             with conn.transaction():
                 tables = load_postgres_label_tables(conn)
         else:

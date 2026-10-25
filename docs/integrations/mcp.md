@@ -1,8 +1,10 @@
 # MCP Integration
 
 Alice's MCP server exposes three tools by default (`alice_memory_commit`,
-`alice_recall`, `alice_resume`). The other nine core tools become listed
-and callable when `ALICE_MCP_FULL_TOOLS=1`. The legacy long-tail surface
+`alice_recall`, `alice_resume`). The other core tools become listed
+and callable when `ALICE_MCP_FULL_TOOLS=1`. From v0.21.0,
+`alice_what_changed` is one of the other nine core tools, which makes all twelve
+core tools with `ALICE_MCP_FULL_TOOLS=1`. v0.20.2 does not have it. The legacy long-tail surface
 is available behind a separate environment flag.
 
 ## Entrypoints
@@ -45,7 +47,30 @@ Optional:
   model. Changing it makes `alice-memory
   reindex-embeddings` re-embed only the memories whose embedded text changes.
   In v0.19.2 there is no cap.
-- `ALICE_MCP_COMMIT_RESULT`, Unreleased (on main, not in v0.20.0): `compact`
+- `ALICE_SOURCE_EMBEDDINGS`: `on` lets Alice send the text of imported and
+  captured notes (their chunks) to the embeddings endpoint, so that
+  `ALICE_SEARCH_QUALITY=vectors` can rank passages by meaning. It is separate
+  from the memory embeddings above, which do not turn it on, and it is off
+  unless the value is `on`. The text goes only to an endpoint on this machine
+  (`localhost`, `*.localhost`, `127.0.0.0/8` or `::1`, with no proxy that would
+  carry the request); for any other endpoint nothing is sent and the chunks stay
+  pending, and remote endpoints are not supported for source embeddings in this
+  release. A chunk the credential check flags, a chunk of links and a chunk too
+  short to read are not sent, and the rules are checked again just before each
+  request, so a chunk of a source deleted, replaced or scrubbed since is dropped
+  from it, and the connected peer has to be loopback before anything is written;
+  a scrub committed after that pre-send read has read the source can still reach
+  the local endpoint, whether or not the request has begun.
+  `ALICE_SOURCE_EMBEDDINGS_MAX_VECTORS` (default 250,000) caps the vectors of a
+  vault, `ALICE_SOURCE_VECTOR_CACHE_MAX_MB` (default 512) limits the vector
+  arrays of the resident copy of every vector, and `ALICE_SOURCE_VECTOR_SCOPED_CACHE_MAX_MB`
+  (default 256) and `ALICE_SOURCE_VECTOR_SCOPED_COPIES` (default 4) limit the vector
+  arrays of each copy held for a caller with limits and how many are kept (ids,
+  indexes and temporary buffers are not counted, so the memory of the process is
+  higher than the sum of the limits). The page [Embeddings of source
+  chunks](../alpha/mcp-tools.md#embeddings-of-source-chunks) has the rules and the
+  cost.
+- `ALICE_MCP_COMMIT_RESULT` (from v0.20.2): `compact`
   or `full`. With `compact`, `alice_memory_commit` answers with the memory `id`,
   the outcome, the `receipt`, the reasons a write was held, and for a held write
   the `confirmation_id` and the proposed text. It leaves out `policy_decision` and
@@ -56,8 +81,8 @@ Optional:
   server reads it on every call. Set it in the `env` map of the host's `alice`
   entry; the Claude Code plugin's entry has no `env` map, so a plugin user cannot
   set it. See [The commit result](../alpha/mcp-tools.md#the-commit-result)
-- `ALICE_MCP_FULL_TOOLS=1` — advertise all twelve core tools and accept
-  calls to the nine that are hidden by default
+- `ALICE_MCP_FULL_TOOLS=1`: advertise all the core tools and accept
+  calls to the ones that are hidden by default
 - `ALICE_MCP_LEGACY_TOOLS=1` — append 62 retained long-tail memory tools to
   whatever core set is enabled, only for an unbound local-operator server;
   ignored when `ALICE_AGENT_API_KEY` is set
@@ -70,15 +95,30 @@ Optional:
 ## Default Tool Surface
 
 - `alice_memory_commit` — explicit policy-checked memory write with commit / confirmation / review / reject outcomes
-- `alice_recall` — hybrid full-text + vector search with fused ranking; hard
+- `alice_recall`: hybrid full-text + vector search with fused ranking; hard
   pre-limit scopes support `thread_id`, `task_id`, `project`/`projects`,
-  `person`/`people`, and absolute `since`/`until` bounds
+  `person`/`people`, and absolute `since`/`until` bounds. Its `sources` are
+  imported documents. From v0.21.0, on the SQLite
+  store, `alice_recall` runs passage mode by default. It returns up to three
+  passages from one document and ranks passages across documents, and
+  `ALICE_SEARCH_QUALITY=off` restores document mode. v0.20.2 returns one
+  passage per document. PostgreSQL keeps document mode unless
+  `ALICE_SEARCH_QUALITY=passage` says otherwise, and a PostgreSQL caller whose
+  key has limits still gets one passage per document when the switch is
+  `passage`. `ALICE_SEARCH_QUALITY=on` is still refused.
+  `ALICE_SEARCH_QUALITY=vectors`, on the SQLite store only, is passage mode with
+  the vectors of the chunks (see the embeddings variables above); on PostgreSQL
+  it answers as `passage` would there. Each passage entry
+  adds `chunk_index`, and `source_count` counts entries. When no memory in the
+  result names a source, the extra memories added to `results` come from the
+  first source entry, which can be a different document than the one v0.20.2
+  put first. The context pack and the brief stay on one passage per document.
 - `alice_resume` — resumption brief for a project, person, or thread
 
 `ALICE_MCP_FULL_TOOLS=1` also advertises `alice_capture`, `alice_context_pack`,
 `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`,
-`alice_memory_correct`, `alice_memory_manage`, `alice_explain`, and
-`alice_what_changed`.
+`alice_memory_correct`, `alice_memory_manage`, and `alice_explain`. From v0.21.0,
+it also advertises `alice_what_changed`.
 
 Full schemas with per-parameter descriptions come from `tools/list`.
 Details and examples: [docs/alpha/mcp-tools.md](../alpha/mcp-tools.md).
@@ -88,7 +128,8 @@ Details and examples: [docs/alpha/mcp-tools.md](../alpha/mcp-tools.md).
 With `ALICE_MCP_LEGACY_TOOLS=1`, 62 retained legacy memory tools are listed
 alongside whatever core set is enabled (65 with the default three, 74 with
 the full 12). With the task-brief flag as well, the counts are 68 and
-77. On the SQLite backend most legacy tools are listed but their calls fail:
+77. From v0.21.0, the counts with the full core set include
+`alice_what_changed`, so each is one lower in v0.20.2. On the SQLite backend most legacy tools are listed but their calls fail:
 the ones that read the continuity store (for example `alice_brief`,
 `alice_timeline`, `alice_state_at` and the task-brief tools) and most of the
 `alice_vnext_*` tools, because the SQLite store implements only part of what
@@ -171,7 +212,7 @@ One-command bridge demo:
   `alice_context_pack` gets a query the SQLite source search cannot take. Its
   message names the limit and holds only counts, never the query. From v0.20.0,
   `alice_resume` and `alice_recent_decisions` use it for
-  a query over 40,000 UTF-8 bytes. Unreleased (on main, not in v0.20.0): three
+  a query over 40,000 UTF-8 bytes. From v0.20.2, three
   more codes, `not_permitted`, `not_found` and `precondition_failed`, tell a
   refusal from a failure, and `invalid_request` also answers a rejected
   argument, with the same fixed message except for the reserved project name

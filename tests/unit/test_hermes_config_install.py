@@ -1513,7 +1513,7 @@ def test_generated_configs_keep_their_meaning(tmp_path: Path, capsys) -> None:
     assert min(kinds.values()) >= 5, kinds
 
 
-def test_seeded_fuzz_run_finds_no_meaning_change() -> None:
+def test_seeded_fuzz_run_finds_no_meaning_change(process_home: Path) -> None:
     """A short seeded pass of scripts/fuzz_hermes_config_writer.py.
 
     Every generated config is written with its meaning kept; every valid

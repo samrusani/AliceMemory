@@ -156,7 +156,7 @@ OTHER_PROFILES = (
     "memory_proposal_agent",
 )
 FIXED_MESSAGE = "The tool request could not be processed"
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 
 
 PROTOCOL = "docs/memory-operations-protocol.md"

@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
-from tests.performance.read_budget_gate import append_evidence, over_merge_base, prelabels_checkout
+from tests.performance.read_budget_gate import append_evidence, paired_over_merge_base, prelabels_checkout
 
 from alicebot_api.onramp import bootstrap_database
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
@@ -100,7 +100,8 @@ def test_sqlite_five_thousand_derived_rows_budget(tmp_path):
         print(json.dumps(row), flush=True)
         append_evidence(row)
         for action in actions:
-            assert not over_merge_base(head[action]["median"], measured["merge_base"][action]["median"]), (action, row)
+            over = paired_over_merge_base(head[action], measured["merge_base"][action])
+            assert not over, (action, over, row)
     else:
         process = open_probe(repo, "sqlite", path, USER)
         try:

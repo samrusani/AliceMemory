@@ -16,7 +16,7 @@ from pathlib import Path
 from alicebot_api import vnext_derived_domain_backfill as repair
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 LIMITATIONS = ROOT / "docs/alpha/known-limitations.md"
 MCP_TOOLS = ROOT / "docs/alpha/mcp-tools.md"
 BACKUP = ROOT / "docs/alpha/backup-and-restore.md"
@@ -63,23 +63,27 @@ def _migration_0096():
     return _load(MIGRATION_0096, "derived_label_floor_0096")
 
 
-def test_the_limitations_page_has_one_short_bullet_that_links_to_the_explanation() -> None:
-    """The page states the label rule, the two limits that remain and the link, and nothing longer.
+def test_the_limitations_page_leaves_the_derived_row_rule_to_the_tool_reference() -> None:
+    """The rule is a protection, not a limit, so the page does not state it and the tool reference does.
 
-    Mutations, each one alone: delete ``keeps the label its inputs had when it was made``, ``follows its
-    inputs when they are relabelled``, ``read only by the owner and an unbound admin key``, ``sensitivity
-    ceiling``, ``counting rows the caller may read`` or the link from the bullet; point the link at ``#derived-rows``; add a ``## Derived`` heading
-    with a paragraph to the page.
+    The page used to hold a bullet that said a derived row kept the label its inputs had when it was made (v0.20.0) and
+    followed its inputs from v0.20.2, was read only by the owner and an unbound admin key when unverified, and that the
+    screens applied the sensitivity ceiling and counted the rows the caller may read. The same facts are pinned on the
+    tool reference in the test below (the label rule, ``apply the caller's sensitivity ceiling``, ``rows the caller may
+    read``) and in the redacted-input tests (who reads an unverified row). The page keeps no bullet, no heading and no link
+    for them.
+
+    Mutations, each one alone: put the bullet back on the page (``keeps the label its inputs had when it was made``); add a
+    ``## Derived`` heading with a paragraph to the page; add a link to ``mcp-tools.md#derived-row-domains`` to the page.
     """
 
-    bullet = _paragraph(LIMITATIONS, "- in v0.20.0 a derived summary, report or copy")
-    assert "keeps the label its inputs had when it was made" in bullet
-    assert "follows its inputs when they are relabelled" in bullet
-    assert "read only by the owner and an unbound admin key" in bullet
-    assert "sensitivity ceiling" in bullet
-    assert "counting rows the caller may read" in bullet
-    assert bullet.endswith(f"See [{HEADING}]({ANCHOR})")
-    assert "\n## Derived" not in LIMITATIONS.read_text(encoding="utf-8")
+    page = LIMITATIONS.read_text(encoding="utf-8")
+    flat = _flat(page)
+    assert "keeps the label its inputs had when it was made" not in flat
+    assert "follows its inputs when they are relabelled" not in flat
+    assert "derived summary, report or copy" not in flat
+    assert ANCHOR not in page
+    assert "\n## Derived" not in page
 
 
 def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_readers_see() -> None:
@@ -100,7 +104,7 @@ def test_the_mcp_tools_section_states_the_label_rule_the_repair_and_the_changes_
     """
 
     section = _section(MCP_TOOLS, HEADING)
-    paragraphs = re.split(r" (?=Unreleased \(on main, not in v0\.20\.0\): )", section)
+    paragraphs = re.split(r" (?=From v0\.20\.2, )", section)
     assert len(paragraphs) == 5 and all(item.startswith(MARK) for item in paragraphs), len(paragraphs)
     label, stored, where, readers, scope = paragraphs
 
@@ -167,7 +171,7 @@ def test_the_backup_guide_states_when_the_repair_runs_and_what_it_cannot_repair(
     the code a refused import prints is the one the import test checks.
 
     Mutations, each one alone: in the restore paragraph, delete ``in the complete staged copy``, ``whether the
-    destination is new or was already upgraded``, ``one audit event``, ``still refuses any other field that
+    destination is new or was already upgraded``, ``one `memory.labels_raised` event``, ``still refuses any other field that
     differs``, ``is unverified``, ``stop the import with `restore_failed` before
     publication`` or the link; in the PostgreSQL paragraph, delete ``Run it before serving requests``, ``not
     repaired by a migration``, one table name, ``NOSUPERUSER NOBYPASSRLS``, ``rolls the relabels, their audit events and the
@@ -180,7 +184,7 @@ def test_the_backup_guide_states_when_the_repair_runs_and_what_it_cannot_repair(
     assert "whether the destination is new or was already upgraded" in restore
     assert "takes the most frequent restricted label among them" in restore
     assert "the highest sensitivity and every project" in restore
-    assert "one audit event with its old and new labels" in restore
+    assert "one `memory.labels_raised` event (`open_loop.labels_raised` for an open loop) with its old and new labels and the cause `repair_v4`" in restore
     assert "still refuses any other field that differs" in restore
     assert "project scope or project floor" in restore
     assert "A vault that is upgraded without a restore gets the same repair once, the next time it opens" in restore

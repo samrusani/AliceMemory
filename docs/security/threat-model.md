@@ -75,8 +75,7 @@ refuses a keyless request from another peer, or with a foreign Host or Origin,
 before it reads the body, as the `/v1` gate already did, and the identity layer
 skips its body rewrite for such a request. A JSON body nested more than 256 levels
 deep is refused with HTTP 422 before any layer decodes it, with a validation
-error of type `json_too_deep` and nothing from the body in it. Unreleased (on
-main, not in v0.20.0): a body that holds `NaN`, `Infinity`, `-Infinity` or a
+error of type `json_too_deep` and nothing from the body in it. From v0.20.2, a body that holds `NaN`, `Infinity`, `-Infinity` or a
 number too large for a float is refused the same way, with an error of type
 `finite_number`, and JSON stored from a caller is held to 64 levels where the
 product stores it (see the size bounds in `docs/alpha/mcp-tools.md`). In v0.19.2 the
@@ -195,7 +194,7 @@ active-key or RLS bypass remains in scope.
 | Abuse case | Control/evidence | Residual concern |
 | --- | --- | --- |
 | Missing key treated as remote anonymous access | Documented local-only boundary; active-key rule rejects keyless requests. | Host/proxy misconfiguration can invalidate the assumption. |
-| A provider answers with a redirect, or its name resolves to an internal address after the base URL was checked | From v0.20.0, `open_provider_url` refuses every redirect, so the target is never contacted and no `Authorization` or `api-key` header is sent on, and with `enforce_public_peer` it resolves the name when it connects and dials only an allowed address, over http and https. The provider helpers, response generation, Gmail and Calendar enforce it. The embeddings, reranker, fact-key and brain clients do not, because a local Ollama endpoint is a documented setup. | A request carried by a proxy is not held to the address rule, because the peer is then the proxy. The embeddings, reranker, fact-key and brain clients can reach a loopback or private address the operator configured. A provider call's response body is read whole. Any valid key can register a provider on `/v1`, which authenticates and does not authorize. |
+| A provider answers with a redirect, or its name resolves to an internal address after the base URL was checked | From v0.20.0, `open_provider_url` refuses every redirect, so the target is never contacted and no `Authorization` or `api-key` header is sent on (a provider that redirects must be configured with its final URL), and with `enforce_public_peer` it resolves the name when it connects and dials only an allowed address, over http and https. The provider helpers, response generation, Gmail and Calendar enforce it. The embeddings, reranker, fact-key and brain clients do not, because a local Ollama endpoint is a documented setup. | A request carried by a proxy is not held to the address rule, because the peer is then the proxy. The embeddings, reranker, fact-key and brain clients can reach a loopback or private address the operator configured. A provider call's response body is read whole. Any valid key can register a provider on `/v1`, which authenticates and does not authorize. |
 | Oversized or deeply nested request body before authentication | From v0.20.0, a body over 4 MiB (32 MiB for connector sync) is refused with HTTP 413 before any layer reads it, a keyless request from another peer is refused before its body is read, a body nested more than 256 levels is refused with HTTP 422, and the Caddy example caps the body at the proxy. | A request inside the cap still costs memory and time, and the cap is no rate limit. The cap counts bytes as sent. |
 | DNS rebinding or a cross-origin request to a keyless loopback API | From v0.20.0, a keyless request must name `localhost`, `127.0.0.1`, `::1` or an operator-listed host in `Host`, and any `Origin` must be a configured origin or its own. A keyed request is not checked. | Not reproduced in a real browser. The legacy `/v0` routes take no key, so every request to them gets the Host and Origin rule. A name the operator lists in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine. |
 | Payload claims a stronger profile or another project | Key-bound actor/profile/scope, escalation rejection events, policy tests. | Evidence is the all-route ASGI matrix in `tests/unit/test_stage_a_vnext_auth_surface.py` and the key-isolation tests in `tests/integration/test_stage_a_agent_key_isolation.py`, both run in CI. Not independently reviewed. |
@@ -284,7 +283,7 @@ active-key or RLS bypass remains in scope.
   `validity.superseded: true`, with no id, for a memory whose `superseded_by`
   pointer names a memory the caller cannot read, where v0.19.2 gave that memory
   no `validity` in the pack and recall kept `superseded: true`.
-  Unreleased (on main, not in v0.20.0): the `source_id` and `memory_id` an open
+  From v0.20.2, the `source_id` and `memory_id` an open
   loop stores, and the source and memory ids in its `metadata_json`, are
   withheld from a reader who may not read that source or memory, in the
   spellings the link writer reads and also when the row was deleted. In v0.20.0

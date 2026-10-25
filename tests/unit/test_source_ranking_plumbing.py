@@ -4,8 +4,9 @@
 (what v0.20.0 does) and by passage. This slice only carries it: ``ranking`` is a
 required keyword-only argument of ``search_source_excerpts`` and
 ``_source_stage_lists``, the three production callers write
-``SourceRanking.document()`` at the call, and every other value is refused until a
-stage exists that honours it. Nothing about a result changes.
+``SourceRanking.document()`` at the call. Passage mode with the legacy lexical
+query now runs. Every other value is still refused. With the switch unset,
+nothing about a result changes.
 
 Why it is its own change. An optional ``ranking`` would be a silent choice for any
 caller that forgets it, the same shape as the optional ``scope`` that once let recall
@@ -50,10 +51,9 @@ class _EqualToAnything:
 
 STAGE_ENTRY_POINTS = ("search_source_excerpts", "_source_stage_lists")
 
-# A passage value, a document value with another lexical mode, a document value with
-# another cap, and things that are not a SourceRanking at all.
+# A passage value whose lexical mode is not built, a document value with another
+# lexical mode, a document value with another cap, and things that are not a SourceRanking.
 NOT_THE_DOCUMENT_RANKING = [
-    pytest.param(SourceRanking(mode="passage", passages_per_source=3, lexical="legacy"), id="passage"),
     pytest.param(SourceRanking(mode="passage", passages_per_source=1, lexical="improved"), id="passage-improved"),
     pytest.param(SourceRanking(mode="document", passages_per_source=1, lexical="improved"), id="document-improved"),
     pytest.param(SourceRanking(mode="document", passages_per_source=3, lexical="legacy"), id="document-cap-3"),
@@ -247,6 +247,17 @@ def test_the_document_ranking_runs_and_reads_the_store(entry_point: str, monkeyp
     assert "search_source_chunks" in store.touched
 
 
+@pytest.mark.parametrize("entry_point", STAGE_ENTRY_POINTS)
+def test_the_passage_ranking_runs_and_reads_the_store(entry_point: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Passage mode is a real stage. Mutation: refuse ``SourceRanking.passage()`` as well."""
+
+    service, store = _service(monkeypatch)
+
+    _call(service, entry_point, ranking=SourceRanking.passage())
+
+    assert store.touched
+
+
 @pytest.mark.parametrize("ranking", NOT_THE_DOCUMENT_RANKING)
 @pytest.mark.parametrize("entry_point", STAGE_ENTRY_POINTS)
 def test_every_other_ranking_is_refused_before_the_store_is_read(
@@ -258,8 +269,9 @@ def test_every_other_ranking_is_refused_before_the_store_is_read(
     (the equal-to-anything case then runs); or move the call below the first store read
     (``store.touched`` is then not empty).
 
-    No stage honours a passage ranking yet, so accepting one and running the document stage
-    would hand the caller a result that looks like the ranking it asked for.
+    Passage mode with the legacy query is honoured. These values are not: an improved
+    lexical mode (including ``ALICE_SEARCH_QUALITY=on``), a document ranking that is
+    not ``SourceRanking.document()``, and anything that is not a ``SourceRanking``.
     """
 
     service, store = _service(monkeypatch)
@@ -337,7 +349,10 @@ def test_the_three_production_callers_write_the_document_ranking(
 
     Each route is run for real over a vault that holds one matching source. The control is that
     every named entry point was reached, so a route that stopped reading sources cannot pass by
-    recording nothing.
+    recording nothing. Passage mode is the SQLite default of ``alice_recall``, so the recall route
+    sets ``ALICE_SEARCH_QUALITY=off`` and still checks that the edge hands the stage the document
+    ranking it was asked for. The pack and the brief run with the variable unset, as they do for
+    everyone (``test_sqlite_passage_default.py`` checks them with the recall default in view).
     """
 
     from alicebot_api.mcp.registry import call_mcp_tool
@@ -347,6 +362,7 @@ def test_the_three_production_callers_write_the_document_ranking(
     seen = _spy(monkeypatch)
 
     if route == "recall":
+        monkeypatch.setenv("ALICE_SEARCH_QUALITY", "off")
         payload = call_mcp_tool(context, name="alice_recall", arguments={"query": "kettle shelf"})
         assert payload["sources"], "the fixture source was not found, so the route proves nothing"
     elif route == "pack":
@@ -376,13 +392,14 @@ _PRODUCT_ROOTS = ("apps/api/src", "scripts", "eval")
 # (file, enclosing function, callee) -> the exact text of the ``ranking`` argument. A site the
 # list does not name makes the inventory test fail, so adding a caller means stopping to say which
 # ranking it wants. The recall handler is the one site the passage slice changes on purpose, and
-# that slice edits this line with its own proof.
+# that slice edits this line with its own proof. The vectors slice adds the context depth, which turns the vector
+# stage off at ``minimal``, so that one function decides the ranking.
 _EXPECTED_CALL_SITES = {
     (
         "apps/api/src/alicebot_api/mcp/retrieval.py",
         "_handle_alice_recall",
         "search_source_excerpts",
-    ): "SourceRanking.document()",
+    ): "recall_source_ranking(store, context.agent_identity, context_depth)",
     (
         "apps/api/src/alicebot_api/session_briefing.py",
         "compile_session_brief",

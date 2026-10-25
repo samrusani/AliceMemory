@@ -1,6 +1,6 @@
 """Typed MCP error codes (ride-along P9 of the search-quality release).
 
-Unreleased (on main, not in v0.20.0). v0.20.0 answered ``tool_request_failed`` for a policy refusal, a missing id,
+New in v0.20.2. v0.20.0 answered ``tool_request_failed`` for a policy refusal, a missing id,
 a state that forbids the call and a rejected argument alike, so an agent could not tell "not allowed" from "does not
 exist" from "broken". Main adds three codes (``not_permitted``, ``not_found``, ``precondition_failed``) and sends
 ``invalid_request`` for argument errors. The design is wiki 05, "Widen the code enum. Leave every message exactly as

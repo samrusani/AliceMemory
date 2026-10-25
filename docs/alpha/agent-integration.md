@@ -141,6 +141,7 @@ run at all and makes zero network calls.
 | Env vars | Stage | When unset | When set |
 | --- | --- | --- | --- |
 | `ALICE_EMBEDDINGS_BASE_URL`, `ALICE_EMBEDDINGS_MODEL`, optional `ALICE_EMBEDDINGS_API_KEY` | Vector search (hybrid recall) | Full-text-only retrieval; trace `vector_stage` says `disabled: no embedding provider configured`. | Query and memory embeddings via any OpenAI-compatible `/embeddings` endpoint (Ollama, LM Studio, vLLM, OpenAI); vector results join rank fusion. |
+| `ALICE_SOURCE_EMBEDDINGS=on`, with the embeddings variables above | Vectors of imported chunks (`ALICE_SEARCH_QUALITY=vectors`, SQLite) | No chunk text is sent; `alice_recall` ranks passages by words alone. | Chunks are embedded after an import or a capture, and `ALICE_SEARCH_QUALITY=vectors` ranks passages with them. The endpoint has to be on this machine. See [Embeddings of source chunks](mcp-tools.md#embeddings-of-source-chunks). |
 | `ALICE_RERANKER_BASE_URL`, `ALICE_RERANKER_MODEL`, optional `ALICE_RERANKER_API_KEY` | Rerank (precision) | Dormant: fused order stands, zero provider calls, no `reranker` trace stage — packs are byte-identical to the fusion-only path. | Provider-side listwise relevance scoring of the fused candidate head (up to 48 memories + 24 sources per pack) via any OpenAI-compatible `/chat/completions` endpoint, reordering candidates before slots and token budget are spent. |
 
 Vectors are stamped with provider, model, content digest, and signature
@@ -170,6 +171,25 @@ The full verb contract — remember, recall, correct, confirm, undo, forget,
 audit — with outcomes and audit guarantees per verb is documented in the
 [Memory Operations Protocol](../memory-operations-protocol.md).
 
+## Skill packs
+
+Optional. Packs exist for 2 of the 7 install hosts, Hermes and OpenClaw. Nothing in this repo measures whether a pack
+changes what an agent does. [`agent-skills/hermes/alice-memory`](../../agent-skills/hermes/alice-memory) and
+[`agent-skills/openclaw/alice-project-memory`](../../agent-skills/openclaw/alice-project-memory) are the packs under
+`agent-skills/`. Copy the directory, not the file:
+
+```bash
+cp -R agent-skills/openclaw/alice-project-memory ~/.openclaw/skills/
+cp -R agent-skills/hermes/alice-memory ~/.hermes/skills/
+```
+
+An older Hermes pack at `docs/integrations/hermes-skill-pack/skills/alice-workflows/` is legacy. It uses the manual
+`alice_core` server name plus full-surface tools; see [Hermes skill pack](../integrations/hermes-skill-pack.md).
+
+Both hosts load `<skill-name>/SKILL.md` and read the frontmatter `description` to decide when the skill applies. A skill
+grants no tools on its own; it tells an agent how to use the ones the MCP server already provides. The instruction blocks
+you paste into an agent's prompt are [hermes-skill.md](hermes-skill.md) and [openclaw-skill.md](openclaw-skill.md).
+
 ## Agent Identity Fields
 
 ```json
@@ -192,8 +212,7 @@ Permission profiles:
 - `admin_agent`: scheduler and administrative actions
 
 Every profile except `trusted_local_agent` and `admin_agent` is held back from the
-family, health, spiritual, legal and financial domains. Unreleased (on main, not in
-v0.20.0): that holds when a request names no domain too, not only when it names one.
+family, health, spiritual, legal and financial domains. From v0.20.2, that holds when a request names no domain too, not only when it names one.
 See [MCP tools](mcp-tools.md#domains-a-profile-may-read).
 
 ## Authentication
@@ -316,7 +335,7 @@ project set. Violations are blocked and audited with
 `project_scope_binding_violation`. Keys issued without `--project-scope` keep
 the prior behavior: the payload's explicit project scope is honored.
 
-Unreleased (on main, not in v0.20.0): the name `~global` is reserved by Alice and
+From v0.20.2, the name `~global` is reserved by Alice and
 cannot be a key's project scope. `alicebot agent keys create --project-scope
 '~global'` is refused and stores no key: its public answer is the standard
 `invalid_request` error, and the reason is printed on stderr as a warning line
@@ -331,7 +350,7 @@ that find and revoke the key are written to the server log at warning level;
 the line names no key, which `alicebot agent keys list` shows with its
 `project_scope`.
 
-Unreleased (on main, not in v0.20.0): a derived row (a report, summary or copy)
+From v0.20.2, a derived row (a report, summary or copy)
 carries every project of every row it was made from, so a bound key reads it
 only when all of them are inside its binding. See
 [Derived row domains](mcp-tools.md#derived-row-domains).

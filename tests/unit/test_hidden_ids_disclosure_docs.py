@@ -3,10 +3,16 @@
 The sentences are pinned by phrase. The behaviour is tested in ``tests/integration/test_row_ids_grant_no_access_postgres.py``,
 ``tests/integration/test_hidden_ids_in_report_metadata_postgres.py`` and ``tests/unit/test_row_ids_grant_no_access_sqlite.py``.
 
-Mutations, each one alone: delete ``not a way of meeting the requirement to filter hidden ids`` from the security note;
+Mutations, each one alone: delete ``In v0.20.2 this was a known exception, not a way of meeting the requirement to filter
+hidden ids`` from the security note, or put ``and that stays so until v0.21.0`` back; start the known limitations bullet with
+``From v0.20.2`` instead of ``v0.20.2 returns``; put ``withholding these is tracked for v0.21.0`` back in
+the bullet for the memory audit; put ``tracked for v0.21.0`` back for the hash, the words of archived rows or the words of a
+redacted memory in the security note, the tool reference or the known limitations (each says ``planned, with no release set``
+since 2026-10-21); delete the sentence about free text, about a hidden row and a missing row, or about counts from
+the paragraph of the security note that says what v0.21.0 withholds; delete the sentence about an id inside free text from the
+tool reference, or the sentence about a connection and repeated headers from the changelog entry;
 delete ``They grant no access`` from the security note; delete ``is answered exactly as for a missing id`` from the security
-note; delete the sentence that names the graph neighborhood route from the security note; delete ``withholding them is
-tracked for v0.21.0`` from the known limitations; delete ``The full-text stage does refill until its limit is met.`` from
+note; delete the sentence that names the graph neighborhood route from the security note; delete ``The full-text stage does refill until its limit is met.`` from
 the security note; delete ``where it raised a server error`` from the changelog; delete ``return them for a derived
 memory`` from the tool reference; delete ``holds `project_id` to the caller's project binding`` from the security note;
 delete ``Ids are not the only thing a report keeps`` (or the sentence that names a redacted memory's text, or the one that
@@ -16,7 +22,8 @@ quote of a row`` from the changelog; delete the sentence about the words of a re
 unbound admin key read, from the security note, the known limitations, the changelog or the tool reference; delete the
 sentence about an archived or redacted memory from the security note, the changelog or the tool reference; delete the sentence about the memory audit route, the `capture_content_hash` of a
 memory or the scheduler's run records from the security note, the known limitations, the tool reference or the changelog; delete a sentence of the
-paragraph on the event feeds from the security note, or the changelog entry for the event feed.
+paragraph on the event feeds from the security note, or the changelog entry for the event feed; delete the sentence about the validation
+error of a refused request from the security note, the changelog entry or the tool reference.
 """
 
 from __future__ import annotations
@@ -24,20 +31,29 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 IDS = f"{MARK} rows a key can read may list in their metadata the ids of rows it cannot read"
 KEPT = f"{MARK} a report keeps the words it was made with"
 VECTOR = f"{MARK} the vector stage of recall and of the context pack does not yet refill after hiding rows"
 BELIEF = f"{MARK} belief review and graph edge review"
 EXACT = f"{MARK} the doors that act on one row by id answer a row above"
 LOOP_PROJECT = f"{MARK} `POST /v0/vnext/open-loops` holds `project_id`"
-AUDIT = f"{MARK} the memory audit route lists the archived members of a derived memory"
+AUDIT = f"{MARK} a memory made from a captured source keeps its `capture_content_hash`"
+NEW = "From v0.21.0,"
+WITHHELD = f"{NEW} a key with limits is not shown the id of a memory, a source, an artifact or an open loop"
 EVENTS = f"{MARK} the event feeds follow the rows they name"
 EVENT_FEED = f"{MARK} the workspace event feed and event count follow the rows an event names"
 
 
 def _text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
+
+
+def _log_start(start: str) -> str:
+    """The text a changelog entry starts with: the page marker is gone and the first letter is a capital."""
+
+    text = start.removeprefix(f"{MARK} ").removeprefix(f"{NEW} ")
+    return text[:1].upper() + text[1:]
 
 
 def _paragraph(text: str, start: str) -> str:
@@ -48,8 +64,13 @@ def _paragraph(text: str, start: str) -> str:
 def test_the_security_note_states_the_hidden_id_exception() -> None:
     note = _text("docs/release/derived-labels-security-note-draft.md")
     paragraph = _paragraph(note, IDS)
-    assert "and that stays so until v0.21.0" in paragraph
-    assert "This is a known exception, not a way of meeting the requirement to filter hidden ids." in paragraph
+    # The paragraph describes v0.20.2. It does not say the exception stays, and it points at the paragraph that says what v0.21.0 does.
+    assert "In v0.20.2 this was a known exception, not a way of meeting the requirement to filter hidden ids" in paragraph
+    assert "and the paragraph after this one says what v0.21.0 does" in paragraph
+    assert "and that stays so until v0.21.0" not in paragraph
+    assert "The ids are now withheld in place" not in paragraph
+    assert "tracked for v0.21.0 with the ids" not in paragraph
+    assert "Withholding the ids from the lists is tracked for v0.21.0" not in paragraph
     for field in ("candidate_memory_ids", "derived_from", "input_summary", "source_ids", "memory_ids", "source_refs", "stale_marked_memory_ids", "content_markdown"):
         assert f"`{field}`" in paragraph, field
     assert "a 16-character digest of its title, text, summary and value (`member_snapshots`)" in paragraph
@@ -78,7 +99,7 @@ def test_the_security_note_states_the_hidden_id_exception() -> None:
     assert "The ids are random UUIDs" in paragraph
     assert "They reveal that the row exists and how a report links to it. They grant no access." in paragraph
     assert "is answered exactly as for a missing id: the same status and body, or the same tool error, and no stored row changes." in paragraph
-    assert "is tracked for v0.21.0" in paragraph
+    assert "is tracked for v0.21.0" not in paragraph  # the words of archived rows are planned with no release set
     assert "a report keeps the words of a source that was archived later" not in paragraph  # it moved into its own sentences
     # The report keeps more than ids, and the note says what: the printed lines, the quoted fields, the roll-up card and
     # the digest of a consolidation member, that a redaction does not reach the reports that copied the memory, and who reads
@@ -93,8 +114,11 @@ def test_the_security_note_states_the_hidden_id_exception() -> None:
     assert "A key reads the words of an archived row as it read them in the report" in paragraph
     assert "and archiving restricts nothing" in paragraph
     assert "The words of a redacted memory are not read that way: a report that recorded a redacted memory is read by the owner and an unbound admin key only (see the paragraph on redacted memories), so no other key reads them." in paragraph
-    assert "That is containment and not removal, and removing the words is planned for v0.21.0." in paragraph
-    assert "The words of archived rows are a known exception, not a way of meeting the requirement to filter hidden ids, and withholding them for a caller with limits is tracked for v0.21.0 with the ids." in paragraph
+    assert "That is containment and not removal, and removing the words is planned, with no release set." in paragraph
+    assert "The words of archived rows are a known exception, not a way of meeting the requirement to filter hidden ids, and withholding them for a caller with limits is planned, with no release set." in paragraph
+    # The one v0.21.0 in the paragraph is the pointer to the paragraph that says what v0.21.0 does. No release is named for the words.
+    assert paragraph.count("v0.21.0") == 1
+    assert "for v0.21.0" not in paragraph
     assert "so a redacted memory's text can still be read in them" not in paragraph
     assert "withholding these words for a caller with limits is tracked for v0.21.0 with the ids" not in paragraph
 
@@ -142,6 +166,37 @@ def test_the_security_note_says_the_open_loop_route_holds_the_project_to_the_bin
     assert "write nothing" in paragraph
 
 
+def test_the_security_note_states_what_main_withholds() -> None:
+    note = _text("docs/release/derived-labels-security-note-draft.md")
+    paragraph = _paragraph(note, WITHHELD + " that it may not read")
+    assert note.index(_paragraph(note, IDS)) < note.index(paragraph)
+    assert "and the owner and an unbound admin key keep every id" in paragraph
+    assert "for the user the key was authenticated for (not the `user_id` of the query or the body, which only some deployments rewrite)" in paragraph
+    assert "it opens a connection only when the answer holds an id" in paragraph
+    assert "It checks every JSON string value whose whole value is an id, wherever it sits and under any key" in paragraph
+    assert "in any spelling `uuid.UUID` takes (any case, hyphens in any place, braces, `urn:uuid:`)" in paragraph
+    assert "and behind a `memory:`, `source:`, `artifact:`, `open_loop:` or `alice://` prefix, and it checks every dict key that is an id" in paragraph
+    assert "a dict key goes with its value" in paragraph
+    assert "whose row the key may not read goes whole, with its text, label, amounts and digest" in paragraph
+    assert "finds a token by its shape (32 hex digits with hyphens anywhere), compares its canonical form, and removes it as it was written" in paragraph
+    assert "An id inside free text (a title, a note, a quote, the words a report copied) is not looked for" in paragraph
+    assert "is withheld whether the row is hidden or does not exist, so a key that holds the id of a candidate cannot tell a hidden row from a missing one" in paragraph
+    assert "it withholds only the id of a row that exists and that the key may not read, and an id that names no row stays as it was written" in paragraph
+    assert "An id the caller supplied is an exemption nowhere. It stays only where the answer repeats the input that held it" in paragraph
+    assert "reached from the top of the answer through objects and not through a list of rows, and only the ids that input held; a path parameter also repeats at the `id` of the object it names" in paragraph
+    assert "A query parameter or a body field the route does not declare supplies nothing, so a key cannot confirm that an id belongs to a report by adding the id to the request" in paragraph
+    assert "The validation error of a request that is refused (HTTP 422) repeats the caller's own input as sent and is not filtered, so it shows an id the caller wrote whether the row is hidden or missing." in paragraph
+    assert "the same id at any other key, in a list of rows or in the metadata of a row is judged like any other id" in paragraph
+    for count in ("derived_from.counts", "input_summary.counts", "input_counts", "member_count", "instance_count", "displayed_instance_count", "expired_marked"):
+        assert f"`{count}`" in paragraph or f"`{count.split('.')[0]}" in paragraph, count
+    assert "a count that the step cannot recompute, because it cannot tell which of several counts the dropped entry was in, is dropped" in paragraph
+    assert "the `aggregation` of a roll-up group, `grouping_input_count` and `grouping_input_total`" in paragraph
+    assert "Some answers still differ between a hidden row and a missing row, as in v0.20.2" in paragraph
+    assert "an id in a `source_refs` entry that may name a chunk or a session" in paragraph
+    assert "The ids of beliefs, edges and projects are not judged." in paragraph
+    assert "is dropped with its field for a missing row, as the saved-quote reader drops it for a hidden one, also when the caller sent it" in paragraph
+
+
 def test_the_security_note_states_the_vector_stage_limit() -> None:
     paragraph = _paragraph(_text("docs/release/derived-labels-security-note-draft.md"), VECTOR)
     assert "a restricted caller can get fewer results than exist, down to none" in paragraph
@@ -180,33 +235,50 @@ def test_the_security_note_covers_belief_and_edge_review() -> None:
 
 
 def test_the_known_limitations_page_lists_both_limits() -> None:
+    """The page states the v0.20.2 limit and the one clause for v0.21.0, and the three promises that have no release.
+
+    The page is written for v0.21.0, so the id bullet opens with what v0.20.2 does and marks what v0.21.0 does with the one
+    marker. The hash and the words of archived rows are planned with no release set (they were tracked for v0.21.0 until
+    2026-10-21). The security note holds the detail and is linked from the lead-in of the list.
+    """
+
     page = _text("docs/alpha/known-limitations.md")
-    paragraph = _paragraph(page, f"- {IDS}")
-    assert "such as the candidate memory a report made or a source archived since" in paragraph
-    assert "The ids grant no access and show that the row exists" in paragraph
-    assert "a call that names one is answered as a missing id is answered, except for the two answers the security note lists" in paragraph
+    flat = " ".join(page.split())
+    assert "Open in v0.21.0, with the detail in the [security note](../release/derived-labels-security-note-draft.md):" in flat
+    paragraph = _paragraph(page, "- v0.20.2 returns the ids of rows a key cannot read as stored.")
+    assert paragraph.startswith(f" {NEW} a key with limits is not shown the id of a memory, a source, an artifact or an open loop it may not read")
+    assert "the count of a list that lost an id is recomputed or dropped" in paragraph
+    assert "an id in free text is not looked for" in paragraph
+    assert "an id that names no row at a position the product does not type is shown as written" in paragraph
+    assert "the owner and an unbound admin key keep every id" in paragraph
+    assert "From v0.20.2, a key with limits is not shown" not in page
     assert "three answers" not in paragraph
     assert "which can repeat the row's labels" not in paragraph
-    audit = _paragraph(page, f"- {AUDIT}")
-    assert "and a memory made from a captured source keeps its `source_id`, `source_event_ids` and `capture_content_hash` (the SHA-256 of the whole captured text) after the source is archived" in audit
-    assert "which the detail mode of `alice_memory_review`, the memory audit and the event feed of the workspace return" in audit
-    assert "the scheduler's run records in the workspace also keep the `artifact_id` of a report made confidential since" in audit
-    assert "withholding these is tracked for v0.21.0" in audit
-    assert "(see the [draft security note](../release/derived-labels-security-note-draft.md))" in audit
-    assert "a known exception, not a way of meeting the requirement to filter hidden ids" in paragraph
-    assert "withholding them is tracked for v0.21.0" in paragraph
-    assert "(see the [draft security note](../release/derived-labels-security-note-draft.md))" in paragraph
+    audit = _paragraph(page, "- a memory made from a captured source keeps its `capture_content_hash`")
+    assert " after the source is archived, which the detail mode of `alice_memory_review`, the memory audit and the workspace event feed return" in audit
+    assert "withholding it is planned, with no release set" in audit
+    assert (
+        "v0.20.2 also returns the archived members of a derived memory, the `source_id` and `source_event_ids` of a memory and "
+        "the `artifact_id` of the scheduler's run records; from v0.21.0, a key with limits is not shown those"
+    ) in audit
+    # The one v0.21.0 in the bullet is the clause for what v0.21.0 withholds. No release is named for the hash.
+    assert audit.count("v0.21.0") == 1
+    assert "for v0.21.0" not in audit
+    # The stale sentences are gone: ids are no longer listed as kept, and no bullet says they are tracked for v0.21.0.
+    assert "keeps its `source_id`" not in page
+    assert "also keep the `artifact_id` of a report made confidential since" not in page
+    assert "withholding these is tracked for v0.21.0" not in page
+    assert "tracked for v0.21.0" not in page
 
-    kept = _paragraph(page, f"- {KEPT}")
-    assert ", so the title, text or quote of a row that was archived after the report was made stays in the report's text" in kept
-    assert "in a roll-up card and as the digest of a consolidation member, and a key that can read the report reads those words" in kept
-    assert "the words of a memory redacted after the report was made stay in it too, but then only the owner and an unbound admin key read the report" in kept
-    assert "removing them is planned for v0.21.0, with hiding the words of archived rows tracked for v0.21.0" in kept
+    kept = _paragraph(page, "- a report keeps the words it was made with")
+    assert ": the title, text or quote of a row archived after the report was made stays in the report, in a roll-up card and as the digest of a consolidation member, and a key that can read the report reads it" in kept
+    assert "hiding these words is planned, with no release set" in kept
+    assert "v0.21.0" not in kept
     assert "redacting a memory does not rewrite the reports that printed it" not in kept
-    assert "(see the [draft security note](../release/derived-labels-security-note-draft.md))" in kept
-    vector = _paragraph(page, f"- {VECTOR}")
-    assert "a restricted caller can get fewer results than exist, down to none" in vector
-    assert "tracked for v0.21.0" in vector
+    vector = _paragraph(page, "- a key with limits is judged at most 128 rows of each list")
+    assert "(`READABLE_SCAN_CAP`), so a null `last_decision` or `next_action` can mean that the newest 128 matching rows hold none it may read" in vector
+    assert "v0.20.2 does not refill a page after it hides rows" in vector
+    assert f"{NEW} these refill, and a page is short when the hidden rows in front of it number more than 128 minus the rows the list is asked for (118 for `alice_recall` at limit 5)" in vector
 
 
 def test_the_changelog_has_one_entry_for_each() -> None:
@@ -217,19 +289,45 @@ def test_the_changelog_has_one_entry_for_each() -> None:
         (LOOP_PROJECT, ("a database error (HTTP 500)", "vNext project was not found", "write nothing")),
         (EVENT_FEED, ("a `source_chunk.created` event for every chunk of a source above its sensitivity ceiling", "with the id of the source in `payload_json.source_id`", "and counted each one in `event_count`", "a chunk event that names no source is not shown to a key with limits", "the two ends of a graph edge an event is about", "The context tree and the dogfooding view read the same rule", "The owner and an unbound admin key are unchanged", "an event whose payload names an artifact, a belief or a project, or whose edge ends in a belief, is not shown to a key with limits", "are not judged", "`replacement_memory_id` (the memory a correction put in the place of another)", "An id that a client sent and an event repeats (the id of a project in capitals, or with spaces round it) is read as the row it names", "text that is not the id of a stored row cannot be shown to be readable, so it hides the event", "An edge with an end that is not a source, a memory, a belief or an entity, or an end that is not stored, is not shown to a key with limits either", "the `changes` that a `memory.updated` event copies from a row still list the `superseded_by` of a corrected memory, as the row does")),
         (VECTOR, ("fewer results than exist, down to none", "Tracked for v0.21.0")),
-        (BELIEF + " apply the caller's limits", ("In v0.19.2, in v0.20.0 and on main until now", "change the stored row", "where it raised a server error", "an id that is not a well-formed id")),
+        (BELIEF + " apply the caller's limits", ("In v0.19.2 and in v0.20.0", "change the stored row", "where it raised a server error", "an id that is not a well-formed id")),
     ):
-        matches = [entry for entry in entries if entry.startswith(start)]
+        matches = [entry for entry in entries if entry.startswith(_log_start(start))]
         assert len(matches) == 1, start
         for phrase in phrases:
             assert phrase in matches[0], (start, phrase)
         assert matches[0].endswith("No migration is required.")
-    ids_entry = next(entry for entry in entries if entry.startswith(IDS))
+    ids_entry = next(entry for entry in entries if entry.startswith(_log_start(IDS)))
     assert "can repeat its domain, sensitivity and project scope" not in ids_entry
     assert "the memory tools return none" not in ids_entry
     assert "Three answers show a little more" not in ids_entry
     assert "the graph neighborhood route, which returns the edges of any id with their explanations" not in ids_entry
     assert "redacting a memory does not rewrite the reports that printed it" not in ids_entry
+
+
+def test_the_v0210_changelog_entry_says_what_v0210_withholds() -> None:
+    entries = [line.removeprefix("- ") for line in _text("CHANGELOG.md").splitlines() if line.startswith("- ")]
+    matches = [entry for entry in entries if entry.startswith(_log_start(WITHHELD))]
+    assert len(matches) == 1
+    entry = matches[0]
+    for phrase in (
+        "v0.20.2 returned those ids as stored",
+        "Every JSON string value whose whole value is an id is now checked wherever it sits, under any key and at any depth",
+        "in any spelling `uuid.UUID` takes (any case, hyphens in any place, braces, `urn:uuid:`)",
+        "behind a `memory:`, `source:`, `artifact:` or `open_loop:` prefix, and so is a dict key",
+        "an id that names no row the key may read is withheld whether the row is hidden or missing, so a key cannot tell the two apart",
+        "An id inside free text is not looked for; the `content_markdown` of a report is.",
+        "A count beside a list that lost an entry is recomputed or dropped",
+        "An id the caller supplied stays only where the answer repeats the input that held it",
+        "A parameter the route does not declare supplies nothing, so adding an id to the query of a read no longer shows that the id belongs to a report.",
+        "The validation error of a refused request (HTTP 422) repeats the caller's own input as sent and is not filtered.",
+        "A long run of reference prefixes is read in time proportional to its length.",
+        "for the user the key was authenticated for and not for the `user_id` of the query",
+        "a POST that carries it only in its body is filtered under development and test",
+        "It opens a connection only when the answer holds an id, and it keeps repeated response headers.",
+        "The owner and an unbound admin key keep every id.",
+    ):
+        assert phrase in entry, phrase
+    assert entry.endswith("No migration is required.")
 
 
 def test_the_tool_reference_states_both() -> None:
@@ -250,13 +348,18 @@ def test_the_tool_reference_states_both() -> None:
     assert "is answered as a missing id is, with the same status and body or the same tool error, and nothing is changed" in ids
     assert "Two answers show a little more and are named in the release security note" in ids
     assert "the graph neighborhood route, which returns the edges of any id with their explanations" not in ids
-    assert "This is a known exception to the rule that a hidden id is not shown, tracked for v0.21.0." in ids
+    assert "This was a known exception to the rule that a hidden id is not shown. From v0.21.0, a key with limits is not shown the id of a memory, a source, an artifact or an open loop it may not read" in ids
+    assert "in any spelling of the id and behind a `memory:`, `source:`, `artifact:` or `open_loop:` prefix, and a count beside a list that lost an entry follows the list" in ids
+    assert "an id that names no row the key may read is withheld whether the row is hidden or missing, an id inside free text (a title, a note, a quote) is not looked for" in ids
+    assert "an id the request supplied stays only where the answer repeats the input that held it (a parameter, field or argument the route or tool declares), and a parameter the route does not declare supplies nothing" in ids
+    assert "the validation error of a refused request (HTTP 422) repeats the caller's own input as sent and is not filtered" in ids
+    assert "(from v0.21.0, a key with limits no longer reads the roll-up entry or the member digest of a row it may not read)" in ids
     assert "A report also keeps the words it was made with, so the title, text or quote of a row that was archived after the report was made stays in the report's text" in ids
-    assert "and a key that can read the report reads those words; withholding them is tracked for v0.21.0 too." in ids
+    assert "and a key that can read the report reads those words (from v0.21.0, a key with limits no longer reads the roll-up entry or the member digest of a row it may not read); withholding the other words is planned, with no release set." in ids
     assert "The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only (see [Redacted memories](#redacted-memories))." in ids
     assert "and redacting a memory does not rewrite the reports that printed it" not in ids
     exact = _paragraph(tools, f"{MARK} the doors that act on one row by id answer a row above the key's limits as a row that does not exist.")
-    assert "Until now these doors answered HTTP 403 with the policy decision" in exact
+    assert "In v0.19.2 and v0.20.0 these doors answered HTTP 403 with the policy decision" in exact
     assert "The call now writes what a call on a missing id writes, which is nothing: no policy event and no agent record" in exact
     assert "A row the key may read keeps its refusals." in exact
     assert "An archived or redacted memory is read by no door but redact, and it is outside the limits of every key that has any" in exact

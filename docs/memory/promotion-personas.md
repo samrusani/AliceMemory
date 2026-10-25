@@ -229,6 +229,54 @@ when either of two checks refuses:
    gets v0.16.0's floor rule only, over title, text, excerpt and source
    refs, also joined with a space and with nothing, as v0.16.0 read them.
 
+Two differences from v0.16.0 (2026-10-22). The first: a token marker needs a
+token body after it. v0.16.0 read `ghp_`, `gho_`, `ghs_`, `ghu_`,
+`github_pat_`, `glpat-`, `npm_`, `sk-`, `xoxb-`, `xoxp-`, `xoxa-` and `xoxs-`
+as a credential wherever they began a word, with nothing required after them,
+so a part code such as `SK-2291`, a line such as `sk-2291 is current` and a
+variable name such as `npm_config_cache` were refused at the commit door and
+at the promotion floor. A marker now counts only when a floor of token
+characters follows it, and no floor is longer than the shortest body of the
+shapes listed in `legacy_credential_check._TOKEN_BODIES`: 36 base62 characters
+for `ghp_`, `gho_` and `npm_`; 36 letters, digits, dots, hyphens or
+underscores for `ghs_` and `ghu_`; 82 for `github_pat_`; 20 for `glpat-` and
+for `sk-`; and 10 for the four Slack markers. The `ghs_` class is the one
+GitHub publishes for installation tokens, because GitHub's stateless form is
+`ghs_`, a numeric app id, an underscore and a JWT of about 520 characters: the
+underscore and the dots belong to the body, and with base62 alone an app id of
+1 to 7 digits ended the run before 36 characters. `ghu_` takes the same class
+and floor by our choice, not by a published pattern for it, because GitHub
+announced a format change for `ghu_` without details. The cost is that a
+`ghs_` or `ghu_` followed by 36 or more letters, digits, dots, hyphens or
+underscores is read, as GitHub's own pattern reads `ghs_`, and a shorter name
+is not. GitHub states the number for `ghp_`, `gho_` and `ghu_` (36 base62
+characters, in its 2021 post on its token formats) and for `ghs_` (its
+changelog of 2026-05-15, which gives 36 as the minimum). For `github_pat_`,
+`glpat-`, `npm_` and the Slack markers, no provider page that this module has
+found states a minimum: the length is the one public secret scanning rules
+use, and the Slack floor of 10 is the Slack pattern's own, not a real token's
+length. For `sk-` no provider publishes a minimum: 32 is the shortest key
+seen, and the floor of 20 is a choice below it.
+
+A token right after an underscore is read too: v0.16.0's boundary was "no
+letter, digit or underscore before the marker", so `_ghs_` and a token,
+`x_ghs_` and 36 characters, and `TOKEN_npm_` and 36 characters were never read
+by the marker rule. The floor, not the boundary, is what keeps `PART_SK-2291`
+and `deploy_ghu_config` out. The two ssh markers keep the bare reading, and
+v0.16.0's boundary, because they have no floor, they name a public key line
+and the first carve-out excuses it. The two FIDO key types are still read at
+any length, so a token glued onto one is still refused. The commit gate's own
+`sk-` prefix pattern, which read `sk-` and 8 characters, takes the floor of
+the `sk-` marker, so `SK-20260301`, `SK-2025-0618` and `SK-2291-REV` are not
+read as keys. Nothing else moved: the commit gate's `ghp_` and `xoxb-` prefix
+patterns (8 or more characters after them), the detector and the carve-outs
+are unchanged, so a lower-case `sk-` code of 8 digits is still refused by the
+detector, and a body one short of a floor can still be read by those. A token
+of these shapes is withheld or refused when its marker starts the text or
+follows a space, punctuation or an underscore; a marker glued directly onto a
+letter or digit (as in `X` followed by a `ghs_` token) is not read, as in
+v0.21.0.
+
 The carve-outs are the design round's named false positives, and there are
 no others. Each excuses one finding at a time, so a note with an excused
 `sk-learn` and a real token is refused for the token:
@@ -240,7 +288,9 @@ no others. Each excuses one finding at a time, so a note with an excused
   a qualified label such as "Deploy key", unless the public key body
   follows it.
 - **`sk-` and lower-case words**: `sk-learn`, `sk-learn-bench-2024`.
-  Upper case (`SK-LEARN`, `SK-1482-fix`) is not excused.
+  Upper case (`SK-LEARN-BENCHMARK-2024`, `SK-1482-fix`) is not excused. A short
+  upper-case code such as `SK-LEARN` or `SK-1482` is not read at all since
+  2026-10-22, so it needs no excuse.
 - **Structural key names with identifier values**: `fact_key` and the
   continuity subject keys, `cache_key`, `partition_key`, `sort_key`,
   `next_page_token`, `memory_key`, and dedupe keys (`dedupe_key`,
@@ -422,7 +472,8 @@ Stated so nobody reads the table above as "every surface".
   letter or digit, no uppercase or titlecase character, no control, format,
   surrogate, private-use, or unassigned character, and no whitespace other
   than a plain space. A 64-hex scope is not this shape.
-  The label is still read by value, so an `sk-` or `xoxb-` anchor is refused.
+  The label is still read by value, so a label that is a token of the shapes
+  above (an `sk-` or `xoxb-` key, for example) is refused on the same terms.
   The text grammar is unchanged, so `rollup_key=<opaque>` at
   the commit door is still refused. `rollup` is not a structural name, so
   `rollupKey` and the other spellings are refused at the commit door.

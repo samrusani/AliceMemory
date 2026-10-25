@@ -418,13 +418,13 @@ def test_the_docs_say_the_hook_checks_the_variable_from_v0192_and_keep_the_v0190
     v0.19.0 creates a vault under the current directory for a relative
     ``ALICE_MEMORY_DATA_DIR``. The known limitations page no longer retells that gap, because
     v0.19.2 fixed it: the history is the changelog's v0.19.2 section, which holds the change and
-    names v0.19.0's behaviour, and the v0.19.0 release notes. The example page, the README (in a
-    ``From v0.19.2`` paragraph) and the control documents carry what the hook does now, and
-    ``--help`` states the rule.
+    names v0.19.0's behaviour, and the v0.19.0 release notes. The example page and the control
+    documents carry what the hook does now, ``--help`` states the rule, and the README keeps no
+    version history at all.
 
     Mutations, each one alone: drop the ``From v0.19.2`` wording from the example page or the
     control documents; delete the ``In v0.19.0`` clause from the changelog entry; move the entry
-    out of the v0.19.2 section; put the rule into a ``From v0.19.0`` README line; drop the
+    out of the v0.19.2 section; put the rule into a ``From v0.19.0`` or ``From v0.19.2`` README line; drop the
     variable from the ``--data-dir`` help; change the changelog's ``exits 0`` or the example
     page's ``It exits 0 and creates nothing``; drop the escape and cut sentence from either. This
     test fails.
@@ -443,14 +443,20 @@ def test_the_docs_say_the_hook_checks_the_variable_from_v0192_and_keep_the_v0190
     assert "From `v0.19.2`, the hook refuses a relative `ALICE_MEMORY_DATA_DIR` the same way." in state
 
     changelog = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## ")
-    # Unreleased and the v0.20.0 section may hold entries for changes made after v0.19.2.
+    # Unreleased, the v0.21.1, v0.21.0, v0.20.2 and v0.20.0 sections may hold entries for changes made after v0.19.2.
     assert changelog[1].startswith("Unreleased")
-    assert changelog[2].startswith("v0.20.0 \u2014 2026-10-02\n")
+    assert changelog[2].startswith("v0.21.1 \u2014 2026-10-23\n")
+    assert changelog[3].startswith("v0.21.0 \u2014 2026-10-22\n")
+    assert changelog[4].startswith("v0.20.2 \u2014 2026-10-17\n")
+    assert changelog[5].startswith("v0.20.0 \u2014 2026-10-02\n")
     # This released entry stays in the v0.19.2 section, not in a newer one.
     assert "ALICE_MEMORY_DATA_DIR" not in changelog[1]
     assert "ALICE_MEMORY_DATA_DIR" not in changelog[2]
-    assert changelog[3].startswith("v0.19.2 \u2014 2026-10-01\n")
-    released_now = _flat(changelog[3])
+    assert "ALICE_MEMORY_DATA_DIR" not in changelog[3]
+    assert "ALICE_MEMORY_DATA_DIR" not in changelog[4]
+    assert "ALICE_MEMORY_DATA_DIR" not in changelog[5]
+    assert changelog[6].startswith("v0.19.2 \u2014 2026-10-01\n")
+    released_now = _flat(changelog[6])
     assert (
         "`alice-memory-session-start` refuses a non-empty `ALICE_MEMORY_DATA_DIR` that is not "
         "absolute after `~` expansion, when the variable is the value in use."
@@ -463,17 +469,11 @@ def test_the_docs_say_the_hook_checks_the_variable_from_v0192_and_keep_the_v0190
     ) in released_now
     assert "`alice-memory brief` and `alice-memory mcp` do not read the variable" in released_now
 
+    # The rule is pinned above on the example page, the state file and the changelog. The README keeps no
+    # ``From v0.19.x`` line, so it neither states the rule nor carries a comparison with v0.19.0.
     readme = (_ROOT / "README.md").read_text(encoding="utf-8").splitlines()
-    from_v0192 = [
-        line
-        for line in readme
-        if line.startswith("From v0.19.2, `alice-memory-session-start` refuses") and "ALICE_MEMORY_DATA_DIR" in line
-    ]
-    assert len(from_v0192) == 1
-    assert "In v0.19.0" in from_v0192[0]
-    released = [line for line in readme if line.startswith("From v0.19.0,")]
-    assert released and not any("refuses a relative or unexpanded" in line for line in released)
-    assert not any(line.startswith("On main, not yet released") for line in readme)
+    assert not any(line.startswith(("From v0.19", "On main, not yet released")) for line in readme)
+    assert not any("refuses a relative or unexpanded" in line for line in readme)
 
     with pytest.raises(SystemExit):
         _parse_args(["--help"])

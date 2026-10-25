@@ -37,6 +37,7 @@ import contextlib
 import copy
 import fcntl
 import hashlib
+import importlib
 import io
 import json
 import os
@@ -48,11 +49,14 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import time
+import urllib.request
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from alicebot_api.vnext_agent_control import AgentIdentity
@@ -69,12 +73,28 @@ VAULT_FILENAME = "memory.db"
 SNAPSHOT_DIRNAME = "snapshot"
 STATE_DIRNAME = "state"
 MANIFEST_FILENAME = "manifest.json"
+# One line per search of a vectors run, in the state folder: the status of the vector stage of that recall.
+VECTOR_STATUS_FILENAME = "vector_status.jsonl"
+# The count of the chunk vectors a readiness check made, kept in the run folder (``vector_census_key``).
+VECTOR_CENSUS_FILENAME = "vector_census.json"
+VECTOR_CENSUS_SCHEMA = "alice-bench-vector-census/1"
 
 # Every variable whose name starts with this is removed from a run. The prefix
 # covers ALICE_* (the product switches, the embeddings endpoint, the agent key)
 # and ALICEBOT_* (the settings of the API process).
 ENV_PREFIX = "ALICE"
 SEARCH_QUALITY_ENV = "ALICE_SEARCH_QUALITY"
+# The values --search-quality takes. ``vectors`` is passage mode plus the vectors of the source chunks, which
+# exist only in a vault whose build embedded them (``embed_vault_chunks``), so a run of that value carries the
+# three variables below and is held to the readiness checks of ``require_vector_readiness``.
+SEARCH_QUALITY_CHOICES = ("off", "passage", "vectors", "on")
+VECTORS = "vectors"
+SOURCE_EMBEDDINGS_ENV = "ALICE_SOURCE_EMBEDDINGS"
+EMBEDDINGS_BASE_URL_ENV = "ALICE_EMBEDDINGS_BASE_URL"
+EMBEDDINGS_MODEL_ENV = "ALICE_EMBEDDINGS_MODEL"
+LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1"})
+DEFAULT_OLLAMA_BASE = "http://127.0.0.1:11434"
+DEFAULT_EMBED_MODEL = "nomic-embed-text:v1.5"
 
 DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001"
 VARIANTS = ("verbatim", "keyword")
@@ -307,10 +327,487 @@ def scoped_environment(allow: Mapping[str, str] | None = None) -> Iterator[list[
         os.environ.update(saved)
 
 
-def arm_environment(search_quality: str | None) -> dict[str, str]:
-    """The only ALICE variables a run may carry."""
+def require_local_endpoint(url: str) -> str:
+    """A loopback Ollama address. A cloud host is refused before any call."""
 
-    return {} if search_quality is None else {SEARCH_QUALITY_ENV: search_quality}
+    parts = urlsplit(url.strip())
+    host = (parts.hostname or "").lower()
+    if parts.scheme not in {"http", "https"} or host not in LOOPBACK:
+        raise BenchError("the model endpoint must be a loopback Ollama address")
+    return url.strip().rstrip("/")
+
+
+def embedding_settings(base: str, model: str) -> dict[str, str]:
+    """The env Alice's embedding client reads. Ollama serves ``/v1/embeddings``."""
+
+    local = require_local_endpoint(base)
+    if not model.strip():
+        raise BenchError("the embedding model must be set")
+    return {
+        EMBEDDINGS_BASE_URL_ENV: local + "/v1",
+        EMBEDDINGS_MODEL_ENV: model.strip(),
+    }
+
+
+def vector_environment(settings: Mapping[str, str]) -> dict[str, str]:
+    """The variables a vectors run carries besides the search quality: the opt-in, the endpoint and the model.
+
+    ``settings`` is what ``embedding_settings`` returns and a build records as ``embedding_env``: the endpoint and the
+    model, nothing else. The endpoint has to be on this machine, here as well as in the product, so a record that was
+    edited to name another host is refused before a run starts.
+    """
+
+    if set(settings) != {EMBEDDINGS_BASE_URL_ENV, EMBEDDINGS_MODEL_ENV}:
+        raise BenchError("a vectors run carries the embeddings endpoint and model, and no other setting")
+    base = require_local_endpoint(str(settings[EMBEDDINGS_BASE_URL_ENV]))
+    model = str(settings[EMBEDDINGS_MODEL_ENV]).strip()
+    if not model:
+        raise BenchError("the embedding model must be set")
+    return {SOURCE_EMBEDDINGS_ENV: "on", EMBEDDINGS_BASE_URL_ENV: base, EMBEDDINGS_MODEL_ENV: model}
+
+
+def arm_environment(search_quality: str | None, *, vector_settings: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The only ALICE variables a run may carry.
+
+    The search quality, and for a ``vectors`` run its embedding variables (``vector_environment``). A run of any
+    other quality never carries them, so the setting of a vectors run cannot reach a passage or an off run.
+    ``vector_settings`` left out gives a vectors run the quality alone, which is all that asking the product for a
+    ranking mode needs; a run that recalls carries the settings.
+    """
+
+    env = {} if search_quality is None else {SEARCH_QUALITY_ENV: search_quality}
+    if vector_settings is not None:
+        if search_quality != VECTORS:
+            raise BenchError("only a run of search quality vectors carries embedding settings")
+        env.update(vector_environment(vector_settings))
+    return env
+
+
+@contextlib.contextmanager
+def applied_environment(env: Mapping[str, str]) -> Iterator[None]:
+    """Set ``env`` for the length of the block and put every name back as it was after."""
+
+    saved = {name: os.environ.get(name) for name in env}
+    os.environ.update(env)
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def resolved_ranking_mode(search_quality: str | None) -> str:
+    """``document``, ``passage`` or ``vectors``: the ranking ``alice_recall`` runs on the SQLite vault this harness builds.
+
+    ``search_quality`` is the value the run sets in ``ALICE_SEARCH_QUALITY``; ``None`` leaves it unset. An unset
+    variable does not name one ranking: v0.20.2 ranks sources by document, and v0.21.0 ranks them by passage on
+    SQLite. So the mode is not read off the variable. It is asked of the recall edge of the checkout that was
+    imported (``recall_source_ranking``), under the environment this run carries, with a SQLite store and no
+    agent key, which is how this harness calls recall. A checkout without that edge ranks by document whatever
+    the variable says. ``on`` is the improved query, which the product refuses at the stage; it resolves to the
+    passage mode it asks for. ``vectors`` is its own mode, passage mode plus the chunk vectors, and it is recorded
+    as ``vectors``: a checkout that cannot rank by vectors (no edge, or an edge that answers with another mode) is
+    refused, and so is any other value that resolves to ``vectors``, so a mode is never recorded for a ranking the
+    run did not get.
+    """
+
+    try:
+        module = importlib.import_module("alicebot_api.mcp.retrieval")
+    except ModuleNotFoundError as exc:
+        if exc.name != "alicebot_api.mcp.retrieval":
+            raise
+        return _checked_ranking_mode("document", search_quality)
+    edge = getattr(module, "recall_source_ranking", None)
+    if edge is None:
+        return _checked_ranking_mode("document", search_quality)
+    from alicebot_api.sqlite_store import SQLiteVNextStore
+
+    with scoped_environment(arm_environment(search_quality)):
+        try:
+            # The edge reads the class of the store and the environment, so an instance with no connection is enough.
+            ranking = edge(SQLiteVNextStore.__new__(SQLiteVNextStore), None)
+        except ValueError as exc:
+            raise BenchError(str(exc)) from exc
+    return _checked_ranking_mode(str(ranking.mode), search_quality)
+
+
+def _checked_ranking_mode(mode: str, search_quality: str | None) -> str:
+    if (search_quality == VECTORS) != (mode == VECTORS):
+        raise BenchError(
+            f"search quality {search_quality or 'unset'} resolved to the {mode} ranking in this checkout, "
+            "so the run would not be what its record says"
+        )
+    return mode
+
+
+# --------------------------------------------------------------------------
+# The chunk vectors of a vectors run
+#
+# ``--search-quality vectors`` ranks the passages of a source with the vectors of its chunks. Those exist only if
+# the build made them: the product embeds the chunks of a source after an import when ``ALICE_SOURCE_EMBEDDINGS``
+# is ``on`` and the embeddings endpoint is on this machine, and ``alice-memory reindex-embeddings --sources`` makes
+# the ones an import left pending. A recall that finds no usable vector answers as passage mode does, so a vectors run
+# that skipped any of this would be a passage run under another name. Everything below is how the harness refuses
+# that: the build embeds through the product and fails unless nothing is pending, every search checks the vault
+# again, and every recall reports the status of the vector stage so a search that did not use vectors can be counted.
+
+# How many times the backfill is run before the build gives up. A pass that embeds nothing ends it earlier.
+BACKFILL_PASSES = 5
+DIGEST_TIMEOUT_SECONDS = 10
+DIGEST_MAX_BYTES = 4_000_000
+
+
+def accepted_skip_reasons() -> tuple[str, ...]:
+    """The reasons the product documents for never sending a chunk, other than a retired source.
+
+    A chunk whose text the credential check flags, a chunk of links and labels, and a chunk too short to read
+    are skipped by design and counted by reason. A source that is deleted, replaced or scrubbed is the fourth
+    documented reason (``source_retired``); a vault that was just built has none, so it is not accepted here and a
+    build that finds one fails.
+    """
+
+    from alicebot_api.source_embedding_policy import SKIP_CREDENTIAL, SKIP_LINK_ONLY, SKIP_TOO_SHORT
+
+    return (SKIP_CREDENTIAL, SKIP_LINK_ONLY, SKIP_TOO_SHORT)
+
+
+def read_model_digest(settings: Mapping[str, str]) -> str:
+    """The digest Ollama reports for the embedding model, read from the loopback endpoint (``/api/tags``)."""
+
+    base = require_local_endpoint(str(settings[EMBEDDINGS_BASE_URL_ENV]))
+    root = base[: -len("/v1")] if base.endswith("/v1") else base
+    model = str(settings[EMBEDDINGS_MODEL_ENV]).strip()
+    names = {model, model + ":latest"} if ":" not in model else {model}
+    # No proxy of the environment may carry this request, whatever the variables say.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(root + "/api/tags", timeout=DIGEST_TIMEOUT_SECONDS) as response:
+            body = json.loads(response.read(DIGEST_MAX_BYTES))
+    except (OSError, ValueError) as exc:
+        raise BenchError(f"the model digest cannot be read from the loopback endpoint ({type(exc).__name__})") from exc
+    entries = body.get("models") if isinstance(body, dict) else None
+    for entry in entries if isinstance(entries, list) else []:
+        if isinstance(entry, dict) and names & {str(entry.get("name")), str(entry.get("model"))}:
+            digest = entry.get("digest")
+            if isinstance(digest, str) and digest.strip():
+                return digest.strip()
+    raise BenchError(f"the loopback endpoint lists no digest for the model {model}")
+
+
+def _stored_vector_dimensions(db_path: Path) -> list[int]:
+    """The distinct widths of the chunk vectors the vault stores, read without writing to it."""
+
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "source_chunk_embeddings" not in tables:
+            return []
+        rows = conn.execute("SELECT DISTINCT dimensions FROM source_chunk_embeddings ORDER BY dimensions").fetchall()
+    finally:
+        conn.close()
+    return [int(row[0]) for row in rows]
+
+
+def chunk_vector_state(db_path: Path) -> dict[str, Any]:
+    """What the product counts for the chunk vectors of the vault, under the environment now in force.
+
+    The census is the product's own (``alice-memory doctor`` prints it): ``current`` chunks have a vector made
+    with today's signature from today's text, ``pending`` ones have none and may be sent, ``stale`` ones have a
+    vector of another model, endpoint, rule or text, and ``skipped`` ones are never sent, by reason. It reads every
+    live chunk and sends nothing.
+    """
+
+    from alicebot_api.source_chunk_embeddings import census_egress, chunk_vector_census, sqlite_store_context
+
+    egress = census_egress()
+    signature = egress.signature
+    if egress.provider is None or signature is None:
+        raise BenchError("no embedding provider is configured for this run")
+    with sqlite_store_context(db_path, DEFAULT_USER_ID) as store:
+        census = chunk_vector_census(store, egress=egress)
+    return {
+        "current": census.current,
+        "pending": census.pending,
+        "stale": census.stale,
+        "stored": census.stored,
+        "skipped": dict(sorted(census.skipped.items())),
+        "dimensions": _stored_vector_dimensions(db_path),
+        "signature": asdict(signature),
+    }
+
+
+def _run_backfill(db_path: Path) -> dict[str, Any]:
+    """``alice-memory reindex-embeddings --sources`` on the vault, in process. Returns its receipt and exit code."""
+
+    from alicebot_api import onramp
+
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        code = onramp.main(["reindex-embeddings", "--sources", "--db", str(db_path)])
+    receipt: dict[str, Any] = {"exit_code": code}
+    for text in (stdout.getvalue(), stderr.getvalue()):
+        lines = [line for line in text.splitlines() if line.strip()]
+        if lines:
+            try:
+                parsed = json.loads(lines[-1])
+            except ValueError:
+                continue
+            if isinstance(parsed, dict):
+                receipt.update(parsed)
+    return receipt
+
+
+def embed_vault_chunks(db_path: Path, settings: Mapping[str, str]) -> dict[str, Any]:
+    """Make the chunk vectors of a built vault through the product and return the ``chunk_vectors`` record.
+
+    The caller has already imported with the vectors environment, so the product embedded each source as it
+    arrived. This runs the product's backfill until nothing is pending (or a pass makes no progress), then counts
+    the vault with the product's census and refuses the build unless every chunk is accounted for: none pending, none
+    stale, no skip other than the documented ones (``accepted_skip_reasons``), at least one vector, and one width.
+    The record names the model, the digest Ollama reports for it, the width, the counts and the signature fields the
+    product stamps on a vector.
+    """
+
+    env = vector_environment(settings)
+    with applied_environment(env):
+        receipt: dict[str, Any] = {}
+        passes = 0
+        for passes in range(1, BACKFILL_PASSES + 1):
+            receipt = _run_backfill(db_path)
+            if not receipt.get("pending") and not receipt.get("reason") and not receipt.get("error"):
+                break
+            if not receipt.get("embedded"):
+                break
+        state = chunk_vector_state(db_path)
+    problems: list[str] = []
+    if state["pending"]:
+        reasons = receipt.get("pending_reasons")
+        why = (
+            ", ".join(f"{reason} {count}" for reason, count in sorted(reasons.items()))
+            if isinstance(reasons, dict)
+            else receipt.get("reason") or (receipt.get("error") or {}).get("code")
+        )
+        problems.append(f"{state['pending']} chunks are still pending a vector" + (f" ({why})" if why else ""))
+    if state["stale"]:
+        problems.append(f"{state['stale']} chunks hold a vector of another model, endpoint or rule")
+    unaccepted = {reason: n for reason, n in state["skipped"].items() if reason not in accepted_skip_reasons()}
+    if unaccepted:
+        listed = ", ".join(f"{reason} {n}" for reason, n in sorted(unaccepted.items()))
+        problems.append(f"chunks were skipped for a reason a fresh build does not have ({listed})")
+    if not state["stored"]:
+        problems.append("no chunk was embedded")
+    if len(state["dimensions"]) > 1:
+        problems.append("the stored vectors do not share one width")
+    if problems:
+        raise BenchError("the chunk vectors are incomplete: " + "; ".join(problems))
+    return {
+        "model": str(settings[EMBEDDINGS_MODEL_ENV]).strip(),
+        "model_digest": read_model_digest(settings),
+        "dimensions": state["dimensions"][0],
+        "chunks_embedded": state["stored"],
+        "pending": state["pending"],
+        "stale": state["stale"],
+        "skipped": state["skipped"],
+        "skipped_total": sum(state["skipped"].values()),
+        "signature": state["signature"],
+        "backfill_passes": passes,
+    }
+
+
+def require_vector_environment(settings: Mapping[str, str]) -> None:
+    """Refuse a process that does not carry the vectors environment its run recorded.
+
+    A recall under a missing opt-in, endpoint or model answers as passage mode does and says so only in its trace,
+    so this is checked before the run is read, not left to the status of each call.
+    """
+
+    expected = {SEARCH_QUALITY_ENV: VECTORS, **vector_environment(settings)}
+    missing = sorted(name for name, value in expected.items() if os.environ.get(name) != value)
+    if missing:
+        raise BenchError("the vectors environment is not applied to this run (" + ", ".join(missing) + ")")
+
+
+def vector_census_key(db_path: Path, recorded: Mapping[str, Any]) -> dict[str, Any]:
+    """What a count of the chunk vectors is true for, read from the vault in a few queries and without writing to it.
+
+    The product's own stamp (``source_chunk_vector_stamp``, which its triggers rewrite when a vector is overwritten or
+    deleted) does not move when a vector is added, because the product finds additions by row number. So the key also
+    holds the number of vector rows and the highest row number, the same two numbers for the chunks and the sources,
+    how many sources are live and how many are scrubbed, the signature of the provider in force, and the digest the
+    build recorded. A vector deleted, overwritten or added, a note imported or retired, and a change of model or
+    endpoint each change the key. An edit of the text of a chunk in place, with no write to any of those, does not;
+    the commands that read a vault whole (``require_matching_vault``) still see that.
+    """
+
+    from alicebot_api.source_embedding_policy import chunk_signature
+    from alicebot_api.sqlite_schema import source_chunk_vectors_stamp
+    from alicebot_api.vnext_embeddings import get_embedding_provider
+
+    provider = get_embedding_provider()
+    if provider is None:
+        raise BenchError("no embedding provider is configured for this run")
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        stamp = source_chunk_vectors_stamp(conn)
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        vectors = (
+            conn.execute("SELECT COUNT(*), COALESCE(MAX(rowid), 0) FROM source_chunk_embeddings").fetchone()
+            if "source_chunk_embeddings" in tables
+            else (0, 0)
+        )
+        chunks = conn.execute("SELECT COUNT(*), COALESCE(MAX(rowid), 0) FROM source_chunks").fetchone()
+        sources = conn.execute(
+            "SELECT COUNT(*), COALESCE(MAX(rowid), 0), COALESCE(SUM(deleted_at IS NULL), 0), "
+            "COALESCE(SUM(COALESCE(json_extract(metadata_json, '$.scrubbed'), 0) = 1), 0) FROM sources"
+        ).fetchone()
+    finally:
+        conn.close()
+    return {
+        "stamp": stamp or "",
+        "vectors": [int(value) for value in vectors],
+        "chunks": [int(value) for value in chunks],
+        "sources": [int(value) for value in sources],
+        "signature": asdict(chunk_signature(provider)),
+        "model_digest": recorded.get("model_digest"),
+    }
+
+
+def _cached_vector_census(cache_path: Path | None, key: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The count kept in ``cache_path`` when it was made for ``key``, else None. A file that cannot be read is no cache."""
+
+    if cache_path is None:
+        return None
+    try:
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if isinstance(cached, dict) and cached.get("schema") == VECTOR_CENSUS_SCHEMA and cached.get("key") == key:
+        state = cached.get("state")
+        return dict(state) if isinstance(state, dict) else None
+    return None
+
+
+def _store_vector_census(cache_path: Path | None, key: Mapping[str, Any], state: Mapping[str, Any]) -> None:
+    """Keep ``state`` for ``key``. The file is replaced whole, so a search running at the same time reads either one."""
+
+    if cache_path is None:
+        return
+    document = {"schema": VECTOR_CENSUS_SCHEMA, "key": key, "state": state}
+    temporary = cache_path.with_name(f"{cache_path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temporary, cache_path)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+
+
+def require_vector_readiness(
+    db_path: Path,
+    recorded: Mapping[str, Any] | None,
+    settings: Mapping[str, str],
+    *,
+    cache_path: Path | None = None,
+) -> None:
+    """Refuse to read a vectors run whose vault no longer holds the vectors its build recorded.
+
+    The environment has to be the run's (``require_vector_environment``). The product's census must then find
+    nothing pending and nothing stale, as many stored vectors as the build embedded, one width, and the signature
+    the build recorded. The digest Ollama reports for the model must still be the recorded one, because a model
+    pulled again under the same name embeds a query where the stored vectors do not live. Each is a refusal and none
+    is repaired. Every message is one line.
+
+    The census reads every live chunk, so with a ``cache_path`` it is made once and kept for the key of
+    ``vector_census_key``; a later check that finds the same key uses it and reads the vault in a few queries. What
+    the build recorded is compared on every check, and the digest is asked of the endpoint on every check.
+    """
+
+    if not isinstance(recorded, Mapping) or not isinstance(recorded.get("chunks_embedded"), int):
+        raise BenchError("this vectors run recorded no chunk vectors; build it again with --embeddings on")
+    require_vector_environment(settings)
+    key = vector_census_key(db_path, recorded) if cache_path is not None else None
+    state = _cached_vector_census(cache_path, key) if key is not None else None
+    if state is None:
+        state = chunk_vector_state(db_path)
+        if key is not None:
+            _store_vector_census(cache_path, key, state)
+    wrong: list[str] = []
+    if state["pending"]:
+        wrong.append(f"{state['pending']} chunks are pending a vector")
+    if state["stale"]:
+        wrong.append(f"{state['stale']} chunks hold a stale vector")
+    if state["stored"] != recorded["chunks_embedded"] or state["current"] != recorded["chunks_embedded"]:
+        wrong.append(
+            f"the vault holds {state['stored']} vectors, {state['current']} of them current, "
+            f"and the build recorded {recorded['chunks_embedded']}"
+        )
+    if state["dimensions"] != [recorded.get("dimensions")]:
+        wrong.append("the stored vectors are not of the recorded width")
+    if state["signature"] != recorded.get("signature"):
+        wrong.append("the vectors signature differs from the build's")
+    if wrong:
+        raise BenchError("this vectors run is not ready: " + "; ".join(wrong))
+    if read_model_digest(settings) != recorded.get("model_digest"):
+        raise BenchError("this vectors run is not ready: the model digest differs from the build's")
+
+
+def split_vector_trace(text: str) -> tuple[str, dict[str, Any]]:
+    """The text a recall without ``debug`` would have returned, and the status of its vector stage.
+
+    A call made with ``trace=True`` (``alice_arm_arguments``) carries ``debug``, whose only effect is a ``retrieval``
+    block at the end of the result. This removes that block and serializes the rest as the server does, so the text
+    an answering agent sees is the one it would have had without the flag. The status is the stage's own record
+    (``status``, ``readable_chunks``, ``stale_chunks``, ``discovered_in_head``, ``reordered_slots``,
+    ``filler_picks``) with ``used`` true when the stage ran. A trace that holds no stage record is
+    reported as such and never as ``enabled``.
+    """
+
+    from alicebot_api.recall_framing import serialize_mcp_tool_result
+
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        payload = None
+    if not isinstance(payload, dict):
+        return text, {"status": "unknown: the recall result is not JSON", "used": False}
+    retrieval = payload.pop("retrieval", None)
+    stage = None
+    if isinstance(retrieval, dict):
+        stages = retrieval.get("stages")
+        sources = stages.get("sources") if isinstance(stages, dict) else None
+        stage = sources.get("vector") if isinstance(sources, dict) else None
+    if isinstance(stage, dict) and isinstance(stage.get("status"), str):
+        status: dict[str, Any] = {key: value for key, value in stage.items() if isinstance(value, str | int)}
+        status["used"] = stage["status"] == "enabled"
+    else:
+        status = {"status": "unknown: the recall trace holds no vector stage", "used": False}
+    return serialize_mcp_tool_result(payload), status
+
+
+def format_chunk_vectors(block: Mapping[str, Any]) -> str:
+    """One line for the build output: what a vectors build embedded."""
+
+    skipped = ", ".join(f"{reason} {count}" for reason, count in sorted(block["skipped"].items()))
+    return (
+        f"chunk vectors embedded {block['chunks_embedded']}, pending {block['pending']}, "
+        f"skipped {block['skipped_total']}" + (f" ({skipped})" if skipped else "")
+        + f", model {block['model']}, digest {block['model_digest']}"
+    )
+
+
+def vector_stage_summary(calls: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """How many recalls there were, how many ran the vector stage, and the count of each status."""
+
+    statuses: dict[str, int] = {}
+    for call in calls:
+        statuses[str(call["status"])] = statuses.get(str(call["status"]), 0) + 1
+    return {
+        "calls": len(calls),
+        "used": sum(1 for call in calls if call.get("used") is True),
+        "statuses": dict(sorted(statuses.items())),
+    }
 
 
 # --------------------------------------------------------------------------
@@ -946,6 +1443,7 @@ def build_vault(
     rebuild: bool,
     repo: Path,
     search_quality: str | None = None,
+    vector_settings: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build a fresh vault and the grep snapshot under ``run_dir``. Returns the manifest.
 
@@ -962,8 +1460,17 @@ def build_vault(
     after the loop, it would name the tree as it ended up, and a source edited while the build ran would be
     recorded for a vault that the code before the edit had cut. The first reading also has to give the
     harness this process loaded, so a script edited before the build began is not recorded under its new hash.
+
+    A build of search quality ``vectors`` takes ``vector_settings`` (the endpoint and model of
+    ``embedding_settings``). Each file is then imported with the vectors environment, so the product embeds the
+    chunks of each source as it arrives, and the product's backfill runs after the last one
+    (``embed_vault_chunks``); the build fails unless nothing is left pending. The manifest records the
+    settings as ``embedding_env`` and the result as ``chunk_vectors``. A build of any other quality takes
+    no settings and records neither.
     """
 
+    if (search_quality == VECTORS) != (vector_settings is not None):
+        raise BenchError("a build of search quality vectors needs the embedding settings, and no other build takes them")
     identity = checkout_identity(repo)
     require_harness_unchanged(str(identity["harness_sha256"]))
     data_dir = check_vault_location(run_dir, data_dir)
@@ -985,12 +1492,14 @@ def build_vault(
 
     receipts: list[dict[str, Any]] = []
     withheld: list[dict[str, Any]] = []
-    for item in ordered:
-        record = _import_one(db_path, item.path, domain=domain, sensitivity=sensitivity)
-        receipts.append(record)
-        labels = [str(label) for label in record.get("skipped_credential_items", [])]
-        if labels:
-            withheld.append({"file": item.relative_path, "items": labels})
+    with applied_environment({} if vector_settings is None else vector_environment(vector_settings)):
+        for item in ordered:
+            record = _import_one(db_path, item.path, domain=domain, sensitivity=sensitivity)
+            receipts.append(record)
+            labels = [str(label) for label in record.get("skipped_credential_items", [])]
+            if labels:
+                withheld.append({"file": item.relative_path, "items": labels})
+    chunk_vectors = None if vector_settings is None else embed_vault_chunks(db_path, vector_settings)
     snapshot_files = export_snapshot(db_path, snapshot_dir, corpus_root=folder if folder.is_dir() else folder.parent)
     held = vault_identity(db_path)
     moved = differing_identity_keys(identity, checkout_identity(repo))
@@ -1003,7 +1512,11 @@ def build_vault(
     manifest: dict[str, Any] = {
         "schema": MANIFEST_SCHEMA,
         "built_at": utc_now(),
-        "build": {**identity, "search_quality": search_quality if search_quality is not None else "unset"},
+        "build": {
+            **identity,
+            "search_quality": search_quality if search_quality is not None else "unset",
+            "ranking_mode": resolved_ranking_mode(search_quality),
+        },
         "order": order,
         "vault_dir": data_dir.relative_to(run_dir).as_posix(),
         "capture_order": [entry["relative_path"] for entry in snapshot_files],
@@ -1017,6 +1530,9 @@ def build_vault(
         "duplicates": sum(1 for record in receipts if int(record.get("imported_count", 0)) == 0),
         "harness_sha256": identity["harness_sha256"],
     }
+    if vector_settings is not None:
+        manifest["embedding_env"] = dict(vector_settings)
+        manifest["chunk_vectors"] = chunk_vectors
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return manifest
 
@@ -1546,7 +2062,14 @@ class McpSession:
     here is the text a host would put in front of the model.
     """
 
-    def __init__(self, db_path: Path, *, user_id: str = DEFAULT_USER_ID, agent_identity: AgentIdentity | None = None) -> None:
+    def __init__(
+        self,
+        db_path: Path,
+        *,
+        user_id: str = DEFAULT_USER_ID,
+        agent_identity: AgentIdentity | None = None,
+        trace_vectors: bool = False,
+    ) -> None:
         from uuid import UUID
 
         from alicebot_api import onramp
@@ -1564,6 +2087,10 @@ class McpSession:
         # The arguments of every alice_recall call this session sent, as they reached the
         # server. The fingerprint reads the recall settings from here and from nothing else.
         self.recall_calls: list[dict[str, Any]] = []
+        # A vectors run asks every recall for its trace (``debug``), takes the status of the vector stage out of it
+        # and hands back the text a call without the trace returns. One status per call, in order.
+        self.trace_vectors = trace_vectors
+        self.vector_calls: list[dict[str, Any]] = []
 
     def _request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         request: dict[str, Any] = {"jsonrpc": "2.0", "id": self._next_id, "method": method}
@@ -1592,8 +2119,23 @@ class McpSession:
         text = "".join(str(block.get("text", "")) for block in result.get("content", []))
         return bool(result.get("isError")), text
 
+    def call_recall(self, arguments: dict[str, Any]) -> tuple[bool, str, dict[str, Any] | None]:
+        """``(is_error, text, vector_status)`` of one ``alice_recall`` call.
+
+        A session that traces vectors expects ``arguments`` from ``alice_arm_arguments(..., trace=True)``. It returns the
+        text without the trace and the status of the vector stage, and keeps the status in ``vector_calls``. Any
+        other session returns the server's text and ``None``.
+        """
+
+        is_error, text = self.call(RECALL_TOOL, arguments)
+        if is_error or not self.trace_vectors:
+            return is_error, text, None
+        text, status = split_vector_trace(text)
+        self.vector_calls.append(status)
+        return False, text, status
+
     def recall(self, query: str) -> str:
-        is_error, text = self.call(RECALL_TOOL, alice_arm_arguments(query))
+        is_error, text, _status = self.call_recall(alice_arm_arguments(query, trace=self.trace_vectors))
         if is_error:
             raise BenchError("alice_recall returned an error: " + text[:200])
         return text
@@ -1605,6 +2147,7 @@ def alice_arm_arguments(
     limit: int | None = None,
     context_depth: str | None = None,
     include_sources: bool | None = None,
+    trace: bool = False,
     **extra: object,
 ) -> dict[str, Any]:
     """The arguments the Alice arm sends: the query and nothing else.
@@ -1612,6 +2155,11 @@ def alice_arm_arguments(
     ``limit``, ``context_depth`` and ``include_sources`` stay at the tool's
     defaults. Another value is refused, so the claim can name the setting and an
     answering agent cannot widen its own window.
+
+    ``trace`` is the harness's, not the agent's. It adds ``debug``, which makes the server attach its retrieval
+    trace, so the harness can read the status of the vector stage of a vectors run. The session that sent the
+    call removes the trace again (``McpSession.call_recall``), so the agent reads the text it would have had
+    without it. An agent's own value for ``debug`` is refused with every other extra.
     """
 
     requested = {"limit": limit, "context_depth": context_depth, "include_sources": include_sources}
@@ -1620,7 +2168,7 @@ def alice_arm_arguments(
             raise PinnedSettingError(f"{name} is pinned to {PINNED_RECALL_DEFAULTS[name]!r} in the Alice arm")
     if extra:
         raise PinnedSettingError("the Alice arm takes only a query: " + ", ".join(sorted(extra)))
-    return {"query": query}
+    return {"query": query, "debug": True} if trace else {"query": query}
 
 
 def recall_settings(calls: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -1689,9 +2237,18 @@ def fingerprint(
     recall: dict[str, Any] | None = None
     if session is not None:
         if not session.recall_calls:
-            session.recall(FINGERPRINT_PROBE_QUERY)
+            # ``on`` is a harness setting the product recall refuses. The probe
+            # uses a value the product accepts. The fingerprint still records ``on``.
+            held = os.environ.get(SEARCH_QUALITY_ENV)
+            if held == "on":
+                os.environ.pop(SEARCH_QUALITY_ENV, None)
+            try:
+                session.recall(FINGERPRINT_PROBE_QUERY)
+            finally:
+                if held == "on":
+                    os.environ[SEARCH_QUALITY_ENV] = held
         recall = recall_settings(session.recall_calls)
-    return {
+    record: dict[str, Any] = {
         "git": identity["git"],
         "git_sha": identity["git_sha"],
         "dirty": identity["dirty"],
@@ -1703,6 +2260,7 @@ def fingerprint(
         "vault_build": None if manifest is None else manifest.get("build"),
         "tools_list_digest": None if tools is None else tools_list_digest(tools),
         "search_quality": search_quality if search_quality is not None else "unset",
+        "ranking_mode": resolved_ranking_mode(search_quality),
         "recall_arguments": None if recall is None else recall["arguments"],
         "recall_limit": None if recall is None else recall["limit"],
         "recall_context_depth": None if recall is None else recall["context_depth"],
@@ -1719,6 +2277,10 @@ def fingerprint(
         "gates_sha256": gates.sha256,
         "harness_sha256": identity["harness_sha256"],
     }
+    if manifest is not None and "chunk_vectors" in manifest:
+        # A vectors run names the model and the digest its vectors came from. Other runs have no such key.
+        record["chunk_vectors"] = manifest["chunk_vectors"]
+    return record
 
 
 # --------------------------------------------------------------------------
@@ -1731,6 +2293,9 @@ class SearchResult:
     status: str
     truncated: bool
     raw_bytes: int
+    # The status of the vector stage of one recall of a vectors run (``split_vector_trace``), with the seconds the
+    # recall took. ``run_budgeted_search`` keeps it in the state folder beside the log. None for every other search.
+    vector: Mapping[str, Any] | None = field(default=None, compare=False, hash=False)
 
 
 @contextlib.contextmanager
@@ -1770,6 +2335,7 @@ def run_budgeted_search(
 
     count_path = state_dir / "search.count"
     log_path = state_dir / "search_log.jsonl"
+    vector_path = state_dir / VECTOR_STATUS_FILENAME
     with _locked(state_dir / "search.lock"):
         used = _read_count(count_path)
         if used >= budget:
@@ -1799,6 +2365,12 @@ def run_budgeted_search(
             handle.write(json.dumps(entry, sort_keys=True) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
+        if result.vector is not None:
+            vector_entry = {**result.vector, "n": used + 1, "at": entry["at"], "arm": arm}
+            with open(vector_path, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(vector_entry, sort_keys=True) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
     return result
 
 
@@ -1884,8 +2456,8 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--search-quality",
         default=None,
-        choices=("off", "passage", "on"),
-        help="Set ALICE_SEARCH_QUALITY for the run. Unset by default.",
+        choices=SEARCH_QUALITY_CHOICES,
+        help="Set ALICE_SEARCH_QUALITY for the run. Unset by default. vectors needs a build made with --embeddings on.",
     )
 
 
@@ -1902,6 +2474,14 @@ def build_parser(commands: dict[str, Callable[[argparse.Namespace], int]] | None
     build.add_argument("--questions", default=None, help="Question set whose anchors are checked after the build.")
     build.add_argument("--rebuild", action="store_true", help="Replace an earlier build in the run directory.")
     build.add_argument("--strict-flags", action="store_true", help="Fail when an anchor is flagged and not approved.")
+    build.add_argument(
+        "--embeddings",
+        default="off",
+        choices=("off", "on"),
+        help="With --search-quality vectors: embed the chunks through the product at a loopback endpoint (required).",
+    )
+    build.add_argument("--endpoint", default=DEFAULT_OLLAMA_BASE, help="Loopback Ollama address, for --embeddings on.")
+    build.add_argument("--embed-model", default=DEFAULT_EMBED_MODEL, help="Embedding model, for --embeddings on.")
 
     anchors = sub.add_parser("anchors", help="Check anchors against the snapshot of a built vault.")
     _add_run_arguments(anchors)
@@ -1967,7 +2547,69 @@ def _context(args: argparse.Namespace, *, create: bool = False) -> tuple[Path, P
     if not create:
         manifest = require_matching_build(_read_manifest(run_dir), repo)
         require_matching_vault(manifest, run_dir, data_dir)
+        require_quality_of_build(manifest, getattr(args, "search_quality", None))
+        if getattr(args, "search_quality", None) == VECTORS and getattr(args, "arm", "alice") == "alice":
+            settings = manifest.get("embedding_env")
+            if not isinstance(settings, dict):
+                raise BenchError("this vectors run recorded no embedding settings; build it again with --embeddings on")
+            require_vector_readiness(
+                vault_path(data_dir),
+                manifest.get("chunk_vectors"),
+                settings,
+                cache_path=run_dir / VECTOR_CENSUS_FILENAME,
+            )
     return run_dir, data_dir, repo, gates
+
+
+def require_quality_of_build(manifest: Mapping[str, Any], asked: str | None) -> None:
+    """Refuse a vectors command on a vault built another way, and a command of another quality on a vault built for vectors.
+
+    The other qualities may be asked of one vault in turn, as they always could. ``vectors`` may not: a vault built
+    without vectors has none to rank by, and a vault built with them is read by a run that carries the opt-in and the
+    endpoint, which only a command of that quality does.
+    """
+
+    built = str(manifest["build"].get("search_quality", "unset"))
+    wanted = "unset" if asked is None else asked
+    if VECTORS in (built, wanted) and built != wanted:
+        raise BenchError(f"this vault was built for search quality {built} and the command asks for {wanted}")
+
+
+def vector_settings_of(args: argparse.Namespace) -> dict[str, str] | None:
+    """The embedding settings of a command of search quality ``vectors``, and None for any other command or arm.
+
+    A command that builds (it has ``--embeddings``) takes them from ``--endpoint`` and ``--embed-model`` and
+    refuses to go on without ``--embeddings on``. A command that reads a run takes the ones its build recorded.
+    """
+
+    if getattr(args, "search_quality", None) != VECTORS:
+        return None
+    if getattr(args, "arm", "alice") != "alice":
+        # An arm that reads no vector (a grep, a note folder, a keyword stand-in) carries the quality and no endpoint.
+        return None
+    embeddings = getattr(args, "embeddings", None)
+    if embeddings is not None:
+        if embeddings != "on":
+            raise BenchError("--search-quality vectors needs --embeddings on")
+        return embedding_settings(args.endpoint, args.embed_model)
+    run_dir = require_run_dir(Path(args.run_dir))
+    name = "showcase.json" if str(args.command).startswith("showcase-") else MANIFEST_FILENAME
+    try:
+        record = json.loads((run_dir / name).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise BenchError("a vectors run needs the record of its build in the run directory") from exc
+    settings = record.get("embedding_env") if isinstance(record, dict) else None
+    if not isinstance(settings, dict):
+        raise BenchError(
+            "this run recorded no embedding settings, so it was not built with --search-quality vectors --embeddings on"
+        )
+    return {str(key): str(value) for key, value in settings.items()}
+
+
+def command_environment(args: argparse.Namespace) -> dict[str, str]:
+    """The variables a command may carry: its search quality and, for ``vectors``, its embedding variables."""
+
+    return arm_environment(getattr(args, "search_quality", None), vector_settings=vector_settings_of(args))
 
 
 def _read_manifest(run_dir: Path) -> dict[str, Any] | None:
@@ -1994,6 +2636,8 @@ def _print_anchor_report(report: Mapping[str, Any], *, strict: bool) -> int:
 
 
 def _cmd_build(args: argparse.Namespace) -> int:
+    if args.embeddings == "on" and args.search_quality != VECTORS:
+        raise BenchError("--embeddings on is for --search-quality vectors")
     run_dir, data_dir, repo, gates = _context(args, create=True)
     manifest = build_vault(
         corpus_dir=Path(args.corpus),
@@ -2005,11 +2649,14 @@ def _cmd_build(args: argparse.Namespace) -> int:
         rebuild=args.rebuild,
         repo=repo,
         search_quality=args.search_quality,
+        vector_settings=vector_settings_of(args),
     )
     print(
         f"built {manifest['sources']} sources, {manifest['chunks']} chunks, order {manifest['order']}, "
         f"{len(manifest['withheld'])} files with withheld lines"
     )
+    if "chunk_vectors" in manifest:
+        print(format_chunk_vectors(manifest["chunk_vectors"]))
     if args.questions:
         qset = load_questions(Path(args.questions))
         report = verify_anchors(qset, read_snapshot(run_dir / SNAPSHOT_DIRNAME), gates)
@@ -2026,8 +2673,11 @@ def _cmd_anchors(args: argparse.Namespace) -> int:
 
 def _cmd_recall(args: argparse.Namespace) -> int:
     _run_dir, data_dir, _repo, _gates = _context(args)
-    sys.stdout.write(McpSession(vault_path(data_dir)).recall(args.query))
+    session = McpSession(vault_path(data_dir), trace_vectors=args.search_quality == VECTORS)
+    sys.stdout.write(session.recall(args.query))
     sys.stdout.write("\n")
+    for status in session.vector_calls:
+        sys.stderr.write("vector stage: " + str(status["status"]) + "\n")
     return EXIT_OK
 
 
@@ -2035,7 +2685,7 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     run_dir, data_dir, repo, gates = _context(args)
     qset = load_questions(Path(args.questions))
     db_path = vault_path(data_dir)
-    session = McpSession(db_path)
+    session = McpSession(db_path, trace_vectors=args.search_quality == VECTORS)
     before = vault_row_counts(db_path)
     outputs: dict[str, dict[str, str]] = {}
     for question in qset.questions:
@@ -2058,6 +2708,8 @@ def _cmd_batch(args: argparse.Namespace) -> int:
         ),
         "outputs": outputs,
     }
+    if args.search_quality == VECTORS:
+        document["vector_stage"] = vector_stage_summary(session.vector_calls)
     out_path = Path(args.out)
     out_path.write_text(json.dumps(document, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     print(f"wrote {len(outputs)} questions, {len(VARIANTS)} variants, to {out_path.name}")
@@ -2072,7 +2724,7 @@ def _cmd_fingerprint(args: argparse.Namespace) -> int:
             fingerprint(
                 repo=repo,
                 gates=gates,
-                session=McpSession(vault_path(data_dir)),
+                session=McpSession(vault_path(data_dir), trace_vectors=args.search_quality == VECTORS),
                 manifest=_read_manifest(run_dir),
                 search_quality=args.search_quality,
                 question_set_sha256=qsha,
@@ -2102,17 +2754,27 @@ def _cmd_search(args: argparse.Namespace) -> int:
     if args.arm == "alice":
         if args.query is None:
             raise BenchError("the alice arm needs --query")
+        vectors = args.search_quality == VECTORS
         arguments = alice_arm_arguments(
             args.query,
             limit=args.limit,
             context_depth=args.context_depth,
             include_sources=_parse_bool_option(args.include_sources),
+            trace=vectors,
         )
-        session = McpSession(vault_path(data_dir))
+        session = McpSession(vault_path(data_dir), trace_vectors=vectors)
 
         def runner() -> SearchResult:
-            is_error, text = session.call(RECALL_TOOL, arguments)
-            return SearchResult(text=text, status="error" if is_error else "ok", truncated=False, raw_bytes=len(text.encode("utf-8")))
+            started = time.monotonic()
+            is_error, text, status = session.call_recall(arguments)
+            vector = None if status is None else {**status, "seconds": round(time.monotonic() - started, 3)}
+            return SearchResult(
+                text=text,
+                status="error" if is_error else "ok",
+                truncated=False,
+                raw_bytes=len(text.encode("utf-8")),
+                vector=vector,
+            )
 
         search_input = args.query
     else:
@@ -2186,19 +2848,35 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
 }
 
 
+def _refusal_types() -> tuple[tuple[type[BaseException], ...], tuple[type[BaseException], ...]]:
+    """Bench errors of this module and of ``scripts.alice_bench`` when the file is the program.
+
+    Running ``python scripts/alice_bench.py`` loads this file as ``__main__``. The showcase
+    commands import it again as ``scripts.alice_bench``, so their exceptions are a second class.
+    """
+
+    budgets: list[type[BaseException]] = [BudgetExhausted]
+    errors: list[type[BaseException]] = [BenchError]
+    other = sys.modules.get("scripts.alice_bench")
+    if other is not None and other is not sys.modules.get(__name__):
+        budgets.append(other.BudgetExhausted)
+        errors.append(other.BenchError)
+    return tuple(budgets), tuple(errors)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
-    allow = arm_environment(getattr(args, "search_quality", None))
+    budget_types, error_types = _refusal_types()
     try:
-        with scoped_environment(allow):
+        with scoped_environment(command_environment(args)):
             code = _COMMANDS[args.command](args)
             require_harness_unchanged()
             return code
-    except BudgetExhausted as exc:
+    except budget_types as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return EXIT_BUDGET
-    except BenchError as exc:
+    except error_types as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return EXIT_REFUSED
 

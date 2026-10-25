@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 from uuid import uuid4
 
+from alicebot_api.project_view import page_after_label_drop
 from alicebot_api.vnext_agent_control import resource_project_scope
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_project_scope import (
@@ -280,71 +281,55 @@ class VNextContextTreeService:
         scoped_filter = {"scope_projects": project_scope} if project_scope else {}
         memory_scoped_filter = {"projects": project_scope} if project_scope else {}
 
-        projects = self.store.list_projects(
-            status="active",
-            domains=domains,
-            sensitivity_allowed=sensitivity,
-            limit=request.limit,
-            **scoped_filter,
-        )
-        memories = self.store.search_memories(
-            query=query,
-            domains=domains,
-            sensitivity_allowed=sensitivity,
-            limit=request.limit,
-            **memory_scoped_filter,
-        )
-        sources = self.store.search_sources(
-            query=query,
-            domains=domains,
-            sensitivity_allowed=sensitivity,
-            limit=request.limit,
-            **scoped_filter,
-        )
-        open_loops = self.store.list_open_loops(
-            status="open",
-            domains=domains,
-            sensitivity_allowed=sensitivity,
-            limit=request.limit,
-            **scoped_filter,
-        )
-        artifacts = self.store.list_artifacts(
-            domains=domains,
-            sensitivity_allowed=sensitivity,
-            limit=request.limit,
-            **scoped_filter,
-        )
-        projects = _admitted_rows(projects, project_scope, project=True)
-        memories = _admitted_rows(memories, project_scope)
-        sources = _admitted_rows(sources, project_scope, source=True)
-        open_loops = _admitted_rows(open_loops, project_scope)
-        artifacts = _admitted_rows(artifacts, project_scope)
         from alicebot_api.vnext_label_guard import admit_loaded
 
-        projects = admit_loaded(
-            self.store, kind="project", rows=projects, domains=domains, sensitivity_allowed=sensitivity, projects=project_scope
+        def filled(fetch, kind, *, project=False, source=False):
+            def keep(rows):
+                scoped = _admitted_rows(list(rows), project_scope, project=project, source=source)
+                return admit_loaded(
+                    self.store,
+                    kind=kind,
+                    rows=scoped,
+                    domains=domains,
+                    sensitivity_allowed=sensitivity,
+                    projects=project_scope,
+                )
+
+            return page_after_label_drop(
+                want=request.limit, fetch=fetch, keep=keep, refill=request.caller_limited
+            )
+
+        projects = filled(
+            lambda n: self.store.list_projects(
+                status="active", domains=domains, sensitivity_allowed=sensitivity, limit=n, **scoped_filter
+            ),
+            "project",
+            project=True,
         )
-        memories = admit_loaded(
-            self.store, kind="memory", rows=memories, domains=domains, sensitivity_allowed=sensitivity, projects=project_scope
+        memories = filled(
+            lambda n: self.store.search_memories(
+                query=query, domains=domains, sensitivity_allowed=sensitivity, limit=n, **memory_scoped_filter
+            ),
+            "memory",
         )
-        sources = admit_loaded(
-            self.store, kind="source", rows=sources, domains=domains, sensitivity_allowed=sensitivity, projects=project_scope
+        sources = filled(
+            lambda n: self.store.search_sources(
+                query=query, domains=domains, sensitivity_allowed=sensitivity, limit=n, **scoped_filter
+            ),
+            "source",
+            source=True,
         )
-        open_loops = admit_loaded(
-            self.store,
-            kind="open_loop",
-            rows=open_loops,
-            domains=domains,
-            sensitivity_allowed=sensitivity,
-            projects=project_scope,
+        open_loops = filled(
+            lambda n: self.store.list_open_loops(
+                status="open", domains=domains, sensitivity_allowed=sensitivity, limit=n, **scoped_filter
+            ),
+            "open_loop",
         )
-        artifacts = admit_loaded(
-            self.store,
-            kind="artifact",
-            rows=artifacts,
-            domains=domains,
-            sensitivity_allowed=sensitivity,
-            projects=project_scope,
+        artifacts = filled(
+            lambda n: self.store.list_artifacts(
+                domains=domains, sensitivity_allowed=sensitivity, limit=n, **scoped_filter
+            ),
+            "artifact",
         )
         if not request.include_events:
             events = []
@@ -358,13 +343,18 @@ class VNextContextTreeService:
                 limit=request.limit,
             )
         else:
-            events = [
-                event
-                for event in self.store.list_events(limit=request.limit)
-                if _tree_event_visible(
-                    self.store, event, domains, sensitivity, project_scope, caller_limited=request.caller_limited
-                )
-            ]
+            events = page_after_label_drop(
+                want=request.limit,
+                fetch=lambda n: self.store.list_events(limit=n),
+                keep=lambda rows: [
+                    event
+                    for event in rows
+                    if _tree_event_visible(
+                        self.store, event, domains, sensitivity, project_scope, caller_limited=request.caller_limited
+                    )
+                ],
+                refill=request.caller_limited,
+            )
 
         roots = [
             _node(

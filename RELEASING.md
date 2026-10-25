@@ -2,7 +2,7 @@
 
 
 
-`v0.20.0` is the latest published release and remains the checksum/install
+`v0.21.1` is the latest published release and remains the checksum/install
 baseline.
 Preparing candidate documents does not authorize a tag, PyPI upload, or GitHub
 Release.
@@ -65,15 +65,43 @@ readback:
      --repo OWNER/REPOSITORY --sha RELEASE_SHA --check-rulesets
    ```
 
-   Unreleased (on main, not in v0.20.0): The required check named
+   The required check named
    `Unit tests + live eval battery (SQLite)` is the summary job of the unit
-   tests in `tests.yml`. The unit tests run as four shard jobs, the model-free
+   tests in `tests.yml`. The unit tests run as five shard jobs, the model-free
    eval battery runs in its own job, and a coverage job combines the shard data
    and enforces the coverage threshold. The summary
    needs all of them, runs whatever they did, and fails unless each one
    succeeded. Keep its name and its `if: always()`, and do not require the shard
    jobs one by one: a skipped required check counts as passing, and the shard
    check runs are not in the ruleset or in the exact-SHA check by design.
+
+   The required check named
+   `Integration tests (Postgres + pgvector, role separation)` is the summary
+   job of the PostgreSQL integration tests in `tests.yml`. The integration
+   tests run as five shard jobs, each a set of file patterns over
+   `tests/integration` with its own PostgreSQL service, and the four SQLite
+   read-budget files of `tests/performance` run as three budget jobs. The
+   round-three read-budget file of each suite is split by case name between
+   two jobs, because one file alone took more than 14 minutes on a pull
+   request runner. The summary needs all of them, runs whatever they did, and
+   fails unless each one succeeded. Keep its name and its `if: always()`, and
+   do not require the shard or budget jobs one by one: a skipped required
+   check counts as passing, and the shard and budget check runs are not in the
+   ruleset or in the exact-SHA check by design.
+   `Default surface integration smoke (Postgres)` and
+   `Read-budget maximum workload smoke (Postgres)` stay in the
+   `python-integration` job under their own names and are not part of that
+   verdict. `tests/unit/test_ci_integration_job_split.py` fails when a test
+   file under `tests/integration` or `tests/performance` is in no job or in
+   two. When one job gets slow, rebalance the file patterns from the
+   `--durations=20` lines of its log, as the comment above the matrix says.
+   Before the split one job ran the integration tests (2,468 s on a pull
+   request run) and then the budget files (1,265 s), 3,777 s in all. In the
+   first pull request run after the split the five shards took 509, 611, 570,
+   296 and 472 s, the three budget parts 571, 445 and 125 s, and the summary
+   4 s, so the longest new job was 611 s. The run took 18 minutes 33 seconds in
+   all, set by the unit shards (the longest, 1,051 s). Runner speed varies by
+   about half, so allow the longest shard up to 15 minutes before rebalancing.
 
    If that readback reports drift in `MainProtect`, an authorized repository
    administrator can prepare and inspect an update that preserves every
@@ -424,6 +452,29 @@ the test file allowlists it with a reason. A step that names a script in a form
 the test cannot read fails it outright. `v0.19.1` was never published because a
 release script imported the package in one of those jobs.
 
+The first job reruns the whole unit suite in one process, while CI runs it as
+shard jobs. Its `timeout-minutes` must cover the shard count times the shard
+limit plus a margin, and `tests/unit/test_publish_workflow_time_limit.py` fails
+when it does not. Raise the publish limit in the same pull request that adds a
+shard or raises the shard limit. `v0.20.1` was never published because this job
+reached its old 35 minute limit while it reran the suite. The limit is 180
+minutes, because the one-process rerun took 3,876 s on a runner and a release
+step must take less than half of its job's limit.
+
+`publish-recheck-rehearsal.yml` runs the install step and the recheck step of that
+first job on a runner before a release tag exists, with the same commands, the same
+pinned actions, the same Python and the same `timeout-minutes`. It runs on dispatch,
+from any ref, and once a week on `main`. It does not run on pull requests and it is
+not a required check. It must be green on the exact release commit before you create
+the tag. After the release pull request is merged, dispatch it from the ref that holds
+that commit, with `gh workflow run publish-recheck-rehearsal.yml --ref <branch>`
+(`main` for the merge commit), and confirm that the run's commit is the SHA you will
+tag. It writes the duration of the recheck step and the number of unit tests to the job
+summary, and it fails when the step took more than half of the job's limit, because a
+release-only step that is expected to take more than half its limit blocks the tag.
+`tests/unit/test_publish_recheck_rehearsal.py` fails when the rehearsal and the publish
+job differ in those commands, pins, Python or limit, so change both in one pull request.
+
 ### Recovering finalization after PyPI succeeds
 
 The workflow deliberately stages and verifies a draft before crossing the
@@ -483,5 +534,5 @@ the tag and must not have claimed publication early.
 Verify checksum files on Linux with `sha256sum -c SHA256SUMS` and on stock
 macOS with `shasum -a 256 -c SHA256SUMS`.
 
-`v0.20.0` is the latest published release and remains the install, checksum,
+`v0.21.1` is the latest published release and remains the install, checksum,
 and baseline reference.

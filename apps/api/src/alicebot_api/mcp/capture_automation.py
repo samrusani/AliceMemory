@@ -23,6 +23,7 @@ from alicebot_api.vnext_queue import (
 )
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 
+from .arguments import _parse_source_refs
 from .scheduler import _handle_alice_vnext_scheduler_run_now
 from .shared import (
     MCPRuntimeContext,
@@ -45,6 +46,7 @@ from .synthesis import (
     _handle_alice_generate_connections,
     _handle_alice_generate_contradictions,
 )
+from .runtime import _embed_new_source_chunks
 from .types import MCPArgumentError, MCPReferenceNotFoundError
 
 
@@ -103,7 +105,13 @@ def _handle_alice_vnext_capture(context: MCPRuntimeContext, arguments: Mapping[s
         actor_id=capture_actor_id,
         trace_id=capture_trace_id,
     )
-    return _json_object(capture_result.to_record())
+    record = _json_object(capture_result.to_record())
+    if capture_result.source_id and capture_result.status in {"imported", "duplicate"}:
+        # After the transaction above ended: no lock is held while the chunks are sent.
+        receipt = _embed_new_source_chunks(context, [capture_result.source_id])
+        if receipt is not None:
+            record["chunk_embeddings"] = _json_object(receipt.to_record())
+    return record
 
 
 def _handle_alice_vnext_ingest_agent_output(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -112,6 +120,8 @@ def _handle_alice_vnext_ingest_agent_output(context: MCPRuntimeContext, argument
         raise MCPArgumentError("agent_id is required for alice_vnext_ingest_agent_output")
     domain = _parse_optional_text(arguments, "domain") or "project"
     sensitivity = _parse_optional_text(arguments, "sensitivity") or "private"
+    # Judged before the policy check writes its audit rows: a refused entry leaves nothing behind.
+    source_refs = list(_parse_source_refs(arguments))
     blocked_decision: PolicyDecision | None = None
     ingest_result = None
     decision: PolicyDecision | None = None
@@ -141,7 +151,7 @@ def _handle_alice_vnext_ingest_agent_output(context: MCPRuntimeContext, argument
                     "output_type": _parse_optional_text(arguments, "output_type") or "general",
                     "domain": domain,
                     "sensitivity": sensitivity,
-                    "source_refs": list(_parse_string_list(arguments, "source_refs")),
+                    "source_refs": source_refs,
                     "rationale": _parse_optional_text(arguments, "rationale"),
                     "propose_memory": _parse_bool(arguments, key="propose_memory", default=False),
                 },
@@ -161,7 +171,12 @@ def _handle_alice_vnext_ingest_agent_output(context: MCPRuntimeContext, argument
         actor_id=identity.agent_id,
         trace_id=decision.trace_id,
     )
-    return _json_object(ingest_result.to_record())
+    ingest_record = _json_object(ingest_result.to_record())
+    if ingest_result.source_id:
+        receipt = _embed_new_source_chunks(context, [ingest_result.source_id])
+        if receipt is not None:
+            ingest_record["chunk_embeddings"] = _json_object(receipt.to_record())
+    return ingest_record
 
 
 def _handle_alice_vnext_queue_task(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:

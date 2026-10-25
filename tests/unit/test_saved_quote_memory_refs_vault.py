@@ -1,6 +1,6 @@
 """A saved quote of a memory is withheld from a caller who may not read that memory, on a real vault with real keys.
 
-Unreleased (on main, not in v0.20.0). A commit can cite a memory in ``source_refs`` as ``{"memory_id": "<id>", "quote":
+New in v0.20.2. A commit can cite a memory in ``source_refs`` as ``{"memory_id": "<id>", "quote":
 "..."}`` or as two entries, ``"memory:<id>"`` and ``{"quote": "..."}``, and the quote holds the words of that memory. The
 write fence reads neither shape, so the commit keeps the quote as sent in ``metadata_json.agentic_memory.source_refs`` and in
 ``value.source_refs``. On main until this change every reader of the commit returned those words after the memory was
@@ -159,18 +159,28 @@ class Vault:
         )
 
     def _commit(self, store, name: str, refs: list[object], *, excerpt: str | None = None) -> str:
-        """A commit through the shipped service, as the HTTP route and the MCP tool make it."""
+        """A commit through the shipped service, as the HTTP route and the MCP tool make it.
 
+        An object entry is legacy stored data. The door refuses it, so the service stores the string ids the
+        link writer would have linked and the store then writes the original entries.
+        """
+
+        from tests.support.legacy_source_refs import link_strings, needs_legacy_plant, plant_legacy_source_refs
+
+        sent = link_strings(refs) if needs_legacy_plant(refs) else list(refs)
         result = VNextMemoryCommitService(store).commit(
             identity=None,
             request=MemoryCommitRequest(
                 user_id=str(self.user), title=f"Follow up {name}", canonical_text=f"Follow up on the games note {name}",
                 memory_type="semantic", domain="project", sensitivity="public", confidence=0.95,
-                source_refs=tuple(refs), conversation_excerpt=excerpt, project_scope=(ALPHA,),
+                source_refs=tuple(sent), conversation_excerpt=excerpt, project_scope=(ALPHA,),
             ),
         )
         assert result["status"] == "committed", result
-        self.commits[name] = str(result["memory"]["id"])
+        memory_id = str(result["memory"]["id"])
+        if needs_legacy_plant(refs):
+            plant_legacy_source_refs(store, memory_id, refs, sent)
+        self.commits[name] = memory_id
         if self.source_id in json.dumps(refs, default=str):
             self.source_cited.add(name)
         return self.commits[name]
@@ -180,19 +190,24 @@ class Vault:
         ``memory.updated`` event whose payload holds the refs and the excerpt the commit was sent with. It cites the source, so
         the source trace lists it and its events, and the memory with a quote."""
 
+        from tests.support.legacy_source_refs import link_strings, plant_legacy_source_refs
+
         service = VNextMemoryCommitService(store)
         name = "confirmed"
+        refs = (
+            {"source_id": self.source_id},
+            {"memory_id": self.cited_id, "quote": _quote(self.sentinel, name), self.key_words(name): None},
+        )
+        sent = link_strings(refs)
         request = MemoryCommitRequest(
             user_id=str(self.user), title=f"Follow up {name}", canonical_text=f"Follow up on the games note {name}",
             memory_type="semantic", domain="project", sensitivity="public", confidence=0.6,
-            source_refs=(
-                {"source_id": self.source_id},
-                {"memory_id": self.cited_id, "quote": _quote(self.sentinel, name), self.key_words(name): None},
-            ),
+            source_refs=tuple(sent),
             conversation_excerpt=_quote(self.sentinel, f"{name} excerpt"), project_scope=(ALPHA,),
         )
         asked = service.commit(identity=None, request=request)
         assert asked["status"] == "confirmation_required", asked
+        plant_legacy_source_refs(store, str(asked["memory"]["id"]), refs, sent)
         service.confirm(identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm")
         self.commits[name] = str(asked["memory"]["id"])
         self.source_cited.add(name)
@@ -201,17 +216,22 @@ class Vault:
         """The same lifecycle with an agent key doing it: the confirmation appends the ``memory.updated`` event with an agent for its
         actor, which the workspace lists in the agent activity as well as among the recent events."""
 
+        from tests.support.legacy_source_refs import link_strings, plant_legacy_source_refs
+
         service = VNextMemoryCommitService(store)
         identity = _identity_of("admin")
         name = "confirmed by an agent"
+        refs = ({"memory_id": self.cited_id, "quote": _quote(self.sentinel, name), self.key_words(name): 2},)
+        sent = link_strings(refs)
         request = MemoryCommitRequest(
             user_id=str(self.user), title=f"Follow up {name}", canonical_text=f"Follow up on the games note {name}",
             memory_type="semantic", domain="project", sensitivity="public", confidence=0.6,
-            source_refs=({"memory_id": self.cited_id, "quote": _quote(self.sentinel, name), self.key_words(name): 2},),
+            source_refs=tuple(sent),
             conversation_excerpt=_quote(self.sentinel, f"{name} excerpt"), project_scope=(ALPHA,),
         )
         asked = service.commit(identity=identity, request=request)
         assert asked["status"] == "confirmation_required", asked
+        plant_legacy_source_refs(store, str(asked["memory"]["id"]), refs, sent)
         service.confirm(identity=identity, confirmation_id=asked["memory"]["confirmation_id"], action="confirm")
         self.commits[name] = str(asked["memory"]["id"])
 

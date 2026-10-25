@@ -11,6 +11,7 @@ from psycopg.rows import dict_row
 
 from alicebot_api.config import get_settings
 from alicebot_api.db import user_connection
+from alicebot_api.project_view import page_after_label_drop
 from alicebot_api.vnext_label_guard import label_read_request
 from alicebot_api.local_workspace import (
     ensure_local_workspace,
@@ -102,39 +103,59 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     unfenced = not SourceReadFence.for_identity(identity).entity_read_fenced
     if unfenced:
         guard = LabelGuard(store=store, active=False)
+
+    def listed(fetch, keep, want):
+        """A workspace page. A caller with limits refills after the label drop, up to 128 rows judged."""
+
+        return page_after_label_drop(want=want, fetch=fetch, keep=keep, refill=not unfenced)
+
     review_statuses = ["candidate", "needs_review", "private_only", "accepted", "rejected"]
     # The reader judges the quote a memory saved of a source or of another memory against the caller's limits now. The
     # owner and an unbound admin key have no limits, so the rows are theirs as stored.
     saved_quotes = None if unfenced else SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity))
-    fetched_sources = store.list_sources(sensitivity_allowed=sensitivity_allowed, limit=20)
-    sources = guard.admit_rows("source", fetched_sources)
+    sources = listed(
+        lambda n: store.list_sources(sensitivity_allowed=sensitivity_allowed, limit=n),
+        lambda rows: guard.admit_rows("source", rows),
+        20,
+    )
     # A source made by an agent keeps the refs it was sent, a quote of a memory or a source included.
     if saved_quotes is not None:
         sources = saved_quotes.sources(sources)
     source_count = store.count_sources() if unfenced else sum(guard.readable_status_counts("source").values())
     list_memories_by_statuses = getattr(store, "list_memories_by_statuses", None)
-    if callable(list_memories_by_statuses):
-        fetched_memories = list_memories_by_statuses(
-            statuses=review_statuses,
-            sensitivity_allowed=sensitivity_allowed,
-            limit=30,
-        )
-    else:  # Compatibility for external/test stores implementing the older protocol.
-        fetched_memories = [
+
+    def fetch_review_memories(n: int):
+        if callable(list_memories_by_statuses):
+            return list_memories_by_statuses(
+                statuses=review_statuses,
+                sensitivity_allowed=sensitivity_allowed,
+                limit=n,
+            )
+        # Compatibility for external/test stores implementing the older protocol.
+        return [
             memory for memory in store.list_memories(status=None) if str(memory.get("status")) in set(review_statuses)
-        ][:30]
+        ][:n]
 
     def withhold_saved_quotes(rows: list) -> list:
         return rows if saved_quotes is None else saved_quotes.memories(rows)
 
-    review_memories = withhold_saved_quotes(guard.admit_rows("memory", fetched_memories))
+    review_memories = withhold_saved_quotes(
+        listed(fetch_review_memories, lambda rows: guard.admit_rows("memory", rows), 30)
+    )
     memory_status_counts = store.count_memories_by_status(sensitivity_allowed=sensitivity_allowed) if unfenced else guard.readable_status_counts("memory")
     review_memory_total = sum(memory_status_counts.get(status, 0) for status in review_statuses)
-    fetched_artifacts = store.list_artifacts(sensitivity_allowed=sensitivity_allowed, limit=30)
-    artifacts = guard.admit_rows("artifact", fetched_artifacts)
+    artifacts = listed(
+        lambda n: store.list_artifacts(sensitivity_allowed=sensitivity_allowed, limit=n),
+        lambda rows: guard.admit_rows("artifact", rows),
+        30,
+    )
     artifact_status_counts = store.count_artifacts_by_status() if unfenced else guard.readable_status_counts("artifact")
     artifact_count = sum(artifact_status_counts.values())
-    quality_evals = guard.admit_related_rows(store.list_artifact_quality_ratings(limit=50), kind="artifact", field="artifact_id")
+    quality_evals = listed(
+        lambda n: store.list_artifact_quality_ratings(limit=n),
+        lambda rows: guard.admit_related_rows(rows, kind="artifact", field="artifact_id"),
+        50,
+    )
     # The metadata of a rating is a structure its writer chose, and can quote a source or a memory.
     if saved_quotes is not None:
         quality_evals = saved_quotes.fields(quality_evals, ("metadata_json",))
@@ -142,19 +163,32 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
         len(guard.admit_related_rows(batch, kind="artifact", field="artifact_id"))
         for batch in store.iter_label_ratings()
     )
-    fetched_projects = store.list_projects(status=None, sensitivity_allowed=sensitivity_allowed, limit=20)
-    projects = guard.admit_rows("project", fetched_projects)
+    projects = listed(
+        lambda n: store.list_projects(status=None, sensitivity_allowed=sensitivity_allowed, limit=n),
+        lambda rows: guard.admit_rows("project", rows),
+        20,
+    )
     project_count = store.count_projects() if unfenced else sum(guard.readable_status_counts("project").values())
-    fetched_loops = store.list_open_loops(status=None, sensitivity_allowed=sensitivity_allowed, limit=30)
-    open_loops = guard.admit_rows("open_loop", fetched_loops)
+    open_loops = listed(
+        lambda n: store.list_open_loops(status=None, sensitivity_allowed=sensitivity_allowed, limit=n),
+        lambda rows: guard.admit_rows("open_loop", rows),
+        30,
+    )
     open_loops = withhold_unreadable_references(store, open_loops, fence=SourceReadFence.for_identity(identity))
     open_loop_status_counts = store.count_open_loops_by_status() if unfenced else guard.readable_status_counts("open_loop")
     open_loop_count = open_loop_status_counts.get("open", 0)
     people = store.list_people(sensitivity_allowed=sensitivity_allowed, limit=12)
-    fetched_beliefs = store.list_beliefs(status=None, sensitivity_allowed=sensitivity_allowed, limit=12)
-    beliefs = guard.admit_beliefs(fetched_beliefs)
+    beliefs = listed(
+        lambda n: store.list_beliefs(status=None, sensitivity_allowed=sensitivity_allowed, limit=n),
+        guard.admit_beliefs,
+        12,
+    )
     # A queued task has labels of its own and no inputs, so the caller's fence judges its stored labels.
-    tasks = readable_own_label_rows(identity, store.list_tasks(status=None, limit=12))
+    tasks = listed(
+        lambda n: store.list_tasks(status=None, limit=n),
+        lambda rows: readable_own_label_rows(identity, rows),
+        12,
+    )
     # What a task may use and its scope are structures its writer chose, and can quote a source or a memory.
     if saved_quotes is not None:
         tasks = saved_quotes.fields(tasks, ("allowed_sources_json", "scope_json"))
@@ -179,21 +213,27 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     list_recent_agentic_commits = getattr(store, "list_recent_agentic_commits", None)
     list_pending_inline_confirmations = getattr(store, "list_pending_inline_confirmations", None)
     memory_commit_service = VNextMemoryCommitService(store)
-    recent_memory_commits = (
-        list_recent_agentic_commits(limit=20)
-        if callable(list_recent_agentic_commits)
-        # The rows are admitted by this screen's guard right below, so the service lists them for the owner.
-        else memory_commit_service.recent_commits(limit=20, identity=None)["recent_commits"]
-    )
-    inline_confirmations = (
-        list_pending_inline_confirmations(limit=20)
-        if callable(list_pending_inline_confirmations)
-        else memory_commit_service.inline_confirmations(limit=20)
-    )
+    def fetch_recent_commits(n: int):
+        if callable(list_recent_agentic_commits):
+            return list_recent_agentic_commits(limit=n)
+        # The rows are admitted by this screen's guard, so the service lists them for the owner.
+        return memory_commit_service.recent_commits(limit=n, identity=None)["recent_commits"]
+
+    def fetch_inline_confirmations(n: int):
+        if callable(list_pending_inline_confirmations):
+            return list_pending_inline_confirmations(limit=n)
+        return memory_commit_service.inline_confirmations(limit=n)
+
     recent_memory_commits = withhold_saved_quotes(
-        guard.admit_rows("memory", recent_memory_commits if isinstance(recent_memory_commits, list) else [])
+        listed(
+            fetch_recent_commits,
+            lambda rows: guard.admit_rows("memory", rows if isinstance(rows, list) else []),
+            20,
+        )
     )
-    inline_confirmations = withhold_saved_quotes(guard.admit_rows("memory", inline_confirmations))
+    inline_confirmations = withhold_saved_quotes(
+        listed(fetch_inline_confirmations, lambda rows: guard.admit_rows("memory", rows), 20)
+    )
     scheduler_status = VNextSchedulerService(store).status()
     scheduler_status = {**scheduler_status, "daemon": daemon_status()}
     connector_health = VNextConnectorService(store).connector_health_all(guard=guard)
@@ -370,6 +410,7 @@ def bootstrap_v1_workspace(request: Request) -> JSONResponse:
     try:
         user_account_id = _resolve_authenticated_v1_user_id(settings, request)
         with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+            # label state: none, workspace tables carry no label and this connection has no vNext store.
             with conn.transaction():
                 context = ensure_local_workspace(conn, user_account_id=user_account_id)
         workspace_id = context["workspace"]["id"]
@@ -418,6 +459,7 @@ def get_v1_workspace_bootstrap_status(request: Request) -> JSONResponse:
     try:
         user_account_id = _resolve_authenticated_v1_user_id(settings, request)
         with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+            # label state: none, workspace tables carry no label and this connection has no vNext store.
             with conn.transaction():
                 context = get_local_workspace(conn, user_account_id=user_account_id)
     except ValueError as exc:

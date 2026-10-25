@@ -33,6 +33,14 @@ the check was held to the outbound policy.
   request the peer is the proxy, an address the operator chose, so the check is
   skipped for that request. A redirect from behind a proxy is still refused.
 
+* ``open_loopback_url`` is for a request whose text must not leave this machine (the chunks of source notes). It
+  dials with the standard library, and as soon as the TCP connection is made, before the TLS handshake and before a
+  byte of the request is written, it reads the address of the connected socket (``getpeername``) and refuses unless it
+  is ``127.0.0.0/8`` or ``::1``. The name is not resolved first, so a name that changes its answer between a check
+  and the connection cannot get past it: the check is on the peer that was reached. An IPv4-mapped IPv6 peer
+  (``::ffff:127.0.0.1``) is refused, because the address family of the socket does not show that the kernel
+  reached loopback. A request that a proxy would carry is refused, because its peer is the proxy.
+
 The embeddings, reranker, fact-key and brain clients pass ``False``: the README
 points ``ALICE_EMBEDDINGS_BASE_URL`` at ``http://localhost:11434/v1``, which a
 public-peer rule would break, and refusing redirects is the control that matters
@@ -44,6 +52,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
+import urllib.error
 import urllib.request
 from http.client import HTTPConnection, HTTPSConnection
 from typing import Any, TypeVar
@@ -55,7 +64,15 @@ from alicebot_api.provider_security import (
     redirect_note,
 )
 
-__all__ = ["OutboundPeerRefused", "REDIRECT_NOTE", "REDIRECT_STATUS_CODES", "open_provider_url", "redirect_note"]
+__all__ = [
+    "NonLoopbackPeerRefused",
+    "OutboundPeerRefused",
+    "REDIRECT_NOTE",
+    "REDIRECT_STATUS_CODES",
+    "open_loopback_url",
+    "open_provider_url",
+    "redirect_note",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +83,10 @@ class OutboundPeerRefused(OSError):
     An ``OSError``, so the standard library's opener reports it as a ``URLError``,
     which every client already maps to its "request failed" error.
     """
+
+
+class NonLoopbackPeerRefused(OutboundPeerRefused):
+    """A connection made for text that must stay on this machine reached an address that is not loopback."""
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -124,6 +145,58 @@ def _connect_to_public_peer(
     raise _refuse(None)
 
 
+def _is_loopback_peer(sockaddr: tuple[Any, ...]) -> bool:
+    """True for an IPv4 peer in 127.0.0.0/8 and for ``::1``; false for anything else, a mapped form included."""
+
+    try:
+        address = _address_of(sockaddr)
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address):
+        return address == ipaddress.IPv6Address("::1")
+    return address.is_loopback
+
+
+def _connect_to_loopback_peer(
+    address: tuple[str, int],
+    timeout: float | None = socket._GLOBAL_DEFAULT_TIMEOUT,  # type: ignore[attr-defined]
+    source_address: tuple[str, int] | None = None,
+) -> socket.socket:
+    """Connect as the standard library does, then refuse unless the peer that was reached is loopback.
+
+    Nothing is written to the socket here, and ``http.client`` writes nothing before this returns, so a refused
+    connection has sent no byte (and, for https, no TLS handshake). The connection is closed before the refusal.
+    """
+
+    sock = socket.create_connection(address, timeout, source_address)
+    try:
+        peer = sock.getpeername()
+    except OSError:
+        sock.close()
+        raise
+    if not _is_loopback_peer(peer):
+        sock.close()
+        logger.warning("loopback only connection refused: the peer is not on this machine")
+        raise NonLoopbackPeerRefused("the peer that was reached is not on this machine")
+    return sock
+
+
+class LoopbackPeerHTTPConnection(HTTPConnection):
+    """An ``HTTPConnection`` that checks the connected peer before it writes anything."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._create_connection = _connect_to_loopback_peer  # type: ignore[attr-defined,assignment]
+
+
+class LoopbackPeerHTTPSConnection(HTTPSConnection):
+    """An ``HTTPSConnection`` that checks the connected peer before the TLS handshake and before anything is written."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._create_connection = _connect_to_loopback_peer  # type: ignore[attr-defined,assignment]
+
+
 def _carried_by_proxy(req: urllib.request.Request) -> bool:
     """Report whether a proxy carries the request, so the connection goes to the proxy.
 
@@ -147,11 +220,22 @@ def _guard(connection: _Connection, *, enforce_public_peer: bool) -> _Connection
 
 
 class _HTTPHandler(urllib.request.HTTPHandler):
-    def __init__(self, *, enforce_public_peer: bool) -> None:
+    def __init__(self, *, enforce_public_peer: bool, loopback_peer_only: bool = False) -> None:
         super().__init__()
         self._enforce_public_peer = enforce_public_peer
+        self._loopback_peer_only = loopback_peer_only
 
     def http_open(self, req: urllib.request.Request) -> Any:
+        if self._loopback_peer_only:
+            if _carried_by_proxy(req):
+                raise urllib.error.URLError(
+                    NonLoopbackPeerRefused("a proxy would carry the request, so its peer is not on this machine")
+                )
+
+            def loopback_connection(host: str, **kwargs: Any) -> HTTPConnection:
+                return LoopbackPeerHTTPConnection(host, **kwargs)
+
+            return self.do_open(loopback_connection, req)
         enforce = self._enforce_public_peer and not _carried_by_proxy(req)
 
         def connection(host: str, **kwargs: Any) -> HTTPConnection:
@@ -161,11 +245,22 @@ class _HTTPHandler(urllib.request.HTTPHandler):
 
 
 class _HTTPSHandler(urllib.request.HTTPSHandler):
-    def __init__(self, *, enforce_public_peer: bool) -> None:
+    def __init__(self, *, enforce_public_peer: bool, loopback_peer_only: bool = False) -> None:
         super().__init__()
         self._enforce_public_peer = enforce_public_peer
+        self._loopback_peer_only = loopback_peer_only
 
     def https_open(self, req: urllib.request.Request) -> Any:
+        if self._loopback_peer_only:
+            if _carried_by_proxy(req):
+                raise urllib.error.URLError(
+                    NonLoopbackPeerRefused("a proxy would carry the request, so its peer is not on this machine")
+                )
+
+            def loopback_connection(host: str, **kwargs: Any) -> HTTPSConnection:
+                return LoopbackPeerHTTPSConnection(host, **kwargs)
+
+            return self.do_open(loopback_connection, req, context=self._context)  # type: ignore[attr-defined]
         enforce = self._enforce_public_peer and not _carried_by_proxy(req)
 
         def connection(host: str, **kwargs: Any) -> HTTPSConnection:
@@ -174,12 +269,12 @@ class _HTTPSHandler(urllib.request.HTTPSHandler):
         return self.do_open(connection, req, context=self._context)  # type: ignore[attr-defined]
 
 
-def _build_opener(*, enforce_public_peer: bool) -> urllib.request.OpenerDirector:
+def _build_opener(*, enforce_public_peer: bool, loopback_peer_only: bool = False) -> urllib.request.OpenerDirector:
     opener = urllib.request.OpenerDirector()
     handlers: tuple[urllib.request.BaseHandler, ...] = (
         urllib.request.ProxyHandler(),
-        _HTTPHandler(enforce_public_peer=enforce_public_peer),
-        _HTTPSHandler(enforce_public_peer=enforce_public_peer),
+        _HTTPHandler(enforce_public_peer=enforce_public_peer, loopback_peer_only=loopback_peer_only),
+        _HTTPSHandler(enforce_public_peer=enforce_public_peer, loopback_peer_only=loopback_peer_only),
         _NoRedirectHandler(),
         urllib.request.HTTPDefaultErrorHandler(),
         urllib.request.HTTPErrorProcessor(),
@@ -205,5 +300,17 @@ def open_provider_url(
     """
 
     opener = _build_opener(enforce_public_peer=enforce_public_peer)
+    return opener.open(request, timeout=timeout)
+
+
+def open_loopback_url(request: urllib.request.Request, *, timeout: float) -> Any:
+    """Open ``request`` only if the peer that is reached is on this machine, and write nothing to any other peer.
+
+    See the module docstring. A refusal raises ``urllib.error.URLError`` whose ``reason`` is a
+    ``NonLoopbackPeerRefused``. An HTTP error status, redirects included, raises ``urllib.error.HTTPError``, as
+    ``open_provider_url`` does, and a redirect is never followed.
+    """
+
+    opener = _build_opener(enforce_public_peer=False, loopback_peer_only=True)
     return opener.open(request, timeout=timeout)
 

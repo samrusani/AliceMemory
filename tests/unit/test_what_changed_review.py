@@ -2,7 +2,9 @@
 
 The citation-shape test plants every shape from the saved-quote catalogs and
 reads it through the HTTP route and the MCP tool, for the owner and for each
-key profile. The smaller tests are the ones the mutation manifest kills.
+key profile, and asks the saved-quote reader (the one the context pack and
+``alice_explain`` use) what it leaves in the same row. The smaller tests are the ones the
+mutation manifest kills.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ from alicebot_api.vnext_capture import VNextCaptureService
 from alicebot_api.vnext_label_guard import outside_caller_limits
 from alicebot_api.vnext_label_writes import without_insert_floor
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
-from alicebot_api.vnext_source_fence import cited_memory_refs, cited_source_ids
+from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 from alicebot_api.vnext_what_changed import what_changed
 from tests.unit.legacy_citation_support import (
     SPELLINGS,
@@ -179,42 +181,6 @@ def _catalog(hidden_memory: str, hidden_source: str, public_source: str) -> list
     return found
 
 
-def _withheld(
-    entry: object,
-    *,
-    hidden_source: str,
-    hidden_memory: str,
-    public_source: str,
-    source_blocked: bool,
-    memory_blocked: bool,
-    public_blocked: bool,
-) -> bool:
-    """The saved-quote rule: a missing named id is refused, and a stored id the caller cannot read is refused."""
-
-    cited_sources = cited_source_ids(entry)
-    cited_memories = cited_memory_refs(entry)
-    sources = {public_source, hidden_source}
-    for item in cited_sources.named:
-        if item not in sources:
-            return True
-        if item == hidden_source and source_blocked:
-            return True
-        if item == public_source and public_blocked:
-            return True
-    for item in cited_memories.named:
-        if item != hidden_memory or memory_blocked:
-            return True
-    for item in cited_sources.incidental:
-        if item == hidden_source and source_blocked:
-            return True
-        if item == public_source and public_blocked:
-            return True
-    for item in cited_memories.incidental:
-        if item == hidden_memory and memory_blocked:
-            return True
-    return False
-
-
 def test_every_citation_shape_holds_the_quote_at_both_doors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "shapes.sqlite"
     user_id = str(uuid4())
@@ -252,17 +218,24 @@ def test_every_citation_shape_holds_the_quote_at_both_doors(tmp_path: Path, monk
                 current = []
         if current:
             groups.append(current)
+        planted: dict[str, str] = {}
         for index, group in enumerate(groups):
             token = f"zxqbatch{index}"
             for name, entry, _quote in group:
-                key = "replacement_provenance" if name == "replacement-provenance" else "source_refs"
-                _memory(
+                # A supersede review keeps its provenance at the top of the metadata. A commit keeps its refs in agentic_memory.
+                where = (
+                    {"replacement_provenance": entry}
+                    if name == "replacement-provenance"
+                    else {"agentic_memory": {"source_refs": [entry]}}
+                )
+                row = _memory(
                     store,
                     title=f"{token} keel decision {name}",
                     canonical_text=f"{token} recorded decision",
                     project_id=ALPHA,
-                    metadata_json={"project_scope": [ALPHA], "agentic_memory": {key: [entry]}},
+                    metadata_json={"project_scope": [ALPHA], **where},
                 )
+                planted[name] = str(row["id"])
     _install_route(monkeypatch, path, user_id)
     tokens = [f"zxqbatch{index}" for index in range(len(groups))]
 
@@ -282,7 +255,8 @@ def test_every_citation_shape_holds_the_quote_at_both_doors(tmp_path: Path, monk
             identity = None if key is None else resolve_agent_identity(store, user_id=user_id, raw_key=key, payload={})
             source_blocked = outside_caller_limits(store, identity, "source", store.get_source(hidden_id))
             memory_blocked = outside_caller_limits(store, identity, "memory", store.get_memory(secret_id))
-            public_blocked = outside_caller_limits(store, identity, "source", store.get_source(public_id))
+            reader = SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity))
+            left_in_the_row = {name: json.dumps(reader.memory(store.get_memory(row_id)), default=str) for name, row_id in planted.items()}
         flat = "\n".join(texts)
         if source_blocked:
             assert "confidential ledger note" not in flat, label
@@ -295,16 +269,8 @@ def test_every_citation_shape_holds_the_quote_at_both_doors(tmp_path: Path, monk
             for name, entry, quote in group:
                 if quote is None:
                     continue
-                withheld = _withheld(
-                    entry,
-                    hidden_source=hidden_id,
-                    hidden_memory=secret_id,
-                    public_source=public_id,
-                    source_blocked=source_blocked,
-                    memory_blocked=memory_blocked,
-                    public_blocked=public_blocked,
-                )
-                if withheld:
+                # The words are shown only when the reader leaves them in the row for this caller.
+                if quote not in left_in_the_row[name]:
                     assert quote not in door, (label, name)
                 elif isinstance(entry, dict) and entry.get("quote") == quote:
                     assert quote in door, (label, name)

@@ -970,8 +970,11 @@ async def _vnext_protected_http_auth(
     payload: dict[str, object] = {}
     if simple_capture_payload is not None:
         payload = simple_capture_payload
+        request.scope.setdefault("state", {})["withhold_named_body"] = await request.body()
     elif request.method not in {"GET", "HEAD", "OPTIONS"}:
         body = await read_json_body(request)
+        # Already read above. The withhold layer keeps ids from this body. A keyless refusal returned before this read.
+        request.scope.setdefault("state", {})["withhold_named_body"] = await request.body()
         if body.too_deep:
             return json_too_deep_response()
         if body.payload is not None:
@@ -1041,6 +1044,9 @@ async def _vnext_protected_http_auth(
         return public_exception_response(exc, status_code=400)
 
     request.state.vnext_agent_identity = identity
+    # The user this key was authenticated for. The withhold layer opens its connection for this user and reads no
+    # user_id from the query or the body, which only some deployments rewrite.
+    request.state.vnext_authenticated_user_id = user_id
     return await call_next(request)
 
 
@@ -1387,6 +1393,46 @@ async def enforce_authenticated_user_identity(
         return public_exception_response(exc, status_code=401)
 
     return await call_next(request)
+
+
+@app.middleware("http")
+async def _withhold_hidden_ids(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """After the route, drop ids of rows a key with limits may not read. The owner is not touched."""
+
+    response = await call_next(request)
+    from starlette.responses import Response
+
+    from alicebot_api.vnext_hidden_ids import withhold_json_body
+
+    # BaseHTTPMiddleware hands back a stream. ``response.body`` is empty until that stream is read.
+    chunks: list[bytes] = []
+    iterator = getattr(response, "body_iterator", None)
+    if iterator is not None:
+        async for chunk in iterator:
+            if isinstance(chunk, (bytes, bytearray)):
+                chunks.append(bytes(chunk))
+        raw = b"".join(chunks)
+    else:
+        raw = getattr(response, "body", b"") or b""
+    # The name ``get_settings`` on this module is what a test replaces with the database under test.
+    # The vNext gate stashes the body it already read, after a keyless refusal has returned.
+    named_body = request.scope.get("state", {}).get("withhold_named_body", b"")
+    if not isinstance(named_body, (bytes, bytearray)):
+        named_body = b""
+    updated = withhold_json_body(request, raw, database_url=get_settings().database_url, named_body=bytes(named_body))
+    content = raw if updated is None else updated
+    rebuilt = Response(
+        content=content,
+        status_code=response.status_code,
+        background=getattr(response, "background", None),
+    )
+    # Keep every header as it was sent, repeated ones included (two Set-Cookie headers are two headers).
+    # The length is the one the new response computed for the new body, and none for a status that has no body.
+    rebuilt.raw_headers = [
+        *[(name, value) for name, value in response.raw_headers if name.lower() != b"content-length"],
+        *[(name, value) for name, value in rebuilt.raw_headers if name == b"content-length"],
+    ]
+    return rebuilt
 
 
 # Registered just before the body limit, so it wraps every layer that reads a body and sits inside the limit: a request

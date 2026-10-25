@@ -900,7 +900,7 @@ def test_readme_names_opencode_briefly_and_changelog_says_it_masks_command() -> 
     text = (root / "README.md").read_text(encoding="utf-8")
     sentence = (
         "OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. "
-        "See [OpenCode](https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/opencode.md)."
+        "See [OpenCode](docs/integrations/opencode.md)."
     )
     opencode_lines = [line for line in text.splitlines() if "opencode" in line.casefold()]
     assert sentence in opencode_lines

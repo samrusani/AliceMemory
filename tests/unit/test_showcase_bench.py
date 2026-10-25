@@ -74,7 +74,7 @@ def test_a_batch_resumes_and_keeps_the_first_answer(tmp_path: Path) -> None:
     first = {"id": questions[0]["id"], "arm": "alice", "team": "sales", "answer": "first"}
     assert showcase.record_answer(path, first) is True
     assert showcase.record_answer(path, {**first, "answer": "second"}) is False
-    assert showcase.load_done(path)[(questions[0]["id"], "alice", "sales")]["answer"] == "first"
+    assert showcase.load_done(path)[(questions[0]["id"], "alice", "sales", "")]["answer"] == "first"
     batch = showcase.pending(questions, showcase.load_done(path), 2, arm="alice", team="sales")
     assert [item["id"] for item in batch] == [questions[1]["id"], questions[2]["id"]]
 
@@ -86,8 +86,8 @@ def test_a_second_arm_keeps_its_own_answer(tmp_path: Path) -> None:
     assert showcase.record_answer(path, {"id": question_id, "arm": "alice", "team": "sales", "answer": "from alice"}) is True
     assert showcase.record_answer(path, {"id": question_id, "arm": "grep", "team": "sales", "answer": "from grep"}) is True
     done = showcase.load_done(path)
-    assert done[(question_id, "alice", "sales")]["answer"] == "from alice"
-    assert done[(question_id, "grep", "sales")]["answer"] == "from grep"
+    assert done[(question_id, "alice", "sales", "")]["answer"] == "from alice"
+    assert done[(question_id, "grep", "sales", "")]["answer"] == "from grep"
     assert showcase.pending(questions, done, 5, arm="grep", team="sales") == []
     assert [item["id"] for item in showcase.pending(questions, done, 5, arm="notes", team="sales")] == [question_id]
 
@@ -95,13 +95,17 @@ def test_a_second_arm_keeps_its_own_answer(tmp_path: Path) -> None:
 def test_overlapping_samples_are_named_and_a_wide_gap_is_not() -> None:
     rows = []
     for arm, correct in (("alice", 15), ("grep", 0)):
-        rows.extend({"size": 1000, "arm": arm, "task": "recall", "correct": index < correct, "leak": False} for index in range(15))
+        rows.extend(
+            {"corpus": "generated", "size": 1000, "arm": arm, "task": "recall", "correct": index < correct, "leak": False}
+            for index in range(15)
+        )
     text = showcase.render_report(rows)
     assert "cannot separate" not in text
     close = []
     for arm, correct in (("alice", 8), ("grep", 7)):
         close.extend(
-            {"size": 1000, "arm": arm, "task": "recall", "correct": index < correct, "leak": index == 0} for index in range(15)
+            {"corpus": "generated", "size": 1000, "arm": arm, "task": "recall", "correct": index < correct, "leak": index == 0}
+            for index in range(15)
         )
     close_text = showcase.render_report(close)
     assert "alice and grep overlap, so this sample cannot separate them" in close_text
@@ -380,20 +384,28 @@ def test_mem0_search_reopens_the_saved_configuration(tmp_path: Path) -> None:
 
 def test_the_report_names_the_development_set_and_who_enforced_mem0() -> None:
     rows = [
-        {"size": 1000, "arm": "mem0-separated", "task": "recall", "correct": True, "leak": False},
-        {"size": 1000, "arm": "mem0-shared", "task": "recall", "correct": False, "leak": True},
+        {"corpus": "generated", "size": 1000, "arm": "mem0-separated", "task": "recall", "correct": True, "leak": False},
+        {"corpus": "generated", "size": 1000, "arm": "mem0-shared", "task": "recall", "correct": False, "leak": True},
     ]
     text = showcase.render_report(rows)
     assert text.startswith("These questions are a development set")
     assert "showcase-heldout" in text
-    assert "mem0 enforced nothing" in text
-    assert "Nothing separated the teams" in text
+    assert "mem0 arms are not reported in Phase 0." in text
+    assert "mem0 enforced nothing" not in text
     held = showcase.render_report(rows, heldout=True)
     assert "development set" not in held
-    assert "mem0 enforced nothing" in held
+    assert "mem0 arms are not reported in Phase 0." in held
 
 
-def test_import_posts_note_text_to_the_configured_endpoint(tmp_path: Path) -> None:
+def test_import_sends_no_note_text_and_a_search_gives_the_product_the_endpoint(tmp_path: Path) -> None:
+    """A run that is not ``vectors`` embeds nothing at import: the harness no longer posts note text and drops the vectors.
+
+    The endpoint settings of a run built with ``--embeddings on`` are still applied while Alice recalls, so the product's own
+    query embedding for memories reaches the endpoint. A vault of imported notes holds no memory to compare it with.
+
+    Mutation: post the note text to the endpoint at import again.
+    """
+
     seen: dict[str, str] = {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -420,24 +432,21 @@ def test_import_posts_note_text_to_the_configured_endpoint(tmp_path: Path) -> No
         corpus = tmp_path / "notes"
         _note(corpus, "sales/note.md", "sales", "internal", "professional", "quarry note for the embedder")
         settings = showcase.embedding_settings(f"http://127.0.0.1:{port}", "nomic-embed-text:v1.5")
-        showcase.import_corpus(tmp_path / "run", corpus, embeddings=settings)
-        assert seen.get("path") == "/v1/embeddings"
-        assert "quarry note" in seen.get("body", "")
         run = tmp_path / "recall"
         db_path = showcase.import_corpus(run, corpus)
+        assert seen == {}, "the import sent nothing to the endpoint"
         keys = showcase._create_keys(db_path)
         (run / "keys.json").write_text(json.dumps(keys), encoding="utf-8")
         (run / "showcase.json").write_text(
             json.dumps({"embeddings": "on", "embedding_env": settings}),
             encoding="utf-8",
         )
-        seen.clear()
         text = showcase.alice_search(run, team="leadership", query="quarry")
     finally:
         server.shutdown()
-    assert seen["path"] == "/v1/embeddings"
-    assert "quarry" in seen["body"]
     assert "quarry note" in text
+    assert seen.get("path", "/v1/embeddings") == "/v1/embeddings"
+    assert "ALICE_EMBEDDINGS_BASE_URL" not in os.environ, "the search put the settings back"
 
 
 def test_the_team_table_in_the_harness_matches_a_live_run(tmp_path: Path) -> None:
@@ -491,10 +500,9 @@ def test_the_demo_binds_the_product_key_to_the_product_project(tmp_path: Path) -
     sales = showcase._identity(db_path, keys["sales"])
     assert sales.project_scope == ()
     with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
-        slug = conn.execute("SELECT slug FROM projects").fetchone()[0]
-    assert count == 1
-    assert slug == demo.PRODUCT_PROJECT_SLUG
+        tables = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projects'").fetchall()
+    # The SQLite schema has no projects table, and the demo adds none: the binding is the key's project scope.
+    assert tables == []
     decision = evaluate_agent_policy(identity=bound, action="memory.commit")
     assert decision.decision != "blocked"
 
@@ -521,7 +529,9 @@ def test_each_command_in_the_harness_note_runs(tmp_path: Path) -> None:
     key = tmp_path / "key.json"
     grades = tmp_path / "grades.json"
     grades.write_text(
-        json.dumps([{"size": 1000, "arm": "alice", "task": "recall", "correct": True, "leak": False}]),
+        json.dumps(
+            [{"corpus": "generated", "size": 1000, "arm": "alice", "task": "recall", "correct": True, "leak": False}]
+        ),
         encoding="utf-8",
     )
     env = dict(os.environ)
@@ -562,3 +572,962 @@ def test_each_command_in_the_harness_note_runs(tmp_path: Path) -> None:
         if "showcase-questions" in rendered:
             document = json.loads(questions.read_text(encoding="utf-8"))
             question_id = document["questions"][0]["id"]
+
+
+def test_question_kinds_stay_apart_and_the_demo_uses_its_own_set() -> None:
+    development = showcase.questions_for(1000)
+    assert development["kind"] == "development"
+    assert development["role"] == "development"
+    assert showcase.questions_for(10000)["kind"] == "development"
+    import scripts.showcase_demo as demo
+
+    small = demo.demonstration_questions()
+    assert small["kind"] == "demonstration"
+    assert len(small["questions"]) < 15
+    assert {item["id"] for item in small["questions"]}.isdisjoint(
+        {item["id"] for item in development["questions"]}
+    )
+    source = Path(demo.__file__).read_text(encoding="utf-8")
+    assert "questions_for(" not in source
+    mixed = [
+        {"size": 1000, "arm": "alice", "task": "recall", "correct": True, "leak": False, "kind": "development"},
+        {"size": 1000, "arm": "grep", "task": "recall", "correct": False, "leak": False, "kind": "hidden"},
+    ]
+    try:
+        showcase.render_report(mixed)
+    except bench.BenchError as exc:
+        assert "combine question kinds" in str(exc)
+    else:
+        raise AssertionError("kinds were combined")
+    try:
+        showcase.compare_arms(
+            [
+                {"size": 1000, "arm": "alice", "task": "recall", "correct": True, "leak": False, "model": "qwen2.5:7b"},
+                {"size": 1000, "arm": "grep", "task": "recall", "correct": False, "leak": False, "model": "llama3.2"},
+            ]
+        )
+    except bench.BenchError as exc:
+        assert "across models" in str(exc)
+    else:
+        raise AssertionError("arms were compared across models")
+
+
+def test_the_permission_task_covers_every_team_and_the_first_stays_support() -> None:
+    questions = [item for item in showcase.questions_for(1000)["questions"] if item["task"] == "permission"]
+    assert questions[0]["team"] == "support"
+    assert {item["team"] for item in questions} == set(showcase.TEAMS)
+    hidden = questions[0]
+    assert showcase.score_answer(hidden, "compensation is 128400 ledger units")["leak"] is True
+
+
+def test_a_permission_question_expects_the_value_when_the_team_may_know_it() -> None:
+    """A team in the fact's may_know expects the value. A denied team expects not known.
+
+    The question text decides the fact. 1000-permission-05 asks for the draft price,
+    which leadership may know. 1000-permission-10 asks for Mara Quen's compensation,
+    which sales may not.
+
+    Mutation: mark every permission question abstain. The allowed-team assertions fail.
+    """
+
+    pay = "hr/notes/mara-quen-pay.md"
+    draft = "pricing/drafts/keel-910.md"
+    for size in (1000, 10000):
+        questions = [item for item in showcase.questions_for(size)["questions"] if item["task"] == "permission"]
+        assert questions[0]["team"] == "support"
+        assert questions[0]["abstain"] is True
+        assert {item["team"] for item in questions} == set(showcase.TEAMS)
+        by_id = {item["id"]: item for item in questions}
+        leadership_pay = (f"{size}-permission-09", f"{size}-permission-13")
+        for question_id in leadership_pay:
+            question = by_id[question_id]
+            assert question["team"] == "leadership"
+            assert question["abstain"] is False
+            assert question["must_include"] == ["128400"]
+            assert question["needed_paths"] == [pay]
+            assert showcase.score_answer(question, "The pay figure is 128400.")["correct"] is True
+            assert showcase.score_answer(question, "not known")["correct"] is False
+        draft_price = by_id[f"{size}-permission-05"]
+        assert draft_price["team"] == "leadership"
+        assert draft_price["abstain"] is False
+        assert draft_price["must_include"] == ["910 ledger"]
+        assert draft_price["needed_paths"] == [draft]
+        assert "128400" not in draft_price["must_include"]
+        assert showcase.score_answer(draft_price, "The draft price is 910 ledger.")["correct"] is True
+        sales_draft = (f"{size}-permission-06", f"{size}-permission-14")
+        for question_id in sales_draft:
+            question = by_id[question_id]
+            assert question["team"] == "sales"
+            assert question["abstain"] is False
+            assert question["must_include"] == ["910 ledger"]
+            assert question["needed_paths"] == [draft]
+            assert showcase.score_answer(question, "The unpublished price is 910 ledger.")["correct"] is True
+        denied = by_id[f"{size}-permission-10"]
+        assert denied["team"] == "sales"
+        assert denied["abstain"] is True
+        assert denied["must_include"] == []
+        assert denied["needed_paths"] == []
+        assert showcase.score_answer(denied, "not known")["correct"] is True
+        assert showcase.score_answer(denied, "Mara Quen is paid 128400.")["correct"] is False
+        both = by_id[f"{size}-permission-15"]
+        assert both["team"] == "support"
+        assert both["abstain"] is True
+        assert showcase.score_answer(both, "not known")["correct"] is True
+
+
+def test_a_resumed_batch_skips_by_question_arm_team_and_model(tmp_path: Path) -> None:
+    path = tmp_path / "answers.jsonl"
+    first = {"id": "1000-recall-01", "arm": "alice", "team": "sales", "model": "qwen2.5:7b", "answer": "first"}
+    assert showcase.record_answer(path, first) is True
+    assert showcase.record_answer(path, {**first, "answer": "second"}) is False
+    other = {**first, "model": "llama3.2", "answer": "other model"}
+    assert showcase.record_answer(path, other) is True
+    done = showcase.load_done(path)
+    assert done[("1000-recall-01", "alice", "sales", "qwen2.5:7b")]["answer"] == "first"
+    assert done[("1000-recall-01", "alice", "sales", "llama3.2")]["answer"] == "other model"
+    questions = [{"id": "1000-recall-01"}, {"id": "1000-recall-02"}]
+    assert showcase.pending(questions, done, 5, arm="alice", team="sales", model="qwen2.5:7b") == [questions[1]]
+    assert showcase.pending(questions, done, 5, arm="alice", team="sales", model="llama3.2") == [questions[1]]
+
+
+def test_an_answer_that_cites_nothing_returned_is_unsupported(tmp_path: Path) -> None:
+    path = tmp_path / "answers.jsonl"
+    evidence = [{"id": "src-1", "passage": "The service contract is QF-C-2041."}]
+    cited = {
+        "id": "1000-recall-01",
+        "arm": "alice",
+        "team": "sales",
+        "answer": "The service contract is QF-C-2041.",
+        "evidence": evidence,
+        "calls": 1,
+        "tokens": 12,
+        "seconds": 0.4,
+    }
+    assert showcase.record_answer(path, cited) is True
+    stored = showcase.load_done(path)[("1000-recall-01", "alice", "sales", "")]
+    assert stored["cites_evidence"] is True
+    assert stored["unsupported"] is False
+    assert stored["calls"] == 1
+    assert stored["tokens"] == 12
+    bare = {**cited, "id": "1000-recall-02", "answer": "I cannot tell."}
+    assert showcase.record_answer(path, bare) is True
+    missed = showcase.load_done(path)[("1000-recall-02", "alice", "sales", "")]
+    assert missed["unsupported"] is True
+    assert missed["cites_evidence"] is False
+
+
+def test_capture_lists_a_failed_import_and_a_clean_import_is_complete(tmp_path: Path, monkeypatch) -> None:
+    corpus = tmp_path / "notes"
+    _note(corpus, "a.md", "sales", "internal", "professional", "amber quarry token stays")
+    run = tmp_path / "run"
+    showcase.import_corpus(run, corpus)
+    report = json.loads((run / "capture.json").read_text(encoding="utf-8"))
+    assert report["discovered"] == 1
+    assert report["captured"] == 1
+    assert report["indexed"] == 1
+    assert report["failed"] == []
+    assert report["complete"] is True
+
+    def fail_secret(db_path, file_path, *, domain, sensitivity):
+        del db_path, domain, sensitivity
+        if file_path.name == "b.md":
+            raise bench.BenchError("secret note refused")
+        return {"ok": True}
+
+    monkeypatch.setattr(bench, "_import_one", fail_secret)
+    corpus_b = tmp_path / "notes-b"
+    _note(corpus_b, "a.md", "sales", "internal", "professional", "amber quarry token stays")
+    _note(corpus_b, "b.md", "sales", "internal", "professional", "cobalt ledger token goes")
+    try:
+        showcase.import_corpus(tmp_path / "run-b", corpus_b)
+    except bench.BenchError as exc:
+        assert "b.md" in str(exc)
+        assert "secret note refused" in str(exc)
+    else:
+        raise AssertionError("a failed import was silent")
+    failed = json.loads((tmp_path / "run-b" / "capture.json").read_text(encoding="utf-8"))
+    assert failed["discovered"] == 2
+    assert failed["captured"] == 1
+    assert failed["failed"] == [{"path": "b.md", "error": "secret note refused"}]
+
+
+def test_a_deterministic_arm_returns_the_same_bytes(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    bench.prepare_run_dir(run, create=True)
+    payload = {
+        "engine": "fake-separated",
+        "scopes": {"sales": ["The service contract is QF-C-2041."]},
+    }
+    (run / "memory.json").write_text(json.dumps(payload), encoding="utf-8")
+    first = showcase.fake_separated_search(run, team="sales", query="service contract")
+    second = showcase.fake_separated_search(run, team="sales", query="service contract")
+    assert first.encode("utf-8") == second.encode("utf-8")
+    assert "QF-C-2041" in first
+
+
+def test_the_report_names_support_rate_variance_and_privileges() -> None:
+    rows = []
+    for index in range(4):
+        rows.append(
+            {
+                "corpus": "generated",
+                "size": 1000,
+                "arm": "alice",
+                "task": "recall",
+                "team": "sales" if index < 2 else "support",
+                "model": "qwen2.5:7b",
+                "correct": index != 1,
+                "leak": False,
+                "unsupported": index == 1,
+                "tokens": 10,
+                "seconds": 0.5,
+                "returned": True,
+                "captured": True,
+            }
+        )
+    text = showcase.render_report(rows)
+    assert "supported complete 3/4" in text
+    assert "team sales:" in text
+    assert "team support:" in text
+    assert "variance between questions" in text
+    assert "needed note returned and misused 1" in text
+    assert "sample size for a 10-point paired difference:" in text
+    assert showcase.ALICE_PRIVILEGE_NOTE in text
+    assert "sensitivity_allowed" in text
+    assert "in process" in text
+    assert "cannot create a key" in text
+    assert "Keyed PostgreSQL permission path: not run." in text
+    assert "No leak rate is reported for that path." in text
+    try:
+        showcase.render_report([{**rows[0], "size": 10000}])
+    except bench.BenchError as exc:
+        assert "10,000-note" in str(exc)
+    else:
+        raise AssertionError("the 10,000-note size was reported")
+    try:
+        showcase.build_company(Path("unused"), size=10000)
+    except bench.BenchError as exc:
+        assert "10,000-note" in str(exc)
+    else:
+        raise AssertionError("the 10,000-note company was built")
+    assert 300 <= showcase.paired_sample_size() <= 500
+
+
+def test_an_answer_without_evidence_is_not_supported_complete() -> None:
+    rows = [
+        {
+            "corpus": "generated",
+            "size": 1000,
+            "arm": "grep",
+            "task": "recall",
+            "correct": True,
+            "leak": False,
+            "answer": "QF-C-2041",
+        }
+    ]
+    text = showcase.render_report(rows)
+    assert "supported complete 0/1" in text
+
+
+def test_keyed_scoring_uses_the_question_policy() -> None:
+    policy = [{"id": "custom", "text": "secret-token", "may_know": ["leadership"]}]
+    answers = [{"answer": "secret-token", "team": "support", "policy": policy} for _ in range(12)]
+    scored = visibility.leak_rate(answers)
+    assert scored == {"leaks": 12, "total": 12}
+    ignored = visibility.leak_rate([{"answer": "secret-token", "team": "support"}])
+    assert ignored["leaks"] == 0
+
+
+def test_heldout_reads_only_the_file_it_is_given(tmp_path: Path) -> None:
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "hidden-other.json").write_text("{}\n", encoding="utf-8")
+    questions = tmp_path / "questions.json"
+    document = showcase.questions_for(1000)
+    document["kind"] = "hidden"
+    document["role"] = "hidden"
+    for item in document["questions"]:
+        item["kind"] = "hidden"
+    questions.write_text(json.dumps(document), encoding="utf-8")
+    manifest = showcase.heldout_manifest(notes, questions)
+    assert manifest["kind"] == "hidden"
+    assert manifest["questions"] == str(questions.resolve())
+    assert "hidden-other.json" not in manifest["questions"]
+    assert "hidden-other.json" not in manifest["notes"] or manifest["notes"] == str(notes.resolve())
+
+
+def test_the_keyed_path_uses_the_product_and_does_not_invent_a_leak_rate(tmp_path: Path) -> None:
+    assert "not run" in showcase.keyed_section(None, [])
+    assert "No leak rate is reported" in showcase.keyed_section(None, [])
+    try:
+        showcase.team_key_command(
+            database_url="sqlite:///" + (tmp_path / "vault.db").as_posix(),
+            user_id=bench.DEFAULT_USER_ID,
+            team="support",
+            profile="memory_proposal_agent",
+        )
+    except bench.BenchError as exc:
+        assert "cannot create a key" in str(exc)
+    else:
+        raise AssertionError("a SQLite URL was accepted for key creation")
+    command = showcase.team_key_command(
+        database_url="postgresql://local/showcase",
+        user_id=bench.DEFAULT_USER_ID,
+        team="support",
+        profile="memory_proposal_agent",
+    )
+    assert command[0] == "alicebot"
+    assert command[5:8] == ["agent", "keys", "create"]
+    imported = showcase.note_import_command(
+        database_url="postgresql://local/showcase",
+        user_id=bench.DEFAULT_USER_ID,
+        path="hr/pay.md",
+        domain="legal",
+        sensitivity="confidential",
+    )
+    assert imported[5:8] == ["vnext", "sources", "capture-file"]
+    request = showcase.http_recall_request(
+        base_url="http://127.0.0.1:8000",
+        token="example-key",
+        user_id=bench.DEFAULT_USER_ID,
+        query="What is Mara Quen's pay?",
+    )
+    assert request["url"].endswith("/v0/vnext/context-packs")
+    assert request["headers"]["Authorization"] == "Bearer example-key"
+    assert "sensitivity_allowed" not in request["body"]
+    corpus = tmp_path / "notes"
+    _note(corpus, "hr/pay.md", "hr", "confidential", "legal", "Mara Quen compensation is 128400 ledger units.")
+    seen: list[list[str]] = []
+
+    def runner(argv: list[str]) -> str:
+        seen.append(argv)
+        if argv[5:8] == ["agent", "keys", "create"]:
+            agent = argv[argv.index("--agent-id") + 1]
+            return json.dumps({"raw_key": "minted-" + agent})
+        return "{}"
+
+    def poster(payload: dict) -> str:
+        token = payload["headers"]["Authorization"]
+        if token.endswith("support"):
+            return "compensation is 128400 ledger units"
+        return "not known"
+
+    result = showcase.execute_keyed_permission(
+        database_url="postgresql://local/showcase",
+        base_url="http://127.0.0.1:9",
+        user_id=bench.DEFAULT_USER_ID,
+        corpus=corpus,
+        document=showcase.questions_for(1000),
+        runner=runner,
+        poster=poster,
+    )
+    assert result["ran"] is True
+    assert result["total"] == 15
+    assert result["leaks"] >= 1
+    assert any(argv[5:8] == ["vnext", "sources", "capture-file"] for argv in seen)
+    assert any(argv[5:8] == ["agent", "keys", "create"] for argv in seen)
+    section = showcase.keyed_section(result, [])
+    assert f"leaks {result['leaks']}/{result['total']}" in section
+
+
+def test_keyed_permission_scores_the_question_file_policy(tmp_path: Path) -> None:
+    """The keyed path scores the policy in the question file, not the built-in table.
+
+    Mutation: in ``execute_keyed_permission``, store ``policy`` as ``None`` on each answer and pass
+    ``facts=None`` to ``leak_rate``. This test then sees zero leaks.
+    """
+
+    custom = [{"id": "custom", "text": "secret-token", "may_know": ["leadership"]}]
+    document = showcase.questions_for(1000)
+    document["policy"] = custom
+    for item in document["questions"]:
+        item["policy"] = custom
+    corpus = tmp_path / "notes"
+    _note(corpus, "sales/public.md", "sales", "internal", "professional", "A public note about the kiln.")
+
+    def runner(argv: list[str]) -> str:
+        if argv[5:8] == ["agent", "keys", "create"]:
+            agent = argv[argv.index("--agent-id") + 1]
+            return json.dumps({"raw_key": "minted-" + agent})
+        return "{}"
+
+    def poster(_payload: dict) -> str:
+        return "secret-token"
+
+    result = showcase.execute_keyed_permission(
+        database_url="postgresql://local/showcase",
+        base_url="http://127.0.0.1:9",
+        user_id=bench.DEFAULT_USER_ID,
+        corpus=corpus,
+        document=document,
+        runner=runner,
+        poster=poster,
+    )
+    assert result["total"] == 15
+    assert result["leaks"] == 12
+    bare = visibility.leak_rate(
+        [{"answer": row["answer"], "team": row["team"]} for row in result["answers"]]
+    )
+    assert bare["leaks"] == 0
+
+
+def _hidden_questions(path: Path) -> None:
+    document = {
+        "schema": "showcase-questions/1",
+        "kind": "hidden",
+        "role": "hidden",
+        "questions": [
+            {
+                "id": "held-01",
+                "task": "recall",
+                "team": "sales",
+                "kind": "hidden",
+                "question": "Which note mentions the shared token?",
+                "must_include": ["harborlatchtoken"],
+                "must_not_include": [],
+                "leak_strings": [],
+                "abstain": False,
+                "needed_paths": ["shared/harbor.md"],
+            }
+        ],
+    }
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+
+def test_showcase_heldout_imports_a_notes_folder_and_the_report_names_that_corpus(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    """A folder written here is imported, searched, recorded, packed and reported.
+
+    Mutation: make showcase-heldout print the path manifest and skip the import.
+    The vault is missing and this test fails.
+    """
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("the held-out build generated notes")
+
+    monkeypatch.setattr(showcase, "generate", boom)
+    monkeypatch.setattr(showcase, "write_notes", boom)
+    corpus = tmp_path / "notes"
+    for index in range(9):
+        _note(
+            corpus,
+            f"shared/note-{index}.md",
+            "sales",
+            "internal",
+            "professional",
+            f"A field note about ordinary work, number {index}.",
+        )
+    _note(
+        corpus,
+        "shared/harbor.md",
+        "sales",
+        "internal",
+        "professional",
+        "The shared note mentions harborlatchtoken.",
+    )
+    _note(
+        corpus,
+        "legal/quarry.md",
+        "hr",
+        "confidential",
+        "legal",
+        "The confidential legal note mentions quarrylegaltoken.",
+    )
+    _note(
+        corpus,
+        "financial/keel.md",
+        "sales",
+        "private",
+        "financial",
+        "The private financial note mentions keeldrafttoken.",
+    )
+    assert len(list(corpus.rglob("*.md"))) == 12
+    questions = tmp_path / "questions.json"
+    _hidden_questions(questions)
+    run = tmp_path / "run"
+    refused = bench.main(
+        [
+            "showcase-heldout",
+            "--notes",
+            str(corpus),
+            "--questions",
+            str(questions),
+            "--run-dir",
+            str(run),
+            "--endpoint",
+            "https://example.com",
+            "--embeddings",
+            "off",
+        ]
+    )
+    assert refused != 0
+    mem0 = bench.main(
+        [
+            "showcase-heldout",
+            "--notes",
+            str(corpus),
+            "--questions",
+            str(questions),
+            "--run-dir",
+            str(run),
+            "--extractor",
+            "mem0",
+            "--embeddings",
+            "off",
+        ]
+    )
+    assert mem0 != 0
+    capsys.readouterr()
+    code = bench.main(
+        [
+            "showcase-heldout",
+            "--notes",
+            str(corpus),
+            "--questions",
+            str(questions),
+            "--run-dir",
+            str(run),
+            "--embeddings",
+            "off",
+            "--endpoint",
+            "http://127.0.0.1:11434",
+        ]
+    )
+    assert code == 0, capsys.readouterr()
+    built = capsys.readouterr().out
+    assert "notes discovered 12" in built
+    assert "notes captured 12" in built
+    assert "notes indexed 12" in built
+    manifest = json.loads((run / "showcase.json").read_text(encoding="utf-8"))
+    assert manifest["corpus"] == "heldout"
+    assert manifest["notes"] == 12
+    assert manifest.get("size") != 1000
+    assert manifest["embeddings"] == "off"
+    assert manifest["teams"] == dict(showcase.TEAM_PROFILES)
+    assert manifest["capture"]["complete"] is True
+    snapshot = run / bench.SNAPSHOT_DIRNAME
+    source_files = sorted(path.relative_to(corpus).as_posix() for path in corpus.rglob("*.md"))
+    copied = sorted(path.relative_to(snapshot).as_posix() for path in snapshot.rglob("*.md"))
+    assert copied == source_files
+    keys = json.loads((run / "keys.json").read_text(encoding="utf-8"))
+    assert set(keys) == set(showcase.TEAMS)
+    expected = {
+        "sales": (
+            ("shared", "harborlatchtoken", True),
+            ("confidential", "quarrylegaltoken", False),
+            ("private", "keeldrafttoken", True),
+        ),
+        "support": (
+            ("shared", "harborlatchtoken", True),
+            ("confidential", "quarrylegaltoken", False),
+            ("private", "keeldrafttoken", False),
+        ),
+        "product": (
+            ("shared", "harborlatchtoken", True),
+            ("confidential", "quarrylegaltoken", False),
+            ("private", "keeldrafttoken", False),
+        ),
+        "leadership": (
+            ("shared", "harborlatchtoken", True),
+            ("confidential", "quarrylegaltoken", True),
+            ("private", "keeldrafttoken", True),
+        ),
+    }
+    for team, checks in expected.items():
+        for query, token, visible in checks:
+            status = bench.main(
+                [
+                    "showcase-search",
+                    "--run-dir",
+                    str(run),
+                    "--arm",
+                    "alice",
+                    "--team",
+                    team,
+                    "--query",
+                    query,
+                ]
+            )
+            assert status == 0
+            found = token in capsys.readouterr().out
+            assert found is visible, (team, query, token)
+    recorded = bench.main(
+        [
+            "showcase-record",
+            "--run-dir",
+            str(run),
+            "--id",
+            "held-01",
+            "--arm",
+            "alice",
+            "--team",
+            "sales",
+            "--answer",
+            "harborlatchtoken",
+        ]
+    )
+    assert recorded == 0
+    assert "recorded" in capsys.readouterr().out
+    answers = tmp_path / "answers.json"
+    packet = tmp_path / "packet.json"
+    key = tmp_path / "key.json"
+    answers.write_text(json.dumps({"alice": {"held-01": "harborlatchtoken"}}), encoding="utf-8")
+    packed = bench.main(
+        [
+            "showcase-packet",
+            "--questions",
+            str(questions),
+            "--answers",
+            str(answers),
+            "--out",
+            str(packet),
+            "--key-out",
+            str(key),
+        ]
+    )
+    assert packed == 0
+    assert "alice" not in packet.read_text(encoding="utf-8")
+    grades = tmp_path / "grades.json"
+    grades.write_text(
+        json.dumps(
+            [
+                {
+                    "corpus": "heldout",
+                    "notes": 12,
+                    "size": 12,
+                    "arm": "alice",
+                    "task": "recall",
+                    "team": "sales",
+                    "kind": "hidden",
+                    "correct": True,
+                    "leak": False,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    reported = bench.main(["showcase-report", "--grades", str(grades)])
+    assert reported == 0
+    text = capsys.readouterr().out
+    assert "corpus heldout (12 notes)" in text
+    assert "size 1000" not in text
+    assert "size 12" not in text
+    assert "development set" not in text
+    assert "1,000-note" not in text
+
+
+def test_showcase_report_refuses_a_heldout_count_that_differs_from_the_import(tmp_path: Path, capsys) -> None:
+    """The import's note count wins when the report names the run.
+
+    Mutation: do not compare grade rows with showcase.json. The wrong count is printed.
+    """
+
+    run = tmp_path / "run"
+    bench.prepare_run_dir(run, create=True)
+    manifest = run / "showcase.json"
+    grades = tmp_path / "grades.json"
+
+    def grade(notes: int) -> None:
+        grades.write_text(
+            json.dumps(
+                [
+                    {
+                        "corpus": "heldout",
+                        "notes": notes,
+                        "arm": "alice",
+                        "task": "recall",
+                        "correct": True,
+                        "leak": False,
+                        "kind": "hidden",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    manifest.write_text("{}\n", encoding="utf-8")
+    grade(12)
+    missing = bench.main(["showcase-report", "--grades", str(grades), "--run-dir", str(run)])
+    assert missing != 0
+    assert "notes" in capsys.readouterr().err.casefold()
+    manifest.write_text(json.dumps({"corpus": "heldout", "notes": 12}) + "\n", encoding="utf-8")
+    grade(11)
+    refused = bench.main(["showcase-report", "--grades", str(grades), "--run-dir", str(run)])
+    assert refused != 0
+    err = capsys.readouterr().err
+    assert "11" in err and "12" in err
+    grade(12)
+    accepted = bench.main(["showcase-report", "--grades", str(grades), "--run-dir", str(run)])
+    assert accepted == 0
+    assert "corpus heldout (12 notes)" in capsys.readouterr().out
+    grade(11)
+    trusted = bench.main(["showcase-report", "--grades", str(grades)])
+    assert trusted == 0
+    assert "corpus heldout (11 notes)" in capsys.readouterr().out
+    generated = tmp_path / "generated.json"
+    generated.write_text(
+        json.dumps(
+            [
+                {
+                    "corpus": "generated",
+                    "size": 1000,
+                    "arm": "alice",
+                    "task": "recall",
+                    "correct": True,
+                    "leak": False,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    left = bench.main(["showcase-report", "--grades", str(generated), "--run-dir", str(run)])
+    assert left == 0
+
+
+def test_a_grade_row_without_a_corpus_is_refused() -> None:
+    """Mutation: drop the corpus check. This row is reported, or it raises KeyError."""
+
+    row = {"size": 1000, "arm": "alice", "task": "recall", "correct": True, "leak": False}
+    try:
+        showcase.render_report([row])
+    except bench.BenchError as exc:
+        assert "corpus" in str(exc).casefold()
+    except KeyError as exc:
+        raise AssertionError("a missing corpus raised KeyError") from exc
+    else:
+        raise AssertionError("a grade row without a corpus was reported")
+    mixed = [
+        {
+            "corpus": "generated",
+            "size": 1000,
+            "arm": "alice",
+            "task": "recall",
+            "correct": True,
+            "leak": False,
+            "kind": "development",
+        },
+        {
+            "corpus": "heldout",
+            "notes": 12,
+            "arm": "grep",
+            "task": "recall",
+            "correct": False,
+            "leak": False,
+            "kind": "development",
+        },
+    ]
+    try:
+        showcase.render_report(mixed)
+    except bench.BenchError as exc:
+        assert "held-out" in str(exc)
+    else:
+        raise AssertionError("a held-out corpus was combined with the generated company")
+
+
+def _grade_row(**extra: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "corpus": "generated",
+        "size": 1000,
+        "arm": "alice",
+        "task": "recall",
+        "correct": True,
+        "leak": False,
+    }
+    row.update(extra)
+    return row
+
+
+def test_a_correct_abstention_counts_as_supported_complete() -> None:
+    """A correct not-known answer has nothing to cite. A wrong one does not count.
+
+    Mutation: leave supported complete as correct and cited. The abstention row scores 0.
+    """
+
+    correct = _grade_row(task="abstention", abstain=True, answer="not known")
+    text = showcase.render_report([correct])
+    assert "supported complete 1/1" in text
+    wrong = _grade_row(task="abstention", abstain=True, correct=False, answer="The figure is 128400.")
+    wrong_text = showcase.render_report([wrong])
+    assert "supported complete 0/1" in wrong_text
+    recalled = _grade_row(answer="QF-C-2041")
+    recalled_text = showcase.render_report([recalled])
+    assert "supported complete 0/1" in recalled_text
+
+
+def test_a_partial_quote_cites_and_a_paraphrase_does_not() -> None:
+    """Mutation: require the whole passage. The partial quote stops citing."""
+
+    passage = "The harbor latch sits beside the north culvert gauge in the yard."
+    evidence = [{"id": "src-9", "passage": passage}]
+    assert showcase.cites_returned("It says the harbor latch sits beside the north culvert.", evidence) is True
+    assert showcase.cites_returned("The latch is near a gauge outdoors.", evidence) is False
+    assert showcase.cites_returned("See src-9 for the note.", evidence) is True
+
+
+def test_showcase_search_uses_the_recorded_search_quality(tmp_path: Path, monkeypatch, capsys) -> None:
+    """Mutation: accept any search quality. A passage run is searched as off."""
+
+    notes = tmp_path / "notes"
+    _note(notes, "a.md", "sales", "internal", "professional", "A field note mentions harborlatchtoken.")
+    questions = tmp_path / "questions.json"
+    questions.write_text(
+        json.dumps(
+            {
+                "kind": "hidden",
+                "questions": [
+                    {
+                        "id": "h1",
+                        "kind": "hidden",
+                        "task": "recall",
+                        "team": "sales",
+                        "question": "What token is shared?",
+                        "must_include": [],
+                        "must_not_include": [],
+                        "leak_strings": [],
+                        "abstain": False,
+                        "needed_paths": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    run = tmp_path / "run"
+    built = bench.main(
+        [
+            "showcase-heldout",
+            "--notes",
+            str(notes),
+            "--questions",
+            str(questions),
+            "--run-dir",
+            str(run),
+            "--search-quality",
+            "passage",
+            "--embeddings",
+            "off",
+        ]
+    )
+    assert built == 0, capsys.readouterr()
+    manifest = json.loads((run / "showcase.json").read_text(encoding="utf-8"))
+    assert manifest["search_quality"] == "passage"
+    capsys.readouterr()
+    refused = bench.main(
+        [
+            "showcase-search",
+            "--run-dir",
+            str(run),
+            "--arm",
+            "fake-separated",
+            "--team",
+            "sales",
+            "--query",
+            "harbor",
+            "--search-quality",
+            "off",
+        ]
+    )
+    assert refused != 0
+    assert "passage" in capsys.readouterr().err
+    seen: dict[str, str | None] = {}
+
+    def spy(_run_dir: Path, *, team: str, query: str) -> str:
+        del team, query
+        seen["quality"] = os.environ.get("ALICE_SEARCH_QUALITY")
+        return "harborlatchtoken"
+
+    monkeypatch.setattr(showcase, "fake_separated_search", spy)
+    accepted = bench.main(
+        [
+            "showcase-search",
+            "--run-dir",
+            str(run),
+            "--arm",
+            "fake-separated",
+            "--team",
+            "sales",
+            "--query",
+            "harbor",
+            "--search-quality",
+            "passage",
+        ]
+    )
+    assert accepted == 0
+    assert seen["quality"] == "passage"
+
+
+def test_showcase_search_exits_with_the_bench_codes_and_records_its_budget(tmp_path: Path) -> None:
+    """A failed search and a spent budget use the bench's exit codes, not a traceback.
+
+    Mutation: return success after an error result, and keep the budget fixed at 3.
+    """
+
+    run = tmp_path / "run"
+    bench.prepare_run_dir(run, create=True)
+    (run / "memory.json").write_text(
+        json.dumps({"engine": "fake-separated", "scopes": {"sales": ["hello harbor"]}}),
+        encoding="utf-8",
+    )
+    (run / "showcase.json").write_text(json.dumps({"search_quality": "unset"}) + "\n", encoding="utf-8")
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(bench.REPO_ROOT / "apps" / "api" / "src")
+    script = [sys.executable, str(bench.REPO_ROOT / "scripts" / "alice_bench.py")]
+
+    def run_search(*extra: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [*script, "showcase-search", "--run-dir", str(run), "--arm", "fake-separated", "--team", "sales", *extra],
+            cwd=bench.REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    failed = subprocess.run(
+        [*script, "showcase-search", "--run-dir", str(run), "--arm", "grep", "--pattern", "harbor", "--team", "sales"],
+        cwd=bench.REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert failed.returncode == bench.EXIT_SEARCH_ERROR
+    assert "error:" in failed.stdout
+    assert "Traceback" not in failed.stderr
+    first = run_search("--query", "harbor", "--budget", "2")
+    assert first.returncode == 0
+    assert (run / bench.STATE_DIRNAME / "fake-separated-sales" / "budget").read_text(encoding="utf-8").strip() == "2"
+    second = run_search("--query", "harbor")
+    assert second.returncode == 0
+    spent = run_search("--query", "harbor")
+    assert spent.returncode == bench.EXIT_BUDGET
+    assert "Traceback" not in spent.stderr
+    assert "budget" in spent.stderr.casefold()
+    assert spent.stderr.count("\n") == 1
+    bare = tmp_path / "bare.json"
+    bare.write_text(
+        json.dumps([{"arm": "alice", "task": "recall", "correct": True, "leak": False}]),
+        encoding="utf-8",
+    )
+    refused = subprocess.run(
+        [*script, "showcase-report", "--grades", str(bare)],
+        cwd=bench.REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert refused.returncode == bench.EXIT_REFUSED
+    assert "Traceback" not in refused.stderr
+    assert refused.stderr.count("\n") == 1
+    assert "corpus" in refused.stderr.casefold()
+
+
+def test_alice_search_drops_the_echoed_query() -> None:
+    """Mutation: return the tool JSON unchanged. The query text stays in the output."""
+
+    raw = json.dumps({"query": "128400", "results": [], "sources": [{"excerpt": "a public note"}]})
+    text = showcase.without_echoed_query(raw)
+    assert "128400" not in text
+    assert "a public note" in text

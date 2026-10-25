@@ -17,7 +17,7 @@ import importlib.util
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 MIGRATION = ROOT / "apps/api/alembic/versions/20261005_0096_derived_label_floor.py"
 
 
@@ -87,7 +87,7 @@ def test_the_pages_name_the_v4_repair_and_the_seven_table_migration() -> None:
     notes = _text("docs/release/v0.20.0-release-notes.md")
     assert "> **Correction (2026-10-05):**" in notes
     assert "listed under known limitations" in notes
-    assert "Unreleased (on main, not in v0.20.0):" in _text("docs/runbooks/disaster-recovery.md")
+    assert "From v0.20.2," in _text("docs/runbooks/disaster-recovery.md")
 
     changelog = _text("CHANGELOG.md")
     assert "keeps such a row at its old label until a restore" not in changelog
@@ -95,7 +95,7 @@ def test_the_pages_name_the_v4_repair_and_the_seven_table_migration() -> None:
     assert "historical sensitivity is not repaired" not in changelog
     assert "Such a row is unverified." in changelog
     assert "the five operator screens apply the caller's sensitivity ceiling" in changelog
-    assert "No migration is required." in changelog.split("## Unreleased", 1)[1].split("\n- ", 2)[1]
+    assert "No migration is required." in changelog.split("## v0.20.2", 1)[1].split("\n- ", 2)[1]
 
 
 def test_each_derived_label_change_has_one_complete_changelog_entry() -> None:
@@ -117,11 +117,11 @@ def test_each_derived_label_change_has_one_complete_changelog_entry() -> None:
     )
     selected: dict[str, str] = {}
     for start in starts:
-        matches = [entry for entry in entries if entry.startswith(f"{MARK} {start}")]
+        matches = [entry for entry in entries if entry.startswith(start[:1].upper() + start[1:])]
         assert len(matches) == 1, (start, len(matches))
         selected[start] = matches[0]
-    assert not any(entry.startswith(f"{MARK} opening a SQLite vault") for entry in entries)
-    assert not any(entry.startswith(f"{MARK} a daily brief, connection report") for entry in entries)
+    assert not any(entry.startswith("Opening a SQLite vault") for entry in entries)
+    assert not any(entry.startswith("A daily brief, connection report") for entry in entries)
     repair = selected[starts[1]]
     assert "SQLite" in repair
     assert "NOSUPERUSER NOBYPASSRLS" in repair
@@ -130,7 +130,7 @@ def test_each_derived_label_change_has_one_complete_changelog_entry() -> None:
     )
     assert "producer input readers" in selected[starts[2]]
     for start, entry in selected.items():
-        assert entry.startswith(MARK)
+        assert not entry.startswith("Unreleased")
         assert "v0.20.0" in entry
         if start != starts[1]:
             assert entry.endswith("No migration is required."), start
@@ -194,11 +194,22 @@ def test_october_six_correction_distinguishes_the_new_doctor_counts() -> None:
     assert "These limits also occur in v0.20.0" not in correction
 
 
-def test_known_limitations_says_the_graph_follows_the_ceiling_and_doctor_omits_content_checks() -> None:
+def test_known_limitations_leaves_the_graph_ceiling_and_the_doctor_checks_to_the_security_note() -> None:
+    """The page lists limits and not protections, so it no longer says that the graph neighborhood lists only the edges
+    whose ends the key may read or that doctor omits content checks for keys with limits. The security note states both and
+    ``test_draft_security_note_distinguishes_baseline_graph_from_doctor_content_checks`` pins them there, the doctor page
+    states the second and ``test_doctor_page_and_runbook_say_who_receives_the_content_checks`` pins it, and the changelog
+    states both and is pinned in ``test_the_pages_say_what_the_graph_routes_do_now``. The page must not go back to calling the
+    graph an exception, and it links the security note for the open items.
+
+    Mutations, each one alone: put ``but graph edge explanations remain outside that ceiling`` or ``new doctor label counts``
+    on the page; delete the security note link from the page.
+    """
+
     limits = _text("docs/alpha/known-limitations.md")
-    assert "and doctor omits content checks for keys with limits, and the graph neighborhood lists only the edges whose ends the key may read" in limits
     assert "but graph edge explanations remain outside that ceiling" not in limits
     assert "new doctor label counts" not in limits
+    assert "doctor omits content checks" not in limits
     assert "derived-labels-security-note-draft.md" in limits
 
 
@@ -221,7 +232,7 @@ def test_source_get_operator_gate_and_doctor_omission_are_explicit_in_changelog(
     assert "omit content diagnostics for a caller with limits" in changelog
     assert "v0.20.0 and the 48873b03 baseline returned the `flagged_sources` ids to a trusted key" in changelog
     tools = _text("docs/alpha/mcp-tools.md")
-    assert "Source GET evaluates `http.operator.access` before its source fence" in tools
+    assert "source GET evaluates `http.operator.access` before its source fence" in tools
     assert "Other profiles and project-bound keys receive HTTP 403, including for missing ids" in tools
     note = _text("docs/release/derived-labels-security-note-draft.md")
     assert "source GET keeps the operator gate" in note

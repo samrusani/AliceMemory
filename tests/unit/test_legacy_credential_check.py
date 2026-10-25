@@ -21,7 +21,12 @@ The ruling (H1) and what this file holds, as harness v4:
 (a) Equivalence. alicebot_api.legacy_credential_check re-implements
     v0.16.0's check in linear time. It is compared with v0.16.0's own code,
     kept verbatim in legacy_v0160_credential_oracle.py, on bounded generated
-    inputs at both doors: the same verdict on every input.
+    inputs at both doors: the same verdict on every input. Since 2026-10-22
+    the token markers need a floor of token characters after them (see
+    legacy_credential_check._TOKEN_BODIES), which v0.16.0 did not. The
+    comparison runs with the floors turned off, and a second test holds the
+    floors on to what a floor can change: it only lets through, never adds a
+    refusal. tests/unit/test_credential_marker_lengths.py pins the floors.
 (b) Carve-out safety. Each of the four carve-outs is tested both ways, the
     password rule is tested, and no carve-out excuses anything in the real
     key fixtures or in a generated grammar of published token shapes under
@@ -40,9 +45,9 @@ import hashlib
 import json
 from pathlib import Path
 import random
+import re
 import sqlite3
 import string
-import time
 from uuid import UUID, uuid4
 
 import pytest
@@ -53,14 +58,18 @@ from alicebot_api.credential_floor import carries_credential_material, normalize
 from alicebot_api.onramp import _memory_record_credential_finding
 from alicebot_api.sqlite_schema import bootstrap_sqlite_schema
 from alicebot_api.sqlite_store import SQLiteVNextStore, ensure_sqlite_user
-from alicebot_api.vnext_memory_commit import VNextMemoryCommitService, memory_commit_request_from_payload
+from alicebot_api.vnext_memory_commit import (
+    VNextMemoryCommitService,
+    VNextMemoryCommitValidationError,
+    memory_commit_request_from_payload,
+)
 from alicebot_api.vnext_promotion_policy import PromotionCandidate, PromotionSettings, evaluate_promotion, hard_floor_hits
 
 from tests.unit import legacy_v0160_credential_oracle as oracle
 from tests.unit.fixtures_benign_corpus import CREDENTIAL_VOCABULARY_SENTENCES, DOC_SENTENCES
 from tests.unit.fixtures_promotion_corpus import ALL_NOTES
 from tests.unit.fixtures_throwaway_keys import PRIVATE_KEY_NAMES, PUBLIC_KEY_NAMES, throwaway_key
-from tests.unit.fixtures_timing import budget, tracer_active
+from tests.unit.fixtures_timing import SIZE_RATIO, assert_grows_linearly, budget, smallest_cpu_seconds, tracer_active
 from tests.unit.test_credential_floor_design import _T3_FALSE
 
 
@@ -126,7 +135,22 @@ def _patterns(compiled: tuple[object, ...] | list[object]) -> list[tuple[str, in
 def test_harness_v4_the_reimplementation_reads_v0160s_own_patterns() -> None:
     assert legacy._CREDENTIAL_PHRASES == oracle._CREDENTIAL_PHRASES
     assert legacy._CREDENTIAL_TOKEN_MARKERS == oracle._CREDENTIAL_TOKEN_MARKERS
-    assert _patterns(legacy._CREDENTIAL_TOKEN_PATTERNS) == _patterns(oracle._CREDENTIAL_TOKEN_PATTERNS)
+    # The two differences (2026-10-22), for every marker but the two ssh ones, whose patterns are v0.16.0's exactly:
+    # a floor of token characters after the marker, and a lead boundary that no longer counts an underscore.
+    for marker, floored, bare in zip(
+        legacy._CREDENTIAL_TOKEN_MARKERS, legacy._CREDENTIAL_TOKEN_PATTERNS, oracle._CREDENTIAL_TOKEN_PATTERNS
+    ):
+        assert floored.flags == bare.flags, marker
+        assert bare.pattern.startswith(_V0160_LEAD), marker
+        if marker in _BARE_MARKERS:
+            assert floored.pattern == bare.pattern, marker
+            continue
+        head = bare.pattern.replace(_V0160_LEAD, _LEAD_WITHOUT_UNDERSCORE, 1)
+        assert floored.pattern.startswith(head), marker
+        floor = floored.pattern[len(head) :]
+        assert floor.startswith("(?=") and floor.endswith(")"), (marker, floor)
+    assert _BARE_MARKERS == {"ssh-rsa ", "ssh-ed25519 "}
+    assert set(legacy._TOKEN_BODIES) == set(legacy._CREDENTIAL_TOKEN_MARKERS) - _BARE_MARKERS
     searched = [pattern for _rule, pattern in legacy._SEARCHED_PATTERNS]
     in_v0160_order = [*searched[:4], legacy._JWT_PATTERN, legacy._SSH_PUBLIC_KEY, *searched[4:]]
     assert [getattr(p, "pattern", p) for p in in_v0160_order] == [p.pattern for p in oracle._CREDENTIAL_PATTERNS]
@@ -136,7 +160,12 @@ def test_harness_v4_the_reimplementation_reads_v0160s_own_patterns() -> None:
     for name in ("_BASE64_TOKEN", "_HEX_TOKEN", "_SPACED_OUT_RUN"):
         assert _patterns([getattr(legacy, name)]) == _patterns([getattr(oracle, name)]), name
     assert legacy._RUN_SEPARATORS == oracle._RUN_SEPARATORS
-    assert _patterns([legacy._PREFIX_SK, *legacy._PREFIX_PATTERNS]) == _patterns(oracle.SECRET_PREFIX_PATTERNS)
+    assert _patterns(legacy._PREFIX_PATTERNS) == _patterns(oracle.SECRET_PREFIX_PATTERNS[1:])
+    # The sk- prefix pattern is v0.16.0's with the sk- marker's floor in place of 8 (2026-10-22).
+    bare_sk = oracle.SECRET_PREFIX_PATTERNS[0]
+    assert bare_sk.pattern.count("{8,}") == 1
+    assert legacy._PREFIX_SK.flags == bare_sk.flags
+    assert legacy._PREFIX_SK.pattern == bare_sk.pattern.replace("{8,}", "{%d,}" % legacy._TOKEN_BODIES["sk-"].floor)
     # The NAME=value rule's parts are the old expression's parts.
     assert legacy._SECRET_NAME_EMBEDDABLE in oracle.SECRET_ASSIGNMENT_PATTERN.pattern
     # And the promotion policy re-exports the one copy of it.
@@ -157,6 +186,31 @@ def test_harness_v4_the_shared_normaliser_is_v0160s() -> None:
 # ---------------------------------------------------------------------------
 # (a) Equivalence on bounded generated inputs.
 # ---------------------------------------------------------------------------
+
+# The markers that keep v0.16.0's bare reading: they name a public key line.
+_BARE_MARKERS = {"ssh-rsa ", "ssh-ed25519 "}
+# v0.16.0's lead boundary, and the one a marker with a floor has since 2026-10-22: an underscore no longer hides it.
+_V0160_LEAD = "(?<![0-9A-Za-z_])"
+_LEAD_WITHOUT_UNDERSCORE = "(?<![0-9A-Za-z])"
+
+
+@pytest.fixture
+def floors_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The module with v0.16.0's bare markers, its lead boundary and its 8 character sk- prefix pattern, to compare it
+    with v0.16.0 on everything else.
+
+    The token floors and the underscore lead (2026-10-22) are the deliberate differences from v0.16.0. With them off,
+    the rest of the module is held to v0.16.0's verdict on every generated input, as before; with them on, the next
+    tests hold the differences to what a floor and a lead can change.
+    """
+
+    monkeypatch.setattr(legacy, "_CREDENTIAL_TOKEN_PATTERNS", tuple(oracle._CREDENTIAL_TOKEN_PATTERNS))
+    monkeypatch.setattr(legacy, "_PREFIX_SK", oracle.SECRET_PREFIX_PATTERNS[0])
+    monkeypatch.setattr(
+        legacy,
+        "_CREDENTIAL_TOKEN_UNBOUNDED_PATTERNS",
+        tuple(re.compile(re.escape(marker), re.IGNORECASE) for marker in oracle._CREDENTIAL_TOKEN_MARKERS),
+    )
 
 _SECRET_WORDS = ("password", "passwd", "secret", "token", "credential", "credentials", "apikey", "key")
 _OTHER_WORDS = (
@@ -345,7 +399,7 @@ def _equivalence_inputs(seed: int, count: int) -> list[tuple[str, str, str | Non
 
 
 @pytest.mark.parametrize("seed", [20260923, 5, 17])
-def test_harness_v4_same_verdict_as_v0160_at_both_doors(seed: int) -> None:
+def test_harness_v4_same_verdict_as_v0160_at_both_doors(seed: int, floors_off: None) -> None:
     commit_refused = floor_refused = 0
     inputs = _equivalence_inputs(seed, 1500)
     for title, text, excerpt, rationale, refs in inputs:
@@ -363,6 +417,110 @@ def test_harness_v4_same_verdict_as_v0160_at_both_doors(seed: int) -> None:
     # agreement on one answer.
     assert 0.3 * len(inputs) < commit_refused < 0.9 * len(inputs), commit_refused
     assert 0.3 * len(inputs) < floor_refused < 0.9 * len(inputs), floor_refused
+
+
+def _verdicts(inputs: list[tuple[str, str, str | None, str | None, list[object]]]) -> list[tuple[bool, bool]]:
+    return [
+        (
+            legacy.v0160_commit_gate_refuses(title, text, excerpt, rationale, refs),
+            legacy.v0160_promotion_floor_refuses(title, text, excerpt, refs),
+        )
+        for title, text, excerpt, rationale, refs in inputs
+    ]
+
+
+@pytest.mark.parametrize("seed", [20260923, 5, 17])
+def test_the_floors_only_let_through_and_the_underscore_lead_only_adds_what_v0160_missed(
+    seed: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The two differences from v0.16.0 move verdicts in one direction each.
+
+    A floor removes marker findings and adds none, so with the floors on and v0.16.0's lead the module never refuses
+    what v0.16.0 allowed. A lead that no longer counts an underscore adds findings and removes none, so the module as
+    it is refuses everything that module refused, and more. Both halves are checked, and both guard the guard: the
+    generated inputs hold short markers and underscore led ones, so each difference changes some verdicts.
+    """
+
+    inputs = _equivalence_inputs(seed, 1500)
+    now = _verdicts(inputs)
+    monkeypatch.setattr(
+        legacy,
+        "_CREDENTIAL_TOKEN_PATTERNS",
+        tuple(
+            re.compile(pattern.pattern.replace(_LEAD_WITHOUT_UNDERSCORE, _V0160_LEAD, 1), pattern.flags)
+            for pattern in legacy._CREDENTIAL_TOKEN_PATTERNS
+        ),
+    )
+    floors_only = _verdicts(inputs)
+    let_through = [0, 0]
+    added = [0, 0]
+    for (title, text, excerpt, rationale, refs), after, between in zip(inputs, now, floors_only):
+        before = (
+            oracle.commit_gate_refuses(title, text, excerpt, rationale, refs),
+            oracle.promotion_floor_refuses(title, text, excerpt, refs),
+        )
+        for door in (0, 1):
+            assert before[door] or not between[door], (door, title, text, excerpt, rationale, refs)
+            assert between[door] <= after[door], (door, title, text, excerpt, rationale, refs)
+            let_through[door] += before[door] and not between[door]
+            added[door] += after[door] and not between[door]
+    for door in (0, 1):
+        assert 0 < let_through[door] < 0.2 * len(inputs), (door, let_through)
+        assert added[door] < 0.2 * len(inputs), (door, added)
+    # The lead moves few generated inputs (an underscore directly before a long enough marker), so one seed may move
+    # one door only; every seed moves at least one.
+    assert sum(added) > 0, added
+
+
+def _with_36(prefix: str) -> str:
+    return prefix + _BASE62[:36]
+
+
+# Texts the underscore lead moves: (text, whether the commit gate refuses it now though v0.16.0's own code allowed it).
+# The promotion floor moves for every one. The commit gate's own prefix patterns already read an underscore led ghp_,
+# sk- and xoxb-, so only the promotion floor moves for those three. Built from parts so no whole token sits in the
+# source.
+_UNDERSCORE_MOVES = {
+    "an underscore, then a classic ghs_": ("_" + _with_36("gh" + "s_"), True),
+    "a word and an underscore, then ghs_": ("x_" + _with_36("gh" + "s_"), True),
+    "an underscore, then ghu_": ("_" + _with_36("gh" + "u_"), True),
+    "an underscore, then gho_": ("_" + _with_36("gh" + "o_"), True),
+    "an underscore, then ghp_": ("_" + _with_36("gh" + "p_"), False),
+    "a word and an underscore, then npm_": ("TOKEN_" + _with_36("np" + "m_"), True),
+    "an underscore, then sk-": ("_sk" + "-" + _BASE62[:20], False),
+    "an underscore, then glpat-": ("_glp" + "at-" + _BASE62[:20], True),
+    "an underscore, then github_pat_": ("_github" + "_pat_" + _BASE62[:22] + "_" + _BASE62[:59], True),
+    "an underscore, then xoxb-": ("_xo" + "xb-" + "1234567890-1234567890-" + _BASE62[:24], False),
+}
+# Texts it does not move: a letter or digit before the marker (part of a word), too little after the marker, and the
+# ssh markers, which have no floor and keep v0.16.0's lead.
+_UNDERSCORE_STAYS = {
+    "a letter, then ghs_": "X" + _with_36("gh" + "s_"),
+    "a digit, then ghs_": "7" + _with_36("gh" + "s_"),
+    "a letter, then npm_": "X" + _with_36("np" + "m_"),
+    "an underscore, then a code": "PART_SK-2291",
+    "an underscore, then a short ghs_ name": "x_ghs_12_ab",
+    "an underscore, then npm_config_cache": "my_npm_config_cache",
+    "an underscore, then a short ghu_ name": "deploy_ghu_config",
+    "an underscore, then ssh-rsa": "_ssh-rsa 2048",
+    "a word and an underscore, then ssh-ed25519": "x_ssh-ed25519 keys",
+}
+
+
+@pytest.mark.parametrize("label", sorted(_UNDERSCORE_MOVES))
+def test_the_underscore_lead_moves_this_text_from_allowed_to_refused(label: str) -> None:
+    text, commit_moves = _UNDERSCORE_MOVES[label]
+    assert oracle.promotion_floor_refuses("Note", text) is False
+    assert oracle.commit_gate_refuses("Note", text) is (not commit_moves)
+    assert legacy.promotion_floor_refuses("Note", text) is True
+    assert legacy.commit_gate_refuses("Note", text) is True
+
+
+@pytest.mark.parametrize("label", sorted(_UNDERSCORE_STAYS))
+def test_the_underscore_lead_does_not_move_this_text(label: str) -> None:
+    text = _UNDERSCORE_STAYS[label]
+    for door in ("commit_gate_refuses", "promotion_floor_refuses"):
+        assert getattr(legacy, door)("Note", text) is getattr(oracle, door)("Note", text) is False, (label, door)
 
 
 # Round 6: the three shapes the round 5 generator never made, found by the
@@ -582,7 +740,7 @@ _SSH_NOT_EXCUSED = (
     # The header of a PuTTY private key file names the key that follows.
     "PuTTY-User-Key-File-2: ssh-rsa",
     "Deploy key: ssh-ed25519x9",
-    "sk-ssh-ed25519@openssh.co",
+    "sk-ssh-ed25519@openssh.comx",
 )
 
 
@@ -606,13 +764,25 @@ def test_carve_out_a_lets_every_public_key_fixture_commit_at_the_store(name: str
     assert _memory_count(store) == 1
 
 
-_SK_EXCUSED = ("We use sk-learn for the churn model baseline.", "the sk-learn-bench-2024 run", "pip install sk-image")
-_SK_NOT_EXCUSED = (
+# Findings exist for these (at least 20 characters after "sk-", for the marker and for the commit gate's prefix
+# pattern) and the carve-out excuses them. The promotion floor has no prefix pattern, so it reads the marker alone.
+_SK_EXCUSED = ("the sk-learn-bench-2024-and run", "the sk-learn-benchmark-results-2024 run")
+# Too short to be read since 2026-10-22: v0.16.0 read the bare marker, and the prefix pattern from 8 characters, and
+# needed the carve-out for the first four. The last three are not a word chain, and are not read either.
+_SK_TOO_SHORT_TO_READ = (
+    "We use sk-learn for the churn model baseline.",
+    "pip install sk-image",
     "SK-LEARN is the old name",
-    "Work is on branch SK-1482-fix-retry-backoff until review.",
+    "the sk-learn-bench-2024 run",
     "sk-learn_v2 and friends",
-    "key " + "sk" + "-proj-" + R + R,
     "sk-abcdefghijklmnopq",
+    "sk-ssh-ed25519@openssh.co",
+)
+_SK_NOT_EXCUSED = (
+    "SK-LEARN-BENCHMARK-2024 is the old name",
+    "Work is on branch SK-1482-fix-retry-backoff until review.",
+    "key " + "sk" + "-proj-" + R + R,
+    "sk-learn-bench-2024-and-more-notes here",
 )
 
 
@@ -620,6 +790,16 @@ _SK_NOT_EXCUSED = (
 def test_carve_out_b_excuses_sk_and_lower_case_words(text: str) -> None:
     assert _excused_by(legacy.carve_out_sk_word_chain, text)
     assert not legacy.commit_gate_refuses("Note", text)
+
+
+@pytest.mark.parametrize("text", _SK_TOO_SHORT_TO_READ)
+def test_carve_out_b_has_nothing_to_excuse_where_the_body_is_too_short_to_read(text: str) -> None:
+    # v0.16.0 read the bare marker and refused each of these.
+    assert oracle.commit_gate_refuses("Note", text)
+    assert not _findings(text)
+    assert not _findings(text, commit=False)
+    assert not legacy.commit_gate_refuses("Note", text)
+    assert not legacy.promotion_floor_refuses("Note", text)
 
 
 @pytest.mark.parametrize("text", _SK_NOT_EXCUSED)
@@ -956,11 +1136,17 @@ def _corpus_groups() -> dict[str, list[tuple[str, str, list[object]]]]:
 # (rows, commit refused now, commit refused by v0.16.0, import refused now).
 # v0.16.0 had no credential check at import, so it refused none there.
 # Measured 2026-09-23 on this branch and on v0.16.0 (880915a) itself.
+# Re-measured 2026-10-22 with the token floors: the commit count falls by one in "credential vocabulary" (a sentence
+# that names the prefix "ghp_" and no token) and by two in "named adversary notes" (a sentence that names
+# "npm_config_registry" and one that names "github_pat_" and "ghp_" without a token). The v0.16.0 column does not
+# move, because v0.16.0's own code is the oracle.
 _BENIGN_PINS = {
     "doc sentences": (400, 0, 0, 0),
-    "credential vocabulary": (474, 6, 6, 4),
+    "credential vocabulary": (474, 5, 6, 4),
     "promotion notes": (100, 0, 0, 0),
-    "named adversary notes": (34, 16, 27, 0),
+    # Four object entries that the credential check refused are now refused as shapes
+    # before that check, so they stay out of the vault and out of the credential count.
+    "named adversary notes": (34, 10, 27, 0),
 }
 
 
@@ -972,7 +1158,16 @@ def test_harness_v4_benign_refusals_against_v0160_are_pinned(group: str) -> None
     rows = _corpus_groups()[group]
     for index, (title, text, refs) in enumerate(rows):
         payload: dict[str, object] = {"title": title, "canonical_text": text, "source_refs": refs}
-        request = memory_commit_request_from_payload(payload, user_id=store.user_id)
+        try:
+            request = memory_commit_request_from_payload(payload, user_id=store.user_id)
+        except VNextMemoryCommitValidationError:
+            # An object entry is refused before the credential check. It is not stored.
+            rejected_any += 1
+            commit_v0160 += oracle.commit_gate_refuses(title, text, None, None, refs)
+            record = {"id": str(index), "title": title, "canonical_text": text, "summary": text[:280],
+                      "value": refs[0] if refs and isinstance(refs[0], dict) else None}
+            import_now += _memory_record_credential_finding(record, line_no=index + 1) is not None
+            continue
         result = service.commit(identity=None, request=request)
         rejected_any += result["status"] == "rejected"
         refused = result["status"] == "rejected" and bool(
@@ -995,7 +1190,7 @@ def test_harness_v4_benign_refusals_against_v0160_are_pinned(group: str) -> None
 
 
 # ---------------------------------------------------------------------------
-# Linear time, door-7 style: 50 KB and 200 KB through both doors.
+# Linear time, door-7 style: 25 KB and 200 KB through both doors.
 # ---------------------------------------------------------------------------
 
 
@@ -1031,22 +1226,22 @@ _ADVERSARIAL_UNITS = {
 _BUDGET_SECONDS = 2.0
 
 
-def _door_seconds(text: str) -> float:
-    started = time.perf_counter()
+def _run_doors(text: str) -> None:
     legacy.commit_gate_refuses("title", text)
     legacy.promotion_floor_refuses("title", text)
-    return time.perf_counter() - started
 
 
 @pytest.mark.parametrize("label", sorted(_ADVERSARIAL_UNITS))
 def test_harness_v4_the_reimplementation_is_linear(label: str) -> None:
     unit = _ADVERSARIAL_UNITS[label]
-    small = (unit * (50_000 // len(unit) + 1))[:50_000]
-    large = (unit * (200_000 // len(unit) + 1))[:200_000]
-    small_seconds = min(_door_seconds(small) for _ in range(3))
-    large_seconds = min(_door_seconds(large) for _ in range(3))
+    small = (unit * (25_000 // len(unit) + 1))[:25_000]
+    large = (unit * (25_000 * SIZE_RATIO // len(unit) + 1))[: 25_000 * SIZE_RATIO]
+    # CPU seconds, alternating rounds, the smallest of each size. Linear is 8x;
+    # quadratic is 64x; the limit is a third of 64 (see fixtures_timing).
+    small_seconds, large_seconds = smallest_cpu_seconds(
+        lambda: _run_doors(small), lambda: _run_doors(large), give_up_over=budget(_BUDGET_SECONDS)
+    )
     assert large_seconds < budget(_BUDGET_SECONDS), (label, large_seconds, tracer_active())
-    # Linear is 4x; quadratic is 16x.
-    assert large_seconds < max(8 * small_seconds, 0.02), (label, small_seconds, large_seconds)
+    assert_grows_linearly(small_seconds, large_seconds, what=label)
     # Guards the guard: the same path still finds a real assignment after it.
     assert legacy.commit_gate_refuses("title", large + f" TOKEN_GITHUB={R}")

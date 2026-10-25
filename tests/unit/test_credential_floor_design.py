@@ -27,7 +27,6 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-import time
 import uuid
 from pathlib import Path
 
@@ -52,6 +51,7 @@ from tests.unit.fixtures_throwaway_keys import (
     PUBLIC_KEY_NAMES,
     throwaway_key,
 )
+from tests.unit.fixtures_timing import SIZE_RATIO, assert_grows_linearly, smallest_cpu_seconds
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -440,7 +440,9 @@ def test_keyed_reading_measurement_counts_notes_at_the_doors() -> None:
 # wall clock. Measured on the build machine (Apple M3 Max) after round 3, on
 # 2026-09-23, best of three, over three runs after round 4: every one of the
 # ten shapes below takes at most 0.34 s at 200 KB, and the 200 KB to 50 KB
-# ratio is 3.8 to 5.0 (4 is linear, 16 quadratic).
+# ratio is 3.8 to 5.0 (4 is linear, 16 quadratic). The ratio is now taken
+# between 200 KB and 25 KB (8 is linear, 64 quadratic) in CPU seconds, see
+# fixtures_timing.
 # ---------------------------------------------------------------------------
 
 
@@ -461,21 +463,20 @@ def _t5_shapes(kb: int) -> dict[str, tuple[object, ...]]:
     }
 
 
-def _best_of_three(fields: tuple[object, ...]) -> float:
-    timings = []
-    for _ in range(3):
-        started = time.perf_counter()
-        carries_credential_material(*fields)
-        timings.append(time.perf_counter() - started)
-    return min(timings)
-
-
 @pytest.mark.parametrize("name", sorted(_t5_shapes(1)))
 def test_t5_every_adversarial_shape_scans_in_linear_time(name: str) -> None:
-    small = _best_of_three(_t5_shapes(50)[name])
-    big = _best_of_three(_t5_shapes(200)[name])
+    # 25 KB and eight times that, in CPU seconds, alternating rounds, the
+    # smallest of each. Linear is 8x; quadratic is 64x; the limit is a third
+    # of 64 (see fixtures_timing).
+    small_fields = _t5_shapes(25)[name]
+    big_fields = _t5_shapes(25 * SIZE_RATIO)[name]
+    small, big = smallest_cpu_seconds(
+        lambda: carries_credential_material(*small_fields),
+        lambda: carries_credential_material(*big_fields),
+        give_up_over=2.0,
+    )
     assert big < 2.0, (name, big)
-    assert big / max(small, 1e-4) < 8, (name, small, big)
+    assert_grows_linearly(small, big, what=name, floor_seconds=0.001)
 
 
 # ---------------------------------------------------------------------------

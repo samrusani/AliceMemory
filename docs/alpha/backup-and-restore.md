@@ -19,7 +19,7 @@ unknown application table fails before any JSONL is published. This prevents
 an older Alice exporter from silently dropping user-owned state introduced by
 a newer schema.
 
-Unreleased (on main, not in v0.20.0): an interrupted command, such as one killed with SIGKILL, can leave its private snapshot in the temporary directory. That snapshot is a copy of the vault, or, for `alice-memory import`, a copy of the file being imported. The next `alice-memory` command that makes a snapshot removes it once the process that made it is gone.
+From v0.20.2, an interrupted command, such as one killed with SIGKILL, can leave its private snapshot in the temporary directory. That snapshot is a copy of the vault, or, for `alice-memory import`, a copy of the file being imported. The next `alice-memory` command that makes a snapshot removes it once the process that made it is gone.
 
 The versioned JSONL is written through a `0600` sibling temporary file,
 `fsync`, and atomic replacement:
@@ -80,7 +80,26 @@ publication committed but a post-commit condition or reporting step failed.
 The records are present: inspect stderr and the target path, and do not
 blindly retry.
 
-Unreleased (on main, not in v0.20.0): the per-project scoping switch that
+From v0.21.0, a restore builds its staged database in a
+working copy named `.<vault file>.restore.<random>.tmp` in the vault's data
+directory, with `-wal` and `-shm` files beside it, and removes the copy when it
+ends. Killing the import (SIGKILL, a power loss) can leave the copy, and it holds
+the imported rows, confidential ones included. The next `alice-memory import`
+into that vault removes it, and so does the next open of an existing vault, for
+example `doctor` or the MCP server. v0.20.2 removes it at neither. A restore
+holds a shared lock on the vault's data directory from before it makes its copy
+until it has removed it. The removal takes that lock without waiting, so it
+removes nothing while any restore runs in that directory, and leaves the copy for
+the next open or import. The lock is on the directory and not on a file, so
+deleting a file cannot release it, and a killed restore loses the lock with the
+process. On a vault that was never created, cleanup happens at the next import
+into that path. `labels check` and the `sources` commands stop with
+`vault_not_found` before they open anything, so they leave the copy of a killed
+first import in place, and a search of the data directory for a string finds it
+there. A command that creates the empty vault, such as `doctor`, removes it when
+it opens the new file.
+
+From v0.20.2, the per-project scoping switch that
 `alice-memory project scoping on|off` sets is saved in the vault's
 `alice_schema_state` table, which an export does not carry. Each change also
 appends a `scoping.changed` event, and the event is exported. When
@@ -290,12 +309,13 @@ the file gives with a value is compared as before, so a row that really differs 
 still refused, and `--mode fail` still stops on any existing id. In v0.19.2 the
 second `--mode skip` import of such a file stopped with `restore_failed`.
 
-Unreleased (on main, not in v0.20.0): before it publishes the restored database,
+From v0.20.2, before it publishes the restored database,
 import also repairs the labels of derived memories and open loops in the complete staged copy,
 whether the destination is new or was already upgraded. A derived row whose
 recorded inputs include a restricted domain takes the most frequent restricted
 label among them, the highest sensitivity and every project, and each row the
-repair changes gets one audit event with its old and new labels. Repeating
+repair changes gets one `memory.labels_raised` event (`open_loop.labels_raised` for
+an open loop) with its old and new labels and the cause `repair_v4`. Repeating
 `--mode skip` accepts a memory or open loop whose domain, sensitivity, project
 scope or project floor the repair changed when the file still holds the value
 recorded before that change, and still refuses any other field that differs. A vault that is upgraded without a restore
@@ -312,7 +332,7 @@ within a bounded number of changes, or a relabel that changes no row, stop the
 import with `restore_failed` before publication, and nothing is written. What
 counts as a recorded input is under [Derived row domains](mcp-tools.md#derived-row-domains).
 
-Unreleased (on main, not in v0.20.0): `alice-memory labels check` prints how many
+From v0.20.2, `alice-memory labels check` prints how many
 derived rows are below their inputs or unverified, and `alice-memory labels repair`
 raises the rows that are below their inputs. Check reads a private snapshot and
 does not upgrade the live vault. Explicit repair checks every time, including
@@ -324,7 +344,7 @@ This command restores a SQLite database. It is not a PostgreSQL import.
 
 Portable backups include active sources and chunks, memories and fact keys,
 revisions, provenance, entities, graph edges, entity relationship events,
-open loops, and the event log. They intentionally omit users, agent API keys,
+open loops, and the event log. They intentionally omit users, agent identities and API keys,
 embedding vectors, and soft-deleted content. References from retained rows to
 omitted soft-deleted parents are nulled where nullable; graph edges whose
 known endpoints were omitted are excluded. Historical event ids, timestamps,
@@ -455,7 +475,7 @@ the fresh target. Table, sequence, and non-public schema ACL entries remain in
 the restore list. Do not replace it with `--no-acl`; that would discard the
 migration-defined application privileges the restored service needs.
 
-Unreleased (on main, not in v0.20.0): migration `20261004_0095` repairs the
+From v0.20.2, migration `20261004_0095` repairs the
 labels of derived memories and artifacts, including promoted copies and an
 alternate spelling of a recorded UUID. Migration `20261005_0096` raises domain,
 sensitivity, project scope and project floor. Run it before serving requests.
@@ -470,7 +490,9 @@ such a row to what its inputs require. The documented table owner,
 `alicebot_admin`, is `NOSUPERUSER NOBYPASSRLS`, so the migration turns FORCE row
 level security off on the tables it reads and writes (`sources`, `memories`,
 `open_loops`, `generated_artifacts`, `beliefs`, `event_log` and `projects`)
-inside its own transaction and turns it back on before it commits. A failure,
+inside its own transaction and turns it back on before it commits. Each row that
+0096 and 0097 raise gets one `memory.labels_raised` event (`open_loop.labels_raised`
+for an open loop, `artifact.labels_raised` for an artifact). A failure,
 including derived rows in a cycle whose labels do not settle within a bounded
 number of changes or an update that changes no row, rolls the relabels, their
 audit events and the FORCE change back together. The downgrade keeps the repaired

@@ -1,6 +1,6 @@
 """A quote saved from a source is shown only to a caller who may read that source now.
 
-Unreleased (on main, not in v0.20.0). A link from a memory to a source stores the quote it was made with, and the
+New in v0.20.2. A link from a memory to a source stores the quote it was made with, and the
 memory keeps copies of that quote in its own metadata (``metadata_json.provenance``, ``replacement_provenance`` and
 ``agentic_memory.conversation_excerpt``). The write fence checks the caller's permission on the source once, when the
 link is made. A source can be reclassified after that (sensitivity raised, domain changed, project moved) or archived,
@@ -267,8 +267,12 @@ class _Vault:
     def http_commit_citing(self, source_ids: list[str], tag: str = "") -> tuple[str, str]:
         """The same commit with several ``source_refs``: the route saves the one excerpt as the quote of every link."""
 
+        from alicebot_api.mcp.runtime import _sqlite_path_from_url
         from alicebot_api.routers import vnext_memories as router
+        from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+        from tests.support.legacy_source_refs import link_strings, needs_legacy_plant, plant_legacy_source_refs
 
+        sent = link_strings(source_ids) if needs_legacy_plant(source_ids) else list(source_ids)
         response = router.commit_vnext_memory(
             router.VNextMemoryCommitRequest(
                 user_id=UUID(_USER_ID),
@@ -278,7 +282,7 @@ class _Vault:
                 domain="project",
                 sensitivity="internal",
                 confidence=0.95,
-                source_refs=list(source_ids),
+                source_refs=sent,
                 conversation_excerpt=_QUOTE,
                 agent_id=_AGENT_IDS["trusted"],
             ),
@@ -286,7 +290,12 @@ class _Vault:
         )
         body = json.loads(response.body)
         assert response.status_code == 201, body
-        return str(body["memory"]["id"]), f"cone ten firing schedule {tag} wall calendar"
+        memory_id = str(body["memory"]["id"])
+        if needs_legacy_plant(source_ids):
+            database = _sqlite_path_from_url(self.context.database_url)
+            with sqlite_user_connection(database, _USER_ID) as conn:
+                plant_legacy_source_refs(SQLiteVNextStore(conn, _USER_ID), memory_id, source_ids, sent)
+        return memory_id, f"cone ten firing schedule {tag} wall calendar"
 
     def _http_commit_without_link(
         self, source_id: str, *, confidence: float, tag: str, excerpt: str = _QUOTE

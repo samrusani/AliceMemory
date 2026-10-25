@@ -29,6 +29,12 @@ Subcommands:
   active or its ``valid_to`` is cleared. A text the endpoint refuses
   is isolated from its batch: the rest still get vectors, and the output
   lists the failed memory ids and the endpoint's reason.
+- ``reindex-embeddings --sources``: the same for the chunks of imported
+  notes, which are embedded only when ``ALICE_SOURCE_EMBEDDINGS=on`` and the
+  embeddings endpoint is on this machine. For any other endpoint nothing is
+  sent and the receipt counts the chunks as pending. ``--sources --drop``
+  deletes every chunk vector. Imports and ``alice_capture`` embed the chunks of
+  what they save, after they commit, under the same rules.
 - ``brief``: print a labelled session brief (committed facts and imported
   sources) as markdown on stdout. Host session-start hooks call this.
 - ``doctor``: print a local SQLite vault census on stdout: sources,
@@ -88,12 +94,17 @@ Export/import round-trip contract ("you own the memory"):
 - Embedding vectors are NOT exported (they are provider-specific blobs);
   imported memories are searchable via FTS immediately and re-enter
   vector search once re-embedded (configure ``ALICE_EMBEDDINGS_*`` and run
-  ``alice-memory reindex-embeddings``).
+  ``alice-memory reindex-embeddings``). The vectors of source chunks are not
+  exported either: the export says how many the vault holds, the import
+  receipt says that the chunks arrived without vectors, and
+  ``alice-memory reindex-embeddings --sources`` (with
+  ``ALICE_SOURCE_EMBEDDINGS=on``) embeds them again.
 """
 
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 from contextlib import closing, contextmanager, redirect_stderr
 from io import StringIO
@@ -112,7 +123,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import IO
+from typing import IO, TYPE_CHECKING
 from uuid import UUID
 
 from alicebot_api import __version__
@@ -145,7 +156,12 @@ from alicebot_api.snapshot_sweep import (
     IMPORT_SNAPSHOT_PREFIX,
     private_snapshot_directory,
 )
-from alicebot_api.sqlite_schema import ROW_BACKFILL_TABLES, apply_row_backfills, bootstrap_sqlite_schema
+from alicebot_api.sqlite_schema import (
+    LAZY_TABLE_NAMES,
+    ROW_BACKFILL_TABLES,
+    apply_row_backfills,
+    bootstrap_sqlite_schema,
+)
 from alicebot_api.store import ContinuityStoreInvariantError
 from alicebot_api.sqlite_store import (
     ENTITY_COLUMNS,
@@ -181,6 +197,9 @@ from alicebot_api.vnext_embeddings import (
     summarize_embedding_failures,
 )
 from alicebot_api.vnext_retrieval import MEMORY_SEARCHABLE_STATUSES
+
+if TYPE_CHECKING:
+    from alicebot_api.vnext_capture import BatchImportResult
 
 DEFAULT_DATA_DIR = "~/.alice"
 DEFAULT_DEMO_DATA_DIR = "~/.alice-demo"
@@ -255,6 +274,10 @@ _ERROR_CONTRACTS: dict[str, str] = {
         "ALICE_EMBEDDINGS_MODEL, plus ALICE_EMBEDDINGS_API_KEY when required"
     ),
     "embedding_batch_size_invalid": "The embedding batch size is outside the supported range",
+    "source_embeddings_not_enabled": (
+        "Source chunk embedding is off; set ALICE_SOURCE_EMBEDDINGS=on to send the text of source "
+        "chunks to the embeddings endpoint"
+    ),
     "embedding_batch_failed": "An embedding batch failed",
     "alice_memory_failed": "The alice-memory command could not be completed",
     "demo_vault_invalid": (
@@ -350,6 +373,18 @@ _EMBEDDING_NOTE = (
     "imported without embeddings; configure ALICE_EMBEDDINGS_* and run "
     "'alice-memory reindex-embeddings' to restore vector search "
     "(FTS keyword recall works immediately)"
+)
+
+# Source chunk vectors are not exported either, and are not part of an import.
+_CHUNK_VECTOR_IMPORT_NOTE = (
+    "imported without vectors; set ALICE_SOURCE_EMBEDDINGS=on and run "
+    "'alice-memory reindex-embeddings --sources' to embed them "
+    "(full-text search over them works immediately)"
+)
+_CHUNK_VECTOR_EXPORT_NOTE = (
+    "none are exported (they are specific to one embedding model and endpoint); "
+    "after an import, set ALICE_SOURCE_EMBEDDINGS=on and run "
+    "'alice-memory reindex-embeddings --sources' to embed the chunks again"
 )
 
 # One fixed string for every text field replaced by --quarantine. Recall,
@@ -549,6 +584,143 @@ def _remove_sqlite_files(path: Path) -> None:
             pass
 
 
+def _open_data_directory(directory: Path) -> int | None:
+    try:
+        return os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    except OSError:
+        return None
+
+
+def acquire_restore_lock(database: Path) -> int | None:
+    """Take the lock a restore holds from before it makes its working copy until it has removed it.
+
+    The lock is a shared ``flock`` on the vault's data directory. Restores do not wait for one another, and the
+    sweep takes the same lock exclusively without waiting, so it removes nothing while any restore holds it. The
+    lock is on the directory and not on a file in it: deleting a file cannot release it, and a restore that is
+    killed loses it with the process. Returns ``None`` when the directory cannot be locked, as on some network
+    file systems. The sweep cannot lock it there either, so it removes nothing. Pass the result to
+    ``release_restore_lock``.
+    """
+
+    descriptor = _open_data_directory(database.parent)
+    if descriptor is None:
+        return None
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_SH)
+    except OSError:
+        os.close(descriptor)
+        return None
+    return descriptor
+
+
+def release_restore_lock(descriptor: int | None) -> None:
+    if descriptor is None:
+        return
+    try:
+        os.close(descriptor)
+    except OSError:
+        pass
+
+
+def _restore_copy_bases(directory: Path, prefix: str) -> list[Path]:
+    """The ``.tmp`` working copies in ``directory`` that start with ``prefix``, found from the copy or any sidecar."""
+
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return []
+    bases: list[Path] = []
+    for path in entries:
+        entry = path.name
+        if not entry.startswith(prefix):
+            continue
+        base = entry
+        for suffix in ("-wal", "-shm", "-journal"):
+            if base.endswith(".tmp" + suffix):
+                base = base[: -len(suffix)]
+                break
+        if base.endswith(".tmp"):
+            bases.append(directory / base)
+    return list(dict.fromkeys(bases))
+
+
+def _is_restore_copy_name(name: str) -> bool:
+    """True for a name of the shape a restore gives its working copy: ``.{vault}.restore.{random}.tmp``."""
+
+    return name.startswith(".") and ".restore." in name and name.endswith(".tmp")
+
+
+def sweep_restore_working_copies(database: Path) -> None:
+    """Remove ``.{name}.restore.*.tmp`` working copies left in the data directory.
+
+    A killed ``alice-memory import`` leaves the copy, and its ``-wal`` and ``-shm`` files, beside the vault.
+    The next import or open of that vault removes them. The sweep takes the data directory's lock exclusively and
+    without waiting before it lists or deletes anything. A running restore holds that lock from before it makes
+    its copy until it has removed it, so when the sweep cannot take the lock it removes nothing, and when it can,
+    no restore is running in the directory and every copy it finds is left over. A file that is itself a restore
+    copy is left alone, so the import can open the copy it just made: that is a name of the copy's own shape, a leading
+    dot, ``.restore.`` and a ``.tmp`` ending. A vault whose name merely contains ``.restore.`` is swept like any other.
+    A failed sweep does not fail the command.
+    """
+
+    try:
+        name = database.name
+    except (OSError, ValueError):
+        return
+    if _is_restore_copy_name(name):
+        return
+    directory = database.parent
+    prefix = f".{name}.restore."
+    if not _restore_copy_bases(directory, prefix):
+        return
+    descriptor = _open_data_directory(directory)
+    if descriptor is None:
+        return
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return
+        for working in _restore_copy_bases(directory, prefix):
+            _remove_sqlite_files(working)
+    finally:
+        os.close(descriptor)
+
+
+def sentinel_hits(database: Path, needle: str) -> list[str]:
+    """Paths under the vault's directory, and the vault file, whose bytes hold ``needle``.
+
+    The search reads each file. It does not follow a directory. A restore working copy is included, so a
+    sentinel left in a killed import is a hit until the next open removes the copy.
+    """
+
+    if not needle:
+        return []
+    raw = needle.encode("utf-8")
+    found: list[str] = []
+    directory = database.parent
+
+    def _read(path: Path) -> None:
+        try:
+            if not path.is_file():
+                return
+            if raw in path.read_bytes():
+                found.append(path.name)
+        except OSError:
+            return
+
+    _read(database)
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return found
+    for path in entries:
+        if path == database:
+            continue
+        _read(path)
+    return sorted(found)
+
+
 class _BackupError(Exception):
     """A safe, user-facing SQLite snapshot or restore error."""
 
@@ -579,11 +751,11 @@ _BASE_ALICE_TABLES = frozenset({"users", "memories", "sources", "event_log"})
 
 @lru_cache(maxsize=1)
 def _current_alice_table_names() -> frozenset[str]:
-    """Return every table created by this Alice version, including FTS helpers."""
+    """Return every table created by this Alice version, including FTS helpers and the lazy tables."""
     probe = sqlite3.connect(":memory:")
     try:
         bootstrap_sqlite_schema(probe)
-        return frozenset(_sqlite_table_names(probe))
+        return frozenset(_sqlite_table_names(probe)) | LAZY_TABLE_NAMES
     finally:
         probe.close()
 
@@ -1134,6 +1306,21 @@ def build_parser() -> argparse.ArgumentParser:
             f"{MAX_EMBEDDINGS_BATCH_SIZE}."
         ),
     )
+    reindex_parser.add_argument(
+        "--sources",
+        action="store_true",
+        help=(
+            "Work on the vectors of source chunks instead of memories. Embeds the chunks that have no "
+            "current vector or whose vector no longer matches the model, the endpoint, the rules or the "
+            "text. Sends text only when ALICE_SOURCE_EMBEDDINGS=on and the embeddings endpoint is on "
+            "this machine; for any other endpoint it sends nothing and counts the chunks as pending."
+        ),
+    )
+    reindex_parser.add_argument(
+        "--drop",
+        action="store_true",
+        help="With --sources: delete every chunk vector of the vault. Sends nothing.",
+    )
 
     brief_parser = subparsers.add_parser(
         "brief",
@@ -1482,6 +1669,29 @@ def _markdown_import_database(db_path: Path, args: argparse.Namespace):
         yield selected
 
 
+def _batch_record_with_chunk_embeddings(
+    result: "BatchImportResult", db_path: Path, args: argparse.Namespace, *, dry_run: bool
+) -> dict[str, object]:
+    """The receipt of an import, with the chunk embedding counts when ``ALICE_SOURCE_EMBEDDINGS`` is on.
+
+    The import has committed and its connection is closed before this runs, so no lock is held while the
+    chunks are sent. Nothing is sent on a dry run. With the opt-in off the receipt has no such key and is
+    what it was before. The embedding is best effort: whatever it does, the import's own status stands.
+    """
+
+    from alicebot_api.source_chunk_embeddings import embed_new_sources, sqlite_store_context
+
+    record: dict[str, object] = dict(result.to_record())
+    receipt = embed_new_sources(
+        result.source_ids,
+        store_context=lambda: sqlite_store_context(db_path, args.user_id),
+        dry_run=dry_run or result.dry_run,
+    )
+    if receipt is not None:
+        record["chunk_embeddings"] = receipt.to_record()
+    return record
+
+
 def _run_import_markdown(args: argparse.Namespace) -> int:
     from alicebot_api.vnext_capture import (
         ImportFileTooLargeRefused,
@@ -1509,7 +1719,7 @@ def _run_import_markdown(args: argparse.Namespace) -> int:
     except VNextCaptureValidationError as exc:
         _emit_import_path_error(str(exc))
         return 1
-    _print_batch_record(result.to_record())
+    _print_batch_record(_batch_record_with_chunk_embeddings(result, db_path, args, dry_run=args.dry_run))
     return 1 if result.status in {"failed", "refused"} or result.refused else 0
 
 
@@ -1542,7 +1752,7 @@ def _run_import_chatgpt(args: argparse.Namespace) -> int:
     except VNextCaptureValidationError as exc:
         _emit_import_path_error(str(exc))
         return 1
-    _print_batch_record(result.to_record())
+    _print_batch_record(_batch_record_with_chunk_embeddings(result, db_path, args, dry_run=False))
     return 1 if result.status == "failed" else 0
 
 
@@ -2066,8 +2276,12 @@ def _write_export(
     user_id: UUID,
     credential_findings: list["_CredentialFinding"] | None = None,
     record_hits: list["_RecordCredentialHit"] | None = None,
+    chunk_vector_counts: list[int] | None = None,
 ) -> int:
     """Write a versioned export from a read-only private SQLite snapshot.
+
+    When ``chunk_vector_counts`` is given, the number of source chunk vectors the vault holds is appended
+    to it. They are not exported, and the command says so.
 
     When ``credential_findings`` is given, every memory row is also run
     through the same credential check import applies, so the owner hears
@@ -2127,7 +2341,29 @@ def _write_export(
             "sha256": digest.hexdigest(),
         }
         stream.write(_export_line(_EXPORT_FOOTER_TYPE, footer) + "\n")
+        if chunk_vector_counts is not None:
+            chunk_vector_counts.append(_chunk_vector_count(conn, user_id))
         return written
+
+
+def _chunk_vector_count(conn: sqlite3.Connection, user_id: UUID) -> int:
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM source_chunk_embeddings WHERE user_id = ?", (str(user_id),)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return 0
+    return int(row[0]) if row else 0
+
+
+def _chunk_vector_export_lines(counts: Sequence[int]) -> list[str]:
+    """The stderr note for an export of a vault that holds source chunk vectors, or none."""
+
+    total = counts[0] if counts else 0
+    if not total:
+        return []
+    held = _count_phrase(total, "source chunk vector", "source chunk vectors")
+    return [f"alice-memory: note: this vault holds {held}, and {_CHUNK_VECTOR_EXPORT_NOTE}"]
 
 
 def _export_record_hit_lines(hits: Sequence["_RecordCredentialHit"]) -> list[str]:
@@ -2163,6 +2399,7 @@ def _run_export(args: argparse.Namespace) -> int:
         temp_path: Path | None = None
         credential_findings: list[_CredentialFinding] = []
         record_hits: list[_RecordCredentialHit] = []
+        chunk_vector_counts: list[int] = []
         try:
             _ensure_private_directory(out_path.parent)
             fd, raw_temp_path = tempfile.mkstemp(
@@ -2180,6 +2417,7 @@ def _run_export(args: argparse.Namespace) -> int:
                     user_id=args.user_id,
                     credential_findings=credential_findings,
                     record_hits=record_hits,
+                    chunk_vector_counts=chunk_vector_counts,
                 )
                 stream.flush()
                 os.fsync(stream.fileno())
@@ -2224,11 +2462,14 @@ def _run_export(args: argparse.Namespace) -> int:
                 )
             for line in _export_record_hit_lines(record_hits):
                 print(line, file=sys.stderr, flush=True)
+            for line in _chunk_vector_export_lines(chunk_vector_counts):
+                print(line, file=sys.stderr, flush=True)
         except (OSError, ValueError):
             return 2
     else:
         stdout_findings: list[_CredentialFinding] = []
         stdout_hits: list[_RecordCredentialHit] = []
+        stdout_chunk_vectors: list[int] = []
         try:
             _write_export(
                 sys.stdout,
@@ -2236,6 +2477,7 @@ def _run_export(args: argparse.Namespace) -> int:
                 user_id=args.user_id,
                 credential_findings=stdout_findings,
                 record_hits=stdout_hits,
+                chunk_vector_counts=stdout_chunk_vectors,
             )
             for line in _credential_finding_lines(stdout_findings):
                 _stderr_line(line)
@@ -2246,6 +2488,8 @@ def _run_export(args: argparse.Namespace) -> int:
                     "with ALICE_MCP_FULL_TOOLS=1), then export again."
                 )
             for line in _export_record_hit_lines(stdout_hits):
+                _stderr_line(line)
+            for line in _chunk_vector_export_lines(stdout_chunk_vectors):
                 _stderr_line(line)
         except (
             _BackupError,
@@ -3664,6 +3908,7 @@ class _BackfillProbe:
             return None
         finally:
             if scratch.in_transaction:
+                # label state: none, this is a scratch database that no store reads.
                 scratch.execute("ROLLBACK")
         return tuple(row) if row is not None else None
 
@@ -3997,6 +4242,9 @@ def _print_import_summary(
     if memories_imported:
         plural = "memory" if memories_imported == 1 else "memories"
         print(f"note: {memories_imported} {plural} {_EMBEDDING_NOTE}")
+    chunks_imported = counts.get("source_chunk", {}).get("imported", 0)
+    if chunks_imported:
+        print(f"note: {_count_phrase(chunks_imported, 'source chunk', 'source chunks')} {_CHUNK_VECTOR_IMPORT_NOTE}")
 
 
 @contextmanager
@@ -4170,13 +4418,17 @@ def _run_import_snapshot(
             return 1
 
     target_existed = db_path.exists()
+    sweep_restore_working_copies(db_path)
     working_path: Path | None = None
+    restore_lock: int | None = None
     credential_reports: tuple[tuple[str, str, str], ...] = ()
     claim_tally: dict[str, int] = {}
     scoping_events: list[dict[str, object]] = []
     imported_scoping: ImportedScoping | None = None
     try:
         _ensure_private_directory(db_path.parent)
+        # Held before the working copy exists, so no sweep can see the copy while the restore does not hold the lock.
+        restore_lock = acquire_restore_lock(db_path)
         fd, raw_working_path = tempfile.mkstemp(
             prefix=f".{db_path.name}.restore.",
             suffix=".tmp",
@@ -4268,8 +4520,10 @@ def _run_import_snapshot(
         _emit_error("restore_failed")
         return 1
     finally:
-        if working_path is not None and working_path != db_path:
-            _remove_sqlite_files(working_path)
+        staged = working_path if working_path is not None and working_path != db_path else None
+        if staged is not None:
+            _remove_sqlite_files(staged)
+        release_restore_lock(restore_lock)
         _remove_sqlite_files(validated_import.spool_path)
     # A new target is the already-fchmod(0600) staged inode published by
     # hard link, so no fallible post-publication chmod is needed. Existing
@@ -4319,7 +4573,81 @@ def _run_import_snapshot(
     return 0
 
 
+def _run_reindex_source_chunks(args: argparse.Namespace) -> int:
+    """``reindex-embeddings --sources``: the owner's command for the vectors of source chunks.
+
+    ``--drop`` deletes every chunk vector and sends nothing. Otherwise it embeds the chunks that have no current
+    vector, under the same egress rules as an import: the opt-in, the remote opt-in and the sensitivity ceiling,
+    and never a chunk the credential check flags, a chunk of links, a chunk too short to read, or a chunk of a
+    source that is deleted, replaced or scrubbed. No tool call starts this: it is a command on this machine.
+    """
+
+    from alicebot_api.source_chunk_embeddings import (
+        backfill_source_chunks,
+        drop_chunk_vectors,
+        sqlite_store_context,
+    )
+    from alicebot_api.source_embedding_policy import (
+        CHUNK_VECTOR_RETAINED_DATA,
+        OFF_ENDPOINT_NOT_LOCAL,
+        OFF_NO_PROVIDER,
+        OFF_SOURCE_EMBEDDINGS,
+        source_embedding_settings,
+    )
+
+    db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
+    bootstrap_database(
+        db_path,
+        user_id=args.user_id,
+        user_email=args.user_email,
+        secure_parent=args.db is None,
+    )
+
+    def store_context():
+        return sqlite_store_context(db_path, args.user_id)
+
+    if args.drop:
+        dropped = drop_chunk_vectors(store_context=store_context)
+        _secure_sqlite_files(db_path)
+        print(
+            json.dumps(
+                {"sources": True, "dropped": dropped, "retained_data": CHUNK_VECTOR_RETAINED_DATA}, sort_keys=True
+            )
+        )
+        return 0
+    if not source_embedding_settings().enabled:
+        _emit_error("source_embeddings_not_enabled")
+        return 1
+    receipt = backfill_source_chunks(store_context=store_context)
+    _secure_sqlite_files(db_path)
+    if receipt.reason == OFF_NO_PROVIDER:
+        _emit_error("embedding_provider_not_configured")
+        return 1
+    if receipt.reason == OFF_SOURCE_EMBEDDINGS:  # pragma: no cover - checked above
+        _emit_error("source_embeddings_not_enabled")
+        return 1
+    provider = get_embedding_provider()
+    print(
+        json.dumps(
+            {
+                "sources": True,
+                "provider": provider.provider if provider is not None else None,
+                "model": provider.model if provider is not None else None,
+                **receipt.to_record(),
+            },
+            sort_keys=True,
+        )
+    )
+    # An endpoint that is not on this machine is not a success even when no chunk was waiting.
+    return 1 if receipt.pending or receipt.reason == OFF_ENDPOINT_NOT_LOCAL else 0
+
+
 def _run_reindex_embeddings(args: argparse.Namespace) -> int:
+    if args.drop and not args.sources:
+        _emit_error("invalid_request")
+        return 2
+    if args.sources:
+        return _run_reindex_source_chunks(args)
     provider = get_embedding_provider()
     if provider is None:
         _emit_error("embedding_provider_not_configured")

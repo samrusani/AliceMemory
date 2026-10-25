@@ -1,6 +1,6 @@
 """The pages say what a saved quote of a memory does, what a loop its caller wrote does, and what the owner reads after a redaction.
 
-Unreleased (on main, not in v0.20.0). Three statements are pinned here, each on the pages that carry it:
+New in v0.20.2. Three statements are pinned here, each on the pages that carry it:
 
 * the quote a commit saved of a memory is withheld from a caller who may not read that memory (the security note, the tool
   reference and the changelog), with the refs it is read in, the ids no marker covers, the doors and feeds of events that apply it,
@@ -36,7 +36,7 @@ PAGES = {
     "changelog": "CHANGELOG.md",
     "importers": "docs/integrations/importers.md",
 }
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 
 
 def _flat(name: str) -> str:
@@ -111,7 +111,7 @@ ROWS_DERIVED = (
 )
 ROWS_CLI = (
     "`alicebot vnext memories audit` with an agent key now authorizes the memory and its replacement chain as the audit route does "
-    "and holds the result to the reader; until now it returned the audit as stored to a key that reached it"
+    "and holds the result to the reader; in v0.20.0 it returned the audit as stored to a key that reached it"
 )
 CHANGELOG_ROWS = (
     "an entry beside such a ref that names nothing the caller may read is held to the same rule (a bare string and a `text` field go "
@@ -138,8 +138,10 @@ FIELD_NAMES_GOES = (
     "under a name such as `origin`, `ref_id` or `evidence`"
 )
 FIELD_NAMES_WRITE_SIDE = (
-    "the commit route, the memory proposal and the agent-output ingest still accept any name in an object ref, so the reader is the "
-    "fence for new rows and for the rows stored by earlier releases"
+    "from v0.21.0 the commit route, the memory proposal and the agent-output ingest (the sync of the `agent_output` connector "
+    "included) refuse an entry of `source_refs` that is an object, a number, a boolean, `null`, a nested array, a blank string or "
+    "a string that is the text of a json object or array (v0.20.2 accepted and stored one as sent), so the reader is the fence "
+    "for the rows stored by earlier releases"
 )
 FIELD_NAMES_CHANGELOG = (
     "the names of the fields are withheld with their values: the entry keeps a field only when its name is one the product writes"
@@ -195,7 +197,7 @@ LOOP_SENTENCE = (
 )
 LOOP_BULLET = (
     "an open loop made over a memory with `post /v0/vnext/open-loops` keeps the title and description its caller typed, so words "
-    "of the memory typed there stay readable to every key that reads the loop after the memory is redacted"
+    "of the memory stay readable to every key that reads the loop"
 )
 LOOP_TOOLS = (
     "an open loop made over the memory with `post /v0/vnext/open-loops` is a different row: its title and description are text its "
@@ -208,9 +210,9 @@ OWNER_READS = (
     "because the default sensitivity filter of those three reads an unverified row as regulated"
 )
 OWNER_READS_BULLET = (
-    "the owner and an unbound admin key read the rows contained by it by id, in the artifact and project lists, in recent commits "
-    "and in the dashboard, but not through recall, the context pack or the default context tree, which read an unverified row as "
-    "regulated; a request that names every sensitivity lists them"
+    "after a memory is redacted, the owner and an unbound admin key read the rows contained by it by id, in the artifact and "
+    "project lists, in recent commits and in the dashboard, but not through recall, the context pack or the default context tree; "
+    "a request that names every sensitivity lists them"
 )
 OWNER_READS_TOOLS = (
     "the owner and an unbound admin key read the rows contained by it by id, in the artifact list and the project list, in the "
@@ -246,6 +248,10 @@ def test_the_pages_say_the_quote_follows_the_memory_in_an_unreleased_paragraph()
             item for item in re.split(r"\n\s*\n|\n(?=- )", text) if QUOTE_SENTENCE[name] in " ".join(item.split()).lower()
         ]
         assert len(paragraphs) == 1, name
+        if name == "changelog":
+            # A changelog entry carries no marker: it stands under the v0.20.2 heading and in no older section.
+            assert QUOTE_SENTENCE[name] in " ".join(text[text.index("## v0.20.2") : text.index("## v0.20.0")].split()).lower(), name
+            continue
         assert MARK in " ".join(paragraphs[0].split()), name
 
 
@@ -367,7 +373,6 @@ def test_three_pages_say_a_loop_its_caller_wrote_over_a_memory_stays_readable() 
     assert LOOP_TOOLS in _flat("tool reference")
     assert "a loop that a producer made from the memory records it as an input, is a copy, and is contained with the reports" in _flat("security note")
     assert "a loop that a producer made from the memory records it as an input, is a copy, and is contained with the reports" in _flat("tool reference")
-    assert "a loop that a producer made from the memory is contained with the reports" in _flat("known limitations")
 
 
 def test_three_pages_say_what_the_owner_reads_after_a_redaction() -> None:
@@ -396,13 +401,27 @@ def test_the_security_note_says_the_update_candidate_of_a_contained_project_is_n
     assert len(paragraph) == 1 and MARK in " ".join(paragraph[0].split())
 
 
-def test_the_known_limitations_bullets_are_one_bullet_each_with_a_link_to_the_explanation() -> None:
+def test_the_known_limitations_bullet_holds_what_the_owner_reads_and_the_typed_loop_and_follows_the_link_to_the_explanation() -> None:
+    """One bullet says what the owner reads after a redaction and what a loop its caller typed keeps; the bullet before it
+    says redaction is containment and links the section that explains both. A loop a producer made from the memory is
+    contained with the reports, which the security note and the tool reference state and pin above, so the page does not.
+
+    Mutations, each one alone: delete the typed loop sentence or the owner sentence from the bullet; put ``From v0.20.2,``
+    back at the start of the bullet; delete the link to ``mcp-tools.md#redacted-memories`` from the bullet before it.
+    """
+
     text = (ROOT / PAGES["known limitations"]).read_text(encoding="utf-8")
-    for sentence in (LOOP_BULLET, OWNER_READS_BULLET):
-        bullets = [item for item in re.split(r"\n(?=- )", text) if sentence in " ".join(item.split()).lower()]
-        assert len(bullets) == 1
-        assert "(mcp-tools.md#redacted-memories)" in bullets[0]
-        assert bullets[0].startswith("- " + MARK)
+    blocks = re.split(r"\n(?=- )", text)
+    found = [
+        index
+        for index, item in enumerate(blocks)
+        if OWNER_READS_BULLET in " ".join(item.split()).lower() and LOOP_BULLET.removeprefix("an ") in " ".join(item.split()).lower()
+    ]
+    assert len(found) == 1
+    bullet = blocks[found[0]]
+    assert MARK not in bullet
+    assert "a loop that a producer made from the memory is contained with the reports" not in " ".join(bullet.split()).lower()
+    assert "(mcp-tools.md#redacted-memories)" in blocks[found[0] - 1]
 
 
 def test_the_changelog_names_the_doors_and_says_no_migration_is_needed() -> None:

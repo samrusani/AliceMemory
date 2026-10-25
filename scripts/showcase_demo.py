@@ -1,8 +1,8 @@
 """Demo setup for a product agent that records a decision.
 
 The search benchmark does not call this module. Its product key stays unbound,
-which is a project_scoped_agent with no project. The demo that records
-decisions calls prepare_demo_product. That creates one product project and
+which is a ``project_scoped_agent`` with no project. The demo that records
+decisions calls ``prepare_demo_product``. That creates one product project and
 binds the product key to it.
 """
 
@@ -12,11 +12,20 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import scripts.alice_bench as bench
+import scripts.showcase_bench as showcase
 
 PRODUCT_PROJECT_NAME = "Quenby product"
 PRODUCT_PROJECT_SLUG = "quenby-product"
 PRODUCT_AGENT_ID = "showcase-product"
-PRODUCT_PROFILE = "project_scoped_agent"
+
+
+def demonstration_questions() -> dict[str, object]:
+    """The demo's own small set. It is not the development set of 210 questions."""
+
+    document = showcase.demonstration_question_document()
+    if document.get("kind") != "demonstration":
+        raise bench.BenchError("the demo uses its own demonstration set only")
+    return document
 
 
 def demo_product_binding(project_id: str) -> str | None:
@@ -29,8 +38,6 @@ def prepare_demo_product(db_path: Path) -> str:
     """Create one product project and bind the product key to it.
 
     A second call keeps the same project. The search arms do not call this.
-    The project row lives only in this demo database. The product schema is
-    unchanged, and SQLite still has no projects table of its own.
     """
 
     user_id = UUID(bench.DEFAULT_USER_ID)
@@ -40,7 +47,7 @@ def prepare_demo_product(db_path: Path) -> str:
     with sqlite_user_connection(db_path, user_id) as conn:
         ensure_sqlite_user(conn, user_id, "showcase@example.com", "Showcase")
         store = SQLiteVNextStore(conn, user_id)
-        project_id = _ensure_product_project(conn)
+        project_id = _ensure_product_project(store)
         scope = demo_product_binding(project_id)
         row = conn.execute(
             """
@@ -54,7 +61,7 @@ def prepare_demo_product(db_path: Path) -> str:
                 store,
                 user_id=user_id,
                 agent_id=PRODUCT_AGENT_ID,
-                permission_profile=PRODUCT_PROFILE,
+                permission_profile=showcase.TEAM_PROFILES["product"],
                 label="product",
                 project_scope=scope,
             )
@@ -66,27 +73,20 @@ def prepare_demo_product(db_path: Path) -> str:
     return project_id
 
 
-def _ensure_product_project(conn) -> str:
-    """One product project in the demo database, found again by its slug."""
+def _ensure_product_project(store) -> str:
+    """The project id stored on the product key.
 
-    conn.execute(
+    SQLite has no projects table. The binding is the project scope on the key,
+    which is how a project-scoped key is limited.
+    """
+
+    found = store.conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS projects (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          slug TEXT NOT NULL UNIQUE
-        )
-        """
-    )
-    found = conn.execute(
-        "SELECT id FROM projects WHERE slug = ?",
-        (PRODUCT_PROJECT_SLUG,),
+        SELECT project_scope FROM agent_api_keys
+        WHERE user_id = ? AND agent_id = ? AND revoked_at IS NULL
+        """,
+        (store.user_id, PRODUCT_AGENT_ID),
     ).fetchone()
-    if found is not None:
-        return str(found["id"])
-    project_id = str(uuid4())
-    conn.execute(
-        "INSERT INTO projects (id, name, slug) VALUES (?, ?, ?)",
-        (project_id, PRODUCT_PROJECT_NAME, PRODUCT_PROJECT_SLUG),
-    )
-    return project_id
+    if found is not None and found["project_scope"]:
+        return str(found["project_scope"])
+    return str(uuid4())

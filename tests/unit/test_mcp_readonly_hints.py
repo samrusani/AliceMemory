@@ -529,27 +529,35 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0192() -> N
     """v0.19.2 marks the review tool read-only, and the docs keep v0.19.0's flag as history.
 
     The changelog's v0.19.2 section holds the change and names v0.19.0's flag.
-    The README says it in a ``From v0.19.2`` paragraph, and its ``From v0.19.0``
-    paragraph still describes v0.19.0's hints. The comment above the read-only
-    set says event log row, which is what the tools write.
+    The tools page (``docs/alpha/mcp-tools.md``, "Tool hints") says it in one
+    paragraph, with the ``From v0.19.0`` and ``From v0.19.2`` marks; the README
+    keeps no hint paragraph and no version history. The comment above the
+    read-only set says event log row, which is what the tools write.
 
     Mutations, each one alone: move the entry out of the v0.19.2 section; drop
     the ``In v0.19.0`` clause; put ``alice_memory_review`` back among the
-    destructive tools in the README; put ``A policy audit row`` back into the
-    comment; drop the note from the control documents; drop the README's ``no
-    test here runs that prompt`` caveat; change the tables the changelog says
-    review writes with an identity or a key. This test fails.
+    destructive tools on the tools page; put ``A policy audit row`` back into the
+    comment; drop the note from the control documents; drop the tools page's ``no
+    test here runs that prompt`` caveat; write a ``From v0.19`` line into the
+    README; change the tables the changelog says review writes with an identity
+    or a key. This test fails.
     """
 
     sections = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## ")
-    # Unreleased and the v0.20.0 section may hold entries for changes made after v0.19.2.
+    # Unreleased, the v0.21.1, v0.21.0, v0.20.2 and v0.20.0 sections may hold entries for changes made after v0.19.2.
     assert sections[1].startswith("Unreleased")
-    assert sections[2].startswith("v0.20.0 \u2014 2026-10-02\n")
+    assert sections[2].startswith("v0.21.1 \u2014 2026-10-23\n")
+    assert sections[3].startswith("v0.21.0 \u2014 2026-10-22\n")
+    assert sections[4].startswith("v0.20.2 \u2014 2026-10-17\n")
+    assert sections[5].startswith("v0.20.0 \u2014 2026-10-02\n")
     # The released hint entry stays in the v0.19.2 section, not in a newer one.
     assert "readOnlyHint" not in sections[1]
     assert "readOnlyHint" not in sections[2]
-    assert sections[3].startswith("v0.19.2 \u2014 2026-10-01\n")
-    released_now = " ".join(sections[3].split())
+    assert "readOnlyHint" not in sections[3]
+    assert "readOnlyHint" not in sections[4]
+    assert "readOnlyHint" not in sections[5]
+    assert sections[6].startswith("v0.19.2 \u2014 2026-10-01\n")
+    released_now = " ".join(sections[6].split())
     assert "`alice_memory_review` sets `readOnlyHint` and no longer sets `destructiveHint`." in released_now
     assert (
         "In v0.19.0 `alice_memory_review` sets `destructiveHint` to true, grouped with the tools "
@@ -561,17 +569,27 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0192() -> N
     ) in released_now
     assert "No test here runs a Codex approval prompt." in released_now
 
-    readme = (_ROOT / "README.md").read_text(encoding="utf-8").splitlines()
-    released = [line for line in readme if line.startswith("From v0.19.0, every MCP tool declares hints.")]
-    assert len(released) == 1
+    tools_page = (_ROOT / "docs" / "alpha" / "mcp-tools.md").read_text(encoding="utf-8")
+    hint_paragraphs = [
+        " ".join(block.split())
+        for block in tools_page.split("\n\n")
+        if block.startswith("From v0.19.0, every MCP tool declares hints.")
+    ]
+    assert len(hint_paragraphs) == 1
+    released = hint_paragraphs[0]
     assert (
         "From v0.19.2, `alice_recall`, `alice_resume`, `alice_context_pack`, `alice_recent_decisions`, "
         "`alice_explain`, and `alice_memory_review` are marked read-only."
-    ) in released[0]
-    assert "v0.19.0 marked it destructive" in released[0]
-    assert "`alice_memory_correct`, `alice_memory_manage`, and `alice_open_loops` are marked destructive" in released[0]
-    assert "no test here runs that prompt" in released[0]
-    assert not any(line.startswith("On main, not yet released") for line in readme)
+    ) in released
+    assert "v0.19.0 marked it destructive" in released
+    assert "`alice_memory_correct`, `alice_memory_manage`, and `alice_open_loops` are marked destructive" in released
+    assert "no test here runs that prompt" in released
+    assert "In v0.18.0 these tools declare no hints." in released
+    assert not any(line.startswith("On main, not yet released") for line in tools_page.splitlines())
+
+    readme = (_ROOT / "README.md").read_text(encoding="utf-8").splitlines()
+    assert not any(line.startswith("From v0.19") for line in readme)
+    assert not any("marked read-only" in line or "marked destructive" in line for line in readme)
 
     source = (_ROOT / "apps" / "api" / "src" / "alicebot_api" / "mcp" / "definitions.py").read_text(encoding="utf-8")
     assert "A policy audit row" not in source

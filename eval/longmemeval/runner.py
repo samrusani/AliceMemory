@@ -182,6 +182,10 @@ class RunnerConfig:
     excerpt_source: str = DEFAULT_EXCERPT_SOURCE
     promotion_mode: str = DEFAULT_PROMOTION_MODE
     surface: str = DEFAULT_SURFACE
+    # What alice_recall ranks by on this run. The context pack stays on document
+    # mode. Recorded in the fingerprint and on every row. Default is document,
+    # which is the switch left unset.
+    ranking_mode: str = "document"
 
     @property
     def mode(self) -> str:
@@ -201,6 +205,7 @@ class RunnerConfig:
             "excerpt_source": self.excerpt_source,
             "promotion_mode": self.promotion_mode,
             "surface": self.surface,
+            "ranking_mode": self.ranking_mode,
         }
 
 
@@ -414,6 +419,10 @@ def config_fingerprint(
         "excerpt_source": config.excerpt_source,
         "promotion_mode": config.promotion_mode,
         "surface": config.surface,
+        # The ranking alice_recall uses. A pack run records document, because
+        # the pack does not read the switch. A recall run records passage or
+        # on when the process asked for them.
+        "ranking_mode": config.ranking_mode,
         # Store reuse always feeds the digest too (and lands per-row as
         # ingest.reused_store), so ingest reuse can never be silent.
         "reuse_stores": config.reuse_stores,
@@ -949,6 +958,32 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def resolved_ranking_mode(surface: str) -> str:
+    """The ranking mode a run should record.
+
+    The context pack hard-codes document mode, so a pack run records that even
+    when the process switch says otherwise. A recall run records what the recall
+    edge (``recall_source_ranking``) hands the stage on SQLite with no key:
+    ``document``, ``passage``, or ``on``. An unset switch is ``passage`` there,
+    so the record is not the variable's own value.
+    """
+
+    if surface != SURFACE_RECALL:
+        return "document"
+    from alicebot_api.mcp.retrieval import recall_source_ranking
+    from alicebot_api.source_ranking import SEARCH_QUALITY_ENV
+    from alicebot_api.sqlite_store import SQLiteVNextStore
+
+    raw = os.environ.get(SEARCH_QUALITY_ENV)
+    if isinstance(raw, str) and raw.strip().casefold() == "on":
+        return "on"
+    try:
+        # The edge reads the class of the store and the environment, so an instance with no connection is enough.
+        return recall_source_ranking(SQLiteVNextStore.__new__(SQLiteVNextStore), None).mode
+    except ValueError:
+        return raw.strip().casefold() if isinstance(raw, str) and raw.strip() else "invalid"
+
+
 def _resolve_config(args: argparse.Namespace, *, question_ids: tuple[str, ...] | None = None) -> RunnerConfig | None:
     if args.dataset_file is not None:
         dataset_path = args.dataset_file
@@ -994,6 +1029,7 @@ def _resolve_config(args: argparse.Namespace, *, question_ids: tuple[str, ...] |
         excerpt_source=excerpt_source,
         promotion_mode=args.promotion_mode,
         surface=args.surface,
+        ranking_mode=resolved_ranking_mode(args.surface),
     )
 
 

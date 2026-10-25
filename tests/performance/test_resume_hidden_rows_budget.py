@@ -1,15 +1,16 @@
 """Resume and the grounding probe stay within a budget of the baseline when many newer rows are hidden from the caller.
 
-Unreleased (on main, not in v0.20.0). ``alice_resume`` and the grounding probe of the context pack read past the rows a caller's
+New in v0.20.2. ``alice_resume`` and the grounding probe of the context pack read past the rows a caller's
 limits hide by the labels of their inputs. A vault with 10,000 such rows newer than the first row the caller may read must not
 make them slow: a read judges at most ``READABLE_SCAN_CAP`` rows, whatever the vault holds. And a vault with no such row must
 not make them slower than they were: a read that looks past hidden rows pays for it only when there are some.
 
 The paired measurement is the one of the read budgets next to this file: a persistent process per revision (this checkout and the
 merge base named by ``ALICE_READ_MERGE_BASE_CHECKOUT``, which the test requires) answers the same action in turn on the same
-data, ten samples each, and the minimum wall and CPU time of this revision must be at most 1.25 times the merge base plus 0.05
-seconds. The pre-labels checkout named by ``ALICE_READ_MAIN_CHECKOUT`` is recorded in the evidence and is not a gate. A fast
-read that returns the wrong answer passes no budget: what this revision returned is checked too.
+data, ten samples each, and the median CPU time and the smallest wall time of this revision must each be at most 1.25 times the
+merge base plus 0.05 seconds (``read_budget_gate.paired_over_merge_base``). The pre-labels checkout named by
+``ALICE_READ_MAIN_CHECKOUT`` is recorded in the evidence and is not a gate. A fast read that returns the wrong answer passes no
+budget: what this revision returned is checked too.
 
 Cases, each with twelve readable decisions older than the hidden rows, and an event for each row:
 
@@ -42,9 +43,11 @@ from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
 from tests.performance.read_budget_gate import (
+    PAIRED_SAMPLES,
     append_evidence,
     merge_base_checkout,
-    over_merge_base,
+    paired_over_merge_base,
+    paired_summary,
     prelabels_action,
     prelabels_checkout,
 )
@@ -62,7 +65,7 @@ CASES = {"derived": (HIDDEN_ROWS, "derived"), "unproven": (HIDDEN_ROWS, "unprove
 READ_ONLY_DOMAINS = ["professional", "personal", "learning", "relationship", "project", "agent_run", "system", "unknown"]
 ACTIONS = ("resume", "resume_changes", "resume_query", "grounding")
 SQLITE_ACTIONS = tuple(action for action in ACTIONS if action != "grounding")
-SAMPLES = 10
+SAMPLES = PAIRED_SAMPLES
 
 
 def seed_hidden_rows(store, *, postgres, hidden=HIDDEN_ROWS, shape="derived"):
@@ -105,7 +108,7 @@ def seed_hidden_rows(store, *, postgres, hidden=HIDDEN_ROWS, shape="derived"):
 
 
 def paired_resume_budgets(backend, location, user, key, *, case, assert_budget=True, samples=SAMPLES, actions=ACTIONS):
-    assert samples >= 10
+    assert samples >= PAIRED_SAMPLES
     repo = Path(__file__).resolve().parents[2]
     merge_base = merge_base_checkout()
     prelabels = prelabels_checkout()
@@ -137,7 +140,7 @@ def paired_resume_budgets(backend, location, user, key, *, case, assert_budget=T
                     arrays[index]["wall"].append(result.pop("wall"))
                     arrays[index]["cpu"].append(result.pop("cpu"))
                     arrays[index]["returned"].append(result)
-            measured = {revision: {"minimum_wall": min(a["wall"]), "minimum_cpu": min(a["cpu"]), "returned": a["returned"][-1]}
+            measured = {revision: {**paired_summary(a["wall"], a["cpu"]), "returned": a["returned"][-1]}
                         for revision, a in zip(("merge_base", "head"), arrays)}
             report = None
             if report_process is not None:
@@ -165,9 +168,8 @@ def paired_resume_budgets(backend, location, user, key, *, case, assert_budget=T
             rows.append(row)
             print(json.dumps(row), flush=True)
             append_evidence(row)
-            for clock in ("minimum_wall", "minimum_cpu"):
-                if over_merge_base(measured["head"][clock], measured["merge_base"][clock]):
-                    failures.append((action, clock, row))
+            for name in paired_over_merge_base(measured["head"], measured["merge_base"]):
+                failures.append((action, name, row))
     finally:
         for process in [*processes, report_process]:
             if process is None:
@@ -222,3 +224,58 @@ def test_sqlite_resume_stays_within_the_budget_of_the_baseline_with_many_hidden_
         seed_hidden_rows(store, postgres=False, hidden=hidden, shape=shape)
         _record, key = create_agent_key(store, user_id=USER, agent_id="resume-budget", permission_profile="read_only_agent")
     paired_resume_budgets("sqlite", "sqlite:///" + str(path), USER, key, case=case, actions=SQLITE_ACTIONS)
+
+
+def test_ten_thousand_hidden_nearest_vector_rows_stay_within_the_merge_base_gate() -> None:
+    """The vector refill judges 128 of 10,000 hidden nearest rows and stays inside the merge-base gate.
+
+    The head reads the cap once and returns nothing, since every row is hidden. A merge base from before the refill
+    took the nearest page and dropped it; a merge base that already has the refill reads the cap too. Either way both
+    are timed on the same rows, in a process per revision that answers ten interleaved calls after one unmeasured
+    call. A head that walked all 10,000 would miss the gate and would not return the cap as its only limit.
+
+    This does not measure the label walk. The rows carry plain labels (a domain and a sensitivity of their own, no input)
+    and the store is a stub, so judging a row is a short check. A row below a chain of memories costs more to judge, and up to
+    128 rows are judged where four were, so the time of a read with hidden rows below deep chains is not what this test
+    bounds.
+    """
+
+    repo = Path(__file__).resolve().parents[2]
+    script = Path(__file__).with_name("vector_refill_budget_probe.py")
+    processes = [
+        subprocess.Popen([sys.executable, str(script), str(checkout)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True)
+        for checkout in (merge_base_checkout(), repo)
+    ]
+
+    def ask(process) -> dict:
+        process.stdin.write("read\n")
+        process.stdin.flush()
+        line = process.stdout.readline()
+        assert line, process.stderr.read()
+        return json.loads(line)
+
+    calls = [[], []]
+    try:
+        for process in processes:  # one unmeasured call: imports
+            ask(process)
+        for sample in range(PAIRED_SAMPLES):
+            for index in (0, 1) if sample % 2 == 0 else (1, 0):
+                calls[index].append(ask(processes[index]))
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.stdin.write("stop\n")
+                process.stdin.flush()
+            process.communicate(timeout=30)
+    base_calls, head_calls = calls
+    assert all(call["refill"] for call in head_calls)
+    assert [call["limits"] for call in head_calls] == [[READABLE_SCAN_CAP]] * PAIRED_SAMPLES
+    # The merge base is whatever main was when this branch forked: before the refill it judged the four rows it
+    # asked for, after it the cap. The head's numbers above are what this test pins; the base is the yardstick.
+    base_limit = READABLE_SCAN_CAP if base_calls[0]["refill"] else 4
+    assert [call["limits"] for call in base_calls] == [[base_limit]] * PAIRED_SAMPLES
+    assert all(call["ids"] == [] for call in head_calls + base_calls)
+    head, base = (paired_summary([call["wall"] for call in side], [call["cpu"] for call in side]) for side in (head_calls, base_calls))
+    over = paired_over_merge_base(head, base)
+    assert not over, (over, head, base)

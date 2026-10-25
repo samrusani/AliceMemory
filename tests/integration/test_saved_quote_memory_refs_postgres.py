@@ -1,6 +1,6 @@
 """A saved quote of a memory is withheld at every door of the mounted application, and the operator route sweep holds it.
 
-Unreleased (on main, not in v0.20.0). A commit can cite a memory as ``{"memory_id": "<id>", "quote": "..."}`` or as the two
+New in v0.20.2. A commit can cite a memory as ``{"memory_id": "<id>", "quote": "..."}`` or as the two
 entries ``"memory:<id>"`` and ``{"quote": "..."}``, or in a wording no marker covers (``Memory <id>``, ``mem:<id>``, a URL, an id
 under ``origin``). The quote holds words of the memory, the write check reads none of these, and on main until this change every
 reader of the commit returned the words after the memory was redacted. The reader of saved quotes now withholds them from a
@@ -216,9 +216,9 @@ def _get(vault: Vault, template: str, key, **path_and_query):
 
 def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch):
     """The doors that returned the quote, one by one, for every restricted profile that reaches them. A key that may read the quoting
-    commit is shown the ref with the id of the memory and a ``null`` quote, in both spellings; none is shown the words. The
-    workspace lists the events of the commit that was confirmed, among its recent events and, for the commit an agent key
-    confirmed, in its agent activity too, and each event holds the ref with its id and no quote.
+    commit is shown a ``null`` quote and is not shown the id of the memory it may not read. The workspace lists the events of
+    the commit that was confirmed, among its recent events and, for the commit an agent key confirmed, in its agent activity
+    too, and each event holds the ref with no quote and without that id.
 
     Mutations: delete the reader call at the recent commits service (``if guard.active`` made false); delete the ``audit`` call
     of the audit route; delete the ``audit`` call of ``alice_explain``; delete the workspace's ``withhold_saved_quotes`` calls;
@@ -235,13 +235,13 @@ def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch
     # The commits that wrote the words as the name of a field (and the two confirmed commits, which wrote the words as a name beside
     # the quote) are shown the id and the quote marker, and no name of the field.
     expected = {
-        plain: [{"memory_id": cited, "quote": None}],
-        typed: [f"memory:{cited}", {"quote": None}],
-        pending: [{"memory_id": cited, "quote": None}],
-        confirmed: [{"memory_id": cited, "quote": None}],
-        by_an_agent: [{"memory_id": cited, "quote": None}],
-        keyed: [{"memory_id": cited}],
-        keyed_typed: [f"memory:{cited}", {}],
+        plain: [{"memory_id": None, "quote": None}],
+        typed: [{"quote": None}],
+        pending: [{"memory_id": None, "quote": None}],
+        confirmed: [{"memory_id": None, "quote": None}],
+        by_an_agent: [{"memory_id": None, "quote": None}],
+        keyed: [{"memory_id": None}],
+        keyed_typed: [{}],
     }
     problems: list[object] = []
 
@@ -299,7 +299,7 @@ def test_the_doors_withhold_the_quote_and_keep_the_id(label_harness, monkeypatch
             detail = _tool(monkeypatch, label_harness, profile_key, "alice_memory_review", {"review_item_id": memory_id})
             check(("review detail", profile, memory_id), words not in _all_text(detail))
             if profile in {"trusted", "read_only", "memory_proposal"}:
-                check(("explain reads the commit and keeps the id of the cited memory", profile, memory_id), explained is not None and cited in _all_text(explained))
+                check(("explain withholds the id of the cited memory", profile, memory_id), explained is not None and cited not in _all_text(explained))
     for profile in ("read_only", "trusted", "memory_proposal"):
         permission = RESTRICTED[profile][0]
         for limit in (100, 1):
@@ -459,16 +459,21 @@ def test_the_dashboard_and_the_source_trace_withhold_the_quote(label_harness):
             }
         )
         stored_id = str(stored["id"])
+    from tests.support.legacy_source_refs import link_strings, plant_legacy_source_refs
+
+    refs = (source_id, {"memory_id": cited_id, "quote": quote})
+    sent = link_strings(refs)
     with harness.store() as store:
         asked = VNextMemoryCommitService(store, defer_embeddings=True).commit(
             identity=None,
             request=MemoryCommitRequest(
                 user_id=str(harness.user_id), title="Atlas confirmed follow up", canonical_text="Atlas confirmed follow up on the games note",
                 memory_type="semantic", domain="project", sensitivity="public", confidence=0.6,
-                source_refs=(source_id, {"memory_id": cited_id, "quote": quote}), conversation_excerpt=excerpt, project_scope=(project_id,),
+                source_refs=tuple(sent), conversation_excerpt=excerpt, project_scope=(project_id,),
             ),
         )
-    assert asked["status"] == "confirmation_required", str(asked)[:300]
+        assert asked["status"] == "confirmation_required", str(asked)[:300]
+        plant_legacy_source_refs(store, str(asked["memory"]["id"]), refs, sent)
     with harness.store() as store:
         VNextMemoryCommitService(store, defer_embeddings=True).confirm(
             identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm"
@@ -626,10 +631,13 @@ def test_every_spelling_of_a_memory_ref_is_withheld_at_the_audit_the_recent_comm
     def quote_of(name: str) -> str:
         return f"Atlas played {sentinel} for 115 hours ({name})"
 
+    from tests.support.legacy_source_refs import link_strings, needs_legacy_plant, plant_legacy_source_refs
+
     for name, (refs, saves_excerpt) in _spellings(cited_id, quote_of, vault.ids["source_shown"]).items():
+        sent = link_strings(refs) if needs_legacy_plant(refs) else list(refs)
         payload = {
             "title": f"Follow up {name}", "canonical_text": f"Follow up on the games note {name}", "memory_type": "fact",
-            "domain": "project", "sensitivity": "public", "confidence": 0.99, "source_type": "agent", "source_refs": refs,
+            "domain": "project", "sensitivity": "public", "confidence": 0.99, "source_type": "agent", "source_refs": sent,
         }
         if saves_excerpt:
             payload["conversation_excerpt"] = (
@@ -637,6 +645,9 @@ def test_every_spelling_of_a_memory_ref_is_withheld_at_the_audit_the_recent_comm
             )
         status, body = vault.admin_request("POST", "/v0/vnext/memories/commit", payload)
         assert status in {200, 201}, (name, status, str(body)[:300])
+        if needs_legacy_plant(refs):
+            with harness.store() as store:
+                plant_legacy_source_refs(store, str(body["memory"]["id"]), refs, sent)
         commits[name] = str(body["memory"]["id"])
 
     def read(key, memory_id):

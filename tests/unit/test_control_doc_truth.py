@@ -294,8 +294,9 @@ def test_phase2_docs_scope_ascii_query_parity_and_public_error_vocabularies_exac
 
 def test_phase3_active_docs_record_published_v0120_boundary() -> None:
     repo_root = Path(__file__).resolve().parents[2]
+    # The README no longer retells the v0.12.0 refactor: its Status section names the latest release and the alpha
+    # limits only. The same two facts stay pinned on the seven documents below.
     relative_paths = (
-        "README.md",
         "ARCHITECTURE.md",
         "ROADMAP.md",
         "CURRENT_STATE.md",

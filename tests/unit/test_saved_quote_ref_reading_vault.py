@@ -1,6 +1,6 @@
 """The four defects an outside review found in the way a saved quote's refs are read, on a real vault with real keys.
 
-Unreleased (on main, not in v0.20.0). ``tests/unit/test_saved_quote_ref_reading.py`` holds each case with a stub store. These
+New in v0.20.2. ``tests/unit/test_saved_quote_ref_reading.py`` holds each case with a stub store. These
 tests run them through the shipped doors and readers: refs are stored by the commit route and by the proposal route, a
 source is reclassified, archived or removed with the handlers and statements a vault has, and every kind of key reads the
 memory through ``alice_memory_review``, the MCP pack, the HTTP pack and ``alice_explain``. A unique quote is searched for in
@@ -55,7 +55,10 @@ def _propose(vault: _Vault, refs: list[object], *, tag: str) -> str:
     size of the request. Returns the id of the memory it made."""
 
     from alicebot_api.routers import vnext_memories as router
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from tests.support.legacy_source_refs import link_strings, needs_legacy_plant, plant_legacy_source_refs
 
+    sent = link_strings(refs) if needs_legacy_plant(refs) else list(refs)
     response = router.create_vnext_memory_proposal(
         router.VNextMemoryProposalRequest(
             user_id=UUID(_USER_ID),
@@ -64,14 +67,21 @@ def _propose(vault: _Vault, refs: list[object], *, tag: str) -> str:
             domain="project",
             sensitivity="internal",
             confidence=0.6,
-            source_refs=refs,
+            source_refs=sent,
             agent_id=_AGENT_IDS["trusted"],
         ),
         authorization=f"Bearer {vault.keys['trusted']}",
     )
     body = json.loads(response.body)
     assert response.status_code == 201, body
-    return str(body["proposal"]["id"])
+    memory_id = str(body["proposal"]["id"])
+    if needs_legacy_plant(refs):
+        from alicebot_api.mcp.runtime import _sqlite_path_from_url
+
+        database = _sqlite_path_from_url(vault.context.database_url)
+        with sqlite_user_connection(database, _USER_ID) as conn:
+            plant_legacy_source_refs(SQLiteVNextStore(conn, _USER_ID), memory_id, refs, sent)
+    return memory_id
 
 
 # -- 1. a ref that merely contains a marker --------------------------------------------------------------------------

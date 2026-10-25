@@ -1,8 +1,9 @@
 # Alice on LongMemEval
 
 **Product path.** 81.2% is the privileged `store_chunks` harness on
-`v0.12.0`, measured 2026-07-18/19. `pack_excerpts` is the product-path
-mode and is not yet scored. The receipt below is unchanged.
+`v0.12.0`, measured 2026-07-18/19. That path reads chunks straight from the
+store, and no MCP tool offers it. `pack_excerpts` is the product-path mode and
+is not yet scored. The receipt below is unchanged.
 
 > **Known issue: session id label.** In this dataset the id of every evidence
 > session starts with `answer_` (948 of 948), and no filler session id does
@@ -13,11 +14,15 @@ mode and is not yet scored. The receipt below is unchanged.
 > and the v0.12.0 runs (81.2%), so all three published numbers carry it. The
 > 2026-07-07 run file has no session id field, but 37 reader answers in it
 > name an `answer_` session id. The three replication runs record the
-> retrieved session ids in `retrieval.provenance.source_session_ids`, and in
+> retrieved session ids in `retrieval.provenance.source_session_ids`. In each
+> run a retrieved session carried that label on 495 of 500 questions, and in
 > 29 to 32 answers per run the model named such a session id in its reasoning.
-> We have not measured the effect, and on abstention questions its direction
-> is not obvious. The next run hides the ids with a keyed hash, scores the
-> product path, and is compared question by question with these three runs.
+> We have not measured the effect, so the published numbers may overstate the
+> result by an unknown amount, and on abstention questions the direction of
+> the effect is not obvious. The next LongMemEval result we publish will hide
+> the ids with a keyed hash, use the product-path `pack_excerpts` mode, be
+> compared question by question with these three runs, and replace these
+> numbers rather than sit beside them.
 > Until then, read these numbers as what the old harness produced, not as
 > what Alice does for a user. The evidence files in this folder are not
 > edited.

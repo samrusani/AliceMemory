@@ -99,6 +99,7 @@ from alicebot_api.vnext_stores.sqlite.browser_clip_capabilities import (
     consume_browser_clip_capability as _browser_clip_consume_capability,
     create_browser_clip_capability as _browser_clip_create_capability,
 )
+from alicebot_api.vnext_stores.sqlite.source_readable import readable_source_clause
 from alicebot_api.vnext_stores.sqlite.embedding_cas import (
     _embedding_content_sha256_sqlite as _embedding_content_sha256_sqlite,
     _ensure_embedding_content_sha256_sqlite as _ensure_embedding_content_sha256_sqlite,
@@ -375,6 +376,9 @@ def sqlite_user_connection(path: str | Path, user_id: UUID | str, *, repair_labe
     """
     if str(user_id).strip() == "":
         raise ContinuityStoreInvariantError("sqlite_user_connection requires a non-empty user_id")
+    from alicebot_api.onramp import sweep_restore_working_copies
+
+    sweep_restore_working_copies(Path(path))
     conn = sqlite3.connect(str(path))
     conn.row_factory = _dict_row_factory
     try:
@@ -386,6 +390,7 @@ def sqlite_user_connection(path: str | Path, user_id: UUID | str, *, repair_labe
         yield conn
         conn.commit()
     except BaseException:
+        # label state: none, a request's label state ends with its store, inside this block, and the connection closes next.
         conn.rollback()
         raise
     finally:
@@ -529,10 +534,10 @@ class SQLiteVNextStore:
             extra = ", value, project_id, source_event_ids, deleted_at, status"
         elif table == "open_loops":
             extra = ", project_id, source_id, memory_id"
-        from alicebot_api.vnext_label_guard import request_row_cache
+        from alicebot_api.vnext_label_guard import SQLITE_LABEL_ID_MAP, request_row_cache
         from alicebot_api.vnext_derived_labels import identifier
 
-        cache = request_row_cache(self, "sqlite-label-id-map")
+        cache = request_row_cache(self, SQLITE_LABEL_ID_MAP)
         if cache is not None:
             if kind not in cache:
                 aliases: dict[str, list[str]] = {}
@@ -1326,31 +1331,20 @@ class SQLiteVNextStore:
         match_expression = _fts_match_any_expression(query) if match_any else _fts_match_expression(query)
         if match_expression is None:
             return []
-        domain_sql, domain_params = self._domain_clause(domains, prefix="s.")
-        sensitivity_sql, sensitivity_params = self._sensitivity_clause(sensitivity_allowed, prefix="s.")
-        scope_sql, scope_params = self._metadata_scope_clause(
-            metadata_expression="s.metadata_json",
-            persisted_source_envelope=True,
+        # The one predicate every source read shares (``source_readable``): live, domain, sensitivity, scope.
+        readable_sql, readable_params = readable_source_clause(
+            self,
+            prefix="s.",
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
             scope_projects=scope_projects,
             scope_people=scope_people,
-            event_time_expression=(
-                "COALESCE(julianday(s.source_created_at), "
-                "julianday(json_extract(s.metadata_json, '$.session_date')), "
-                "julianday(json_extract(s.metadata_json, '$.event_date')), "
-                "julianday(json_extract(s.metadata_json, '$.date')), "
-                "julianday(s.captured_at))"
-            ),
             scope_window_start=scope_window_start,
             scope_window_end=scope_window_end,
-            # Stated, an empty tuple: a source is held back in Python (the brief's
-            # ``_source_honours_fence``), not in this read, so it leaves nothing out itself.
-            global_excluded_domains=(),
         )
         prefixed_columns = ", ".join(f"c.{column}" for column in SOURCE_CHUNK_COLUMNS)
         params: list[object] = [match_expression, self.user_id]
-        params.extend(domain_params)
-        params.extend(sensitivity_params)
-        params.extend(scope_params)
+        params.extend(readable_params)
         params.append(limit)
         try:
             return self._fetch_all(
@@ -1361,8 +1355,7 @@ class SQLiteVNextStore:
                     JOIN source_chunks c ON c.rowid = source_chunks_fts.rowid
                     JOIN sources s ON s.id = c.source_id AND s.user_id = c.user_id
                     WHERE source_chunks_fts MATCH ?
-                      AND c.user_id = ?
-                      AND s.deleted_at IS NULL{domain_sql}{sensitivity_sql}{scope_sql}
+                      AND c.user_id = ?{readable_sql}
                     ORDER BY fts_score DESC, c.created_at DESC, c.id DESC
                     LIMIT ?
                     """,
@@ -1416,32 +1409,21 @@ class SQLiteVNextStore:
         self.check_source_search_query(query)
         patterns = [pattern.casefold() for pattern in _search_patterns(query)]
         exact_pattern = patterns[0]
-        domain_sql, domain_params = self._domain_clause(domains)
-        sensitivity_sql, sensitivity_params = self._sensitivity_clause(sensitivity_allowed)
-        scope_sql, scope_params = self._metadata_scope_clause(
-            metadata_expression="metadata_json",
-            persisted_source_envelope=True,
+        readable_sql, readable_params = readable_source_clause(
+            self,
+            prefix="",
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
             scope_projects=scope_projects,
             scope_people=scope_people,
-            event_time_expression=(
-                "COALESCE(julianday(source_created_at), "
-                "julianday(json_extract(metadata_json, '$.session_date')), "
-                "julianday(json_extract(metadata_json, '$.event_date')), "
-                "julianday(json_extract(metadata_json, '$.date')), "
-                "julianday(captured_at))"
-            ),
             scope_window_start=scope_window_start,
             scope_window_end=scope_window_end,
-            # Stated, an empty tuple: see ``search_source_chunks``.
-            global_excluded_domains=(),
         )
         count = len(patterns)
         match_columns = ("title", "author", "uri", "raw_path", "content_hash", "metadata_json")
         match_sql = " OR ".join(self._like_any(column, count) for column in match_columns)
         params: list[object] = [self.user_id]
-        params.extend(domain_params)
-        params.extend(sensitivity_params)
-        params.extend(scope_params)
+        params.extend(readable_params)
         for _column in match_columns:
             params.extend(patterns)
         params.append(exact_pattern)
@@ -1451,8 +1433,7 @@ class SQLiteVNextStore:
             f"""
                 SELECT {", ".join(SOURCE_COLUMNS)}
                 FROM sources
-                WHERE user_id = ?
-                  AND deleted_at IS NULL{domain_sql}{sensitivity_sql}{scope_sql}
+                WHERE user_id = ?{readable_sql}
                   AND ({match_sql})
                 ORDER BY
                   CASE

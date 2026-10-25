@@ -123,8 +123,7 @@ and named, and the rest of the file or conversation is imported. The
 doctor flags a stored source that still contains a low-entropy
 AKIA-shaped key. In v0.18.0 the line filter misses that key, capture
 stores it inside the file, and the doctor does not flag it.
-In v0.20.0, SQLite has no way to delete a source. Unreleased (on main, not in v0.20.0):
-use `alice-memory sources list` and `alice-memory sources delete <id>` for SQLite.
+In v0.20.0, SQLite has no way to delete a source. From v0.20.2, use `alice-memory sources list` and `alice-memory sources delete <id>` for SQLite.
 On Postgres, soft-delete each listed
 source with `DELETE /v0/vnext/sources/{id}`. The doctor scans up to 10,000 sources
 on a workspace dashboard load and says when that scan stopped early. A
@@ -133,7 +132,7 @@ exits 2 with `sqlite_import_use_alice_memory` and names these two commands.
 In v0.17.0, those commands do not exist, and a SQLite
 URL on the `alicebot` imports is `invalid_request`.
 
-Unreleased (on main, not in v0.20.0): each file of a Markdown import, and each
+From v0.20.2, each file of a Markdown import, and each
 conversation of a ChatGPT import, is written as one unit, on SQLite and on
 Postgres. When a write fails part way (a chunk write, for example), the file's
 source, chunks, entity links and events are all rolled back. The receipt counts
@@ -212,7 +211,7 @@ synthetic exports of 219 to 1,092 conversations of 60 messages each, peak
 memory was about 80 MB for the process plus 5.7 MB for every MB of export (377
 MB at 52 MB), and 8.7 MB for every MB when one character outside the Basic
 Multilingual Plane, such as an emoji, is in the file, because Python then
-stores the whole text at four bytes a character (535 MB at 52 MB). The import
+stores the whole text at four bytes a character (535 MB at 52 MB). That is a peak of about 6 to 9 times the size of the export. The import
 took 1.3 seconds for every MB (1.9 with the emoji). At 512 MiB that is about 3
 to 4.6 GB of memory and 11 to 16 minutes. A Markdown file of 16 MiB peaked at 335 MB and took about 15 to 23 seconds. The defaults come from those measurements. They do not come from a
 survey of real exports, which was not possible here. An export over 512 MiB
@@ -265,7 +264,7 @@ No additional importer families are currently shipped.
 
 ## Replacement on re-import
 
-Unreleased (on main, not in v0.20.0): `alice-memory import-markdown` accepts
+From v0.20.2, `alice-memory import-markdown` accepts
 `--supersede`, `--no-supersede`, `--dry-run` and `--allow-looser-classification`.
 Replacement is off by default. In v0.20.0, importing an edited file adds another
 live source. The default still does that, and now counts changed paths in the
@@ -337,7 +336,7 @@ same time. `sources delete` and `sources prune --superseded` each make one pass
 over the memories for their preview and one for their receipt, however many
 replaced sources a prune removes.
 
-Unreleased (on main, not in v0.20.0): an open loop belongs to a source when its
+From v0.20.2, an open loop belongs to a source when its
 `source_id` column or its metadata names that source in any spelling the
 saved-quote reader names (capitals, no hyphens, braces, `urn:uuid:`, a list, or
 JSON text) under `source_id`, `source_ids`, `source_ref`, `source_refs`,
@@ -353,20 +352,20 @@ to make it live again. A pre-deletion export can conflict with rows in the same
 vault in both restore modes; restore into a fresh vault instead. An export made
 after replacement does not contain the replaced versions.
 
-Unreleased (on main, not in v0.20.0): a refused replacement reports `refused`
+From v0.20.2, a refused replacement reports `refused`
 when no file imported or duplicated, or `partial` when another file did.
 Either receipt exits 1 when any file was refused. A batch with status `failed`
 or a path error also exits 1. Successful `ok` and `duplicate` receipts exit 0;
 a partial batch caused only by ordinary per-file failures keeps its existing
 exit code 0 and reports the failures in `failed_count`.
 
-Unreleased (on main, not in v0.20.0): a preview does not change database content,
+From v0.20.2, a preview does not change database content,
 but SQLite can create empty `memory.db-wal` and `memory.db-shm` coordination files
 beside a cleanly closed vault. Sleep publication and source retirement share a
 file lock; publication also rechecks source liveness under the database writer
 lock, so an overlapping sleep run cannot put a retired excerpt back.
 
-Unreleased (on main, not in v0.20.0): the keyless owner can still see a saved quote
+From v0.20.2, the keyless owner can still see a saved quote
 and the replaced source id through a retained memory in review by id, context
 packs and explain; keyed callers remain fenced. A bare `--supersede` on a path
 with several live copies inherits the newest copy's labels and refuses if an
@@ -374,7 +373,7 @@ older copy is stricter, unless the owner explicitly allows looser classification
 
 ## List, delete and prune SQLite sources
 
-Unreleased (on main, not in v0.20.0): the owner CLI lists source ids and scrubs
+From v0.20.2, the owner CLI lists source ids and scrubs
 one source or old replaced versions. No MCP tool, installer action or SQLite
 HTTP route exposes deletion.
 
@@ -400,7 +399,7 @@ an integer from 0 through 9223372036854775807 days since replacement. Neither de
 selects its targets again under the writer lock and applies one transaction.
 
 Scrub first removes the source's sleep proposals, then clears source labels and
-metadata, overwrites chunks and provenance quotes, redacts pending or rejected
+metadata, overwrites chunks and provenance quotes, deletes the vectors of the chunks (the receipt's `chunk_vectors`), redacts pending or rejected
 candidates and their revisions, closes and blanks every graph edge that names
 the source, updates entity counts, scrubs unsupported linker entities, and
 closes and blanks source-backed loops.
@@ -428,10 +427,8 @@ them. One pass over the edges answers for every source of the command.
 `import-markdown --supersede` makes that pass when its first file is replaced,
 so a folder that replaces nothing reads no edge. The product's own SQLite writers make only mention
 edges, but `alice-memory import` restores an edge of any shape, including the
-connection and contradiction edges of a PostgreSQL vault. Unreleased (on main,
-not in v0.20.0): earlier builds of this command, which is new on main, closed the
-mention edges that start at the source and left every other edge readable
-through `alice_graph_neighborhood`, the legacy tool of the keyless owner. A key
+connection and contradiction edges of a PostgreSQL vault. This command is new in
+v0.20.2, so v0.20.0 has no deletion to correct. A key
 cannot read an edge on SQLite: `alice_graph_neighborhood` and
 `alice_graph_edge_review` are legacy tools, which a configured
 `ALICE_AGENT_API_KEY` removes, and no other tool returns an edge row.
@@ -448,8 +445,15 @@ folder paths, and source rows retain hash columns. Postgres source deletion and
 review archive remain soft deletes: their source text and chunks are not
 scrubbed by those routes.
 
+A scrub that is committed after the embedding pass has read a source just before sending its text
+can still be followed by that text reaching the embeddings endpoint on this machine, whether the
+request has begun or not; the vector that comes back is not stored.
+
 Removed text can remain in the vault file's unused space and write-ahead log
-until the file is rebuilt. To remove that leftover text, stop every program
+until the file is rebuilt. Chunk vectors are in the same position: they are
+zeroed where the database frees them, but deleting a vector is logical
+deletion, and the log, unused space and earlier backups can keep its bytes
+until the same checkpoint and rebuild. To remove that leftover text, stop every program
 that uses the vault, including MCP servers and the session hook, replace
 `<data-dir>` with the vault directory, and run:
 

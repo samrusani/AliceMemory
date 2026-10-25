@@ -1,6 +1,6 @@
 """The rows that keep refs a writer chose hold them to the caller's fence at every door of the mounted application.
 
-Unreleased (on main, not in v0.20.0). The saved-quote reader withholds the words of a memory or a source the caller may not read
+New in v0.20.2. The saved-quote reader withholds the words of a memory or a source the caller may not read
 from the ref that cites it. Four kinds of row keep a structure their writer chose, and each is reached by a caller with limits
 after the memory it cites is redacted, so each is held to the same rule:
 
@@ -50,9 +50,10 @@ def _json(text: str):
 
 
 def _expected(cited: str) -> list[object]:
-    """The refs the ingest source was sent, as a caller who may not read the memory is shown them."""
+    """Refs a caller who may not read the cited memory is shown: the id is withheld and the quote is null."""
 
-    return [{"memory_id": cited, "quote": None}, f"memory:{cited}", {"quote": None}]
+    del cited
+    return [{"memory_id": None, "quote": None}, {"quote": None}]
 
 
 def _stored(cited: str, words: str) -> list[object]:
@@ -213,10 +214,13 @@ def test_a_source_that_cites_a_source_raised_above_the_ceiling_loses_the_entry(l
     Mutation: pass an empty set of refused sources in ``SavedProvenanceReader._shown_refs``.
     """
 
+    from tests.support.legacy_source_refs import link_strings, plant_legacy_source_metadata
+
     vault = _vault(label_harness)
     readable = vault.ids["source_shown"]
     hidden = vault.ids["source_hidden"]
     refs = [{"source_id": readable, "quote": "readable words"}, {"source_id": hidden, "quote": "hidden words"}, f"source:{hidden}"]
+    sent = link_strings(refs)
     status, body = vault.admin_request(
         "POST",
         "/v0/vnext/agents/ingest-output",
@@ -226,10 +230,12 @@ def test_a_source_that_cites_a_source_raised_above_the_ceiling_loses_the_entry(l
             "content": vault.shown("cites_a_source-text"),
             "domain": "project",
             "sensitivity": "public",
-            "source_refs": refs,
+            "source_refs": sent,
         },
     )
     assert status in {200, 201}, (status, str(body)[:300])
+    with label_harness.store() as store:
+        plant_legacy_source_metadata(store, str(body["source_id"]), refs, sent)
     cites = body["source_id"]
     status, text = run_call(vault, "GET", "/v0/vnext/sources/{source_id}", Call("source", path={"source_id": cites}), vault.keys["trusted"])
     assert status == 200, text
@@ -283,14 +289,14 @@ def test_the_workspace_and_the_rating_routes_hold_a_task_and_a_rating_to_the_rea
         if profile == "trusted":
             assert {"artifact trace", "quality evals", "workspace"} <= set(shown), sorted(shown)
         for door, row in shown.items():
-            assert row["metadata_json"] == {"memory_id": cited, "quote": None}, (profile, door)
+            assert row["metadata_json"] == {"memory_id": None, "quote": None}, (profile, door)
             assert words not in json.dumps(row), (profile, door)
     for door, row in ratings(vault.keys["admin"]).items():
         assert row["metadata_json"]["quote"] == words and row["metadata_json"][words] == 1, door
         assert row["metadata_json"]["artifact_type"] == "daily_brief", door
     status, text = run_call(vault, "GET", "/v0/vnext/workspace", Call("workspace"), keys["trusted"])
     task = next(item for item in json.loads(text)["tasks"] if str(item["id"]) == task_id)
-    assert task["allowed_sources_json"] == [{"memory_id": cited, "quote": None}]
+    assert task["allowed_sources_json"] == [{"memory_id": None, "quote": None}]
     assert task["scope_json"] == {}
     assert task["title"] == vault.text("task_quotes_redacted-title") and words not in json.dumps(task)
     status, text = run_call(vault, "GET", "/v0/vnext/workspace", Call("workspace"), vault.keys["admin"])

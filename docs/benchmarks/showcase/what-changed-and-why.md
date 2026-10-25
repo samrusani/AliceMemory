@@ -1,6 +1,6 @@
 # What changed and why
 
-Unreleased (on main, not in v0.20.0): `alice_what_changed`, `POST /v0/vnext/changes` and the continuity page view are built. They are not in v0.20.0. v0.20.0 has no what-changed answer, and it has no measurement of one.
+From v0.21.0, `alice_what_changed`, `POST /v0/vnext/changes` and the continuity page view are built. They are not in v0.20.2. v0.20.2 has no what-changed answer, and it has no measurement of one.
 
 An agent or a person asks about one topic: an account, a price, a feature, a policy. The answer is the history of recorded decisions and changes on that topic. The read builds every step from records. It does not read note text to decide that a note is a decision, and it does not take `replaced` from a sentence in a later note.
 
@@ -122,7 +122,7 @@ Each new door is registered in the operator route inventory and its probe table,
 
 The read does not walk every note. It uses the existing recall index, judges at most 128 candidates, then follows `superseded_by` for at most 64 hops. When 128 candidates have been judged, the answer is the history found among them. It does not report how many further records matched, and it does not report a count or a gap caused by permissions.
 
-The read uses the same full-text search `alice_recall` uses (`search_memories_fts`), limited to decision memories and to 128 candidates. A topic that search cannot take is refused by the same limit. The synthetic company generator is a separate branch and is not in this build, so the measured vault is 10,000 decision rows on that index, not that generator's files. The budget test asserts the what-changed read and the recall search of that vault each finish in under 1.5 seconds, and that the 128 cap still hides the older readable row when newer hidden rows fill the window. v0.20.0 has no such measurement.
+The read uses the same full-text search `alice_recall` uses (`search_memories_fts`), limited to decision memories and to 128 candidates. A topic that search cannot take is refused by the same limit. The measured vault is 10,000 decision rows on that index, not the synthetic company's notes; the synthetic company generator is now in v0.21.0, and measuring this read next to recall on the 10,000-note company is still to do. The budget test asserts the what-changed read and the recall search of that vault each finish in under 1.5 seconds, and that the 128 cap still hides the older readable row when newer hidden rows fill the window. v0.20.2 has no such measurement.
 
 ## Tests, when this is built
 

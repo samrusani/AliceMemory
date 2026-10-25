@@ -1,8 +1,7 @@
 """The error codes the docs list are the codes the server sends, and main-only text says it is main-only.
 
-Unreleased (on main, not in v0.20.0). v0.20.0 is released and these pages describe it, so the three new codes and the
-wider use of ``invalid_request`` carry ``Unreleased (on main, not in v0.20.0):`` until the release PR converts the
-markers. The CHANGELOG entry states the v0.20.0 answer for each case, as the release rule for behaviour changes asks.
+New in v0.20.2. v0.20.0 is released and these pages describe it, so the three new codes and the
+wider use of ``invalid_request`` carry ``From v0.20.2,``. The CHANGELOG entry states the v0.20.0 answer for each case, as the release rule for behaviour changes asks.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ from pathlib import Path
 from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 # The codes that existed before this change and are still sent.
 OLD_CODES = frozenset({"tool_request_failed", "tool_execution_failed", "tool_not_found"})
 
@@ -240,7 +239,9 @@ def test_the_pages_that_describe_the_old_answer_carry_the_marker_in_the_right_pl
     """Each page that says a refusal comes back as ``tool_request_failed`` also says, after one marker, what main does.
 
     The marker is counted in the sentence or bullet that holds the old text, so a page that gains another marked
-    bullet does not break it.
+    bullet does not break it. The known limitations page is not in this list: it describes v0.20.2 and carries no
+    marker, so its bullet (the three generic codes, ``invalid_request``, and the three codes that tell a refusal from a
+    failure) is pinned in ``test_known_limitations_current_facts.py``.
 
     Mutations, each one alone: delete the marker from one of the five places; move the new-code sentence before the
     marker; delete the ``not_permitted`` clause after the marker. Each fails its own check.
@@ -268,7 +269,6 @@ def test_the_pages_that_describe_the_old_answer_carry_the_marker_in_the_right_pl
             "Over the stdio server, a refused confirm or reject",
             "come back as `not_permitted`",
         ),
-        ("docs/alpha/known-limitations.md", "tool failures over stdio return a generic code", "`not_permitted`"),
         (
             "docs/alpha/mcp-tools.md",
             "A request that names only those domains is refused",
@@ -287,7 +287,7 @@ def test_the_pages_that_describe_the_old_answer_carry_the_marker_in_the_right_pl
 
 
 def test_the_changelog_has_one_unreleased_entry_that_states_the_v0200_code() -> None:
-    """One Unreleased entry names the new codes and says v0.20.0 answered ``tool_request_failed`` for each case.
+    """One v0.20.2 entry names the new codes and says v0.20.0 answered ``tool_request_failed`` for each case.
 
     The entry also carries the follow-up fixes, so the one entry stays the whole story of the feature: the policy is
     asked before the state of the row, a missing entity is ``not_found``, and a PostgreSQL foreign key failure is
@@ -303,9 +303,9 @@ def test_the_changelog_has_one_unreleased_entry_that_states_the_v0200_code() -> 
     """
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = changelog.split("\n## ")[1]
-    assert unreleased.startswith("Unreleased")
-    entries = [entry for entry in unreleased.split("\n- ") if "`not_permitted`" in entry]
+    released = changelog[changelog.index("\n## v0.20.2") : changelog.index("\n## v0.20.0")]
+    assert released.startswith("\n## v0.20.2")
+    entries = [entry for entry in released.split("\n- ") if "`not_permitted`" in entry]
 
     assert len(entries) == 1
     entry = _flat(entries[0])

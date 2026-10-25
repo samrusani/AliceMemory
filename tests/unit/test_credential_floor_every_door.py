@@ -63,7 +63,13 @@ from alicebot_api.vnext_memory_commit import (
 from alicebot_api.vnext_queue import VNextQueueService, VNextQueueValidationError
 
 from tests.unit.fixtures_promotion_corpus import ALL_NOTES, BUILDER_NOTES
-from tests.unit.fixtures_timing import budget, tracer_active
+from tests.unit.fixtures_timing import (
+    SIZE_RATIO,
+    assert_grows_linearly,
+    budget,
+    smallest_cpu_seconds,
+    tracer_active,
+)
 from tests.unit.test_memory_mutations import MemoryMutationStoreStub
 
 
@@ -773,17 +779,27 @@ def test_a_rollup_key_over_an_opaque_value_is_refused_in_a_continuity_body() -> 
 
 
 def test_proposal_source_refs_refuse_a_rollup_key_over_an_opaque_value() -> None:
-    from alicebot_api.vnext_memory_propose import MemoryProposal, MemoryProposalRefused, refuse_proposal_credentials
+    from alicebot_api.vnext_memory_propose import MemoryProposal, MemoryProposalInvalid, MemoryProposalRefused
 
     opaque = _opaque_rollup_body()["rollup_key"]
+    with pytest.raises(MemoryProposalInvalid, match="source_refs entries must be strings"):
+        MemoryProposal(
+            proposal_type="candidate_memory",
+            title="Deploy cadence",
+            canonical_text="The team deploys on Thursdays.",
+            memory_type="fact",
+            source_refs=({"source_id": "note-1", "rollup_key": opaque},),
+        )
     proposal = MemoryProposal(
         proposal_type="candidate_memory",
         title="Deploy cadence",
         canonical_text="The team deploys on Thursdays.",
         memory_type="fact",
-        source_refs=({"source_id": "note-1", "rollup_key": opaque},),
+        source_refs=(f"note-1 rollup_key={opaque}",),
     )
     with pytest.raises(MemoryProposalRefused, match="credential material"):
+        from alicebot_api.vnext_memory_propose import refuse_proposal_credentials
+
         refuse_proposal_credentials(proposal)
 
 
@@ -1281,9 +1297,13 @@ def test_door7_commit_source_refs_are_bounded_at_the_service() -> None:
     base = {"title": "deploy", "canonical_text": "Deploys go out on Tuesdays."}
     memory_commit_request_from_payload({**base, "source_refs": ["ref"] * MAX_COMMIT_SOURCE_REFS}, user_id=USER_ID)
     memory_commit_request_from_payload({**base, "source_refs": ["x" * MAX_COMMIT_SOURCE_REF_CHARS]}, user_id=USER_ID)
-    for heavy in ('"' * MAX_COMMIT_SOURCE_REF_CHARS, "\n" * MAX_COMMIT_SOURCE_REF_CHARS, '"\n' * 2_000):
+    for heavy in ('"' * MAX_COMMIT_SOURCE_REF_CHARS, '"\n' * 2_000):
         assert len(heavy) == MAX_COMMIT_SOURCE_REF_CHARS
         memory_commit_request_from_payload({**base, "source_refs": [heavy]}, user_id=USER_ID)
+    blank = "\n" * MAX_COMMIT_SOURCE_REF_CHARS
+    assert len(blank) == MAX_COMMIT_SOURCE_REF_CHARS
+    with pytest.raises(VNextMemoryCommitValidationError, match="source_refs entries must be strings"):
+        memory_commit_request_from_payload({**base, "source_refs": [blank]}, user_id=USER_ID)
     with pytest.raises(VNextMemoryCommitValidationError, match="at most 64"):
         memory_commit_request_from_payload(
             {**base, "source_refs": ["ref"] * (MAX_COMMIT_SOURCE_REFS + 1)}, user_id=USER_ID
@@ -1292,8 +1312,8 @@ def test_door7_commit_source_refs_are_bounded_at_the_service() -> None:
         memory_commit_request_from_payload(
             {**base, "source_refs": ["x" * (MAX_COMMIT_SOURCE_REF_CHARS + 1)]}, user_id=USER_ID
         )
-    # A non-string ref is measured by its serialized length.
-    with pytest.raises(VNextMemoryCommitValidationError, match="at most 4000"):
+    # An object entry is refused as a shape. v0.20.2 measured it by its serialized length.
+    with pytest.raises(VNextMemoryCommitValidationError, match="source_refs entries must be strings"):
         memory_commit_request_from_payload(
             {**base, "source_refs": [{"nested": ["x" * MAX_COMMIT_SOURCE_REF_CHARS]}]}, user_id=USER_ID
         )
@@ -1435,12 +1455,16 @@ def test_r5_the_new_patterns_agree_with_the_old_on_a_seeded_whitespace_fuzz() ->
     assert hits > 500
 
 
-def _agent_control_seconds(text: str) -> float:
+def _scan_agent_control(text: str) -> None:
     new_1, new_4 = _agent_control_pair()
-    started = time.perf_counter()
     for surface in policy._surface_forms(text):
         new_1.search(surface)
         new_4.search(surface)
+
+
+def _agent_control_seconds(text: str) -> float:
+    started = time.perf_counter()
+    _scan_agent_control(text)
     return time.perf_counter() - started
 
 
@@ -1462,15 +1486,18 @@ def test_r5_a_50kb_newline_run_scans_inside_the_budget(label: str) -> None:
 
 
 @pytest.mark.parametrize("label", sorted(_NEWLINE_RUNS))
-def test_r5_four_times_the_input_costs_about_four_times_the_time(label: str) -> None:
+def test_r5_eight_times_the_input_costs_about_eight_times_the_time(label: str) -> None:
     small = _NEWLINE_RUNS[label][:25_000]
-    large = small * 4
-    # Best of three at each size, so one slow tick cannot fail the ratio.
-    small_seconds = min(_agent_control_seconds(small) for _ in range(3))
-    large_seconds = min(_agent_control_seconds(large) for _ in range(3))
-    # Linear is 4x; quadratic is 16x. 8x leaves room for noise and still
-    # fails the old patterns by a wide margin.
-    assert large_seconds < max(8 * small_seconds, 0.02), (label, small_seconds, large_seconds)
+    large = small * SIZE_RATIO
+    # CPU seconds, alternating rounds, the smallest of each size, so one slow
+    # tick or a busy machine cannot fail the ratio. Linear is 8x; quadratic is
+    # 64x; the limit is a third of 64 (see fixtures_timing).
+    small_seconds, large_seconds = smallest_cpu_seconds(
+        lambda: _scan_agent_control(small),
+        lambda: _scan_agent_control(large),
+        give_up_over=budget(_CHOKE_POINT_BUDGET_SECONDS),
+    )
+    assert_grows_linearly(small_seconds, large_seconds, what=label)
 
 
 # ---------------------------------------------------------------------------
@@ -1494,15 +1521,24 @@ def _floor_seconds(text: str) -> float:
     return time.perf_counter() - started
 
 
+def _header_run_seconds(unit: str) -> tuple[float, float]:
+    """CPU seconds of the floor on 25 KB and on eight times that of one repeated unit (see ``fixtures_timing``)."""
+
+    small = _header_run(unit, 25_000)
+    large = _header_run(unit, 25_000 * SIZE_RATIO)
+    return smallest_cpu_seconds(
+        lambda: carries_credential_material(small),
+        lambda: carries_credential_material(large),
+        give_up_over=budget(_CHOKE_POINT_BUDGET_SECONDS),
+    )
+
+
 @pytest.mark.parametrize("unit", _REPEATED_HEADERS)
 def test_round3_a_repeated_private_key_header_scans_in_linear_time(unit: str) -> None:
-    small = _header_run(unit, 50_000)
-    large = _header_run(unit, 200_000)
-    small_seconds = min(_floor_seconds(small) for _ in range(3))
-    large_seconds = min(_floor_seconds(large) for _ in range(3))
+    small_seconds, large_seconds = _header_run_seconds(unit)
     assert small_seconds < _CHOKE_POINT_BUDGET_SECONDS, unit
-    # Linear is 4x; quadratic is 16x (measured 15x on 8e00cc5).
-    assert large_seconds < max(8 * small_seconds, 0.05), (unit, small_seconds, large_seconds)
+    # Linear is 8x; quadratic is 64x (the old pattern measured 15x for 4x the input on 8e00cc5).
+    assert_grows_linearly(small_seconds, large_seconds, what=unit, floor_seconds=0.05)
 
 
 # Round 4: the paths added for wrapped base64, PuTTY files and mangled armor.
@@ -1526,12 +1562,9 @@ def test_round4_the_putty_run_really_decodes_to_a_putty_header() -> None:
 
 @pytest.mark.parametrize("label", sorted(_ROUND4_SHAPES))
 def test_round4_the_new_private_key_paths_scan_in_linear_time(label: str) -> None:
-    small = _header_run(_ROUND4_SHAPES[label], 50_000)
-    large = _header_run(_ROUND4_SHAPES[label], 200_000)
-    small_seconds = min(_floor_seconds(small) for _ in range(3))
-    large_seconds = min(_floor_seconds(large) for _ in range(3))
+    small_seconds, large_seconds = _header_run_seconds(_ROUND4_SHAPES[label])
     assert small_seconds < _CHOKE_POINT_BUDGET_SECONDS, label
-    assert large_seconds < max(8 * small_seconds, 0.05), (label, small_seconds, large_seconds)
+    assert_grows_linearly(small_seconds, large_seconds, what=label, floor_seconds=0.05)
 
 
 # S4.4 round 5: the body after a header. Round 4's "Name: value" lines ended
@@ -1553,15 +1586,12 @@ def test_round5_the_body_after_a_header_scans_in_linear_time(label: str) -> None
     # One copy first, so the old pattern fails in seconds rather than hanging
     # on 50 KB: 1.2 KB of the first shape took 2.4 s before the fix.
     assert _floor_seconds(_ROUND5_SHAPES[label]) < 0.25, label
-    small = _header_run(_ROUND5_SHAPES[label], 50_000)
-    large = _header_run(_ROUND5_SHAPES[label], 200_000)
-    small_seconds = min(_floor_seconds(small) for _ in range(3))
-    large_seconds = min(_floor_seconds(large) for _ in range(3))
+    small_seconds, large_seconds = _header_run_seconds(_ROUND5_SHAPES[label])
     assert small_seconds < _CHOKE_POINT_BUDGET_SECONDS, label
-    assert large_seconds < max(8 * small_seconds, 0.05), (label, small_seconds, large_seconds)
+    assert_grows_linearly(small_seconds, large_seconds, what=label, floor_seconds=0.05)
     # Guards the guard: the repeated unit really holds the header whose body
     # pattern was the costly one.
-    assert "BEGIN PRIVATE KEY" in small
+    assert "BEGIN PRIVATE KEY" in _header_run(_ROUND5_SHAPES[label], 25_000)
 
 
 # ---------------------------------------------------------------------------
@@ -1628,24 +1658,43 @@ def test_codeql_the_suffix_tests_match_the_old_patterns() -> None:
 _CODEQL_UNITS = {"zeros": "0", "capitals": "A", "capital then lower": "Aa", "lower then digit": "a0"}
 
 
-def _name_seconds(name: str) -> float:
-    started = time.perf_counter()
+def _scan_name(name: str) -> None:
     credential_floor._name_kind(name, "", 0)
     carries_credential_material(name + "=" + "Abc123def456")
     carries_credential_material({name: "Abc123def456"})
-    return time.perf_counter() - started
 
 
 @pytest.mark.parametrize("label", sorted(_CODEQL_UNITS))
 def test_codeql_a_long_name_scans_in_linear_time(label: str) -> None:
+    """A name eight times as long costs about eight times as much, not sixty-four.
+
+    The measure is CPU seconds of the thread, with the collector off, the small
+    and the large name run in alternating rounds and the smallest of each kept
+    (see ``fixtures_timing``), because the first version of this test, wall
+    clock seconds of one size and then the other, failed at 13.8 times where
+    linear is about 4 when the whole unit suite ran in one process. Linear is
+    8 times at these sizes and quadratic is 64; the limit is a third of 64,
+    21.3. A count of regex calls or slices cannot stand in for the time here:
+    a pattern that backtracks does its extra work inside one call.
+
+    Mutations, each alone. In ``_camel_humps`` count a character over the rest
+    of the piece at every 16th run (``piece.count`` from ``run.start()``):
+    "capital then lower" fails on growth, 34 times the time at 8 times the
+    name. In ``_segment_ends_in`` test the token suffix with the old
+    ``[a-z0-9]*token`` pattern under ``search``: "zeros" fails the budget,
+    after two runs of the large name and not all five.
+    """
+
     unit = _CODEQL_UNITS[label]
-    small = unit * (50_000 // len(unit))
-    large = unit * (200_000 // len(unit))
-    small_seconds = min(_name_seconds(small) for _ in range(3))
-    large_seconds = min(_name_seconds(large) for _ in range(3))
+    small = unit * (25_000 // len(unit))
+    large = unit * (25_000 * SIZE_RATIO // len(unit))
+    small_seconds, large_seconds = smallest_cpu_seconds(
+        lambda: _scan_name(small),
+        lambda: _scan_name(large),
+        give_up_over=budget(_CHOKE_POINT_BUDGET_SECONDS),
+    )
     assert large_seconds < budget(_CHOKE_POINT_BUDGET_SECONDS), (label, large_seconds, tracer_active())
-    # Linear is 4x; quadratic is 16x.
-    assert large_seconds < max(8 * small_seconds, 0.02), (label, small_seconds, large_seconds)
+    assert_grows_linearly(small_seconds, large_seconds, what=label)
     # Guards the guard: the same long name ending in a secret word is read.
     assert credential_floor._name_kind(large + "_password", "", 0) == "password"
 

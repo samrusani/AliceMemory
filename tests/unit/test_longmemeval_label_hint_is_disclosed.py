@@ -3,10 +3,11 @@
 In LongMemEval_s the id of every evidence session starts with ``answer_`` and
 no filler session id does. The harness put that id in the header above each
 excerpt and in the first line of each session's text, so the reader model could
-see which sessions held the evidence. The effect is unmeasured. The README, the benchmark README,
+see which sessions held the evidence. The effect is unmeasured. The benchmark README,
 the honesty kit and every other markdown page that states 81.2%, 79.4% or 64.6%
 say so, and the published release notes that state a number carry one dated
-correction.
+correction. The root README states none of the three figures: it links the benchmark
+page, which holds the disclosure.
 
 What is pinned here, and what is not:
 
@@ -27,13 +28,15 @@ What is pinned here, and what is not:
 
 Mutations that must fail this file, each alone:
 
-* delete the "Known issue with this number." paragraph from README.md, or move
-  it above the first LongMemEval paragraph: the README test fails;
-* change "495 of 500" or "29 to 32" in README.md, or "37 reader answers" in the
-  benchmark README, to another number: the evidence test fails;
-* write "title" back into the label sentence of either README, or delete the
-  sentence "The earlier 64.6% and 79.4% runs used the same harness code." from
-  the README: the README test or the evidence test fails;
+* delete the "Known issue: session id label." block from the benchmark README, or
+  move it below the first stated result: the benchmark page test fails;
+* write 81.2%, 79.4% or 64.6% into README.md, or drop its link to the benchmark
+  page: the README test fails;
+* change "495 of 500", "29 to 32" or "37 reader answers" in the benchmark README
+  to another number: the evidence test fails;
+* write "title" back into the label sentence of the benchmark README, or delete
+  its sentence that says all three published numbers carry the label: the
+  benchmark page test or the evidence test fails;
 * delete the known-issue note from PRODUCT_BRIEF.md, or add "81.2%" to a
   markdown page that does not mention ``answer_``: the scan test fails;
 * walk the whole directory again instead of the tracked files: the nested
@@ -81,9 +84,9 @@ CORRECTED_NOTES = (
 CORRECTION_OPENING = re.compile(r"^\W*Correction\W+2026-10-01\b")
 
 # Markdown pages the scan must find. If the walk stops finding one, the scan
-# would pass because it looked at nothing.
+# would pass because it looked at nothing. README.md is not one of them: it
+# states no figure (test_the_readme_states_no_longmemeval_figure_and_links_the_page).
 MUST_BE_SCANNED = (
-    "README.md",
     "PRODUCT_BRIEF.md",
     "ROADMAP.md",
     "CURRENT_STATE.md",
@@ -184,42 +187,69 @@ def _pages_without_the_pointer(pages: dict[str, str]) -> list[str]:
     )
 
 
-# --- README ------------------------------------------------------------------
+# --- README and the benchmark page ----------------------------------------------
 
 
-def test_readme_second_benchmark_paragraph_discloses_the_label_hint() -> None:
-    """Mutation: delete the paragraph, move it above the first LongMemEval paragraph,
-    write "title" back into the label sentence, or delete the 64.6% and 79.4% sentence.
+def test_the_readme_states_no_longmemeval_figure_and_links_the_page() -> None:
+    """Mutation: write 81.2%, 79.4% or 64.6% into README.md, put a LongMemEval badge back, or drop the
+    links to the benchmark page and the showcase baseline.
 
-    The first LongMemEval paragraph stays first so the lead guard in
-    test_readme_does_not_lead_with_privileged_lme.py still reads store_chunks
-    and v0.12.0 there. This one is the second.
+    The README shows no benchmark percentage. It says the figures carry a known issue and sends the reader
+    to the benchmark page, which holds the figures and the disclosure (the next test).
     """
 
-    paragraphs = _paragraphs(_section(README.read_text(encoding="utf-8"), "Benchmark"))
-    lme = [p for p in paragraphs if "LongMemEval" in p]
-    assert lme[0].startswith("A LongMemEval_s receipt of 81.2% mean"), lme[0][:80]
-    assert lme[1].startswith("Known issue with this number."), lme[1][:80]
-    second = lme[1]
+    readme = README.read_text(encoding="utf-8")
+    assert STATED_NUMBER.search(readme) is None
+    assert "81.2" not in readme and "79.4" not in readme and "64.6" not in readme
+    assert "img.shields.io/badge/LongMemEval" not in readme
+    benchmarks = " ".join(_section(readme, "Benchmark").split())
+    assert "known issue" in benchmarks
+    assert "(docs/benchmarks/longmemeval/README.md)" in benchmarks
+    assert "(docs/benchmarks/showcase/phase0-baseline.md)" in benchmarks
+    # The dated corrections in the published release notes send the reader to "the Benchmark section of the README".
+    assert "\n## Benchmark\n" in readme
+
+
+def test_the_benchmark_page_discloses_the_label_hint_before_it_states_a_result() -> None:
+    """Mutation: delete the block, move it below the first result, write "title" back into the label
+    sentence, or delete the sentence that says all three published numbers carry the label.
+
+    The block sits above the first stated result so a reader meets the disclosure first.
+    """
+
+    text = BENCH_README.read_text(encoding="utf-8")
+    paragraphs = _paragraphs(text)
+    known = [p for p in paragraphs if p.startswith("**Known issue: session id label.**")]
+    assert len(known) == 1, [p[:60] for p in paragraphs[:4]]
+    block = known[0]
     for needle in (
         "`answer_`",
         "in the header above each excerpt and in the first line of each session's text",
         "a retrieved session carried that label on 495 of 500 questions",
         "29 to 32 answers per run",
-        "unknown amount",
+        "may overstate the result by an unknown amount",
+        "so all three published numbers carry it",
         "81.2%",
-        "The earlier 64.6% and 79.4% runs used the same harness code.",
+        "79.4%",
+        "64.6%",
         "`pack_excerpts`",
         "replace these numbers rather than sit beside them",
     ):
-        assert needle in second, needle
+        assert needle in block, needle
+    first_result = next(
+        index for index, paragraph in enumerate(paragraphs) if paragraph.startswith("**Replicated accuracy:")
+    )
+    assert paragraphs.index(block) < first_result
+    # The product-path note above the block says what the privileged path is.
+    opening = " ".join(paragraphs[:2])
+    assert "That path reads chunks straight from the store, and no MCP tool offers it." in opening
 
 
 # --- the counts match the committed evidence ------------------------------------
 
 
 def test_stated_counts_match_the_committed_per_question_files() -> None:
-    """Mutation: change 495, 29 to 32 or 37 in a doc, or tighten the pattern to hex ids so it under-counts."""
+    """Mutation: change 495, 29 to 32 or 37 in the benchmark page, or tighten the pattern to hex ids so it under-counts."""
 
     labelled: list[int] = []
     named: list[int] = []
@@ -237,10 +267,8 @@ def test_stated_counts_match_the_committed_per_question_files() -> None:
         "session_id" in key for row in rows_0707.values() for key in {**row, **(row.get("retrieval") or {})}
     ), "the 2026-07-07 file was said to have no session id field"
 
-    readme = README.read_text(encoding="utf-8")
-    assert "495 of 500" in readme
-    assert f"{min(named)} to {max(named)} answers per run" in readme
     bench = " ".join(_paragraphs(BENCH_README.read_text(encoding="utf-8")))
+    assert "495 of 500" in bench
     assert "37 reader answers" in bench
     assert f"in {min(named)} to {max(named)} answers per run" in bench
     assert "in the header above each excerpt and in the first line of each session's text" in bench

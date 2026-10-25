@@ -1,8 +1,8 @@
-"""The docs say what main does about the four expiry and embedding gaps, with v0.20.0 as the comparison.
+"""The docs say what v0.20.2 does about the four expiry and embedding gaps, with v0.20.0 as the comparison.
 
-v0.20.0 is released, so its notes stay as they are. The documents that describe the latest release mark
-what only main does with ``Unreleased (on main, not in v0.20.0):``, and the changelog has one entry under
-``## Unreleased`` that states the v0.20.0 behaviour beside each change.
+v0.20.0 is released, so its notes stay as they are. The documents that describe the release mark
+what v0.20.2 changes with ``From v0.20.2,``, and the changelog has one entry under
+``## v0.20.2`` that states the v0.20.0 behaviour beside each change.
 
 Every test names the edit that must fail it.
 """
@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 ENTRY_START = "The four expiry and embedding gaps that the v0.20.0 notes list as known limitations are closed."
 NOTES = "docs/release/v0.20.0-release-notes.md"
 
@@ -29,26 +29,26 @@ def _changelog() -> str:
     return (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
 
-def _unreleased() -> str:
+def _released() -> str:
     changelog = _changelog()
-    return changelog[changelog.index("## Unreleased") : changelog.index("## v0.20.0")]
+    return changelog[changelog.index("## v0.20.2") : changelog.index("## v0.20.0")]
 
 
 def _entry() -> str:
-    entries = [item for item in _unreleased().split("\n- ")[1:] if item.startswith(ENTRY_START)]
+    entries = [item for item in _released().split("\n- ")[1:] if item.startswith(ENTRY_START)]
     assert len(entries) == 1
     return _flat(entries[0])
 
 
-def test_the_changelog_has_one_entry_under_unreleased_and_none_in_a_release() -> None:
-    """One entry, in the Unreleased section.
+def test_the_changelog_has_one_entry_under_v0202_and_none_in_an_older_release() -> None:
+    """One entry, in the v0.20.2 section.
 
     Mutations, each one alone: move the entry under the v0.20.0 heading, or add a second entry that starts
     the same way.
     """
 
     assert _changelog().count(ENTRY_START) == 1
-    assert ENTRY_START in _unreleased()
+    assert ENTRY_START in _released()
     assert _entry().startswith(ENTRY_START)
 
 
@@ -79,33 +79,40 @@ def test_the_entry_states_the_v0200_behaviour_beside_each_change() -> None:
     assert "\u2014" not in entry and "\u2013" not in entry
 
 
-def test_the_known_limitations_keep_the_v0200_text_and_mark_what_main_changes() -> None:
-    """The three open bullets keep what v0.20.0 does and add the main-only change after the marker.
+def test_the_known_limitations_list_what_stays_open_after_the_expiry_fix() -> None:
+    """The open list keeps what stays open, and the history of the four closed gaps is on the dated records.
 
-    Mutations, each one alone: delete the marker from a bullet, delete the v0.20.0 clause before it, or
-    delete the sentence that says the context pack is unchanged.
+    The three bullets that listed the gaps as open are gone from the open list: the gaps are fixed. One bullet keeps what
+    is left (the context pack still names the id of an expired memory in ``recent_changes``, its ``max_tokens`` budget
+    prices the full row, and text already sent to an embeddings endpoint cannot be taken back). The closing paragraph that
+    named the four closed gaps, with v0.19.2 as the comparison, left the page with the rest of the version history: the
+    changelog entry pins each gap and the v0.20.0 behaviour beside it (``test_the_entry_states_the_v0200_behaviour_beside_each_change``),
+    the v0.20.0 notes pin that recall and the context pack did not return an expired memory in v0.19.2, and the page links
+    the release notes and the changelog from its header.
+
+    Mutations, each one alone: put one of the three open bullets back, delete the ``recent_changes`` sentence or the
+    sentence about text already sent to an embeddings endpoint, or put the closing paragraph back
+    (``What v0.20.0 listed as open and v0.20.2 closed``).
     """
 
     limitations = _read("docs/alpha/known-limitations.md")
-    section = limitations[limitations.index("Open in v0.20.0, with the detail") :]
-    brief, consolidation, promotion = (
-        section[section.index("- the session brief, `alice_resume`") : section.index("- consolidation and the roll-up")],
-        section[section.index("- consolidation and the roll-up") : section.index("- promoting a reviewed artifact")],
-        section[section.index("- promoting a reviewed artifact") : section.index("- the `max_tokens` budget")],
-    )
-    # One marker in each of the three bullets the expiry change marked. The count is of these three bullets and not
-    # of the whole section, so a later change that marks another bullet of the section does not break this test.
-    assert (brief.count(MARK), consolidation.count(MARK), promotion.count(MARK)) == (1, 1, 1)
-    assert "list memories by status and do not check `valid_to`" in brief.split(MARK)[0]
-    assert "as in v0.19.2." in brief.split(MARK)[0]
-    assert "`alice_context_pack` is not changed" in brief.split(MARK)[1]
-    assert "embed, for clustering, memories that already hold a vector and do not check `valid_to`" in (
-        consolidation.split(MARK)[0]
-    )
-    assert "(`list_accepted_rollup_cards`) without checking `valid_to`" in consolidation.split(MARK)[0]
-    assert "`expired_card_members_unchanged`" in consolidation.split(MARK)[1]
-    assert "does not embed the new memory" in promotion.split(MARK)[0]
-    assert "embeds the new memory after the commit, once" in promotion.split(MARK)[1]
+    section = limitations[limitations.index("Open in v0.21.0") :]
+    assert "- the session brief, `alice_resume` and `alice_recent_decisions` list memories by status" not in section
+    assert "- consolidation and the roll-up semantic tier embed, for clustering" not in section
+    assert "- promoting a reviewed artifact into a memory does not embed the new memory" not in section
+    bullet = section[
+        section.index("- `alice_context_pack` still names the id of an expired memory") : section.index("- the cited-source fence has gaps")
+    ]
+    assert "`alice_context_pack` still names the id of an expired memory in `recent_changes`" in bullet
+    assert "its `max_tokens` budget prices the full stored row while the agent receives a compact row" in bullet
+    assert (
+        "Text that earlier releases sent to an embeddings endpoint, an expired memory's included, cannot be taken back from it"
+    ) in bullet
+    assert "What v0.20.0 listed as open and v0.20.2 closed" not in limitations
+    assert "the roll-up pass counting an expired card as the accepted card for its topic" not in limitations
+    notes = _read(NOTES)
+    assert "Recall and the context pack do not return such a memory, as in v0.19.2" in notes
+    assert "so they agree with recall and the context pack" in _entry()
 
 
 def test_the_v0200_notes_are_unchanged_and_carry_no_main_only_marker() -> None:
@@ -126,7 +133,7 @@ def test_the_v0200_notes_are_unchanged_and_carry_no_main_only_marker() -> None:
         assert heading in notes, heading
 
 
-def test_the_control_documents_and_the_protocol_say_what_main_changes() -> None:
+def test_the_control_documents_and_the_protocol_say_what_v0202_changes() -> None:
     """``CURRENT_STATE.md`` carries the line, and the protocol doc says which doors leave an expired memory out.
 
     Mutations, each one alone: delete the line from ``CURRENT_STATE.md``, or delete the sentence from the
@@ -135,7 +142,7 @@ def test_the_control_documents_and_the_protocol_say_what_main_changes() -> None:
 
     state = (ROOT / "CURRENT_STATE.md").read_text(encoding="utf-8")
     flat = _flat(state)
-    assert f"- {MARK} the brief, `alice_resume` and `alice_recent_decisions` leave out an expired memory" in flat
+    assert "- The brief, `alice_resume` and `alice_recent_decisions` leave out an expired memory" in flat
     assert "artifact promotion embeds the memory it makes" in flat
     protocol = _read("docs/memory-operations-protocol.md")
     assert (

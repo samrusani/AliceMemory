@@ -17,18 +17,36 @@ from alicebot_api.vnext_derived_labels import (
     weekly_candidate_memory,
 )
 
-# One request shares the parent index. ``index`` is None until the first weekly memory asks.
+# One request shares the parent index. The index itself is held by the request's label state, in ``cache`` under
+# ``"index"``, so whatever empties that state (``invalidate_read_labels``) empties the index with it. It is absent until
+# the first weekly memory asks. This variable names the store the request belongs to and counts the lookups.
 _WEEKLY_PARENTS: ContextVar[dict[str, Any] | None] = ContextVar("weekly_parent_index", default=None)
 
 
-def bind_weekly_parent_cache(store: Any) -> Token:
-    """Start the parent index for one read. A nested read of the same store keeps the outer index."""
+def bind_weekly_parent_cache(store: Any, cache: dict[str, Any]) -> Token:
+    """Start the parent index for one read. A nested read of the same store keeps the outer index.
 
-    return _WEEKLY_PARENTS.set({"store": store, "index": None, "queries": 0})
+    ``cache`` is the dict the request's label state clears when it is invalidated. It has no default: an index
+    that the invalidation does not reach would serve a report that a write or a rollback has already changed.
+    """
+
+    return _WEEKLY_PARENTS.set({"store": store, "cache": cache, "queries": 0})
 
 
 def reset_weekly_parent_cache(token: Token) -> None:
     _WEEKLY_PARENTS.reset(token)
+
+
+def drop_weekly_parent_index(store: Any) -> None:
+    """Forget the index this store's request has loaded, so its next lookup reads the reports again.
+
+    A write calls this once it has stored its row: the insert floor reads the reports while the write runs,
+    and an index loaded then does not hold the row the write goes on to store.
+    """
+
+    current = _WEEKLY_PARENTS.get()
+    if current is not None and current["store"] is store:
+        current["cache"].clear()
 
 
 def weekly_parent_query_count() -> int:
@@ -57,11 +75,13 @@ def load_weekly_parent_artifacts(store: Any, memory_id: str) -> list[dict[str, o
 
 def _parent_index(store: Any) -> dict[str, list[dict[str, object]]]:
     current = _WEEKLY_PARENTS.get()
-    if current is not None and current["store"] is store and current["index"] is not None:
-        return current["index"]
+    if current is not None and current["store"] is store:
+        cached = current["cache"].get("index")
+        if cached is not None:
+            return cached
     index = _load_parent_index(store)
     if current is not None and current["store"] is store:
-        current["index"] = index
+        current["cache"]["index"] = index
     return index
 
 

@@ -53,7 +53,7 @@ CARRIER_NAMES = tuple(
     enforce_v1_agent_authentication
     _append_vary_header _cors_origin_allowed
     _resolve_cors_allow_origin_value _apply_cors_headers _apply_security_headers
-    apply_http_security_posture enforce_authenticated_user_identity healthcheck
+    apply_http_security_posture enforce_authenticated_user_identity _withhold_hidden_ids healthcheck
     _apply_legacy_surface_mount_policy
     """.split()
 )
@@ -105,11 +105,13 @@ EXPECTED_ROUTE_AST_SHA256 = "7045d27156861c06b2283bb09416e522c59a5064941f40e81c8
 # Re-pin 2026-10-10 (fourth): the payload passes the sources, the metadata of the quality ratings and the allowed sources and scope of
 # the queued tasks through the reader as well, because each keeps a structure its writer chose that can quote a memory or a source.
 # Same definition.
-EXPECTED_SUPPORT_AST_SHA256 = "42407afbff582448dce389500c2173b29c45434dc13865ebcfbe4a2ce657303f"
+# Re-pin 2026-10-17: the payload fills each list after the label drop for a caller with limits, judging at most 128
+# rows. One definition changed, ``_vnext_workspace_payload``, and the router imports ``page_after_label_drop``.
+EXPECTED_SUPPORT_AST_SHA256 = "c2728edcb47be5e1be17c7fe9d096b055f2a1ef3c6aae0f26c24004c3fa0c753"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
-EXPECTED_IMPORT_MANIFEST_SHA256 = "e8c18d6831ca012b55b22f46c9b2151d62575773a2452ef0d0f2e869cabc8abb"
-EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e92413391541a7e504da328b"
+EXPECTED_IMPORT_MANIFEST_SHA256 = "e47e66aa92793bef538eb870420780ecea8b741b5b632ade82b9d26e61002b97"
+EXPECTED_CARRIER_NAMES_SHA256 = "946e9d456afbdc7751df671b251457a432ba444dbbdfad59c1e9b96a28ccc0fe"
 # Re-pinned 2026-10-02 (DB-005, legacy /v0 routes). One definition changed,
 # found by a per-definition AST diff against the previous pin:
 # enforce_authenticated_user_identity runs keyless_edge.keyless_request_refusal
@@ -155,7 +157,12 @@ EXPECTED_CARRIER_NAMES_SHA256 = "2c109fc234a05dd8f44e4c34bee49e797fbb5e49e924133
 # Re-pin 2026-10-09: _vnext_workspace_payload lists the queued tasks and the brain charter the caller may read
 # (readable_own_label_rows), names its caller for the recent-commits fallback, and holds the connector health block and
 # the doctor to the caller's guard; no other definition changed.
-EXPECTED_CARRIER_AST_SHA256 = "af76e0b8904bb76a54403125e86dd9f49cc42403d6e1a9bffadcaf9cee27899e"
+# Re-pin: hidden-id withholding stays on the carrier, and main's what-changed registration is in the same file.
+# Re-pin: _vnext_protected_http_auth stashes the body it already read, after a keyless refusal returns, and
+# _withhold_hidden_ids keeps ids from that copy. The set of definitions is the same.
+# Re-pin: `_vnext_protected_http_auth` records the user the key was authenticated for, and `_withhold_hidden_ids` keeps
+# every response header, repeated ones included. The set of definitions is the same.
+EXPECTED_CARRIER_AST_SHA256 = "039f3b987d1bce8daff4c142bb69ab4b6357cd284683c59005cef5bbe50400c0"
 EXPECTED_ROUTE_NODE_SHA256 = {
     "get_vnext_workspace": "62f9a0dec65229b3ff523d12e99529f1e4751f7953e26ed69fc52d184ebc9d2d",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",
@@ -163,7 +170,7 @@ EXPECTED_ROUTE_NODE_SHA256 = {
 }
 EXPECTED_SUPPORT_NODE_SHA256 = {
     "_vnext_status_counts": "0bf0ed228a14bd648a9d18fcd5f99ebf8c585bd29f4b5e81e1df17fe0201fd15",
-    "_vnext_workspace_payload": "ddf299ff32173e526ef006d36c6346321103ed68169d733507cd8f97d04e33a2",
+    "_vnext_workspace_payload": "492b17fc9a1b20b911354ab7a099c38b2ed2f7d70a4ec76cac255dc6754686ac",
     "_workspace_rows": "070bdfbd1eae10608bd8208b08367e1c0ea10e2064f03ad5a84121a190ed4cf0",
     "_workspace_event_visible": "8343c060909326a5cb69fa6f671ac62f160630ecf989f04d78e792ea74c0ea90",
 }
@@ -512,7 +519,7 @@ def test_workspace_import_direction_pruning_timing_and_runtime_identities_are_ex
     main_definitions = _top_level_definitions(main_tree)
     router_imports = _import_manifest(router_tree)
 
-    assert len(router_imports) == 39
+    assert len(router_imports) == 40
     assert hashlib.sha256(json.dumps(router_imports, separators=(",", ":")).encode()).hexdigest() == (
         EXPECTED_IMPORT_MANIFEST_SHA256
     )

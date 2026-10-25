@@ -241,42 +241,45 @@ def test_the_builder_is_the_only_door_the_tool_and_the_http_route_use() -> None:
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = "Unreleased (on main, not in v0.20.0):"
+MARK = "From v0.20.2,"
 
 
 def _flat(text: str) -> str:
     return " ".join(text.split())
 
 
-def test_the_known_limitations_bullet_keeps_the_v0200_text_and_marks_the_limit_as_main_only() -> None:
-    """The bullet says v0.20.0 has no limit on SQLite, then, after one marker, that main refuses over 20,000.
+def test_the_known_limitations_bullet_names_the_limit_and_the_two_legacy_tools_that_take_any_length() -> None:
+    """The bullet says ``alice_memory_commit`` refuses a memory over the limit and the two legacy tools take any length.
 
-    v0.20.0 is released and README-level docs describe it, so the refusal is main-only until the release PR
-    converts the marker. Without the marker the page says v0.20.0 already refuses the text, which is false.
+    The page describes v0.20.2, so it carries no marker and does not retell that v0.20.0 had no limit on SQLite. That
+    comparison is pinned on ``mcp-tools.md`` in the test below and on the v0.20.0 notes. The number on the page is the
+    constant the request builder enforces.
 
-    Mutations, each one alone, in ``docs/alpha/known-limitations.md``: delete ``Unreleased (on main, not in
-    v0.20.0):`` from this bullet; delete the v0.20.0 clause before the marker (``has no length limit``); delete the
-    clause after it that says the text is refused; add a second marker to the bullet. Each fails this test. The
-    three expiry-bullet checks in ``test_expired_memories_docs.py`` do not see this bullet.
+    Mutations, each one alone, in ``docs/alpha/known-limitations.md``: change ``20,000`` to ``8,000``; delete the clause
+    that says the two legacy tools take text of any length; put ``From v0.20.2,`` back in the bullet; delete the pointer
+    to the legacy tool list. In ``write_bounds.py``, change ``MAX_COMMIT_CANONICAL_TEXT_CHARS``.
     """
 
     lines = (ROOT / "docs/alpha/known-limitations.md").read_text(encoding="utf-8").splitlines()
-    bullets = [_flat(line) for line in lines if line.startswith("- the Postgres HTTP commit routes take up to 20,000")]
+    bullets = [_flat(line) for line in lines if line.startswith("- most optional legacy tools")]
     assert len(bullets) == 1
     bullet = bullets[0]
-    assert bullet.count(MARK) == 1
-    before, after = bullet.split(MARK)
-    assert "`alice_memory_commit` on SQLite has no length limit" in before
-    assert "a 2,000,000-character memory was stored whole" in before
-    assert "`alice_memory_commit` refuses a memory whose text is over 20,000 characters" in after
-    assert "refuses" not in before
-    assert "`alice_vnext_correct_memory` and `alice_vnext_propose_memory`" in after
+    assert MARK not in bullet
+    assert (
+        "`alice_vnext_correct_memory` and `alice_vnext_propose_memory` take text of any length, while `alice_memory_commit` "
+        f"refuses a memory over {MAX_COMMIT_CANONICAL_TEXT_CHARS:,} characters"
+    ) in bullet
+    assert "(`ALICE_MCP_LEGACY_TOOLS=1`)" in bullet
+    assert "([list](mcp-tools.md#legacy-tool-surface))" in bullet
+    # The refusal is on every store, and the two legacy tools are the ones that run on SQLite without it.
+    notes = _flat((ROOT / "docs/release/v0.20.2-release-notes.md").read_text(encoding="utf-8"))
+    assert "`alice_vnext_propose_memory` still take text of any length on SQLite" in notes
 
 
 def test_the_mcp_tools_page_keeps_the_v0200_text_and_marks_the_limit_as_main_only() -> None:
     """The paragraph on ``canonical_text`` says the number, then, after one marker, that main refuses a longer text.
 
-    Mutations, each one alone, in ``docs/alpha/mcp-tools.md``: delete ``Unreleased (on main, not in v0.20.0):``
+    Mutations, each one alone, in ``docs/alpha/mcp-tools.md``: delete ``From v0.20.2,``
     from the paragraph; delete the sentence after the marker that says v0.20.0 had no limit on SQLite; delete the
     refusal clause after the marker; move the refusal clause before the marker. Each fails this test.
     """

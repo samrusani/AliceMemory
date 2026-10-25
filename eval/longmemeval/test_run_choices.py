@@ -160,6 +160,41 @@ def test_recall_fingerprint_does_not_claim_a_budget_or_a_rendered_pack(tmp_path:
     assert pack["context_char_budget"] == 12_000 and pack["pack_format"] == pack_formats.PACK_FORMAT_PROSE
 
 
+def test_the_fingerprint_records_the_ranking_mode(tmp_path: Path) -> None:
+    """The ranking mode is in the run fingerprint, and a different mode changes the digest.
+
+    Mutation: drop ``ranking_mode`` from ``config_fingerprint`` or from ``run_choices``.
+    """
+
+    document = runner.config_fingerprint(_recall_config(tmp_path), model=None, judge=None)
+    assert document["ranking_mode"] == "document"
+    passage = runner.config_fingerprint(replace(_recall_config(tmp_path), ranking_mode="passage"), model=None, judge=None)
+    assert passage["ranking_mode"] == "passage"
+    assert passage["digest"] != document["digest"]
+    assert runner.config_fingerprint(_config(tmp_path), model=None, judge=None)["ranking_mode"] == "document"
+
+
+def test_a_recall_run_records_the_mode_the_recall_edge_resolves(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pack run stays ``document`` when the process switch is ``passage``, because the pack does not read the
+    switch. A recall run records ``passage`` and ``on``, ``document`` for ``off``, and ``passage`` when the
+    switch is unset (the SQLite default of ``alice_recall``).
+
+    Mutation: read ``SourceRanking.from_environment`` alone, or return ``document`` for an unset switch.
+    """
+
+    monkeypatch.setenv("ALICE_SEARCH_QUALITY", "passage")
+    assert runner.resolved_ranking_mode(adapter.SURFACE_RECALL) == "passage"
+    assert runner.resolved_ranking_mode(adapter.SURFACE_CONTEXT_PACK) == "document"
+    monkeypatch.setenv("ALICE_SEARCH_QUALITY", "on")
+    assert runner.resolved_ranking_mode(adapter.SURFACE_RECALL) == "on"
+    monkeypatch.setenv("ALICE_SEARCH_QUALITY", "off")
+    assert runner.resolved_ranking_mode(adapter.SURFACE_RECALL) == "document"
+    # Passage mode is the SQLite default of alice_recall, so an unset switch records passage, not document.
+    monkeypatch.delenv("ALICE_SEARCH_QUALITY", raising=False)
+    assert runner.resolved_ranking_mode(adapter.SURFACE_RECALL) == "passage"
+    assert runner.resolved_ranking_mode(adapter.SURFACE_CONTEXT_PACK) == "document"
+
+
 def test_every_row_carries_the_choices_even_when_the_question_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -181,6 +216,7 @@ def test_every_row_carries_the_choices_even_when_the_question_errors(
         "excerpt_source": adapter.EXCERPT_SOURCE_STORE_CHUNKS,
         "promotion_mode": adapter.PROMOTION_MODE_ALL_CANDIDATES,
         "surface": adapter.SURFACE_CONTEXT_PACK,
+        "ranking_mode": "document",
     }
     assert {key: record[key] for key in expected} == expected
 

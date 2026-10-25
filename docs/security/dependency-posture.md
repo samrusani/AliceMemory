@@ -53,7 +53,7 @@ entry is printed on each run. The production audit never reads the file, so a
 match that reaches a shipped build always blocks. v0.20.0 ships the mechanism
 with no entries.
 
-Unreleased (on main, not in v0.20.0): the file holds one entry, for `braces`
+From v0.20.2, the file holds one entry, for `braces`
 (GHSA-vfj7-8cjw-p6xm, high, stack exhaustion on a deeply nested brace pattern).
 No released version fixes it. It is reached only through development lint
 tooling, is not in the production dependency tree, and expires on 2026-11-03.

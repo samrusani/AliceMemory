@@ -52,6 +52,7 @@ from .shared import (
     _raise_mcp_policy_blocked,
     _vnext_store_context,
 )
+from .arguments import _parse_source_refs
 from .types import MCPArgumentError
 
 
@@ -79,7 +80,7 @@ def _handle_alice_vnext_propose_memory(context: MCPRuntimeContext, arguments: Ma
         sensitivity=sensitivity,
         confidence=_parse_optional_float(arguments, "confidence") or 0.5,
         rationale=_parse_optional_text(arguments, "rationale"),
-        source_refs=tuple(_parse_string_list(arguments, "source_refs")),
+        source_refs=_parse_source_refs(arguments),
         project_scope=tuple(_parse_string_list(arguments, "project_scope")),
         source_type=_parse_optional_text(arguments, "source_type") or "trusted_agent",
         contradiction_refs=tuple(_parse_string_list(arguments, "contradiction_refs")),
@@ -142,7 +143,7 @@ def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Map
             "confidence": 0.9 if confidence is None else confidence,
             "intent": _parse_optional_text(arguments, "intent") or "explicit_remember",
             "source_type": _parse_optional_text(arguments, "source_type") or "direct_user_instruction",
-            "source_refs": list(_parse_string_list(arguments, "source_refs")),
+            "source_refs": list(_parse_source_refs(arguments)),
             "conversation_excerpt": _parse_optional_text(arguments, "conversation_excerpt"),
             "rationale": _parse_optional_text(arguments, "rationale"),
             "idempotency_key": _parse_optional_text(arguments, "idempotency_key"),
