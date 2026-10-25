@@ -362,7 +362,9 @@ is a CLI verb, not a fourth always-on agent tool.
   upcoming ids, disputed ids and history. A reason is the stored rationale or a quote already saved
   with the decision's provenance. The answer gives no count and no gap marker.
   A vault of plain notes, with no recorded decision, answers "No recorded
-  decision history was found".
+  decision history was found". On main, not in v0.21.1, the continuity page
+  asks for the topic in a box and shows reasons, sources, upcoming and
+  disputed from `POST /v0/vnext/changes`.
 
 Exact input schemas (types, enums, defaults) are in the `tools/list`
 response; they are the source of truth.
