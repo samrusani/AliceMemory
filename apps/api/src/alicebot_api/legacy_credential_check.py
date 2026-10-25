@@ -5,7 +5,7 @@ eight shapes that v0.16.0 refused at the commit door and the branch stored:
 dotted values under secret names, Telegram tokens, xxd hex dumps of key
 files, unarmored DER under PRIVATE_KEY_DATA and similar names, numeric prose
 passwords, primary and routing keys, hex AES keys, and Django SECRET_KEY
-values with symbols. The tower confirmed the class is structural: v0.16.0
+values with symbols. A maintainer confirmed the class is structural: v0.16.0
 also refused PASSWORD_DB=, TOKEN_GITHUB=, API_KEY_RAW=, GITHUB_TOKEN_WRITE=
 and VAULT_TOKEN=hvs., because its name rule reads a secret word anywhere in
 the name, and the branch's grammar reads only the last segment. A panel

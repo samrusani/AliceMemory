@@ -288,7 +288,7 @@ _PER_FIELD_SHAPES = _PREFIX_SHAPES + _FORMAT_SHAPES
 # decides whether the material after the prefix is real key material.
 SECRET_PREFIX_PATTERNS = tuple(bounded for _triggers, bounded, _free, _validator in _PREFIX_SHAPES)
 
-# Private key material: recall wins over precision (S4.4 round 3, tower
+# Private key material: recall wins over precision (S4.4 round 3, maintainer
 # ruling, 2026-09-23). Four rules, any of which refuses: the armor line, a
 # case-exact header with a real body, a PuTTY file, and a base64-encoded key
 # file (below, with the decoders).

@@ -18428,7 +18428,7 @@
           "file": "scripts/showcase_bench.py",
           "before": "SUPPORT_PROFILE = \"memory_proposal_agent\"",
           "after": "SUPPORT_PROFILE = \"admin_agent\"",
-          "sha256": "a6a991a192d7793b18cbe15eb8cb7f9603da5bfdb5ca9911fe7f39854dc32c8c",
+          "sha256": "c470ca3074531e36e8bbf4924b98332ef010df0a7e4a480dfce5ce39e5be1760",
           "line": 47
         }
       ],
@@ -20279,7 +20279,7 @@
           "line": 146,
           "before": "        if value == \"off\":\n            return cls.document()",
           "after": "        if value == \"off\":\n            return cls.document() if unset is None else unset",
-          "sha256": "2140364b8c5a6d0e4ffce4d4d4777464100fab227d0be0626bf6dda586d790e8"
+          "sha256": "f915c3778599d32d1bf276afd08eab5c8dae5f10e19140db0b5a17249bf14148"
         }
       ],
       "pytest": [
@@ -20391,7 +20391,7 @@
           "line": 254,
           "before": "    \"sk-\": _TokenBody(_URLSAFE, 20, _FIDO_KEY_TYPE_NAMES),\n",
           "after": "    \"sk-\": _TokenBody(_URLSAFE, 0, _FIDO_KEY_TYPE_NAMES),\n",
-          "sha256": "37a6d22975f7b045ec85d9fbb8d945a13234d5c3f55f4a1999e1bedfe91265d5"
+          "sha256": "3ab279728a10b16740acad4918d5cbef64545172f450a0bff55782cbb76f1bf8"
         }
       ],
       "pytest": [
@@ -20407,7 +20407,7 @@
           "line": 254,
           "before": "    \"sk-\": _TokenBody(_URLSAFE, 20, _FIDO_KEY_TYPE_NAMES),\n",
           "after": "    \"sk-\": _TokenBody(_URLSAFE, 33, _FIDO_KEY_TYPE_NAMES),\n",
-          "sha256": "37a6d22975f7b045ec85d9fbb8d945a13234d5c3f55f4a1999e1bedfe91265d5"
+          "sha256": "3ab279728a10b16740acad4918d5cbef64545172f450a0bff55782cbb76f1bf8"
         }
       ],
       "pytest": [
@@ -20423,7 +20423,7 @@
           "line": 253,
           "before": "    \"npm_\": _TokenBody(_BASE62, 36),\n",
           "after": "    \"npm_\": _TokenBody(_BASE62, 0),\n",
-          "sha256": "37a6d22975f7b045ec85d9fbb8d945a13234d5c3f55f4a1999e1bedfe91265d5"
+          "sha256": "3ab279728a10b16740acad4918d5cbef64545172f450a0bff55782cbb76f1bf8"
         }
       ],
       "pytest": [
@@ -20439,7 +20439,7 @@
           "line": 253,
           "before": "    \"npm_\": _TokenBody(_BASE62, 36),\n",
           "after": "    \"npm_\": _TokenBody(_BASE62, 37),\n",
-          "sha256": "37a6d22975f7b045ec85d9fbb8d945a13234d5c3f55f4a1999e1bedfe91265d5"
+          "sha256": "3ab279728a10b16740acad4918d5cbef64545172f450a0bff55782cbb76f1bf8"
         }
       ],
       "pytest": [
@@ -20455,7 +20455,7 @@
           "line": 771,
           "before": "    return _sk_finding(finding) and _SK_WORD_CHAIN.match(finding.text, finding.start) is not None\n",
           "after": "    return False\n",
-          "sha256": "37a6d22975f7b045ec85d9fbb8d945a13234d5c3f55f4a1999e1bedfe91265d5"
+          "sha256": "3ab279728a10b16740acad4918d5cbef64545172f450a0bff55782cbb76f1bf8"
         }
       ],
       "pytest": [
@@ -20471,7 +20471,7 @@
           "line": 254,
           "before": "    \"sk-\": _TokenBody(_URLSAFE, 20, _FIDO_KEY_TYPE_NAMES),\n",
           "after": "    \"sk-\": _TokenBody(_URLSAFE, 20),\n",
-          "sha256": "37a6d22975f7b045ec85d9fbb8d945a13234d5c3f55f4a1999e1bedfe91265d5"
+          "sha256": "3ab279728a10b16740acad4918d5cbef64545172f450a0bff55782cbb76f1bf8"
         }
       ],
       "pytest": [
@@ -20487,7 +20487,7 @@
           "line": 288,
           "before": "_CREDENTIAL_TOKEN_UNBOUNDED_PATTERNS = tuple(\n    _marker_pattern(marker, bounded=False) for marker in _CREDENTIAL_TOKEN_MARKERS\n)\n",
           "after": "_CREDENTIAL_TOKEN_UNBOUNDED_PATTERNS = tuple(\n    re.compile(re.escape(marker), re.IGNORECASE) for marker in _CREDENTIAL_TOKEN_MARKERS\n)\n",
-          "sha256": "37a6d22975f7b045ec85d9fbb8d945a13234d5c3f55f4a1999e1bedfe91265d5"
+          "sha256": "3ab279728a10b16740acad4918d5cbef64545172f450a0bff55782cbb76f1bf8"
         }
       ],
       "pytest": [
@@ -20503,7 +20503,7 @@
           "line": 328,
           "before": "_PREFIX_SK = re.compile(r\"(?<![0-9a-z])sk-[0-9a-z_-]{\" + str(_TOKEN_BODIES[\"sk-\"].floor) + r\",}\")\n",
           "after": "_PREFIX_SK = re.compile(r\"(?<![0-9a-z])sk-[0-9a-z_-]{8,}\")\n",
-          "sha256": "37a6d22975f7b045ec85d9fbb8d945a13234d5c3f55f4a1999e1bedfe91265d5"
+          "sha256": "3ab279728a10b16740acad4918d5cbef64545172f450a0bff55782cbb76f1bf8"
         }
       ],
       "pytest": [
@@ -20519,7 +20519,7 @@
           "line": 249,
           "before": "    \"ghs_\": _TokenBody(_GITHUB_APP_CHARS, 36),\n",
           "after": "    \"ghs_\": _TokenBody(_BASE62, 36),\n",
-          "sha256": "37a6d22975f7b045ec85d9fbb8d945a13234d5c3f55f4a1999e1bedfe91265d5"
+          "sha256": "3ab279728a10b16740acad4918d5cbef64545172f450a0bff55782cbb76f1bf8"
         }
       ],
       "pytest": [
@@ -20535,7 +20535,7 @@
           "line": 249,
           "before": "    \"ghs_\": _TokenBody(_GITHUB_APP_CHARS, 36),\n",
           "after": "    \"ghs_\": _TokenBody(_GITHUB_APP_CHARS, 37),\n",
-          "sha256": "37a6d22975f7b045ec85d9fbb8d945a13234d5c3f55f4a1999e1bedfe91265d5"
+          "sha256": "3ab279728a10b16740acad4918d5cbef64545172f450a0bff55782cbb76f1bf8"
         }
       ],
       "pytest": [
@@ -20551,7 +20551,7 @@
           "line": 250,
           "before": "    \"ghu_\": _TokenBody(_GITHUB_APP_CHARS, 36),\n",
           "after": "    \"ghu_\": _TokenBody(_BASE62, 36),\n",
-          "sha256": "37a6d22975f7b045ec85d9fbb8d945a13234d5c3f55f4a1999e1bedfe91265d5"
+          "sha256": "3ab279728a10b16740acad4918d5cbef64545172f450a0bff55782cbb76f1bf8"
         }
       ],
       "pytest": [
@@ -20567,7 +20567,7 @@
           "line": 283,
           "before": "        lead = r\"(?<![0-9A-Za-z])\" if body is not None else r\"(?<![0-9A-Za-z_])\"\n",
           "after": "        lead = r\"(?<![0-9A-Za-z_])\" if body is not None else r\"(?<![0-9A-Za-z_])\"\n",
-          "sha256": "37a6d22975f7b045ec85d9fbb8d945a13234d5c3f55f4a1999e1bedfe91265d5"
+          "sha256": "3ab279728a10b16740acad4918d5cbef64545172f450a0bff55782cbb76f1bf8"
         }
       ],
       "pytest": [
@@ -22145,7 +22145,7 @@
           "line": 1971,
           "before": "    if args.arm == \"alice\":\n        require_vectors_ready(run_dir)",
           "after": "    if args.arm == \"alice\":\n        pass",
-          "sha256": "a6a991a192d7793b18cbe15eb8cb7f9603da5bfdb5ca9911fe7f39854dc32c8c"
+          "sha256": "c470ca3074531e36e8bbf4924b98332ef010df0a7e4a480dfce5ce39e5be1760"
         }
       ],
       "pytest": [
@@ -22161,7 +22161,7 @@
           "line": 1971,
           "before": "    if args.arm == \"alice\":\n        require_vectors_ready(run_dir)",
           "after": "    if True:\n        require_vectors_ready(run_dir)",
-          "sha256": "a6a991a192d7793b18cbe15eb8cb7f9603da5bfdb5ca9911fe7f39854dc32c8c"
+          "sha256": "c470ca3074531e36e8bbf4924b98332ef010df0a7e4a480dfce5ce39e5be1760"
         }
       ],
       "pytest": [

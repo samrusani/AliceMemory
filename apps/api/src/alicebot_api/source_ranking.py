@@ -65,7 +65,7 @@ SOURCE_LEXICAL_MODES: Final[tuple[str, ...]] = get_args(SourceLexicalMode)
 DOCUMENT_PASSAGES_PER_SOURCE: Final[int] = 1
 
 #: The most passages one document contributes in passage mode.
-#: The tower's cap rule changes this one line. Ties in that rule prefer 3.
+#: The maintainers' cap rule changes this one line. Ties in that rule prefer 3.
 PASSAGES_PER_SOURCE: Final[int] = 3
 
 #: ``off`` is document mode, ``passage`` is the passage stage, ``vectors`` is the passage stage with the

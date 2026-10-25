@@ -16,7 +16,7 @@ swapped for the working launcher install found, keeping every other key,
 the data dir and a backup, unless it is pinned or customised. With nothing
 working, the entry is kept and a warning printed.
 
-Review round 4, 2026-09-23. P1, reproduced by the tower: an entry whose
+Review round 4, 2026-09-23. P1, reproduced by a maintainer: an entry whose
 alice-memory sat in a uv cache was kept, and got a hook into the cache,
 because a cached program only counted as dead when install had something
 better to offer. A launcher in a uv cache is now dead with no exceptions,
@@ -391,7 +391,7 @@ def _cached_scripts(tmp_path: Path) -> Path:
 def test_cached_script_entry_is_rewritten_to_uvx_by_name_with_nothing_else(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    """The tower's P1 setup: cached entry, no uvx, no scripts found.
+    """The maintainers' P1 setup: cached entry, no uvx, no scripts found.
 
     Round 3 kept the cache entry, added a hook into the cache, and printed
     a warning that the entries run uvx when they did not. Now the entry is
