@@ -91,8 +91,25 @@ _MISSING_ROW_ID = "00000000-0000-0000-0000-000000000000"
 
 
 def _canonical_row_id_argument(
-    arguments: Mapping[str, object], key: str, store: object | None = None, *, optional: bool = False
+    arguments: Mapping[str, object], key: str, store: object | None = None
+) -> str:
+    """The required id argument in canonical spelling."""
+
+    return _resolve_row_id_argument(_parse_required_text(arguments, key), store)
+
+
+def _canonical_optional_row_id_argument(
+    arguments: Mapping[str, object], key: str, store: object | None = None
 ) -> str | None:
+    """The optional id argument in canonical spelling, or None when absent."""
+
+    text = _parse_optional_text(arguments, key)
+    if text is None:
+        return None
+    return _resolve_row_id_argument(text, store)
+
+
+def _resolve_row_id_argument(text: str, store: object | None) -> str:
     """The id argument in canonical spelling, or the stand-in id of no row.
 
     The shared router helper ``_vnext_canonical_id`` reads every spelling a
@@ -103,9 +120,6 @@ def _canonical_row_id_argument(
     given, because there a malformed id already answers as an unknown one.
     """
 
-    text = _parse_optional_text(arguments, key) if optional else _parse_required_text(arguments, key)
-    if text is None:
-        return None
     canonical = _vnext_canonical_id(text)
     if canonical is not None:
         return canonical

@@ -728,10 +728,6 @@ def review_vnext_artifact(
             # A value that is not an id in any accepted spelling names no row,
             # so it answers what an unknown id answers, and the database cast
             # never sees text it cannot read.
-            canonical_artifact_id = _vnext_canonical_id(artifact_id)
-            if canonical_artifact_id is None:
-                return _vnext_public_error_response(status_code=404, detail="vNext artifact was not found")
-            artifact_id = canonical_artifact_id
             identity = _vnext_authenticated_agent_identity(
                 store, request, user_id=request.user_id, authorization=authorization
             )
@@ -1201,7 +1197,7 @@ def review_vnext_project_update_candidate(
             store.lock_graph_mutation()
             from alicebot_api.vnext_artifact_review import lock_artifact_review_labels
 
-            lock_artifact_review_labels(store, artifact_id=str(artifact_id), action=request.action)
+            lock_artifact_review_labels(store, artifact_id=str(canonical_artifact_id), action=request.action)
             _artifact, decision = _vnext_authorized_artifact(
                 store=store,
                 identity=identity,

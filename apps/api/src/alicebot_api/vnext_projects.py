@@ -938,7 +938,8 @@ class VNextProjectService:
             canonical = str(UUID(str(person_id).strip()))
         except ValueError:
             raise VNextOpenLoopPersonNotFoundError("person was not found") from None
-        if self.store.get_person(canonical) is None:
+        get_person = getattr(self.store, "get_person", None)
+        if get_person is None or get_person(canonical) is None:
             raise VNextOpenLoopPersonNotFoundError("person was not found")
         return canonical
 
@@ -958,7 +959,8 @@ class VNextProjectService:
 
         request = request or ProjectAutomationRequest(agent_identity=None, )
         _validate_request(request)
-        if request.person_id is not None and getattr(self.store, "get_person", None) is not None:
+        get_person = getattr(self.store, "get_person", None)
+        if request.person_id is not None and get_person is not None:
             # The person a loop is filed under must be a stored row, in
             # whatever spelling the caller wrote its id: a value that is not
             # an id and the id of no stored person are refused alike before

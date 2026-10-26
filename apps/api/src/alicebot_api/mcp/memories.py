@@ -52,7 +52,7 @@ from .shared import (
     _raise_mcp_policy_blocked,
     _vnext_store_context,
 )
-from .arguments import _canonical_row_id_argument, _parse_source_refs
+from .arguments import _canonical_optional_row_id_argument, _canonical_row_id_argument, _parse_source_refs
 from .types import MCPArgumentError
 
 
@@ -306,8 +306,8 @@ def _confirm_pending_memory(
     return _json_object(payload)
 
 
-def _canonical_memory_id_argument(arguments: Mapping[str, object], *, store: object | None = None, optional: bool = False) -> str | None:
-    """The memory id argument in canonical spelling.
+def _canonical_memory_id_argument(arguments: Mapping[str, object], *, store: object | None = None) -> str:
+    """The required memory id argument in canonical spelling.
 
     A value that is not an id in any accepted spelling names no row, so on
     the PostgreSQL store it is answered as an unknown id is answered and the
@@ -315,7 +315,13 @@ def _canonical_memory_id_argument(arguments: Mapping[str, object], *, store: obj
     keeps the value it was given.
     """
 
-    return _canonical_row_id_argument(arguments, "memory_id", store=store, optional=optional)
+    return _canonical_row_id_argument(arguments, "memory_id", store=store)
+
+
+def _canonical_optional_memory_id_argument(arguments: Mapping[str, object], *, store: object | None = None) -> str | None:
+    """The optional memory id argument in canonical spelling, or None when absent."""
+
+    return _canonical_optional_row_id_argument(arguments, "memory_id", store=store)
 
 
 def _handle_alice_vnext_undo_memory(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -326,7 +332,7 @@ def _handle_alice_vnext_undo_memory(context: MCPRuntimeContext, arguments: Mappi
         try:
             payload = VNextMemoryCommitService(store).undo(
                 identity=identity,
-                memory_id=_canonical_memory_id_argument(arguments, store=store, optional=True),
+                memory_id=_canonical_optional_memory_id_argument(arguments, store=store),
                 reason=_parse_optional_text(arguments, "reason"),
                 superseded_by_memory_id=_parse_optional_text(arguments, "superseded_by"),
             )
