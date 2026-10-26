@@ -114,7 +114,7 @@ The same answer on three doors:
 
 - an MCP tool, `alice_what_changed`, taking the topic;
 - an HTTP route, `POST /v0/vnext/changes`, taking the topic;
-- a view on the continuity page of the web console, which calls that route and does not keep a second copy of the history. On main, not in v0.21.1, the page has a topic box. It shows each chain's current step, history, reasons, sources, upcoming and disputed, and it gives no count and no gap marker.
+- a view on the continuity page of the web console, which calls that route and does not keep a second copy of the history. From v0.22.0, the page has a topic box. It shows each chain's current step, history, reasons, sources, upcoming and disputed, and it gives no count and no gap marker.
 
 Each new door is registered in the operator route inventory and its probe table, in the label door registry, and in the MCP tool documentation.
 
