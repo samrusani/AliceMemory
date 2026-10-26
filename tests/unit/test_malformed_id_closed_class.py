@@ -76,6 +76,12 @@ HTTP_CLAIM_NAMES = {
     "agent_id", "agent_run_id", "task_id", "trace_id", "agent_profile_id",
     "session_id", "allowed_chat_ids", "confirmation_id", "reviewer_id",
     "project_id",
+    # The legacy continuity surfaces (mounted with
+    # ``ALICE_LEGACY_SURFACES=1``) name external provider accounts, events
+    # and messages by the id the provider assigned: recorded as data on the
+    # account rows, never looked up as a stored row id.
+    "provider_account_id", "provider_event_id", "provider_message_id",
+    "client_id",
 }
 
 # The row ids of the MCP tools: (tool, argument path) -> its malformed test.
