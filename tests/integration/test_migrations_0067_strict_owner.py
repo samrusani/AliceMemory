@@ -103,6 +103,18 @@ def strict_owner_urls() -> Iterator[dict[str, str]]:
     finally:
         with psycopg.connect(_admin_root_url(), autocommit=True) as conn:
             conn.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(database_name)))
+            # The owner role owns nothing once its database is gone. Another
+            # concurrent run on the same cluster may be inside its own fixture
+            # and own its database through this role, so the role is dropped
+            # only when no database of it is left.
+            dependent = conn.execute(
+                """
+                SELECT count(*) FROM pg_database
+                WHERE datdba = (SELECT oid FROM pg_roles WHERE rolname = 'alicebot_strict_owner')
+                """
+            ).fetchone()[0]
+            if not dependent:
+                conn.execute("DROP ROLE IF EXISTS alicebot_strict_owner")
 
 
 @pytest.fixture
