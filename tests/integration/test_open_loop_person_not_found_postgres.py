@@ -184,12 +184,12 @@ def test_the_legacy_mcp_tool_makes_no_duplicate_loop_for_another_spelling(app) -
     assert _stored_counts(app.admin_url)[0] == 1
 
 
-def test_the_cli_door_answers_not_found_for_an_unknown_and_a_malformed_person(app) -> None:
+def test_the_cli_door_answers_not_found_for_an_unknown_and_a_malformed_person(app, capsys) -> None:
+    """The CLI runner maps the refusal to its not-found answer and exit code 1."""
+
+    import alicebot_api.cli.runner as cli_runner
     from alicebot_api.cli.automation import _run_vnext_open_loops_extract
     from alicebot_api.cli.models import CLIContext
-    from alicebot_api.cli.runner import _CLI_NOT_FOUND_ERRORS
-
-    assert VNextOpenLoopPersonNotFoundError in _CLI_NOT_FOUND_ERRORS
 
     context = CLIContext(settings=Settings(database_url=app.url), database_url=app.url, user_id=UUID(app.user_id))
     for value in (UNKNOWN_ID, "no-such-person", "123"):
@@ -200,6 +200,11 @@ def test_the_cli_door_answers_not_found_for_an_unknown_and_a_malformed_person(ap
                                             model_route_mode=None, model_provider=None, model=None,
                                             model_temperature=0.2, allow_cloud_private=False)
             )
+    exit_code = cli_runner.main(["--database-url", app.url, "--user-id", app.user_id,
+                                 "vnext", "open-loops", "extract", "--person-id", UNKNOWN_ID])
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert '"not_found"' in captured.err or '"not_found"' in captured.out
 
 
 def test_the_cli_door_makes_no_duplicate_loop_for_another_spelling(app) -> None:

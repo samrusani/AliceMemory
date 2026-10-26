@@ -44,44 +44,6 @@ from .arguments import _validate_arguments
 from .parser import build_parser
 from .shared import _SqliteImportCommandError, _build_context
 
-# The exception classes a failing command is read as "not found" by, and the
-# ones it is read as an invalid request by. The not-found list holds the
-# reference refusals a door raises for a row that is missing, deleted or not
-# an id at all, where malformed and unknown answer alike.
-_CLI_NOT_FOUND_ERRORS = (
-    ContinuityLifecycleNotFoundError,
-    ContinuityReviewNotFoundError,
-    ContinuityContradictionNotFoundError,
-    ContinuityEvidenceNotFoundError,
-    TaskBriefNotFoundError,
-    TrustedFactPromotionNotFoundError,
-    _VNextOpenLoopPersonNotFoundError,
-)
-_CLI_INVALID_REQUEST_ERRORS = (
-    ValueError,
-    ContinuityCaptureValidationError,
-    VNextCaptureValidationError,
-    VNextBrainValidationError,
-    VNextConnectionValidationError,
-    VNextConnectorValidationError,
-    VNextContradictionValidationError,
-    VNextProjectValidationError,
-    VNextQueueValidationError,
-    VNextRetrievalValidationError,
-    VNextSchedulerValidationError,
-    ContinuityLifecycleValidationError,
-    ContinuityRecallValidationError,
-    ContinuityBriefValidationError,
-    ContinuityResumptionValidationError,
-    ContinuityOpenLoopValidationError,
-    ContinuityReviewValidationError,
-    ContinuityContradictionValidationError,
-    MemoryMutationValidationError,
-    TaskBriefValidationError,
-    TemporalStateValidationError,
-)
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     parser_stderr = StringIO()
@@ -138,6 +100,38 @@ def main(argv: list[str] | None = None) -> int:
         _VNextOpenLoopPersonNotFoundError,
     ) as exc:
         from alicebot_api.vnext_label_writes import label_error_response
+        not_found_errors = (
+            ContinuityLifecycleNotFoundError,
+            ContinuityReviewNotFoundError,
+            ContinuityContradictionNotFoundError,
+            ContinuityEvidenceNotFoundError,
+            TaskBriefNotFoundError,
+            TrustedFactPromotionNotFoundError,
+            _VNextOpenLoopPersonNotFoundError,
+        )
+        invalid_request_errors = (
+            ValueError,
+            ContinuityCaptureValidationError,
+            VNextCaptureValidationError,
+            VNextBrainValidationError,
+            VNextConnectionValidationError,
+            VNextConnectorValidationError,
+            VNextContradictionValidationError,
+            VNextProjectValidationError,
+            VNextQueueValidationError,
+            VNextRetrievalValidationError,
+            VNextSchedulerValidationError,
+            ContinuityLifecycleValidationError,
+            ContinuityRecallValidationError,
+            ContinuityBriefValidationError,
+            ContinuityResumptionValidationError,
+            ContinuityOpenLoopValidationError,
+            ContinuityReviewValidationError,
+            ContinuityContradictionValidationError,
+            MemoryMutationValidationError,
+            TaskBriefValidationError,
+            TemporalStateValidationError,
+        )
         answer = label_error_response(exc)
         if answer is not None and answer[0] == 503:
             _emit_cli_error(code="retryable", message=answer[1] + "; HTTP 503; Retry-After: 2")
@@ -154,9 +148,9 @@ def main(argv: list[str] | None = None) -> int:
             # floor, two sizes and nothing from the file.
             code = exc.reason_code
             message = f"{exc}. Raise the limit with --max-file-mib, or import a smaller file."
-        elif isinstance(exc, _CLI_NOT_FOUND_ERRORS):
+        elif isinstance(exc, not_found_errors):
             code, message = _CLI_NOT_FOUND
-        elif isinstance(exc, _CLI_INVALID_REQUEST_ERRORS):
+        elif isinstance(exc, invalid_request_errors):
             code, message = _CLI_INVALID_REQUEST
         elif isinstance(exc, psycopg.Error):
             code, message = _CLI_DATABASE_FAILED
