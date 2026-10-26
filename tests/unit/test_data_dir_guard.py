@@ -443,20 +443,23 @@ def test_the_docs_say_the_hook_checks_the_variable_from_v0192_and_keep_the_v0190
     assert "From `v0.19.2`, the hook refuses a relative `ALICE_MEMORY_DATA_DIR` the same way." in state
 
     changelog = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## ")
-    # Unreleased, the v0.21.1, v0.21.0, v0.20.2 and v0.20.0 sections may hold entries for changes made after v0.19.2.
+    # Unreleased, the v0.22.0, v0.21.1, v0.21.0, v0.20.2 and v0.20.0 sections may hold entries for changes made after
+    # v0.19.2.
     assert changelog[1].startswith("Unreleased")
-    assert changelog[2].startswith("v0.21.1 \u2014 2026-10-23\n")
-    assert changelog[3].startswith("v0.21.0 \u2014 2026-10-22\n")
-    assert changelog[4].startswith("v0.20.2 \u2014 2026-10-17\n")
-    assert changelog[5].startswith("v0.20.0 \u2014 2026-10-02\n")
+    assert changelog[2].startswith("v0.22.0 \u2014 2026-10-26\n")
+    assert changelog[3].startswith("v0.21.1 \u2014 2026-10-23\n")
+    assert changelog[4].startswith("v0.21.0 \u2014 2026-10-22\n")
+    assert changelog[5].startswith("v0.20.2 \u2014 2026-10-17\n")
+    assert changelog[6].startswith("v0.20.0 \u2014 2026-10-02\n")
     # This released entry stays in the v0.19.2 section, not in a newer one.
     assert "ALICE_MEMORY_DATA_DIR" not in changelog[1]
     assert "ALICE_MEMORY_DATA_DIR" not in changelog[2]
     assert "ALICE_MEMORY_DATA_DIR" not in changelog[3]
     assert "ALICE_MEMORY_DATA_DIR" not in changelog[4]
     assert "ALICE_MEMORY_DATA_DIR" not in changelog[5]
-    assert changelog[6].startswith("v0.19.2 \u2014 2026-10-01\n")
-    released_now = _flat(changelog[6])
+    assert "ALICE_MEMORY_DATA_DIR" not in changelog[6]
+    assert changelog[7].startswith("v0.19.2 \u2014 2026-10-01\n")
+    released_now = _flat(changelog[7])
     assert (
         "`alice-memory-session-start` refuses a non-empty `ALICE_MEMORY_DATA_DIR` that is not "
         "absolute after `~` expansion, when the variable is the value in use."
