@@ -587,6 +587,9 @@ class Vault:
             "/v0/vnext/agents/ingest-output",
             {
                 "agent_id": self.agent_ids.get("admin_agent", "sweep-ingest"),
+                # An owner vault has no keys, so the call is judged by the profile it declares, and a name alone is a
+                # read_only_agent, which the route refuses. A vault with keys is judged by the key.
+                **({} if self.keys.get("admin") else {"permission_profile": "admin_agent"}),
                 "title": self._text("ingest_quotes_redacted-title", hidden=False),
                 "content": self._text("ingest_quotes_redacted-text", hidden=False),
                 "domain": "project",

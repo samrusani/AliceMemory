@@ -24,6 +24,7 @@ from alicebot_api.json_bounds import JsonShapeError, loads_caller_json, refuse_u
 from alicebot_api.vnext_source_fence import SOURCE_REF_SHAPE_MESSAGE, is_producer_source_ref
 from alicebot_api.connector_payloads import ConnectorPayloadValidationError, normalize_telegram_source_item
 from alicebot_api.importer_paths import ContainedReadRefused, read_text_beneath
+from alicebot_api.vnext_agent_control import DEFAULT_AGENT_SENSITIVITY, AgentPolicyBlockedError, PolicyDecision
 from alicebot_api.vnext_capture import (
     CaptureCredentialRefused,
     SourceCaptureInput,
@@ -616,6 +617,41 @@ def _resolve_local_folder_root(raw_root: str | Path) -> Path:
     raise VNextConnectorValidationError(
         f"local_folder watched path must be an existing directory under an allowed root; set {LOCAL_FOLDER_ROOTS_ENV} "
         f"to override. Allowed roots: {allowed}"
+    )
+
+
+def _refuse_blocked_policy_decision(policy_decision: Mapping[str, object] | None) -> None:
+    """Raise ``AgentPolicyBlockedError`` for a recorded decision that is ``blocked``, before anything is written.
+
+    A caller decides and answers its own refusal. This is the second lock on the door: a caller that hands over the
+    decision of a refused request gets the refusal here, not a source and an artifact. A call with no decision and a
+    decision that is not ``blocked`` go on.
+    """
+
+    if policy_decision is None or policy_decision.get("decision") != "blocked":
+        return
+
+    def listed(key: str, default: tuple[str, ...] = ()) -> tuple[str, ...]:
+        value = policy_decision.get(key)
+        return tuple(str(item) for item in value) if isinstance(value, (list, tuple)) else default
+
+    workflow_type = policy_decision.get("workflow_type")
+    raise AgentPolicyBlockedError(
+        PolicyDecision(
+            decision="blocked",
+            action=str(policy_decision.get("action") or "source.capture"),
+            permission_profile=str(policy_decision.get("permission_profile") or "unknown"),
+            reasons=listed("reasons"),
+            requested_domains=listed("requested_domains"),
+            effective_domains=listed("effective_domains"),
+            requested_sensitivity_allowed=listed("requested_sensitivity_allowed", DEFAULT_AGENT_SENSITIVITY),
+            effective_sensitivity_allowed=listed("effective_sensitivity_allowed", DEFAULT_AGENT_SENSITIVITY),
+            requested_project_scope=listed("requested_project_scope"),
+            effective_project_scope=listed("effective_project_scope"),
+            review_required=bool(policy_decision.get("review_required")),
+            trace_id=str(policy_decision.get("trace_id") or ""),
+            workflow_type=workflow_type if isinstance(workflow_type, str) else None,
+        )
     )
 
 
@@ -2053,6 +2089,7 @@ class VNextConnectorService:
         *,
         policy_decision: JsonObject | None = None,
     ) -> AgentOutputIngestResult:
+        _refuse_blocked_policy_decision(policy_decision)
         item = normalize_connector_item("agent_output", payload)
         agent_id = str(item.metadata_json.get("agent_id") or item.author or "unknown")
         agent_identity = {
