@@ -295,18 +295,19 @@ def test_the_control_documents_name_the_candidate_and_keep_v0211_as_the_latest_p
     assert "- [v0.22.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/" + NOTES_PATH + ")" in state
 
 
-def test_the_changelog_has_the_dated_heading_and_an_empty_unreleased_section_right_before_it() -> None:
-    """Mutations, each one alone: drop the heading; change its date; put an entry under ``## Unreleased``; put another
-    section between v0.22.0 and v0.21.1; put the marker for the unreleased state back into the v0.22.0 section.
+def test_the_changelog_has_the_dated_heading_after_the_unreleased_section() -> None:
+    """Mutations, each one alone: drop the heading; change its date; put another section between v0.22.0 and v0.21.1;
+    put the marker for the unreleased state back into the v0.22.0 section.
 
-    ``release_check.py --require-finalized-release-docs`` asks for the same heading and an empty Unreleased section.
-    It is empty on the release commit and may hold entries once main has moved on, and the change after
-    publication drops that demand from here.
+    ``release_check.py --require-finalized-release-docs`` asked for the same heading and an empty Unreleased
+    section on the release commit. The Unreleased section may hold entries once main has moved on, so this
+    test does not ask for it to be empty; it asks that the v0.22.0, v0.21.1, v0.21.0 and v0.20.2 sections follow
+    it in that order, one heading each.
     """
 
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
-    assert sections[1] == "Unreleased\n"
+    assert sections[1].startswith("Unreleased\n")
     assert sections[2].startswith("v0.22.0 \u2014 2026-10-26\n")
     assert sections[3].startswith("v0.21.1 \u2014 2026-10-23\n")
     assert sections[4].startswith("v0.21.0 \u2014 2026-10-22\n")
@@ -966,7 +967,13 @@ def test_no_migration_the_alembic_folder_is_the_one_of_v0211(v0211_tree: Path) -
         base = root / "apps" / "api" / "alembic"
         return {str(path.relative_to(base)): path.read_bytes() for path in sorted(base.rglob("*")) if path.is_file() and "__pycache__" not in path.parts}
 
-    assert files(REPO_ROOT) == files(v0211_tree)
+    # The folder was the one of the tag on the release commit. The four-fix
+    # series that followed the release edits exactly one migration in place
+    # (20260510_0067, the strict owner row-level security bracket), so the
+    # comparison leaves that file out and keeps the demand for the rest.
+    expected = {name: data for name, data in files(v0211_tree).items() if name != "versions/20260510_0067_vnext_memory_kernel_schema.py"}
+    actual = {name: data for name, data in files(REPO_ROOT).items() if name != "versions/20260510_0067_vnext_memory_kernel_schema.py"}
+    assert actual == expected
     assert files(REPO_ROOT)
 
 
@@ -1023,4 +1030,7 @@ def test_the_release_check_accepts_the_notes_and_the_changelog_before_the_tag() 
     metadata, issues = release_check.validate_metadata(REPO_ROOT)
     assert issues == []
     assert metadata.version == "0.22.0"
-    assert release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=True) == []
+    # The finalized-release demand applies before the tag; once main has
+    # moved on the Unreleased section holds entries again, so the check runs
+    # without it here.
+    assert release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=False) == []
