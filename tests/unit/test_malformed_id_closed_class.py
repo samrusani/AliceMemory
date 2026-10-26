@@ -47,10 +47,6 @@ HTTP_CLAIM_STRINGS = {
 }
 
 HTTP_SCHEMA_UUIDS = {
-    ("POST", "/v1/memory/operations/commit", "candidate_ids"),
-}
-
-HTTP_SCHEMA_UUIDS = {
     ("POST", "/v0/entities", "source_memory_ids"),
     ("POST", "/v0/entity-edges", "source_memory_ids"),
     ("POST", "/v0/memories/admit", "source_event_ids"),
