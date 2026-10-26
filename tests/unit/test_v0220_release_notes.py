@@ -295,19 +295,18 @@ def test_the_control_documents_name_the_candidate_and_keep_v0211_as_the_latest_p
     assert "- [v0.22.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/" + NOTES_PATH + ")" in state
 
 
-def test_the_changelog_has_the_dated_heading_after_the_unreleased_section() -> None:
-    """Mutations, each one alone: drop the heading; change its date; put another section between v0.22.0 and v0.21.1;
-    put the marker for the unreleased state back into the v0.22.0 section.
+def test_the_changelog_has_the_dated_heading_and_an_empty_unreleased_section_right_before_it() -> None:
+    """Mutations, each one alone: drop the heading; change its date; put an entry under ``## Unreleased``; put another
+    section between v0.22.0 and v0.21.1; put the marker for the unreleased state back into the v0.22.0 section.
 
-    ``release_check.py --require-finalized-release-docs`` asked for the same heading and an empty Unreleased
-    section on the release commit. The Unreleased section may hold entries once main has moved on, so this
-    test does not ask for it to be empty; it asks that the v0.22.0, v0.21.1, v0.21.0 and v0.20.2 sections follow
-    it in that order, one heading each.
+    ``release_check.py --require-finalized-release-docs`` asks for the same heading and an empty Unreleased section.
+    It is empty on the release commit and may hold entries once main has moved on, and the change after
+    publication drops that demand from here.
     """
 
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
-    assert sections[1].startswith("Unreleased\n")
+    assert sections[1] == "Unreleased\n"
     assert sections[2].startswith("v0.22.0 \u2014 2026-10-26\n")
     assert sections[3].startswith("v0.21.1 \u2014 2026-10-23\n")
     assert sections[4].startswith("v0.21.0 \u2014 2026-10-22\n")
@@ -967,28 +966,7 @@ def test_no_migration_the_alembic_folder_is_the_one_of_v0211(v0211_tree: Path) -
         base = root / "apps" / "api" / "alembic"
         return {str(path.relative_to(base)): path.read_bytes() for path in sorted(base.rglob("*")) if path.is_file() and "__pycache__" not in path.parts}
 
-    # The folder was the one of the tag on the release commit. The series
-    # that followed the release brackets the strict-owner data statements of
-    # twelve migrations (0067, 0070, 0072, 0076, 0077, 0083, 0084, 0085,
-    # 0086, 0090, 0091 and 0092), so the comparison leaves those files out
-    # and keeps the demand for the rest.
-    edited_by_the_series = {
-        "versions/20260510_0067_vnext_memory_kernel_schema.py",
-        "versions/20260511_0070_vnext_connector_settings_state.py",
-        "versions/20260704_0072_semantic_retrieval_substrate.py",
-        "versions/20260704_0076_memory_scope_columns.py",
-        "versions/20260704_0077_temporal_supersession_columns.py",
-        "versions/20260711_0083_memory_lifecycle_invariants.py",
-        "versions/20260712_0084_memory_lifecycle_identifier_repair.py",
-        "versions/20260713_0085_source_capture_dedupe_identity.py",
-        "versions/20260713_0086_lifecycle_duplicate_pointer_repair.py",
-        "versions/20260714_0090_project_scope_identity.py",
-        "versions/20260715_0091_source_identity_defensive_edges.py",
-        "versions/20260716_0092_project_update_artifact_redaction.py",
-    }
-    expected = {name: data for name, data in files(v0211_tree).items() if name not in edited_by_the_series}
-    actual = {name: data for name, data in files(REPO_ROOT).items() if name not in edited_by_the_series}
-    assert actual == expected
+    assert files(REPO_ROOT) == files(v0211_tree)
     assert files(REPO_ROOT)
 
 
@@ -1045,7 +1023,4 @@ def test_the_release_check_accepts_the_notes_and_the_changelog_before_the_tag() 
     metadata, issues = release_check.validate_metadata(REPO_ROOT)
     assert issues == []
     assert metadata.version == "0.22.0"
-    # The finalized-release demand applies before the tag; once main has
-    # moved on the Unreleased section holds entries again, so the check runs
-    # without it here.
-    assert release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=False) == []
+    assert release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=True) == []
