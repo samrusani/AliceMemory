@@ -132,7 +132,7 @@ from alicebot_api.vnext_ranking import (
 )
 from alicebot_api.vnext_recall_visibility import MEMORY_SEARCHABLE_STATUSES
 from alicebot_api.vnext_repositories import JsonObject
-from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
+from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence, cited_source_ids
 from alicebot_api.vnext_store import fts_fallback_tokens
 from alicebot_api.vnext_temporal_query import (
     TemporalAnchor,
@@ -5737,6 +5737,18 @@ class VNextRetrievalService:
             source_id = str(metadata.get("source_id") or "") if isinstance(metadata, Mapping) else ""
             if not source_id:
                 return None
+            # The same read-side parsing that decided this memory's source is
+            # a stored source (the saved-quote reader the label floor and the
+            # provenance fence both read) resolves the value in every
+            # spelling the repo reads: `urn:uuid:`, `source:`, `uuid:`,
+            # `alice://sources/`, and every case, brace and hyphen shape a
+            # UUID takes. A value that names no id (a padded value, a
+            # `#fragment`, a free label) is not looked up, and the database
+            # cast never sees text it cannot read.
+            resolved = sorted(cited_source_ids({"source_id": source_id}).named)
+            if not resolved:
+                return None
+            source_id = resolved[0]
             if source_id not in temporal_source_dates:
                 source_row = temporal_get_source(source_id)
                 temporal_source_dates[source_id] = (
