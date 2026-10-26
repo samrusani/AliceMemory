@@ -6,6 +6,7 @@ from .arguments import (
     _ModelGenerationKwargs as _ModelGenerationKwargs,
     _RetrievalFilterKwargs as _RetrievalFilterKwargs,
     _build_recall_query as _build_recall_query,
+    _canonical_row_id_argument as _canonical_row_id_argument,
     _canonicalize_json as _canonicalize_json,
     _extract_prefetch_single_title as _extract_prefetch_single_title,
     _extract_prefetch_titles as _extract_prefetch_titles,

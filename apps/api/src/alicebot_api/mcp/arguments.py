@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from typing import TypedDict, cast
 from uuid import UUID
 
+from alicebot_api.routers._vnext_shared import _vnext_canonical_id
+from alicebot_api.vnext_store import PostgresVNextStore
 from alicebot_api.recall_framing import frame_rendered_block
 from alicebot_api.session_briefing import quote_session_brief_text
 from alicebot_api.vnext_source_fence import SOURCE_REF_SHAPE_MESSAGE, is_producer_source_ref
@@ -80,6 +82,36 @@ def _parse_required_text(arguments: Mapping[str, object], key: str) -> str:
     if normalized == "":
         raise MCPArgumentError(f"{key} must not be empty")
     return normalized
+
+
+# A stand-in id no stored row answers to, used when an id argument does not
+# parse: the tool then answers exactly what a well-formed unknown id answers,
+# for the same caller, and the database cast never sees text it cannot read.
+_MISSING_ROW_ID = "00000000-0000-0000-0000-000000000000"
+
+
+def _canonical_row_id_argument(
+    arguments: Mapping[str, object], key: str, store: object | None = None, *, optional: bool = False
+) -> str | None:
+    """The id argument in canonical spelling, or the stand-in id of no row.
+
+    The shared router helper ``_vnext_canonical_id`` reads every spelling a
+    well-formed id takes (any case, braces, no hyphens, ``urn:uuid:``); a
+    value that parses is used in canonical form. One that does not is
+    answered as an unknown id is on the PostgreSQL store, whose id reads are
+    ``::uuid`` casts; a store that compares text keeps the value it was
+    given, because there a malformed id already answers as an unknown one.
+    """
+
+    text = _parse_optional_text(arguments, key) if optional else _parse_required_text(arguments, key)
+    if text is None:
+        return None
+    canonical = _vnext_canonical_id(text)
+    if canonical is not None:
+        return canonical
+    if store is not None and not isinstance(store, PostgresVNextStore):
+        return text
+    return _MISSING_ROW_ID
 
 
 def _parse_required_document_text(arguments: Mapping[str, object], key: str) -> str:

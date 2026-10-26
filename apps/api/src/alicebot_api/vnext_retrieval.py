@@ -133,7 +133,7 @@ from alicebot_api.vnext_ranking import (
 from alicebot_api.vnext_recall_visibility import MEMORY_SEARCHABLE_STATUSES
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence, cited_source_ids
-from alicebot_api.vnext_store import fts_fallback_tokens
+from alicebot_api.vnext_store import PostgresVNextStore as _PostgresVNextStoreClass, fts_fallback_tokens
 from alicebot_api.vnext_temporal_query import (
     TemporalAnchor,
     derived_timeline_lines,
@@ -5725,6 +5725,10 @@ class VNextRetrievalService:
         temporal_get_source = (
             getattr(self.store, "get_source", None) if depth != CONTEXT_DEPTH_MINIMAL else None
         )
+        # A PostgreSQL store reads a source with an id cast, so a value that
+        # is not an id must not reach it; a store that compares text accepts
+        # the value it was given.
+        temporal_store_reads_uuid = isinstance(self.store, _PostgresVNextStoreClass)
         temporal_source_dates: dict[str, datetime | None] = {}
         temporal_anchored_items = 0
         temporal_dated_events: list[datetime] = []
@@ -5747,8 +5751,10 @@ class VNextRetrievalService:
             # cast never sees text it cannot read.
             resolved = sorted(cited_source_ids({"source_id": source_id}).named)
             if not resolved:
-                return None
-            source_id = resolved[0]
+                if temporal_store_reads_uuid:
+                    return None
+            else:
+                source_id = resolved[0]
             if source_id not in temporal_source_dates:
                 source_row = temporal_get_source(source_id)
                 temporal_source_dates[source_id] = (

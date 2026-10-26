@@ -27,6 +27,7 @@ from alicebot_api.routers._vnext_shared import (
     _vnext_agent_auth_error_response,
     _vnext_agent_identity,
     _vnext_authenticated_agent_identity,
+    _vnext_canonical_id,
     _vnext_permission_response,
     _vnext_policy_checked,
     _vnext_public_error_response,
@@ -78,6 +79,7 @@ from alicebot_api.vnext_source_fence import (
     resolve_attachable_source_id,
 )
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_store import PostgresVNextStore as _PostgresVNextStoreClass
 from alicebot_api.vnext_stores.postgres.project_slug import ProjectSlugConflictError
 
 
@@ -237,7 +239,16 @@ def get_vnext_project_dashboard(
                 raw_key=agent_key_from_authorization(authorization),
                 payload={},
             )
-            payload = VNextProjectService(store).project_dashboard(project_id=project_id, identity=identity)
+            # A value that is not an id in any accepted spelling names no
+            # row, so it answers what an unknown id answers, and the database
+            # cast never sees text it cannot read. A store that compares text
+            # keeps the value it was given.
+            canonical_project_id = _vnext_canonical_id(project_id)
+            if canonical_project_id is None:
+                if isinstance(store, _PostgresVNextStoreClass):
+                    raise VNextProjectValidationError(f"project {project_id} was not found")
+                canonical_project_id = project_id
+            payload = VNextProjectService(store).project_dashboard(project_id=canonical_project_id, identity=identity)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
     except VNextProjectValidationError:
@@ -795,7 +806,16 @@ def review_vnext_open_loop(
                 user_id=request.user_id,
                 authorization=authorization,
             )
-            target = store.get_open_loop(loop_id)
+            # A value that is not an id in any accepted spelling names no row,
+            # so it answers what an unknown id answers, and the database cast
+            # never sees text it cannot read. A store that compares text
+            # keeps the value it was given.
+            canonical_loop_id = _vnext_canonical_id(loop_id)
+            if canonical_loop_id is None:
+                if isinstance(store, _PostgresVNextStoreClass):
+                    return _vnext_public_error_response(status_code=404, detail="vNext open loop was not found")
+                canonical_loop_id = loop_id
+            target = store.get_open_loop(canonical_loop_id)
             from alicebot_api.vnext_label_guard import effective_row_for_fence, outside_caller_limits
 
             # A loop the caller may not read is answered as one that does not exist, before a policy decision is built
@@ -815,7 +835,7 @@ def review_vnext_open_loop(
             except AgentPolicyBlockedError as exc:
                 return _vnext_permission_response(exc.decision)
             updated = VNextProjectService(store).review_open_loop(
-                loop_id=loop_id,
+                loop_id=canonical_loop_id,
                 action=request.action,
                 title=request.title,
                 description=request.description,
