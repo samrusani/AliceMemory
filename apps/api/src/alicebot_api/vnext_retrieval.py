@@ -5746,9 +5746,11 @@ class VNextRetrievalService:
             # provenance fence both read) resolves the value in every
             # spelling the repo reads: `urn:uuid:`, `source:`, `uuid:`,
             # `alice://sources/`, and every case, brace and hyphen shape a
-            # UUID takes. A value that names no id (a padded value, a
-            # `#fragment`, a free label) is not looked up, and the database
-            # cast never sees text it cannot read.
+            # UUID takes. The lookup reads the ids that parsing names: a
+            # padded value, a `#fragment` and a free label name their id
+            # only incidentally, and a value that names no named id is not
+            # looked up, so the database cast never sees text it cannot
+            # read.
             resolved = sorted(cited_source_ids({"source_id": source_id}).named)
             if not resolved:
                 if temporal_store_reads_uuid:

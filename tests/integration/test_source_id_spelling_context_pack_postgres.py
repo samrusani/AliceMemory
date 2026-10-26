@@ -219,6 +219,37 @@ def test_mcp_context_pack_answers_a_reference_spelling_like_the_canonical_spelli
     assert tool_memories(tool(AgentIdentity(agent_id="admin-reader", permission_profile="admin_agent", auth="agent_key"))) == tool_memories(canonical_admin)
 
 
+@pytest.mark.parametrize("value", ("manual-import", "manual import", "{id}#chunk-1", "   "))
+def test_a_value_that_names_no_named_source_id_skips_the_date_lookup(app, value) -> None:
+    """A source_id value the reader names no named id for leaves the date lookup out.
+
+    A free label, a padded value, a `#fragment` and a blank name no named id
+    (a padded value's id is named incidentally, which the lookup does not
+    read), so the lookup is skipped and the pack answers HTTP 200 on
+    PostgreSQL with no server error and no `event_time` taken from a
+    source. This is the branch of the date lookup that answers for a value
+    the reader does not resolve. Whether the memory itself is selected is
+    the read fence's decision and not this lookup's: a free label keeps the
+    memory out of the pack, as it did before this series, and a blank value
+    keeps it in.
+    """
+
+    user_id, source_id, memory_id = _seed_source_and_memory(app.url)
+
+    _set_source_id(app.admin_url, memory_id, value.format(id=source_id))
+    status, answer = _pack(app, user_id, None)
+    assert status in {200, 201}, (status, answer)
+    memories = _pack_memories(answer)
+    assert memories in ([], [(memory_id, None)]), answer
+    if not memories:
+        return
+
+    _set_source_id(app.admin_url, memory_id, "")
+    baseline_status, baseline_answer = _pack(app, user_id, None)
+    assert baseline_status in {200, 201}
+    assert _pack_memories(baseline_answer) == memories
+
+
 @pytest.mark.parametrize("spelling", REFERENCE_SPELLINGS)
 def test_a_source_the_key_may_not_read_reads_the_same_in_every_spelling(app, spelling) -> None:
     """A key below the source's sensitivity learns nothing new from any spelling.
