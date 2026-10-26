@@ -19774,10 +19774,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/cli/runner.py",
-          "line": 104,
+          "line": 105,
           "before": "        with reader_scope():\n            output = handler(ctx, args)",
           "after": "        if True:\n            output = handler(ctx, args)",
-          "sha256": "083070c81b94273c7059c4edacfeb85a844c43b0bc42d472952405b47e2615db"
+          "sha256": "694b7cb3cf3cb99551ede3ea240541fc35a32545564a1172152632ff19f82cc6"
         }
       ],
       "pytest": [

@@ -83,8 +83,12 @@ def strict_owner_urls() -> Iterator[dict[str, str]]:
                 sql.Identifier(database_name)
             )
         )
-    owner_url = f"postgresql://{owner_role}:{owner_password}@localhost:55532/{database_name}"
-    with psycopg.connect(_swap_database(_admin_root_url(), database_name), autocommit=True) as conn:
+    admin_root = _admin_root_url()
+    parsed = urlsplit(admin_root)
+    owner_host = parsed.hostname or "localhost"
+    owner_port = parsed.port or 5432
+    owner_url = f"postgresql://{owner_role}:{owner_password}@{owner_host}:{owner_port}/{database_name}"
+    with psycopg.connect(_swap_database(admin_root, database_name), autocommit=True) as conn:
         conn.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
     with psycopg.connect(owner_url, autocommit=True) as conn:
