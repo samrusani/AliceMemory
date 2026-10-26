@@ -119,7 +119,7 @@ def _handle_alice_project_update_review(context: MCPRuntimeContext, arguments: M
     actor_id: str | None = None
     trace_id: str | None = None
     with _vnext_store_context(context) as store:
-        artifact_id = _canonical_row_id_argument(arguments, "artifact_id", store=store)
+        artifact_id = _canonical_row_id_argument(arguments, "artifact_id", store=store, not_found=lambda _raw: MCPToolError(f"artifact {_raw} was not found"))
         from alicebot_api.vnext_artifact_review import lock_artifact_review_labels
         lock_graph = getattr(store, "lock_graph_mutation", None)
         if callable(lock_graph):
@@ -182,7 +182,7 @@ def _handle_alice_project_dashboard(context: MCPRuntimeContext, arguments: Mappi
     with _vnext_store_context(context) as store:
         return _json_object(
             VNextProjectService(store).project_dashboard(
-                project_id=_canonical_row_id_argument(arguments, "project_id", store=store),
+                project_id=_canonical_row_id_argument(arguments, "project_id", store=store, not_found=lambda _raw: MCPToolError(f"project {_raw} was not found")),
                 sensitivity_allowed=decision.effective_sensitivity_allowed,
                 identity=_agent_identity_from_arguments(context, arguments),
             )
@@ -203,7 +203,7 @@ def _handle_alice_open_loop_review(context: MCPRuntimeContext, arguments: Mappin
     with _vnext_store_context(context) as store:
         return _json_object(
             VNextProjectService(store).review_open_loop(
-                loop_id=_canonical_row_id_argument(arguments, "loop_id", store=store),
+                loop_id=_canonical_row_id_argument(arguments, "loop_id", store=store, not_found=lambda _raw: MCPToolError(f"open loop {_raw} was not found")),
                 action=_parse_required_text(arguments, "action"),
                 title=_parse_optional_text(arguments, "title"),
                 description=_parse_optional_text(arguments, "description"),

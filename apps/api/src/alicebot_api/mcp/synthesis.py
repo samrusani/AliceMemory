@@ -162,7 +162,7 @@ def _handle_alice_graph_edge_review(context: MCPRuntimeContext, arguments: Mappi
         # An edge that is missing, and an id that is not one in any accepted
         # spelling, answer not_found alike, before the write path runs: the
         # update of a row that is not there used to fail the whole call.
-        edge_id = _canonical_row_id_argument(arguments, "edge_id", store=store)
+        edge_id = _canonical_row_id_argument(arguments, "edge_id", store=store, not_found=lambda _raw: MCPReferenceNotFoundError(f"edge {_raw} was not found"))
         lookup_edge = getattr(store, "get_edge", None)
         if lookup_edge is not None and lookup_edge(edge_id) is None:
             raise MCPReferenceNotFoundError(f"edge {edge_id} was not found")
@@ -235,7 +235,7 @@ def _handle_alice_belief_review(context: MCPRuntimeContext, arguments: Mapping[s
         # A belief that is missing, and an id that is not one in any accepted
         # spelling, answer not_found alike, before the write path runs: the
         # review of a row that is not there used to fail the whole call.
-        belief_id = _canonical_row_id_argument(arguments, "belief_id", store=store)
+        belief_id = _canonical_row_id_argument(arguments, "belief_id", store=store, not_found=lambda _raw: MCPReferenceNotFoundError(f"belief {_raw} was not found"))
         lookup_belief = getattr(store, "get_belief", None)
         if lookup_belief is not None and lookup_belief(belief_id) is None:
             raise MCPReferenceNotFoundError(f"belief {belief_id} was not found")
@@ -253,6 +253,6 @@ def _handle_alice_belief_state(context: MCPRuntimeContext, arguments: Mapping[st
     with _vnext_store_context(context) as store:
         return _json_object(
             VNextContradictionService(store).belief_state(
-                belief_id=_canonical_row_id_argument(arguments, "belief_id", store=store),
+                belief_id=_canonical_row_id_argument(arguments, "belief_id", store=store, not_found=lambda _raw: MCPReferenceNotFoundError(f"belief {_raw} was not found")),
             )
         )

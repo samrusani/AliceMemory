@@ -315,13 +315,13 @@ def _canonical_memory_id_argument(arguments: Mapping[str, object], *, store: obj
     keeps the value it was given.
     """
 
-    return _canonical_row_id_argument(arguments, "memory_id", store=store)
+    return _canonical_row_id_argument(arguments, "memory_id", store=store, not_found=lambda _raw: MemoryNotFoundError("memory was not found"))
 
 
 def _canonical_optional_memory_id_argument(arguments: Mapping[str, object], *, store: object | None = None) -> str | None:
     """The optional memory id argument in canonical spelling, or None when absent."""
 
-    return _canonical_optional_row_id_argument(arguments, "memory_id", store=store)
+    return _canonical_optional_row_id_argument(arguments, "memory_id", store=store, not_found=lambda _raw: MemoryNotFoundError("memory was not found"))
 
 
 def _handle_alice_vnext_undo_memory(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:

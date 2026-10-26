@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import TypedDict, cast
 from uuid import UUID
@@ -84,39 +84,37 @@ def _parse_required_text(arguments: Mapping[str, object], key: str) -> str:
     return normalized
 
 
-# A stand-in id no stored row answers to, used when an id argument does not
-# parse: the tool then answers exactly what a well-formed unknown id answers,
-# for the same caller, and the database cast never sees text it cannot read.
-_MISSING_ROW_ID = "00000000-0000-0000-0000-000000000000"
-
-
 def _canonical_row_id_argument(
-    arguments: Mapping[str, object], key: str, store: object | None = None
+    arguments: Mapping[str, object], key: str, store: object | None = None,
+    *, not_found: Callable[[str], Exception],
 ) -> str:
     """The required id argument in canonical spelling."""
 
-    return _resolve_row_id_argument(_parse_required_text(arguments, key), store)
+    return _resolve_row_id_argument(_parse_required_text(arguments, key), store, not_found)
 
 
 def _canonical_optional_row_id_argument(
-    arguments: Mapping[str, object], key: str, store: object | None = None
+    arguments: Mapping[str, object], key: str, store: object | None = None,
+    *, not_found: Callable[[str], Exception],
 ) -> str | None:
     """The optional id argument in canonical spelling, or None when absent."""
 
     text = _parse_optional_text(arguments, key)
     if text is None:
         return None
-    return _resolve_row_id_argument(text, store)
+    return _resolve_row_id_argument(text, store, not_found)
 
 
-def _resolve_row_id_argument(text: str, store: object | None) -> str:
-    """The id argument in canonical spelling, or the stand-in id of no row.
+def _resolve_row_id_argument(text: str, store: object | None, not_found: Callable[[str], Exception]) -> str:
+    """The id argument in canonical spelling, or the door's not-found refusal.
 
     The shared router helper ``_vnext_canonical_id`` reads every spelling a
     well-formed id takes (any case, braces, no hyphens, ``urn:uuid:``); a
-    value that parses is used in canonical form. One that does not is
-    answered as an unknown id is on the PostgreSQL store, whose id reads are
-    ``::uuid`` casts; a store that compares text keeps the value it was
+    value that parses is used in canonical form. One that does not names no
+    row and is refused WITHOUT any lookup, raising the same error the door
+    raises for a well-formed unknown id, so the answer is exactly the
+    unknown answer and no stored row, whatever its id, is ever touched by a
+    malformed argument. A store that compares text keeps the value it was
     given, because there a malformed id already answers as an unknown one.
     """
 
@@ -125,7 +123,7 @@ def _resolve_row_id_argument(text: str, store: object | None) -> str:
         return canonical
     if store is not None and not isinstance(store, PostgresVNextStore):
         return text
-    return _MISSING_ROW_ID
+    raise not_found(text)
 
 
 def _parse_required_document_text(arguments: Mapping[str, object], key: str) -> str:

@@ -329,3 +329,57 @@ def test_legacy_memory_tool_malformed_memory_id_matches_unknown(label_harness, t
     unknown = _tool(context, tool, build(str(uuid4())))
     malformed = _tool(context, tool, build(value))
     assert _answers_match(malformed, unknown), (tool, malformed, unknown)
+
+
+NIL_ID = "00000000-0000-0000-0000-000000000000"
+
+
+def _nil_row_state(h) -> tuple:
+    import psycopg
+    from psycopg.rows import dict_row
+
+    with psycopg.connect(h.urls["admin"], autocommit=True, row_factory=dict_row) as conn:
+        row = conn.execute(
+            "SELECT id::text, memory_key, status, canonical_text FROM memories WHERE id = %s::uuid",
+            (NIL_ID,),
+        ).fetchone()
+        return () if row is None else tuple(row.items())
+
+
+def _store_a_row_under_the_nil_id(h) -> None:
+    """Store one row under the nil id the way a restore or import would: a
+    direct write that bypasses row-level security, as the admin role does."""
+
+    import psycopg
+
+    with h.store() as store:
+        memory = store.create_memory({"memory_key": "nil.id.row", "canonical_text": "the nil id row", "value": {"text": "nil"}})
+    with psycopg.connect(h.urls["admin"], autocommit=True) as conn:
+        conn.execute("UPDATE memories SET id = %s::uuid WHERE id = %s::uuid", (NIL_ID, str(memory["id"])))
+
+
+@pytest.mark.parametrize("value", MALFORMED_VALUES)
+def test_a_malformed_id_never_touches_a_row_stored_under_the_nil_id(label_harness, value) -> None:
+    """A malformed id answers not found without any lookup, even when a row
+    is stored under the all-zero id a former stand-in answer used.
+
+    On the pre-fix source the malformed argument was answered with the nil
+    id as a stand-in, so ``alice_memory_manage`` forget and ``alice_explain``
+    read and deleted that stored row where an unknown id answers not found.
+    """
+
+    h = label_harness
+    context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+    _store_a_row_under_the_nil_id(h)
+    before = _nil_row_state(h)
+    assert before, "the nil-id row was not stored"
+
+    unknown_forget = _tool(context, "alice_memory_manage", {"action": "forget", "memory_id": str(uuid4()), "reason": "synthetic"})
+    malformed_forget = _tool(context, "alice_memory_manage", {"action": "forget", "memory_id": value, "reason": "synthetic"})
+    assert _answers_match(malformed_forget, unknown_forget), (malformed_forget, unknown_forget)
+
+    unknown_explain = _tool(context, "alice_explain", {"memory_id": str(uuid4())})
+    malformed_explain = _tool(context, "alice_explain", {"memory_id": value})
+    assert _answers_match(malformed_explain, unknown_explain), (malformed_explain, unknown_explain)
+
+    assert _nil_row_state(h) == before, "the malformed id touched the row stored under the nil id"
