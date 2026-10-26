@@ -1,4 +1,16 @@
-"""Add vNext memory-kernel schema foundations."""
+"""Add vNext memory-kernel schema foundations.
+
+A database already at 0067 or later never runs this body again, so editing
+the statements here in place cannot change what an upgraded vault has seen. A
+database still at 0066 must end in exactly the state the superuser path gives
+today: the same columns, constraints, triggers, policies, row-level security
+and forced flags, and the same backfilled values, whether the migrator is a
+cluster superuser or the documented table owner that is NOSUPERUSER
+NOBYPASSRLS. The data statements below write under forced row-level security
+that the owner cannot bypass, so the owner bypass is used inside this
+migration's own transaction, as 0093 and 0095 to 0097 do, and the forced
+setting is restored before the transaction commits.
+"""
 
 from __future__ import annotations
 
@@ -301,6 +313,15 @@ _UPGRADE_REVISION_COMPAT_STATEMENTS = (
           ADD COLUMN actor_id text NULL,
           ADD COLUMN metadata_json jsonb NOT NULL DEFAULT '{}'::jsonb
         """,
+    # The backfill UPDATE below writes rows on a table whose forced
+    # row-level security binds the documented table owner (NOSUPERUSER
+    # NOBYPASSRLS) to policies that do not yet include an UPDATE policy at
+    # this revision. Temporarily use the owner bypass, as 0093 and 0095 to
+    # 0097 do, inside Alembic's single transaction. Concurrent sessions
+    # never see the relaxed FORCE setting; failure rolls back the bracket,
+    # the data change and the schema change together, and the forced setting
+    # is restored before the transaction commits.
+    "ALTER TABLE memory_revisions NO FORCE ROW LEVEL SECURITY",
     """
         UPDATE memory_revisions
         SET
@@ -318,6 +339,7 @@ _UPGRADE_REVISION_COMPAT_STATEMENTS = (
           text_after = COALESCE(new_value::text, '{}')
         WHERE revision_number IS NULL
         """,
+    "ALTER TABLE memory_revisions FORCE ROW LEVEL SECURITY",
     """
         ALTER TABLE memory_revisions
           ALTER COLUMN revision_number SET NOT NULL,
