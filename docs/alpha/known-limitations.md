@@ -1,6 +1,6 @@
 # Public Alpha Known Limitations
 
-This alpha is intentionally limited. This page lists what is limited now in v0.21.0. What an earlier release did, and what a later release fixed, is in the [CHANGELOG](../../CHANGELOG.md) and the [release notes](../release/v0.21.0-release-notes.md). Behaviour that is new in v0.21.0 is marked `From v0.21.0`.
+This alpha is intentionally limited. This page lists what is limited now in v0.22.0. What an earlier release did, and what a later release fixed, is in the [CHANGELOG](../../CHANGELOG.md) and the [release notes](../release/v0.22.0-release-notes.md). Behaviour that is new in v0.22.0 is marked `From v0.22.0`, and what v0.21.0 changed is marked `From v0.21.0`.
 
 Not built in this alpha: no hosted cloud, no production SLA, and no team accounts, billing, cloud sync, mobile app or hosted deployment (out of scope); no managed Gmail or Calendar OAuth consent or account-linking flow (manual operator-token storage exists); no live email or calendar polling; no Telegram polling, delivery or channel transport.
 OCR, PDF OCR and voice transcription execution are not packaged. The scheduler is local, model providers need your configuration, and the Postgres setup is technical (the SQLite install is one command).
@@ -17,6 +17,7 @@ SQLite mode (`alice-memory install`, `alice-memory mcp`) is the default single-u
 - tool failures over stdio return a generic code and no detail (`tool_not_found`, `tool_request_failed`, `tool_execution_failed`), except `invalid_request` for a rejected argument or an oversized query, and `not_permitted`, `not_found` and `precondition_failed`, which tell a refusal from a failure ([error codes](mcp-tools.md#error-codes))
 - `alice_recall` and `alice_context_pack` refuse a query of more than 499 distinct search terms or 40,000 UTF-8 bytes, and `alice_resume` and `alice_recent_decisions` one over 40,000 bytes; a query inside the limit can still take several seconds on a vault with thousands of sources ([Size bounds](mcp-tools.md#size-bounds))
 - exports contain plaintext memory and source content, so protect and encrypt copies; embedding vectors are not exported (run `alice-memory reindex-embeddings` after an import), import never overwrites an existing row, and users, agent identities, API keys and soft-deleted rows are not portable. A vault with JSON text nested about 1,000 levels or more cannot be exported (`export_failed`), and import refuses such text (`restore_failed`) ([Backup and restore](backup-and-restore.md))
+- From v0.22.0, with `ALICE_SOURCE_EMBEDDINGS=on` (off by default), the chunks of imported and captured notes go only to an embeddings endpoint on this machine, and for any other endpoint nothing is sent and the chunks stay pending; memory embeddings still go to any endpoint you configure ([Embeddings of source chunks](mcp-tools.md#embeddings-of-source-chunks))
 - `sources delete` and `prune` keep source events, hashes, memory text and backups, and freed space keeps text until the VACUUM step ([importers](../integrations/importers.md#list-delete-and-prune-sqlite-sources))
 
 Postgres stack and outbound calls, with the detail in the [threat model](../security/threat-model.md):
@@ -29,7 +30,7 @@ Postgres stack and outbound calls, with the detail in the [threat model](../secu
 - an unbound `trusted_local_agent` key reads the configured local-folder paths in `config.config_json.paths` of `GET /v0/vnext/connectors/{connector_name}/status`, even when a file under a path is confidential (every other profile and a project-bound key get HTTP 403, and an unbound `admin_agent` key reads them too); the fix has no release set
 - `alice_context_pack` removes the id of a memory the caller cannot read from `metadata_json`, but looks only for a 36-character UUID there: an id in another column of a stored row or in another spelling is not removed
 
-Open in v0.21.0, with the detail in the [security note](../release/derived-labels-security-note-draft.md):
+Open in v0.22.0, with the detail in the [security note](../release/derived-labels-security-note-draft.md):
 
 - `alice_context_pack` still names the id of an expired memory in `recent_changes`, and its `max_tokens` budget prices the full stored row while the agent receives a compact row. Text that earlier releases sent to an embeddings endpoint, an expired memory's included, cannot be taken back from it
 - the cited-source fence has gaps: memory proposals and the agent-output ingest store `source_refs` without checking the ids (v0.20.2 kept an object entry and JSON text whole; from v0.21.0, only a string that is not blank and not JSON text), the owner dependency trace lists the first id of a multi-id ref only, and `provenance_count` counts a withheld link. A memory or open loop saved before v0.20.2 keeps its link, so `alice_explain` fails for it, and an `admin_agent` writer's link makes it fail for keys of a project with a lower ceiling ([Cited sources](mcp-tools.md#cited-sources))

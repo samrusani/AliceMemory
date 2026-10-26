@@ -96,7 +96,7 @@ def test_the_known_limitations_list_what_stays_open_after_the_expiry_fix() -> No
     """
 
     limitations = _read("docs/alpha/known-limitations.md")
-    section = limitations[limitations.index("Open in v0.21.0") :]
+    section = limitations[limitations.index("Open in v0.22.0") :]
     assert "- the session brief, `alice_resume` and `alice_recent_decisions` list memories by status" not in section
     assert "- consolidation and the roll-up semantic tier embed, for clustering" not in section
     assert "- promoting a reviewed artifact into a memory does not embed the new memory" not in section

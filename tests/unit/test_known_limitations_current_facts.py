@@ -1,6 +1,6 @@
 """The facts that only the known limitations page states are pinned, and the numbers on it are the ones the code enforces.
 
-The page is a short list of what is limited now in v0.21.0. Most of its statements are pinned next to the pages that
+The page is a short list of what is limited now in v0.22.0. Most of its statements are pinned next to the pages that
 explain them (the local-folder scan, the HTTP edge, the expiry and commit text bullets and the rest). A bound that
 another page owns is one short sentence on the page and a link, and the page that owns it holds the rest and is pinned
 here, so the fact is not lost when it leaves the page:
@@ -15,6 +15,8 @@ here, so the fact is not lost when it leaves the page:
 * the Postgres doctor reading no chunk text;
 * what an export leaves out and what an import never does, which the backup guide states;
 * what SQLite source deletion keeps, which the importers page states;
+* that the chunks of imported and captured notes go only to an embeddings endpoint on this machine, which the rule of
+  the code (``endpoint_is_loopback``) and the embeddings page state;
 * the HTTP body cap and the local-folder scan limits, whose numbers are read from the code;
 * the doors the cited-source fence does not reach, on the ``Not covered`` list of "Saved quotes" in ``mcp-tools.md``
   (memory proposals, the agent-output ingest and the provenance links of artifacts).
@@ -26,11 +28,15 @@ cap and the folder scan limits), so a change of the limit that leaves the page b
 from __future__ import annotations
 
 import re
+import urllib.request
 from pathlib import Path
+
+import pytest
 
 from alicebot_api.config import DEFAULT_MAX_CONNECTOR_SYNC_BODY_BYTES, DEFAULT_MAX_REQUEST_BODY_BYTES
 from alicebot_api.importer_paths import DEFAULT_MAX_CHATGPT_EXPORT_BYTES, DEFAULT_MAX_TEXT_FILE_BYTES, MIB
 from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES
+from alicebot_api.source_embedding_policy import endpoint_is_loopback, source_embedding_settings
 from alicebot_api.source_search_limits import SOURCE_SEARCH_QUERY_MAX_BYTES, SOURCE_SEARCH_QUERY_MAX_PATTERNS
 from alicebot_api.vnext_connectors import (
     MAX_LOCAL_FOLDER_FILE_BYTES,
@@ -73,7 +79,7 @@ def _under(heading_start: str, bullet: str) -> bool:
 
     raw = (ROOT / "docs/alpha/known-limitations.md").read_text(encoding="utf-8")
     start = raw.index(heading_start)
-    following = [raw.find(lead, start + 1) for lead in ("\nPostgres stack and outbound calls", "\nOpen in v0.21.0")]
+    following = [raw.find(lead, start + 1) for lead in ("\nPostgres stack and outbound calls", "\nOpen in v0.22.0")]
     end = min(position for position in following if position != -1)
     return _flat(bullet.removeprefix("- ")) in _flat(raw[start:end])
 
@@ -150,7 +156,7 @@ def test_the_error_bullet_names_the_generic_codes_and_the_three_that_tell_a_refu
     and the three generic codes come before them.
 
     The three are read from ``MCP_CODED_ERROR_CODES``: the four coded errors less ``invalid_request``, which a query over a
-    size limit already got in v0.20.0. The page is written for v0.21.0 and carries no marker.
+    size limit already got in v0.20.0. The page is written for v0.22.0 and this bullet carries no marker.
 
     Mutations, each one alone: on the page, delete ``precondition_failed`` from the list, delete ``except
     `invalid_request` for a rejected argument or an oversized query``, move a generic code after the three or put
@@ -262,6 +268,49 @@ def test_the_export_bullet_names_the_rules_and_the_backup_guide_holds_the_rest()
     assert "cannot be exported while the text is nested about 1,000 levels or more" in guide
     assert "ends with `export_failed`" in guide
     assert "This command restores a SQLite database. It is not a PostgreSQL import." in guide
+
+
+def test_the_source_embeddings_bullet_says_the_chunks_go_only_to_this_machine_and_the_rule_is_the_codes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bullet says what the code does: the opt-in is off by default, the chunks go only to an endpoint on this machine,
+    nothing is sent to any other and the chunks stay pending, and memory embeddings are not held to that rule.
+
+    The rule is run here, not only read: ``source_embedding_settings`` is off for an empty environment and on only for
+    ``on``, and ``endpoint_is_loopback`` accepts the addresses of this machine and refuses a remote name, an address
+    that is not loopback and a name that resolves to loopback. The embeddings page and the v0.22.0 notes state the same
+    rule and the reason ``endpoint_not_on_this_machine``.
+
+    Mutations, each one alone: on the page, delete ``(off by default)``, ``go only to an embeddings endpoint on this
+    machine``, ``nothing is sent and the chunks stay pending`` or ``memory embeddings still go to any endpoint you
+    configure``, or the link to the embeddings page; in ``source_embedding_policy.py``, let ``endpoint_is_loopback`` accept
+    ``embeddings.example.com`` or turn the opt-in on for an empty environment.
+    """
+
+    bullet = _bullet("From v0.22.0, with `ALICE_SOURCE_EMBEDDINGS=on`")
+    assert "(off by default)" in bullet
+    assert "the chunks of imported and captured notes go only to an embeddings endpoint on this machine" in bullet
+    assert "for any other endpoint nothing is sent and the chunks stay pending" in bullet
+    assert "memory embeddings still go to any endpoint you configure" in bullet
+    assert bullet.endswith("([Embeddings of source chunks](mcp-tools.md#embeddings-of-source-chunks))")
+    assert _under("SQLite mode (", bullet)
+
+    assert not source_embedding_settings({}).enabled
+    assert source_embedding_settings({"ALICE_SOURCE_EMBEDDINGS": "on"}).enabled
+    monkeypatch.setattr(urllib.request, "getproxies", lambda: {})
+    assert endpoint_is_loopback("http://localhost:11434/v1")
+    assert endpoint_is_loopback("http://127.0.0.1:11434/v1")
+    assert endpoint_is_loopback("http://[::1]:11434/v1")
+    for remote in ("http://embeddings.example.com/v1", "http://192.0.2.1:11434/v1", "http://127.1:11434/v1"):
+        assert not endpoint_is_loopback(remote), remote
+
+    tools = _read("docs/alpha/mcp-tools.md")
+    assert "Remote endpoints are not supported for source embeddings in this release." in tools
+    assert "`endpoint_not_on_this_machine`" in tools
+    assert "Memory embeddings are not affected and still work with any endpoint." in tools
+    notes = _read("docs/release/v0.22.0-release-notes.md")
+    assert "Remote endpoints are not supported for source embeddings in this release." in notes
+    assert "Memory embeddings are unchanged and still work with any endpoint." in notes
 
 
 def test_the_sqlite_boundaries_bullets_and_the_deletion_bullet_point_at_the_pages_that_hold_the_detail() -> None:
