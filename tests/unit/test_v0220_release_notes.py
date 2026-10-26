@@ -551,6 +551,19 @@ def test_the_settings_and_flags_the_notes_list_are_all_that_this_release_adds(v0
     assert added == {"reindex-embeddings": {"--sources", "--drop"}}
 
 
+def _packages_in(where: Path) -> list[str]:
+    """The packages ``setuptools.find_packages(where=...)`` finds: each directory under ``where`` that holds an
+    ``__init__.py``, with one in every directory between it and ``where``. Written out because the environment the
+    tests run in does not install setuptools."""
+
+    found = []
+    for init in sorted(where.rglob("__init__.py")):
+        parts = init.parent.relative_to(where).parts
+        if parts and all((where.joinpath(*parts[: depth + 1]) / "__init__.py").is_file() for depth in range(len(parts))):
+            found.append(".".join(parts))
+    return found
+
+
 def test_the_package_holds_none_of_the_bench_scripts_the_walkthrough_or_the_console() -> None:
     """Mutation: add ``scripts`` or ``apps/web`` to the package list of ``pyproject.toml``, or a line for either to
     ``MANIFEST.in``.
@@ -560,12 +573,10 @@ def test_the_package_holds_none_of_the_bench_scripts_the_walkthrough_or_the_cons
     ``scripts/`` or ``apps/web``; this test pins what decides it.
     """
 
-    from setuptools import find_packages
-
     setuptools_config = tomllib.loads(_text("pyproject.toml"))["tool"]["setuptools"]
     assert setuptools_config["packages"]["find"]["where"] == ["apps/api/src", "workers"]
     assert "package-data" not in setuptools_config and "data-files" not in setuptools_config
-    packages = [pkg for where in ("apps/api/src", "workers") for pkg in find_packages(where=str(REPO_ROOT / where))]
+    packages = [pkg for where in ("apps/api/src", "workers") for pkg in _packages_in(REPO_ROOT / where)]
     assert packages and not [pkg for pkg in packages if pkg.split(".")[0] in {"scripts", "web", "apps"}]
     assert _text("MANIFEST.in").split("\n") == [
         "include apps/api/alembic.ini",
