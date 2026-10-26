@@ -65,7 +65,7 @@ from tests.unit.test_published_release_notes_stay_immutable import _tagged
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NOTES_PATH = "docs/release/v0.22.0-release-notes.md"
-HEADING = "## v0.22.0 — 2026-10-26"
+HEADING = "## v0.22.0 \u2014 2026-10-26"
 # The notes are about 14,500 characters, and 17,500 leaves room for a correction and no more.
 NOTES_CEILING = 17_500
 
@@ -307,9 +307,9 @@ def test_the_changelog_has_the_dated_heading_and_an_empty_unreleased_section_rig
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
     assert sections[1] == "Unreleased\n"
-    assert sections[2].startswith("v0.22.0 — 2026-10-26\n")
-    assert sections[3].startswith("v0.21.1 — 2026-10-23\n")
-    assert sections[4].startswith("v0.21.0 — 2026-10-22\n")
+    assert sections[2].startswith("v0.22.0 \u2014 2026-10-26\n")
+    assert sections[3].startswith("v0.21.1 \u2014 2026-10-23\n")
+    assert sections[4].startswith("v0.21.0 \u2014 2026-10-22\n")
     assert changelog.count(HEADING) == 1
     assert "Unreleased (on" not in sections[2]
     assert "Unreleased (on" not in sections[3]
@@ -358,8 +358,8 @@ def test_the_notes_use_no_dash_and_only_the_allowed_security_wording() -> None:
     """
 
     text = _text(NOTES_PATH)
-    assert "—" not in text
-    assert "–" not in text
+    assert "\u2014" not in text
+    assert "\u2013" not in text
     flat = " ".join(text.split())
     disclosure = "No one outside the project has audited the code."
     assert flat.count(disclosure) == 1
