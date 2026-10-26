@@ -1,27 +1,44 @@
-"""The malformed-id answer class is closed: every plain-string id argument is listed here.
+"""The malformed-id answer class is closed: every id-named field is listed here.
 
 The PostgreSQL store reads ids with ``WHERE id = %s::uuid``, so a value that is not an id in any
-accepted spelling used to fail the cast at any door that read one. That is now fixed by reading
-every id argument through ``_vnext_canonical_id`` first (a value that parses is used in canonical
-form, one that does not is answered as a well-formed unknown id is). This test walks the mounted
-HTTP application and the MCP tool definitions, collects every parameter, body field and tool
-argument whose name ends ``_id`` or ``_ids`` and whose schema is a plain string, and compares the
-collection with the list below. A new id argument must be added here with its kind:
+accepted spelling used to fail the cast at any door that read one. This test walks the mounted HTTP
+application's OpenAPI schema and every MCP tool definition, follows ``$ref``, ``anyOf`` (the shape
+an optional ``str | None`` takes), ``nullable``, arrays (``list[str] | None``) and nested objects,
+collects every field or argument whose name ends ``_id`` or ``_ids``, and classifies each one:
 
-- ``row_id``: the id names a stored row the door reads or writes. Its test reads malformed
-  spellings of it at that door and asserts the answer matches a well-formed unknown id's.
-- ``claim_string``: the value is recorded or compared as text (an agent claim, a trace id, an
-  external chat id, a session reference); it never reaches an id cast.
-- ``schema_uuid``: the field is parsed or refused at the argument layer (``format: uuid`` or a
-  ``UUID``-typed model), so a malformed value answers invalid_request before any store call.
+- ``schema_uuid``: the schema says ``format: uuid`` (a ``UUID``-typed model or field), so a
+  malformed value answers invalid_request before any store call. Detected from the schema, not
+  listed here.
+- ``claim_string``: the value is recorded or compared as text (an agent claim, a trace id, a
+  session reference, an external chat id, a confirmation token, a project scope name); it never
+  reaches an id cast. Checked in below by name.
+- ``row_id``: the id names a stored row the door reads or writes, in canonical form. Every such
+  entry is checked in below with the test that reads malformed spellings of it at that door, and
+  that test must exist as a pytest node pytest can collect, so renaming a test fails here until
+  the entry follows.
+
+A new plain-string id field then fails the first test until someone decides which kind it is; a
+row-id entry whose test disappears fails the node check.
 """
 
 from __future__ import annotations
 
+import subprocess
+import sys
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
 import alicebot_api.main as main_module
 from alicebot_api.mcp.definitions import _CORE_TOOL_DEFINITIONS, _LEGACY_TOOL_DEFINITIONS
 
-HTTP_ROW_IDS = {
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# The row ids of the HTTP doors: (method, path, field path) -> the test that sends a malformed and
+# a well-formed unknown value to that door and requires the two answers to be equal. A field path
+# is the property name for a body field, dotted for a nested one; a path parameter is the
+# parameter's name.
+HTTP_ROW_IDS: dict[tuple[str, str, str], str] = {
     ("GET", "/v0/vnext/beliefs/{belief_id}/state", "belief_id"):
         "tests/integration/test_malformed_id_doors_postgres.py::test_belief_state_http_malformed_id_matches_unknown",
     ("POST", "/v0/vnext/beliefs/{belief_id}/review", "belief_id"):
@@ -36,30 +53,39 @@ HTTP_ROW_IDS = {
         "tests/integration/test_malformed_id_doors_postgres.py::test_open_loop_review_http_malformed_id_matches_unknown",
     ("POST", "/v0/vnext/projects/update-candidates/{artifact_id}/review", "artifact_id"):
         "tests/integration/test_malformed_id_doors_postgres.py::test_project_update_review_http_malformed_id_matches_unknown",
+    # The open-loop create keeps the memory, source and project it is given:
+    # the memory and source go through the single-id resolvers, which refuse
+    # a value that is not an id before the store sees it, and the project is
+    # held to the key's binding in every spelling.
+    ("POST", "/v0/vnext/open-loops", "memory_id"):
+        "tests/unit/test_source_refs_read_fence.py::test_the_single_id_resolvers_check_the_value_before_the_store_sees_it_and_return_the_canonical_id",
+    ("POST", "/v0/vnext/open-loops", "source_id"):
+        "tests/unit/test_source_refs_read_fence.py::test_the_single_id_resolvers_check_the_value_before_the_store_sees_it_and_return_the_canonical_id",
+    ("POST", "/v0/vnext/open-loops", "project_id"):
+        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_an_open_loop_project_id_outside_the_binding_or_not_well_formed_is_a_missing_project",
 }
 
-HTTP_CLAIM_STRINGS = {
-    ("POST", "/v0/vnext/agents/ingest-output", "agent_id"),
-    ("POST", "/v0/vnext/connectors/telegram/sync", "allowed_chat_ids"),
-    # A confirmation is named by its token and not by the id of a row: the
-    # lookup compares text and a malformed token answers like an unknown one.
-    ("POST", "/v0/vnext/memories/confirm", "confirmation_id"),
+# A value with one of these names is a claim, not the id of a stored row: an
+# agent declares it (agent_id, agent_run_id, task_id, trace_id,
+# agent_profile_id, session_id), the caller names an external chat
+# (allowed_chat_ids), a confirmation is named by a token compared as text
+# (confirmation_id), a reviewer is matched against the authenticated
+# identity (reviewer_id), and a project is filed under by the name of its
+# scope, judged by the project admission the open-loop tests pin.
+HTTP_CLAIM_NAMES = {
+    "agent_id", "agent_run_id", "task_id", "trace_id", "agent_profile_id",
+    "session_id", "allowed_chat_ids", "confirmation_id", "reviewer_id",
+    "project_id",
 }
 
-HTTP_SCHEMA_UUIDS = {
-    ("POST", "/v0/entities", "source_memory_ids"),
-    ("POST", "/v0/entity-edges", "source_memory_ids"),
-    ("POST", "/v0/memories/admit", "source_event_ids"),
-    ("POST", "/v1/memory/operations/commit", "candidate_ids"),
-}
-
-MCP_ROW_IDS = {
+# The row ids of the MCP tools: (tool, argument path) -> its malformed test.
+MCP_ROW_IDS: dict[tuple[str, str], str] = {
     ("alice_explain", "memory_id"):
         "tests/integration/test_malformed_id_doors_postgres.py::test_alice_explain_malformed_memory_id_matches_unknown",
     ("alice_memory_manage", "memory_id"):
         "tests/integration/test_malformed_id_doors_postgres.py::test_alice_memory_manage_malformed_memory_id_matches_unknown",
     ("alice_memory_manage", "confirmation_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_mcp_row_id_argument_malformed_matches_unknown",
+        "tests/integration/test_malformed_id_doors_postgres.py::test_alice_memory_manage_malformed_memory_id_matches_unknown",
     ("alice_graph_neighborhood", "target_id"):
         "tests/integration/test_malformed_id_doors_postgres.py::test_mcp_row_id_argument_malformed_matches_unknown",
     ("alice_vnext_open_loops", "source_id"):
@@ -86,8 +112,12 @@ MCP_ROW_IDS = {
         "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_mcp_tool_malformed_id_matches_unknown",
     ("alice_project_update_review", "artifact_id"):
         "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_mcp_tool_malformed_id_matches_unknown",
+    ("alice_project_update_candidate", "project_id"):
+        "tests/integration/test_malformed_id_doors_postgres.py::test_mcp_row_id_argument_malformed_matches_unknown",
     ("alice_open_loop_extract", "person_id"):
-        "tests/integration/test_open_loop_person_not_found_postgres.py::test_a_real_person_in_any_accepted_spelling_makes_no_duplicate_loop",
+        "tests/integration/test_open_loop_person_not_found_postgres.py::test_the_legacy_mcp_tool_answers_not_found_for_an_unknown_and_a_malformed_person",
+    ("alice_open_loop_extract", "project_id"):
+        "tests/integration/test_open_loop_person_not_found_postgres.py::test_the_legacy_mcp_tool_answers_a_malformed_project_id_as_an_unknown_one",
     ("alice_vnext_undo_memory", "memory_id"):
         "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_memory_tool_malformed_memory_id_matches_unknown",
     ("alice_vnext_correct_memory", "memory_id"):
@@ -96,92 +126,210 @@ MCP_ROW_IDS = {
         "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_memory_tool_malformed_memory_id_matches_unknown",
     ("alice_vnext_memory_audit", "memory_id"):
         "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_memory_tool_malformed_memory_id_matches_unknown",
-    ("alice_open_loop_extract", "project_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_mcp_row_id_argument_malformed_matches_unknown",
-    ("alice_project_update_candidate", "project_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_mcp_row_id_argument_malformed_matches_unknown",
-    ("alice_capture_candidates", "session_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_mcp_id_arrays_and_sessions_malformed_matches_unknown",
-    ("alice_memory_mutations_generate", "session_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_mcp_id_arrays_and_sessions_malformed_matches_unknown",
+    # A candidate id that is not a stored candidate is reported per
+    # candidate (not committed) and never fails the call, malformed or
+    # unknown.
+    ("alice_commit_captures", "candidates[].candidate_id"):
+        "tests/integration/test_malformed_id_doors_postgres.py::test_commit_capture_candidate_id_is_reported_not_failed",
 }
 
-MCP_CLAIM_STRINGS = {
-    "agent_id", "agent_run_id", "task_id", "trace_id", "confirmation_id",
+# An MCP argument with one of these names is a claim, not a row id: the
+# agent declares it, or it is recorded as provenance data (a session
+# reference), or it is a confirmation token compared as text. The ids
+# inside ``provenance`` and ``replacement_provenance`` of
+# ``alice_review_apply`` (``artifact_id``, ``artifact_segment_id``,
+# ``capture_event_id``, ``source_event_ids``) are free-form ids recorded as
+# data and read back as stored; no row lookup, no 500, which
+# ``test_review_apply_provenance_ids_are_data_not_lookups`` pins.
+MCP_CLAIM_NAMES = {
+    "agent_id", "agent_run_id", "task_id", "trace_id",
+    "confirmation_id", "session_id",
+    "artifact_segment_id", "capture_event_id", "source_event_ids",
 }
 
-MCP_SCHEMA_UUIDS = {
-    # Refused at the argument layer: "candidate_ids must contain UUID strings".
-    ("alice_memory_mutations_commit", "candidate_ids"),
+# Locations whose name would otherwise read as a row id but are claims: the
+# ``artifact_id`` inside the ``provenance`` and ``replacement_provenance``
+# of ``alice_review_apply`` is a free-form id recorded as data and read
+# back as stored (no row lookup, no 500), while the same name at the
+# artifact tools is a row id listed above.
+MCP_CLAIM_PATHS = {
+    ("alice_review_apply", "provenance.artifact_id"),
+    ("alice_review_apply", "replacement_provenance.artifact_id"),
 }
 
 
-def _http_plain_string_id_fields() -> set[tuple[str, str, str]]:
+def _resolve(schema: dict[str, Any], components: dict[str, Any]) -> dict[str, Any]:
+    seen = 0
+    while isinstance(schema, dict) and "$ref" in schema and seen < 50:
+        schema = components.get(schema["$ref"].split("/")[-1], {})
+        seen += 1
+    return schema if isinstance(schema, dict) else {}
+
+
+def _leaf_kinds(schema: dict[str, Any], components: dict[str, Any]) -> set[tuple[str, bool]]:
+    """The (shape, uuid) of every string leaf this schema position can take.
+
+    The shape is ``str`` or ``list``; ``uuid`` is true when the leaf says
+    ``format: uuid``. Optional fields (``str | None``), ``nullable`` and
+    ``anyOf`` all end in the string leaves they hold.
+    """
+
+    kinds: set[tuple[str, bool]] = set()
+    stack = [schema]
+    seen = 0
+    while stack and seen < 100:
+        node = _resolve(stack.pop(), components)
+        seen += 1
+        if node.get("type") == "string":
+            kinds.add(("str", "format" in node))
+        elif node.get("type") == "array":
+            items = _resolve(node.get("items", {}), components)
+            if items.get("type") == "string":
+                kinds.add(("list", "format" in items))
+        if node.get("nullable") and node.get("type") == "string":
+            kinds.add(("str", "format" in node))
+        stack.extend(node.get("anyOf", []))
+        stack.extend(node.get("oneOf", []))
+    return kinds
+
+
+def _walk_properties(
+    schema: dict[str, Any], components: dict[str, Any], visit: Any, path: str = "", depth: int = 0
+) -> None:
+    """Visit every property of this schema position, nested objects included."""
+
+    if depth > 12:
+        return
+    node = _resolve(schema, components)
+    for name, field_schema in node.get("properties", {}).items():
+        field_path = f"{path}.{name}" if path else name
+        visit(name, field_path, field_schema, components)
+        _walk_properties(field_schema, components, visit, field_path, depth + 1)
+    items = _resolve(node.get("items", {}), components)
+    if items:
+        _walk_properties(items, components, visit, f"{path}[]" if path else "[]", depth + 1)
+    for sub in (*node.get("anyOf", []), *node.get("oneOf", [])):
+        _walk_properties(sub, components, visit, path, depth + 1)
+    additional = node.get("additionalProperties")
+    if isinstance(additional, dict):
+        _walk_properties(additional, components, visit, f"{path}{{}}" if path else "{}", depth + 1)
+
+
+def _http_id_fields() -> tuple[set[tuple[str, str, str, str]], set[tuple[str, str, str, str]]]:
+    """Every id-named HTTP field as (method, path, field path, shape), split by uuid-ness.
+
+    The first set holds the plain-string fields the classes below must
+    close; the second holds the ``format: uuid`` fields the argument layer
+    already refuses.
+    """
+
     schema = main_module.app.openapi()
-    found: set[tuple[str, str, str]] = set()
+    components = schema.get("components", {}).get("schemas", {})
+    plain: set[tuple[str, str, str, str]] = set()
+    uuids: set[tuple[str, str, str, str]] = set()
+
     for path, operations in schema["paths"].items():
         for method, operation in operations.items():
             for parameter in operation.get("parameters", []):
                 name = parameter.get("name", "")
-                parameter_schema = parameter.get("schema", {})
-                if name.endswith(("_id", "_ids")) and parameter_schema.get("type") == "string" and "format" not in parameter_schema:
-                    found.add((method.upper(), path, name))
-            body = operation.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {})
-            reference = body.get("$ref", "")
-            model = schema.get("components", {}).get("schemas", {}).get(reference.split("/")[-1], {}) if reference else body
-            for name, field_schema in model.get("properties", {}).items():
                 if not name.endswith(("_id", "_ids")):
                     continue
-                if field_schema.get("type") == "string" and "format" not in field_schema:
-                    found.add((method.upper(), path, name))
-                elif field_schema.get("type") == "array" and field_schema.get("items", {}).get("type") == "string":
-                    found.add((method.upper(), path, name))
-    return found
+                for shape, is_uuid in _leaf_kinds(parameter.get("schema", {}), components):
+                    kind = "param"
+                    entry = (method.upper(), path, f"{kind}:{name}", shape)
+                    (uuids if is_uuid else plain).add(entry)
+            body = operation.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {})
+
+            def visit(name: str, field_path: str, field_schema: dict[str, Any], comps: dict[str, Any]) -> None:
+                if not name.endswith(("_id", "_ids")):
+                    return
+                for shape, is_uuid in _leaf_kinds(field_schema, comps):
+                    entry = (method.upper(), path, field_path, shape)
+                    (uuids if is_uuid else plain).add(entry)
+
+            _walk_properties(body, components, visit)
+    return plain, uuids
 
 
-def _mcp_plain_string_id_arguments() -> set[tuple[str, str]]:
-    found: set[tuple[str, str]] = set()
+def _mcp_id_arguments() -> tuple[set[tuple[str, str, str]], set[tuple[str, str, str]]]:
+    """Every id-named MCP argument as (tool, argument path, shape), split by uuid-ness."""
+
+    plain: set[tuple[str, str, str]] = set()
+    uuids: set[tuple[str, str, str]] = set()
     for tool in (*_CORE_TOOL_DEFINITIONS, *_LEGACY_TOOL_DEFINITIONS):
-        for name, argument_schema in tool.get("inputSchema", {}).get("properties", {}).items():
+        input_schema = tool.get("inputSchema", {})
+
+        def visit(name: str, field_path: str, field_schema: dict[str, Any], comps: dict[str, Any]) -> None:
             if not name.endswith(("_id", "_ids")):
-                continue
-            if argument_schema.get("type") == "string" and "format" not in argument_schema:
-                found.add((tool["name"], name))
-            elif argument_schema.get("type") == "array" and argument_schema.get("items", {}).get("type") == "string":
-                found.add((tool["name"], name))
-    return found
+                return
+            for shape, is_uuid in _leaf_kinds(field_schema, comps):
+                entry = (tool["name"], field_path, shape)
+                (uuids if is_uuid else plain).add(entry)
+
+        _walk_properties(input_schema, {}, visit)
+    return plain, uuids
+
+
+@lru_cache(maxsize=1)
+def _collected_nodes() -> frozenset[str]:
+    """Every pytest node the row-id entries name, collected once.
+
+    The named files are collected for real (``pytest --collect-only``), so a
+    test that was renamed, moved or removed is not found here even when the
+    string in the list still looks right.
+    """
+
+    files = sorted({node.split("::")[0] for node in (*HTTP_ROW_IDS.values(), *MCP_ROW_IDS.values())})
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", *files],
+        capture_output=True, text=True, cwd=str(REPO_ROOT), check=False,
+    )
+    nodes = {
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip() and "::" in line and not line.startswith("=")
+    }
+    assert result.returncode == 0, (result.returncode, result.stdout[-2000:], result.stderr[-2000:])
+    return frozenset(nodes)
 
 
 def test_every_http_plain_string_id_field_is_listed_with_its_kind() -> None:
-    found = _http_plain_string_id_fields()
-    listed = set(HTTP_ROW_IDS) | HTTP_CLAIM_STRINGS | HTTP_SCHEMA_UUIDS
-    assert found == listed, {
-        "unlisted": sorted(found - listed),
-        "stale": sorted(listed - found),
+    plain, uuids = _http_id_fields()
+    assert len(plain) >= 20 and len(uuids) >= 100
+    listed: set[tuple[str, str, str, str]] = set()
+    for method, path, field_path, shape in plain:
+        name = field_path.split(":")[-1].split(".")[-1].split("[]")[-1].split("{}")[-1]
+        if (method, path, name) in HTTP_ROW_IDS or name in HTTP_CLAIM_NAMES:
+            listed.add((method, path, field_path, shape))
+    assert plain == listed, {
+        "unlisted": sorted(plain - listed),
+        "stale": sorted(listed - plain),
     }
+
+
+def test_every_http_row_id_entry_names_a_collected_test() -> None:
+    nodes = _collected_nodes()
+    for key, node in HTTP_ROW_IDS.items():
+        assert any(collected.startswith(node) for collected in nodes), (key, node)
 
 
 def test_every_mcp_plain_string_id_argument_is_listed_with_its_kind() -> None:
-    found = _mcp_plain_string_id_arguments()
-    listed = set(MCP_ROW_IDS) | MCP_SCHEMA_UUIDS | set(_tools_for_claims() and ())
-    claim_arguments = {
-        (tool["name"], argument)
-        for tool in (*_CORE_TOOL_DEFINITIONS, *_LEGACY_TOOL_DEFINITIONS)
-        for argument in MCP_CLAIM_STRINGS
-        if (tool["name"], argument) in found
+    plain, uuids = _mcp_id_arguments()
+    assert len(plain) >= 20 and len(uuids) >= 40
+    listed: set[tuple[str, str, str]] = set()
+    for tool, argument_path, shape in plain:
+        name = argument_path.split(".")[-1].split("[]")[-1].split("{}")[-1]
+        if (tool, argument_path) in MCP_ROW_IDS or (tool, argument_path) in MCP_CLAIM_PATHS:
+            listed.add((tool, argument_path, shape))
+        elif name in MCP_CLAIM_NAMES:
+            listed.add((tool, argument_path, shape))
+    assert plain == listed, {
+        "unlisted": sorted(plain - listed),
+        "stale": sorted(listed - plain),
     }
-    listed |= claim_arguments
-    assert found == listed, {
-        "unlisted": sorted(found - listed),
-        "stale": sorted(listed - found),
-    }
 
 
-def _tools_for_claims() -> set[str]:
-    return set()
-
-
-def test_every_row_id_entry_names_a_test_that_reads_malformed_spellings() -> None:
-    for key, test_name in {**HTTP_ROW_IDS, **MCP_ROW_IDS}.items():
-        assert test_name.startswith("tests/integration/"), key
-        assert "malformed" in test_name or "person" in test_name or "spelling" in test_name, key
+def test_every_mcp_row_id_entry_names_a_collected_test() -> None:
+    nodes = _collected_nodes()
+    for key, node in MCP_ROW_IDS.items():
+        assert any(collected.startswith(node) for collected in nodes), (key, node)

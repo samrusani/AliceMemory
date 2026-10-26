@@ -172,6 +172,25 @@ def test_the_legacy_mcp_tool_answers_not_found_for_an_unknown_and_a_malformed_pe
             )
 
 
+def test_the_legacy_mcp_tool_answers_a_malformed_project_id_as_an_unknown_one(app) -> None:
+    """The extract tool's project_id answers a malformed value as an unknown one.
+
+    A project id on this door is judged against the stored projects and the
+    caller's binding: a project that is not stored files no loop and answers
+    without a server error, and a value that is not an id at all is the same
+    missing-project answer, never a database error.
+    """
+
+    before = _stored_counts(app.admin_url)
+    context = MCPRuntimeContext(database_url=app.url, user_id=UUID(app.user_id))
+    for value in ("no-such-project", "123", "not even close", str(uuid4())):
+        unknown = call_mcp_tool(context, name="alice_open_loop_extract", arguments={"project_id": str(uuid4())})
+        malformed = call_mcp_tool(context, name="alice_open_loop_extract", arguments={"project_id": value})
+        assert malformed == unknown, (value, malformed, unknown)
+        assert malformed.get("created_count") == 0, malformed
+    assert _stored_counts(app.admin_url) == before
+
+
 def test_the_legacy_mcp_tool_makes_no_duplicate_loop_for_another_spelling(app) -> None:
     with user_connection(app.url, UUID(app.user_id)) as conn:
         store = PostgresVNextStore(conn)
