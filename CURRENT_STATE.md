@@ -109,6 +109,38 @@ not install it; and `v0.20.1`, whose publish run reached its first job's time
 limit while it reran the unit suite, before anything was built. Neither of the
 last two has a PyPI artifact or a published GitHub Release.
 
+## What `v0.22.0` Targets
+
+`v0.22.0` is the current release candidate. It is not published.
+
+It takes the fixes and additions on `main` after `v0.21.1`. The agent output route
+refuses a request that its agent policy blocks, and the chunks of imported and
+captured notes can be embedded and used to rank passages, as an opt-in that is off by
+default. It adds no tool and no migration: PostgreSQL stays at revision
+`20261011_0097`. It adds five settings, the value `vectors` of `ALICE_SEARCH_QUALITY`
+and the flags `--sources` and `--drop` of `alice-memory reindex-embeddings`.
+
+- [v0.22.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.22.0-release-notes.md)
+
+`v0.22.0` has these changes. `v0.21.1` does not.
+
+- `POST /v0/vnext/agents/ingest-output` answers HTTP 403 and writes no source, chunk,
+  artifact, provenance link or memory when the agent policy blocks the request, as
+  `POST /v0/vnext/sources` does. It answers HTTP 400, not HTTP 500, for credential
+  material. A call with no key that names an agent and declares no profile is held
+  as a read-only agent and is refused.
+- With `ALICE_SOURCE_EMBEDDINGS=on`, the chunks of imported and captured notes are
+  embedded after the import or capture commits, only to an endpoint on this machine.
+  The vectors are kept in a SQLite table that is made when the first one is stored.
+- `ALICE_SEARCH_QUALITY=vectors` ranks passages with those vectors on the SQLite
+  store. Both settings are off by default, and no measurement of the vectors is
+  published.
+- The bench scripts, the scripted walkthrough and the web console changes are not
+  part of the PyPI package.
+- Still open, listed in the release notes: remote embeddings endpoints are not
+  supported for source text, deleting a vector is logical deletion, and the rows
+  that `v0.21.1` wrote for blocked agent output requests stay.
+
 ## What `v0.21.1` Shipped
 
 `v0.21.1` is the latest published release and remains the install, checksum,
