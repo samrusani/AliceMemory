@@ -968,11 +968,17 @@ def test_no_migration_the_alembic_folder_is_the_one_of_v0211(v0211_tree: Path) -
         return {str(path.relative_to(base)): path.read_bytes() for path in sorted(base.rglob("*")) if path.is_file() and "__pycache__" not in path.parts}
 
     # The folder was the one of the tag on the release commit. The four-fix
-    # series that followed the release edits exactly one migration in place
-    # (20260510_0067, the strict owner row-level security bracket), so the
-    # comparison leaves that file out and keeps the demand for the rest.
-    expected = {name: data for name, data in files(v0211_tree).items() if name != "versions/20260510_0067_vnext_memory_kernel_schema.py"}
-    actual = {name: data for name, data in files(REPO_ROOT).items() if name != "versions/20260510_0067_vnext_memory_kernel_schema.py"}
+    # series that followed the release edits exactly three migrations in
+    # place (20260510_0067, 20260511_0070 and 20260716_0092, the strict
+    # owner row-level security brackets), so the comparison leaves those
+    # files out and keeps the demand for the rest.
+    edited_by_the_series = {
+        "versions/20260510_0067_vnext_memory_kernel_schema.py",
+        "versions/20260511_0070_vnext_connector_settings_state.py",
+        "versions/20260716_0092_project_update_artifact_redaction.py",
+    }
+    expected = {name: data for name, data in files(v0211_tree).items() if name not in edited_by_the_series}
+    actual = {name: data for name, data in files(REPO_ROOT).items() if name not in edited_by_the_series}
     assert actual == expected
     assert files(REPO_ROOT)
 

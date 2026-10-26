@@ -105,7 +105,7 @@ def strict_owner_urls() -> Iterator[dict[str, str]]:
             conn.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(database_name)))
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def superuser_reference_urls() -> Iterator[dict[str, str]]:
     """One superuser-migrated database with the same legacy rows, for comparison."""
 
