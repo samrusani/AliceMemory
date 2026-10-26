@@ -179,7 +179,19 @@ _PROJECT_UPDATE_EVENT_LINKAGE_COLUMNS = (
 
 
 def upgrade() -> None:
+    # The whitespace clear below writes rows on sources, whose forced
+    # row-level security binds the documented table owner (NOSUPERUSER
+    # NOBYPASSRLS) to owner policies that bind app.current_user_id(), unset
+    # during an upgrade, so it silently matched no rows for a vault that
+    # already carries sources while a superuser upgrade cleared them.
+    # Temporarily use the owner bypass, as 0067, 0070, 0092, 0093 and 0095
+    # to 0097 do, inside Alembic's single transaction. Concurrent sessions
+    # never see the relaxed FORCE setting; failure rolls back the bracket,
+    # the clear and the schema change together, and the forced setting is
+    # restored before the transaction commits.
+    op.execute("ALTER TABLE sources NO FORCE ROW LEVEL SECURITY")
     op.execute(_CLEAR_LIVE_WHITESPACE_RAW_TEXT_DEDUPE_KEYS)
+    op.execute("ALTER TABLE sources FORCE ROW LEVEL SECURITY")
     op.execute(_ADD_PROJECT_UPDATE_EVENT_LINKAGE_COLUMNS)
     for statement in _PROJECT_UPDATE_EVENT_INDEX_STATEMENTS:
         op.execute(statement)

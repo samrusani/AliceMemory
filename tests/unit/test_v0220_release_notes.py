@@ -967,14 +967,23 @@ def test_no_migration_the_alembic_folder_is_the_one_of_v0211(v0211_tree: Path) -
         base = root / "apps" / "api" / "alembic"
         return {str(path.relative_to(base)): path.read_bytes() for path in sorted(base.rglob("*")) if path.is_file() and "__pycache__" not in path.parts}
 
-    # The folder was the one of the tag on the release commit. The four-fix
-    # series that followed the release edits exactly three migrations in
-    # place (20260510_0067, 20260511_0070 and 20260716_0092, the strict
-    # owner row-level security brackets), so the comparison leaves those
-    # files out and keeps the demand for the rest.
+    # The folder was the one of the tag on the release commit. The series
+    # that followed the release brackets the strict-owner data statements of
+    # twelve migrations (0067, 0070, 0072, 0076, 0077, 0083, 0084, 0085,
+    # 0086, 0090, 0091 and 0092), so the comparison leaves those files out
+    # and keeps the demand for the rest.
     edited_by_the_series = {
         "versions/20260510_0067_vnext_memory_kernel_schema.py",
         "versions/20260511_0070_vnext_connector_settings_state.py",
+        "versions/20260704_0072_semantic_retrieval_substrate.py",
+        "versions/20260704_0076_memory_scope_columns.py",
+        "versions/20260704_0077_temporal_supersession_columns.py",
+        "versions/20260711_0083_memory_lifecycle_invariants.py",
+        "versions/20260712_0084_memory_lifecycle_identifier_repair.py",
+        "versions/20260713_0085_source_capture_dedupe_identity.py",
+        "versions/20260713_0086_lifecycle_duplicate_pointer_repair.py",
+        "versions/20260714_0090_project_scope_identity.py",
+        "versions/20260715_0091_source_identity_defensive_edges.py",
         "versions/20260716_0092_project_update_artifact_redaction.py",
     }
     expected = {name: data for name, data in files(v0211_tree).items() if name not in edited_by_the_series}
