@@ -54,6 +54,7 @@ from alicebot_api.vnext_open_loop_references import (
 )
 from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_projects import (
+    VNextOpenLoopPersonNotFoundError,
     VNextProjectService,
     VNextProjectValidationError,
     project_readable,
@@ -765,6 +766,12 @@ def extract_vnext_open_loops(
         return _vnext_public_error_response(status_code=400, detail="vNext agent identity claims are invalid")
     except AgentPolicyBlockedError as exc:
         return _vnext_permission_response(exc.decision)
+    except VNextOpenLoopPersonNotFoundError as exc:
+        # The person the request filed its loops under is not stored (or the
+        # value is not an id at all). The refused call rolls back with the
+        # policy rows it wrote and answers what the open-loop create door
+        # answers for a missing referenced row.
+        return public_exception_response(exc, status_code=404)
     except (ValueError, VNextProjectValidationError):
         return _vnext_public_error_response(status_code=400, detail="vNext open-loop extraction request is invalid")
 
