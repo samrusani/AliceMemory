@@ -22898,7 +22898,7 @@
         "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_mcp_tool_malformed_id_matches_unknown[no-such-id-alice_vnext_artifact_get-artifact_id]",
         "tests/integration/test_malformed_id_doors_postgres.py::test_alice_memory_manage_malformed_memory_id_matches_unknown[no-such-id-forget]"
       ],
-      "expected_failure": "test_legacy_mcp_tool_malformed_id_matches_unknown"
+      "expected_failure": "test_alice_memory_manage_malformed_memory_id_matches_unknown"
     },
     {
       "name": "residual-0072-agentic-backfill-bracket",
@@ -23088,7 +23088,7 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_migrations_forced_flags_restore.py::test_a_bracketed_migration_restores_every_forced_flag[20260716_0092-20260715_0091-tables5]"
+        "tests/integration/test_migrations_forced_flags_restore.py::test_a_bracketed_migration_restores_every_forced_flag[20260716_0092-20260715_0091-tables13]"
       ],
       "expected_failure": "test_a_bracketed_migration_restores_every_forced_flag"
     },
@@ -23104,7 +23104,7 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_migrations_forced_flags_restore.py::test_a_bracketed_migration_restores_every_forced_flag[20260716_0092-20260715_0091-tables5]"
+        "tests/integration/test_migrations_forced_flags_restore.py::test_a_bracketed_migration_restores_every_forced_flag[20260716_0092-20260715_0091-tables13]"
       ],
       "expected_failure": "test_a_bracketed_migration_restores_every_forced_flag"
     }
