@@ -336,6 +336,9 @@ def test_strict_owner_source_dedupe_backfill_matches_superuser(strict_owner_urls
     owner_rows, reference_rows = _upgrade_pair(
         strict_owner_urls, superuser_reference_urls,
         seed_revision="20260712_0084", seeder=seeder, reader=_source_rows,
+        # Compare at 0085 itself: 0090's bracketed identity recompute would
+        # rewrite the dedupe keys again at head, masking 0085's own bracket.
+        upgrade_target="20260713_0085",
     )
     assert owner_rows == reference_rows
     keys = [row[3] for row in owner_rows]

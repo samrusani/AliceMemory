@@ -2,6 +2,15 @@
 
 Revision ID: 20260713_0088
 Revises: 20260713_0087
+
+A database already past this revision never runs this body again. A database
+still before it must end in exactly the state the superuser path gives: the
+same backfilled fingerprints, whether the migrator is a cluster superuser or
+the documented table owner that is NOSUPERUSER NOBYPASSRLS. The backfill
+reads and writes under forced row-level security that the owner cannot
+satisfy unbound, so the owner bypass is used inside this migration's own
+transaction, as 0067, 0070, 0092, 0093 and 0095 to 0097 do, and the forced
+setting is restored before the transaction commits.
 """
 
 from __future__ import annotations
@@ -94,6 +103,21 @@ def upgrade() -> None:
           ADD COLUMN config_fingerprint_sha256 text
         """
     )
+    # The backfill reads and writes rows on model_providers, and the
+    # provider_capabilities update further down reads model_providers and
+    # writes provider_capabilities. Both tables carry forced row-level
+    # security whose owner policies are bound to
+    # app.hosted_workspace_owner_allowed(workspace_id), which no unbound
+    # migration connection satisfies, so the backfill silently matched no
+    # rows and the SET NOT NULL after it failed for a vault that carries
+    # provider rows while a superuser upgrade completed. Temporarily use
+    # the owner bypass, as 0067, 0070, 0092, 0093 and 0095 to 0097 do,
+    # inside Alembic's single transaction. Concurrent sessions never see
+    # the relaxed FORCE setting; failure rolls back the bracket, the
+    # backfill and the schema change together, and the forced setting is
+    # restored before the transaction commits.
+    op.execute("ALTER TABLE model_providers NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE provider_capabilities NO FORCE ROW LEVEL SECURITY")
     _backfill_provider_config_fingerprints()
     op.execute(
         """
@@ -222,6 +246,8 @@ def upgrade() -> None:
         WHERE provider.id = capability.provider_id
         """
     )
+    op.execute("ALTER TABLE model_providers FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE provider_capabilities FORCE ROW LEVEL SECURITY")
     op.execute(
         """
         ALTER TABLE provider_capabilities
