@@ -44,7 +44,7 @@ def _seed_users(url: str) -> None:
         conn.commit()
 
 
-def _upgrade_pair(strict_owner_urls, superuser_reference_urls, *, seed_revision: str, seeder, reader=None) -> tuple[tuple, tuple]:
+def _upgrade_pair(strict_owner_urls, superuser_reference_urls, *, seed_revision: str, seeder, reader=None, upgrade_target: str = "head") -> tuple[tuple, tuple]:
     """Seed both twins at ``seed_revision`` and upgrade both to head.
 
     The twins' end states are read as the cluster superuser: the forced
@@ -61,8 +61,8 @@ def _upgrade_pair(strict_owner_urls, superuser_reference_urls, *, seed_revision:
     _seed_users(superuser_reference_urls["admin"])
     seeder(strict_owner_urls["strict"])
     seeder(superuser_reference_urls["admin"])
-    command.upgrade(owner_config, "head")
-    command.upgrade(reference_config, "head")
+    command.upgrade(owner_config, upgrade_target)
+    command.upgrade(reference_config, upgrade_target)
     read = reader if reader is not None else _read_back
     return read(strict_owner_urls["admin"]), read(superuser_reference_urls["admin"])
 
@@ -296,7 +296,6 @@ def test_strict_owner_duplicate_pointer_repair_matches_superuser(strict_owner_ur
 
 def _source_rows(admin_url: str) -> tuple:
     with psycopg.connect(admin_url, connect_timeout=10) as conn:
-        print("DBGREAD", admin_url, conn.execute("SELECT count(*) FROM sources").fetchone()[0], flush=True)
         rows = conn.execute(
             """
             SELECT user_id::text, source_type, content_hash, dedupe_key, metadata_json->>'raw_text',

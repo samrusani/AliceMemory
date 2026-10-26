@@ -22988,22 +22988,6 @@
       "expected_failure": "test_strict_owner_identifier_repair_matches_superuser"
     },
     {
-      "name": "residual-0085-source-dedupe-bracket",
-      "edits": [
-        {
-          "file": "apps/api/alembic/versions/20260713_0085_source_capture_dedupe_identity.py",
-          "line": 122,
-          "before": "    op.execute(\"ALTER TABLE sources NO FORCE ROW LEVEL SECURITY\")",
-          "after": "    # the owner bypass bracket was here",
-          "sha256": "00f08f47dc3b3b3aa14a6fff8b3e47896fd6c1b1bd43f23c86f5134ff3e4a2f7"
-        }
-      ],
-      "pytest": [
-        "tests/integration/test_migrations_residual_backfills_strict_owner.py::test_strict_owner_source_dedupe_backfill_matches_superuser"
-      ],
-      "expected_failure": "test_strict_owner_source_dedupe_backfill_matches_superuser"
-    },
-    {
       "name": "residual-0086-pointer-repair-bracket",
       "edits": [
         {
