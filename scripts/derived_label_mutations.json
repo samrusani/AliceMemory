@@ -3876,10 +3876,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 1714,
+          "line": 1715,
           "before": "                                \"capture_content_hash\": content_hash,",
           "after": "                                \"capture_content_hash\": None,",
-          "sha256": "37dd76928090744db301100b9ac0634d716ad9c0a38fb98a47b0ef4c010b1102"
+          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
         }
       ],
       "pytest": [
@@ -14934,10 +14934,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 1435,
+          "line": 1436,
           "before": "                cached_edges = self._edges_of_indexed_sources()\n",
           "after": "                cached_edges = None\n",
-          "sha256": "37dd76928090744db301100b9ac0634d716ad9c0a38fb98a47b0ef4c010b1102"
+          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
         }
       ],
       "pytest": [
@@ -14950,10 +14950,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 2035,
+          "line": 2036,
           "before": "                    self._indexed_sources = indexed\n",
           "after": "                    self._indexed_sources = indexed\n                    self._edges_of_indexed_sources()\n",
-          "sha256": "37dd76928090744db301100b9ac0634d716ad9c0a38fb98a47b0ef4c010b1102"
+          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
         }
       ],
       "pytest": [
@@ -23273,10 +23273,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 109,
+          "line": 110,
           "before": "    key = (site,) + tuple(field if field is None or isinstance(field, str) else repr(field) for field in fields)",
           "after": "    key = (site, fields[0])",
-          "sha256": "37dd76928090744db301100b9ac0634d716ad9c0a38fb98a47b0ef4c010b1102"
+          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
         }
       ],
       "pytest": [
@@ -23289,10 +23289,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 2043,
+          "line": 2044,
           "before": "            self._door_memo = None",
           "after": "            self._door_memo = self._door_memo",
-          "sha256": "37dd76928090744db301100b9ac0634d716ad9c0a38fb98a47b0ef4c010b1102"
+          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
         }
       ],
       "pytest": [
@@ -23305,10 +23305,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 1467,
+          "line": 1468,
           "before": "        verdict = _door_fields_verdict_memoized(",
           "after": "        verdict = None and _door_fields_verdict_memoized(",
-          "sha256": "37dd76928090744db301100b9ac0634d716ad9c0a38fb98a47b0ef4c010b1102"
+          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
         }
       ],
       "pytest": [
@@ -23360,10 +23360,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 2096,
+          "line": 2097,
           "before": "        for file_index, source_file in enumerate(_snapshot_read_errors_as_public(snapshot), start=1):",
           "after": "        for file_index, source_file in enumerate(snapshot, start=1):",
-          "sha256": "37dd76928090744db301100b9ac0634d716ad9c0a38fb98a47b0ef4c010b1102"
+          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
         }
       ],
       "pytest": [
@@ -23376,10 +23376,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 1624,
+          "line": 1625,
           "before": "                by_hash.setdefault(content_hash, []).insert(0, slim)",
           "after": "                by_hash.setdefault(content_hash, []).append(slim)",
-          "sha256": "37dd76928090744db301100b9ac0634d716ad9c0a38fb98a47b0ef4c010b1102"
+          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
         }
       ],
       "pytest": [
