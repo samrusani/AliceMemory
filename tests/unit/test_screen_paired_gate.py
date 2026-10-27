@@ -25,8 +25,8 @@ MODULES = (
 
 
 def _head(base, factor=1.0):
-    return {"workspace": {"minimum_wall": base, "median": base},
-            "dogfooding": {"minimum_wall": base, "median": base}} if factor == 1.0 else \
+    return {"workspace": {"minimum_wall": base, "median_cpu": 0.1},
+            "dogfooding": {"minimum_wall": base, "median_cpu": 0.1}} if factor == 1.0 else \
         {"workspace": {"minimum_wall": base * factor, "median": base * factor},
          "dogfooding": {"minimum_wall": base * factor, "median": base * factor}}
 
@@ -36,20 +36,38 @@ def test_a_head_over_one_and_a_quarter_times_the_base_plus_the_slack_fails() -> 
     leaves only the absolute limit, and a same-runner slowdown passes). Each
     row names the check that failed."""
 
-    head = {"workspace": {"minimum_wall": 0.31, "median": 0.31},
-            "dogfooding": {"minimum_wall": 0.1, "median": 0.1}}
-    base = {"workspace": {"minimum_wall": 0.1, "median": 0.1},
-            "dogfooding": {"minimum_wall": 0.1, "median": 0.1}}
+    head = {"workspace": {"minimum_wall": 0.31, "median_cpu": 0.31},
+            "dogfooding": {"minimum_wall": 0.1, "median_cpu": 0.1}}
+    base = {"workspace": {"minimum_wall": 0.1, "median_cpu": 0.1},
+            "dogfooding": {"minimum_wall": 0.1, "median_cpu": 0.1}}
     rows = screen_gate_failures(head, base, statistic="minimum_wall", limit=2.0)
-    assert rows == [("paired_merge_base", "workspace", "minimum_wall", 0.31, 0.1)], rows
+    assert rows == [
+        ("paired_merge_base", "workspace", "median_cpu", 0.31, 0.1),
+        ("paired_merge_base", "workspace", "minimum_wall", 0.31, 0.1),
+    ], rows
     assert all(row[0] in ("paired_merge_base", "absolute_limit") for row in rows)
 
 
+def test_the_paired_rule_reads_both_paired_statistics() -> None:
+    """Guard: the paired half reads every statistic of ``PAIRED_STATISTICS``
+    through ``paired_over_merge_base``, as pack and recall do. A head whose
+    CPU median alone is past the gate fails with the CPU row even when its
+    wall minimum is at its merge base; a rule narrowed to the wall statistic
+    would answer nothing here."""
+
+    head = {"workspace": {"minimum_wall": 0.1, "median_cpu": 5.0},
+            "dogfooding": {"minimum_wall": 0.1, "median_cpu": 0.1}}
+    base = {"workspace": {"minimum_wall": 0.1, "median_cpu": 0.1},
+            "dogfooding": {"minimum_wall": 0.1, "median_cpu": 0.1}}
+    rows = screen_gate_failures(head, base, statistic="minimum_wall", limit=2.0)
+    assert rows == [("paired_merge_base", "workspace", "median_cpu", 5.0, 0.1)], rows
+
+
 def test_a_head_equal_to_its_base_passes() -> None:
-    head = {"workspace": {"minimum_wall": 0.9, "median": 0.9},
-            "dogfooding": {"minimum_wall": 0.9, "median": 0.9}}
-    base = {"workspace": {"minimum_wall": 0.9, "median": 0.9},
-            "dogfooding": {"minimum_wall": 0.9, "median": 0.9}}
+    head = {"workspace": {"minimum_wall": 0.9, "median_cpu": 0.1},
+            "dogfooding": {"minimum_wall": 0.9, "median_cpu": 0.1}}
+    base = {"workspace": {"minimum_wall": 0.9, "median_cpu": 0.1},
+            "dogfooding": {"minimum_wall": 0.9, "median_cpu": 0.1}}
     assert screen_gate_failures(head, base, statistic="minimum_wall", limit=2.0) == []
 
 
@@ -59,10 +77,10 @@ def test_a_head_exactly_on_the_paired_boundary_passes() -> None:
 
     base = 1.2
     boundary = 1.25 * base + 0.05
-    head = {"workspace": {"minimum_wall": boundary, "median": boundary},
-            "dogfooding": {"minimum_wall": boundary, "median": boundary}}
-    equal_base = {"workspace": {"minimum_wall": base, "median": base},
-                  "dogfooding": {"minimum_wall": base, "median": base}}
+    head = {"workspace": {"minimum_wall": boundary, "median_cpu": 0.1},
+            "dogfooding": {"minimum_wall": boundary, "median_cpu": 0.1}}
+    equal_base = {"workspace": {"minimum_wall": base, "median_cpu": 0.1},
+                  "dogfooding": {"minimum_wall": base, "median_cpu": 0.1}}
     assert screen_gate_failures(head, equal_base, statistic="minimum_wall", limit=2.0) == []
 
 
@@ -71,13 +89,13 @@ def test_the_absolute_limit_catches_what_the_paired_rule_cannot(tmp_path: Path) 
     fails the absolute limit; a head at the limit itself passes. The absolute
     rows name the absolute limit, so a red smoke job says which check tripped."""
 
-    head = {"workspace": {"minimum_wall": 1.4, "median": 1.4},
-            "dogfooding": {"minimum_wall": 1.4, "median": 1.4}}
-    base = {"workspace": {"minimum_wall": 1.2, "median": 1.2},
-            "dogfooding": {"minimum_wall": 1.2, "median": 1.2}}
+    head = {"workspace": {"minimum_wall": 1.4, "median_cpu": 0.1},
+            "dogfooding": {"minimum_wall": 1.4, "median_cpu": 0.1}}
+    base = {"workspace": {"minimum_wall": 1.2, "median_cpu": 0.1},
+            "dogfooding": {"minimum_wall": 1.2, "median_cpu": 0.1}}
     assert screen_gate_failures(head, base, statistic="minimum_wall", limit=1.5) == []
-    head = {"workspace": {"minimum_wall": 1.500001, "median": 1.500001},
-            "dogfooding": {"minimum_wall": 1.500001, "median": 1.500001}}
+    head = {"workspace": {"minimum_wall": 1.500001, "median_cpu": 0.1},
+            "dogfooding": {"minimum_wall": 1.500001, "median_cpu": 0.1}}
     assert screen_gate_failures(head, base, statistic="minimum_wall", limit=1.5) == [
         ("absolute_limit", "workspace", "minimum_wall", 1.500001, 1.2),
         ("absolute_limit", "dogfooding", "minimum_wall", 1.500001, 1.2),
@@ -89,10 +107,10 @@ def test_when_both_checks_fail_both_rows_appear_and_are_told_apart() -> None:
     them distinguishable (the same numbers twice would not say whether the
     pull request or the runner tripped the job)."""
 
-    head = {"workspace": {"minimum_wall": 0.31, "median": 0.31},
-            "dogfooding": {"minimum_wall": 0.1, "median": 0.1}}
-    base = {"workspace": {"minimum_wall": 0.1, "median": 0.1},
-            "dogfooding": {"minimum_wall": 0.1, "median": 0.1}}
+    head = {"workspace": {"minimum_wall": 0.31, "median_cpu": 0.1},
+            "dogfooding": {"minimum_wall": 0.1, "median_cpu": 0.1}}
+    base = {"workspace": {"minimum_wall": 0.1, "median_cpu": 0.1},
+            "dogfooding": {"minimum_wall": 0.1, "median_cpu": 0.1}}
     rows = screen_gate_failures(head, base, statistic="minimum_wall", limit=0.3)
     assert rows == [
         ("paired_merge_base", "workspace", "minimum_wall", 0.31, 0.1),

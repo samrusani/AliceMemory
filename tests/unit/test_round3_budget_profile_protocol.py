@@ -331,11 +331,14 @@ def test_the_merge_base_gate_is_one_and_a_quarter_plus_fifty_milliseconds_and_in
 
 @pytest.mark.parametrize("action", ["workspace", "dogfooding"])
 def test_workspace_and_dogfooding_each_have_the_one_second_gate(monkeypatch, tmp_path, action):
-    """Mutations: gate only the workspace, gate only dogfooding, gate the CPU clock.
+    """Mutations: gate only the workspace, gate only dogfooding, drop the
+    absolute limit's wall comparison.
 
-    The screens answer to the same-runner paired rule and the absolute limit;
-    the paired rule needs the merge base read at the same speed, so the base
-    child reads the same wall time here and the CPU clock stays ungated.
+    The screens answer to the same-runner paired rule (both statistics of
+    ``PAIRED_STATISTICS``) and to the absolute limit, whose wall comparison
+    alone they answer here with the merge base equally slow: the absolute
+    half is wall only, so a five times slower screen CPU with an equally
+    slow merge base fails the paired rule's CPU statistic, not the limit.
     """
     assert measured_failures(monkeypatch, tmp_path, timings=slow_head(action, wall=1.000001, cpu=.1)) == {
         (profile, action, "minimum_wall") for profile in KEYS}
@@ -345,7 +348,8 @@ def test_workspace_and_dogfooding_each_have_the_one_second_gate(monkeypatch, tmp
             return (1.0, 5.0)
         return (1.0, .1) if name == action else (.1, .1)
 
-    assert measured_failures(monkeypatch, tmp_path, timings=even_wall_slow_cpu) == set()
+    assert measured_failures(monkeypatch, tmp_path, timings=even_wall_slow_cpu) == {
+        (profile, action, "median_cpu") for profile in KEYS}
 
 
 def test_the_absolute_limit_is_one_second_unless_the_environment_sets_it(monkeypatch):
@@ -725,3 +729,17 @@ def test_the_screen_paired_rule_needs_the_merge_base_checkout(monkeypatch, tmp_p
     with pytest.raises(AssertionError, match="merge-base checkout"):
         budgets.paired_budgets("postgres", "synthetic-database", budgets.USER, KEYS,
                                case="all-visible", source_count=3000, repaired=False, assert_budget=False)
+
+
+@pytest.mark.parametrize("action", ["workspace", "dogfooding"])
+def test_a_screen_cpu_median_past_the_paired_rule_fails(monkeypatch, tmp_path, action):
+    """The paired rule reads the CPU median of the screens too: a head whose
+    CPU median alone is past 1.25 times the merge base plus 0.05 seconds
+    fails with the row naming median_cpu, while the absolute wall limit
+    passes (the absolute half is wall only).
+
+    Mutation: narrow the paired half of ``screen_gate_failures`` to the wall
+    statistic (the CPU row never appears).
+    """
+    failed = measured_failures(monkeypatch, tmp_path, timings=slow_head(action, cpu=.31))
+    assert failed == {(profile, action, "median_cpu") for profile in KEYS}

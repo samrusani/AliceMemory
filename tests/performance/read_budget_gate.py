@@ -153,15 +153,19 @@ def screen_gate_failures(
     A head equal to either bound passes. Each row is
     ``(check, action, statistic, head, base)`` with ``check`` either
     ``"paired_merge_base"`` or ``"absolute_limit"``, so a red smoke job says
-    which of the two tripped; when both fail, both rows appear.
+    which of the two tripped; when both fail, both rows appear. The paired
+    half reads the statistics of ``PAIRED_STATISTICS`` on each screen's
+    measurements through ``paired_over_merge_base``, exactly as pack and
+    recall do in each module; the absolute half reads the module's own wall
+    statistic.
     """
 
     rows: list[tuple[str, str, str, float, float]] = []
     for action in actions:
-        head = head_by_action[action][statistic]
-        base = base_by_action[action][statistic]
-        if over_merge_base(head, base):
-            rows.append(("paired_merge_base", action, statistic, head, base))
+        head_action, base_action = head_by_action[action], base_by_action[action]
+        for stat in paired_over_merge_base(head_action, base_action):
+            rows.append(("paired_merge_base", action, stat, head_action[stat], base_action[stat]))
+        head = head_action[statistic]
         if head > limit:
-            rows.append(("absolute_limit", action, statistic, head, base))
+            rows.append(("absolute_limit", action, statistic, head, base_action[statistic]))
     return rows
