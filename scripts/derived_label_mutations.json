@@ -3876,10 +3876,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 1715,
+          "line": 1723,
           "before": "                                \"capture_content_hash\": content_hash,",
           "after": "                                \"capture_content_hash\": None,",
-          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
+          "sha256": "5e0f8b021076d7ea965445080c7e9fa58baf6e7d1c671f0cdf11f2165045bcd1"
         }
       ],
       "pytest": [
@@ -14934,10 +14934,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 1436,
+          "line": 1444,
           "before": "                cached_edges = self._edges_of_indexed_sources()\n",
           "after": "                cached_edges = None\n",
-          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
+          "sha256": "5e0f8b021076d7ea965445080c7e9fa58baf6e7d1c671f0cdf11f2165045bcd1"
         }
       ],
       "pytest": [
@@ -14950,10 +14950,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 2036,
+          "line": 2042,
           "before": "                    self._indexed_sources = indexed\n",
           "after": "                    self._indexed_sources = indexed\n                    self._edges_of_indexed_sources()\n",
-          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
+          "sha256": "5e0f8b021076d7ea965445080c7e9fa58baf6e7d1c671f0cdf11f2165045bcd1"
         }
       ],
       "pytest": [
@@ -23276,7 +23276,7 @@
           "line": 110,
           "before": "    key = (site,) + tuple(field if field is None or isinstance(field, str) else repr(field) for field in fields)",
           "after": "    key = (site, fields[0])",
-          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
+          "sha256": "5e0f8b021076d7ea965445080c7e9fa58baf6e7d1c671f0cdf11f2165045bcd1"
         }
       ],
       "pytest": [
@@ -23289,10 +23289,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 2044,
+          "line": 2050,
           "before": "            self._door_memo = None",
           "after": "            self._door_memo = self._door_memo",
-          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
+          "sha256": "5e0f8b021076d7ea965445080c7e9fa58baf6e7d1c671f0cdf11f2165045bcd1"
         }
       ],
       "pytest": [
@@ -23305,10 +23305,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 1468,
+          "line": 1476,
           "before": "        verdict = _door_fields_verdict_memoized(",
           "after": "        verdict = None and _door_fields_verdict_memoized(",
-          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
+          "sha256": "5e0f8b021076d7ea965445080c7e9fa58baf6e7d1c671f0cdf11f2165045bcd1"
         }
       ],
       "pytest": [
@@ -23324,7 +23324,7 @@
           "line": 249,
           "before": "    for start in range(0, len(files), _LAZY_SNAPSHOT_BATCH):",
           "after": "    for start in range(0, len(files) - len(files) % _LAZY_SNAPSHOT_BATCH, _LAZY_SNAPSHOT_BATCH):",
-          "sha256": "09aa39b96577b836277dad77d998c38a2aedb2320d768df1c93b52e3dffd502e"
+          "sha256": "5119d89be9c462e3ef493df7aec1fc2d8739e48b0f2da180c30f3ae1e75dea85"
         }
       ],
       "pytest": [
@@ -23360,10 +23360,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 2097,
+          "line": 2103,
           "before": "        for file_index, source_file in enumerate(_snapshot_read_errors_as_public(snapshot), start=1):",
           "after": "        for file_index, source_file in enumerate(snapshot, start=1):",
-          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
+          "sha256": "5e0f8b021076d7ea965445080c7e9fa58baf6e7d1c671f0cdf11f2165045bcd1"
         }
       ],
       "pytest": [
@@ -23376,10 +23376,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_capture.py",
-          "line": 1625,
+          "line": 1633,
           "before": "                by_hash.setdefault(content_hash, []).insert(0, slim)",
           "after": "                by_hash.setdefault(content_hash, []).append(slim)",
-          "sha256": "a70c8e9cfb4ee06f3befb4a9dcd3d19bff8d14ca2604fe4fad13f4752a3a7231"
+          "sha256": "5e0f8b021076d7ea965445080c7e9fa58baf6e7d1c671f0cdf11f2165045bcd1"
         }
       ],
       "pytest": [
@@ -23392,10 +23392,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/markdown_import.py",
-          "line": 311,
+          "line": 329,
           "before": "        return source_path, _read_plan()",
           "after": "        return source_path, [ImportSourceFile(path=file_path, relative_path=_relative_source_file(source_path, file_path), text=read_contained_source_text(file_path, source_root=source_path, max_bytes=max_file_bytes, error_factory=MarkdownImportValidationError)) for file_path in plan]",
-          "sha256": "09aa39b96577b836277dad77d998c38a2aedb2320d768df1c93b52e3dffd502e"
+          "sha256": "5119d89be9c462e3ef493df7aec1fc2d8739e48b0f2da180c30f3ae1e75dea85"
         }
       ],
       "pytest": [

@@ -163,7 +163,7 @@ def test_lookup_cache_answers_in_fresh_query_order(tmp_path) -> None:
     database = _vault(tmp_path / "v")
     with sqlite_user_connection(database, USER_ID) as conn:
         service = VNextCaptureService(SQLiteVNextStore(conn, USER_ID))
-        service._source_lookup_cache = {"by_hash": {}, "by_dedupe": {}}
+        service._source_lookup_cache = vc._SourceLookupCache()
         text = "# Twice\n\nthe same text captured under two labels.\n"
         first = service.capture_source(
             SourceCaptureInput(
@@ -180,7 +180,7 @@ def test_lookup_cache_answers_in_fresh_query_order(tmp_path) -> None:
         )
         assert second.status == "imported"
         content_hash = first.content_hash
-        cached = [str(row["id"]) for row in service._source_lookup_cache["by_hash"][content_hash]]
+        cached = [str(row["id"]) for row in service._source_lookup_cache.by_hash[content_hash]]
         fresh = [str(row["id"]) for row in SQLiteVNextStore(conn, USER_ID).get_sources_by_content_hash(content_hash)]
         assert cached == fresh
         assert cached[0] == str(second.source_id)

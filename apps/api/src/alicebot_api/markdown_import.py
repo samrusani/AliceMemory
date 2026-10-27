@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import Iterable, Iterator, cast
+from typing import Iterator, List, Literal, Optional, Tuple, cast, overload
 from uuid import UUID
 
 from alicebot_api.continuity_evidence import SourceArtifactArchiveInput, archive_import_source_files
@@ -258,12 +258,30 @@ def _validated_snapshot_plan(
     return plan
 
 
+@overload
+def _snapshot_markdown_source(
+    source: str | Path,
+    *,
+    max_file_bytes: int,
+    lazy: Literal[False] = False,
+) -> tuple[Path, list[ImportSourceFile]]: ...
+
+
+@overload
+def _snapshot_markdown_source(
+    source: str | Path,
+    *,
+    max_file_bytes: int,
+    lazy: Literal[True],
+) -> tuple[Path, Iterator[ImportSourceFile]]: ...
+
+
 def _snapshot_markdown_source(
     source: str | Path,
     *,
     max_file_bytes: int,
     lazy: bool = False,
-) -> tuple[Path, Iterable[ImportSourceFile]]:
+) -> tuple[Path, list[ImportSourceFile] | Iterator[ImportSourceFile]]:
     """Select the markdown files and read each of them.
 
     ``max_file_bytes`` is required: it is the size a file may be before it is

@@ -317,6 +317,14 @@ def _batch_status(
     return "ok"
 
 
+@dataclass
+class _SourceLookupCache:
+    """One import's row-lookup answers; see ``VNextCaptureService``."""
+
+    by_hash: dict[str, list[dict[str, object]]] = field(default_factory=dict)
+    by_dedupe: dict[str, dict[str, object] | None] = field(default_factory=dict)
+
+
 @dataclass(frozen=True, slots=True)
 class SourceCaptureInput:
     source_type: str
@@ -1301,7 +1309,7 @@ class VNextCaptureService:
         # goes through ``source_capture_identity_matches``, and the cache is
         # off whenever sources can be retired (--supersede), so a retirement
         # can never leave a stale live row in it.
-        self._source_lookup_cache: dict[str, dict[object, object]] | None = None
+        self._source_lookup_cache: _SourceLookupCache | None = None
 
     def _log_event(
         self,
@@ -1617,14 +1625,14 @@ class VNextCaptureService:
                 slim: JsonObject = dict(source)
                 slim_metadata = {k: v for k, v in (source.get("metadata_json") or {}).items() if k != "raw_text"}
                 slim["metadata_json"] = slim_metadata
-                by_hash: dict[object, object] = self._source_lookup_cache["by_hash"]  # type: ignore[assignment]
+                by_hash = self._source_lookup_cache.by_hash
                 # A fresh query answers newest first (captured_at DESC,
                 # id DESC); the run's own insertions are its newest rows, so
                 # each one joins at the front and the cached list keeps a
                 # fresh query's order by construction.
                 by_hash.setdefault(content_hash, []).insert(0, slim)
                 if dedupe_key:
-                    self._source_lookup_cache["by_dedupe"][dedupe_key] = slim
+                    self._source_lookup_cache.by_dedupe[dedupe_key] = slim
             self._log_event(
                 event_type="source.captured",
                 target_type="source",
@@ -1810,7 +1818,7 @@ class VNextCaptureService:
             # Cache only the row lookups; every candidate is still validated
             # by ``source_capture_identity_matches`` below, exactly as with a
             # fresh query.
-            by_dedupe: dict[object, object] = cache["by_dedupe"]  # type: ignore[assignment]
+            by_dedupe = cache.by_dedupe
             if dedupe_key in by_dedupe:
                 source = by_dedupe[dedupe_key]
             else:
@@ -1826,7 +1834,7 @@ class VNextCaptureService:
                     sensitivity=sensitivity,
                 ):
                     return source
-            by_hash: dict[object, object] = cache["by_hash"]  # type: ignore[assignment]
+            by_hash = cache.by_hash
             for candidate_hash in dict.fromkeys((content_hash, legacy_content_hash)):
                 if candidate_hash in by_hash:
                     matches = by_hash[candidate_hash]
@@ -2019,9 +2027,7 @@ class VNextCaptureService:
             # The row-lookup cache serves only a plain import: with
             # --supersede rows are retired inside the run, so the cache
             # would risk answering with a stale live row.
-            self._source_lookup_cache = (
-                {"by_hash": {}, "by_dedupe": {}} if policy.mode == "off" else None
-            )
+            self._source_lookup_cache = _SourceLookupCache() if policy.mode == "off" else None
             scan = getattr(self.store, "markdown_sources_by_path", None)
             with self.store.savepoint() if callable(scan) or dry_run else nullcontext():
                 self._markdown_path_index = scan() if callable(scan) else {}
