@@ -4166,7 +4166,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "PAIRED_STATISTICS = (\"median_cpu\", \"minimum_wall\")\n",
           "after": "PAIRED_STATISTICS = (\"minimum_wall\",)\n",
-          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
+          "sha256": "bab7e8e98b55947630b8e64cf37dd8bdaf81a538a4b22a4128875ee3a63fc75a",
           "line": 67
         }
       ],
@@ -4246,7 +4246,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py\"",
           "after": "tests/performance/test_label_read_handoff_budget.py\"",
-          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295",
+          "sha256": "74c784672355eabb3075d43f92e1af796be7f23218fcdd2c54193acf1c9a3b78",
           "line": 2593
         }
       ],
@@ -12455,7 +12455,7 @@
           "line": 2401,
           "before": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"2.0\"",
           "after": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"",
-          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295"
+          "sha256": "74c784672355eabb3075d43f92e1af796be7f23218fcdd2c54193acf1c9a3b78"
         }
       ],
       "pytest": [
@@ -17504,7 +17504,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "MERGE_BASE_FACTOR = 1.25\n",
           "after": "MERGE_BASE_FACTOR = 100.0\n",
-          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
+          "sha256": "bab7e8e98b55947630b8e64cf37dd8bdaf81a538a4b22a4128875ee3a63fc75a",
           "line": 63
         }
       ],
@@ -17520,7 +17520,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "    return head > MERGE_BASE_FACTOR * base + MERGE_BASE_SLACK_SECONDS\n",
           "after": "    return True\n",
-          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
+          "sha256": "bab7e8e98b55947630b8e64cf37dd8bdaf81a538a4b22a4128875ee3a63fc75a",
           "line": 92
         }
       ],
@@ -17568,7 +17568,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
           "after": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
-          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295",
+          "sha256": "74c784672355eabb3075d43f92e1af796be7f23218fcdd2c54193acf1c9a3b78",
           "line": 2547
         }
       ],
@@ -17840,7 +17840,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
           "after": "          ALICE_READ_ABSOLUTE_GATE: \"1\"\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
-          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295",
+          "sha256": "74c784672355eabb3075d43f92e1af796be7f23218fcdd2c54193acf1c9a3b78",
           "line": 2548
         }
       ],
@@ -17856,7 +17856,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_round2_read_budget_postgres.py::test_postgres_round2_read_budgets[one-hidden]'\n",
           "after": "",
-          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295",
+          "sha256": "74c784672355eabb3075d43f92e1af796be7f23218fcdd2c54193acf1c9a3b78",
           "line": 2414
         }
       ],
@@ -17872,7 +17872,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_read_handoff_budget_postgres.py::test_postgres_five_thousand_native_read_budgets[False]'\n",
           "after": "",
-          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295",
+          "sha256": "74c784672355eabb3075d43f92e1af796be7f23218fcdd2c54193acf1c9a3b78",
           "line": 2415
         }
       ],
@@ -20583,7 +20583,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "        \"minimum_wall\": min(walls),\n",
           "after": "        \"minimum_wall\": statistics.median(walls),\n",
-          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
+          "sha256": "bab7e8e98b55947630b8e64cf37dd8bdaf81a538a4b22a4128875ee3a63fc75a",
           "line": 101
         }
       ],
@@ -20599,7 +20599,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "        \"median_cpu\": statistics.median(cpus),\n",
           "after": "        \"median_cpu\": min(cpus),\n",
-          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
+          "sha256": "bab7e8e98b55947630b8e64cf37dd8bdaf81a538a4b22a4128875ee3a63fc75a",
           "line": 102
         }
       ],
@@ -20615,7 +20615,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "PAIRED_STATISTICS = (\"median_cpu\", \"minimum_wall\")\n",
           "after": "PAIRED_STATISTICS = (\"median_cpu\",)\n",
-          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
+          "sha256": "bab7e8e98b55947630b8e64cf37dd8bdaf81a538a4b22a4128875ee3a63fc75a",
           "line": 67
         }
       ],
@@ -20631,7 +20631,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "PAIRED_STATISTICS = (\"median_cpu\", \"minimum_wall\")\n",
           "after": "PAIRED_STATISTICS = (\"minimum_wall\",)\n",
-          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
+          "sha256": "bab7e8e98b55947630b8e64cf37dd8bdaf81a538a4b22a4128875ee3a63fc75a",
           "line": 67
         }
       ],
@@ -20647,7 +20647,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "PAIRED_SAMPLES = 10\n",
           "after": "PAIRED_SAMPLES = 5\n",
-          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
+          "sha256": "bab7e8e98b55947630b8e64cf37dd8bdaf81a538a4b22a4128875ee3a63fc75a",
           "line": 66
         }
       ],
@@ -23636,13 +23636,30 @@
           "line": 2401,
           "before": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"2.0\"",
           "after": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"",
-          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295"
+          "sha256": "74c784672355eabb3075d43f92e1af796be7f23218fcdd2c54193acf1c9a3b78"
         }
       ],
       "pytest": [
         "tests/unit/test_screen_paired_gate.py::test_the_smoke_step_keeps_the_backstop_limit_at_two_seconds"
       ],
       "expected_failure": "test_the_smoke_step_keeps_the_backstop_limit_at_two_seconds"
+    },
+    {
+      "name": "screen-paired-rule-reads-both-statistics",
+      "edits": [
+        {
+          "file": "tests/performance/read_budget_gate.py",
+          "line": 166,
+          "before": "        for stat in paired_over_merge_base(head_action, base_action):",
+          "after": "        for stat in (\"minimum_wall\",):  # the paired statistics were here",
+          "sha256": "bab7e8e98b55947630b8e64cf37dd8bdaf81a538a4b22a4128875ee3a63fc75a"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_screen_paired_gate.py::test_the_paired_rule_reads_both_paired_statistics",
+        "tests/unit/test_round3_budget_profile_protocol.py::test_a_screen_cpu_median_past_the_paired_rule_fails[workspace]"
+      ],
+      "expected_failure": "test_the_paired_rule_reads_both_paired_statistics"
     }
   ]
 }
