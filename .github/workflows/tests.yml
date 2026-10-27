@@ -2383,16 +2383,18 @@ jobs:
           # Two checks apply to the workspace and dogfooding screens this step
           # times. The same-runner paired rule (head against this run's merge
           # base, 1.25 times plus 0.05 seconds) catches one pull request that
-          # slows a screen: on the last 22 smoke runs the trusted_local_agent
-          # workspace reading stayed within 0.89 to 1.11 times its merge base
-          # on the same runner. The absolute limit catches large slowdowns and
+          # slows a screen: over the 22 runs before 2026-10-27 the
+          # trusted_local_agent workspace reading stayed within 0.95 to 1.09
+          # times its merge base on the same runner (its CPU median within
+          # 0.95 to 1.05). The absolute limit catches large slowdowns and
           # very slow runners the paired rule cannot see: one runner read the
           # screens about 4.6 times slower than the others and failed the old
           # limit of 1.5, and a pull request whose code was identical to its
           # merge base failed at 1.533 s against 1.440 s on the same runner.
-          # On a fast local machine the same reading is 0.62 to 0.68 s across the
-          # last three releases and main; on shared runners it is 0.85 to
-          # 1.46 s (median 1.24) over the last 30 runs, so the limit is 2.0.
+          # On a fast local machine the same reading is 0.62 to 0.68 s across
+          # the three releases before 2026-10-27 and main; on shared runners
+          # it is 0.85 to 1.46 s (median 1.24) over the 30 runs before
+          # 2026-10-27, so the limit is 2.0.
           # The target on the reference machine stays 1.0
           # (DEFAULT_ABSOLUTE_LIMIT_SECONDS). The paired gate for pack and
           # recall runs in the required job.

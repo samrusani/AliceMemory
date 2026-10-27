@@ -33,14 +33,16 @@ def _head(base, factor=1.0):
 
 def test_a_head_over_one_and_a_quarter_times_the_base_plus_the_slack_fails() -> None:
     """Guard: the paired comparison in ``screen_gate_failures`` (dropping it
-    leaves only the absolute limit, and a same-runner slowdown passes)."""
+    leaves only the absolute limit, and a same-runner slowdown passes). Each
+    row names the check that failed."""
 
     head = {"workspace": {"minimum_wall": 0.31, "median": 0.31},
             "dogfooding": {"minimum_wall": 0.1, "median": 0.1}}
     base = {"workspace": {"minimum_wall": 0.1, "median": 0.1},
             "dogfooding": {"minimum_wall": 0.1, "median": 0.1}}
     rows = screen_gate_failures(head, base, statistic="minimum_wall", limit=2.0)
-    assert rows == [("workspace", "minimum_wall", 0.31, 0.1)], rows
+    assert rows == [("paired_merge_base", "workspace", "minimum_wall", 0.31, 0.1)], rows
+    assert all(row[0] in ("paired_merge_base", "absolute_limit") for row in rows)
 
 
 def test_a_head_equal_to_its_base_passes() -> None:
@@ -66,7 +68,8 @@ def test_a_head_exactly_on_the_paired_boundary_passes() -> None:
 
 def test_the_absolute_limit_catches_what_the_paired_rule_cannot(tmp_path: Path) -> None:
     """A screen whose merge base is equally slow passes the paired rule but
-    fails the absolute limit; a head at the limit itself passes."""
+    fails the absolute limit; a head at the limit itself passes. The absolute
+    rows name the absolute limit, so a red smoke job says which check tripped."""
 
     head = {"workspace": {"minimum_wall": 1.4, "median": 1.4},
             "dogfooding": {"minimum_wall": 1.4, "median": 1.4}}
@@ -76,9 +79,25 @@ def test_the_absolute_limit_catches_what_the_paired_rule_cannot(tmp_path: Path) 
     head = {"workspace": {"minimum_wall": 1.500001, "median": 1.500001},
             "dogfooding": {"minimum_wall": 1.500001, "median": 1.500001}}
     assert screen_gate_failures(head, base, statistic="minimum_wall", limit=1.5) == [
-        ("workspace", "minimum_wall", 1.500001, 1.2),
-        ("dogfooding", "minimum_wall", 1.500001, 1.2),
+        ("absolute_limit", "workspace", "minimum_wall", 1.500001, 1.2),
+        ("absolute_limit", "dogfooding", "minimum_wall", 1.500001, 1.2),
     ]
+
+
+def test_when_both_checks_fail_both_rows_appear_and_are_told_apart() -> None:
+    """A screen past both bounds answers two rows, and the check names keep
+    them distinguishable (the same numbers twice would not say whether the
+    pull request or the runner tripped the job)."""
+
+    head = {"workspace": {"minimum_wall": 0.31, "median": 0.31},
+            "dogfooding": {"minimum_wall": 0.1, "median": 0.1}}
+    base = {"workspace": {"minimum_wall": 0.1, "median": 0.1},
+            "dogfooding": {"minimum_wall": 0.1, "median": 0.1}}
+    rows = screen_gate_failures(head, base, statistic="minimum_wall", limit=0.3)
+    assert rows == [
+        ("paired_merge_base", "workspace", "minimum_wall", 0.31, 0.1),
+        ("absolute_limit", "workspace", "minimum_wall", 0.31, 0.1),
+    ], rows
 
 
 def test_the_screens_are_not_checked_without_the_merge_base(tmp_path: Path) -> None:

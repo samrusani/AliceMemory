@@ -4134,7 +4134,7 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "    if not head or not base or min(head) < min(READ_LIMIT, VISIBLE_ORIGINALS):",
           "after": "    if not head or not base:",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108",
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069",
           "line": 245
         }
       ],
@@ -4150,7 +4150,7 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "    return len(set(head)) == len(set(base)) == 1 and head == base",
           "after": "    return True",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108",
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069",
           "line": 250
         }
       ],
@@ -4166,7 +4166,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "PAIRED_STATISTICS = (\"median_cpu\", \"minimum_wall\")\n",
           "after": "PAIRED_STATISTICS = (\"minimum_wall\",)\n",
-          "sha256": "96524dd2197fac75bca8394ecbe6f3bfe0d81705eb664878c2e31d3617fac793",
+          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
           "line": 67
         }
       ],
@@ -4182,7 +4182,7 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "            for action in (\"pack\", \"recall\"):\n                for name in paired_over_merge_base(",
           "after": "            for action in (\"pack\",):\n                for name in paired_over_merge_base(",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108",
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069",
           "line": 353
         }
       ],
@@ -4196,9 +4196,9 @@
       "edits": [
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
-          "before": "                for profile_action, statistic, head_time, base_time in screen_gate_failures(\n                    measurements[\"head\"], measurements[\"merge_base\"], statistic=\"minimum_wall\",\n                    limit=absolute_limit_seconds(),\n                ):",
-          "after": "                for profile_action, statistic, head_time, base_time in screen_gate_failures(\n                    measurements[\"head\"], measurements[\"merge_base\"], statistic=\"minimum_wall\",\n                    limit=absolute_limit_seconds(), actions=(\"workspace\",),\n                ):",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108",
+          "before": "                for check, profile_action, statistic, head_time, base_time in screen_gate_failures(\n                    measurements[\"head\"], measurements[\"merge_base\"], statistic=\"minimum_wall\",\n                    limit=absolute_limit_seconds(),\n                ):",
+          "after": "                for check, profile_action, statistic, head_time, base_time in screen_gate_failures(\n                    measurements[\"head\"], measurements[\"merge_base\"], statistic=\"minimum_wall\",\n                    limit=absolute_limit_seconds(), actions=(\"workspace\",),\n                ):",
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069",
           "line": 367
         }
       ],
@@ -4214,7 +4214,7 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "    failures.extend(paired_budgets(\"sqlite\", location, USER, keys, case=case, source_count=source_count, repaired=repaired, assert_budget=False))\n    assert not failures, failures",
           "after": "    failures.extend(paired_budgets(\"sqlite\", location, USER, keys, case=case, source_count=source_count, repaired=repaired, assert_budget=False))",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108",
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069",
           "line": 400
         }
       ],
@@ -4246,8 +4246,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py\"",
           "after": "tests/performance/test_label_read_handoff_budget.py\"",
-          "sha256": "386206efd2b454b60845c48570c550461132370ccbfb465469894ad25e2bfc07",
-          "line": 2591
+          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295",
+          "line": 2593
         }
       ],
       "pytest": [
@@ -4262,7 +4262,7 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "        metadata = {\"project_scope\": [], \"project_floor\": [], \"discovered_by\": \"vnext_project_open_loop_extraction\",\n                    **unique_metadata(rng, i)}",
           "after": "        metadata = {\"project_scope\": [], \"project_floor\": [], \"discovered_by\": \"vnext_project_open_loop_extraction\",\n                    \"observation_index\": i}",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108",
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069",
           "line": 147
         }
       ],
@@ -4278,7 +4278,7 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "                        \"candidate_memory_ids\": [rng.choice(weekly) for _ in range(2)],",
           "after": "                        \"candidate_memory_ids\": [],",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108",
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069",
           "line": 165
         }
       ],
@@ -4294,7 +4294,7 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "VISIBLE_ORIGINALS = 12",
           "after": "VISIBLE_ORIGINALS = 0",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108",
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069",
           "line": 35
         }
       ],
@@ -12391,7 +12391,7 @@
           "line": 39,
           "before": "DEFAULT_ABSOLUTE_LIMIT_SECONDS = 1.0\n",
           "after": "DEFAULT_ABSOLUTE_LIMIT_SECONDS = 1.5\n",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108"
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069"
         }
       ],
       "pytest": [
@@ -12407,7 +12407,7 @@
           "line": 52,
           "before": "    limit = float(raw)\n",
           "after": "    limit = DEFAULT_ABSOLUTE_LIMIT_SECONDS\n",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108"
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069"
         }
       ],
       "pytest": [
@@ -12423,7 +12423,7 @@
           "line": 53,
           "before": "    if not (math.isfinite(limit) and limit > 0):\n",
           "after": "    if False:\n",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108"
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069"
         }
       ],
       "pytest": [
@@ -12437,9 +12437,9 @@
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
           "line": 367,
-          "before": "                for profile_action, statistic, head_time, base_time in screen_gate_failures(\n                    measurements[\"head\"], measurements[\"merge_base\"], statistic=\"minimum_wall\",\n                    limit=absolute_limit_seconds(),\n                ):",
-          "after": "                for profile_action, statistic, head_time, base_time in screen_gate_failures(\n                    measurements[\"head\"], measurements[\"merge_base\"], statistic=\"minimum_wall\",\n                    limit=float(\"inf\"),\n                ):",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108"
+          "before": "                for check, profile_action, statistic, head_time, base_time in screen_gate_failures(\n                    measurements[\"head\"], measurements[\"merge_base\"], statistic=\"minimum_wall\",\n                    limit=absolute_limit_seconds(),\n                ):",
+          "after": "                for check, profile_action, statistic, head_time, base_time in screen_gate_failures(\n                    measurements[\"head\"], measurements[\"merge_base\"], statistic=\"minimum_wall\",\n                    limit=float(\"inf\"),\n                ):",
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069"
         }
       ],
       "pytest": [
@@ -12452,10 +12452,10 @@
       "edits": [
         {
           "file": ".github/workflows/tests.yml",
-          "line": 2399,
+          "line": 2401,
           "before": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"2.0\"",
           "after": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"",
-          "sha256": "386206efd2b454b60845c48570c550461132370ccbfb465469894ad25e2bfc07"
+          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295"
         }
       ],
       "pytest": [
@@ -17504,7 +17504,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "MERGE_BASE_FACTOR = 1.25\n",
           "after": "MERGE_BASE_FACTOR = 100.0\n",
-          "sha256": "96524dd2197fac75bca8394ecbe6f3bfe0d81705eb664878c2e31d3617fac793",
+          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
           "line": 63
         }
       ],
@@ -17520,7 +17520,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "    return head > MERGE_BASE_FACTOR * base + MERGE_BASE_SLACK_SECONDS\n",
           "after": "    return True\n",
-          "sha256": "96524dd2197fac75bca8394ecbe6f3bfe0d81705eb664878c2e31d3617fac793",
+          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
           "line": 92
         }
       ],
@@ -17568,8 +17568,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
           "after": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
-          "sha256": "386206efd2b454b60845c48570c550461132370ccbfb465469894ad25e2bfc07",
-          "line": 2545
+          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295",
+          "line": 2547
         }
       ],
       "pytest": [
@@ -17584,7 +17584,7 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "    actions = (\"pack\", \"recall\")\n    if backend == \"postgres\" and os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n        actions = (\"pack\", \"recall\", \"workspace\", \"dogfooding\")\n",
           "after": "    actions = (\"pack\", \"recall\", \"workspace\", \"dogfooding\") if backend == \"postgres\" else (\"pack\", \"recall\")\n",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108",
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069",
           "line": 310
         }
       ],
@@ -17840,8 +17840,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
           "after": "          ALICE_READ_ABSOLUTE_GATE: \"1\"\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
-          "sha256": "386206efd2b454b60845c48570c550461132370ccbfb465469894ad25e2bfc07",
-          "line": 2546
+          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295",
+          "line": 2548
         }
       ],
       "pytest": [
@@ -17856,8 +17856,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_round2_read_budget_postgres.py::test_postgres_round2_read_budgets[one-hidden]'\n",
           "after": "",
-          "sha256": "386206efd2b454b60845c48570c550461132370ccbfb465469894ad25e2bfc07",
-          "line": 2412
+          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295",
+          "line": 2414
         }
       ],
       "pytest": [
@@ -17872,8 +17872,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_read_handoff_budget_postgres.py::test_postgres_five_thousand_native_read_budgets[False]'\n",
           "after": "",
-          "sha256": "386206efd2b454b60845c48570c550461132370ccbfb465469894ad25e2bfc07",
-          "line": 2413
+          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295",
+          "line": 2415
         }
       ],
       "pytest": [
@@ -20583,7 +20583,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "        \"minimum_wall\": min(walls),\n",
           "after": "        \"minimum_wall\": statistics.median(walls),\n",
-          "sha256": "96524dd2197fac75bca8394ecbe6f3bfe0d81705eb664878c2e31d3617fac793",
+          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
           "line": 101
         }
       ],
@@ -20599,7 +20599,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "        \"median_cpu\": statistics.median(cpus),\n",
           "after": "        \"median_cpu\": min(cpus),\n",
-          "sha256": "96524dd2197fac75bca8394ecbe6f3bfe0d81705eb664878c2e31d3617fac793",
+          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
           "line": 102
         }
       ],
@@ -20615,7 +20615,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "PAIRED_STATISTICS = (\"median_cpu\", \"minimum_wall\")\n",
           "after": "PAIRED_STATISTICS = (\"median_cpu\",)\n",
-          "sha256": "96524dd2197fac75bca8394ecbe6f3bfe0d81705eb664878c2e31d3617fac793",
+          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
           "line": 67
         }
       ],
@@ -20631,7 +20631,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "PAIRED_STATISTICS = (\"median_cpu\", \"minimum_wall\")\n",
           "after": "PAIRED_STATISTICS = (\"minimum_wall\",)\n",
-          "sha256": "96524dd2197fac75bca8394ecbe6f3bfe0d81705eb664878c2e31d3617fac793",
+          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
           "line": 67
         }
       ],
@@ -20647,7 +20647,7 @@
           "file": "tests/performance/read_budget_gate.py",
           "before": "PAIRED_SAMPLES = 10\n",
           "after": "PAIRED_SAMPLES = 5\n",
-          "sha256": "96524dd2197fac75bca8394ecbe6f3bfe0d81705eb664878c2e31d3617fac793",
+          "sha256": "fb6f46d9fc9aec49c3ebeaa92b430055568dfb0f6566613776da45fe5a4e66a1",
           "line": 66
         }
       ],
@@ -20711,7 +20711,7 @@
           "file": "tests/performance/test_label_round3_read_budget.py",
           "before": "                for name in paired_over_merge_base(measurements[\"head\"][action], measurements[\"merge_base\"][action]):\n",
           "after": "                for name in []:\n",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108",
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069",
           "line": 354
         }
       ],
@@ -23586,9 +23586,9 @@
         {
           "file": "tests/performance/test_label_round3_read_budget.py",
           "line": 358,
-          "before": "            # The screens carry two checks here: the same-runner paired rule\n            # against the merge base (one pull request that slows a screen\n            # fails on this runner's own speed) and the absolute limit (large\n            # slowdowns and very slow runners, which the paired rule cannot\n            # see because it needs this run's merge base). Shared CI runners\n            # differ in speed, so the required jobs keep the merge-base gate\n            # for pack and recall and the returned counts, and do not time\n            # the screens at all.\n            if backend == \"postgres\" and os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n                for profile_action, statistic, head_time, base_time in screen_gate_failures(\n                    measurements[\"head\"], measurements[\"merge_base\"], statistic=\"minimum_wall\",\n                    limit=absolute_limit_seconds(),\n                ):\n                    failures.append((profile, profile_action, statistic, row))\n",
+          "before": "            # The screens carry two checks here: the same-runner paired rule\n            # against the merge base (one pull request that slows a screen\n            # fails on this runner's own speed) and the absolute limit (large\n            # slowdowns and very slow runners, which the paired rule cannot\n            # see because it needs this run's merge base). Shared CI runners\n            # differ in speed, so the required jobs keep the merge-base gate\n            # for pack and recall and the returned counts, and do not time\n            # the screens at all.\n            if backend == \"postgres\" and os.environ.get(\"ALICE_READ_ABSOLUTE_GATE\") == \"1\":\n                for check, profile_action, statistic, head_time, base_time in screen_gate_failures(\n                    measurements[\"head\"], measurements[\"merge_base\"], statistic=\"minimum_wall\",\n                    limit=absolute_limit_seconds(),\n                ):\n                    failures.append((profile, check, profile_action, statistic, row))",
           "after": "",
-          "sha256": "dd01f8e7d44e8d49b8efa4bcc999b837d97609b0f2d0e71306f138a1c15a7108"
+          "sha256": "ea3b8e0ae03cea00878dd7e1d3c2b22397ca17ad901d67834ed4f1347a774069"
         }
       ],
       "pytest": [
@@ -23633,10 +23633,10 @@
       "edits": [
         {
           "file": ".github/workflows/tests.yml",
-          "line": 2399,
+          "line": 2401,
           "before": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"2.0\"",
           "after": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"",
-          "sha256": "386206efd2b454b60845c48570c550461132370ccbfb465469894ad25e2bfc07"
+          "sha256": "2d001ba9d9b46c8c8a85e85da5289822c62478863bf265c3110e00cfe63fd295"
         }
       ],
       "pytest": [

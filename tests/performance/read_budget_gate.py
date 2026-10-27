@@ -143,22 +143,25 @@ def screen_gate_failures(
     statistic: str,
     limit: float,
     actions: tuple[str, ...] = ("workspace", "dogfooding"),
-) -> list[tuple[str, str, float, float]]:
-    """The failure rows ``(action, statistic, head, base)`` for the operator screens.
+) -> list[tuple[str, str, str, float, float]]:
+    """The failure rows for the operator screens, each naming the check that failed.
 
     Two checks per screen: the same-runner paired rule against the merge base
     (one pull request that slows a screen fails on the runner's own speed),
     and the absolute limit (large slowdowns and very slow runners, which the
     paired rule cannot see because it needs the merge base of the same run).
-    A head equal to either bound passes.
+    A head equal to either bound passes. Each row is
+    ``(check, action, statistic, head, base)`` with ``check`` either
+    ``"paired_merge_base"`` or ``"absolute_limit"``, so a red smoke job says
+    which of the two tripped; when both fail, both rows appear.
     """
 
-    rows: list[tuple[str, str, float, float]] = []
+    rows: list[tuple[str, str, str, float, float]] = []
     for action in actions:
         head = head_by_action[action][statistic]
         base = base_by_action[action][statistic]
         if over_merge_base(head, base):
-            rows.append((action, statistic, head, base))
+            rows.append(("paired_merge_base", action, statistic, head, base))
         if head > limit:
-            rows.append((action, statistic, head, base))
+            rows.append(("absolute_limit", action, statistic, head, base))
     return rows

@@ -364,11 +364,11 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
             # for pack and recall and the returned counts, and do not time
             # the screens at all.
             if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
-                for profile_action, statistic, head_time, base_time in screen_gate_failures(
+                for check, profile_action, statistic, head_time, base_time in screen_gate_failures(
                     measurements["head"], measurements["merge_base"], statistic="minimum_wall",
                     limit=absolute_limit_seconds(),
                 ):
-                    failures.append((profile, profile_action, statistic, row))
+                    failures.append((profile, check, profile_action, statistic, row))
         finally:
             for process in processes:
                 if process.poll() is None:

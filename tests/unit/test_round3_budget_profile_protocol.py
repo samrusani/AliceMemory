@@ -294,7 +294,14 @@ def measured_failures(monkeypatch, tmp_path, *, case="half-hidden", limit=None, 
         monkeypatch.setenv("ALICE_READ_ABSOLUTE_LIMIT_SECONDS", limit)
     failures = budgets.paired_budgets("postgres", "synthetic-database", budgets.USER, KEYS,
                                       case=case, source_count=3000, repaired=False, assert_budget=False)
-    return {(profile, action, clock) for profile, action, clock, _row in failures}
+    failed = set()
+    for failure in failures:
+        if len(failure) == 5:
+            profile, _check, action, clock, _row = failure
+        else:
+            profile, action, clock, _row = failure
+        failed.add((profile, action, clock))
+    return failed
 
 
 def slow_head(action, *, wall=.1, cpu=.1):
