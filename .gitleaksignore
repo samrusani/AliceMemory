@@ -109,3 +109,9 @@ c9199e2d48c89d052de3152de5a4c2f834ae7aee:tests/unit/test_project_cli.py:generic-
 # credential. History is not rewritten, so the finding in the first commit is
 # listed by fingerprint; the follow-up commit renames the variable.
 bf1237b8d11f9af0ce2f3b3351df416e09041dee:tests/unit/test_saved_quotes_follow_the_source_fence.py:generic-api-key:49
+
+# Credential-check fixture (PR #685): a synthetic BEGIN/END block the differential
+# test refuses; the key body is the literal '1234' plus padding, not a credential.
+# The follow-up commit assembles the string from parts; history is not rewritten,
+# so the finding in the first commit of the branch is listed by fingerprint.
+867f02b73946540731a9d71ab5bf860645ac4402:tests/unit/test_commit_door_speedup_equivalence.py:private-key:48
