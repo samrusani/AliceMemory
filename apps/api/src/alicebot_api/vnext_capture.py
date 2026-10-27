@@ -22,6 +22,7 @@ from alicebot_api.importer_paths import (
     DEFAULT_MAX_TEXT_FILE_BYTES,
     MIB,
     ImportFileTooLargeError,
+    ImportSourceFile,
     read_contained_source_text,
 )
 from alicebot_api.legacy_credential_check import commit_door_fields_verdict

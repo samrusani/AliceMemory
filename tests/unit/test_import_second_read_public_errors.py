@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import io
 import json
+import pytest
 from contextlib import closing, redirect_stderr, redirect_stdout
 from pathlib import Path
 import sqlite3
