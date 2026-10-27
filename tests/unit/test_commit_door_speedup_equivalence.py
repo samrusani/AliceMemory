@@ -22,7 +22,12 @@ from __future__ import annotations
 import base64
 from alicebot_api.legacy_credential_check import commit_door_fields_verdict
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
-from alicebot_api.vnext_capture import VNextCaptureService, _DOOR_MEMO_MAX_ENTRIES, _door_fields_verdict_memoized
+from alicebot_api.vnext_capture import (
+    VNextCaptureService,
+    _DOOR_MEMO_MAX_CHARS,
+    _DOOR_MEMO_MAX_ENTRIES,
+    _door_fields_verdict_memoized,
+)
 
 from tests.unit.test_markdown_import_equality import (
     USER_ID,
@@ -117,7 +122,7 @@ def test_memo_never_grows_past_its_bounds() -> None:
     memo = _fresh_memo()
     assert _door_fields_verdict_memoized(memo, "unit_verdict", "x" * 5_000) is None
     assert memo["entries"] == {}
-    memo = {"entries": {}, "chars": 2_000_000}
+    memo = {"entries": {}, "chars": _DOOR_MEMO_MAX_CHARS}
     assert _door_fields_verdict_memoized(memo, "unit_verdict", "clean") is None
     assert memo["entries"] == {}
     memo = {"entries": {index: None for index in range(_DOOR_MEMO_MAX_ENTRIES)}, "chars": 0}
