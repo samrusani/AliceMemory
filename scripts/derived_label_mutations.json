@@ -23251,6 +23251,22 @@
         "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_memory_tool_malformed_memory_id_matches_unknown[no-such-id-alice_vnext_correct_memory]"
       ],
       "expected_failure": "test_legacy_memory_tool_malformed_memory_id_matches_unknown"
+    },
+    {
+      "name": "malformed-id-manage-confirmation-text-lookup",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py",
+          "line": 1239,
+          "before": "                WHERE confirmation_id = %s\n",
+          "after": "                WHERE confirmation_id = %s::uuid\n",
+          "sha256": "ea1e4a4ce9f58968e4e10ac66830822798aa26118207a39fb465b4f26da74aea"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_malformed_id_doors_postgres.py::test_a_malformed_confirmation_id_answers_as_an_unknown_one[no-such-id]"
+      ],
+      "expected_failure": "test_a_malformed_confirmation_id_answers_as_an_unknown_one"
     }
   ]
 }
