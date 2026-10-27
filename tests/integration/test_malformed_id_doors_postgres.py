@@ -344,7 +344,7 @@ def test_mcp_id_arrays_and_sessions_malformed_matches_unknown(label_harness, too
     pytest.param("alice_vnext_undo_memory", lambda v: {"memory_id": v}, id="alice_vnext_undo_memory"),
     pytest.param("alice_vnext_forget_memory", lambda v: {"memory_id": v, "reason": "synthetic"}, id="alice_vnext_forget_memory"),
     pytest.param("alice_vnext_memory_audit", lambda v: {"memory_id": v}, id="alice_vnext_memory_audit"),
-    pytest.param("alice_vnext_correct_memory", lambda v: {"memory_id": v, "action": "edit", "canonical_text": "Synthetic corrected text"}, id="alice_vnext_correct_memory"),
+    pytest.param("alice_vnext_correct_memory", lambda v: {"memory_id": v, "canonical_text": "Synthetic corrected text"}, id="alice_vnext_correct_memory"),
 ))
 @pytest.mark.parametrize("value", MALFORMED_VALUES)
 def test_legacy_memory_tool_malformed_memory_id_matches_unknown(label_harness, tool, build, value) -> None:
@@ -380,6 +380,23 @@ def _store_a_row_under_the_nil_id(h) -> None:
         memory = store.create_memory({"memory_key": "nil.id.row", "canonical_text": "the nil id row", "value": {"text": "nil"}})
     with psycopg.connect(h.urls["admin"], autocommit=True) as conn:
         conn.execute("UPDATE memories SET id = %s::uuid WHERE id = %s::uuid", (NIL_ID, str(memory["id"])))
+
+
+@pytest.mark.parametrize("value", MALFORMED_VALUES)
+def test_a_malformed_confirmation_id_answers_as_an_unknown_one(label_harness, value) -> None:
+    """The confirm door reads its confirmation id and answers a malformed one as an unknown one.
+
+    The confirmation id is looked up as text (``WHERE confirmation_id = %s``,
+    no cast), so a value that is not an id at all answers exactly what a
+    well-formed id of no pending confirmation answers.
+    """
+
+    h = label_harness
+    context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+    unknown = _wire(context, "alice_memory_manage", {"action": "confirm", "confirmation_id": str(uuid4()), "reason": "synthetic"})
+    malformed = _wire(context, "alice_memory_manage", {"action": "confirm", "confirmation_id": value, "reason": "synthetic"})
+    assert _same_wire(malformed, unknown), (malformed, unknown)
+    assert unknown[0] == "not_found", unknown
 
 
 @pytest.mark.parametrize("value", MALFORMED_VALUES)
