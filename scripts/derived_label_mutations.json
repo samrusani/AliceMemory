@@ -1738,10 +1738,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 882,
+          "line": 900,
           "before": "        if target is None or outside_caller_limits(store, identity, \"open_loop\", target):",
           "after": "        if target is None:",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -15984,10 +15984,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 344,
+          "line": 349,
           "before": "            read_fence=source_fence,\n",
           "after": "            read_fence=SourceReadFence.unfenced(),\n",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16000,10 +16000,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 344,
+          "line": 349,
           "before": "            read_fence=source_fence,\n",
           "after": "            read_fence=SourceReadFence.unfenced(),\n",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16128,10 +16128,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1183,
+          "line": 1201,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = False",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16144,10 +16144,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1183,
+          "line": 1201,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = False",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16160,10 +16160,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1183,
+          "line": 1201,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = False",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16176,10 +16176,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1183,
+          "line": 1201,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = False",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16192,10 +16192,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1183,
+          "line": 1201,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = True",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16208,10 +16208,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1183,
+          "line": 1201,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = True",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16224,10 +16224,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1247,
+          "line": 1265,
           "before": "                    keep=admit_memories,\n                )\n            return readable_prefix(",
           "after": "                    keep=list,\n                )\n            return readable_prefix(",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16240,10 +16240,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1252,
+          "line": 1270,
           "before": "                keep=admit_memories,\n            )\n\n        decisions = newest_readable",
           "after": "                keep=list,\n            )\n\n        decisions = newest_readable",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16256,10 +16256,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1438,
+          "line": 1456,
           "before": "                if limited:\n                    # Cut after the drop",
           "after": "                if False:\n                    # Cut after the drop",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16272,10 +16272,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1485,
+          "line": 1503,
           "before": "                if limited:\n                    memory_events = readable_prefix(",
           "after": "                if False:\n                    memory_events = readable_prefix(",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16403,10 +16403,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1314,
+          "line": 1332,
           "before": "            elif limited:\n                loop_rows = readable_prefix(",
           "after": "            elif False:\n                loop_rows = readable_prefix(",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16420,10 +16420,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1304,
+          "line": 1322,
           "before": "            elif limited and project_view.mode == \"project\":",
           "after": "            elif False and project_view.mode == \"project\":",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16535,10 +16535,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1022,
+          "line": 1040,
           "before": "            honoured = target_id in admitted",
           "after": "            honoured = True",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16552,10 +16552,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1231,
+          "line": 1249,
           "before": "                kind=\"memory\",\n                rows=rows,\n                domains=domain_filter,\n                sensitivity_allowed=sensitivity_filter,\n                projects=effective_project_scope,\n            )\n\n        def newest_readable",
           "after": "                kind=\"memory\",\n                rows=rows,\n                domains=None,\n                sensitivity_allowed=sensitivity_filter,\n                projects=effective_project_scope,\n            )\n\n        def newest_readable",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16569,10 +16569,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1295,
+          "line": 1313,
           "before": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=sensitivity_filter,\n                    projects=effective_project_scope,\n                )",
           "after": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=('public', 'internal', 'private', 'unknown'),\n                    projects=effective_project_scope,\n                )",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -16586,10 +16586,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1295,
+          "line": 1313,
           "before": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=sensitivity_filter,\n                    projects=effective_project_scope,\n                )",
           "after": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=sensitivity_filter,\n                    projects=(),\n                )",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -19141,10 +19141,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 361,
+          "line": 366,
           "before": "                label_refill=source_fence.entity_read_fenced,\n",
           "after": "",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -20244,10 +20244,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 200,
+          "line": 201,
           "before": "PASSAGE_BY_DEFAULT_STORES: Final[frozenset[str]] = frozenset({\"SQLiteVNextStore\"})",
           "after": "PASSAGE_BY_DEFAULT_STORES: Final[frozenset[str]] = frozenset()",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -20260,10 +20260,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 230,
+          "line": 231,
           "before": "unset = SourceRanking.passage() if store_name in PASSAGE_BY_DEFAULT_STORES else SourceRanking.document()",
           "after": "unset = SourceRanking.passage()",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -20293,10 +20293,10 @@
       "edits": [
         {
           "file": "scripts/alice_bench.py",
-          "line": 2262,
+          "line": 2287,
           "before": "\"search_quality\": search_quality if search_quality is not None else \"unset\",\n        \"ranking_mode\": resolved_ranking_mode(search_quality),",
           "after": "\"search_quality\": search_quality if search_quality is not None else \"unset\",\n        \"ranking_mode\": search_quality if search_quality is not None else \"unset\",",
-          "sha256": "53c936d20c8260fc2a34941e2339065bb8e68f5b91f66ea3c0ba2ffada36760f"
+          "sha256": "703e524784ec5be2e5d86274a21f9b0c5abcc5d43dcf86bf4fb0f235cef0fa15"
         }
       ],
       "pytest": [
@@ -20312,7 +20312,7 @@
           "line": 1517,
           "before": "\"search_quality\": search_quality if search_quality is not None else \"unset\",\n            \"ranking_mode\": resolved_ranking_mode(search_quality),",
           "after": "\"search_quality\": search_quality if search_quality is not None else \"unset\",\n            \"ranking_mode\": search_quality if search_quality is not None else \"unset\",",
-          "sha256": "53c936d20c8260fc2a34941e2339065bb8e68f5b91f66ea3c0ba2ffada36760f"
+          "sha256": "703e524784ec5be2e5d86274a21f9b0c5abcc5d43dcf86bf4fb0f235cef0fa15"
         }
       ],
       "pytest": [
@@ -21400,10 +21400,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 232,
+          "line": 233,
           "before": "    if ranking.mode == \"vectors\" and (store_name not in VECTORS_STORES or context_depth == CONTEXT_DEPTH_MINIMAL):",
           "after": "    if ranking.mode == \"vectors\" and (store_name not in VECTORS_STORES):",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -21417,10 +21417,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 232,
+          "line": 233,
           "before": "    if ranking.mode == \"vectors\" and (store_name not in VECTORS_STORES or context_depth == CONTEXT_DEPTH_MINIMAL):",
           "after": "    if ranking.mode == \"vectors\" and (context_depth == CONTEXT_DEPTH_MINIMAL):",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -21537,10 +21537,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 548,
+          "line": 566,
           "before": "                limited=source_fence.entity_read_fenced,",
           "after": "                limited=False,",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -21553,10 +21553,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 548,
+          "line": 566,
           "before": "                limited=source_fence.entity_read_fenced,",
           "after": "                limited=True,",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -21692,10 +21692,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 236,
+          "line": 237,
           "before": "        return replace(ranking, scoped_vectors=True)",
           "after": "        return ranking",
-          "sha256": "d3e0b7eb0f109801daa00c6c84202b024b928b81577812292946d4e9a52e7132"
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
         }
       ],
       "pytest": [
@@ -22175,10 +22175,10 @@
       "edits": [
         {
           "file": "scripts/alice_bench.py",
-          "line": 2587,
+          "line": 2613,
           "before": "    if getattr(args, \"arm\", \"alice\") != \"alice\":\n        # An arm that reads no vector",
           "after": "    if False:\n        # An arm that reads no vector",
-          "sha256": "53c936d20c8260fc2a34941e2339065bb8e68f5b91f66ea3c0ba2ffada36760f"
+          "sha256": "703e524784ec5be2e5d86274a21f9b0c5abcc5d43dcf86bf4fb0f235cef0fa15"
         }
       ],
       "pytest": [
@@ -22195,7 +22195,7 @@
           "line": 687,
           "before": "    if isinstance(cached, dict) and cached.get(\"schema\") == VECTOR_CENSUS_SCHEMA and cached.get(\"key\") == key:",
           "after": "    if isinstance(cached, dict) and cached.get(\"schema\") == VECTOR_CENSUS_SCHEMA:",
-          "sha256": "53c936d20c8260fc2a34941e2339065bb8e68f5b91f66ea3c0ba2ffada36760f"
+          "sha256": "703e524784ec5be2e5d86274a21f9b0c5abcc5d43dcf86bf4fb0f235cef0fa15"
         }
       ],
       "pytest": [
@@ -22211,7 +22211,7 @@
           "line": 382,
           "before": "        env.update(vector_environment(vector_settings))",
           "after": "        pass",
-          "sha256": "53c936d20c8260fc2a34941e2339065bb8e68f5b91f66ea3c0ba2ffada36760f"
+          "sha256": "703e524784ec5be2e5d86274a21f9b0c5abcc5d43dcf86bf4fb0f235cef0fa15"
         }
       ],
       "pytest": [
@@ -22228,7 +22228,7 @@
           "line": 441,
           "before": "            \"so the run would not be what its record says\"\n        )\n    return mode",
           "after": "            \"so the run would not be what its record says\"\n        )\n    return \"passage\" if mode == VECTORS else mode",
-          "sha256": "53c936d20c8260fc2a34941e2339065bb8e68f5b91f66ea3c0ba2ffada36760f"
+          "sha256": "703e524784ec5be2e5d86274a21f9b0c5abcc5d43dcf86bf4fb0f235cef0fa15"
         }
       ],
       "pytest": [
@@ -22245,7 +22245,7 @@
           "line": 579,
           "before": "            receipt = _run_backfill(db_path)",
           "after": "            receipt = {\"exit_code\": 0}",
-          "sha256": "53c936d20c8260fc2a34941e2339065bb8e68f5b91f66ea3c0ba2ffada36760f"
+          "sha256": "703e524784ec5be2e5d86274a21f9b0c5abcc5d43dcf86bf4fb0f235cef0fa15"
         }
       ],
       "pytest": [
@@ -22261,7 +22261,7 @@
           "line": 741,
           "before": "    if state[\"stored\"] != recorded[\"chunks_embedded\"] or state[\"current\"] != recorded[\"chunks_embedded\"]:",
           "after": "    if False:",
-          "sha256": "53c936d20c8260fc2a34941e2339065bb8e68f5b91f66ea3c0ba2ffada36760f"
+          "sha256": "703e524784ec5be2e5d86274a21f9b0c5abcc5d43dcf86bf4fb0f235cef0fa15"
         }
       ],
       "pytest": [
@@ -22277,7 +22277,7 @@
           "line": 786,
           "before": "    return serialize_mcp_tool_result(payload), status",
           "after": "    return text, status",
-          "sha256": "53c936d20c8260fc2a34941e2339065bb8e68f5b91f66ea3c0ba2ffada36760f"
+          "sha256": "703e524784ec5be2e5d86274a21f9b0c5abcc5d43dcf86bf4fb0f235cef0fa15"
         }
       ],
       "pytest": [
@@ -22293,7 +22293,7 @@
           "line": 585,
           "before": "    problems: list[str] = []\n    if state[\"pending\"]:",
           "after": "    problems: list[str] = []\n    if False:",
-          "sha256": "53c936d20c8260fc2a34941e2339065bb8e68f5b91f66ea3c0ba2ffada36760f"
+          "sha256": "703e524784ec5be2e5d86274a21f9b0c5abcc5d43dcf86bf4fb0f235cef0fa15"
         }
       ],
       "pytest": [
@@ -23660,6 +23660,72 @@
         "tests/unit/test_round3_budget_profile_protocol.py::test_a_screen_cpu_median_past_the_paired_rule_fails[workspace]"
       ],
       "expected_failure": "test_the_paired_rule_reads_both_paired_statistics"
+    },
+    {
+      "name": "recall-note-budget-back-to-8",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/types.py",
+          "line": 59,
+          "before": "_RECALL_DEFAULT_NOTE_PASSAGE_BUDGET = 10",
+          "after": "_RECALL_DEFAULT_NOTE_PASSAGE_BUDGET = 8",
+          "sha256": "242f6ef8f6085ad37e10390d91adff7ea8c0559803a3eedeaf858764256bd79f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_note_passage_budget.py::test_default_passage_recall_returns_ten_note_passages",
+        "tests/unit/test_recall_note_passage_budget.py::test_default_vectors_recall_returns_ten_note_passages"
+      ],
+      "expected_failure": "test_default_passage_recall_returns_ten_note_passages"
+    },
+    {
+      "name": "recall-explicit-limit-ignored",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 294,
+          "before": "    caller_set_limit = arguments.get(\"limit\") is not None",
+          "after": "    caller_set_limit = False",
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_note_passage_budget.py::test_an_explicit_limit_is_honoured_in_both_stages[5]",
+        "tests/unit/test_recall_note_passage_budget.py::test_an_explicit_limit_is_honoured_in_both_stages[12]"
+      ],
+      "expected_failure": "test_an_explicit_limit_is_honoured_in_both_stages"
+    },
+    {
+      "name": "recall-memory-results-raised-to-10",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/types.py",
+          "line": 54,
+          "before": "_RECALL_DEFAULT_LIMIT = 8",
+          "after": "_RECALL_DEFAULT_LIMIT = 10",
+          "sha256": "242f6ef8f6085ad37e10390d91adff7ea8c0559803a3eedeaf858764256bd79f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_note_passage_budget.py::test_default_passage_recall_returns_ten_note_passages"
+      ],
+      "expected_failure": "test_default_passage_recall_returns_ten_note_passages"
+    },
+    {
+      "name": "recall-budget-not-in-document-mode",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 408,
+          "before": "        source_limit = (\n            _RECALL_DEFAULT_NOTE_PASSAGE_BUDGET\n            if not caller_set_limit\n            and ranking.mode in {\"passage\", \"vectors\"}\n            and context_depth != CONTEXT_DEPTH_MINIMAL\n            else limit\n        )",
+          "after": "        source_limit = (\n            _RECALL_DEFAULT_NOTE_PASSAGE_BUDGET\n            if not caller_set_limit\n            and context_depth != CONTEXT_DEPTH_MINIMAL\n            else limit\n        )",
+          "sha256": "9b590ff52dd1d49b2264cced4a313c25fd2f29c17e73b1df77daf9040c47cdae"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_note_passage_budget.py::test_document_mode_keeps_the_memory_limit"
+      ],
+      "expected_failure": "test_document_mode_keeps_the_memory_limit"
     }
   ]
 }

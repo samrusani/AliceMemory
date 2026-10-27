@@ -52,6 +52,11 @@ _REVIEW_APPLY_TO_CORRECTION_ACTION = {
 }
 _DEFAULT_SENSITIVITY_ALLOWED = ("public", "internal", "private", "unknown")
 _RECALL_DEFAULT_LIMIT = 8
+# The note passage budget the recall edge gives its sources stage in passage
+# and vectors mode when the caller passes no limit; the stage's candidate
+# depth (max(limit * 4, 32)) follows from it. Memory results keep
+# _RECALL_DEFAULT_LIMIT. Read at the call site; this is the only copy.
+_RECALL_DEFAULT_NOTE_PASSAGE_BUDGET = 10
 _RECALL_MAX_LIMIT = 50
 _OPEN_LOOP_TOOL_ACTIONS = ("list", *sorted(OPEN_LOOP_ACTIONS))
 _PREFETCH_CONTEXT_ASSEMBLY_VERSION_V0 = "alice_prefetch_context_v0"
