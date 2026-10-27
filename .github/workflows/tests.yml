@@ -2390,7 +2390,7 @@ jobs:
           # screens about 4.6 times slower than the others and failed the old
           # limit of 1.5, and a pull request whose code was identical to its
           # merge base failed at 1.533 s against 1.440 s on the same runner.
-          # On a fast desktop the same reading is 0.62 to 0.68 s across the
+          # On a fast local machine the same reading is 0.62 to 0.68 s across the
           # last three releases and main; on shared runners it is 0.85 to
           # 1.46 s (median 1.24) over the last 30 runs, so the limit is 2.0.
           # The target on the reference machine stays 1.0
