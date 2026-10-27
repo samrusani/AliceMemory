@@ -72,15 +72,54 @@ CHATGPT_CONVERSATION_UNREADABLE_MESSAGE = "Conversation could not be read"
 logger = logging.getLogger(__name__)
 
 
-def _unit_verdict(value: object) -> str | None:
+# The commit door's exact-input memo bounds. When either cap is hit the memo
+# stops adding entries; every later call runs the door directly. Keys larger
+# than _DOOR_MEMO_MAX_KEY_CHARS are never added, so the memo never holds a
+# whole file's text, only unit-level lines and small fields.
+_DOOR_MEMO_MAX_ENTRIES = 400_000
+_DOOR_MEMO_MAX_CHARS = 40_000_000
+_DOOR_MEMO_MAX_KEY_CHARS = 4_096
+
+
+def _unit_verdict(value: object, memo: dict[str, object] | None = None) -> str | None:
     """The commit door's verdict for one import unit.
 
     The same check ``capture_source`` uses. A line, message, title, id, or
     name the floor misses and the commit gate flags is withheld here, so
-    the rest of the file or conversation still imports.
+    the rest of the file or conversation still imports. ``memo`` is the
+    import-scoped exact-input memo; without it the door runs directly.
     """
 
-    return commit_door_fields_verdict(value)
+    return _door_fields_verdict_memoized(memo, "unit_verdict", value)
+
+
+def _door_fields_verdict_memoized(memo: dict[str, object] | None, site: str, *fields: object) -> str | None:
+    """``commit_door_fields_verdict`` behind the import-scoped exact-input memo.
+
+    The memo key is the call site plus every field in its exact order; the
+    value is the verdict for exactly those arguments. Nothing is reused
+    across imports, users, or threads: the memo lives inside one
+    ``import_markdown_folder`` call and is dropped in its finally.
+    """
+
+    if memo is None:
+        return commit_door_fields_verdict(*fields)
+    entries: dict[tuple[object, ...], str | None] = memo["entries"]  # type: ignore[assignment]
+    key = (site,) + tuple(field if field is None or isinstance(field, str) else repr(field) for field in fields)
+    try:
+        return entries[key]
+    except KeyError:
+        pass
+    verdict = commit_door_fields_verdict(*fields)
+    key_chars = sum(len(field) for field in key[1:] if isinstance(field, str))
+    if (
+        len(entries) < _DOOR_MEMO_MAX_ENTRIES
+        and memo["chars"] + key_chars <= _DOOR_MEMO_MAX_CHARS  # type: ignore[operator]
+        and key_chars <= _DOOR_MEMO_MAX_KEY_CHARS
+    ):
+        entries[key] = verdict
+        memo["chars"] = memo["chars"] + key_chars  # type: ignore[operator]
+    return verdict
 
 
 class VNextCaptureValidationError(ValueError):
@@ -1056,7 +1095,13 @@ def read_named_text_file(file_path: Path, *, max_file_bytes: int = DEFAULT_MAX_T
         raise _public_markdown_import_error(exc) from exc
 
 
-def _filter_markdown_units(raw_text: str, *, file_index: int, file_name: str) -> tuple[str, list[str]]:
+def _filter_markdown_units(
+    raw_text: str,
+    *,
+    file_index: int,
+    file_name: str,
+    memo: dict[str, object] | None = None,
+) -> tuple[str, list[str]]:
     """Replace each flagged line, or one private-key block, before capture.
 
     Line numbers count from 1 on the first line of the file. Each receipt
@@ -1083,7 +1128,7 @@ def _filter_markdown_units(raw_text: str, *, file_index: int, file_name: str) ->
                 index += 1
                 continue
             block = "\n".join(lines[start_no - 1 : end_no])
-            if _unit_verdict(block) is not None:
+            if _unit_verdict(block, memo) is not None:
                 kept.append(CREDENTIAL_WITHHELD)
                 skipped.append(f"{file_label} {_line_phrase(start_no, end_no)}")
             else:
@@ -1096,7 +1141,7 @@ def _filter_markdown_units(raw_text: str, *, file_index: int, file_name: str) ->
             kept.append(CREDENTIAL_WITHHELD)
             skipped.append(f"{file_label} {_line_phrase(line_no, len(lines))}")
             break
-        if line.strip() and _unit_verdict(line) is not None:
+        if line.strip() and _unit_verdict(line, memo) is not None:
             kept.append(CREDENTIAL_WITHHELD)
             skipped.append(f"{file_label} {_line_phrase(line_no, line_no)}")
         else:
@@ -1219,6 +1264,19 @@ class VNextCaptureService:
         self.agent_identity = agent_identity
         self.policy_decision = policy_decision
         self.defer_embeddings = defer_embeddings
+        # The commit door's exact-input memo, live only inside one
+        # import_markdown_folder call (set there, dropped in its finally). The
+        # memo never changes a verdict: key is the call site plus every field
+        # in order, value is the door's verdict for exactly those arguments.
+        self._door_memo: dict[str, object] | None = None
+        # The source row-lookup cache of one import (same lifecycle). It caches
+        # only what ``get_source_by_dedupe_key`` and
+        # ``get_sources_by_content_hash`` answered, plus every row the import
+        # itself inserts at the moment it is inserted. Every candidate still
+        # goes through ``source_capture_identity_matches``, and the cache is
+        # off whenever sources can be retired (--supersede), so a retirement
+        # can never leave a stale live row in it.
+        self._source_lookup_cache: dict[str, dict[object, object]] | None = None
 
     def _log_event(
         self,
@@ -1378,8 +1436,13 @@ class VNextCaptureService:
         # Before dedupe and before the try that logs a failure. A refusal
         # must not look up an existing row and must not persist the fields.
         # The commit door, not the floor alone: a low-entropy AKIA-shaped
-        # key the floor treats as a placeholder is still refused.
-        verdict = commit_door_fields_verdict(
+        # key the floor treats as a placeholder is still refused. The same
+        # exact arguments go through the door here as on every capture, so
+        # the import-scoped memo (live only inside import_markdown_folder)
+        # may answer for arguments it has already seen in this import.
+        verdict = _door_fields_verdict_memoized(
+            self._door_memo,
+            "capture_source",
             source_input.title,
             source_input.author,
             source_input.uri,
@@ -1518,6 +1581,21 @@ class VNextCaptureService:
             else:
                 source = self.store.create_source(source_record, actor_type=self.actor_type)
             source_id = str(source["id"])
+            if self._source_lookup_cache is not None:
+                # The run's own insertions are candidates from now on, so a
+                # later file of the same folder sees exactly what a fresh
+                # query would answer. The cached copy drops the raw text:
+                # its dedupe key was computed from this exact text, so the
+                # recompute that a fresh row would pass reports None here,
+                # which the dedupe path accepts identically, and the cache
+                # must not hold a raw text per inserted source.
+                slim: JsonObject = dict(source)
+                slim_metadata = {k: v for k, v in (source.get("metadata_json") or {}).items() if k != "raw_text"}
+                slim["metadata_json"] = slim_metadata
+                by_hash: dict[object, object] = self._source_lookup_cache["by_hash"]  # type: ignore[assignment]
+                by_hash.setdefault(content_hash, []).append(slim)
+                if dedupe_key:
+                    self._source_lookup_cache["by_dedupe"][dedupe_key] = slim
             self._log_event(
                 event_type="source.captured",
                 target_type="source",
@@ -1696,7 +1774,50 @@ class VNextCaptureService:
         sensitivity: str,
     ) -> JsonObject | None:
         """Find the same scoped and classified identity across legacy rows."""
+        cache = self._source_lookup_cache
         by_dedupe_key = getattr(self.store, "get_source_by_dedupe_key", None)
+        many_by_hash = getattr(self.store, "get_sources_by_content_hash", None)
+        if cache is not None:
+            # Cache only the row lookups; every candidate is still validated
+            # by ``source_capture_identity_matches`` below, exactly as with a
+            # fresh query.
+            by_dedupe: dict[object, object] = cache["by_dedupe"]  # type: ignore[assignment]
+            if dedupe_key in by_dedupe:
+                source = by_dedupe[dedupe_key]
+            else:
+                source = by_dedupe_key(dedupe_key) if callable(by_dedupe_key) else None
+                by_dedupe[dedupe_key] = source
+            if source is not None:
+                recomputed_key = capture_dedupe_key_for_source(source)
+                if recomputed_key in (None, dedupe_key) and source_capture_identity_matches(
+                    source,
+                    content_hashes=(),
+                    project_scope=project_scope,
+                    domain=domain,
+                    sensitivity=sensitivity,
+                ):
+                    return source
+            by_hash: dict[object, object] = cache["by_hash"]  # type: ignore[assignment]
+            for candidate_hash in dict.fromkeys((content_hash, legacy_content_hash)):
+                if candidate_hash in by_hash:
+                    matches = by_hash[candidate_hash]
+                else:
+                    if callable(many_by_hash):
+                        matches = many_by_hash(candidate_hash)
+                    else:
+                        match = self.store.get_source_by_content_hash(candidate_hash)
+                        matches = [] if match is None else [match]
+                    by_hash[candidate_hash] = matches
+                for source in matches:
+                    if source_capture_identity_matches(
+                        source,
+                        content_hashes=(content_hash, legacy_content_hash),
+                        project_scope=project_scope,
+                        domain=domain,
+                        sensitivity=sensitivity,
+                    ):
+                        return source
+            return None
         if callable(by_dedupe_key):
             source = by_dedupe_key(dedupe_key)
             if source is not None:
@@ -1710,7 +1831,6 @@ class VNextCaptureService:
                 ):
                     return source
 
-        many_by_hash = getattr(self.store, "get_sources_by_content_hash", None)
         for candidate_hash in dict.fromkeys((content_hash, legacy_content_hash)):
             if callable(many_by_hash):
                 matches = many_by_hash(candidate_hash)
@@ -1864,6 +1984,15 @@ class VNextCaptureService:
         class PreviewRollback(Exception):
             pass
         try:
+            # The exact-input memo of the commit door lives for this import
+            # only and is dropped in the finally below.
+            self._door_memo = {"entries": {}, "chars": 0}
+            # The row-lookup cache serves only a plain import: with
+            # --supersede rows are retired inside the run, so the cache
+            # would risk answering with a stale live row.
+            self._source_lookup_cache = (
+                {"by_hash": {}, "by_dedupe": {}} if policy.mode == "off" else None
+            )
             scan = getattr(self.store, "markdown_sources_by_path", None)
             with self.store.savepoint() if callable(scan) or dry_run else nullcontext():
                 self._markdown_path_index = scan() if callable(scan) else {}
@@ -1883,6 +2012,8 @@ class VNextCaptureService:
         except PreviewRollback:
             return replace(result, dry_run=True)
         finally:
+            self._door_memo = None
+            self._source_lookup_cache = None
             self._markdown_path_index = None
             self._open_loop_names = None
             self._edge_names = None
@@ -1907,7 +2038,7 @@ class VNextCaptureService:
 
         _refuse_flagged_import_folder(folder)
         try:
-            folder_path, snapshot = _snapshot_markdown_source(folder, max_file_bytes=max_file_bytes)
+            folder_path, snapshot = _snapshot_markdown_source(folder, max_file_bytes=max_file_bytes, lazy=True)
         except ImportFileTooLargeError as exc:
             raise _public_too_large_error(exc) from exc
         except MarkdownImportValidationError as exc:
@@ -1934,6 +2065,7 @@ class VNextCaptureService:
                 source_file.text,
                 file_index=file_index,
                 file_name=file_path.name,
+                memo=self._door_memo,
             )
             credential_items.extend(file_skips)
             try:

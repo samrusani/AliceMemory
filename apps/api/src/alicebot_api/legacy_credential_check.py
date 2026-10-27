@@ -103,7 +103,8 @@ from typing import NamedTuple
 from alicebot_api.credential_floor import (
     VERDICT_CREDENTIAL,
     credential_verdict,
-    normalize_for_matching,
+    _prep_normal,
+    _prep_variants,
     string_values,
 )
 
@@ -589,15 +590,18 @@ def _despaced_runs(text: str) -> list[str]:
     return [match.group(0).translate(_RUN_SEPARATOR_STRIP) for match in _SPACED_OUT_RUN.finditer(text)]
 
 
-def _floor_findings(*texts: str | None) -> Iterator[Finding]:
+def _floor_findings(*texts: str | None, _prep: dict | None = None) -> Iterator[Finding]:
     """v0.16.0's looks_like_credential: every field raw and normalised, the
     normalised fields joined with a space and with nothing, each surface
-    decoded and despaced."""
+    decoded and despaced.
+
+    ``_prep`` is the caller's per-call cache; a cached surface's normalised
+    form and variants are exactly what this function would recompute."""
 
     present = [text for text in texts if text]
     if not present:
         return
-    normalized = [normalize_for_matching(text) for text in present]
+    normalized = [_prep_normal(_prep, text) for text in present]
     glued = "".join(normalized)
     surfaces = [*present, *normalized, " ".join(normalized), glued]
     seams: list[int] = []
@@ -606,13 +610,14 @@ def _floor_findings(*texts: str | None) -> Iterator[Finding]:
     # A repeated surface gives the same findings, so each is read once.
     for surface in dict.fromkeys(surfaces):
         yield from _credential_findings(surface, seams=tuple(seams) if surface is glued else ())
-        for variant in _decoded_variants(surface):
+        surface_decoded, surface_despaced = _prep_variants(_prep, surface)
+        for variant in surface_decoded:
             yield from _credential_findings(variant)
-        for variant in _despaced_runs(surface):
+        for variant in surface_despaced:
             yield from _credential_findings(variant, require_token_boundary=False)
 
 
-def _commit_field_findings(text: str) -> Iterator[Finding]:
+def _commit_field_findings(text: str, _prep: dict | None = None) -> Iterator[Finding]:
     """v0.16.0's _contains_secret_marker, on one field.
 
     v0.16.0 then ran the NAME=value rule on the raw field a second time; the
@@ -620,7 +625,7 @@ def _commit_field_findings(text: str) -> Iterator[Finding]:
     repeated here.
     """
 
-    yield from _floor_findings(text)
+    yield from _floor_findings(text, _prep=_prep)
     folded = text.casefold()
     same_length = len(folded) == len(text)
     for match in _PREFIX_SK.finditer(folded):
@@ -687,6 +692,7 @@ def _commit_findings(
     conversation_excerpt: str | None,
     rationale: str | None,
     source_refs: object,
+    _prep: dict | None = None,
 ) -> Iterator[Finding]:
     fields = [title, canonical_text]
     if conversation_excerpt:
@@ -695,7 +701,7 @@ def _commit_findings(
         fields.append(rationale)
     fields.extend(_flatten_text(source_refs))
     for field in fields:
-        yield from _commit_field_findings(field)
+        yield from _commit_field_findings(field, _prep)
 
 
 def _floor_findings_for(
@@ -917,12 +923,19 @@ def commit_gate_refuses(
     conversation_excerpt: str | None = None,
     rationale: str | None = None,
     source_refs: object = (),
+    *,
+    _prep: dict | None = None,
 ) -> bool:
-    """v0.16.0's commit check less the carve-outs: True on the first finding none excuses."""
+    """v0.16.0's commit check less the carve-outs: True on the first finding none excuses.
+
+    ``_prep`` is the caller's per-call cache: each string's normalised form
+    and its decoded and despaced variants are computed once and reused, so
+    the answer is identical with and without it.
+    """
 
     return any(
         not excused(finding)
-        for finding in _commit_findings(title, canonical_text, conversation_excerpt, rationale, source_refs)
+        for finding in _commit_findings(title, canonical_text, conversation_excerpt, rationale, source_refs, _prep)
     )
 
 
@@ -970,13 +983,20 @@ def commit_door_fields_verdict(*fields: object) -> str | None:
     ``credential_verdict`` first. When that is clean, the legacy commit
     gate runs on each string. Capture and the doctor use this so they
     refuse a low-entropy AKIA-shaped key the floor leaves alone.
+
+    One per-call cache carries each string's normalised form and its
+    decoded and despaced variants from the floor half to the gate half of
+    this call, so no string is normalised or decoded twice here. The
+    cached values are exactly what each half would recompute, so the
+    verdict is identical with and without the cache.
     """
 
-    verdict = credential_verdict(*fields)
+    prep: dict = {}
+    verdict = credential_verdict(*fields, _prep=prep)
     if verdict is not None:
         return verdict
     for text in string_values(fields):
-        if text and commit_gate_refuses("", text):
+        if text and commit_gate_refuses("", text, _prep=prep):
             return VERDICT_CREDENTIAL
     return None
 

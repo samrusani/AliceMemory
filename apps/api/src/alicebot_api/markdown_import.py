@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import cast
+from typing import Iterable, Iterator, cast
 from uuid import UUID
 
 from alicebot_api.continuity_evidence import SourceArtifactArchiveInput, archive_import_source_files
@@ -23,7 +23,9 @@ from alicebot_api.importer_models import (
 )
 from alicebot_api.importer_paths import (
     DEFAULT_MAX_TEXT_FILE_BYTES,
+    ErrorFactory,
     ImportSourceFile,
+    _relative_source_file,
     contained_source_files,
     read_contained_source_text,
     snapshot_source_files,
@@ -221,15 +223,55 @@ def _read_markdown_source(source: str | Path) -> tuple[Path, list[Path]]:
     return source_path, files
 
 
+# The folder import validates and reads in batches of this many files. Every
+# batch is processed, including the final partial one: a file that fails
+# validation in the last partial batch must still refuse the whole import.
+_LAZY_SNAPSHOT_BATCH = 256
+
+
+def _validated_snapshot_plan(
+    source_root: Path,
+    files: list[Path],
+    *,
+    max_bytes: int,
+    error_factory: ErrorFactory,
+) -> list[Path]:
+    """Validate every selected file before the import reads any of them.
+
+    Each file is read once here (size and UTF-8 checked, text dropped) so a
+    file that fails refuses the whole import before anything is stored, and
+    once again when the import iterates the plan, so the folder is never held
+    in memory at once. Every batch is validated, including the final partial
+    one.
+    """
+
+    plan: list[Path] = []
+    for start in range(0, len(files), _LAZY_SNAPSHOT_BATCH):
+        for file_path in files[start : start + _LAZY_SNAPSHOT_BATCH]:
+            read_contained_source_text(
+                file_path,
+                source_root=source_root,
+                max_bytes=max_bytes,
+                error_factory=error_factory,
+            )
+            plan.append(file_path)
+    return plan
+
+
 def _snapshot_markdown_source(
     source: str | Path,
     *,
     max_file_bytes: int,
-) -> tuple[Path, list[ImportSourceFile]]:
-    """Select the markdown files and read each of them exactly once.
+    lazy: bool = False,
+) -> tuple[Path, Iterable[ImportSourceFile]]:
+    """Select the markdown files and read each of them.
 
     ``max_file_bytes`` is required: it is the size a file may be before it is
-    refused unread, and every caller has to say what it is.
+    refused unread, and every caller has to say what it is. With ``lazy`` the
+    folder is never held in memory at once: every file is read once for
+    validation (a failure refuses the whole import before anything is stored)
+    and once for import, in batches whose final partial batch is never
+    skipped.
     """
 
     source_path, markdown_files = _read_markdown_source(source)
@@ -245,6 +287,28 @@ def _snapshot_markdown_source(
                 ),
             )
         ]
+    if lazy:
+        plan = _validated_snapshot_plan(
+            source_path,
+            markdown_files,
+            max_bytes=max_file_bytes,
+            error_factory=MarkdownImportValidationError,
+        )
+
+        def _read_plan() -> Iterator[ImportSourceFile]:
+            for file_path in plan:
+                yield ImportSourceFile(
+                    path=file_path,
+                    relative_path=_relative_source_file(source_path, file_path),
+                    text=read_contained_source_text(
+                        file_path,
+                        source_root=source_path,
+                        max_bytes=max_file_bytes,
+                        error_factory=MarkdownImportValidationError,
+                    ),
+                )
+
+        return source_path, _read_plan()
     return source_path, snapshot_source_files(
         source_path,
         markdown_files,

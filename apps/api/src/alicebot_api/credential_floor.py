@@ -1255,8 +1255,15 @@ def scan_cost(*fields: object) -> tuple[int, int, int]:
     return surfaces, chars, input_chars
 
 
-def credential_verdict(*fields: object) -> str | None:
-    """VERDICT_CREDENTIAL, VERDICT_EXPANSION, or None when the fields are clean."""
+def credential_verdict(*fields: object, _prep: dict | None = None) -> str | None:
+    """VERDICT_CREDENTIAL, VERDICT_EXPANSION, or None when the fields are clean.
+
+    ``_prep`` is a caller-owned cache for one door call: it maps each text to
+    its normalised form and its decoded and despaced variants, so the same
+    string is never normalised or decoded twice inside that call. The values
+    are exactly what this function would recompute, so verdicts are identical
+    with and without it.
+    """
 
     flat, pairs = _flatten(fields)
     if not flat:
@@ -1266,7 +1273,7 @@ def credential_verdict(*fields: object) -> str | None:
     normal_of: dict[str, str] = {}
     source_total = normalized_total = 0
     for text in unique:
-        normalized = normalize_for_matching(text)
+        normalized = _prep_normal(_prep, text)
         if _expands(len(text), len(normalized)):
             return VERDICT_EXPANSION
         normal_of[text] = normalized
@@ -1304,8 +1311,9 @@ def credential_verdict(*fields: object) -> str | None:
         _charge(len(surface))
         if _encoded_key_file(surface) or (unescaped is not None and _encoded_key_file(unescaped)):
             return VERDICT_CREDENTIAL
-        decoded.extend(_decoded_variants(surface))
-        despaced.extend(_despaced_runs(surface))
+        surface_decoded, surface_despaced = _prep_variants(_prep, surface)
+        decoded.extend(surface_decoded)
+        despaced.extend(surface_despaced)
     if decoded:
         _charge(sum(map(len, decoded)))
         if _scan_per_field(_SEP.join(decoded)):
@@ -1330,6 +1338,32 @@ def credential_verdict(*fields: object) -> str | None:
             if _scan_cross(group):
                 return VERDICT_CREDENTIAL
     return None
+
+
+def _prep_normal(_prep: dict | None, text: str) -> str:
+    """The normalised form of ``text``, through the per-call cache when given."""
+
+    if _prep is None:
+        return normalize_for_matching(text)
+    if text not in _prep:
+        _prep[text] = (normalize_for_matching(text), None, None)
+    normalized, decoded, despaced = _prep[text]
+    if decoded is None:
+        _prep[text] = (normalized, _decoded_variants(text), _despaced_runs(text))
+    return normalized
+
+
+def _prep_variants(_prep: dict | None, text: str) -> tuple[list[str], list[str]]:
+    """The decoded and despaced variants of ``text``, through the per-call cache."""
+
+    if _prep is None:
+        return _decoded_variants(text), _despaced_runs(text)
+    if text not in _prep:
+        _prep[text] = (normalize_for_matching(text), _decoded_variants(text), _despaced_runs(text))
+    normalized, decoded, despaced = _prep[text]
+    if decoded is None:
+        _prep[text] = (normalized, _decoded_variants(text), _despaced_runs(text))
+    return decoded, despaced
 
 
 def carries_credential_material(*fields: object) -> bool:
