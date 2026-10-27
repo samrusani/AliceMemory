@@ -594,10 +594,12 @@ def _floor_findings(*texts: str | None, _prep: dict | None = None) -> Iterator[F
     normalised fields joined with a space and with nothing, each surface
     decoded and despaced.
 
-    ``_prep`` is the caller's per-call cache; it holds only the normalised
-    form of each text, which is the same string this function computed on
-    main. The decoded and despaced variants come from this module's own
-    helpers, on the cache and off it, exactly as main's code read them."""
+    ``_prep`` is the caller's per-call cache; it holds the normalised form
+    of each text, which is the same string this function computed on main.
+    The decoded and despaced variants come from this module's own helpers,
+    computed per surface on the cache and off it; the cache carries the
+    normalised forms the floor half computed, and the variants the gate
+    half reads are computed once per surface there."""
 
     present = [text for text in texts if text]
     if not present:
@@ -928,9 +930,10 @@ def commit_gate_refuses(
 ) -> bool:
     """v0.16.0's commit check less the carve-outs: True on the first finding none excuses.
 
-    ``_prep`` is the caller's per-call cache: each string's normalised form
-    and its decoded and despaced variants are computed once and reused, so
-    the answer is identical with and without it.
+    ``_prep`` is the caller's per-call cache: the normalised form each
+    string's floor read computed is reused here, and the decoded and
+    despaced variants the gate reads are computed once and reused, so the
+    answer is identical with and without it.
     """
 
     return any(
@@ -984,11 +987,12 @@ def commit_door_fields_verdict(*fields: object) -> str | None:
     gate runs on each string. Capture and the doctor use this so they
     refuse a low-entropy AKIA-shaped key the floor leaves alone.
 
-    One per-call cache carries each string's normalised form and its
-    decoded and despaced variants from the floor half to the gate half of
-    this call, so no string is normalised or decoded twice here. The
-    cached values are exactly what each half would recompute, so the
-    verdict is identical with and without the cache.
+    One per-call cache carries each string's normalised form from the floor
+    half to the gate half of this call, where the string's decoded and
+    despaced variants are computed once if the gate reads them; no string
+    is normalised or decoded twice here. The cached values are exactly
+    what each half would recompute, so the verdict is identical with and
+    without the cache.
     """
 
     prep: dict = {}

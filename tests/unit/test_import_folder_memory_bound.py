@@ -1,14 +1,17 @@
 """The folder import never holds the whole folder in memory at once.
 
 Guard: the lazy snapshot. ``_snapshot_markdown_source(..., lazy=True)`` (the
-SQLite on-ramp path) validates every file first in batches of 256, including
-the final partial batch, and then reads each file again only while the import
-iterates it. Removing the lazy read (returning the eager
-``snapshot_source_files`` list) holds every file's text at once, and a batch
-loop that dropped its final partial group would let a file that fails
-validation late in the folder slip past validation and be read mid-import.
-The live-count test tracks every text the import reads and fails when more
-than a handful are alive at once; on main's eager snapshot they all are.
+SQLite on-ramp path) validates every selected file first, wherever it sorts,
+and then reads each file again only while the import iterates it. Removing
+the lazy read (returning the eager ``snapshot_source_files`` list) holds
+every file's text at once, and a validation pass that stopped early would
+let a file that fails validation late in the folder slip past validation
+and be read mid-import. The live-count test tracks every text the import
+reads and fails when more than a handful are alive at once; on main's eager
+snapshot they all are. (A peak-RSS comparison is not used: ru_maxrss is
+bytes on macOS but KiB on Linux, and glibc's allocator raises its mmap
+threshold after the first large allocations and does not return freed
+blocks, so resident size does not separate the two paths on Linux.)
 """
 
 from __future__ import annotations
@@ -54,12 +57,13 @@ def test_lazy_snapshot_is_not_an_eager_list(tmp_path: Path) -> None:
     assert all("membound" in file.text for file in files)
 
 
-def test_file_that_fails_validation_in_the_last_partial_batch_refuses_the_import(
+def test_file_that_fails_validation_after_the_selected_files_refuses_the_import(
     tmp_path: Path,
 ) -> None:
-    """Guard: the final partial validation batch (dropping it lets the file be read mid-import)."""
+    """Guard: the last-sorted files are validated too (stopping early lets the file be read mid-import)."""
     folder = _folder(tmp_path, files=BATCH + 40, fill_bytes=1_000)
-    # The bad file sorts last, so it sits in the final partial batch of 41 files.
+    # The bad file sorts last, so a validation pass that stopped at a prefix
+    # would miss it and the import pass would read it mid-import.
     (folder / "zzz_last_bad.md").write_bytes(b"# Broken\n\n\xff\xfe not utf-8\n")
     # The pre-flight pass refuses the whole import here, before anything reads
     # the folder for import.

@@ -77,7 +77,10 @@ logger = logging.getLogger(__name__)
 # The commit door's exact-input memo bounds. When either cap is hit the memo
 # stops adding entries; every later call runs the door directly. Keys larger
 # than _DOOR_MEMO_MAX_KEY_CHARS are never added, so the memo never holds a
-# whole file's text, only unit-level lines and small fields.
+# whole file's text, only unit-level lines and small fields. The
+# whole-source check (``capture_source``'s own door call over every field
+# including the raw text) is not memoized at all: it runs the door directly
+# every time, so the memo's keys are unit-level lines and small fields only.
 _DOOR_MEMO_MAX_ENTRIES = 400_000
 _DOOR_MEMO_MAX_CHARS = 40_000_000
 _DOOR_MEMO_MAX_KEY_CHARS = 4_096
@@ -1469,13 +1472,12 @@ class VNextCaptureService:
         # Before dedupe and before the try that logs a failure. A refusal
         # must not look up an existing row and must not persist the fields.
         # The commit door, not the floor alone: a low-entropy AKIA-shaped
-        # key the floor treats as a placeholder is still refused. The same
-        # exact arguments go through the door here as on every capture, so
-        # the import-scoped memo (live only inside import_markdown_folder)
-        # may answer for arguments it has already seen in this import.
-        verdict = _door_fields_verdict_memoized(
-            self._door_memo,
-            "capture_source",
+        # key the floor treats as a placeholder is still refused. This
+        # whole-source call is not memoized: its key would carry the whole
+        # filtered file text, which the memo must never hold, and within
+        # one import each file's text is seen here exactly once anyway, so
+        # the door runs directly every time.
+        verdict = commit_door_fields_verdict(
             source_input.title,
             source_input.author,
             source_input.uri,
@@ -1614,25 +1616,6 @@ class VNextCaptureService:
             else:
                 source = self.store.create_source(source_record, actor_type=self.actor_type)
             source_id = str(source["id"])
-            if self._source_lookup_cache is not None:
-                # The run's own insertions are candidates from now on, so a
-                # later file of the same folder sees exactly what a fresh
-                # query would answer. The cached copy drops the raw text:
-                # its dedupe key was computed from this exact text, so the
-                # recompute that a fresh row would pass reports None here,
-                # which the dedupe path accepts identically, and the cache
-                # must not hold a raw text per inserted source.
-                slim: JsonObject = dict(source)
-                slim_metadata = {k: v for k, v in (source.get("metadata_json") or {}).items() if k != "raw_text"}
-                slim["metadata_json"] = slim_metadata
-                by_hash = self._source_lookup_cache.by_hash
-                # A fresh query answers newest first (captured_at DESC,
-                # id DESC); the run's own insertions are its newest rows, so
-                # each one joins at the front and the cached list keeps a
-                # fresh query's order by construction.
-                by_hash.setdefault(content_hash, []).insert(0, slim)
-                if dedupe_key:
-                    self._source_lookup_cache.by_dedupe[dedupe_key] = slim
             self._log_event(
                 event_type="source.captured",
                 target_type="source",
@@ -1782,6 +1765,27 @@ class VNextCaptureService:
                 sensitivity=source_input.sensitivity,
                 memory_rows=memory_rows,
             )
+
+            # The cache takes the row only now, after every write the file's
+            # savepoint holds: the row-lookup cache must never answer with a
+            # row a per-file rollback removed, so a later file of the same
+            # folder sees exactly what a fresh query would answer. The cached
+            # copy drops the raw text: its dedupe key was computed from this
+            # exact text, so the recompute that a fresh row would pass reports
+            # None here, which the dedupe path accepts identically, and the
+            # cache must not hold a raw text per inserted source.
+            if self._source_lookup_cache is not None:
+                slim: JsonObject = dict(source)
+                slim_metadata = {k: v for k, v in (source.get("metadata_json") or {}).items() if k != "raw_text"}
+                slim["metadata_json"] = slim_metadata
+                by_hash = self._source_lookup_cache.by_hash
+                # A fresh query answers newest first (captured_at DESC,
+                # id DESC); the run's own insertions are its newest rows, so
+                # each one joins at the front and the cached list keeps a
+                # fresh query's order by construction.
+                by_hash.setdefault(content_hash, []).insert(0, slim)
+                if dedupe_key:
+                    self._source_lookup_cache.by_dedupe[dedupe_key] = slim
 
             return CaptureResult(
                 status="imported",

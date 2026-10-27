@@ -5,9 +5,10 @@ Three changes sit behind these tests, each with its guard named:
 - the import-scoped exact-input memo of ``commit_door_fields_verdict``: key is
   the call site plus every field in its exact order, value is the verdict,
   bounded by entries and characters, dropped at the end of the import;
-- the per-call prep cache: each string's normalised form and its decoded and
-  despaced variants are computed once per door call and reused between the
-  floor half and the gate half of the same call;
+- the per-call prep cache: each string's normalised form is computed once
+  per door call and reused between the floor half and the gate half of the
+  same call, and a surface's decoded and despaced variants are computed
+  once, when the scan reads them;
 - the content-hash lookup rewrite (tested in
   ``test_source_content_hash_lookup.py``).
 
@@ -128,9 +129,12 @@ def test_legacy_gate_despacing_stays_the_legacy_patterns() -> None:
     ]
     for name, text, expected in fixtures:
         plain = [(f.rule, f.start) for f in lc._floor_findings(text)]
-        cached = [(f.rule, f.start) for f in lc._floor_findings(text, {})]
+        prep: dict = {}
+        cached = [(f.rule, f.start) for f in lc._floor_findings(text, _prep=prep)]
         assert plain == expected, name
         assert cached == expected, name
+        # The cache was really used: the text's normalised form is in it.
+        assert prep, name
 
 
 def test_memo_is_dropped_at_the_end_of_the_import(tmp_path) -> None:

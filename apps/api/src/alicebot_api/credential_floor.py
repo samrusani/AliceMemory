@@ -1341,15 +1341,20 @@ def credential_verdict(*fields: object, _prep: dict | None = None) -> str | None
 
 
 def _prep_normal(_prep: dict | None, text: str) -> str:
-    """The normalised form of ``text``, through the per-call cache when given."""
+    """The normalised form of ``text``, through the per-call cache when given.
+
+    Only the normalised form is computed here. The decoded and despaced
+    variants belong to ``_prep_variants``: the field-level variants of the
+    fields a multi-field call normalises are never read (the scan reads the
+    variants of the joined surfaces), so computing them here would be waste
+    in every multi-field call.
+    """
 
     if _prep is None:
         return normalize_for_matching(text)
     if text not in _prep:
         _prep[text] = (normalize_for_matching(text), None, None)
-    normalized, decoded, despaced = _prep[text]
-    if decoded is None:
-        _prep[text] = (normalized, _decoded_variants(text), _despaced_runs(text))
+    normalized, _decoded, _despaced = _prep[text]
     return normalized
 
 
@@ -1362,7 +1367,8 @@ def _prep_variants(_prep: dict | None, text: str) -> tuple[list[str], list[str]]
         _prep[text] = (normalize_for_matching(text), _decoded_variants(text), _despaced_runs(text))
     normalized, decoded, despaced = _prep[text]
     if decoded is None:
-        _prep[text] = (normalized, _decoded_variants(text), _despaced_runs(text))
+        decoded, despaced = _decoded_variants(text), _despaced_runs(text)
+        _prep[text] = (normalized, decoded, despaced)
     return decoded, despaced
 
 

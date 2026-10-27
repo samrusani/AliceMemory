@@ -5,8 +5,10 @@ before any change of this branch), by running this module's own helpers in a scr
 process that imported ``test_markdown_import_equality`` and called
 ``build_equality_folder`` plus ``import_and_digest`` for every stage below, on a
 machine-local temp directory. The digest function normalises away ids and
-timestamps (see ``row_digest``) but covers every other column of every table the
-vault holds, so any change in what the import stores fails the pinned value.
+timestamps (see ``row_digest``) and covers every other column of every table the
+import writes (``DIGEST_TABLES``; the embedding stamp and the full-text index
+tables are not import results and are not in the digest), so any change in what
+the import stores fails the pinned value.
 
 Each test names the guard whose removal must fail it; the PR body lists each
 guard, its removal edit, and the observed failure.

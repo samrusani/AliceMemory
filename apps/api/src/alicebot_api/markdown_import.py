@@ -223,10 +223,12 @@ def _read_markdown_source(source: str | Path) -> tuple[Path, list[Path]]:
     return source_path, files
 
 
-# The folder import validates and reads in batches of this many files. Every
-# batch is processed, including the final partial one: a file that fails
-# validation in the last partial batch must still refuse the whole import.
-_LAZY_SNAPSHOT_BATCH = 256
+# The folder import validates every file before the import reads any of
+# them. There is no batch size any more: the validation pass is a plain
+# loop over the selected files, each read once (size and UTF-8 checked,
+# text dropped) and read once again when the import iterates the plan, so
+# the folder is never held in memory at once and a file that fails
+# validation, wherever it sorts, refuses the whole import.
 
 
 def _validated_snapshot_plan(
@@ -241,20 +243,18 @@ def _validated_snapshot_plan(
     Each file is read once here (size and UTF-8 checked, text dropped) so a
     file that fails refuses the whole import before anything is stored, and
     once again when the import iterates the plan, so the folder is never held
-    in memory at once. Every batch is validated, including the final partial
-    one.
+    in memory at once.
     """
 
     plan: list[Path] = []
-    for start in range(0, len(files), _LAZY_SNAPSHOT_BATCH):
-        for file_path in files[start : start + _LAZY_SNAPSHOT_BATCH]:
-            read_contained_source_text(
-                file_path,
-                source_root=source_root,
-                max_bytes=max_bytes,
-                error_factory=error_factory,
-            )
-            plan.append(file_path)
+    for file_path in files:
+        read_contained_source_text(
+            file_path,
+            source_root=source_root,
+            max_bytes=max_bytes,
+            error_factory=error_factory,
+        )
+        plan.append(file_path)
     return plan
 
 
@@ -288,8 +288,7 @@ def _snapshot_markdown_source(
     refused unread, and every caller has to say what it is. With ``lazy`` the
     folder is never held in memory at once: every file is read once for
     validation (a failure refuses the whole import before anything is stored)
-    and once for import, in batches whose final partial batch is never
-    skipped.
+    and once for import.
     """
 
     source_path, markdown_files = _read_markdown_source(source)

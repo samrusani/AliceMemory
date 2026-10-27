@@ -155,3 +155,76 @@ def test_dry_run_between_passes_answers_the_same_and_stores_nothing(tmp_path, mo
     assert json.loads(out)["error"]["code"] == "import_path"
     assert "not valid UTF-8" in out
     assert _stored_rows(tmp_path / "b") == 0
+
+
+def _notes_with_subfolder(root: Path) -> Path:
+    """n0.md, n1.md, sub/n2.md, zz.md: one file below a subfolder."""
+    folder = root / "notes"
+    (folder / "sub").mkdir(parents=True, exist_ok=True)
+    for index in (0, 1):
+        (folder / f"n{index}.md").write_text(f"# Note {index}\n\nThe subs{index}wap paragraph records one durable claim.\n", encoding="utf-8")
+    (folder / "sub" / "n2.md").write_text("# Note 2\n\nThe sub2swap paragraph records one durable claim.\n", encoding="utf-8")
+    (folder / "zz.md").write_text("# Note zz\n\nThe zzswap paragraph records one durable claim.\n", encoding="utf-8")
+    return folder
+
+
+def test_symlinked_folder_swapped_in_between_passes_refuses_the_import(tmp_path, monkeypatch) -> None:
+    """Guard: the reads re-run the selection's symlinked-directory check.
+
+    A folder swapped for a link after the listing passes ``is_relative_to``
+    by name and ``O_NOFOLLOW`` guards only the last path part, so the second
+    read would import a file from outside the root. The read walks the chain
+    between the root and the file and refuses with the selection's own
+    error, so the answer, the exit code and the empty vault are the same as
+    a link present from the start.
+    """
+
+    import shutil
+
+    def swap(folder: Path) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir(exist_ok=True)
+        (outside / "n2.md").write_text("outside the root\n", encoding="utf-8")
+        shutil.rmtree(folder / "sub")
+        (folder / "sub").symlink_to(outside)
+
+    # Present from the start: the selection refuses the whole import.
+    first_folder = _notes_with_subfolder(tmp_path / "a")
+    swap(first_folder)
+    first_code, first_out = _run(tmp_path / "a", monkeypatch)
+    first_rows = _stored_rows(tmp_path / "a")
+    assert first_code == 1
+    assert json.loads(first_out)["error"]["code"] == "import_path"
+    assert "symlinked directories" in first_out
+    assert first_rows == 0
+
+    # Swapped in between the two reads: the second read refuses the same way.
+    folder = _notes_with_subfolder(tmp_path / "b")
+    _corrupt_between_passes(monkeypatch, folder, swap)
+    code, out = _run(tmp_path / "b", monkeypatch)
+    assert code == 1
+    assert json.loads(out)["error"]["code"] == "import_path"
+    assert "symlinked directories" in out
+    assert _normalise(out, tmp_path / "b") == _normalise(first_out, tmp_path / "a")
+    assert _stored_rows(tmp_path / "b") == 0
+
+
+def test_symlinked_folder_swapped_in_between_passes_refuses_the_dry_run(tmp_path, monkeypatch) -> None:
+    """Guard: the same refusal under --dry-run, with nothing stored."""
+
+    import shutil
+
+    def swap(folder: Path) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir(exist_ok=True)
+        (outside / "n2.md").write_text("outside the root\n", encoding="utf-8")
+        shutil.rmtree(folder / "sub")
+        (folder / "sub").symlink_to(outside)
+
+    folder = _notes_with_subfolder(tmp_path / "b")
+    _corrupt_between_passes(monkeypatch, folder, swap)
+    code, out = _run(tmp_path / "b", monkeypatch, "--dry-run")
+    assert code == 1
+    assert json.loads(out)["error"]["code"] == "import_path"
+    assert "symlinked directories" in out
+    assert _stored_rows(tmp_path / "b") == 0
