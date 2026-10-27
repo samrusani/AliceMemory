@@ -104,7 +104,6 @@ from alicebot_api.credential_floor import (
     VERDICT_CREDENTIAL,
     credential_verdict,
     _prep_normal,
-    _prep_variants,
     string_values,
 )
 
@@ -595,8 +594,10 @@ def _floor_findings(*texts: str | None, _prep: dict | None = None) -> Iterator[F
     normalised fields joined with a space and with nothing, each surface
     decoded and despaced.
 
-    ``_prep`` is the caller's per-call cache; a cached surface's normalised
-    form and variants are exactly what this function would recompute."""
+    ``_prep`` is the caller's per-call cache; it holds only the normalised
+    form of each text, which is the same string this function computed on
+    main. The decoded and despaced variants come from this module's own
+    helpers, on the cache and off it, exactly as main's code read them."""
 
     present = [text for text in texts if text]
     if not present:
@@ -610,10 +611,9 @@ def _floor_findings(*texts: str | None, _prep: dict | None = None) -> Iterator[F
     # A repeated surface gives the same findings, so each is read once.
     for surface in dict.fromkeys(surfaces):
         yield from _credential_findings(surface, seams=tuple(seams) if surface is glued else ())
-        surface_decoded, surface_despaced = _prep_variants(_prep, surface)
-        for variant in surface_decoded:
+        for variant in _decoded_variants(surface):
             yield from _credential_findings(variant)
-        for variant in surface_despaced:
+        for variant in _despaced_runs(surface):
             yield from _credential_findings(variant, require_token_boundary=False)
 
 

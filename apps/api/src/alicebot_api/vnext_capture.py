@@ -9,7 +9,7 @@ import logging
 import math
 from pathlib import Path
 import re
-from typing import Mapping, Protocol, Sequence, cast
+from typing import Iterable, Iterator, Mapping, Protocol, Sequence, cast
 
 from alicebot_api.credential_floor import (
     CREDENTIAL_MATERIAL_REFUSED_MESSAGE,
@@ -25,6 +25,7 @@ from alicebot_api.importer_paths import (
     read_contained_source_text,
 )
 from alicebot_api.legacy_credential_check import commit_door_fields_verdict
+from alicebot_api.markdown_import import MarkdownImportValidationError
 from alicebot_api.memory_provenance import (
     ASSERTION_CLASS_USER_ASSERTED,
     PROVENANCE_ROLE_USER,
@@ -1095,6 +1096,29 @@ def read_named_text_file(file_path: Path, *, max_file_bytes: int = DEFAULT_MAX_T
         raise _public_markdown_import_error(exc) from exc
 
 
+def _snapshot_read_errors_as_public(
+    snapshot: Iterable[ImportSourceFile],
+) -> Iterator[ImportSourceFile]:
+    """Re-raise a failure in the import pass's own file read as the public error.
+
+    The lazy snapshot reads every file in its validation pass first, so a read
+    failure during the import pass can only happen when a file changes between
+    the two reads. It must answer exactly what a first-read failure answers:
+    the public error that names the file, with nothing stored.
+    """
+
+    iterator = iter(snapshot)
+    while True:
+        try:
+            yield next(iterator)
+        except StopIteration:
+            return
+        except ImportFileTooLargeError as exc:
+            raise _public_too_large_error(exc) from exc
+        except MarkdownImportValidationError as exc:
+            raise _public_markdown_import_error(exc) from exc
+
+
 def _filter_markdown_units(
     raw_text: str,
     *,
@@ -1593,7 +1617,11 @@ class VNextCaptureService:
                 slim_metadata = {k: v for k, v in (source.get("metadata_json") or {}).items() if k != "raw_text"}
                 slim["metadata_json"] = slim_metadata
                 by_hash: dict[object, object] = self._source_lookup_cache["by_hash"]  # type: ignore[assignment]
-                by_hash.setdefault(content_hash, []).append(slim)
+                # A fresh query answers newest first (captured_at DESC,
+                # id DESC); the run's own insertions are its newest rows, so
+                # each one joins at the front and the cached list keeps a
+                # fresh query's order by construction.
+                by_hash.setdefault(content_hash, []).insert(0, slim)
                 if dedupe_key:
                     self._source_lookup_cache["by_dedupe"][dedupe_key] = slim
             self._log_event(
@@ -2029,8 +2057,14 @@ class VNextCaptureService:
         max_file_bytes: int = DEFAULT_MAX_TEXT_FILE_BYTES,
         policy: SupersedePolicy = SupersedePolicy.off(),
     ) -> BatchImportResult:
-        # Same selection and one-shot read as the legacy markdown importer:
-        # no symlink outside the root, and a single file is allowed.
+        # Same selection and read rules as the legacy markdown importer:
+        # no symlink outside the root, and a single file is allowed. The
+        # folder is read twice: every file is validated first (a file over
+        # ``max_file_bytes``, or one that is not UTF-8, refuses the whole
+        # import before anything is read for import), and read again only
+        # while the import iterates it, so the folder is never held in
+        # memory at once. A file that fails its second read raises the same
+        # public error a first-read failure raises, with nothing stored.
         # The per-unit filter runs first. capture_source then refuses whatever
         # that filter could not isolate. A file over ``max_file_bytes`` refuses
         # the whole import before it is read, as a file that is not UTF-8 does.
@@ -2059,7 +2093,7 @@ class VNextCaptureService:
         run_hashes: set[tuple[str, str, str]] = set()
         deferred_embedding_inputs: list[DeferredMemoryEmbedding] = []
 
-        for file_index, source_file in enumerate(snapshot, start=1):
+        for file_index, source_file in enumerate(_snapshot_read_errors_as_public(snapshot), start=1):
             file_path = source_file.path
             raw_text, file_skips = _filter_markdown_units(
                 source_file.text,

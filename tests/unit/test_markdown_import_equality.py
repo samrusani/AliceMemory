@@ -15,6 +15,7 @@ guard, its removal edit, and the observed failure.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import os
 import sqlite3
@@ -23,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from alicebot_api.onramp import bootstrap_database, resolve_db_path
+from alicebot_api.onramp import bootstrap_database, main as onramp_main, resolve_db_path
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_capture import VNextCaptureService, VNextCaptureValidationError
 
@@ -245,6 +246,40 @@ def test_same_text_under_different_labels_stays_two_sources(tmp_path: Path) -> N
         ).fetchone()
     assert rows[0] == 2
     assert row_digest(database, roots) == D7_DIFFERENT_LABELS_LIVE
+
+
+def test_duplicate_within_folder_cli_receipt_matches_main(tmp_path, monkeypatch, capsys) -> None:
+    """Guard: the row-lookup cache answers what a fresh query answers.
+
+    The receipt and exit code of an import whose folder holds a duplicate
+    pair are pinned here from main (commit 115433fa): the first import
+    stores 303 and collapses dup_b into dup_a, the second import collapses
+    every remaining file (status `duplicate`), and both runs exit 0.
+    """
+
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+
+    folder = tmp_path / "eq"
+    build_equality_folder(folder)
+    database = tmp_path / "data" / "vault"
+    roots = {str(folder): "<corpus>"}
+    _vault(tmp_path)
+    for expected in ({"status": "ok", "imported": 303, "duplicate": 1, "skipped": 1}, {"status": "duplicate", "imported": 0, "duplicate": 304, "skipped": 1}):
+        monkeypatch.setattr(
+            "sys.argv",
+            ["alice-memory", "import-markdown", "--from", str(folder), "--db", str(database)],
+        )
+        err, out = io.StringIO(), io.StringIO()
+        with redirect_stderr(err), redirect_stdout(out):
+            code = onramp_main()
+        assert code == 0
+        receipt = json.loads(out.getvalue())
+        assert receipt["status"] == expected["status"]
+        assert receipt["imported_count"] == expected["imported"]
+        assert receipt["duplicate_count"] == expected["duplicate"]
+        assert receipt["skipped_count"] == expected["skipped"]
+    assert row_digest(database, roots) == D2_REIMPORT_DUPLICATES
 
 
 def test_invalid_file_refuses_the_whole_import_before_any_write(tmp_path: Path) -> None:
