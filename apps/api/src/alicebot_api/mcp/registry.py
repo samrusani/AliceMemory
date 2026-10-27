@@ -62,6 +62,7 @@ from alicebot_api.vnext_memory_commit import (
     MemoryStateError,
 )
 from alicebot_api.vnext_source_fence import SourceRefNotFoundError
+from alicebot_api.vnext_projects import VNextOpenLoopPersonNotFoundError
 
 from .capture_automation import (
     _handle_alice_vnext_capture,
@@ -610,6 +611,7 @@ def call_mcp_tool(
         TaskBriefNotFoundError,
         MemoryNotFoundError,
         SourceRefNotFoundError,
+        VNextOpenLoopPersonNotFoundError,
         # A LookupError, so it is not an argument error and must be listed
         # here. alice_explain re-raises it for a keyless caller; a key-bound one
         # never gets this far, its handler turns it into one opaque answer.

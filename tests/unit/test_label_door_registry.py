@@ -146,6 +146,8 @@ DOORS = {
 }
 
 NOT_A_DOOR = {
+    "mcp/synthesis.py:_handle_alice_graph_edge_review": "existence pre-check answers not_found before the write path; the legacy tool settles the row it reviews",
+    "mcp/synthesis.py:_handle_alice_belief_review": "existence pre-check answers not_found before the write path; the legacy tool settles the row it reviews",
     "vnext_artifact_review.py:lock_artifact_review_labels": "write lock classification only; the adapter authorizes before the dispatcher mutates",
     "routers/vnext_memories.py:regenerate_vnext_source": "operator-only regeneration rejects every profile except owner and unbound admin before the source lookup; test_source_routes_limits_postgres.py pins that gate for every profile",
     "vnext_projects.py:VNextProjectService.review_project_update": "write path; the route authorizes before this mutation",

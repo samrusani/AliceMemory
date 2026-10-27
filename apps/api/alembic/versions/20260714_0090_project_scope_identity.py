@@ -404,8 +404,21 @@ def upgrade() -> None:
     op.execute(_INSTALL_NORMALIZED_SCOPE_HELPER)
     op.execute(_INSTALL_SOURCE_SCOPE_RESOURCE_HELPER)
     op.execute(_INSTALL_SCOPE_RESOLVER_HELPER)
+    # The identity recompute below reads and writes rows on sources, whose
+    # forced row-level security binds the documented table owner
+    # (NOSUPERUSER NOBYPASSRLS) to owner policies that bind
+    # app.current_user_id(), unset during an upgrade, so it silently
+    # matched no rows for a vault that already carries sources while a
+    # superuser upgrade rewrote them. Temporarily use the owner bypass, as
+    # 0067, 0070, 0092, 0093 and 0095 to 0097 do, inside Alembic's single
+    # transaction. Concurrent sessions never see the relaxed FORCE setting;
+    # failure rolls back the bracket, the recompute and the schema change
+    # together, and the forced setting is restored before the transaction
+    # commits.
+    op.execute("ALTER TABLE sources NO FORCE ROW LEVEL SECURITY")
     op.execute(_CLEAR_LIVE_SOURCE_IDENTITIES)
     op.execute(_RECOMPUTE_LIVE_SOURCE_IDENTITIES)
+    op.execute("ALTER TABLE sources FORCE ROW LEVEL SECURITY")
     for statement in _DROP_SCOPE_RESOLVER_HELPERS:
         op.execute(statement)
     op.execute(_CREATE_INDEX)

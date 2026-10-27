@@ -9,6 +9,15 @@ quality ratings, and provenance quotes.  It also tightens the existing event
 and revision exceptions so only the exact content-free skeleton emitted by
 the store is admissible.  Ordinary mutation remains unchanged and RLS still
 binds every affected row to ``app.current_user_id()``.
+
+A database already past this revision never runs this body again. A database
+still before it must end in exactly the state the superuser path gives: the
+same redaction backfill, whether the migrator is a cluster superuser or the
+documented table owner that is NOSUPERUSER NOBYPASSRLS. The backfill reads
+and writes under forced row-level security whose policies the owner cannot
+satisfy unbound, so the owner bypass is used inside this migration's own
+transaction, as 0067, 0070, 0093 and 0095 to 0097 do, and every forced
+setting is restored before the transaction commits.
 """
 
 from __future__ import annotations
@@ -473,6 +482,22 @@ _UPGRADE_STATEMENTS: tuple[str, ...] = (
 # uses exact targets plus 0091's generated linkage columns.
 _BACKFILL_STATEMENTS: tuple[str, ...] = (
     "SELECT set_config('app.redaction_in_progress', 'on', false)",
+    # The reads and writes below run under forced row-level security whose
+    # owner policies bind app.current_user_id. For the documented table owner
+    # (NOSUPERUSER NOBYPASSRLS) that binding is unset during an upgrade, so
+    # every read selected no rows, every backfill UPDATE matched none, and a
+    # data-bearing vault ended unredacted where a superuser upgrade redacted.
+    # Temporarily use the owner bypass, as 0067, 0070, 0093 and 0095 to 0097
+    # do, inside Alembic's single transaction. Concurrent sessions never see
+    # the relaxed FORCE setting; failure rolls back the bracket, the backfill
+    # and the schema change together, and every forced setting is restored
+    # before the transaction commits.
+    "ALTER TABLE memories NO FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE event_log NO FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE generated_artifacts NO FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE artifact_quality_ratings NO FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE provenance_links NO FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE memory_revisions NO FORCE ROW LEVEL SECURITY",
     """
     CREATE TEMP TABLE alice_0092_redacted_memories (
       user_id uuid NOT NULL,
@@ -752,6 +777,12 @@ _BACKFILL_STATEMENTS: tuple[str, ...] = (
     WHERE memory.user_id = eligible.user_id
       AND memory.id = eligible.memory_id
     """,
+    "ALTER TABLE memories FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE event_log FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE generated_artifacts FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE artifact_quality_ratings FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE provenance_links FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE memory_revisions FORCE ROW LEVEL SECURITY",
     "SELECT set_config('app.redaction_in_progress', 'off', false)",
 )
 

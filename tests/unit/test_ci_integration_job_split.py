@@ -46,6 +46,9 @@ PERFORMANCE_DIR = REPO_ROOT / "tests" / "performance"
 MERGE_BASE_STEP = "Merge base with main for the read-budget gate"
 UPLOAD_STEP = "Retain paired read-budget samples, including failed runs"
 SHARD_STEP = "Integration tests of this shard"
+MAXIMUM_SMOKE_STEP = "Maximum-workload read-budget controls"
+# The weekly parent budget test sets its own per-test limit with a marker; the smoke step uses the same number.
+WEEKLY_PARENT_TEST = REPO_ROOT / "tests" / "integration" / "test_weekly_parent_read_budget_postgres.py"
 BUDGET_STEP = "SQLite random mixed-parent and keyless read budgets against the merge base"
 # The source text of a test file that writes samples to ALICE_READ_BUDGET_EVIDENCE, directly or
 # through a helper of tests/performance that does.
@@ -482,6 +485,37 @@ def test_every_shard_runs_its_own_selection_with_the_flags_of_the_old_step() -> 
         "ALICE_READ_MERGE_BASE_CHECKOUT": "${{ github.workspace }}/.read-budget-merge-base",
         "ALICE_READ_BUDGET_EVIDENCE": "${{ runner.temp }}/round3-postgres-read-budgets.jsonl",
     }
+
+
+def test_the_maximum_workload_smoke_gives_each_test_the_limit_of_the_weekly_parent_budget() -> None:
+    """The four tests of the maximum-workload step get the per-test limit that the weekly parent budget test sets for
+    itself, and the job leaves room for all of them.
+
+    The step reads the largest fixtures on three revisions and writes read profiles, and
+    ``test_postgres_round3_random_read_budgets[True-3000-extra-rows]`` ran past the 180 seconds of the shards twice, once
+    in the test and once in the teardown that drops its database. The weekly parent test sets
+    ``pytest.mark.timeout(600)`` for the same reason, and the step uses the number that marker holds: the two are
+    compared, so one cannot move without the other. The tests run one after another, so the worst case is the number of
+    node ids times the limit, and it has to leave the setup and the upload room inside ``timeout-minutes`` of the job.
+    A session bound, if the step ever gets one, has to hold at least one test and end before the job does.
+
+    Mutation: set the step's ``--timeout`` back to 180, to 601 or drop it; change the number of the marker in the weekly
+    test; set ``timeout-minutes`` of the job to 40 or less; add a ``--session-timeout`` below the per-test limit.
+    """
+
+    run = " ".join(_step(SMOKE_JOB, MAXIMUM_SMOKE_STEP)["run"].split())
+    limit = re.search(r"--timeout=(\d+)(?!\d)", run)
+    assert limit is not None, run
+    weekly = re.search(r"@pytest\.mark\.timeout\((\d+)\)", WEEKLY_PARENT_TEST.read_text(encoding="utf-8"))
+    assert weekly is not None
+    assert int(limit.group(1)) == int(weekly.group(1)) == 600
+    nodes = re.findall(r"'tests/integration/[^']+'", run)
+    assert len(nodes) == 4, nodes
+    job_seconds = _job(SMOKE_JOB)["timeout-minutes"] * 60
+    assert len(nodes) * 600 + 15 * 60 <= job_seconds, job_seconds
+    session = re.search(r"--session-timeout=(\d+)", run)
+    if session is not None:
+        assert 600 <= int(session.group(1)) and int(session.group(1)) + 5 * 60 <= job_seconds
 
 
 def _same_steps_as_the_smoke_job(job_id: str, names: tuple[str, ...]) -> None:

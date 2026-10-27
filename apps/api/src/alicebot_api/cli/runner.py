@@ -26,6 +26,7 @@ from alicebot_api.vnext_connections import VNextConnectionValidationError
 from alicebot_api.vnext_connectors import VNextConnectorValidationError
 from alicebot_api.vnext_contradictions import VNextContradictionValidationError
 from alicebot_api.vnext_projects import VNextProjectValidationError
+from alicebot_api.vnext_projects import VNextOpenLoopPersonNotFoundError as _VNextOpenLoopPersonNotFoundError
 from alicebot_api.vnext_queue import VNextQueueValidationError
 from alicebot_api.vnext_retrieval import VNextRetrievalValidationError
 from alicebot_api.vnext_scheduler import VNextSchedulerValidationError
@@ -97,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
         TaskBriefValidationError,
         TemporalStateValidationError,
         TrustedFactPromotionNotFoundError,
+        _VNextOpenLoopPersonNotFoundError,
     ) as exc:
         from alicebot_api.vnext_label_writes import label_error_response
         answer = label_error_response(exc)
@@ -110,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
             ContinuityEvidenceNotFoundError,
             TaskBriefNotFoundError,
             TrustedFactPromotionNotFoundError,
+            _VNextOpenLoopPersonNotFoundError,
         )
         invalid_request_errors = (
             ValueError,

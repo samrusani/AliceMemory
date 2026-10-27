@@ -29,6 +29,7 @@ from alicebot_api.routers._vnext_shared import (
     _vnext_agent_actor,
     _vnext_agent_auth_error_response,
     _vnext_agent_identity,
+    _vnext_canonical_id,
     _vnext_authenticated_agent_identity,
     _vnext_authorized_artifact,
     _vnext_int,
@@ -86,6 +87,7 @@ from alicebot_api.vnext_queue import (
     claimable_task_labels,
 )
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_store import PostgresVNextStore as _PostgresVNextStoreClass
 
 
 insight_feedback_router = APIRouter()
@@ -723,6 +725,9 @@ def review_vnext_artifact(
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
+            # A value that is not an id in any accepted spelling names no row,
+            # so it answers what an unknown id answers, and the database cast
+            # never sees text it cannot read.
             identity = _vnext_authenticated_agent_identity(
                 store, request, user_id=request.user_id, authorization=authorization
             )
@@ -1086,8 +1091,17 @@ def get_vnext_belief_state(
                 raw_key=agent_key_from_authorization(authorization),
                 payload={},
             )
+            # A value that is not an id in any accepted spelling names no
+            # row, so it answers what an unknown id answers, and the database
+            # cast never sees text it cannot read. A store that compares text
+            # keeps the value it was given.
+            canonical_belief_id = _vnext_canonical_id(belief_id)
+            if canonical_belief_id is None:
+                if isinstance(store, _PostgresVNextStoreClass):
+                    raise VNextContradictionValidationError(f"belief {belief_id} was not found")
+                canonical_belief_id = belief_id
             payload = VNextContradictionService(store).belief_state(
-                belief_id=belief_id,
+                belief_id=canonical_belief_id,
                 sensitivity_allowed=sensitivity_ceiling(identity),
             )
     except AgentKeyAuthenticationError as exc:
@@ -1170,13 +1184,20 @@ def review_vnext_project_update_candidate(
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
+            # A value that is not an id in any accepted spelling names no row,
+            # so it answers what an unknown id answers, and the database cast
+            # never sees text it cannot read.
+            canonical_artifact_id = _vnext_canonical_id(artifact_id)
+            if canonical_artifact_id is None:
+                return _vnext_public_error_response(status_code=404, detail="vNext artifact was not found")
+            artifact_id = canonical_artifact_id
             identity = _vnext_authenticated_agent_identity(
                 store, request, user_id=request.user_id, authorization=authorization
             )
             store.lock_graph_mutation()
             from alicebot_api.vnext_artifact_review import lock_artifact_review_labels
 
-            lock_artifact_review_labels(store, artifact_id=str(artifact_id), action=request.action)
+            lock_artifact_review_labels(store, artifact_id=str(canonical_artifact_id), action=request.action)
             _artifact, decision = _vnext_authorized_artifact(
                 store=store,
                 identity=identity,

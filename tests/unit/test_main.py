@@ -5544,7 +5544,7 @@ def test_vnext_project_review_defers_embedding_and_preserves_human_attribution(m
     monkeypatch.setattr(vnext_review_router, "_persist_vnext_deferred_embeddings", fake_persist)
 
     response = vnext_review_router.review_vnext_project_update_candidate(
-        "artifact-1",
+        "00000000-0000-0000-0000-000000000001",
         vnext_review_router.VNextProjectUpdateReviewRequest(
             user_id=user_id,
             action="accept",
