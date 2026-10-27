@@ -319,3 +319,23 @@ def sqlite_owner_connection(context):
 
     conn = sqlite3.connect(_sqlite_path_from_url(context.database_url))
     return conn
+
+
+def test_the_bench_records_the_budget_beside_the_pinned_settings() -> None:
+    """Guard: ``note_passage_budget`` in the bench. A passage or vectors run
+    whose calls sent the query alone records the tool's default note passage
+    budget (not the pinned limit of the memory results); a run that sent a
+    limit, or ran document mode, records the limit it used. A run's claim
+    names the budget through the fingerprint's record."""
+
+    import scripts.alice_bench as bench
+
+    passage = {"arguments": [{}], "limit": 8, "context_depth": "low"}
+    assert bench.note_passage_budget(passage, "passage") == 10
+    assert bench.note_passage_budget(passage, "vectors") == 10
+    assert bench.note_passage_budget(passage, "document") == 8
+    explicit = {"arguments": [{"limit": 5}], "limit": 5, "context_depth": "low"}
+    assert bench.note_passage_budget(explicit, "passage") == 5
+    minimal = {"arguments": [{}], "limit": 4, "context_depth": "minimal"}
+    assert bench.note_passage_budget(minimal, "passage") == 4
+    assert bench.note_passage_budget(None, "passage") is None
