@@ -547,13 +547,13 @@ def test_ci_action_dependency_carrier_uses_exact_atomic_pins() -> None:
         "3d3c42e5aac5ba805825da76410c181273ba90b1"
     ] * 32
     assert codeql_refs == [
-        "ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd"
+        "9b3254085494b55a0f7c4c2b3d2d52cc712ce370"
     ] * 3
     security_workflow = _read(".github/workflows/security-scans.yml")
     for step in ("init", "autobuild", "analyze"):
         assert (
             f"github/codeql-action/{step}@"
-            "ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7"
+            "9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1"
         ) in security_workflow
 
 
