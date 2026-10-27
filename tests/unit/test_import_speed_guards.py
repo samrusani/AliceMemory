@@ -11,6 +11,7 @@ replays each removal as a killed case.
 from __future__ import annotations
 
 import base64
+import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -248,12 +249,23 @@ def test_the_dedupe_hit_still_validates_the_row_envelope(tmp_path: Path) -> None
     first = _import(database, folder, domain="personal")
     assert first.imported_count == 1
     with closing(sqlite3.connect(database)) as conn:
-        # The envelope moves to another domain while the stored dedupe key
-        # keeps the old one, as a historical row's key can.
-        conn.execute("UPDATE sources SET domain = 'professional' WHERE title = 'n'")
+        # The envelope moves to another domain and the preserved raw text is
+        # gone (an upgraded row's shape), while the stored dedupe key keeps
+        # the old one: the recompute guard cannot reject this row (there is
+        # nothing to recompute from), so the identity check is what refuses it.
+        row = conn.execute("SELECT metadata_json FROM sources WHERE title = 'n'").fetchone()
+        metadata = json.loads(row[0])
+        metadata.pop("raw_text", None)
+        conn.execute(
+            "UPDATE sources SET domain = 'professional', metadata_json = ? WHERE title = 'n'",
+            (json.dumps(metadata),),
+        )
         conn.commit()
     with sqlite_user_connection(database, USER_ID) as conn:
         service = VNextCaptureService(SQLiteVNextStore(conn, USER_ID))
+        # The cache path is the one whose dedupe hit the identity check
+        # revalidates; an import sets it the same way.
+        service._source_lookup_cache = _SourceLookupCache()
         with pytest.raises(ContinuityStoreInvariantError):
             service.capture_source(
                 SourceCaptureInput(
@@ -302,7 +314,10 @@ def test_the_cache_records_own_insertions_by_dedupe(tmp_path: Path) -> None:
             )
         )
         assert second.duplicate is True, second
-        assert service._source_lookup_cache.by_dedupe, "the dedupe index stayed empty"
+        # The dedupe index carries the row itself (not just the negative
+        # answer the lookup wrote): on a store without the dedupe lookup
+        # the run's own insertion is the only positive entry there.
+        assert any(value is not None for value in service._source_lookup_cache.by_dedupe.values()), service._source_lookup_cache.by_dedupe
 
 
 def test_a_rolled_back_file_leaves_no_row_in_the_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
