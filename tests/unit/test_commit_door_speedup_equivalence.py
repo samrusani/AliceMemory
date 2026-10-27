@@ -68,13 +68,18 @@ def test_memo_answer_matches_the_direct_door() -> None:
         answers = [_door_fields_verdict_memoized(memo, site, *fields) for _ in range(3)]
         assert answers == [expected, expected, expected], name
     # Two calls that differ only in one field, with different verdicts: the
-    # memo must not answer the second from the first.
+    # memo must not answer the second from the first. The second pair differs
+    # only in a later field (raw_text), so a memo key that drops any field
+    # answers it from the first call and fails here.
     memo = _fresh_memo()
     first = _door_fields_verdict_memoized(memo, "capture_source", "note", None, None, "a.md", "a.md", "hello", {})
     second = _door_fields_verdict_memoized(
         memo, "capture_source", "password=hunter2value", None, None, "a.md", "a.md", "hello", {}
     )
-    assert (first, second) == (None, "credential")
+    third = _door_fields_verdict_memoized(
+        memo, "capture_source", "note", None, None, "a.md", "a.md", "password=hunter2value", {}
+    )
+    assert (first, second, third) == (None, "credential", "credential")
 
 
 def test_repeated_lines_hit_the_memo_and_match_the_door(tmp_path) -> None:
