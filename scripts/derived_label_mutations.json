@@ -294,7 +294,7 @@
           "line": 8,
           "before": "Doctor's derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and the doctor routes omit them for callers with limits.",
           "after": "",
-          "sha256": "2252a6209821a1e6866805ee9711dd67db9b2db5d2c3fca1910db8bde51150dc"
+          "sha256": "88a7e79085a16540682a3ad8282cbc2d96a4e9d4cf218fc20168ebe757875536"
         }
       ],
       "pytest": [
@@ -1516,10 +1516,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 36,
+          "line": 37,
           "before": "the count of a list that lost an id is recomputed or dropped",
           "after": "the count of a list that lost an id is kept",
-          "sha256": "41992c448cb5b854146f742d690af17f580d5441f4eb758659ab3caa03842aa1"
+          "sha256": "239520a78dc42258b61cfd135082fe387640e0f7577eb96fd3cc59a286b92c60"
         }
       ],
       "pytest": [
@@ -1532,10 +1532,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 41,
+          "line": 42,
           "before": "judged at most 128 rows of each list",
           "after": "listed",
-          "sha256": "41992c448cb5b854146f742d690af17f580d5441f4eb758659ab3caa03842aa1"
+          "sha256": "239520a78dc42258b61cfd135082fe387640e0f7577eb96fd3cc59a286b92c60"
         }
       ],
       "pytest": [
@@ -3988,10 +3988,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 37,
+          "line": 38,
           "before": "; from v0.21.0, a key with limits is not shown those",
           "after": "",
-          "sha256": "41992c448cb5b854146f742d690af17f580d5441f4eb758659ab3caa03842aa1"
+          "sha256": "239520a78dc42258b61cfd135082fe387640e0f7577eb96fd3cc59a286b92c60"
         }
       ],
       "pytest": [
@@ -4730,10 +4730,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 36,
+          "line": 37,
           "before": "the owner and an unbound admin key keep every id",
           "after": "every key keeps every id",
-          "sha256": "41992c448cb5b854146f742d690af17f580d5441f4eb758659ab3caa03842aa1"
+          "sha256": "239520a78dc42258b61cfd135082fe387640e0f7577eb96fd3cc59a286b92c60"
         }
       ],
       "pytest": [
@@ -5209,10 +5209,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 39,
+          "line": 40,
           "before": "the reports and derived rows built from a redacted memory are readable by the owner and an unbound admin key only until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "41992c448cb5b854146f742d690af17f580d5441f4eb758659ab3caa03842aa1"
+          "sha256": "239520a78dc42258b61cfd135082fe387640e0f7577eb96fd3cc59a286b92c60"
         }
       ],
       "pytest": [
@@ -5241,10 +5241,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 39,
+          "line": 40,
           "before": "removing it is planned, with no release set",
           "after": "removing it is done",
-          "sha256": "41992c448cb5b854146f742d690af17f580d5441f4eb758659ab3caa03842aa1"
+          "sha256": "239520a78dc42258b61cfd135082fe387640e0f7577eb96fd3cc59a286b92c60"
         }
       ],
       "pytest": [
@@ -6051,10 +6051,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 39,
+          "line": 40,
           "before": "are readable by the owner and an unbound admin key only",
           "after": "are readable by every key that reads the report",
-          "sha256": "41992c448cb5b854146f742d690af17f580d5441f4eb758659ab3caa03842aa1"
+          "sha256": "239520a78dc42258b61cfd135082fe387640e0f7577eb96fd3cc59a286b92c60"
         }
       ],
       "pytest": [
@@ -6067,10 +6067,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 38,
+          "line": 39,
           "before": ", and a key that can read the report reads it",
           "after": "",
-          "sha256": "41992c448cb5b854146f742d690af17f580d5441f4eb758659ab3caa03842aa1"
+          "sha256": "239520a78dc42258b61cfd135082fe387640e0f7577eb96fd3cc59a286b92c60"
         }
       ],
       "pytest": [
@@ -6182,7 +6182,7 @@
           "line": 11,
           "before": "\n> **Update (2026-10-09):** the correction above says graph neighborhood returns edge explanations in v0.20.0, and that is so. On main, not in v0.20.0, it lists only the edges whose ends the key may read, and the graph edge review route applies the same rule. See the [draft security note](derived-labels-security-note-draft.md).\n",
           "after": "",
-          "sha256": "2252a6209821a1e6866805ee9711dd67db9b2db5d2c3fca1910db8bde51150dc"
+          "sha256": "88a7e79085a16540682a3ad8282cbc2d96a4e9d4cf218fc20168ebe757875536"
         }
       ],
       "pytest": [
@@ -6243,10 +6243,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 32,
-          "before": "Open in v0.21.0, with the detail in the [security note]",
-          "after": "Open in v0.21.0, but graph edge explanations remain outside that ceiling, with the detail in the [security note]",
-          "sha256": "41992c448cb5b854146f742d690af17f580d5441f4eb758659ab3caa03842aa1"
+          "line": 33,
+          "before": "Open in v0.22.0, with the detail in the [security note]",
+          "after": "Open in v0.22.0, but graph edge explanations remain outside that ceiling, with the detail in the [security note]",
+          "sha256": "239520a78dc42258b61cfd135082fe387640e0f7577eb96fd3cc59a286b92c60"
         }
       ],
       "pytest": [
@@ -9456,10 +9456,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 40,
+          "line": 41,
           "before": "keeps the title and description its caller typed, so words of the memory stay readable to every key that reads the loop",
           "after": "keeps the title and description its caller typed, so words of the memory are withheld from every key that reads the loop",
-          "sha256": "41992c448cb5b854146f742d690af17f580d5441f4eb758659ab3caa03842aa1"
+          "sha256": "239520a78dc42258b61cfd135082fe387640e0f7577eb96fd3cc59a286b92c60"
         }
       ],
       "pytest": [
@@ -19321,7 +19321,7 @@
           "line": 275,
           "before": "removal of redacted text from reports is planned, with no release set, and\n  the vector stage of recall does not refill after hiding rows.\n",
           "after": "removal of redacted text from reports is planned, with no release set.\n",
-          "sha256": "25d62656ebd66aaf89f6d9e4a83533bcc99cec30dce559b7baf3e35591c10419"
+          "sha256": "af24ca7e743e119cc023452d4f01c66cdc071cb9b8504d728df1704d7e85a914"
         }
       ],
       "pytest": [
@@ -19337,7 +19337,7 @@
           "line": 199,
           "before": "- The vector stage of recall and of the context pack, the time stage of the\n  context pack,",
           "after": "- The refill of the vector stage of recall and of the context pack, the time stage of the\n  context pack,",
-          "sha256": "25d62656ebd66aaf89f6d9e4a83533bcc99cec30dce559b7baf3e35591c10419"
+          "sha256": "af24ca7e743e119cc023452d4f01c66cdc071cb9b8504d728df1704d7e85a914"
         }
       ],
       "pytest": [
@@ -20227,10 +20227,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 38,
+          "line": 39,
           "before": "; hiding these words is planned, with no release set",
           "after": "",
-          "sha256": "41992c448cb5b854146f742d690af17f580d5441f4eb758659ab3caa03842aa1"
+          "sha256": "239520a78dc42258b61cfd135082fe387640e0f7577eb96fd3cc59a286b92c60"
         }
       ],
       "pytest": [
