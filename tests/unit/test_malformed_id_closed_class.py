@@ -112,7 +112,7 @@ MCP_ROW_IDS: dict[tuple[str, str], str] = {
     ("alice_memory_manage", "memory_id"):
         f"{DOORS}::test_alice_memory_manage_malformed_memory_id_matches_unknown[no-such-id-forget]",
     ("alice_memory_manage", "confirmation_id"):
-        f"{DOORS}::test_alice_memory_manage_malformed_memory_id_matches_unknown[no-such-id-forget]",
+        f"{DOORS}::test_a_malformed_confirmation_id_answers_as_an_unknown_one[no-such-id]",
     ("alice_graph_neighborhood", "target_id"):
         f"{DOORS}::test_mcp_row_id_argument_malformed_matches_unknown[no-such-id-alice_graph_neighborhood-arguments0]",
     ("alice_vnext_open_loops", "source_id"):
