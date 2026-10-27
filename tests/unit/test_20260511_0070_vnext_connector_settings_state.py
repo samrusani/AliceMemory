@@ -26,7 +26,17 @@ def test_upgrade_executes_connector_tables_grants_rls_policies_and_seed(monkeypa
         "ALTER TABLE connector_state ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE connector_state FORCE ROW LEVEL SECURITY",
         module._POLICIES,
+        # The seed writes under forced row-level security that the
+        # documented table owner cannot satisfy unbound, so the upgrade
+        # brackets the seed with the owner bypass inside its own
+        # transaction, as 0067, 0093 and 0095 to 0097 do.
+        "ALTER TABLE users NO FORCE ROW LEVEL SECURITY",
+        "ALTER TABLE connector_settings NO FORCE ROW LEVEL SECURITY",
+        "ALTER TABLE connector_state NO FORCE ROW LEVEL SECURITY",
         module._SEED_DEFAULTS,
+        "ALTER TABLE users FORCE ROW LEVEL SECURITY",
+        "ALTER TABLE connector_settings FORCE ROW LEVEL SECURITY",
+        "ALTER TABLE connector_state FORCE ROW LEVEL SECURITY",
     ]
 
 

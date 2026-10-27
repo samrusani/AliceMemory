@@ -22,6 +22,7 @@ from alicebot_api.vnext_agent_control import (
 from alicebot_api.vnext_artifact_review import dispatch_vnext_artifact_review
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_memory_commit import (
+    MemoryNotFoundError,
     VNextMemoryCommitService,
     VNextMemoryCommitValidationError,
 )
@@ -49,6 +50,7 @@ from .shared import (
     _json_object,
     _parse_bool,
     _parse_int,
+    _canonical_row_id_argument,
     _parse_optional_datetime,
     _parse_optional_text,
     _parse_optional_uuid,
@@ -693,10 +695,14 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
     authorization_error: _ExplainAuthorizationError | None = None
     validation_error: VNextMemoryCommitValidationError | None = None
     with _vnext_store_context(context) as store:
-        memory_id = _parse_required_text(arguments, "memory_id")
         try:
+            # A value that is not an id in any accepted spelling names no row
+            # on the PostgreSQL store, whose id reads are ::uuid casts, so it
+            # is answered as an unknown id is answered and the cast never
+            # sees text it cannot read.
+            canonical_memory_id = _canonical_row_id_argument(arguments, "memory_id", store=store, not_found=lambda _raw: MemoryNotFoundError("memory was not found"))
             audit = VNextMemoryCommitService(store).audit(
-                memory_id=memory_id,
+                memory_id=canonical_memory_id,
                 authorize_memory=lambda memory: _authorize_explain_resource(
                     store,
                     identity=identity,
@@ -824,10 +830,10 @@ def _authorize_vnext_artifact_target(
 
 def _handle_alice_vnext_artifact_get(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     identity = _agent_identity_from_arguments(context, arguments)
-    artifact_id = _parse_required_text(arguments, "artifact_id")
     blocked_decision: PolicyDecision | None = None
     artifact: VNextJsonObject | None = None
     with _vnext_store_context(context) as store:
+        artifact_id = _canonical_row_id_argument(arguments, "artifact_id", store=store, not_found=lambda _raw: MCPReferenceNotFoundError(f"artifact {_raw} was not found"))
         target, _actor_type, _actor_id, decision = _authorize_vnext_artifact_target(
             store,
             identity=identity,
@@ -848,7 +854,6 @@ def _handle_alice_vnext_artifact_get(context: MCPRuntimeContext, arguments: Mapp
 
 def _handle_alice_vnext_artifact_review(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     identity = _agent_identity_from_arguments(context, arguments)
-    artifact_id = _parse_required_text(arguments, "artifact_id")
     blocked_decision: PolicyDecision | None = None
     payload: VNextJsonObject | None = None
     deferred_embedding_inputs: tuple[DeferredMemoryEmbedding, ...] = ()
@@ -856,6 +861,7 @@ def _handle_alice_vnext_artifact_review(context: MCPRuntimeContext, arguments: M
     actor_id: str | None = None
     trace_id: str | None = None
     with _vnext_store_context(context) as store:
+        artifact_id = _canonical_row_id_argument(arguments, "artifact_id", store=store, not_found=lambda _raw: MCPReferenceNotFoundError(f"artifact {_raw} was not found"))
         store.lock_graph_mutation()
         from alicebot_api.vnext_artifact_review import lock_artifact_review_labels
 

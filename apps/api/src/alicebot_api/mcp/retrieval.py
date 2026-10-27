@@ -116,6 +116,7 @@ from .shared import (
     _RECALL_DEFAULT_LIMIT,
     _RECALL_MAX_LIMIT,
     _agent_identity_from_arguments,
+    _canonical_row_id_argument,
     _json_object,
     _mcp_agent_policy_preflight,
     _parse_bool,
@@ -869,6 +870,10 @@ def _handle_alice_open_loops(context: MCPRuntimeContext, arguments: Mapping[str,
     blocked_decision: PolicyDecision | None = None
     loop: VNextJsonObject | None = None
     with _vnext_store_context(context) as store:
+        # A loop id that is not one in any accepted spelling answers what a
+        # well-formed unknown loop answers here, before the store sees text
+        # its id cast cannot read.
+        loop_id = _canonical_row_id_argument(arguments, "loop_id", store=store, not_found=lambda _raw: MCPReferenceNotFoundError(f"open loop {_raw} was not found"))
         target = store.get_open_loop(loop_id)
         from alicebot_api.vnext_label_guard import effective_row_for_fence, outside_caller_limits
 

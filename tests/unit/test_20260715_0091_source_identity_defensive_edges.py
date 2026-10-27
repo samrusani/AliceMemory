@@ -17,7 +17,14 @@ def test_upgrade_clears_only_live_whitespace_string_identities_and_adds_bounded_
 
     assert module.revision == "20260715_0091"
     assert module.down_revision == "20260714_0090"
-    repair = executed[0]
+    # The clear runs inside the owner bypass bracket; the bracket is closed
+    # before the additive event-linkage columns and their partial indexes.
+    assert executed[0] == "ALTER TABLE sources NO FORCE ROW LEVEL SECURITY"
+    assert "ALTER TABLE sources FORCE ROW LEVEL SECURITY" in executed
+    assert executed.index("ALTER TABLE sources NO FORCE ROW LEVEL SECURITY") < executed.index(
+        "ALTER TABLE sources FORCE ROW LEVEL SECURITY"
+    )
+    repair = next(s for s in executed if "UPDATE sources" in s)
     assert "UPDATE sources" in repair
     assert "SET dedupe_key = NULL" in repair
     assert "deleted_at IS NULL" in repair
@@ -26,8 +33,10 @@ def test_upgrade_clears_only_live_whitespace_string_identities_and_adds_bounded_
     assert "[[:space:]]" not in repair
     assert all(f"chr({codepoint})" in repair for codepoint in module._PYTHON_312_STRIP_CODEPOINTS)
 
-    columns = executed[1]
-    target, artifact, candidate_memory, memory = executed[2:]
+    columns = next(s for s in executed if "ADD COLUMN payload_artifact_id" in s)
+    target, artifact, candidate_memory, memory = [
+        s for s in executed if "CREATE INDEX IF NOT EXISTS event_log_project_update" in s
+    ]
     event_types = (
         "project.update_candidate_created",
         "project.update_candidate_accepted",

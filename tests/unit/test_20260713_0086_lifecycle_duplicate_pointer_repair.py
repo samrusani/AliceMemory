@@ -23,7 +23,10 @@ def test_upgrade_repoints_two_hop_duplicate_groups_idempotently(monkeypatch) -> 
 
     module.upgrade()
 
-    assert len(executed) == 2
+    # Two repair statements inside the owner bypass bracket.
+    assert len(executed) == 4
+    assert executed[0] == "ALTER TABLE memories NO FORCE ROW LEVEL SECURITY"
+    assert executed[-1] == "ALTER TABLE memories FORCE ROW LEVEL SECURITY"
     joined = "\n".join(executed)
     for column in ("commit_digest", "confirmation_id"):
         assert f"former_holder.{column} IS NULL" in joined

@@ -1,4 +1,14 @@
-"""Add vNext connector settings and state tables."""
+"""Add vNext connector settings and state tables.
+
+A database already past this revision never runs this body again. A database
+still before it must end in exactly the state the superuser path gives: the
+same seed rows for every stored user, whether the migrator is a cluster
+superuser or the documented table owner that is NOSUPERUSER NOBYPASSRLS. The
+seed writes under forced row-level security whose policies the owner cannot
+satisfy unbound, so the owner bypass is used inside this migration's own
+transaction, as 0067, 0093 and 0095 to 0097 do, and the forced setting is
+restored before the transaction commits.
+"""
 
 from __future__ import annotations
 
@@ -210,7 +220,24 @@ def upgrade() -> None:
     op.execute("ALTER TABLE connector_state ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE connector_state FORCE ROW LEVEL SECURITY")
     op.execute(_POLICIES)
+    # The seed below writes each stored user's connector rows under the
+    # forced row-level security of both tables, whose owner policies bind
+    # app.current_user_id. For the documented table owner (NOSUPERUSER
+    # NOBYPASSRLS) that binding is unset during an upgrade, so the seed
+    # selected no users, wrote no rows, and a data-bearing vault ended
+    # without the defaults a superuser upgrade writes. Temporarily use the
+    # owner bypass, as 0067, 0093 and 0095 to 0097 do, inside Alembic's
+    # single transaction. Concurrent sessions never see the relaxed FORCE
+    # setting; failure rolls back the bracket, the seed and the schema
+    # change together, and the forced setting is restored before the
+    # transaction commits.
+    op.execute("ALTER TABLE users NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE connector_settings NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE connector_state NO FORCE ROW LEVEL SECURITY")
     op.execute(_SEED_DEFAULTS)
+    op.execute("ALTER TABLE users FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE connector_settings FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE connector_state FORCE ROW LEVEL SECURITY")
 
 
 def downgrade() -> None:

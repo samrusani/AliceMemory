@@ -18,6 +18,7 @@ from alicebot_api.vnext_connections import (
 from alicebot_api.vnext_contradictions import (
     ContradictionFinderRequest,
     VNextContradictionService,
+    VNextContradictionValidationError,
 )
 from alicebot_api.vnext_label_guard import readable_artifact
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
@@ -29,6 +30,7 @@ from .shared import (
     _mcp_agent_policy_preflight,
     _parse_bool,
     _parse_int,
+    _canonical_row_id_argument,
     _parse_model_generation_kwargs,
     _parse_optional_float,
     _parse_optional_text,
@@ -158,9 +160,16 @@ def _handle_alice_generate_connections(context: MCPRuntimeContext, arguments: Ma
 
 def _handle_alice_graph_edge_review(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     with _vnext_store_context(context) as store:
+        # An edge that is missing, and an id that is not one in any accepted
+        # spelling, answer not_found alike, before the write path runs: the
+        # update of a row that is not there used to fail the whole call.
+        edge_id = _canonical_row_id_argument(arguments, "edge_id", store=store, not_found=lambda _raw: MCPReferenceNotFoundError(f"edge {_raw} was not found"))
+        lookup_edge = getattr(store, "get_edge", None)
+        if lookup_edge is not None and lookup_edge(edge_id) is None:
+            raise MCPReferenceNotFoundError(f"edge {edge_id} was not found")
         return _json_object(
             VNextConnectionService(store).review_edge(
-                edge_id=_parse_required_text(arguments, "edge_id"),
+                edge_id=edge_id,
                 action=_parse_required_text(arguments, "action"),
             )
         )
@@ -224,9 +233,16 @@ def _handle_alice_generate_contradictions(context: MCPRuntimeContext, arguments:
 
 def _handle_alice_belief_review(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     with _vnext_store_context(context) as store:
+        # A belief that is missing, and an id that is not one in any accepted
+        # spelling, answer not_found alike, before the write path runs: the
+        # review of a row that is not there used to fail the whole call.
+        belief_id = _canonical_row_id_argument(arguments, "belief_id", store=store, not_found=lambda _raw: MCPReferenceNotFoundError(f"belief {_raw} was not found"))
+        lookup_belief = getattr(store, "get_belief", None)
+        if lookup_belief is not None and lookup_belief(belief_id) is None:
+            raise MCPReferenceNotFoundError(f"belief {belief_id} was not found")
         return _json_object(
             VNextContradictionService(store).review_belief(
-                belief_id=_parse_required_text(arguments, "belief_id"),
+                belief_id=belief_id,
                 action=_parse_required_text(arguments, "action"),
                 confidence=_parse_optional_float(arguments, "confidence"),
                 superseded_by=_parse_optional_text(arguments, "superseded_by"),
@@ -236,8 +252,12 @@ def _handle_alice_belief_review(context: MCPRuntimeContext, arguments: Mapping[s
 
 def _handle_alice_belief_state(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     with _vnext_store_context(context) as store:
+        # The state door answers a well-formed unknown belief with the
+        # service's validation error, so a malformed id raises that same
+        # error here, before the store sees text it cannot read: the two
+        # answers are the same on the wire, code and message.
         return _json_object(
             VNextContradictionService(store).belief_state(
-                belief_id=_parse_required_text(arguments, "belief_id"),
+                belief_id=_canonical_row_id_argument(arguments, "belief_id", store=store, not_found=lambda _raw: VNextContradictionValidationError(f"belief {_raw} was not found")),
             )
         )

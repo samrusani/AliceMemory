@@ -25,7 +25,12 @@ def test_upgrade_adds_vector_fts_and_targeted_lookup_substrate(monkeypatch) -> N
 
     module.upgrade()
 
-    assert executed == list(module._UPGRADE_STATEMENTS)
+    # The upgrade brackets the statements with the owner bypass for the
+    # documented strict table owner; the bracket is restored before the
+    # transaction commits.
+    assert executed[0] == "ALTER TABLE memories NO FORCE ROW LEVEL SECURITY"
+    assert executed[-1] == "ALTER TABLE memories FORCE ROW LEVEL SECURITY"
+    assert executed[1:-1] == list(module._UPGRADE_STATEMENTS)
     joined = "\n".join(executed)
     assert "ADD COLUMN embedding_vector vector(1536) NULL" in joined
     assert "USING hnsw (embedding_vector vector_cosine_ops)" in joined

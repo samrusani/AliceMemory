@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import hashlib
 import json
 import re
@@ -60,6 +60,15 @@ _SUPERSEDED_AGENTIC_LIFECYCLE_STATUSES = frozenset(
 
 class VNextProjectValidationError(ValueError):
     """Raised when a vNext project or open-loop operation is invalid."""
+
+
+class VNextOpenLoopPersonNotFoundError(Exception):
+    """Raised when an open-loop extraction names a person no stored row answers to.
+
+    A value that is not an id in any accepted spelling and the id of no stored
+    person answer alike, and nothing is written. The door that caught it says
+    "not found" in its own words.
+    """
 
 
 class VNextProjectTerminalConsistencyError(VNextProjectValidationError):
@@ -913,6 +922,27 @@ class VNextProjectService:
             {**metadata, **model_artifact.metadata},
         )
 
+    def _stored_person_id(self, person_id: str) -> str:
+        """The canonical id of the stored person the request names.
+
+        A value that is not an id in any accepted spelling and the id of no
+        stored person raise ``VNextOpenLoopPersonNotFoundError`` alike, so a
+        door answers a malformed id as it answers an unknown one and the
+        database cast never sees text it cannot read. Persons carry a
+        sensitivity column but no read fence is applied to a person reference
+        on this path, so any stored person answers like a real one for every
+        caller.
+        """
+
+        try:
+            canonical = str(UUID(str(person_id).strip()))
+        except ValueError:
+            raise VNextOpenLoopPersonNotFoundError("person was not found") from None
+        get_person = getattr(self.store, "get_person", None)
+        if get_person is None or get_person(canonical) is None:
+            raise VNextOpenLoopPersonNotFoundError("person was not found")
+        return canonical
+
     def extract_open_loops(
         self, request: ProjectAutomationRequest | None = None, *, guard: LabelGuard
     ) -> list[JsonObject]:
@@ -929,6 +959,16 @@ class VNextProjectService:
 
         request = request or ProjectAutomationRequest(agent_identity=None, )
         _validate_request(request)
+        get_person = getattr(self.store, "get_person", None)
+        if request.person_id is not None and get_person is not None:
+            # The person a loop is filed under must be a stored row, in
+            # whatever spelling the caller wrote its id: a value that is not
+            # an id and the id of no stored person are refused alike before
+            # any source is read or any row is written, and the id the digest
+            # and the stored row keep is the canonical one that was checked.
+            # A store with no person rows to ask (the SQLite on-ramp) keeps
+            # the behaviour it had.
+            request = replace(request, person_id=self._stored_person_id(request.person_id))
         domains = list(request.domains) if request.domains else None
         if request.project_id is not None and self._project_loops_are_filed_under(request.project_id, guard) is None:
             # A loop is filed under the project the request names, so the project is judged first. One the caller may not

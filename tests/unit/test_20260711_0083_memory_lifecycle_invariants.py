@@ -44,7 +44,11 @@ def test_upgrade_promotes_legacy_scope_only_when_canonical_key_is_absent(monkeyp
 
     module.upgrade()
 
-    backfill = executed[0]
+    # The upgrade brackets its data statements with the owner bypass for the
+    # documented strict table owner.
+    assert executed[0] == "ALTER TABLE memories NO FORCE ROW LEVEL SECURITY"
+    assert executed[-1] == "ALTER TABLE memories FORCE ROW LEVEL SECURITY"
+    backfill = next(s for s in executed if "agentic_memory,project_scope" in s)
     assert "metadata_json #> '{agentic_memory,project_scope}'" in backfill
     assert "NOT (memory.metadata_json ? 'project_scope')" in backfill
     assert "IS DISTINCT FROM 'array'" not in backfill

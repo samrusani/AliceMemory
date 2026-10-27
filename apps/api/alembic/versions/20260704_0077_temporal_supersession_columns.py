@@ -102,8 +102,20 @@ _DOWNGRADE_STATEMENTS: tuple[str, ...] = (
 
 
 def upgrade() -> None:
+    # The data statements in _UPGRADE_STATEMENTS write rows on memories,
+    # whose forced row-level security binds the documented table owner
+    # (NOSUPERUSER NOBYPASSRLS) to owner policies that bind
+    # app.current_user_id(), unset during an upgrade, so the backfill
+    # silently matched no rows for a data-bearing vault while a superuser
+    # upgrade wrote them. Temporarily use the owner bypass, as 0067, 0070,
+    # 0092, 0093 and 0095 to 0097 do, inside Alembic's single transaction.
+    # Concurrent sessions never see the relaxed FORCE setting; failure rolls
+    # back the bracket, the backfill and the schema change together, and the
+    # forced setting is restored before the transaction commits.
+    op.execute("ALTER TABLE memories NO FORCE ROW LEVEL SECURITY")
     for statement in _UPGRADE_STATEMENTS:
         op.execute(statement)
+    op.execute("ALTER TABLE memories FORCE ROW LEVEL SECURITY")
 
 
 def downgrade() -> None:

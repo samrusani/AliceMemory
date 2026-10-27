@@ -52,7 +52,7 @@ from .shared import (
     _raise_mcp_policy_blocked,
     _vnext_store_context,
 )
-from .arguments import _parse_source_refs
+from .arguments import _canonical_optional_row_id_argument, _canonical_row_id_argument, _parse_source_refs
 from .types import MCPArgumentError
 
 
@@ -306,6 +306,24 @@ def _confirm_pending_memory(
     return _json_object(payload)
 
 
+def _canonical_memory_id_argument(arguments: Mapping[str, object], *, store: object | None = None) -> str:
+    """The required memory id argument in canonical spelling.
+
+    A value that is not an id in any accepted spelling names no row, so on
+    the PostgreSQL store it is answered as an unknown id is answered and the
+    database cast never sees text it cannot read; a store that compares text
+    keeps the value it was given.
+    """
+
+    return _canonical_row_id_argument(arguments, "memory_id", store=store, not_found=lambda _raw: MemoryNotFoundError("memory was not found"))
+
+
+def _canonical_optional_memory_id_argument(arguments: Mapping[str, object], *, store: object | None = None) -> str | None:
+    """The optional memory id argument in canonical spelling, or None when absent."""
+
+    return _canonical_optional_row_id_argument(arguments, "memory_id", store=store, not_found=lambda _raw: MemoryNotFoundError("memory was not found"))
+
+
 def _handle_alice_vnext_undo_memory(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     identity = _agent_identity_from_arguments(context, arguments)
     blocked_decision: PolicyDecision | None = None
@@ -314,7 +332,7 @@ def _handle_alice_vnext_undo_memory(context: MCPRuntimeContext, arguments: Mappi
         try:
             payload = VNextMemoryCommitService(store).undo(
                 identity=identity,
-                memory_id=_parse_optional_text(arguments, "memory_id"),
+                memory_id=_canonical_optional_memory_id_argument(arguments, store=store),
                 reason=_parse_optional_text(arguments, "reason"),
                 superseded_by_memory_id=_parse_optional_text(arguments, "superseded_by"),
             )
@@ -337,7 +355,7 @@ def _handle_alice_vnext_correct_memory(context: MCPRuntimeContext, arguments: Ma
             service = VNextMemoryCommitService(store, defer_embeddings=True)
             payload = service.correct(
                 identity=identity,
-                memory_id=_parse_required_text(arguments, "memory_id"),
+                memory_id=_canonical_memory_id_argument(arguments, store=store),
                 canonical_text=_parse_required_text(arguments, "canonical_text"),
                 reason=_parse_optional_text(arguments, "reason"),
             )
@@ -366,7 +384,7 @@ def _handle_alice_vnext_forget_memory(context: MCPRuntimeContext, arguments: Map
         try:
             payload = VNextMemoryCommitService(store).forget(
                 identity=identity,
-                memory_id=_parse_required_text(arguments, "memory_id"),
+                memory_id=_canonical_memory_id_argument(arguments, store=store),
                 reason=_parse_optional_text(arguments, "reason"),
             )
         except AgentPolicyBlockedError as exc:
@@ -511,7 +529,7 @@ def _handle_alice_vnext_expire_memory(context: MCPRuntimeContext, arguments: Map
         # the policy events); a tool-level pre-check would double-log.
         try:
             payload = VNextMemoryCommitService(store).expire(
-                _parse_required_text(arguments, "memory_id"),
+                _canonical_memory_id_argument(arguments, store=store),
                 valid_to=_parse_optional_text(arguments, "valid_to"),
                 reason=_parse_required_text(arguments, "reason"),
                 identity=identity,
@@ -534,7 +552,7 @@ def _handle_alice_vnext_unexpire_memory(context: MCPRuntimeContext, arguments: M
     with _vnext_store_context(context) as store:
         try:
             payload = VNextMemoryCommitService(store).unexpire(
-                _parse_required_text(arguments, "memory_id"),
+                _canonical_memory_id_argument(arguments, store=store),
                 reason=_parse_required_text(arguments, "reason"),
                 identity=identity,
             )
@@ -558,7 +576,7 @@ def _handle_alice_vnext_accept_consolidation(context: MCPRuntimeContext, argumen
         try:
             service = VNextMemoryCommitService(store, defer_embeddings=True)
             payload = service.accept_consolidation_candidate(
-                _parse_required_text(arguments, "memory_id"),
+                _canonical_memory_id_argument(arguments, store=store),
                 reason=_parse_required_text(arguments, "reason"),
                 identity=identity,
             )
@@ -586,7 +604,7 @@ def _handle_alice_vnext_redact_memory(context: MCPRuntimeContext, arguments: Map
         try:
             payload = redact_memory_flow(
                 store,
-                memory_id=_parse_required_text(arguments, "memory_id"),
+                memory_id=_canonical_memory_id_argument(arguments, store=store),
                 reason=_parse_required_text(arguments, "reason"),
                 identity=identity,
             )
