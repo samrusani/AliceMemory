@@ -18,6 +18,7 @@ from alicebot_api.vnext_connections import (
 from alicebot_api.vnext_contradictions import (
     ContradictionFinderRequest,
     VNextContradictionService,
+    VNextContradictionValidationError,
 )
 from alicebot_api.vnext_label_guard import readable_artifact
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
@@ -251,8 +252,12 @@ def _handle_alice_belief_review(context: MCPRuntimeContext, arguments: Mapping[s
 
 def _handle_alice_belief_state(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     with _vnext_store_context(context) as store:
+        # The state door answers a well-formed unknown belief with the
+        # service's validation error, so a malformed id raises that same
+        # error here, before the store sees text it cannot read: the two
+        # answers are the same on the wire, code and message.
         return _json_object(
             VNextContradictionService(store).belief_state(
-                belief_id=_canonical_row_id_argument(arguments, "belief_id", store=store, not_found=lambda _raw: MCPReferenceNotFoundError(f"belief {_raw} was not found")),
+                belief_id=_canonical_row_id_argument(arguments, "belief_id", store=store, not_found=lambda _raw: VNextContradictionValidationError(f"belief {_raw} was not found")),
             )
         )

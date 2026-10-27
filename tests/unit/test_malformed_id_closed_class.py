@@ -2,21 +2,26 @@
 
 The PostgreSQL store reads ids with ``WHERE id = %s::uuid``, so a value that is not an id in any
 accepted spelling used to fail the cast at any door that read one. This test walks the mounted HTTP
-application's OpenAPI schema and every MCP tool definition, follows ``$ref``, ``anyOf`` (the shape
-an optional ``str | None`` takes), ``nullable``, arrays (``list[str] | None``) and nested objects,
-collects every field or argument whose name ends ``_id`` or ``_ids``, and classifies each one:
+application's OpenAPI schema and every MCP tool definition, follows ``$ref``, ``anyOf`` and
+``oneOf`` (the shape an optional ``str | None`` takes), ``nullable`` and ``type`` lists (the shape
+``{"type": ["string", "null"]}`` takes), ``allOf`` wrappers, arrays (``list[str] | None``) and
+nested objects, collects every field or argument whose name ends ``_id`` or ``_ids``, and
+classifies each one:
 
 - ``schema_uuid``: the schema says ``format: uuid`` (a ``UUID``-typed model or field), so a
   malformed value answers invalid_request before any store call. Detected from the schema, not
   listed here.
 - ``claim_string``: the value is recorded or compared as text (an agent claim, a trace id, a
-  session reference, an external chat id, a confirmation token, a project scope name); it never
-  reaches an id cast. Checked in below by name.
+  session reference, an external chat id, a confirmation token, a project scope name, an external
+  provider reference); it never reaches an id cast. Checked in below by name, or by exact location
+  for a name that is a row id at another door.
 - ``row_id``: the id names a stored row the door reads or writes, in canonical form. Every such
-  entry is checked in below with the test that reads malformed spellings of it at that door, and
-  that test must exist as a pytest node pytest can collect, so renaming a test fails here until
-  the entry follows.
+  entry is checked in below with the exact pytest node that reads malformed spellings of it at that
+  door, and that node must be among the nodes pytest collects, so renaming, moving or removing a
+  test fails here until the entry follows.
 
+Fields the walker cannot see (a free-form object such as the extract request's ``scope``, whose
+``person_id`` the door reads by name) are listed as explicit entries and checked by the node test.
 A new plain-string id field then fails the first test until someone decides which kind it is; a
 row-id entry whose test disappears fails the node check.
 """
@@ -34,35 +39,45 @@ from alicebot_api.mcp.definitions import _CORE_TOOL_DEFINITIONS, _LEGACY_TOOL_DE
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# The row ids of the HTTP doors: (method, path, field path) -> the test that sends a malformed and
-# a well-formed unknown value to that door and requires the two answers to be equal. A field path
-# is the property name for a body field, dotted for a nested one; a path parameter is the
-# parameter's name.
+DOORS = "tests/integration/test_malformed_id_doors_postgres.py"
+PERSON = "tests/integration/test_open_loop_person_not_found_postgres.py"
+ROW_IDS = "tests/integration/test_row_ids_grant_no_access_postgres.py"
+REF_FENCE = "tests/unit/test_source_refs_read_fence.py"
+
+# The row ids of the HTTP doors: (method, path, field path) -> the exact pytest node that sends a
+# malformed and a well-formed unknown value to that door and requires the two wire answers to be
+# equal. A field path is the property name for a body field, dotted for a nested one; a path
+# parameter is the parameter's name.
 HTTP_ROW_IDS: dict[tuple[str, str, str], str] = {
     ("GET", "/v0/vnext/beliefs/{belief_id}/state", "belief_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_belief_state_http_malformed_id_matches_unknown",
+        f"{DOORS}::test_belief_state_http_malformed_id_matches_unknown[no-such-id]",
     ("POST", "/v0/vnext/beliefs/{belief_id}/review", "belief_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_belief_review_http_malformed_id_matches_unknown",
+        f"{DOORS}::test_belief_review_http_malformed_id_matches_unknown[no-such-id]",
     ("GET", "/v0/vnext/graph/neighborhood/{target_id}", "target_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_graph_neighborhood_http_malformed_id_matches_unknown",
+        f"{DOORS}::test_graph_neighborhood_http_malformed_id_matches_unknown[no-such-id]",
     ("POST", "/v0/vnext/graph/edges/{edge_id}/review", "edge_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_graph_edge_review_http_malformed_id_matches_unknown",
+        f"{DOORS}::test_graph_edge_review_http_malformed_id_matches_unknown[no-such-id]",
     ("GET", "/v0/vnext/projects/{project_id}/dashboard", "project_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_project_dashboard_http_malformed_id_matches_unknown",
+        f"{DOORS}::test_project_dashboard_http_malformed_id_matches_unknown[no-such-id]",
     ("POST", "/v0/vnext/open-loops/{loop_id}/review", "loop_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_open_loop_review_http_malformed_id_matches_unknown",
+        f"{DOORS}::test_open_loop_review_http_malformed_id_matches_unknown[no-such-id]",
     ("POST", "/v0/vnext/projects/update-candidates/{artifact_id}/review", "artifact_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_project_update_review_http_malformed_id_matches_unknown",
-    # The open-loop create keeps the memory, source and project it is given:
-    # the memory and source go through the single-id resolvers, which refuse
-    # a value that is not an id before the store sees it, and the project is
-    # held to the key's binding in every spelling.
+        f"{DOORS}::test_project_update_review_http_malformed_id_matches_unknown[no-such-id]",
+    # The extract request's scope is a free-form object the walker cannot
+    # see into; its person_id is a row id the person tests read in every
+    # malformed spelling.
+    ("POST", "/v0/vnext/open-loops/extract", "scope.person_id"):
+        f"{PERSON}::test_a_malformed_person_id_answers_not_found_and_writes_nothing[no-such-person]",
+    # The open-loop create keeps the memory, source and project it is
+    # given: the memory and source go through the single-id resolvers,
+    # which refuse a value that is not an id before the store sees it, and
+    # the project is held to the key's binding in every spelling.
     ("POST", "/v0/vnext/open-loops", "memory_id"):
-        "tests/unit/test_source_refs_read_fence.py::test_the_single_id_resolvers_check_the_value_before_the_store_sees_it_and_return_the_canonical_id",
+        f"{REF_FENCE}::test_the_single_id_resolvers_check_the_value_before_the_store_sees_it_and_return_the_canonical_id",
     ("POST", "/v0/vnext/open-loops", "source_id"):
-        "tests/unit/test_source_refs_read_fence.py::test_the_single_id_resolvers_check_the_value_before_the_store_sees_it_and_return_the_canonical_id",
+        f"{REF_FENCE}::test_the_single_id_resolvers_check_the_value_before_the_store_sees_it_and_return_the_canonical_id",
     ("POST", "/v0/vnext/open-loops", "project_id"):
-        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_an_open_loop_project_id_outside_the_binding_or_not_well_formed_is_a_missing_project",
+        f"{ROW_IDS}::test_an_open_loop_project_id_outside_the_binding_or_not_well_formed_is_a_missing_project",
 }
 
 # A value with one of these names is a claim, not the id of a stored row: an
@@ -70,73 +85,79 @@ HTTP_ROW_IDS: dict[tuple[str, str, str], str] = {
 # agent_profile_id, session_id), the caller names an external chat
 # (allowed_chat_ids), a confirmation is named by a token compared as text
 # (confirmation_id), a reviewer is matched against the authenticated
-# identity (reviewer_id), and a project is filed under by the name of its
-# scope, judged by the project admission the open-loop tests pin.
+# identity (reviewer_id), and the legacy continuity surfaces name external
+# provider accounts, events and messages by the id the provider assigned.
 HTTP_CLAIM_NAMES = {
     "agent_id", "agent_run_id", "task_id", "trace_id", "agent_profile_id",
     "session_id", "allowed_chat_ids", "confirmation_id", "reviewer_id",
-    "project_id",
-    # The legacy continuity surfaces (mounted with
-    # ``ALICE_LEGACY_SURFACES=1``) name external provider accounts, events
-    # and messages by the id the provider assigned: recorded as data on the
-    # account rows, never looked up as a stored row id.
     "provider_account_id", "provider_event_id", "provider_message_id",
     "client_id",
 }
 
-# The row ids of the MCP tools: (tool, argument path) -> its malformed test.
+# Locations whose name would otherwise read as a row id but are claims, listed where they stand
+# because the same name is a row id at another door: the project_id of the
+# source and memory review bodies is a project scope name recorded on the
+# row (a project that is not stored files no loop and answers without an
+# error, which the project admission tests pin).
+HTTP_CLAIM_PATHS = {
+    ("POST", "/v0/vnext/sources/{source_id}/review", "project_id"),
+    ("POST", "/v0/vnext/memories/{memory_id}/review", "project_id"),
+}
+
+# The row ids of the MCP tools: (tool, argument path) -> the exact pytest node that reads malformed
+# spellings of it and requires the wire answer to equal a well-formed unknown id's.
 MCP_ROW_IDS: dict[tuple[str, str], str] = {
     ("alice_explain", "memory_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_alice_explain_malformed_memory_id_matches_unknown",
+        f"{DOORS}::test_alice_explain_malformed_memory_id_matches_unknown[no-such-id]",
     ("alice_memory_manage", "memory_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_alice_memory_manage_malformed_memory_id_matches_unknown",
+        f"{DOORS}::test_alice_memory_manage_malformed_memory_id_matches_unknown[no-such-id-forget]",
     ("alice_memory_manage", "confirmation_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_alice_memory_manage_malformed_memory_id_matches_unknown",
+        f"{DOORS}::test_alice_memory_manage_malformed_memory_id_matches_unknown[no-such-id-forget]",
     ("alice_graph_neighborhood", "target_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_mcp_row_id_argument_malformed_matches_unknown",
+        f"{DOORS}::test_mcp_row_id_argument_malformed_matches_unknown[no-such-id-alice_graph_neighborhood-arguments0]",
     ("alice_vnext_open_loops", "source_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_mcp_row_id_argument_malformed_matches_unknown",
+        f"{DOORS}::test_mcp_row_id_argument_malformed_matches_unknown[no-such-id-alice_vnext_open_loops-arguments1]",
     ("alice_vnext_open_loops", "project_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_mcp_row_id_argument_malformed_matches_unknown",
+        f"{DOORS}::test_mcp_row_id_argument_malformed_matches_unknown[no-such-id-alice_vnext_open_loops-arguments2]",
     ("alice_open_loops", "loop_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_mcp_row_id_argument_malformed_matches_unknown",
-    ("alice_belief_review", "belief_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_belief_review_mcp_answers_not_found_for_malformed_and_unknown",
-    ("alice_belief_state", "belief_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_mcp_tool_malformed_id_matches_unknown",
-    ("alice_graph_edge_review", "edge_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_graph_edge_review_mcp_answers_not_found_for_malformed_and_unknown",
-    ("alice_open_loop_review", "loop_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_mcp_tool_malformed_id_matches_unknown",
-    ("alice_project_dashboard", "project_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_mcp_tool_malformed_id_matches_unknown",
-    ("alice_vnext_project_dashboard", "project_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_mcp_row_id_argument_malformed_matches_unknown",
-    ("alice_vnext_artifact_get", "artifact_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_mcp_tool_malformed_id_matches_unknown",
-    ("alice_vnext_artifact_review", "artifact_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_mcp_tool_malformed_id_matches_unknown",
-    ("alice_project_update_review", "artifact_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_mcp_tool_malformed_id_matches_unknown",
+        f"{DOORS}::test_mcp_row_id_argument_malformed_matches_unknown[no-such-id-alice_open_loops-arguments3]",
     ("alice_project_update_candidate", "project_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_mcp_row_id_argument_malformed_matches_unknown",
+        f"{DOORS}::test_mcp_row_id_argument_malformed_matches_unknown[no-such-id-alice_project_update_candidate-arguments4]",
+    ("alice_vnext_project_dashboard", "project_id"):
+        f"{DOORS}::test_mcp_row_id_argument_malformed_matches_unknown[no-such-id-alice_vnext_project_dashboard-arguments5]",
+    ("alice_belief_review", "belief_id"):
+        f"{DOORS}::test_belief_review_mcp_answers_not_found_for_malformed_and_unknown",
+    ("alice_belief_state", "belief_id"):
+        f"{DOORS}::test_legacy_mcp_tool_malformed_id_matches_unknown[no-such-id-alice_belief_state]",
+    ("alice_graph_edge_review", "edge_id"):
+        f"{DOORS}::test_graph_edge_review_mcp_answers_not_found_for_malformed_and_unknown",
+    ("alice_open_loop_review", "loop_id"):
+        f"{DOORS}::test_legacy_mcp_tool_malformed_id_matches_unknown[no-such-id-alice_open_loop_review]",
+    ("alice_project_dashboard", "project_id"):
+        f"{DOORS}::test_legacy_mcp_tool_malformed_id_matches_unknown[no-such-id-alice_project_dashboard]",
+    ("alice_vnext_artifact_get", "artifact_id"):
+        f"{DOORS}::test_legacy_mcp_tool_malformed_id_matches_unknown[no-such-id-alice_vnext_artifact_get]",
+    ("alice_vnext_artifact_review", "artifact_id"):
+        f"{DOORS}::test_legacy_mcp_tool_malformed_id_matches_unknown[no-such-id-alice_vnext_artifact_review]",
+    ("alice_project_update_review", "artifact_id"):
+        f"{DOORS}::test_legacy_mcp_tool_malformed_id_matches_unknown[no-such-id-alice_project_update_review]",
     ("alice_open_loop_extract", "person_id"):
-        "tests/integration/test_open_loop_person_not_found_postgres.py::test_the_legacy_mcp_tool_answers_not_found_for_an_unknown_and_a_malformed_person",
+        f"{PERSON}::test_the_legacy_mcp_tool_answers_not_found_for_an_unknown_and_a_malformed_person",
     ("alice_open_loop_extract", "project_id"):
-        "tests/integration/test_open_loop_person_not_found_postgres.py::test_the_legacy_mcp_tool_answers_a_malformed_project_id_as_an_unknown_one",
+        f"{PERSON}::test_the_legacy_mcp_tool_answers_a_malformed_project_id_as_an_unknown_one",
     ("alice_vnext_undo_memory", "memory_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_memory_tool_malformed_memory_id_matches_unknown",
+        f"{DOORS}::test_legacy_memory_tool_malformed_memory_id_matches_unknown[no-such-id-alice_vnext_undo_memory]",
     ("alice_vnext_correct_memory", "memory_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_memory_tool_malformed_memory_id_matches_unknown",
+        f"{DOORS}::test_legacy_memory_tool_malformed_memory_id_matches_unknown[no-such-id-alice_vnext_correct_memory]",
     ("alice_vnext_forget_memory", "memory_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_memory_tool_malformed_memory_id_matches_unknown",
+        f"{DOORS}::test_legacy_memory_tool_malformed_memory_id_matches_unknown[no-such-id-alice_vnext_forget_memory]",
     ("alice_vnext_memory_audit", "memory_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_legacy_memory_tool_malformed_memory_id_matches_unknown",
+        f"{DOORS}::test_legacy_memory_tool_malformed_memory_id_matches_unknown[no-such-id-alice_vnext_memory_audit]",
     # A candidate id that is not a stored candidate is reported per
     # candidate (not committed) and never fails the call, malformed or
     # unknown.
     ("alice_commit_captures", "candidates[].candidate_id"):
-        "tests/integration/test_malformed_id_doors_postgres.py::test_commit_capture_candidate_id_is_reported_not_failed",
+        f"{DOORS}::test_commit_capture_candidate_id_is_reported_not_failed",
 }
 
 # An MCP argument with one of these names is a claim, not a row id: the
@@ -176,8 +197,9 @@ def _leaf_kinds(schema: dict[str, Any], components: dict[str, Any]) -> set[tuple
     """The (shape, uuid) of every string leaf this schema position can take.
 
     The shape is ``str`` or ``list``; ``uuid`` is true when the leaf says
-    ``format: uuid``. Optional fields (``str | None``), ``nullable`` and
-    ``anyOf`` all end in the string leaves they hold.
+    ``format: uuid``. Optional fields (``str | None``), ``type`` lists
+    (``{"type": ["string", "null"]}``), ``nullable``, ``anyOf``/``oneOf``
+    and ``allOf`` wrappers all end in the string leaves they hold.
     """
 
     kinds: set[tuple[str, bool]] = set()
@@ -186,16 +208,21 @@ def _leaf_kinds(schema: dict[str, Any], components: dict[str, Any]) -> set[tuple
     while stack and seen < 100:
         node = _resolve(stack.pop(), components)
         seen += 1
-        if node.get("type") == "string":
+        types = node.get("type")
+        type_names = set(types) if isinstance(types, list) else {types}
+        if "string" in type_names:
             kinds.add(("str", "format" in node))
-        elif node.get("type") == "array":
+        if node.get("type") == "array" or "array" in type_names:
             items = _resolve(node.get("items", {}), components)
-            if items.get("type") == "string":
+            item_types = items.get("type")
+            item_names = set(item_types) if isinstance(item_types, list) else {item_types}
+            if "string" in item_names:
                 kinds.add(("list", "format" in items))
-        if node.get("nullable") and node.get("type") == "string":
+        if node.get("nullable") and ("string" in type_names):
             kinds.add(("str", "format" in node))
         stack.extend(node.get("anyOf", []))
         stack.extend(node.get("oneOf", []))
+        stack.extend(node.get("allOf", []))
     return kinds
 
 
@@ -214,7 +241,7 @@ def _walk_properties(
     items = _resolve(node.get("items", {}), components)
     if items:
         _walk_properties(items, components, visit, f"{path}[]" if path else "[]", depth + 1)
-    for sub in (*node.get("anyOf", []), *node.get("oneOf", [])):
+    for sub in (*node.get("anyOf", []), *node.get("oneOf", []), *node.get("allOf", [])):
         _walk_properties(sub, components, visit, path, depth + 1)
     additional = node.get("additionalProperties")
     if isinstance(additional, dict):
@@ -241,8 +268,7 @@ def _http_id_fields() -> tuple[set[tuple[str, str, str, str]], set[tuple[str, st
                 if not name.endswith(("_id", "_ids")):
                     continue
                 for shape, is_uuid in _leaf_kinds(parameter.get("schema", {}), components):
-                    kind = "param"
-                    entry = (method.upper(), path, f"{kind}:{name}", shape)
+                    entry = (method.upper(), path, f"param:{name}", shape)
                     (uuids if is_uuid else plain).add(entry)
             body = operation.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {})
 
@@ -282,7 +308,8 @@ def _collected_nodes() -> frozenset[str]:
 
     The named files are collected for real (``pytest --collect-only``), so a
     test that was renamed, moved or removed is not found here even when the
-    string in the list still looks right.
+    string in the list still looks right. The match is exact: an entry names
+    the whole node id, parameters included.
     """
 
     files = sorted({node.split("::")[0] for node in (*HTTP_ROW_IDS.values(), *MCP_ROW_IDS.values())})
@@ -305,7 +332,12 @@ def test_every_http_plain_string_id_field_is_listed_with_its_kind() -> None:
     listed: set[tuple[str, str, str, str]] = set()
     for method, path, field_path, shape in plain:
         name = field_path.split(":")[-1].split(".")[-1].split("[]")[-1].split("{}")[-1]
-        if (method, path, name) in HTTP_ROW_IDS or name in HTTP_CLAIM_NAMES:
+        if (
+            (method, path, name) in HTTP_ROW_IDS
+            or (method, path, field_path) in HTTP_ROW_IDS
+            or (method, path, field_path) in HTTP_CLAIM_PATHS
+            or name in HTTP_CLAIM_NAMES
+        ):
             listed.add((method, path, field_path, shape))
     assert plain == listed, {
         "unlisted": sorted(plain - listed),
@@ -316,7 +348,7 @@ def test_every_http_plain_string_id_field_is_listed_with_its_kind() -> None:
 def test_every_http_row_id_entry_names_a_collected_test() -> None:
     nodes = _collected_nodes()
     for key, node in HTTP_ROW_IDS.items():
-        assert any(collected.startswith(node) for collected in nodes), (key, node)
+        assert node in nodes, (key, node)
 
 
 def test_every_mcp_plain_string_id_argument_is_listed_with_its_kind() -> None:
@@ -325,9 +357,7 @@ def test_every_mcp_plain_string_id_argument_is_listed_with_its_kind() -> None:
     listed: set[tuple[str, str, str]] = set()
     for tool, argument_path, shape in plain:
         name = argument_path.split(".")[-1].split("[]")[-1].split("{}")[-1]
-        if (tool, argument_path) in MCP_ROW_IDS or (tool, argument_path) in MCP_CLAIM_PATHS:
-            listed.add((tool, argument_path, shape))
-        elif name in MCP_CLAIM_NAMES:
+        if (tool, argument_path) in MCP_ROW_IDS or (tool, argument_path) in MCP_CLAIM_PATHS or name in MCP_CLAIM_NAMES:
             listed.add((tool, argument_path, shape))
     assert plain == listed, {
         "unlisted": sorted(plain - listed),
@@ -338,4 +368,4 @@ def test_every_mcp_plain_string_id_argument_is_listed_with_its_kind() -> None:
 def test_every_mcp_row_id_entry_names_a_collected_test() -> None:
     nodes = _collected_nodes()
     for key, node in MCP_ROW_IDS.items():
-        assert any(collected.startswith(node) for collected in nodes), (key, node)
+        assert node in nodes, (key, node)

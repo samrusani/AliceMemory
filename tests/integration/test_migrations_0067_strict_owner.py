@@ -55,22 +55,15 @@ def strict_owner_urls() -> Iterator[dict[str, str]]:
     """
 
     database_name = f"alicebot_test_{uuid4().hex[:12]}"
-    owner_role = "alicebot_strict_owner"
-    owner_password = "alicebot_strict_owner"
+    # One role per run: two overlapping runs on one cluster must not share
+    # a role name, or one run's teardown drops the role the other is using.
+    owner_role = f"alicebot_strict_owner_{uuid4().hex[:8]}"
+    owner_password = owner_role
     with psycopg.connect(_admin_root_url(), autocommit=True) as conn:
         conn.execute(
-            """
-            DO $$
-            BEGIN
-              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'alicebot_strict_owner') THEN
-                EXECUTE format(
-                  'CREATE ROLE %I LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS',
-                  'alicebot_strict_owner', 'alicebot_strict_owner'
-                );
-              END IF;
-            END
-            $$;
-            """
+            sql.SQL("CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS").format(
+                sql.Identifier(owner_role), sql.Literal(owner_password)
+            )
         )
         conn.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(database_name)))
         conn.execute(
@@ -104,17 +97,9 @@ def strict_owner_urls() -> Iterator[dict[str, str]]:
         with psycopg.connect(_admin_root_url(), autocommit=True) as conn:
             conn.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(database_name)))
             # The owner role owns nothing once its database is gone. Another
-            # concurrent run on the same cluster may be inside its own fixture
-            # and own its database through this role, so the role is dropped
-            # only when no database of it is left.
-            dependent = conn.execute(
-                """
-                SELECT count(*) FROM pg_database
-                WHERE datdba = (SELECT oid FROM pg_roles WHERE rolname = 'alicebot_strict_owner')
-                """
-            ).fetchone()[0]
-            if not dependent:
-                conn.execute("DROP ROLE IF EXISTS alicebot_strict_owner")
+            # concurrent run on the same cluster has its own role, so this
+            # one is dropped unconditionally.
+            conn.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(owner_role)))
 
 
 @pytest.fixture

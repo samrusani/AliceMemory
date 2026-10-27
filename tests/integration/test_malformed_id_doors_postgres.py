@@ -26,6 +26,11 @@ from alicebot_api.mcp.types import (
     MCPRuntimeContext,
     MCPToolError,
 )
+from alicebot_api.mcp_server import (
+    _TOOL_EXECUTION_FAILED_MESSAGE,
+    _TOOL_REQUEST_FAILED_CODE,
+    _TOOL_REQUEST_FAILED_MESSAGE,
+)
 from alicebot_api.vnext_agent_control import AgentIdentity
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 
@@ -36,26 +41,44 @@ def _keyed_identity() -> AgentIdentity:
     return AgentIdentity(agent_id="explain-reader", permission_profile="admin_agent", auth="agent_api_key")
 
 
-def _tool(context: MCPRuntimeContext, name: str, arguments: dict[str, object]) -> object:
+def _wire(context: MCPRuntimeContext, name: str, arguments: dict[str, object]) -> tuple[str, str]:
+    """The answer this call puts on the wire: (code, message), exactly as the server maps it.
+
+    A coded refusal keeps its code and the server's fixed words; the plain
+    tool error answers ``tool_request_failed`` with the same fixed words;
+    anything that escapes the handler chain answers ``tool_execution_failed``.
+    """
+
+    from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES, MCPInvalidRequestError, MCPCodedToolError
+
     try:
-        return call_mcp_tool(context, name=name, arguments=arguments)
-    except Exception as exc:
-        return ("raised", type(exc), str(exc))
+        payload = call_mcp_tool(context, name=name, arguments=arguments)
+    except MCPInvalidRequestError as exc:
+        return ("invalid_request", exc.public_message)
+    except MCPCodedToolError as exc:
+        return (exc.code if exc.code in MCP_CODED_ERROR_CODES else _TOOL_REQUEST_FAILED_CODE, _TOOL_REQUEST_FAILED_MESSAGE)
+    except MCPToolError:
+        return (_TOOL_REQUEST_FAILED_CODE, _TOOL_REQUEST_FAILED_MESSAGE)
+    except Exception:
+        return ("tool_execution_failed", _TOOL_EXECUTION_FAILED_MESSAGE)
+    return ("result", payload)
 
 
-def _answers_match(first: object, second: object) -> bool:
-    if isinstance(first, tuple) and isinstance(second, tuple):
-        return first[1] is second[1]
-    if isinstance(first, tuple) or isinstance(second, tuple):
+def _same_wire(first: tuple[str, object], second: tuple[str, object]) -> bool:
+    """Wire answers equal, except a field that echoes the caller's own input.
+
+    The neighborhood door answers the caller's own ``target_id`` back; the
+    malformed and the unknown call name different ids, so that echo differs
+    by construction and everything the answer shows about the vault must
+    still be equal.
+    """
+
+    if first[0] != second[0]:
         return False
-    # A neighborhood answer echoes the caller's own id back; everything it
-    # shows about the row must match.
-    if isinstance(first, dict) and isinstance(second, dict) and "target_id" in first and "target_id" in second:
-        return _answers_match(
-            {k: v for k, v in first.items() if k != "target_id"},
-            {k: v for k, v in second.items() if k != "target_id"},
-        )
-    return first == second
+    if first[0] == "result" and isinstance(first[1], dict) and isinstance(second[1], dict) \
+            and "target_id" in first[1] and "target_id" in second[1]:
+        return {k: v for k, v in first[1].items() if k != "target_id"} == {k: v for k, v in second[1].items() if k != "target_id"}
+    return first[1] == second[1]
 
 
 @pytest.fixture
@@ -134,9 +157,9 @@ def test_alice_explain_malformed_memory_id_matches_unknown(label_harness, value)
     keyless = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
     keyed = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id, agent_identity=_keyed_identity(), agent_identity_resolved=True)
     for context, caller in ((keyless, "keyless"), (keyed, "keyed")):
-        unknown = _tool(context, "alice_explain", {"memory_id": str(uuid4())})
-        malformed = _tool(context, "alice_explain", {"memory_id": value})
-        assert _answers_match(malformed, unknown), (caller, malformed, unknown)
+        unknown = _wire(context, "alice_explain", {"memory_id": str(uuid4())})
+        malformed = _wire(context, "alice_explain", {"memory_id": value})
+        assert _same_wire(malformed, unknown), (caller, malformed, unknown)
 
 
 @pytest.mark.parametrize("action", ("forget", "undo", "expire", "unexpire", "redact", "accept_consolidation"))
@@ -144,46 +167,47 @@ def test_alice_explain_malformed_memory_id_matches_unknown(label_harness, value)
 def test_alice_memory_manage_malformed_memory_id_matches_unknown(label_harness, action, value) -> None:
     h = label_harness
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
-    unknown = _tool(context, "alice_memory_manage", {"action": action, "memory_id": str(uuid4()), "reason": "synthetic"})
-    malformed = _tool(context, "alice_memory_manage", {"action": action, "memory_id": value, "reason": "synthetic"})
-    assert _answers_match(malformed, unknown), (action, malformed, unknown)
+    unknown = _wire(context, "alice_memory_manage", {"action": action, "memory_id": str(uuid4()), "reason": "synthetic"})
+    malformed = _wire(context, "alice_memory_manage", {"action": action, "memory_id": value, "reason": "synthetic"})
+    assert _same_wire(malformed, unknown), (action, malformed, unknown)
 
 
-@pytest.mark.parametrize("name,key", (
-    ("alice_vnext_artifact_get", "artifact_id"),
-    ("alice_vnext_artifact_review", "artifact_id"),
-    ("alice_project_update_review", "artifact_id"),
-    ("alice_project_dashboard", "project_id"),
-    ("alice_open_loop_review", "loop_id"),
-    ("alice_belief_state", "belief_id"),
+@pytest.mark.parametrize("name,build", (
+    # Every request is otherwise valid for its tool, so the tool really
+    # reads the id argument: the refusal these tests pin is the id's, not
+    # an argument refusal that happens before the id is read.
+    pytest.param("alice_vnext_artifact_get", lambda value: {"artifact_id": value}, id="alice_vnext_artifact_get"),
+    pytest.param("alice_vnext_artifact_review", lambda value: {"artifact_id": value, "action": "review"}, id="alice_vnext_artifact_review"),
+    pytest.param("alice_project_update_review", lambda value: {"artifact_id": value, "action": "reject"}, id="alice_project_update_review"),
+    pytest.param("alice_project_dashboard", lambda value: {"project_id": value}, id="alice_project_dashboard"),
+    pytest.param("alice_open_loop_review", lambda value: {"loop_id": value, "action": "close"}, id="alice_open_loop_review"),
+    pytest.param("alice_belief_state", lambda value: {"belief_id": value}, id="alice_belief_state"),
 ))
 @pytest.mark.parametrize("value", MALFORMED_VALUES)
-def test_legacy_mcp_tool_malformed_id_matches_unknown(label_harness, name, key, value) -> None:
+def test_legacy_mcp_tool_malformed_id_matches_unknown(label_harness, name, build, value) -> None:
+    """A malformed id puts on the wire exactly what an unknown id puts there."""
+
     h = label_harness
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
-    arguments: dict[str, object] = {"action": "review", "reason": "synthetic"}
-    arguments[key] = value
-    unknown_arguments = dict(arguments)
-    unknown_arguments[key] = str(uuid4())
-    unknown = _tool(context, name, unknown_arguments)
-    malformed = _tool(context, name, arguments)
-    assert _answers_match(malformed, unknown), (name, malformed, unknown)
+    unknown = _wire(context, name, build(str(uuid4())))
+    malformed = _wire(context, name, build(value))
+    assert _same_wire(malformed, unknown), (name, malformed, unknown)
 
 
 def test_belief_review_mcp_answers_not_found_for_malformed_and_unknown(label_harness, rows) -> None:
     h = label_harness
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
     for value in (*MALFORMED_VALUES, str(uuid4())):
-        result = _tool(context, "alice_belief_review", {"belief_id": value, "action": "reinforce"})
-        assert isinstance(result, tuple) and result[1] is MCPReferenceNotFoundError, result
+        code, message = _wire(context, "alice_belief_review", {"belief_id": value, "action": "reinforce"})
+        assert (code, message) == ("not_found", _TOOL_REQUEST_FAILED_MESSAGE), (value, code, message)
 
 
 def test_graph_edge_review_mcp_answers_not_found_for_malformed_and_unknown(label_harness, rows) -> None:
     h = label_harness
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
     for value in (*MALFORMED_VALUES, str(uuid4())):
-        result = _tool(context, "alice_graph_edge_review", {"edge_id": value, "action": "review"})
-        assert isinstance(result, tuple) and result[1] is MCPReferenceNotFoundError, result
+        code, message = _wire(context, "alice_graph_edge_review", {"edge_id": value, "action": "review"})
+        assert (code, message) == ("not_found", _TOOL_REQUEST_FAILED_MESSAGE), (value, code, message)
 
 
 def test_commit_capture_candidate_id_is_reported_not_failed(label_harness) -> None:
@@ -192,7 +216,7 @@ def test_commit_capture_candidate_id_is_reported_not_failed(label_harness) -> No
     h = label_harness
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
     for candidate_id in ("no-such-id", str(uuid4())):
-        result = _tool(context, "alice_commit_captures", {
+        result = _wire(context, "alice_commit_captures", {
             "mode": "manual",
             "candidates": [{
                 "candidate_id": candidate_id,
@@ -208,7 +232,7 @@ def test_commit_capture_candidate_id_is_reported_not_failed(label_harness) -> No
                 "proposed_action": "queue_for_review",
             }],
         })
-        assert not isinstance(result, tuple) or result[1] not in (MCPToolError, MCPArgumentError, MCPReferenceNotFoundError), result
+        assert result[0] not in ("tool_request_failed", "tool_execution_failed", "invalid_request"), result
 
 
 def test_review_apply_provenance_ids_are_data_not_lookups(label_harness) -> None:
@@ -224,12 +248,12 @@ def test_review_apply_provenance_ids_are_data_not_lookups(label_harness) -> None
     with h.store() as store:
         from tests.integration.test_vnext_live_workspace_api import seed_user
         del store
-    unknown = _tool(context, "alice_review_apply", {
+    unknown = _wire(context, "alice_review_apply", {
         "review_item_id": str(uuid4()),
         "action": "approve",
         "provenance": {"artifact_id": "no-such-id", "source_event_ids": ["no-such-event"]},
     })
-    assert not isinstance(unknown, tuple) or unknown[1] not in (MCPToolError,), unknown
+    assert unknown[0] != "tool_execution_failed", unknown
 
 
 @pytest.mark.parametrize("value", MALFORMED_VALUES)
@@ -272,7 +296,7 @@ def test_memory_confirm_http_malformed_confirmation_id_matches_unknown(label_har
     ("alice_graph_neighborhood", {"target_id": "X"}),
     ("alice_vnext_open_loops", {"source_id": "X"}),
     ("alice_vnext_open_loops", {"project_id": "X"}),
-    ("alice_open_loops", {"loop_id": "X"}),
+    ("alice_open_loops", {"action": "close", "loop_id": "X"}),
     ("alice_project_update_candidate", {"project_id": "X"}),
     ("alice_vnext_project_dashboard", {"project_id": "X"}),
     ("alice_memory_manage", {"action": "confirm", "confirmation_id": "X", "canonical_text": "Synthetic confirmation text"}),
@@ -285,11 +309,11 @@ def test_mcp_row_id_argument_malformed_matches_unknown(label_harness, tool, argu
     for key in arguments:
         if arguments[key] == "X":
             unknown_arguments[key] = str(uuid4())
-    unknown = _tool(context, tool, unknown_arguments)
-    malformed = _tool(context, tool, {**arguments, **{
+    unknown = _wire(context, tool, unknown_arguments)
+    malformed = _wire(context, tool, {**arguments, **{
         key: value for key in arguments if arguments.get(key) == "X"
     }})
-    assert _answers_match(malformed, unknown), (tool, malformed, unknown)
+    assert _same_wire(malformed, unknown), (tool, malformed, unknown)
 
 
 @pytest.mark.parametrize("value", MALFORMED_VALUES)
@@ -311,24 +335,24 @@ def test_mcp_id_arrays_and_sessions_malformed_matches_unknown(label_harness, too
     h = label_harness
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
     unknown_arguments = json.loads(json.dumps(arguments).replace("X", str(uuid4())))
-    unknown = _tool(context, tool, unknown_arguments)
-    malformed = _tool(context, tool, json.loads(json.dumps(arguments).replace("X", value)))
-    assert _answers_match(malformed, unknown), (tool, malformed, unknown)
+    unknown = _wire(context, tool, unknown_arguments)
+    malformed = _wire(context, tool, json.loads(json.dumps(arguments).replace("X", value)))
+    assert _same_wire(malformed, unknown), (tool, malformed, unknown)
 
 
 @pytest.mark.parametrize("tool,build", (
-    ("alice_vnext_undo_memory", lambda v: {"memory_id": v}),
-    ("alice_vnext_forget_memory", lambda v: {"memory_id": v, "reason": "synthetic"}),
-    ("alice_vnext_memory_audit", lambda v: {"memory_id": v}),
-    ("alice_vnext_correct_memory", lambda v: {"memory_id": v, "action": "edit", "canonical_text": "Synthetic corrected text"}),
+    pytest.param("alice_vnext_undo_memory", lambda v: {"memory_id": v}, id="alice_vnext_undo_memory"),
+    pytest.param("alice_vnext_forget_memory", lambda v: {"memory_id": v, "reason": "synthetic"}, id="alice_vnext_forget_memory"),
+    pytest.param("alice_vnext_memory_audit", lambda v: {"memory_id": v}, id="alice_vnext_memory_audit"),
+    pytest.param("alice_vnext_correct_memory", lambda v: {"memory_id": v, "action": "edit", "canonical_text": "Synthetic corrected text"}, id="alice_vnext_correct_memory"),
 ))
 @pytest.mark.parametrize("value", MALFORMED_VALUES)
 def test_legacy_memory_tool_malformed_memory_id_matches_unknown(label_harness, tool, build, value) -> None:
     h = label_harness
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
-    unknown = _tool(context, tool, build(str(uuid4())))
-    malformed = _tool(context, tool, build(value))
-    assert _answers_match(malformed, unknown), (tool, malformed, unknown)
+    unknown = _wire(context, tool, build(str(uuid4())))
+    malformed = _wire(context, tool, build(value))
+    assert _same_wire(malformed, unknown), (tool, malformed, unknown)
 
 
 NIL_ID = "00000000-0000-0000-0000-000000000000"
@@ -374,12 +398,12 @@ def test_a_malformed_id_never_touches_a_row_stored_under_the_nil_id(label_harnes
     before = _nil_row_state(h)
     assert before, "the nil-id row was not stored"
 
-    unknown_forget = _tool(context, "alice_memory_manage", {"action": "forget", "memory_id": str(uuid4()), "reason": "synthetic"})
-    malformed_forget = _tool(context, "alice_memory_manage", {"action": "forget", "memory_id": value, "reason": "synthetic"})
-    assert _answers_match(malformed_forget, unknown_forget), (malformed_forget, unknown_forget)
+    unknown_forget = _wire(context, "alice_memory_manage", {"action": "forget", "memory_id": str(uuid4()), "reason": "synthetic"})
+    malformed_forget = _wire(context, "alice_memory_manage", {"action": "forget", "memory_id": value, "reason": "synthetic"})
+    assert _same_wire(malformed_forget, unknown_forget), (malformed_forget, unknown_forget)
 
-    unknown_explain = _tool(context, "alice_explain", {"memory_id": str(uuid4())})
-    malformed_explain = _tool(context, "alice_explain", {"memory_id": value})
-    assert _answers_match(malformed_explain, unknown_explain), (malformed_explain, unknown_explain)
+    unknown_explain = _wire(context, "alice_explain", {"memory_id": str(uuid4())})
+    malformed_explain = _wire(context, "alice_explain", {"memory_id": value})
+    assert _same_wire(malformed_explain, unknown_explain), (malformed_explain, unknown_explain)
 
     assert _nil_row_state(h) == before, "the malformed id touched the row stored under the nil id"

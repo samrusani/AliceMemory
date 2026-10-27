@@ -38,6 +38,7 @@ from .shared import (
     _raise_mcp_policy_blocked,
     _vnext_store_context,
 )
+from .types import MCPReferenceNotFoundError
 
 
 def _project_request_from_arguments(arguments: Mapping[str, object]) -> ProjectAutomationRequest:
@@ -119,7 +120,7 @@ def _handle_alice_project_update_review(context: MCPRuntimeContext, arguments: M
     actor_id: str | None = None
     trace_id: str | None = None
     with _vnext_store_context(context) as store:
-        artifact_id = _canonical_row_id_argument(arguments, "artifact_id", store=store, not_found=lambda _raw: MCPToolError(f"artifact {_raw} was not found"))
+        artifact_id = _canonical_row_id_argument(arguments, "artifact_id", store=store, not_found=lambda _raw: MCPReferenceNotFoundError(f"artifact {_raw} was not found"))
         from alicebot_api.vnext_artifact_review import lock_artifact_review_labels
         lock_graph = getattr(store, "lock_graph_mutation", None)
         if callable(lock_graph):

@@ -93,3 +93,9 @@ def test_a_bracketed_migration_restores_every_forced_flag(
         if table in before and before[table] != after.get(table)
     }
     assert changed == {}, changed
+    # No migration leaves a row-level-security table unprotected: every
+    # table whose row-level security is on after the migration carries the
+    # forced setting too, so a removed FORCE restore on any table (not only
+    # the ones this migration's own bracket names) fails here.
+    unforced = {table: flags for table, flags in after.items() if flags == (True, False)}
+    assert unforced == {}, unforced

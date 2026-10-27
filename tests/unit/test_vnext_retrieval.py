@@ -1054,6 +1054,58 @@ def test_keyword_query_that_and_matches_does_not_use_the_fallback_on_sqlite() ->
     assert pack["trace"]["stages"]["fts"] == {"source": "sqlite_fts", "candidate_count": 1}
 
 
+def test_a_reference_spelling_of_the_source_id_gets_the_sources_event_time_on_sqlite() -> None:
+    """A source id in a reference spelling dates the memory on SQLite too.
+
+    The date lookup reads the ids the reference reader names, on a store
+    that compares text as well as on one that casts: a memory whose
+    ``metadata_json.source_id`` holds ``urn:uuid:<id>`` (any case) gets the
+    source's event time, exactly as the canonical spelling's memory does.
+    """
+
+    def pack_for(spelling: str) -> list[dict[str, object]]:
+        store = _sqlite_retrieval_store()
+        source = store.create_source(
+            {
+                "source_type": "note",
+                "title": "Cobalt note",
+                "content_hash": "sha256:cobalt-" + uuid4().hex,
+                "domain": "personal",
+                "sensitivity": "private",
+                "captured_at": "2026-01-05T08:00:00Z",
+            }
+        )
+        memory = store.create_memory(
+            {
+                "memory_key": "cobalt.event",
+                "canonical_text": "The cobalt door opens on Monday.",
+                "status": "active",
+                "domain": "personal",
+                "sensitivity": "private",
+                "value": {"text": "The cobalt door opens on Monday."},
+                "metadata_json": {"source_id": spelling.format(id=str(source["id"]))},
+            }
+        )
+        pack = VNextRetrievalService(store).compile_context_pack(
+            VNextRetrievalRequest(query="cobalt door"),
+            source_fence=SourceReadFence.unfenced()
+        )
+        return [item for item in pack["relevant_memories"] if item["id"] == memory["id"]]
+
+    canonical_items = pack_for("{id}")
+    assert len(canonical_items) == 1, canonical_items
+    canonical = canonical_items[0].get("event_time")
+    assert canonical == "2026-01-05T08:00:00+00:00", canonical
+    for spelling in ("urn:uuid:{id}", "URN:UUID:{id}", "source:{id}", "uuid:{id}", "alice://sources/{id}"):
+        items = pack_for(spelling)
+        assert len(items) == 1 and items[0].get("event_time") == canonical, (spelling, items)
+    # A value the reader names no named id for takes no date from a source:
+    # the memory is either withheld by the read fence's own input rules or
+    # shown with no event_time, never dated from a source.
+    unspelled_items = pack_for("manual-import")
+    assert unspelled_items == [] or unspelled_items[0].get("event_time") is None, unspelled_items
+
+
 def test_count_candidate_statistic_uses_real_sqlite_fts_mode_and_provenance_dedup() -> None:
     store = _sqlite_retrieval_store()
     source_a = store.create_source(
