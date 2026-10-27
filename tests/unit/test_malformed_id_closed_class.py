@@ -351,6 +351,32 @@ def test_every_http_row_id_entry_names_a_collected_test() -> None:
         assert node in nodes, (key, node)
 
 
+def test_the_extract_request_scope_is_free_form_and_its_person_id_is_listed() -> None:
+    """The scope.person_id entry is checked, not decorative.
+
+    The extract request's ``scope`` is a free-form JSON object, so the walker
+    cannot see ``person_id`` inside it and the classification tests cannot
+    keep the entry honest. This test reads the mounted schema directly: the
+    scope field of the extract body is an object with no visible properties,
+    which is why the entry exists, and the table still holds it.
+    """
+
+    schema = main_module.app.openapi()
+    components = schema.get("components", {}).get("schemas", {})
+    operation = schema["paths"]["/v0/vnext/open-loops/extract"]["post"]
+    body = _resolve(
+        operation.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {}),
+        components,
+    )
+    scope = body.get("properties", {}).get("scope")
+    assert scope is not None, body.get("properties", {}).keys()
+    assert scope.get("type") == "object"
+    assert not scope.get("properties"), scope.get("properties")
+    # The door reads scope.person_id by name out of this free-form object,
+    # so the entry exists and no walker change can classify it instead.
+    assert ("POST", "/v0/vnext/open-loops/extract", "scope.person_id") in HTTP_ROW_IDS
+
+
 def test_every_mcp_plain_string_id_argument_is_listed_with_its_kind() -> None:
     plain, uuids = _mcp_id_arguments()
     assert len(plain) >= 20 and len(uuids) >= 40
