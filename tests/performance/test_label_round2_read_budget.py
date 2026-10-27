@@ -24,6 +24,7 @@ from tests.performance.read_budget_gate import (
     paired_summary,
     prelabels_action,
     prelabels_checkout,
+    screen_gate_failures,
 )
 from tests.performance.test_label_round3_read_budget import absolute_limit_seconds
 
@@ -154,7 +155,8 @@ def assert_budgets(backend, location, user, keys):
     merge_base = merge_base_checkout()
     prelabels = prelabels_checkout()
     # Pack and recall are the merge-base gate. The screens are timed only when the absolute
-    # gate is on, which is the maximum-workload smoke job. The required job does not spend its session on them.
+    # gate is on, which is the maximum-workload smoke job; there they answer to the
+    # same-runner paired rule and the absolute limit. The required job does not spend its session on them.
     actions = ("pack", "recall")
     if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
         actions = ("pack", "recall", "workspace", "dogfooding")
@@ -192,11 +194,13 @@ def assert_budgets(backend, location, user, keys):
         for action in ("pack", "recall"):
             over = paired_over_merge_base(measured["head"][action], measured["merge_base"][action])
             assert not over, (action, over, measured["head"], measured["merge_base"])
-        # The screen wall limit is absolute_limit_seconds(), and only when the absolute gate is on.
+        # The screens carry two checks: the same-runner paired rule against
+        # the merge base and the absolute limit; see the maximum-workload
+        # smoke step's comment for what each is for.
         if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
-            limit = absolute_limit_seconds()
-            for action in ("workspace", "dogfooding"):
-                assert measured["head"][action]["minimum_wall"] <= limit, (action, measured["head"])
+            rows = screen_gate_failures(measured["head"], measured["merge_base"], statistic="minimum_wall",
+                                        limit=absolute_limit_seconds())
+            assert not rows, (rows, measured["head"], measured["merge_base"])
 
 
 @label_read_request

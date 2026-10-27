@@ -18,6 +18,7 @@ from tests.performance.read_budget_gate import (
     paired_summary,
     prelabels_action,
     prelabels_checkout,
+    screen_gate_failures,
 )
 from tests.performance.test_label_read_handoff_budget import seed_copies
 from tests.performance.test_label_round3_read_budget import absolute_limit_seconds
@@ -112,7 +113,8 @@ def test_postgres_five_thousand_native_read_budgets(label_harness, hidden):
         conn.execute("ANALYZE sources")
     repo = Path(__file__).resolve().parents[2]
     # Pack and recall are the merge-base gate. The screens are timed only when the absolute
-    # gate is on, which is the maximum-workload smoke job. The required job does not spend its session on them.
+    # gate is on, which is the maximum-workload smoke job; there they answer to the
+    # same-runner paired rule and the absolute limit. The required job does not spend its session on them.
     actions = ("pack", "recall")
     if os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
         actions = ("pack", "recall", "workspace", "dogfooding")
@@ -141,6 +143,13 @@ def test_postgres_five_thousand_native_read_budgets(label_harness, hidden):
         for action in ("pack", "recall"):
             over = paired_over_merge_base(head[action], measured["merge_base"][action])
             assert not over, (action, over, row)
+        # The screens carry two checks when the merge base is set: the
+        # same-runner paired rule and the absolute limit; see the
+        # maximum-workload smoke step's comment for what each is for.
+        if os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
+            screen_rows = screen_gate_failures(head, measured["merge_base"], statistic="median",
+                                               limit=absolute_limit_seconds())
+            assert not screen_rows, (screen_rows, head, measured["merge_base"])
     else:
         process = open_probe(repo, "postgres", h.urls["app"], h.user_id)
         try:
@@ -150,7 +159,9 @@ def test_postgres_five_thousand_native_read_budgets(label_harness, hidden):
         print("PostgreSQL hidden=" + str(hidden) + " head=" + json.dumps(head))
         for action in ("pack", "recall"):
             assert head[action]["median"] <= .15, (action, head)
-    # The screen median limit is absolute_limit_seconds(), and only when the absolute gate is on.
+    # The absolute limit for the screens holds in the solo run too (no merge
+    # base is set there, so the paired rule cannot); the paired rule ran in
+    # the merge-base branch above.
     if os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
         limit = absolute_limit_seconds()
         for action in ("workspace", "dogfooding"):

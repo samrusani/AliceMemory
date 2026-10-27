@@ -134,3 +134,38 @@ def append_evidence(row: dict) -> None:
     evidence.parent.mkdir(parents=True, exist_ok=True)
     with evidence.open("a", encoding="utf-8") as output:
         output.write(json.dumps(row) + "\n")
+
+
+def screen_gate_failures(
+    head_by_action: dict,
+    base_by_action: dict,
+    *,
+    statistic: str,
+    limit: float,
+    actions: tuple[str, ...] = ("workspace", "dogfooding"),
+) -> list[tuple[str, str, str, float, float]]:
+    """The failure rows for the operator screens, each naming the check that failed.
+
+    Two checks per screen: the same-runner paired rule against the merge base
+    (one pull request that slows a screen fails on the runner's own speed),
+    and the absolute limit (large slowdowns and very slow runners, which the
+    paired rule cannot see because it needs the merge base of the same run).
+    A head equal to either bound passes. Each row is
+    ``(check, action, statistic, head, base)`` with ``check`` either
+    ``"paired_merge_base"`` or ``"absolute_limit"``, so a red smoke job says
+    which of the two tripped; when both fail, both rows appear. The paired
+    half reads the statistics of ``PAIRED_STATISTICS`` on each screen's
+    measurements through ``paired_over_merge_base``, exactly as pack and
+    recall do in each module; the absolute half reads the module's own wall
+    statistic.
+    """
+
+    rows: list[tuple[str, str, str, float, float]] = []
+    for action in actions:
+        head_action, base_action = head_by_action[action], base_by_action[action]
+        for stat in paired_over_merge_base(head_action, base_action):
+            rows.append(("paired_merge_base", action, stat, head_action[stat], base_action[stat]))
+        head = head_action[statistic]
+        if head > limit:
+            rows.append(("absolute_limit", action, statistic, head, base_action[statistic]))
+    return rows

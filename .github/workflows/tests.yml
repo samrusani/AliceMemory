@@ -2380,11 +2380,25 @@ jobs:
           ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
           ALICE_READ_PROFILE: ${{ runner.temp }}/round3-read-profiles
           ALICE_READ_ABSOLUTE_GATE: "1"
-          # One second is the target on the reference machine, where this fixture
-          # reads in 0.41 to 0.68 s. Shared runners are about twice as slow on CPU
-          # and read it in about 1.0 s, so the limit is 1.5 here. The merge-base
-          # gate runs in the required job. This job keeps the absolute limit.
-          ALICE_READ_ABSOLUTE_LIMIT_SECONDS: "1.5"
+          # Two checks apply to the workspace and dogfooding screens this step
+          # times. The same-runner paired rule (head against this run's merge
+          # base, 1.25 times plus 0.05 seconds) catches one pull request that
+          # slows a screen: over the 22 runs before 2026-10-27 the
+          # trusted_local_agent workspace reading stayed within 0.95 to 1.09
+          # times its merge base on the same runner (its CPU median within
+          # 0.95 to 1.05). The absolute limit catches large slowdowns and
+          # very slow runners the paired rule cannot see: one runner read the
+          # screens about 4.6 times slower than the others and failed the old
+          # limit of 1.5, and a pull request whose code was identical to its
+          # merge base failed at 1.533 s against 1.440 s on the same runner.
+          # On a fast local machine the same reading is 0.62 to 0.68 s across
+          # the three releases before 2026-10-27 and main; on shared runners
+          # it is 0.85 to 1.46 s (median 1.24) over the 30 runs before
+          # 2026-10-27, so the limit is 2.0.
+          # The target on the reference machine stays 1.0
+          # (DEFAULT_ABSOLUTE_LIMIT_SECONDS). The paired gate for pack and
+          # recall runs in the required job.
+          ALICE_READ_ABSOLUTE_LIMIT_SECONDS: "2.0"
         # --timeout=600 is the limit the weekly parent budget test sets for itself
         # with pytest.mark.timeout(600), not the 180 seconds of the shards. This
         # step reads the largest fixtures on three revisions and writes read
