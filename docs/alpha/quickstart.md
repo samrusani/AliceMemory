@@ -85,7 +85,7 @@ The rest of this page sets up the Postgres stack. It needs:
 
 ## Setup
 
-The clone checks out `main`, which can be ahead of the latest release. To run v0.21.1, run `git checkout v0.21.1` before `make setup`.
+The clone checks out `main`, which can be ahead of the latest release. To run v0.22.0, run `git checkout v0.22.0` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git

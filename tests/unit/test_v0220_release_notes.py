@@ -1,18 +1,29 @@
 """The v0.22.0 release notes carry the upgrade steps, the security wording and the claims a reader can check.
 
 Every claim in the notes comes from an entry of the changelog. These tests pin the parts a later edit could quietly
-weaken: the release identity and its pending state, the six version sites, the dated changelog heading and the empty
-Unreleased section, the security wording and the pending advisory identifier, the steps an upgrading user must act on,
-the numbers that drift with the code (the tool counts, the PostgreSQL revision, the limits and defaults of the vectors)
-and the claims about what changes. Those claims are run, not read: the endpoint rules, the opt-in values and the
-off-by-default import against the module and a loopback endpoint; the policy decision of each kind of request to the
-agent output route; and the v0.21.1 side of each comparison against an export of the v0.21.1 tag, which is made with
-``git archive`` into a temporary folder. Each test names the mutation that must fail it.
+weaken: the release identity and its published state, the checksums record, the six version sites and the marketplace
+pin, the dated changelog heading, the security wording and the pending advisory identifier, the steps an upgrading user
+must act on, the numbers that drift (the tool counts, the PostgreSQL revision, the settings and flags, and the limits
+and defaults of the vectors) and the claims about what changes. Those claims are run, not read: the endpoint rules, the
+opt-in values and the off-by-default import against the module and a loopback endpoint, and the policy decision of each
+kind of request to the agent output route. Each test names the mutation that must fail it.
 
-The notes are not published yet. Their state is ``pending`` and there is no checksums file, because the release check
-requires that before the tag. The change that follows publication moves the state to ``published`` and ``recorded``,
-adds the checksums file, moves the marketplace pin to the tag and fills in the advisory identifier, and it changes the
-first test, the version-site test and the advisory test below to say so, as the change after v0.21.1 did.
+What the notes say about the release itself is read at the v0.22.0 tag, and every comparison with v0.21.1 reads both of
+its sides from the tags. Each tag is exported with ``git archive`` into a temporary folder, and the code of the export
+is run in a subprocess. The Alembic folder, the settings, the flags, the tool counts, the limits of the vectors and the
+code of the agent output route are therefore not read from the working tree, so a later change to ``main`` (a migration
+edited in place, a new setting, a new tool) does not make a published claim about what v0.22.0 shipped fail. The
+behaviour tests further down (the endpoint rules, the opt-in values, the policy decisions, the import and the vault that
+v0.21.1 opens) still run the module of the working tree, as ``test_credential_marker_lengths.py`` does, and a later
+change to that behaviour has to update them.
+
+The notes are published. The change that followed publication moved their state to ``published`` and ``recorded``, added
+the checksums file, moved the marketplace file to the v0.22.0 tag and its commit, named v0.22.0 as the latest published
+release in the control documents and removed the release candidate line, as the change after v0.21.1 did, and added one
+dated 2026-10-27 update beside the notes' own marketplace step. The advisory identifier is still ``pending``: a later
+dated update adds it. The tagged lines of the notes and of the changelog section are held by
+``test_published_release_notes_stay_immutable.py``. The release check's pre-tag mode refuses the tree now, and one test
+below pins the three reasons.
 """
 
 from __future__ import annotations
@@ -33,26 +44,13 @@ import pytest
 import tomllib
 
 import scripts.release_check as release_check
-from alicebot_api.mcp.registry import list_mcp_tools
 from alicebot_api.mcp.retrieval import recall_source_ranking
 from alicebot_api.onramp import main as alice_memory_main
 from alicebot_api.routers._vnext_shared import _vnext_agent_identity
 from alicebot_api.routers.vnext_memories import VNextAgentOutputIngestRequest
-from alicebot_api.source_chunk_vector_search import BREAKER_SECONDS, QUERY_EMBEDDING_TIMEOUT_SECONDS
-from alicebot_api.source_embedding_policy import (
-    DEFAULT_MAX_VECTORS,
-    MIN_READABLE_CHARS,
-    PREFIX_RULES,
-    endpoint_is_loopback,
-    source_embedding_settings,
-)
+from alicebot_api.source_embedding_policy import endpoint_is_loopback, source_embedding_settings
 from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.vnext_agent_control import evaluate_agent_policy
-from alicebot_api.vnext_stores.sqlite.chunk_vector_cache import (
-    DEFAULT_CACHE_MAX_MB,
-    DEFAULT_SCOPED_CACHE_MAX_MB,
-    DEFAULT_SCOPED_COPIES,
-)
 from tests.unit.passage_vector_support import (
     EMBEDDINGS_BASE_URL_ENV,
     EMBEDDINGS_MODEL_ENV,
@@ -65,15 +63,21 @@ from tests.unit.test_published_release_notes_stay_immutable import _tagged
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NOTES_PATH = "docs/release/v0.22.0-release-notes.md"
+RELEASE_TAG = "v0.22.0"
+PRIOR_TAG = "v0.21.1"
 HEADING = "## v0.22.0 \u2014 2026-10-26"
 # The notes are about 14,500 characters, and 17,500 leaves room for a correction and no more.
 NOTES_CEILING = 17_500
 
-# The v0.21.1 tag and the commit it points at: the marketplace file still pins them until the change after publication.
-TAG_COMMIT = "8d0bac271164ad494687ab599a96499ddfbcce66"
+# The v0.22.0 tag, the commit it points at, and the digests of the two files published for it.
+CHECKSUMS_PATH = "docs/release/v0.22.0-checksums.txt"
+TAG_COMMIT = "a6a5f49eebb7377f40b388f2ffe07290b05b85fb"
+PRIOR_TAG_COMMIT = "8d0bac271164ad494687ab599a96499ddfbcce66"
+WHEEL_SHA256 = "803f466454de8973ed64db47de9e3c366943fc8833ed3ae0b40fbd9a48018fdb"
+SDIST_SHA256 = "c2fe674d9d475ad04f6ed56df3ed4d55a1aef96209dbb1f8d86f07bf7634296a"
 
 CANDIDATE_LINE = "`v0.22.0` is the current release candidate. It is not published."
-CANDIDATE_DOCS = (
+LATEST_DOCS = (
     "ARCHITECTURE.md",
     "PRODUCT_BRIEF.md",
     "ROADMAP.md",
@@ -127,26 +131,70 @@ def _entries() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# The v0.21.1 tag, exported into a temporary folder. The tests that compare with it run its code in a subprocess.
+# The two tags, each exported into a temporary folder. The tests that compare them run their code in a subprocess.
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def v0211_tree(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """``apps/api/src`` and ``apps/api/alembic`` of the v0.21.1 tag, made with ``git archive``.
+def _export(tag: str, factory: pytest.TempPathFactory, name: str) -> Path:
+    """``apps/api/src`` and ``apps/api/alembic`` of ``tag``, made with ``git archive``.
 
     A checkout without tags skips the tests that use it, and under ``CI`` they fail instead, the rule of
     ``test_published_release_notes_stay_immutable.py``.
     """
 
-    _tagged("v0.21.1", "pyproject.toml")  # skips, or fails under CI, when the tag cannot be read
+    _tagged(tag, "pyproject.toml")  # skips, or fails under CI, when the tag cannot be read
     done = subprocess.run(
-        ["git", "archive", "v0.21.1", "apps/api/src", "apps/api/alembic"], cwd=REPO_ROOT, capture_output=True, check=True
+        ["git", "archive", tag, "apps/api/src", "apps/api/alembic"], cwd=REPO_ROOT, capture_output=True, check=True
     )
-    target = tmp_path_factory.mktemp("v0211")
+    target = factory.mktemp(name)
     with tarfile.open(fileobj=BytesIO(done.stdout)) as archive:
         archive.extractall(target, filter="data")
     return target
+
+
+@pytest.fixture(scope="module")
+def v0211_tree(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The code and the Alembic folder of the tag before this release, v0.21.1."""
+
+    return _export(PRIOR_TAG, tmp_path_factory, "v0211")
+
+
+@pytest.fixture(scope="module")
+def v0220_tree(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The code and the Alembic folder of the tag of this release, v0.22.0."""
+
+    return _export(RELEASE_TAG, tmp_path_factory, "v0220")
+
+
+_NUMBERS_CODE = (
+    "import json, os\n"
+    "from alicebot_api.mcp.registry import list_mcp_tools\n"
+    "from alicebot_api.source_chunk_vector_search import BREAKER_SECONDS, QUERY_EMBEDDING_TIMEOUT_SECONDS\n"
+    "from alicebot_api.source_embedding_policy import DEFAULT_MAX_VECTORS, MIN_READABLE_CHARS, PREFIX_RULES\n"
+    "from alicebot_api.vnext_stores.sqlite.chunk_vector_cache import (\n"
+    "    DEFAULT_CACHE_MAX_MB, DEFAULT_SCOPED_CACHE_MAX_MB, DEFAULT_SCOPED_COPIES)\n"
+    "counts = {}\n"
+    "for label, flags in (\n"
+    "    ('default', {}),\n"
+    "    ('full', {'ALICE_MCP_FULL_TOOLS': '1'}),\n"
+    "    ('legacy', {'ALICE_MCP_FULL_TOOLS': '1', 'ALICE_MCP_LEGACY_TOOLS': '1'}),\n"
+    "    ('all', {'ALICE_MCP_FULL_TOOLS': '1', 'ALICE_MCP_LEGACY_TOOLS': '1', 'ALICE_LEGACY_SURFACES': '1'}),\n"
+    "):\n"
+    "    os.environ.update(flags)\n"
+    "    counts[label] = len(list_mcp_tools())\n"
+    "    for name in flags:\n"
+    "        del os.environ[name]\n"
+    "print(json.dumps({\n"
+    "    'counts': counts,\n"
+    "    'max_vectors': DEFAULT_MAX_VECTORS,\n"
+    "    'cache_mb': DEFAULT_CACHE_MAX_MB,\n"
+    "    'scoped': [DEFAULT_SCOPED_CACHE_MAX_MB, DEFAULT_SCOPED_COPIES],\n"
+    "    'query_timeout': QUERY_EMBEDDING_TIMEOUT_SECONDS,\n"
+    "    'breaker': BREAKER_SECONDS,\n"
+    "    'min_chars': MIN_READABLE_CHARS,\n"
+    "    'prefixes': [[rule.family, rule.document, rule.query] for rule in PREFIX_RULES],\n"
+    "}))\n"
+)
 
 
 _FLAGS_CODE = (
@@ -218,21 +266,41 @@ def _tables(database: Path) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_the_notes_have_the_exact_title_and_the_pending_state_and_no_checksums_file() -> None:
-    """Mutations, each one alone: change the title, move the state comment, set either status to published or
-    recorded, add a second state line, add ``docs/release/v0.22.0-checksums.txt``.
-
-    The release check requires both statuses to be pending and the checksums file to be absent before the tag.
+def test_the_notes_are_published_with_the_exact_title_state_and_a_checksums_record() -> None:
+    """Mutations, each one alone: change the title, move the state comment, set either status back to pending,
+    add a second state line, delete the checksums file.
     """
 
     lines = _text(NOTES_PATH).splitlines()
     assert lines[0] == "# Alice v0.22.0 Release Notes"
     assert lines[1] == (
         '<!-- alice-release-state: {"schema_version":"alice_release_document_state_v1","version":"0.22.0",'
-        '"publication_status":"pending","checksums_status":"pending"} -->'
+        '"publication_status":"published","checksums_status":"recorded"} -->'
     )
     assert sum("alice-release-state" in line for line in lines) == 1
-    assert not (REPO_ROOT / "docs/release/v0.22.0-checksums.txt").exists()
+    assert (REPO_ROOT / CHECKSUMS_PATH).is_file()
+
+
+def test_the_checksums_file_records_the_two_published_digests_in_the_format_of_the_last_release() -> None:
+    """Mutations, each one alone: change one hex digit of either digest; swap the two file names; add a third
+    line; write another version into the header or into the verify commands; delete a header line.
+
+    The digests are the ones PyPI serves for 0.22.0 and the GitHub Release lists for its assets, read on
+    2026-10-27 (wheel 1,977,474 bytes, source distribution 1,736,968 bytes). The header and the layout are the v0.21.1
+    file's with the version replaced, so the two files stay in one format. Nothing offline compares the digests with
+    PyPI: ``release_check.py --tag v0.22.0 --verify-pypi-artifacts`` does, with the two files downloaded.
+    """
+
+    old = _text("docs/release/v0.21.1-checksums.txt").splitlines()
+    new = _text(CHECKSUMS_PATH).splitlines()
+    assert len(old) == len(new) == 19
+    assert [line.replace("0.21.1", "0.22.0") for line in old[:17]] == new[:17]
+    assert new[0] == "# Alice v0.22.0: published artifact SHA-256 digests"
+    assert new[17:] == [
+        f"{WHEEL_SHA256}  alice_memory-0.22.0-py3-none-any.whl",
+        f"{SDIST_SHA256}  alice_memory-0.22.0.tar.gz",
+    ]
+    assert _text(CHECKSUMS_PATH).endswith(".tar.gz\n")
 
 
 def test_the_notes_stay_under_the_size_ceiling_and_keep_their_sections_in_order() -> None:
@@ -244,13 +312,13 @@ def test_the_notes_stay_under_the_size_ceiling_and_keep_their_sections_in_order(
     assert headings == SECTIONS
 
 
-def test_every_version_site_names_0220_and_the_marketplace_still_pins_the_published_release() -> None:
-    """Mutations, each one alone: set one version site or one plugin pin back to 0.21.1; move the marketplace ``ref``
-    to v0.22.0; change one hex digit of the marketplace ``sha``; change the install command in the notes.
+def test_every_version_site_names_0220_and_the_marketplace_pins_the_published_release() -> None:
+    """Mutations, each one alone: set one version site or one plugin pin back to 0.21.1; set the marketplace ``ref``
+    back to v0.21.1; change one hex digit of the marketplace ``sha``; change the install command in the notes.
 
-    The six sites are the ones ``scripts/release_check.py`` requires. The marketplace file moves to the v0.22.0 tag
-    only after publication, in the change that records the digests, so here it still names the latest published
-    release and the commit its tag points at.
+    The six sites are the ones ``scripts/release_check.py`` requires. The post-publication change moved the marketplace
+    file to the v0.22.0 tag and the commit that tag points at, so it names the latest published release. The v0.22.0 tag
+    itself still pins v0.21.1, and the plugin page says so.
     """
 
     pyproject = tomllib.loads(_text("pyproject.toml"))["project"]["version"]
@@ -262,51 +330,148 @@ def test_every_version_site_names_0220_and_the_marketplace_still_pins_the_publis
         assert f"alice-memory=={pyproject}" in _text(name), name
         assert "alice-memory==0.21.1" not in _text(name), name
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.21.1"
+    assert marketplace["ref"] == "v0.22.0"
     assert marketplace["sha"] == TAG_COMMIT
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.22.0 && alice-memory install" in notes
     assert "With uv: `uvx alice-memory install`." in notes
+    # The copy of the marketplace file inside the tag still pins the release before it.
+    inside = json.loads(_tagged(RELEASE_TAG, ".claude-plugin/marketplace.json"))["plugins"][0]["source"]
+    assert (inside["ref"], inside["sha"]) == (PRIOR_TAG, PRIOR_TAG_COMMIT)
 
 
-def test_the_control_documents_name_the_candidate_and_keep_v0211_as_the_latest_published_release() -> None:
-    """Mutations, each one alone: delete the candidate line from one control document or from the README; name
-    v0.22.0 as the latest published release; delete the ``What `v0.22.0` Targets`` section of the current state, or
-    move it below the section of v0.21.1; point its release notes link at another release.
+def _blocks(path: str) -> list[str]:
+    """Paragraphs of a file with quote markers and indentation removed, each joined onto one line."""
 
-    The statements about the latest published release, the baseline and the checksums change after publication.
+    blocks: list[list[str]] = [[]]
+    for line in _text(path).splitlines():
+        stripped = re.sub(r"^[\s>]+", "", line)
+        if stripped:
+            blocks[-1].append(stripped)
+        else:
+            blocks.append([])
+    return [" ".join(block) for block in blocks if block]
+
+
+def test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0220() -> None:
+    """Mutations, each one alone: delete the 2026-10-27 update; name v0.21.1 as what ``main`` pins in it; drop the
+    sentence about the copy inside the tag; move it away from step 7 of the upgrade steps; glue it to the end of
+    another paragraph; add a second dated update.
+
+    Step 7 of the upgrade steps says the marketplace file on ``main`` pins the v0.21.1 tag commit until a change after
+    the release moves it. That sentence stays as tagged, and the update after it says the change has been made, as the
+    update beside step 6 of the v0.21.1 notes did.
     """
 
-    for name in CANDIDATE_DOCS:
+    update = (
+        "**Update (2026-10-27):** v0.22.0 is published, and the marketplace file on `main` now pins the v0.22.0 tag "
+        "commit, so the marketplace install runs v0.22.0. The copy inside the v0.22.0 tag still pins v0.21.1, so add "
+        "the marketplace from the repository, not from a checkout of the tag."
+    )
+    blocks = _blocks(NOTES_PATH)
+    positions = [index for index, block in enumerate(blocks) if block == update]
+    assert len(positions) == 1, positions
+    index = positions[0]
+    assert blocks[index - 1].endswith(
+        "7. **Claude Code plugin.** The marketplace file on `main` pins the v0.21.1 tag commit until a change after "
+        "this release moves it, so a marketplace install runs v0.21.1 code until then."
+    )
+    assert blocks[index + 1] == "## The agent output route"
+    assert _text(NOTES_PATH).count("Update (2026-10-27)") == 1
+    assert sum(block.startswith("**Update (") for block in blocks) == 1
+
+
+def test_the_control_documents_name_v0220_as_the_latest_published_release_and_v0211_as_the_prior_one() -> None:
+    """Mutations, each one alone: put the candidate line back into one control document or into the README; name
+    v0.21.1 as the latest published release in one of them; name v0.21.0 as the immediately prior release; set a
+    checksums or release notes pointer back to v0.21.1; put ``Targets`` back in the heading of the current state; point
+    the release notes link of the README or the vNext README at another release; set the lead of ``What `v0.21.1`
+    Shipped`` back to the latest published release; drop the v0.22.0 tag from the tag history of the current state or
+    set its pin sentence back to v0.21.1.
+
+    The candidate line of a later release names that release and is that release's test to pin, so only the v0.22.0
+    candidate line is refused here.
+    """
+
+    for name in LATEST_DOCS:
         text = _text(name)
-        assert text.endswith("\n\n" + CANDIDATE_LINE + "\n"), name
-        assert "`v0.21.1` is the latest published release" in text, name
-        assert "`v0.22.0` is the latest published release" not in text, name
+        assert CANDIDATE_LINE not in text, name
+        assert "`v0.22.0` is the latest published release" in text, name
+        assert "`v0.21.1` is the latest published release" not in text, name
     readme = _flat("README.md")
     assert (
-        "`v0.21.1` is the latest published release and remains the install, checksum, and release-note baseline. "
-        "`v0.21.0` is the immediately prior published release. " + CANDIDATE_LINE
+        "`v0.22.0` is the latest published release and remains the install, checksum, and release-note baseline. "
+        "`v0.21.1` is the immediately prior published release."
     ) in readme
+    assert CANDIDATE_LINE not in readme
+    assert "- [v0.22.0 release notes](docs/release/v0.22.0-release-notes.md)" in _text("README.md")
+    assert "[latest published release notes](../release/v0.22.0-release-notes.md)" in _flat("docs/vnext/README.md")
+    architecture = _flat("ARCHITECTURE.md")
+    assert "`docs/release/v0.22.0-checksums.txt`. - **Prior published:** `v0.21.1` is the immediately prior published release" in architecture
+    assert "artifact digests are in `docs/release/v0.21.1-checksums.txt`." in architecture
+    brief = _flat("PRODUCT_BRIEF.md")
+    assert "`v0.21.1` is the immediately prior published release" in brief
+    assert "exact digests in `docs/release/v0.22.0-checksums.txt`." in brief
+    roadmap = _flat("ROADMAP.md")
+    assert (
+        "`docs/release/v0.22.0-release-notes.md`, with artifact digests in `docs/release/v0.22.0-checksums.txt`. "
+        "`v0.21.1` is the immediately prior published release."
+    ) in roadmap
     state = _text("CURRENT_STATE.md")
-    assert "\n## What `v0.22.0` Targets\n\n" + CANDIDATE_LINE + "\n" in state
-    assert state.index("## What `v0.22.0` Targets") < state.index("## What `v0.21.1` Shipped")
-    assert "\n## What `v0.21.1` Shipped\n\n`v0.21.1` is the latest published release" in state
-    assert "- `v0.21.1` is the latest published release." in state
+    assert "What `v0.22.0` Targets" not in state
+    assert (
+        "\n## What `v0.22.0` Shipped\n\n`v0.22.0` is the latest published release and remains the install, checksum,\n"
+        "and baseline reference.\n\nIt shipped the fixes and additions on `main` after `v0.21.1`."
+    ) in state
+    assert state.index("## What `v0.22.0` Shipped") < state.index("## What `v0.21.1` Shipped")
+    assert "\n## What `v0.21.1` Shipped\n\n`v0.21.1` is the immediately prior published release.\n" in state
+    assert "\n## What `v0.21.0` Shipped\n\n`v0.21.0` is an earlier published release.\n" in state
+    assert "- `v0.22.0` is the latest published release." in state
+    assert "`v0.21.1` is the immediately prior\n  published release." in state
+    assert "`docs/release/v0.22.0-release-notes.md`\n- `docs/release/v0.22.0-checksums.txt`\n" in state
+    assert "`v0.21.1` is the immediately prior published release; its records are" in state
+    history = " ".join(state.split())
+    assert (
+        "The `v0.19.2` tag has the file too, still pinned to the `v0.19.0` tag commit, the `v0.20.0` tag has it still "
+        "pinned to the `v0.19.2` tag commit, the `v0.20.2` tag has it still pinned to the `v0.20.0` tag commit, the "
+        "`v0.21.0` tag has it still pinned to the `v0.20.2` tag commit, the `v0.21.1` tag has it still pinned to the "
+        "`v0.21.0` tag commit, and the `v0.22.0` tag has it still pinned to the `v0.21.1` tag commit."
+    ) in history
+    assert "pins the plugin to the `v0.22.0` tag commit, so the plugin installs from that marketplace." in history
     assert "- [v0.22.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/" + NOTES_PATH + ")" in state
 
 
-def test_the_changelog_has_the_dated_heading_and_an_empty_unreleased_section_right_before_it() -> None:
-    """Mutations, each one alone: drop the heading; change its date; put an entry under ``## Unreleased``; put another
-    section between v0.22.0 and v0.21.1; put the marker for the unreleased state back into the v0.22.0 section.
+def test_the_install_and_checkout_lines_name_v0220_as_the_latest_release() -> None:
+    """Mutations, each one alone: set the ``--tag`` of the headless install guide, the latest release tag it names, the
+    checkout line of the quickstart or the baseline named by the reference paths page back to v0.21.1.
 
-    ``release_check.py --require-finalized-release-docs`` asks for the same heading and an empty Unreleased section.
-    It is empty on the release commit and may hold entries once main has moved on, and the change after
-    publication drops that demand from here.
+    The README's checkout line is pinned in ``test_readme_facts_live_in_the_docs.py``. The lines pinned here name the
+    release a reader installs or checks out, so they move with each release. A comparison with v0.21.1 elsewhere in the
+    docs is history and stays.
+    """
+
+    guide = _flat("docs/alpha/headless-ubuntu-install.md")
+    assert "use the latest published release tag (`v0.22.0`) for an immutable deployment." in guide
+    assert "with the latest published release tag (`v0.22.0`): `--tag v0.22.0`." in guide
+    assert "v0.21.1" not in guide
+    quickstart = _flat("docs/alpha/quickstart.md")
+    assert "To run v0.22.0, run `git checkout v0.22.0` before `make setup`." in quickstart
+    assert "git checkout v0.21.1" not in quickstart
+    assert "on top of the latest published `v0.22.0` baseline." in _flat("docs/integrations/reference-paths.md")
+
+
+def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section() -> None:
+    """Mutations, each one alone: drop the heading; change its date; put another section between v0.22.0 and v0.21.1;
+    put the marker for the unreleased state back into the v0.22.0 section.
+
+    The Unreleased section is empty on the release commit. It may hold entries once main has moved on, so this test does
+    not ask for it to be empty. It asks that the v0.22.0, v0.21.1 and v0.21.0 sections follow it in that order, one
+    heading each.
     """
 
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
-    assert sections[1] == "Unreleased\n"
+    assert sections[1].startswith("Unreleased\n")
     assert sections[2].startswith("v0.22.0 \u2014 2026-10-26\n")
     assert sections[3].startswith("v0.21.1 \u2014 2026-10-23\n")
     assert sections[4].startswith("v0.21.0 \u2014 2026-10-22\n")
@@ -370,7 +535,7 @@ def test_the_notes_use_no_dash_and_only_the_allowed_security_wording() -> None:
     lowered = flat.lower()
     for forbidden in ("independently", "third-party", "third party", "penetration", "pentest", "external review"):
         assert forbidden not in lowered, forbidden
-    # The identifier of the advisory is not known yet. The change after publication replaces the word ``pending``.
+    # The identifier of the advisory is not assigned yet. A later dated update adds it; the tagged sentence stays.
     assert flat.count("Advisory identifier: pending.") == 1
     assert "ghsa-" not in lowered and "cve-" not in lowered
     for banned in ("wiki", "tower", "reviewer", "security team"):
@@ -452,51 +617,47 @@ def test_the_notes_name_the_limits_they_say_matter() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_numbers_that_drift_are_the_ones_the_code_and_the_files_have(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The tool counts, the PostgreSQL revision and the limits of the vectors are read from the code and the files,
-    so a change that leaves the notes behind fails here.
+def test_the_numbers_in_the_notes_are_the_ones_the_release_tag_has(v0220_tree: Path) -> None:
+    """The tool counts, the PostgreSQL revision and the limits of the vectors are read from the code and the files at the
+    ``v0.22.0`` tag, because the notes are published and describe that tag; a later change to main does not make them
+    wrong. The code of the tag runs in a subprocess that prints the counts and the limits.
 
-    Mutations, each one alone: add a tool to the default surface (the notes say none is added); add a migration after
-    20261011_0097; change the default vault cap, the default cache limit, the query timeout, the pause after a failure
-    or the least number of readable characters.
+    Mutations, each one alone: set ``RELEASE_TAG`` to ``v0.21.1`` (the tagged code has no ``vectors`` limits then, and the
+    subprocess fails to import them); add a tool to the default surface, add a migration after 20261011_0097 or change the
+    default vault cap, the default cache limit, the query timeout, the pause after a failure or the least number of
+    readable characters in the code at the tag (the notes say none is added, and none changed); change a number in the
+    notes. Changing any of these in the working tree does not fail this test: it reads the tag, which is the point.
     """
 
-    for name in ("ALICE_AGENT_API_KEY", "ALICE_MCP_FULL_TOOLS", "ALICE_MCP_LEGACY_TOOLS", "ALICE_LEGACY_SURFACES"):
-        monkeypatch.delenv(name, raising=False)
-    counts: dict[str, int] = {}
-    for label, flags in (
-        ("default", {}),
-        ("full", {"ALICE_MCP_FULL_TOOLS": "1"}),
-        ("legacy", {"ALICE_MCP_FULL_TOOLS": "1", "ALICE_MCP_LEGACY_TOOLS": "1"}),
-        ("all", {"ALICE_MCP_FULL_TOOLS": "1", "ALICE_MCP_LEGACY_TOOLS": "1", "ALICE_LEGACY_SURFACES": "1"}),
-    ):
-        for name, value in flags.items():
-            monkeypatch.setenv(name, value)
-        counts[label] = len(list_mcp_tools())
-        for name in flags:
-            monkeypatch.delenv(name, raising=False)
+    run = subprocess.run(
+        [sys.executable, "-c", _NUMBERS_CODE],
+        env=_env_for(v0220_tree / "apps" / "api" / "src"),
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert run.returncode == 0, run.stderr
+    numbers = json.loads(run.stdout)
     # The counts of v0.21.1: this release adds no tool.
-    assert counts == {"default": 3, "full": 12, "legacy": 74, "all": 77}
+    assert numbers["counts"] == {"default": 3, "full": 12, "legacy": 74, "all": 77}
     notes = _flat(NOTES_PATH)
     assert (
         "No tool is added or removed: the default surface lists 3 tools, the full surface 12, and the legacy flags bring "
         "it to 74 and 77."
     ) in notes
 
-    versions = REPO_ROOT / "apps" / "api" / "alembic" / "versions"
+    versions = v0220_tree / "apps" / "api" / "alembic" / "versions"
     head = sorted(path.name for path in versions.glob("2*.py"))[-1]
     assert head.startswith("20261011_0097_"), head
     assert "PostgreSQL stays at revision `20261011_0097`." in notes
 
-    assert DEFAULT_MAX_VECTORS == 250_000
-    assert DEFAULT_CACHE_MAX_MB == 512
-    assert (DEFAULT_SCOPED_CACHE_MAX_MB, DEFAULT_SCOPED_COPIES) == (256, 4)
-    assert QUERY_EMBEDDING_TIMEOUT_SECONDS == 2.0
-    assert BREAKER_SECONDS == 30.0
-    assert MIN_READABLE_CHARS == 32
-    assert [(rule.family, rule.document, rule.query) for rule in PREFIX_RULES] == [
-        ("nomic-embed-text", "search_document: ", "search_query: ")
-    ]
+    assert numbers["max_vectors"] == 250_000
+    assert numbers["cache_mb"] == 512
+    assert numbers["scoped"] == [256, 4]
+    assert numbers["query_timeout"] == 2.0
+    assert numbers["breaker"] == 30.0
+    assert numbers["min_chars"] == 32
+    assert numbers["prefixes"] == [["nomic-embed-text", "search_document: ", "search_query: "]]
     vectors = _section(_text(NOTES_PATH), "Passage vectors, an opt-in")
     for needle in (
         "A vault keeps at most 250,000 vectors by default (`ALICE_SOURCE_EMBEDDINGS_MAX_VECTORS`).",
@@ -510,12 +671,13 @@ def test_the_numbers_that_drift_are_the_ones_the_code_and_the_files_have(monkeyp
     assert 768 * 4 == 3072
 
 
-def test_the_settings_and_flags_the_notes_list_are_all_that_this_release_adds(v0211_tree: Path) -> None:
-    """Mutations, each one alone: add a setting named ``ALICE_`` anywhere under ``apps/api/src``; add a flag to
-    ``alice-memory reindex-embeddings``; delete one setting from the list in the notes.
+def test_the_settings_and_flags_the_notes_list_are_all_that_this_release_adds(v0211_tree: Path, v0220_tree: Path) -> None:
+    """Mutations, each one alone: add a setting named ``ALICE_`` anywhere under ``apps/api/src`` at the v0.22.0 tag; add a
+    flag to ``alice-memory reindex-embeddings`` at the tag; delete one setting from the list in the notes.
 
-    The names are read from every Python file under ``apps/api/src`` at the v0.21.1 tag and now. The flags are read from
-    the parser of every ``alice-memory`` command and sub-command, built by the v0.21.1 export and by this tree.
+    The names are read from every Python file under ``apps/api/src`` at the v0.21.1 tag and at the v0.22.0 tag. The flags
+    are read from the parser of every ``alice-memory`` command and sub-command, built by the export of each tag. Nothing
+    is read from the working tree, so a setting or a flag added to main later does not fail this test.
     """
 
     def names(root: Path) -> set[str]:
@@ -524,8 +686,8 @@ def test_the_settings_and_flags_the_notes_list_are_all_that_this_release_adds(v0
             found |= set(re.findall(r"\b(ALICE_[A-Z0-9_]+)\b", path.read_text(encoding="utf-8", errors="replace")))
         return found
 
-    assert names(REPO_ROOT) - names(v0211_tree) == set(NEW_SETTINGS)
-    assert names(v0211_tree) - names(REPO_ROOT) == set()
+    assert names(v0220_tree) - names(v0211_tree) == set(NEW_SETTINGS)
+    assert names(v0211_tree) - names(v0220_tree) == set()
     behaviour = _section(_text(NOTES_PATH), "Behaviour changes an integrator will notice")
     for name in NEW_SETTINGS:
         assert f"`{name}`" in behaviour, name
@@ -537,7 +699,7 @@ def test_the_settings_and_flags_the_notes_list_are_all_that_this_release_adds(v0
         [sys.executable, "-c", _FLAGS_CODE], env=_env_for(v0211_tree / "apps" / "api" / "src"), capture_output=True, text=True, timeout=180
     )
     new = subprocess.run(
-        [sys.executable, "-c", _FLAGS_CODE], env=_env_for(REPO_ROOT / "apps" / "api" / "src"), capture_output=True, text=True, timeout=180
+        [sys.executable, "-c", _FLAGS_CODE], env=_env_for(v0220_tree / "apps" / "api" / "src"), capture_output=True, text=True, timeout=180
     )
     assert old.returncode == 0 and new.returncode == 0, (old.stderr, new.stderr)
     flags_old, flags_new = json.loads(old.stdout), json.loads(new.stdout)
@@ -675,29 +837,31 @@ def _guard_and_handlers(function: ast.FunctionDef) -> tuple[int | None, int | No
 
 
 def test_the_route_stops_on_a_blocked_decision_before_the_service_writes_and_v0211_did_not() -> None:
-    """Mutations, each one alone: take the ``blocked`` test out of ``ingest_vnext_agent_output``; move it below the call
-    of the service; take ``VNextCaptureValidationError`` out of the route's ``except``; take the refusal out of
-    ``VNextConnectorService.ingest_agent_output``.
+    """Mutations, each one alone: take the ``blocked`` test out of ``ingest_vnext_agent_output`` at the v0.22.0 tag; move
+    it below the call of the service; take ``VNextCaptureValidationError`` out of the route's ``except``; take the refusal
+    out of ``VNextConnectorService.ingest_agent_output``.
 
     The PostgreSQL tests of the route count the rows of each refused request
     (``tests/integration/test_ingest_output_policy_postgres.py``) and ran against both trees when the notes were written;
-    this test pins the shape of the code and the contrast with the tag.
+    this test pins the shape of the code and the contrast between the two tags. Both sides are read from the tags, so a
+    later change to the route on main does not fail it.
     """
 
     route = "apps/api/src/alicebot_api/routers/vnext_memories.py"
-    guard, ingest, caught = _guard_and_handlers(_route_function(_text(route)))
+    guard, ingest, caught = _guard_and_handlers(_route_function(_tagged(RELEASE_TAG, route)))
     assert guard is not None and ingest is not None and guard < ingest
     assert "VNextCaptureValidationError" in caught
-    old_guard, old_ingest, old_caught = _guard_and_handlers(_route_function(_tagged("v0.21.1", route)))
+    old_guard, old_ingest, old_caught = _guard_and_handlers(_route_function(_tagged(PRIOR_TAG, route)))
     assert old_guard is None and old_ingest is not None
     assert "VNextCaptureValidationError" not in old_caught
     connectors = "apps/api/src/alicebot_api/vnext_connectors.py"
-    assert "_refuse_blocked_policy_decision(policy_decision)" in _text(connectors)
-    assert "_refuse_blocked_policy_decision" not in _tagged("v0.21.1", connectors)
-    mcp = _text("apps/api/src/alicebot_api/mcp/capture_automation.py")
+    assert "_refuse_blocked_policy_decision(policy_decision)" in _tagged(RELEASE_TAG, connectors)
+    assert "_refuse_blocked_policy_decision" not in _tagged(PRIOR_TAG, connectors)
+    mcp_path = "apps/api/src/alicebot_api/mcp/capture_automation.py"
+    mcp = _tagged(RELEASE_TAG, mcp_path)
     assert 'if decision.decision == "blocked":' in mcp and "_raise_mcp_policy_blocked(blocked_decision)" in mcp
-    assert 'if decision.decision == "blocked":' in _tagged("v0.21.1", "apps/api/src/alicebot_api/mcp/capture_automation.py")
-    cli = _tagged("v0.21.1", "apps/api/src/alicebot_api/cli/capture.py")
+    assert 'if decision.decision == "blocked":' in _tagged(PRIOR_TAG, mcp_path)
+    cli = _tagged(PRIOR_TAG, "apps/api/src/alicebot_api/cli/capture.py")
     assert "ensure_policy_allowed(decision)" in cli
     route_notes = _section(_text(NOTES_PATH), "The agent output route")
     for needle in (
@@ -956,18 +1120,20 @@ def test_v0211_opens_a_vault_that_holds_vectors_but_cannot_export_it_until_they_
     assert "v0.21.1 opens a vault that holds chunk vectors, but its `alice-memory export` fails on it until they are dropped" in steps
 
 
-def test_no_migration_the_alembic_folder_is_the_one_of_v0211(v0211_tree: Path) -> None:
-    """Mutation: add a file to ``apps/api/alembic``, or change one.
+def test_no_migration_the_alembic_folder_at_v0220_is_the_one_at_v0211(v0211_tree: Path, v0220_tree: Path) -> None:
+    """Mutations, each one alone: add a file to ``apps/api/alembic`` at the v0.22.0 tag, or change one.
 
-    The PostgreSQL revision stays ``20261011_0097`` because the folder is the one of the tag, byte for byte.
+    The PostgreSQL revision stays ``20261011_0097`` because the folder at the v0.22.0 tag is the one at the v0.21.1 tag,
+    byte for byte. Both sides are read from the tags, so a migration edited on main later (to repair it for a stricter
+    database owner, for example) does not fail this test, which says what v0.22.0 shipped.
     """
 
     def files(root: Path) -> dict[str, bytes]:
         base = root / "apps" / "api" / "alembic"
         return {str(path.relative_to(base)): path.read_bytes() for path in sorted(base.rglob("*")) if path.is_file() and "__pycache__" not in path.parts}
 
-    assert files(REPO_ROOT) == files(v0211_tree)
-    assert files(REPO_ROOT)
+    assert files(v0220_tree) == files(v0211_tree)
+    assert files(v0220_tree)
 
 
 # ---------------------------------------------------------------------------
@@ -1012,15 +1178,29 @@ def test_the_headline_changes_of_the_notes_each_have_a_changelog_entry() -> None
         assert name in notes, name
 
 
-def test_the_release_check_accepts_the_notes_and_the_changelog_before_the_tag() -> None:
-    """Mutations, each one alone: set a status of the notes to published; add the checksums file; put an entry under
-    ``## Unreleased``; delete the dated heading; set one version site back to 0.21.1.
+def test_the_release_check_accepts_the_tree_and_its_pre_tag_mode_refuses_the_published_notes() -> None:
+    """Mutations, each one alone: set a status of the notes back to pending; delete the checksums file; delete the
+    dated heading; set one version site back to 0.21.1.
 
-    This runs the release check's own pre-tag rule on the real tree, so a change that the check would refuse at the tag
-    fails on the pull request instead.
+    ``release_check.py`` passes on the tree. Its ``--require-finalized-release-docs`` mode is the pre-tag rule and
+    refuses a published tree on purpose, for the same three reasons as after v0.21.1: both statuses must be pending
+    before the tag, and the checksums file must not exist on the pre-publication tag.
     """
 
-    metadata, issues = release_check.validate_metadata(REPO_ROOT)
+    _metadata, issues = release_check.validate_metadata(REPO_ROOT)
     assert issues == []
-    assert metadata.version == "0.22.0"
-    assert release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=True) == []
+    version = "0.22.0"
+    assert release_check.validate_release_document_state(REPO_ROOT, version=version, require_finalized=False) == []
+    published = [
+        "release notes alice-release-state publication_status must be pending before tag",
+        "release notes alice-release-state checksums_status must be pending before tag",
+        "docs/release/v0.22.0-checksums.txt must not exist on the pre-publication tag",
+    ]
+    issues = release_check.validate_release_document_state(REPO_ROOT, version=version, require_finalized=True)
+    assert [issue for issue in issues if issue in published] == published
+    # Once main has an Unreleased CHANGELOG entry, the pre-tag mode also says the section must be empty for a tag.
+    # That is true of every later commit and is the only other issue allowed here.
+    assert [issue for issue in issues if issue not in published] in (
+        [],
+        ["CHANGELOG.md Unreleased section must be empty for the release tag"],
+    )
