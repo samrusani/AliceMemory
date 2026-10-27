@@ -1,0 +1,19 @@
+# Alice v0.22.0: published artifact SHA-256 digests
+#
+# These are the exact digests of the wheel and source distribution published
+# to PyPI for v0.22.0 through GitHub Trusted Publishing. They also appear on the
+# project's PyPI page and on the v0.22.0 GitHub Release assets, and are bound to
+# this repository, the v0.22.0 tag, the publishing workflow, the exact commit,
+# and the protected pypi environment by PyPI's integrity attestations (the
+# /provenance endpoints).
+#
+# Linux verify:  sha256sum -c v0.22.0-checksums.txt
+# macOS verify:  shasum -a 256 -c v0.22.0-checksums.txt
+# Run either command beside the downloaded files.
+#
+# Recorded after verifying the same digests from three independent sources:
+# the PyPI version-specific JSON API, the SHA256SUMS asset on the GitHub
+# Release, and a fresh download from PyPI hashed locally. All three agree.
+#
+803f466454de8973ed64db47de9e3c366943fc8833ed3ae0b40fbd9a48018fdb  alice_memory-0.22.0-py3-none-any.whl
+c2fe674d9d475ad04f6ed56df3ed4d55a1aef96209dbb1f8d86f07bf7634296a  alice_memory-0.22.0.tar.gz
