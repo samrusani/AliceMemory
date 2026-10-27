@@ -23394,7 +23394,7 @@
           "file": "apps/api/src/alicebot_api/markdown_import.py",
           "line": 311,
           "before": "        return source_path, _read_plan()",
-          "after": "        return source_path, snapshot_source_files(source_path, plan, max_bytes=max_file_bytes, error_factory=MarkdownImportValidationError)",
+          "after": "        return source_path, [ImportSourceFile(path=file_path, relative_path=_relative_source_file(source_path, file_path), text=read_contained_source_text(file_path, source_root=source_path, max_bytes=max_file_bytes, error_factory=MarkdownImportValidationError)) for file_path in plan]",
           "sha256": "09aa39b96577b836277dad77d998c38a2aedb2320d768df1c93b52e3dffd502e"
         }
       ],
