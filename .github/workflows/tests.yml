@@ -2385,8 +2385,16 @@ jobs:
           # and read it in about 1.0 s, so the limit is 1.5 here. The merge-base
           # gate runs in the required job. This job keeps the absolute limit.
           ALICE_READ_ABSOLUTE_LIMIT_SECONDS: "1.5"
+        # --timeout=600 is the limit the weekly parent budget test sets for itself
+        # with pytest.mark.timeout(600), not the 180 seconds of the shards. This
+        # step reads the largest fixtures on three revisions and writes read
+        # profiles, so [True-3000-extra-rows] takes about three minutes on a
+        # shared runner, and 180 seconds cut it off twice, once in the test and
+        # once in the teardown that drops its database. A test that hangs still
+        # stops after 600 seconds, and the four tests together stay far under the
+        # 120 minutes of the job.
         run: >-
-          ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest -q -s --timeout=180
+          ALICE_LEGACY_SURFACES=1 ./.venv/bin/python -m pytest -q -s --timeout=600
           'tests/integration/test_label_round3_read_budget_postgres.py::test_postgres_round3_random_read_budgets[False-3000-all-visible]'
           'tests/integration/test_label_round3_read_budget_postgres.py::test_postgres_round3_random_read_budgets[True-3000-extra-rows]'
           'tests/integration/test_label_round2_read_budget_postgres.py::test_postgres_round2_read_budgets[one-hidden]'
