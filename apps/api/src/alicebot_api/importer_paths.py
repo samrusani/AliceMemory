@@ -112,6 +112,39 @@ def _relative_source_file(source_root: Path, file_path: Path) -> str:
     return file_path.name
 
 
+def _refuse_symlinked_directory(candidate_directory: Path, error_factory: ErrorFactory) -> None:
+    """The selection's own symlinked-directory refusal, shared with the reads.
+
+    Both the folder walk and ``read_contained_source_text`` use this one
+    check and this one message, so a directory swapped for a link between
+    two reads is refused exactly as a link present from the start is.
+    """
+
+    if candidate_directory.is_symlink():
+        raise error_factory(
+            f"import source must not contain symlinked directories: {candidate_directory}"
+        )
+
+
+def _refuse_symlinked_containers(
+    source_root: Path, file_path: Path, error_factory: ErrorFactory
+) -> None:
+    """Refuse when a directory between ``source_root`` and ``file_path`` is a link.
+
+    ``O_NOFOLLOW`` guards only the final path component: the kernel resolves
+    every intermediate one, so a middle directory swapped for a link after
+    the listing would redirect the read outside the root through a name that
+    still passes ``is_relative_to``. Every read of an import file walks the
+    chain from the root down and re-runs the selection's own check, so the
+    refusal, its message and its error type are the selection's.
+    """
+
+    for parent in file_path.parents:
+        if parent == source_root:
+            break
+        _refuse_symlinked_directory(parent, error_factory)
+
+
 def contained_source_files(
     source_root: Path,
     *,
@@ -133,11 +166,7 @@ def contained_source_files(
         current_directory = Path(raw_directory)
         if recursive:
             for directory_name in sorted(directory_names):
-                candidate_directory = current_directory / directory_name
-                if candidate_directory.is_symlink():
-                    raise error_factory(
-                        f"import source must not contain symlinked directories: {candidate_directory}"
-                    )
+                _refuse_symlinked_directory(current_directory / directory_name, error_factory)
         for file_name in sorted(file_names):
             candidate = current_directory / file_name
             if candidate.suffix.casefold() not in normalized_suffixes:
@@ -188,8 +217,14 @@ def read_contained_source_text(
         raise ValueError("max_bytes must be at least 1")
     if ".." in file_path.parts:
         raise error_factory(f"import source path must not traverse upward: {file_path}")
-    if source_root is not None and not file_path.is_relative_to(source_root):
-        raise error_factory(f"import source path escapes the selected root: {file_path}")
+    if source_root is not None:
+        if not file_path.is_relative_to(source_root):
+            raise error_factory(f"import source path escapes the selected root: {file_path}")
+        # Every read re-runs the selection's symlinked-directory check on the
+        # whole chain between the root and the file: the listing is a snapshot
+        # of names, and a folder swapped for a link after it must refuse this
+        # read exactly as a link present from the start refused the listing.
+        _refuse_symlinked_containers(source_root, file_path, error_factory)
 
     open_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:

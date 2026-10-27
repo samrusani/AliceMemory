@@ -1118,6 +1118,10 @@ class SQLiteVNextStore:
         )
 
     def get_sources_by_content_hash(self, content_hash: str) -> list[VNextRow]:
+        # The unary plus on the ORDER BY terms takes sources_user_captured_idx
+        # out of the planner's options, so the content-hash lookup uses
+        # sources_user_content_hash_idx instead of scanning the captured index
+        # of a growing vault on every capture. Same WHERE, same order.
         return self._fetch_all(
             f"""
                 SELECT {", ".join(SOURCE_COLUMNS)}
@@ -1125,7 +1129,7 @@ class SQLiteVNextStore:
                 WHERE content_hash = ?
                   AND user_id = ?
                   AND deleted_at IS NULL
-                ORDER BY captured_at DESC, id DESC
+                ORDER BY +captured_at DESC, +id DESC
                 """,
             (content_hash, self.user_id),
         )
