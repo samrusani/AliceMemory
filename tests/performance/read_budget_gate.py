@@ -134,3 +134,31 @@ def append_evidence(row: dict) -> None:
     evidence.parent.mkdir(parents=True, exist_ok=True)
     with evidence.open("a", encoding="utf-8") as output:
         output.write(json.dumps(row) + "\n")
+
+
+def screen_gate_failures(
+    head_by_action: dict,
+    base_by_action: dict,
+    *,
+    statistic: str,
+    limit: float,
+    actions: tuple[str, ...] = ("workspace", "dogfooding"),
+) -> list[tuple[str, str, float, float]]:
+    """The failure rows ``(action, statistic, head, base)`` for the operator screens.
+
+    Two checks per screen: the same-runner paired rule against the merge base
+    (one pull request that slows a screen fails on the runner's own speed),
+    and the absolute limit (large slowdowns and very slow runners, which the
+    paired rule cannot see because it needs the merge base of the same run).
+    A head equal to either bound passes.
+    """
+
+    rows: list[tuple[str, str, float, float]] = []
+    for action in actions:
+        head = head_by_action[action][statistic]
+        base = base_by_action[action][statistic]
+        if over_merge_base(head, base):
+            rows.append((action, statistic, head, base))
+        if head > limit:
+            rows.append((action, statistic, head, base))
+    return rows

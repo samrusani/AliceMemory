@@ -24,6 +24,7 @@ from tests.performance.read_budget_gate import (
     paired_summary,
     prelabels_action,
     prelabels_checkout,
+    screen_gate_failures,
 )
 
 USER = "11111111-1111-4111-8111-111111111111"
@@ -303,8 +304,9 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
     revisions = {name: subprocess.check_output(["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True).strip()
                  for name, checkout in (("merge_base", merge_base), ("head", repo))}
     failures = []
-    # Pack and recall are the merge-base gate. The operator screens are timed only when the absolute
-    # gate is on, which is the maximum-workload smoke job. The required job does not spend its session on them.
+    # Pack and recall are the merge-base gate. The screens are timed only when the absolute
+    # gate is on, which is the maximum-workload smoke job; there they answer to the
+    # same-runner paired rule and the absolute limit. The required job does not spend its session on them.
     actions = ("pack", "recall")
     if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
         actions = ("pack", "recall", "workspace", "dogfooding")
@@ -353,17 +355,20 @@ def paired_budgets(backend, location, user, keys, *, case, source_count, repaire
                     failures.append((profile, action, name, row))
                 if not returned_memories_ok(profile, action, case, measurements):
                     failures.append((profile, action, "returned_memories", row))
-            # The wall gate for the operator screens is an absolute number (one
-            # second unless ALICE_READ_ABSOLUTE_LIMIT_SECONDS says otherwise), so it
-            # holds only on a known machine: the reference run and the separate
-            # maximum-workload smoke job set ALICE_READ_ABSOLUTE_GATE. Those are the
-            # runs that time the screens. Shared CI runners differ in speed, so the
-            # required jobs keep the merge-base gate and the returned counts.
+            # The screens carry two checks here: the same-runner paired rule
+            # against the merge base (one pull request that slows a screen
+            # fails on this runner's own speed) and the absolute limit (large
+            # slowdowns and very slow runners, which the paired rule cannot
+            # see because it needs this run's merge base). Shared CI runners
+            # differ in speed, so the required jobs keep the merge-base gate
+            # for pack and recall and the returned counts, and do not time
+            # the screens at all.
             if backend == "postgres" and os.environ.get("ALICE_READ_ABSOLUTE_GATE") == "1":
-                limit = absolute_limit_seconds()
-                for action in ("workspace", "dogfooding"):
-                    if measurements["head"][action]["minimum_wall"] > limit:
-                        failures.append((profile, action, "minimum_wall", row))
+                for profile_action, statistic, head_time, base_time in screen_gate_failures(
+                    measurements["head"], measurements["merge_base"], statistic="minimum_wall",
+                    limit=absolute_limit_seconds(),
+                ):
+                    failures.append((profile, profile_action, statistic, row))
         finally:
             for process in processes:
                 if process.poll() is None:

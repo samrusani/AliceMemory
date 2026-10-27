@@ -267,8 +267,8 @@ def test_ci_profiles_only_the_maximum_smoke_and_retains_attempts():
 
 
 def test_ci_applies_the_absolute_gate_only_in_the_maximum_smoke_and_with_the_shared_runner_limit():
-    """The absolute wall gate needs a known machine. The one job that sets it runs on shared runners, which are about twice as
-    slow as the reference machine, so it sets the limit too; no other step, job or the workflow itself sets either variable.
+    """The absolute wall gate needs a known machine. The one job that sets it runs on shared runners and
+    sets the backstop limit; the same-runner paired rule in the same step catches one slow pull request.
 
     Mutations: delete ``ALICE_READ_ABSOLUTE_LIMIT_SECONDS`` from the step (the job gates at one second again); set
     ``ALICE_READ_ABSOLUTE_GATE`` on another step.
@@ -281,7 +281,7 @@ def test_ci_applies_the_absolute_gate_only_in_the_maximum_smoke_and_with_the_sha
     carriers = [step for job in workflow["jobs"].values() for step in job.get("steps", []) if any(name in step.get("env", {}) for name in names)]
     assert [step["name"] for step in carriers] == ["Maximum-workload read-budget controls"]
     assert carriers[0]["env"]["ALICE_READ_ABSOLUTE_GATE"] == "1"
-    assert carriers[0]["env"]["ALICE_READ_ABSOLUTE_LIMIT_SECONDS"] == "1.5"
+    assert carriers[0]["env"]["ALICE_READ_ABSOLUTE_LIMIT_SECONDS"] == "2.0"
 
 
 # ---- the gates themselves: each clock, each action and each returned count is pinned ----------------
@@ -324,10 +324,21 @@ def test_the_merge_base_gate_is_one_and_a_quarter_plus_fifty_milliseconds_and_in
 
 @pytest.mark.parametrize("action", ["workspace", "dogfooding"])
 def test_workspace_and_dogfooding_each_have_the_one_second_gate(monkeypatch, tmp_path, action):
-    """Mutations: gate only the workspace, gate only dogfooding, gate the CPU clock."""
+    """Mutations: gate only the workspace, gate only dogfooding, gate the CPU clock.
+
+    The screens answer to the same-runner paired rule and the absolute limit;
+    the paired rule needs the merge base read at the same speed, so the base
+    child reads the same wall time here and the CPU clock stays ungated.
+    """
     assert measured_failures(monkeypatch, tmp_path, timings=slow_head(action, wall=1.000001, cpu=.1)) == {
         (profile, action, "minimum_wall") for profile in KEYS}
-    assert measured_failures(monkeypatch, tmp_path, timings=slow_head(action, wall=1.0, cpu=5.0)) == set()
+
+    def even_wall_slow_cpu(revision, profile, name):
+        if revision == "head" and name == action:
+            return (1.0, 5.0)
+        return (1.0, .1) if name == action else (.1, .1)
+
+    assert measured_failures(monkeypatch, tmp_path, timings=even_wall_slow_cpu) == set()
 
 
 def test_the_absolute_limit_is_one_second_unless_the_environment_sets_it(monkeypatch):
@@ -358,13 +369,27 @@ def test_an_absolute_limit_that_is_not_a_positive_finite_number_is_refused(monke
 def test_the_absolute_gate_holds_the_screens_to_the_limit_the_environment_sets(monkeypatch, tmp_path, action):
     """With a limit of 1.5 seconds a screen at 1.4 passes and a screen just over 1.5 fails; without it the same 1.4 fails.
 
+    The merge base reads 1.2 on the same screen, so the paired rule (1.25
+    times 1.2 plus 0.05) passes at 1.4 and at 1.500001 and the failures here
+    are the absolute limit's alone.
+
     Mutations: compare the wall clock to one second whatever the variable says (the first assertion fails); read the variable and
     leave the comparison at the default (the second assertion fails).
     """
-    slow = slow_head(action, wall=1.4, cpu=.1)
-    assert measured_failures(monkeypatch, tmp_path, timings=slow, limit="1.5") == set()
-    assert measured_failures(monkeypatch, tmp_path, timings=slow) == {(profile, action, "minimum_wall") for profile in KEYS}
-    just_over = slow_head(action, wall=1.500001, cpu=.1)
+
+    def runs(revision, profile, name):
+        if name == action:
+            return (1.4, .1) if revision == "head" else (1.2, .1)
+        return (.1, .1)
+
+    assert measured_failures(monkeypatch, tmp_path, timings=runs, limit="1.5") == set()
+    assert measured_failures(monkeypatch, tmp_path, timings=runs) == {(profile, action, "minimum_wall") for profile in KEYS}
+
+    def just_over(revision, profile, name):
+        if name == action:
+            return (1.500001, .1) if revision == "head" else (1.2, .1)
+        return (.1, .1)
+
     assert measured_failures(monkeypatch, tmp_path, timings=just_over, limit="1.5") == {
         (profile, action, "minimum_wall") for profile in KEYS}
 
@@ -656,3 +681,40 @@ def test_a_slow_prelabels_checkout_is_recorded_and_does_not_fail_the_gate(monkey
         assert report["gated"] is False
         wall = report["actions"]["pack"]["minimum_wall"]
         assert wall == {"head": 0.1, "prelabels": 0.01, "ratio": 10.0, "gated": False}
+
+
+@pytest.mark.parametrize("action", ["workspace", "dogfooding"])
+def test_a_screen_past_the_paired_rule_fails_on_the_same_runner(monkeypatch, tmp_path, action):
+    """The screens answer to the same paired rule pack and recall use: a head
+    over 1.25 times the merge base plus 0.05 seconds fails, with the failure
+    naming the screen's own minimum_wall and nothing else.
+
+    Mutation: drop the screen call of ``screen_gate_failures`` (the screen
+    then answers only through the absolute limit).
+    """
+    failed = measured_failures(monkeypatch, tmp_path, timings=slow_head(action, wall=.31))
+    assert failed == {(profile, action, "minimum_wall") for profile in KEYS}
+
+
+@pytest.mark.parametrize("action", ["workspace", "dogfooding"])
+def test_a_screen_at_the_merge_base_or_at_the_paired_boundary_passes(monkeypatch, tmp_path, action):
+    """A head equal to its merge base passes, and so does a head exactly on
+    the paired bound (1.25 times 0.1 plus 0.05): the boundary itself is not a
+    failure, as with pack and recall.
+    """
+    assert measured_failures(monkeypatch, tmp_path, timings=slow_head(action, wall=.1)) == set()
+    boundary = 1.25 * .1 + .05
+    assert measured_failures(monkeypatch, tmp_path, timings=slow_head(action, wall=boundary)) == set()
+
+
+def test_the_screen_paired_rule_needs_the_merge_base_checkout(monkeypatch, tmp_path):
+    """Without a merge-base checkout there is no same-runner comparison and
+    the paired rule cannot run: the import-scoped budgets assert the missing
+    variable before any screen is measured.
+    """
+    fake_children(monkeypatch, tmp_path, timings=slow_head("workspace", wall=.31))
+    monkeypatch.delenv("ALICE_READ_MERGE_BASE_CHECKOUT")
+    monkeypatch.delenv("ALICE_READ_PROFILE", raising=False)
+    with pytest.raises(AssertionError, match="merge-base checkout"):
+        budgets.paired_budgets("postgres", "synthetic-database", budgets.USER, KEYS,
+                               case="all-visible", source_count=3000, repaired=False, assert_budget=False)
