@@ -114,6 +114,7 @@ from .shared import (
     _OPEN_LOOP_TOOL_ACTIONS,
     _PREFETCH_CONTEXT_ASSEMBLY_VERSION_V0,
     _RECALL_DEFAULT_LIMIT,
+    _RECALL_DEFAULT_NOTE_PASSAGE_BUDGET,
     _RECALL_MAX_LIMIT,
     _agent_identity_from_arguments,
     _canonical_row_id_argument,
@@ -287,6 +288,10 @@ def _debug_sources_stage(
 
 def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     query = _parse_required_text(arguments, "query")
+    # Whether the caller set a limit decides the sources stage's default in
+    # passage and vectors mode: no limit means the note passage budget, an
+    # explicit limit means both stages use that value.
+    caller_set_limit = arguments.get("limit") is not None
     limit = _parse_int(
         arguments,
         key="limit",
@@ -394,11 +399,24 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
         # writes into results[], not sources[]. include_sources only gates
         # whether those excerpts are returned.
         vector_note = recall_vector_note(store, context_depth)
+        # The sources stage's limit: in passage or vectors mode a caller who
+        # passes no limit gets the note passage budget (its candidate depth
+        # max(limit * 4, 32) follows from it), and an explicit limit is used
+        # for both stages, never exceeded. Document mode and the minimal
+        # depth keep the caller's (capped) limit, as they run today.
+        ranking = recall_source_ranking(store, context.agent_identity, context_depth)
+        source_limit = (
+            _RECALL_DEFAULT_NOTE_PASSAGE_BUDGET
+            if not caller_set_limit
+            and ranking.mode in {"passage", "vectors"}
+            and context_depth != CONTEXT_DEPTH_MINIMAL
+            else limit
+        )
         raw_sources, sources_stage = service.search_source_excerpts(
             query=query,
             domains=domains,
             sensitivity_allowed=sensitivity_allowed,
-            limit=limit,
+            limit=source_limit,
             # The same fence the memories above were retrieved under.
             # Built from retrieval_filters AFTER the policy decision has
             # overwritten "projects" with effective_project_scope, so a
@@ -410,7 +428,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             # Written here on purpose. The switch, the default of the store
             # and the PostgreSQL limited-key rule are applied at this edge,
             # not inside the service.
-            ranking=recall_source_ranking(store, context.agent_identity, context_depth),
+            ranking=ranking,
             winning_memories=ordered_rows,
         )
         window_start = retrieval_filters.get("scope_window_start")

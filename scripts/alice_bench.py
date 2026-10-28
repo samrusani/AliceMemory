@@ -1974,6 +1974,7 @@ SAME_ACROSS_ORDERS = (
     "search_quality",
     "recall_arguments",
     "recall_limit",
+    "recall_note_passage_budget",
     "recall_context_depth",
     "recall_include_sources",
     "corpus_hash",
@@ -2200,6 +2201,30 @@ def tools_list_digest(tools: Sequence[Mapping[str, Any]]) -> str:
 # Fingerprint
 
 
+def note_passage_budget(recall: Mapping[str, Any] | None, ranking_mode: str) -> int | None:
+    """The note passage budget the recall edge gave its sources stage in this run.
+
+    Recorded beside the pinned settings so a run's claim names the budget it
+    used: the caller's limit when one was sent (or the depth is minimal, or
+    the mode is document), the tool's default note passage budget otherwise.
+    A run that leaves the limit out and runs passage or vectors mode used the
+    budget, not the pinned limit of the memory results.
+    """
+
+    if recall is None:
+        return None
+    from alicebot_api.mcp.types import _RECALL_DEFAULT_NOTE_PASSAGE_BUDGET
+
+    if (
+        ranking_mode in {"passage", "vectors"}
+        and recall["arguments"] == [{}]
+        and recall.get("context_depth") != "minimal"
+    ):
+        return _RECALL_DEFAULT_NOTE_PASSAGE_BUDGET
+    limit = recall.get("limit")
+    return limit if isinstance(limit, int) else None
+
+
 def fingerprint(
     *,
     repo: Path,
@@ -2263,6 +2288,7 @@ def fingerprint(
         "ranking_mode": resolved_ranking_mode(search_quality),
         "recall_arguments": None if recall is None else recall["arguments"],
         "recall_limit": None if recall is None else recall["limit"],
+        "recall_note_passage_budget": note_passage_budget(recall, resolved_ranking_mode(search_quality)),
         "recall_context_depth": None if recall is None else recall["context_depth"],
         "recall_include_sources": None if recall is None else recall["include_sources"],
         "byte_budgets": list(gates.budgets),

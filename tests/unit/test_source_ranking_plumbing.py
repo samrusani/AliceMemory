@@ -399,7 +399,7 @@ _EXPECTED_CALL_SITES = {
         "apps/api/src/alicebot_api/mcp/retrieval.py",
         "_handle_alice_recall",
         "search_source_excerpts",
-    ): "recall_source_ranking(store, context.agent_identity, context_depth)",
+    ): "ranking",
     (
         "apps/api/src/alicebot_api/session_briefing.py",
         "compile_session_brief",
@@ -477,3 +477,7 @@ def test_every_call_of_the_source_stage_in_the_product_names_its_ranking() -> No
         "a call of search_source_excerpts or _source_stage_lists changed, was added, or lost its ranking "
         "argument. Every caller writes the ranking it wants, so say which, and add it to the list."
     )
+    # The recall edge's ranking comes from the hoisted selection (the mode
+    # the edge picks for this store, identity and depth), read once per call.
+    recall = (REPO_ROOT / "apps/api/src/alicebot_api/mcp/retrieval.py").read_text()
+    assert "ranking = recall_source_ranking(store, context.agent_identity, context_depth)" in recall
