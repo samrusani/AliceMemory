@@ -43,9 +43,19 @@ G2 asks whether vectors return the passage that holds the fact more often. It ne
 - **Exact terms must not get worse:** on the 46 exact-term recall questions, the questions vectors lose minus those they gain is at most 2.
 - **Reported beside it, whatever it shows:** every task's counts in both arms, the bytes returned per search (median and 90th percentile) and the search time.
 
+## The first search (registered now)
+
+On the hard set, the searches that answering agents had sent were replayed on both rankings. A whole question sent as one search, as G2 does, showed only a small gap. The short searches agents really write showed a clear one: the agent's first search found the fact more often with vectors.
+
+This set's run logs every search an answer makes, with what it returned, so the same measure is taken from the run itself, in each model family:
+
+- **Found on the first search:** an answer's first Alice search that the harness answered (not one it refused) returned every required answer string within the first 8,192 bytes of its output.
+- **For each question:** the share of its three answers found on the first search, in each Alice arm. The first search is written from the question before any result is seen, so the two arms' first searches come from the same kind of agent in the same situation.
+- **First-search rule:** an exact two-sided sign test on the questions whose share differs between the two Alice arms, with p below 0.05 and more questions higher with vectors. Reported for all main-claim questions, and for the deep and exact-term questions apart.
+
 ## Searches per answer (registered now)
 
-On the hard set, the searches answering agents had sent were replayed on both rankings. Vectors found the fact on an agent's first search clearly more often. Agents kept searching until they found it, so across all their searches the gap was small. If that holds here, the gain shows as fewer searches per answer more than as more correct answers. So that is measured too, in each model family:
+Agents on the hard set kept searching until they found the fact, so across all their searches the gap was small. If that holds here, the gain shows as fewer searches per answer more than as more correct answers. So that is measured too, in each model family:
 
 - **Searches per answer:** the number of Alice searches an answer made, as the harness logs them, refused ones included. The budget is five. For each question, take the mean over its three answers in each arm.
 - **Efficiency rule:** an exact two-sided sign test on the questions whose mean differs between the two Alice arms, with p below 0.05 and more questions needing fewer searches with vectors.
@@ -64,13 +74,12 @@ On the hard set, the searches answering agents had sent were replayed on both ra
 
 ## How the parts are read together
 
-- G2 is the primary evidence that the mechanism works. With about 326 questions, the answer comparison has little power for a gain of 3 to 5 points.
-- If G2 passes and the main claim is inconclusive, the claims are limited:
-  - that Alice with vectors finds the fact's passage more often on this set;
-  - and, if its rule passes, that it answers as well with fewer searches.
-
-  No claim is made that it answers better.
-- If G2 fails, no claim is made for vectors.
+- **The mechanism.** G2 and the first-search rule are the evidence that it works. With about 326 questions, the answer comparison has little power for a gain of 3 to 5 points.
+- **If the main claim is inconclusive,** each claim made is the one its own rule supports, and no claim is made that Alice answers better:
+  - **G2 passes:** a whole-question search with vectors finds the fact's passage more often on this set.
+  - **The first-search rule passes in a model family:** in that family, an agent's first search finds the fact more often with vectors.
+  - **The efficiency rule also passes,** with its conditions: Alice with vectors answers as well with fewer searches.
+- **If neither G2 nor the first-search rule passes,** no claim is made for vectors.
 
 ## Expected direction by task, written now
 
