@@ -43,9 +43,33 @@ G2 asks whether vectors return the passage that holds the fact more often. It ne
 - **Exact terms must not get worse:** on the 46 exact-term recall questions, the questions vectors lose minus those they gain is at most 2.
 - **Reported beside it, whatever it shows:** every task's counts in both arms, the bytes returned per search (median and 90th percentile) and the search time.
 
-**How the two parts are read together:**
+## Searches per answer (registered now)
+
+On the hard set, the searches answering agents had sent were replayed on both rankings. Vectors found the fact on an agent's first search clearly more often. Agents kept searching until they found it, so across all their searches the gap was small. If that holds here, the gain shows as fewer searches per answer more than as more correct answers. So that is measured too, in each model family:
+
+- **Searches per answer:** the number of Alice searches an answer made, as the harness logs them, refused ones included. The budget is five. For each question, take the mean over its three answers in each arm.
+- **Efficiency rule:** an exact two-sided sign test on the questions whose mean differs between the two Alice arms, with p below 0.05 and more questions needing fewer searches with vectors.
+- **Reported beside it, whatever it shows:**
+  - the bytes of search results each answer received (mean and median per arm);
+  - those bytes divided by the number of supported complete answers;
+  - for the Claude family, the answering tokens per arm as the run records them.
+
+  These are descriptive, not decision rules.
+- **The efficiency claim:** made for a model family only when all three hold:
+  - the efficiency rule passes;
+  - every floor passes;
+  - the main comparison does not show vectors worse (a sign test with p below 0.05 and more questions down than up).
+
+  The claim is that Alice with vectors answers as well with fewer searches, and it gives the measured difference in searches per answer.
+
+## How the parts are read together
+
 - G2 is the primary evidence that the mechanism works. With about 326 questions, the answer comparison has little power for a gain of 3 to 5 points.
-- If G2 passes and the main claim is inconclusive, the only claim made is that Alice with vectors finds the fact's passage more often on this set. No claim is made that it answers better.
+- If G2 passes and the main claim is inconclusive, the claims are limited:
+  - that Alice with vectors finds the fact's passage more often on this set;
+  - and, if its rule passes, that it answers as well with fewer searches.
+
+  No claim is made that it answers better.
 - If G2 fails, no claim is made for vectors.
 
 ## Expected direction by task, written now
