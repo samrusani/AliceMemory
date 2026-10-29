@@ -302,17 +302,36 @@ def test_the_keyless_brief_prints_nothing_once_keys_exist(tmp_path: Path) -> Non
 
 
 def test_a_limited_keys_brief_shows_only_what_it_may_read(tmp_path: Path) -> None:
-    """Guard: the keyed brief compiles under the key's own fence."""
+    """Guard: the keyed brief compiles under the key's own fence: a
+    project-scoped key's brief carries the bound project's memory and not the
+    other project's, where the owner's brief carries both."""
+
+    from alicebot_api.mcp_tools import _sqlite_path_from_url
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from alicebot_api.vnext_label_writes import without_insert_floor
 
     database = _vault(tmp_path)
     context = _context(database)
-    _capture_source(context, title="Acme", text=ACME_NOTE, project="acme")
-    _capture_source(context, title="Other", text=OTHER_NOTE, project="other")
+    acme = _capture_source(context, title="Acme", text=ACME_NOTE, project="acme")
+    other = _capture_source(context, title="Other", text=OTHER_NOTE, project="other")
+    with sqlite_user_connection(_sqlite_path_from_url(context.database_url), USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        with without_insert_floor():
+            store.create_memory({
+                "memory_key": "acme-note", "canonical_text": "alpha beta acme cadence note", "title": "Acme note",
+                "memory_type": "decision", "status": "active", "domain": "project", "sensitivity": "public",
+                "metadata_json": {"source_id": acme},
+            })
+            store.create_memory({
+                "memory_key": "other-note", "canonical_text": "alpha beta other cadence note", "title": "Other note",
+                "memory_type": "decision", "status": "active", "domain": "project", "sensitivity": "public",
+                "metadata_json": {"source_id": other},
+            })
     key = _create_key(database, agent_id="scoped", profile="project_scoped_agent", project="acme")
     brief = _brief(database, env_extra={"ALICE_AGENT_API_KEY": key})
     assert brief.returncode == 0, brief.stderr
-    assert "Other project" not in brief.stdout, brief.stdout[:400]
-    assert "deployment cadence for acme" in brief.stdout.lower() or brief.stdout.strip() == ""
+    assert "other project" not in brief.stdout.lower(), brief.stdout[:500]
+    assert "acme sprint" in brief.stdout.lower(), brief.stdout[:500]
 
 
 def test_a_keyless_vaults_brief_is_unchanged(tmp_path: Path) -> None:
