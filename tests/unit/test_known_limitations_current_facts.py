@@ -318,9 +318,9 @@ def test_the_sqlite_boundaries_bullets_and_the_deletion_bullet_point_at_the_page
     the migration and the key rule. SQLite source deletion keeps events, hashes, memory text and backups until the VACUUM
     step, and the importers page states each of them.
 
-    Mutations, each one alone: on the page, delete ``no automatic migration to Postgres``, ``a set key fails closed`` or
-    ``freed space keeps text until the VACUUM step``; in the agent guide, delete ``enforcement fails closed and every core tool
-    call is refused, reads included``; in the importers page, delete ``Append-only source events retain old titles and
+    Mutations, each one alone: on the page, delete ``no automatic migration to Postgres``, ``every keyless MCP call is refused`` or
+    ``freed space keeps text until the VACUUM step``; in the agent guide, delete ``every keyless MCP call is
+    refused, reads included``; in the importers page, delete ``Append-only source events retain old titles and
     hashes`` or ``Earlier backups and copies still hold the text``.
     """
 
@@ -329,13 +329,14 @@ def test_the_sqlite_boundaries_bullets_and_the_deletion_bullet_point_at_the_page
     for clause in ("no scheduler", "one user per database file", "no automatic migration to Postgres"):
         assert clause in bullet, clause
     assert (
-        "no agent API keys (`alicebot agent keys create` requires Postgres, so leave `ALICE_AGENT_API_KEY` unset: a set key "
-        "fails closed and refuses every core tool call, reads included)"
+        "Agent API keys exist on SQLite: mint one per agent with `alice-memory keys create`, and once the vault holds an active key "
+        "every keyless MCP call is refused (reads included) until `ALICE_AGENT_API_KEY` is set"
     ) in bullet
     assert _under("SQLite mode (", bullet)
     agent = _read("docs/alpha/agent-integration.md")
-    assert "`alicebot agent keys create` requires Postgres. Leave `ALICE_AGENT_API_KEY` unset there" in agent
-    assert "enforcement fails closed and every core tool call is refused, reads included" in agent
+    assert "`alice-memory keys create`" in agent
+    assert "every keyless MCP call is" in agent
+    assert "refused, reads included" in agent
 
     deletion = _bullet("`sources delete` and `prune` keep source events")
     assert (

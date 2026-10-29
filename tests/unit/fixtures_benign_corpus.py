@@ -474,7 +474,7 @@ CREDENTIAL_VOCABULARY_SENTENCES: tuple[str, ...] = (
     'no managed Gmail OAuth consent/account-linking flow; manual operator-token',
     'no managed Calendar OAuth consent/account-linking flow; manual operator-token',
     'secrets fallback is alpha-grade unless OS or managed secret provider is configured',
-    'agent API keys cannot be created (alicebot agent keys create requires Postgres); leave ALICE_AGENT_API_KEY unset , agent identity is still honored and audited as unauthenticated_local, while a set key fails closed and rejects every write',
+    'agent API keys are minted with alice-memory keys create and once an active key exists every keyless MCP call is refused , keys tell Alice which agent asks and limit what it returns , they do not stop a process running as your OS user from reading the vault file',
     'users, agent identities/API keys, embedding vectors, and soft-deleted rows are not portable; fact keys and entity relationship history are included, while nullable references to omitted rows are cleared and graph edges with omitted known endpoints are excluded so the portable set remains foreign-key closed',
     'Accepts the same memory_types filter, and max_tokens budgets each',
     'a tight token budget is spent (balanced | facts_first |',

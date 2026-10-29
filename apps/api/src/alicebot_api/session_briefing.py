@@ -461,21 +461,26 @@ def compile_local_session_brief(
     project_view: ProjectView,
     exclude_global_domains: frozenset[str],
     reserve: int = 0,
+    identity: AgentIdentity | None = None,
 ) -> str:
     """Operator CLI path: evaluate policy, then compile against that fence.
 
     The caller is the owner (no agent identity), so the view's tuple is the
     project fence. A caller with no view on purpose, the doctor and the demo,
-    passes ``ProjectView.unscoped()`` and the empty set.
+    passes ``ProjectView.unscoped()`` and the empty set. ``identity`` is the
+    resolved agent identity of a keyed brief: its policy decision (domain and
+    sensitivity limits, its project scope, locked) replaces the owner's, so
+    the brief shows only what the key may read.
     """
 
     decision = evaluate_agent_policy(
-        identity=None,
+        identity=identity,
         action="context_pack.request",
         domains=(),
         sensitivity_allowed=DEFAULT_AGENT_SENSITIVITY,
         project_scope=(),
     )
+    identity_scope = tuple(sorted(decision.effective_project_scope))
     with sqlite_user_connection(db_path, user_id) as connection:
         store = SQLiteVNextStore(connection, user_id)
         return compile_session_brief(
@@ -486,8 +491,8 @@ def compile_local_session_brief(
                 view=project_view,
                 decision_scope=decision.effective_project_scope,
                 requested_scope=(),
-                identity_scope=(),
-                identity_locked=False,
+                identity_scope=identity_scope,
+                identity_locked=identity is not None,
             ),
             project_view=project_view,
             exclude_global_domains=exclude_global_domains,

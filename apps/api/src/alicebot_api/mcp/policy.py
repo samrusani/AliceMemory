@@ -42,11 +42,16 @@ AGENT_API_KEY_ENV = "ALICE_AGENT_API_KEY"
 def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> AgentIdentity | None:
     """Resolve the calling agent's identity for one MCP tool call.
 
-    Without ``ALICE_AGENT_API_KEY`` the MCP server is local operator tooling
-    (it already holds direct database credentials), so payload identity is
-    honored and carries the default ``unauthenticated_local`` auth marker.
-    With the key set, identity is resolved and enforced against the issued
-    key record exactly like the HTTP surface.
+    With ``ALICE_AGENT_API_KEY`` the identity is resolved and enforced against
+    the issued key record exactly like the HTTP surface; a bad or revoked key
+    answers as it always did. Without the key the call is keyless: it is
+    refused with the not-permitted answer once the vault holds at least one
+    active key (reads included, the same rule the HTTP surface applies), and
+    while the vault holds no active key it stays local operator tooling that
+    honors the payload identity with the default ``unauthenticated_local``
+    auth marker. The rule lifts by itself when the last active key is gone
+    (revoked keys do not count), so revoking every key returns the vault to
+    the keyless behaviour.
     """
 
     if context.agent_identity_resolved:
@@ -54,6 +59,12 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
 
     raw_key = (os.environ.get(AGENT_API_KEY_ENV) or "").strip() or None
     if raw_key is None:
+        with _vnext_store_context(context) as store:
+            if store.count_active_agent_api_keys() > 0:
+                raise MCPNotPermittedError(
+                    "agent API keys are configured for this vault; every call needs "
+                    f"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')"
+                )
         try:
             return AgentIdentity.from_payload(arguments)
         except AgentIdentityValidationError as exc:

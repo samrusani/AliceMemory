@@ -869,14 +869,19 @@ def _masked_hook_item(item: object, hidden: list[str]) -> object:
 
 
 def _own_env(payload: Mapping[str, object]) -> dict[str, str]:
-    """The env value install writes for ``payload``: ALICE_MEMORY_DATA_DIR = its --data-dir."""
+    """The env values install writes for ``payload``: ALICE_MEMORY_DATA_DIR = its --data-dir, and the agent key's environment reference (a ${VARNAME} the host resolves, never a raw key)."""
 
+    own: dict[str, str] = {}
     args = payload.get("args")
     if isinstance(args, list) and all(isinstance(arg, str) for arg in args):
         value = last_option(args, "--data-dir")
         if value is not None:
-            return {ALICE_MEMORY_DATA_DIR_ENV: value}
-    return {}
+            own[ALICE_MEMORY_DATA_DIR_ENV] = value
+    env = payload.get("env")
+    reference = env.get("ALICE_AGENT_API_KEY") if isinstance(env, Mapping) else None
+    if isinstance(reference, str) and reference.startswith("${") and reference.endswith("}"):
+        own["ALICE_AGENT_API_KEY"] = reference
+    return own
 
 
 def _host_target(path: Path) -> Path:
@@ -2728,6 +2733,22 @@ class HermesPlan:
     used_fallback: bool = False
 
 
+def _add_agent_key_env(payload: dict[str, object], agent_key_env: str | None) -> None:
+    """Reference the key through its environment variable in the env map.
+
+    Install never writes a raw key into a file: the entry's
+    ``ALICE_AGENT_API_KEY`` reads ``${VARNAME}``, which the host resolves from
+    its own environment at launch. An env value the file already carries is
+    kept, never overwritten.
+    """
+
+    if not agent_key_env:
+        return
+    env = payload.get("env")
+    if isinstance(env, dict) and "ALICE_AGENT_API_KEY" not in env:
+        env["ALICE_AGENT_API_KEY"] = "${" + agent_key_env + "}"
+
+
 def _hermes_payload(plan: _EntryPlan) -> dict[str, object]:
     """The alice block install writes for ``plan``: command, args, and env when it has one.
 
@@ -2750,6 +2771,7 @@ def _plan_hermes(
     home: Path,
     search: LauncherSearch,
     problem_of: Callable[[Launcher], str | None] | None = None,
+    agent_key_env: str | None = None,
 ) -> HermesPlan:
     """Plan mcp_servers.alice in ``text``; see plan_hermes_config.
 
@@ -2814,6 +2836,7 @@ def _plan_hermes(
             )
         fresh = plan_entry(None)
         payload = _hermes_payload(fresh)
+        _add_agent_key_env(payload, agent_key_env)
         return HermesPlan(
             _render_yaml_text(
                 doc, [*lines, "mcp_servers:", *_hermes_block_lines(payload, 2)], True
@@ -2947,6 +2970,7 @@ def _plan_hermes(
             )
         if isinstance(parsed_env, Mapping):
             payload = _merge_carried_env(payload, parsed_env, carried)
+        _add_agent_key_env(payload, agent_key_env)
         details = list(entry_plan.details)
         if carried:
             details.append("kept: " + ", ".join(f"env.{name}" for name in carried))
@@ -3108,6 +3132,7 @@ def _plan_hermes_file(
     *,
     home: Path,
     search: LauncherSearch,
+    agent_key_env: str | None = None,
 ) -> tuple[HermesPlan, bytes | None, Path]:
     """The plan, the original bytes (None when there is no file), and the write target."""
 
@@ -3128,6 +3153,7 @@ def _plan_hermes_file(
             needs_hook=False,
         )
         payload = _hermes_payload(fresh)
+        _add_agent_key_env(payload, agent_key_env)
         text = "\n".join(["mcp_servers:", *_hermes_block_lines(payload, 2)]) + "\n"
         plan = HermesPlan(text, fresh.data_dir, payload, tuple(fresh.details), fresh.used_fallback)
         return plan, None, target
@@ -3140,7 +3166,7 @@ def _plan_hermes_file(
         raise HermesConfigRefused(f"{path.name} is not UTF-8") from exc
     try:
         return (
-            _plan_hermes(text, explicit_dir, default_dir, home=home, search=search),
+            _plan_hermes(text, explicit_dir, default_dir, home=home, search=search, agent_key_env=agent_key_env),
             original,
             target,
         )
@@ -3191,6 +3217,7 @@ def _install_hermes_host(
     default_dir: str,
     dry_run: bool,
     search: LauncherSearch,
+    agent_key_env: str | None = None,
 ) -> _HostResult:
     path = host_file_map(home)["hermes"]["mcp"]
     data_dir = explicit_dir or default_dir
@@ -3213,7 +3240,7 @@ def _install_hermes_host(
     details: list[str] = []
     try:
         plan, original, target = _plan_hermes_file(
-            path, explicit_dir, default_dir, home=home, search=search
+            path, explicit_dir, default_dir, home=home, search=search, agent_key_env=agent_key_env
         )
     except HermesConfigRefused as refusal:
         extra_keys = ", ".join(refusal.extra_keys)
@@ -8063,6 +8090,7 @@ def run_host_install(
     hosts: Sequence[str] | None,
     dry_run: bool,
     write_mcpb: str | None,
+    agent_key_env: str | None = None,
 ) -> str:
     """Install every planned host and return the receipts.
 
@@ -8087,6 +8115,7 @@ def run_host_install(
                 explicit_dir=explicit_dir,
                 default_dir=default_dir,
                 dry_run=dry_run,
+                agent_key_env=agent_key_env,
                 search=search,
             )
         if host == "codex":
