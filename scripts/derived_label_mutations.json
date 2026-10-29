@@ -1519,7 +1519,7 @@
           "line": 37,
           "before": "the count of a list that lost an id is recomputed or dropped",
           "after": "the count of a list that lost an id is kept",
-          "sha256": "47b385cfe37938acd92027ec20ff7abec7081592fc8517470e25af7858034fe8"
+          "sha256": "43f5d03cabb094d0062992bf6555dbf1940eb4bbdb6fcebcbc9466d3ef5040aa"
         }
       ],
       "pytest": [
@@ -1535,7 +1535,7 @@
           "line": 42,
           "before": "judged at most 128 rows of each list",
           "after": "listed",
-          "sha256": "47b385cfe37938acd92027ec20ff7abec7081592fc8517470e25af7858034fe8"
+          "sha256": "43f5d03cabb094d0062992bf6555dbf1940eb4bbdb6fcebcbc9466d3ef5040aa"
         }
       ],
       "pytest": [
@@ -3991,7 +3991,7 @@
           "line": 38,
           "before": "; from v0.21.0, a key with limits is not shown those",
           "after": "",
-          "sha256": "47b385cfe37938acd92027ec20ff7abec7081592fc8517470e25af7858034fe8"
+          "sha256": "43f5d03cabb094d0062992bf6555dbf1940eb4bbdb6fcebcbc9466d3ef5040aa"
         }
       ],
       "pytest": [
@@ -4733,7 +4733,7 @@
           "line": 37,
           "before": "the owner and an unbound admin key keep every id",
           "after": "every key keeps every id",
-          "sha256": "47b385cfe37938acd92027ec20ff7abec7081592fc8517470e25af7858034fe8"
+          "sha256": "43f5d03cabb094d0062992bf6555dbf1940eb4bbdb6fcebcbc9466d3ef5040aa"
         }
       ],
       "pytest": [
@@ -5212,7 +5212,7 @@
           "line": 40,
           "before": "the reports and derived rows built from a redacted memory are readable by the owner and an unbound admin key only until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "47b385cfe37938acd92027ec20ff7abec7081592fc8517470e25af7858034fe8"
+          "sha256": "43f5d03cabb094d0062992bf6555dbf1940eb4bbdb6fcebcbc9466d3ef5040aa"
         }
       ],
       "pytest": [
@@ -5244,7 +5244,7 @@
           "line": 40,
           "before": "removing it is planned, with no release set",
           "after": "removing it is done",
-          "sha256": "47b385cfe37938acd92027ec20ff7abec7081592fc8517470e25af7858034fe8"
+          "sha256": "43f5d03cabb094d0062992bf6555dbf1940eb4bbdb6fcebcbc9466d3ef5040aa"
         }
       ],
       "pytest": [
@@ -6054,7 +6054,7 @@
           "line": 40,
           "before": "are readable by the owner and an unbound admin key only",
           "after": "are readable by every key that reads the report",
-          "sha256": "47b385cfe37938acd92027ec20ff7abec7081592fc8517470e25af7858034fe8"
+          "sha256": "43f5d03cabb094d0062992bf6555dbf1940eb4bbdb6fcebcbc9466d3ef5040aa"
         }
       ],
       "pytest": [
@@ -6070,7 +6070,7 @@
           "line": 39,
           "before": ", and a key that can read the report reads it",
           "after": "",
-          "sha256": "47b385cfe37938acd92027ec20ff7abec7081592fc8517470e25af7858034fe8"
+          "sha256": "43f5d03cabb094d0062992bf6555dbf1940eb4bbdb6fcebcbc9466d3ef5040aa"
         }
       ],
       "pytest": [
@@ -6246,7 +6246,7 @@
           "line": 33,
           "before": "Open in v0.22.0, with the detail in the [security note]",
           "after": "Open in v0.22.0, but graph edge explanations remain outside that ceiling, with the detail in the [security note]",
-          "sha256": "47b385cfe37938acd92027ec20ff7abec7081592fc8517470e25af7858034fe8"
+          "sha256": "43f5d03cabb094d0062992bf6555dbf1940eb4bbdb6fcebcbc9466d3ef5040aa"
         }
       ],
       "pytest": [
@@ -9459,7 +9459,7 @@
           "line": 41,
           "before": "keeps the title and description its caller typed, so words of the memory stay readable to every key that reads the loop",
           "after": "keeps the title and description its caller typed, so words of the memory are withheld from every key that reads the loop",
-          "sha256": "47b385cfe37938acd92027ec20ff7abec7081592fc8517470e25af7858034fe8"
+          "sha256": "43f5d03cabb094d0062992bf6555dbf1940eb4bbdb6fcebcbc9466d3ef5040aa"
         }
       ],
       "pytest": [
@@ -20231,7 +20231,7 @@
           "line": 39,
           "before": "; hiding these words is planned, with no release set",
           "after": "",
-          "sha256": "47b385cfe37938acd92027ec20ff7abec7081592fc8517470e25af7858034fe8"
+          "sha256": "43f5d03cabb094d0062992bf6555dbf1940eb4bbdb6fcebcbc9466d3ef5040aa"
         }
       ],
       "pytest": [
