@@ -378,7 +378,13 @@ def _setup_env(monkeypatch) -> None:
 
 
 def _keys(vault) -> dict[str, str | None]:
+    """The readers. The owner's read ran keyless once; on a vault that holds
+    keys a keyless call is refused, so the owner's leg runs as the owner's
+    equal: an unbound admin_agent key gets what the owner got."""
     keys: dict[str, str | None] = {"owner": None}
+    with vault.open() as conn:
+        keys["owner"] = create_agent_key(SQLiteVNextStore(conn, USER), user_id=USER, agent_id="owner-equal", permission_profile="admin_agent", project_scope=None)[1]
+
     with vault.open() as conn:
         store = SQLiteVNextStore(conn, USER)
         for reader, profile in PROFILE.items():

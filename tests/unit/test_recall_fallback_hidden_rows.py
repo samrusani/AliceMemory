@@ -22,6 +22,7 @@ Each test names the mutation that must fail it, and the cases ``recall-fallback-
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
@@ -151,10 +152,14 @@ class _Vault:
             yield SQLiteVNextStore(conn, self.user_id)
 
     def key(self, name: str) -> str:
-        profile, project = KEYS[name]
+        profile, project = ("admin_agent", None) if name == "owner_equal" else KEYS[name]
+        if name == "owner_equal" and getattr(self, "_owner_key", None):
+            return self._owner_key
         with self.store() as store:
             _record, raw = create_agent_key(store, user_id=self.user_id, agent_id=name,
                                             permission_profile=profile, project_scope=project)
+        if name == "owner_equal":
+            self._owner_key = raw
         return raw
 
     def hide(self, shape: str, text: str | None = None) -> dict[str, object]:
@@ -167,6 +172,11 @@ class _Vault:
         else:
             self.monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
         return call_mcp_tool(self.context, name=tool, arguments=arguments)
+
+    def _vault_has_keys(self) -> bool:
+        with sqlite3.connect(str(self.path)) as conn:
+            row = conn.execute("SELECT count(*) FROM agent_api_keys WHERE revoked_at IS NULL").fetchone()
+        return bool(row and row[0] > 0)
 
     def recall(self, key: str | None, **extra: object) -> dict[str, object]:
         return self.call(key, "alice_recall", query=QUERY, debug=True, **extra)

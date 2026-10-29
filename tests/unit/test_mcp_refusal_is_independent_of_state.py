@@ -64,6 +64,7 @@ _PROFILES = ("project_scoped_agent", "trusted_local_agent", "read_only_agent", "
 @pytest.fixture
 def context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[MCPRuntimeContext]:
     monkeypatch.delenv(_KEY_ENV, raising=False)
+    _OWNER_KEY.clear()
     database = resolve_db_path(data_dir=str(tmp_path), db=None)
     bootstrap_database(database, user_id=_USER_ID, user_email="local@alice")
     # The server logs every refusal with its traceback. A matrix of several hundred refused calls would spend most of
@@ -102,10 +103,29 @@ def _answer(ctx: MCPRuntimeContext, name: str, arguments: Mapping[str, object]) 
     return str(error["code"])
 
 
-def _owner(ctx: MCPRuntimeContext, name: str, **arguments: object) -> dict[str, object]:
-    """A keyless call that must succeed (the owner builds the fixtures)."""
+_OWNER_KEY: list[str] = []
 
-    return registry.call_mcp_tool(ctx, name=name, arguments=arguments)
+
+def _owner(ctx: MCPRuntimeContext, name: str, **arguments: object) -> dict[str, object]:
+    """The fixture builder's call. On a vault that holds keys a keyless call is refused, so the builder
+    calls as the owner's equal: an unbound admin_agent key gets what the owner got."""
+
+    import os as _os
+
+    from alicebot_api.mcp_tools import AGENT_API_KEY_ENV as _ENV
+
+    previous = _os.environ.get(_ENV)
+    if _OWNER_KEY and previous is None:
+        # Only the builder's own calls are substituted: a call the test made
+        # under a key it set (the row's author) stays that caller's.
+        _os.environ[_ENV] = _OWNER_KEY[0]
+    try:
+        return registry.call_mcp_tool(ctx, name=name, arguments=arguments)
+    finally:
+        if previous is None:
+            _os.environ.pop(_ENV, None)
+        else:
+            _os.environ[_ENV] = previous
 
 
 def _store_do(ctx: MCPRuntimeContext, action: Callable[[SQLiteVNextStore], object]) -> object:
@@ -114,6 +134,14 @@ def _store_do(ctx: MCPRuntimeContext, action: Callable[[SQLiteVNextStore], objec
 
 
 def _mint_key(ctx: MCPRuntimeContext, *, profile: str, project: str, agent_id: str | None = None) -> str:
+    if not _OWNER_KEY:
+        # The owner's equal is minted first, so the state builders that follow
+        # run with it (a keyless call is refused once a key exists).
+        _OWNER_KEY.append(_mint_key_uncached(ctx, profile="admin_agent", project=None, agent_id="owner-equal"))
+    return _mint_key_uncached(ctx, profile=profile, project=project, agent_id=agent_id)
+
+
+def _mint_key_uncached(ctx: MCPRuntimeContext, *, profile: str, project: str, agent_id: str | None = None) -> str:
     with _vnext_store_context(ctx) as store:
         _record, raw_key = create_agent_key(
             store,  # type: ignore[arg-type]
@@ -350,7 +378,7 @@ def test_a_caller_the_project_scope_refuses_hears_the_same_answer_in_every_state
     anchor_key = _mint_key(context, profile="admin_agent", project=_OWN_PROJECT, agent_id="anchor-builder")
     monkeypatch.setenv(_KEY_ENV, anchor_key)
     anchor = _active(context, _OWN_PROJECT, "internal").memory_id
-    monkeypatch.delenv(_KEY_ENV)
+    monkeypatch.delenv(_KEY_ENV, raising=False)
     targets = {state: build(context, _OTHER_PROJECT, "internal") for state, build in _ALL_STATES.items()}
     missing = _Target(str(uuid4()), f"confirm-{uuid4()}")
     keys = {profile: _mint_key(context, profile=profile, project=_OWN_PROJECT) for profile in _PROFILES}
@@ -363,7 +391,7 @@ def test_a_caller_the_project_scope_refuses_hears_the_same_answer_in_every_state
                 if _applies(call, state):
                     seen[(profile, call_name, state)] = _answer(context, call.tool, call.arguments(target, anchor))
             seen[(profile, call_name, "missing")] = _answer(context, call.tool, call.arguments(missing, anchor))
-    monkeypatch.delenv(_KEY_ENV)
+    monkeypatch.delenv(_KEY_ENV, raising=False)
 
     assert {key[0] for key in seen} == set(_PROFILES)
     cells = len(seen)
@@ -401,7 +429,9 @@ def test_the_callers_the_policy_allows_still_hear_the_state_and_are_never_refuse
     context: MCPRuntimeContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The control of the matrix: the owner and a key bound to the target's own project are never ``not_permitted``.
+    """The control of the matrix: a key bound to the target's own project is never ``not_permitted``. The
+    owner's keyless MCP stance is gone once keys exist: the owner's rows answer ``not_permitted`` in every
+    state, which is the keyless refusal being independent of the state too.
 
     Each cell gets a fresh row, because a call that succeeds changes it. The state answers are still the state
     answers for these callers: a pending project update is ``precondition_failed`` to forget, undo or redact, an
@@ -429,8 +459,9 @@ def test_the_callers_the_policy_allows_still_hear_the_state_and_are_never_refuse
                 answers[(caller, call_name, state)] = _answer(context, call.tool, call.arguments(target, anchor))
     monkeypatch.delenv(_KEY_ENV, raising=False)
 
-    assert "not_permitted" not in answers.values()
-    for caller in ("owner", "key bound in scope"):
+    assert all(code != "not_permitted" for (caller, _c, _s), code in answers.items() if caller != "owner")
+    assert all(code == "not_permitted" for (caller, _c, _s), code in answers.items() if caller == "owner")
+    for caller in ("key bound in scope",):
         assert answers[(caller, "manage forget", "pending project update")] == "precondition_failed"
         assert answers[(caller, "manage undo", "pending project update")] == "precondition_failed"
         assert answers[(caller, "manage redact", "pending project update")] == "precondition_failed"
@@ -480,7 +511,7 @@ def test_a_caller_above_the_sensitivity_ceiling_hears_the_same_answer_in_every_s
         state: _answer(context, "alice_memory_review", {"review_item_id": target.memory_id})
         for state, target in targets.items()
     }
-    monkeypatch.delenv(_KEY_ENV)
+    monkeypatch.delenv(_KEY_ENV, raising=False)
 
     assert set(answers.values()) == {"not_found"}, answers
     assert set(review.values()) == {"not_found"}, review
@@ -574,7 +605,7 @@ def test_a_refused_call_on_a_pending_project_update_is_audited_like_any_other_re
     redact = {"action": "redact", "reason": "no"}
     assert _answer(context, "alice_memory_manage", {**redact, "memory_id": target.memory_id}) == "not_permitted"
     assert _answer(context, "alice_memory_manage", {**redact, "memory_id": ordinary.memory_id}) == "not_permitted"
-    monkeypatch.delenv(_KEY_ENV)
+    monkeypatch.delenv(_KEY_ENV, raising=False)
 
     def blocked_rows(memory_id: str) -> list[object]:
         events = _store_do(context, lambda store: store.list_events(target_type="memory", target_id=memory_id))
@@ -588,7 +619,7 @@ def test_a_refused_call_on_a_pending_project_update_is_audited_like_any_other_re
     monkeypatch.setenv(_KEY_ENV, outsider)
     for row in (target, ordinary):
         assert _answer(context, "alice_memory_manage", {"action": "forget", "memory_id": row.memory_id}) == "not_found"
-    monkeypatch.delenv(_KEY_ENV)
+    monkeypatch.delenv(_KEY_ENV, raising=False)
     assert len(blocked_rows(target.memory_id)) == 1
     assert len(blocked_rows(ordinary.memory_id)) == 1
 
@@ -723,7 +754,7 @@ def test_a_refused_redact_of_an_archived_or_redacted_row_is_answered_not_found_a
             assert answer == "not_found", (label, state, answer)
             assert events == [], (label, state, events)
             assert written == missing_written, (label, state, written)
-        monkeypatch.delenv(_KEY_ENV)
+        monkeypatch.delenv(_KEY_ENV, raising=False)
 
     # The control: a caller the policy allows redacts the deleted row and is never audited as refused.
     admin = _mint_key(context, profile="admin_agent", project=_OTHER_PROJECT, agent_id="audited-in-scope")
@@ -732,7 +763,7 @@ def test_a_refused_redact_of_an_archived_or_redacted_row_is_answered_not_found_a
     assert _answer(
         context, "alice_memory_manage", {"action": "redact", "memory_id": archived.memory_id, "reason": "ok"}
     ) == "ok"
-    monkeypatch.delenv(_KEY_ENV)
+    monkeypatch.delenv(_KEY_ENV, raising=False)
     assert _blocked_events(context, archived.memory_id) == []
 
 
@@ -881,7 +912,7 @@ def test_a_caller_the_permission_profile_refuses_hears_the_same_answer_in_every_
                     seen[(profile, call_name, state)] = _answer(
                         context, call.tool, call.arguments(targets[state], anchor)
                     )
-    monkeypatch.delenv(_KEY_ENV)
+    monkeypatch.delenv(_KEY_ENV, raising=False)
 
     expected: dict[tuple[str, str, str], str] = {}
     for profile in _PROFILE_REFUSES:
@@ -960,7 +991,7 @@ def test_a_reject_stays_allowed_above_the_ceiling_and_a_confirm_does_not(
         {"action": "confirm", "confirmation_id": rows["pending"].confirmation_id},
     )
     answers.update({(state, "reject"): decide(state, "reject") for state in rows})
-    monkeypatch.delenv(_KEY_ENV)
+    monkeypatch.delenv(_KEY_ENV, raising=False)
 
     assert answers == {
         ("pending", "confirm"): "not_permitted",
@@ -1007,7 +1038,7 @@ def test_each_refusal_audit_row_names_the_action_that_was_asked(
             context, "alice_memory_manage", {"action": "redact", "memory_id": reader_rows["redact"].memory_id, "reason": "no"}
         ),
     }
-    monkeypatch.delenv(_KEY_ENV)
+    monkeypatch.delenv(_KEY_ENV, raising=False)
     assert set(reader_answers.values()) == {"not_permitted"}, reader_answers
 
     def refuse_correct(store: SQLiteVNextStore) -> str:
@@ -1065,7 +1096,7 @@ def test_each_refusal_audit_row_names_the_action_that_was_asked(
     outsider = _mint_key(context, profile="admin_agent", project=_OWN_PROJECT, agent_id="audit-outsider")
     monkeypatch.setenv(_KEY_ENV, outsider)
     answers = {name: _answer(context, tool, arguments) for name, (tool, arguments) in calls.items()}
-    monkeypatch.delenv(_KEY_ENV)
+    monkeypatch.delenv(_KEY_ENV, raising=False)
     assert answers == {
         "forget": "not_found",
         "undo": "not_found",

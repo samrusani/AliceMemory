@@ -41,6 +41,7 @@ from tests.unit.test_memory_id_pointer_residue import (
     _context,
     _MemoryStore,
     _mint,
+    _owner_equal,
     _pack,
     _pack_memory,
     _recall_source,
@@ -331,12 +332,13 @@ def test_an_expired_successor_is_not_named_when_recall_and_the_pack_leave_it_out
             "reason": "no longer true",
             "valid_to": _expired(),
         },
+        key=_owner_equal(context),
         full=True,
     )
 
-    recall = _call(context, "alice_recall", {"query": NEW})
+    recall = _call(context, "alice_recall", {"query": NEW}, key=_owner_equal(context))
     assert replacement not in json.dumps(recall.get("results"))
-    pack = _call(context, "alice_context_pack", {"query": NEW}, full=True)
+    pack = _call(context, "alice_context_pack", {"query": NEW}, key=_owner_equal(context), full=True)
     assert replacement not in json.dumps(pack.get("memories"))
     for source in (_recall_source(context), _pack_source(context)):
         assert source["derived_memory_corrected"] is True
@@ -347,6 +349,7 @@ def test_an_expired_successor_is_not_named_when_recall_and_the_pack_leave_it_out
         context,
         "alice_memory_manage",
         {"action": "unexpire", "memory_id": replacement, "reason": "still true"},
+              key=_owner_equal(context),
         full=True,
     )
     for source in (_recall_source(context), _pack_source(context)):

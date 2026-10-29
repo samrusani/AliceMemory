@@ -102,6 +102,7 @@ _ENCODINGS: dict[str, Callable[[dict[str, object]], object]] = {
 
 @pytest.mark.parametrize("encoding", ["object", "json"])
 @pytest.mark.parametrize("surface", ["review", "pack", "http_pack", "explain"])
+
 def test_literal_marker_inside_quote_is_not_a_citation(vault: _Vault, encoding: str, surface: str) -> None:
     """The probe of the review, run as it was: a commit cites a source and carries a ref whose ``quote`` holds
     ``source:<an id that names no source>``, as an object and as JSON text, and each reader is asked by a project key. The
@@ -125,6 +126,7 @@ def test_literal_marker_inside_quote_is_not_a_citation(vault: _Vault, encoding: 
 
 
 @pytest.mark.parametrize("encoding", list(_ENCODINGS))
+
 def test_every_encoding_of_the_ref_keeps_the_quote_on_every_reader(vault: _Vault, encoding: str) -> None:
     """The ref of the review in eight encodings (an object, JSON text with and without indentation and padding, an array, a
     reference key holding the ref, JSON inside JSON, an object whose ``sources`` is JSON text): every key keeps the quote on
@@ -139,7 +141,7 @@ def test_every_encoding_of_the_ref_keeps_the_quote_on_every_reader(vault: _Vault
     stored = _ENCODINGS[encoding](_ref_with_quote(cited, str(uuid4())))
     memory_id, query, _body = _commit_with_refs(vault, [cited, stored], tag=_tag("enc", encoding))  # type: ignore[list-item]
     assert _link_count(vault, memory_id) == 1
-    owner_review = vault.review(None, memory_id)["payload"]
+    owner_review = vault.review("owner_equal", memory_id)["payload"]
     for who in _KEY_SPECS:
         review = vault.review(who, memory_id)
         pack = vault.pack(who, query)
@@ -178,6 +180,7 @@ _RESTRICTED_SHAPES: dict[str, Callable[[str, str], dict[str, object]]] = {
 @pytest.mark.parametrize("variant", ("confidential", "archived"))
 @pytest.mark.parametrize("encoding", ["object", "json"])
 @pytest.mark.parametrize("shape", list(_RESTRICTED_SHAPES))
+
 def test_an_id_outside_the_quote_that_names_a_source_the_caller_may_not_read_still_withholds_the_quote(
     vault: _Vault, shape: str, encoding: str, variant: str
 ) -> None:
@@ -268,6 +271,7 @@ _MISSING_CASES = [
 
 
 @pytest.mark.parametrize(("shape", "encoding"), _MISSING_CASES)
+
 def test_an_id_outside_the_quote_that_names_no_source_is_judged_as_it_is_in_an_object(
     vault: _Vault, shape: str, encoding: str
 ) -> None:
@@ -306,6 +310,7 @@ def test_an_id_outside_the_quote_that_names_no_source_is_judged_as_it_is_in_an_o
     ],
     ids=["truncated", "trailing comma", "unquoted key", "unclosed array"],
 )
+
 def test_a_text_that_does_not_decode_keeps_the_scan_of_its_text(vault: _Vault, damage: Callable[[str], str]) -> None:
     """The scan of the text is the fallback for a string that starts like JSON and is not. Such a ref is not a decoded
     value, so nothing says its quote is a quote, and the marker in it is read as it has been: named, missing, the quote is
@@ -382,6 +387,7 @@ def _same_read(left: object, right: object) -> bool:
     return (a.named, a.incidental) == (b.named, b.incidental)
 
 
+
 def test_a_json_text_is_read_as_the_value_it_decodes_to() -> None:
     """The independent judge: the read of an object. For 6,000 random refs (nested lists and objects under the keys the
     reader treats as references and under others, every spelling of an id, and in half of the objects a ``quote`` or
@@ -430,6 +436,7 @@ def test_a_json_text_is_read_as_the_value_it_decodes_to() -> None:
     ],
     ids=["marker in a sentence", "marker", "marker and space", "bare id", "list of ids", "alice URL", "upper case"],
 )
+
 def test_the_quote_and_the_excerpt_of_a_decoded_ref_name_nothing(key: str, text: Callable[[str], str]) -> None:
     """Whatever a quote or an excerpt holds, an id in any spelling and any marker, it is text taken from a source and not a
     reference: in a JSON object, in an array of them, in JSON inside JSON, and in a quote that is itself JSON text. The
@@ -455,6 +462,7 @@ def test_the_quote_and_the_excerpt_of_a_decoded_ref_name_nothing(key: str, text:
         assert (set(cited_ids.named), set(cited_ids.incidental)) == ({cited}, set()), stored
 
 
+
 def test_a_json_text_outside_a_reference_position_is_still_read_as_text() -> None:
     """Only a string read as a reference is decoded, as before: a JSON text under a free key (``origin``) is a note, and the
     ids in it are incidental, a quote's included. Decoding it too would change what a note names.
@@ -468,6 +476,7 @@ def test_a_json_text_outside_a_reference_position_is_still_read_as_text() -> Non
     cited_ids = cited_source_ids({"source_id": cited, "origin": text})
     assert cited_ids.named == frozenset({cited})
     assert cited_ids.incidental == frozenset({noted})
+
 
 
 def test_a_key_that_is_repeated_in_a_json_text_keeps_every_value() -> None:
@@ -505,6 +514,7 @@ def test_a_key_that_is_repeated_in_a_json_text_keeps_every_value() -> None:
     ],
     ids=["truncated object", "truncated array", "trailing comma", "unquoted keys", "bare id in an array", "a JSON string", "a number", "text after the value"],
 )
+
 def test_a_text_that_does_not_decode_to_an_object_or_a_list_keeps_the_scan(text: Callable[[str, str], str]) -> None:
     """The text is scanned as it was: ``source:<id>`` as a word of it is named. This includes a JSON string and a number (valid
     JSON that is not a container) and a value with text after it.
@@ -517,6 +527,7 @@ def test_a_text_that_does_not_decode_to_an_object_or_a_list_keeps_the_scan(text:
     raw = text(a, b)
     assert _json_container(raw) is None
     assert b in cited_source_ids(raw).named
+
 
 
 def test_a_json_text_nested_deeper_than_the_decoder_goes_is_scanned_as_text() -> None:
@@ -564,6 +575,7 @@ def _json_cost_cases(count: int) -> dict[str, tuple[str, set[str], set[str]]]:
 
 
 @pytest.mark.parametrize("label", list(_json_cost_cases(1)))
+
 def test_a_json_text_is_read_in_time_that_grows_with_its_length(label: str) -> None:
     """A JSON text of 8,000 ids is read in time that grows with its length (about as much as it is larger), and gives
     exactly the ids it holds. The decode and the merge of repeated keys are linear, and a text is not scanned twice.
@@ -652,6 +664,7 @@ def _strings_of(node: object) -> list[str]:
     return found
 
 
+
 def test_every_id_the_link_writer_reads_is_named_by_the_reader_in_refs_that_hold_json_text() -> None:
     """The reader is a superset of the writer (``source_uuids_in_ref``) however a ref is stored, JSON text included. 6,000
     random refs (the shapes the writer reads and many it does not, ids in every spelling the writer reads, quotes and
@@ -679,6 +692,7 @@ def test_every_id_the_link_writer_reads_is_named_by_the_reader_in_refs_that_hold
                 assert source_uuids_in_ref(text) == [], text
         json_text_beside_a_written_id += bool(written) and any(_json_container(text) is not None for text in strings)
     assert json_text_beside_a_written_id > 500
+
 
 
 def test_a_json_text_is_never_an_id_the_writer_reads_in_any_spelling() -> None:
@@ -726,6 +740,7 @@ def test_a_json_text_is_never_an_id_the_writer_reads_in_any_spelling() -> None:
 
 
 @pytest.mark.parametrize("encoding", list(_ENCODINGS))
+
 def test_a_memory_whose_ref_holds_a_marker_in_a_quote_is_the_stored_row_for_a_caller_who_may_read_the_source(
     encoding: str,
 ) -> None:
@@ -754,6 +769,7 @@ def test_a_memory_whose_ref_holds_a_marker_in_a_quote_is_the_stored_row_for_a_ca
     audit = cited_source_ids_in_memory_audit({"memory": row, "revisions": [revision]})
     assert audit.named == frozenset({readable})
     assert audit.incidental == frozenset()
+
 
 
 

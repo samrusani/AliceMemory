@@ -40,6 +40,7 @@ from alicebot_api.vnext_retrieval import (
     _ResolvedRetrievalScope,
 )
 from tests.unit.test_correction_label_respects_the_read_fence import (
+    _owner_equal,
     NEW,
     OLD,
     _call,
@@ -67,14 +68,16 @@ def _hide_successor(context, monkeypatch) -> tuple[str, str]:
     Returns (M, R).
     """
     _source_id, memory_id = _captured(context, monkeypatch)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     _set(context, replacement, sensitivity="confidential")
     _set(context, memory_id, status="active")
     return memory_id, replacement
 
 
 def _recall(context, *, key=None, **arguments) -> dict:
-    return _call(context, "alice_recall", {"query": OLD, **arguments}, key=key)
+    # The owner's control reads run as the owner's equal (an unbound admin
+    # key) once keys exist: a keyless call is refused on a keyed vault.
+    return _call(context, "alice_recall", {"query": OLD, **arguments}, key=key or _owner_equal(context))
 
 
 def _result(payload: dict, memory_id: str) -> dict:
@@ -93,6 +96,7 @@ def _metadata(context, memory_id: str) -> dict:
 
 
 # -- (a) validity on an alice_recall result ------------------------------------------
+
 
 
 def test_recall_validity_withholds_a_successor_above_the_ceiling(tmp_path: Path, monkeypatch) -> None:
@@ -118,6 +122,7 @@ def test_recall_validity_withholds_a_successor_above_the_ceiling(tmp_path: Path,
     )
 
 
+
 def test_recall_validity_withholds_a_successor_outside_the_requested_domains(tmp_path: Path, monkeypatch) -> None:
     """The domain half of the fence.
 
@@ -135,6 +140,7 @@ def test_recall_validity_withholds_a_successor_outside_the_requested_domains(tmp
     assert _result(open_fence, memory_id)["validity"]["superseded_by_memory_id"] == replacement, (
         "the control: no domain filter names it"
     )
+
 
 
 def test_recall_validity_withholds_a_successor_in_another_project(tmp_path: Path, monkeypatch) -> None:
@@ -169,7 +175,7 @@ def _people_vault(context, monkeypatch, *, link_successor: bool) -> tuple[str, s
     Only the entity graph can tie R to Ada, and only when ``link_successor`` is true.
     """
     _source_id, memory_id = _captured(context, monkeypatch)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     _set(context, memory_id, status="active", metadata_json={**_metadata(context, memory_id), "people": ["ada"]})
     if link_successor:
         person = _store(context, lambda s: s.create_entity({"entity_type": "person", "name": "Ada"}))
@@ -191,6 +197,7 @@ def _people_vault(context, monkeypatch, *, link_successor: bool) -> tuple[str, s
     return memory_id, replacement
 
 
+
 def test_recall_validity_counts_a_person_link_made_through_the_entity_graph(tmp_path: Path, monkeypatch) -> None:
     """The successor is tied to the person only through a graph edge, and is still named.
 
@@ -202,6 +209,7 @@ def test_recall_validity_counts_a_person_link_made_through_the_entity_graph(tmp_
     memory_id, replacement = _people_vault(context, monkeypatch, link_successor=True)
     payload = _recall(context, people=["ada"])
     assert _result(payload, memory_id)["validity"]["superseded_by_memory_id"] == replacement
+
 
 
 def test_recall_validity_withholds_a_successor_the_person_is_not_linked_to(tmp_path: Path, monkeypatch) -> None:
@@ -216,6 +224,7 @@ def test_recall_validity_withholds_a_successor_the_person_is_not_linked_to(tmp_p
     assert replacement not in json.dumps(payload, default=str)
 
 
+
 def test_recall_validity_fences_each_pointer_on_its_own(tmp_path: Path, monkeypatch) -> None:
     """``supersedes_memory_id`` is fenced like ``superseded_by_memory_id``, one key at a time.
 
@@ -225,8 +234,8 @@ def test_recall_validity_fences_each_pointer_on_its_own(tmp_path: Path, monkeypa
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, old = _captured(context, monkeypatch)
-    middle = _supersede(context, old)
-    newest = _supersede(context, middle, THIRD)
+    middle = _supersede(context, old, key=_owner_equal(context))
+    newest = _supersede(context, middle, THIRD, key=_owner_equal(context))
     _set(context, old, sensitivity="confidential")
     _set(context, middle, status="active")
     reader = _mint(context, profile="read_only_agent", project="acme")
@@ -239,6 +248,7 @@ def test_recall_validity_fences_each_pointer_on_its_own(tmp_path: Path, monkeypa
 
     allowed = _recall(context, sensitivity_allowed=list(CONFIDENTIAL_TOO))
     assert _result(allowed, middle)["validity"]["supersedes_memory_id"] == old, "the control"
+
 
 
 def test_recall_validity_keeps_a_pointer_to_no_row_unless_the_read_is_scoped(tmp_path: Path, monkeypatch) -> None:
@@ -259,6 +269,7 @@ def test_recall_validity_keeps_a_pointer_to_no_row_unless_the_read_is_scoped(tmp
 
 
 # -- (b) recent_changes on a context pack --------------------------------------------
+
 
 
 def test_recent_changes_omit_events_about_a_memory_above_the_ceiling(tmp_path: Path, monkeypatch) -> None:
@@ -285,6 +296,7 @@ def test_recent_changes_omit_events_about_a_memory_above_the_ceiling(tmp_path: P
     assert replacement in _change_targets(allowed), "the control: a ceiling that reaches it lists it"
 
 
+
 def test_recent_changes_omit_events_outside_the_requested_domains(tmp_path: Path, monkeypatch) -> None:
     """The domain half. Mutation: build the predicate in ``_recent_changes`` with ``domains=[]``."""
     context = _context(tmp_path, monkeypatch)
@@ -295,6 +307,7 @@ def test_recent_changes_omit_events_outside_the_requested_domains(tmp_path: Path
     assert memory_id in _change_targets(narrowed)
     assert replacement not in _change_targets(narrowed)
     assert replacement in _change_targets(_pack(context, OLD)), "the control: no domain filter lists it"
+
 
 
 def test_recent_changes_count_a_memory_corrected_inside_a_time_window(tmp_path: Path, monkeypatch) -> None:
@@ -310,6 +323,7 @@ def test_recent_changes_count_a_memory_corrected_inside_a_time_window(tmp_path: 
 
     windowed = _pack(context, OLD, time_window="7d")
     assert memory_id in _change_targets(windowed)
+
 
 
 def test_recent_changes_look_past_a_run_of_hidden_events(tmp_path: Path, monkeypatch) -> None:
@@ -349,6 +363,7 @@ def test_recent_changes_look_past_a_run_of_hidden_events(tmp_path: Path, monkeyp
     assert len(hidden) == 30 and not hidden.intersection(targets)
 
 
+
 def test_recent_changes_keep_an_event_for_no_row_unless_the_pack_is_scoped() -> None:
     """An event whose target cannot be found is not about a hidden row.
 
@@ -386,7 +401,7 @@ def _chain(context, monkeypatch, *, length: int = 3) -> list[str]:
     _source_id, memory_id = _captured(context, monkeypatch)
     ids = [memory_id]
     for text in (NEW, THIRD, FOURTH)[: length - 1]:
-        ids.append(_supersede(context, ids[-1], text))
+        ids.append(_supersede(context, ids[-1], text, key=_owner_equal(context)))
     return ids
 
 
@@ -398,6 +413,7 @@ def _note(pack: dict, memory_id: str) -> dict:
 
 def _named(note: dict, direction: str) -> list[str]:
     return [str(entry.get("id")) for entry in note[direction]]
+
 
 
 def test_a_hidden_revision_is_neither_named_nor_titled_to_a_keyed_reader(tmp_path: Path, monkeypatch) -> None:
@@ -426,6 +442,7 @@ def test_a_hidden_revision_is_neither_named_nor_titled_to_a_keyed_reader(tmp_pat
     assert MARKER not in json.dumps(pack, default=str)
 
 
+
 def test_a_hidden_revision_is_neither_named_nor_titled_on_an_unscoped_pack(tmp_path: Path, monkeypatch) -> None:
     """No scope is active, so a hidden row must not be shown as an id-only reference.
 
@@ -448,6 +465,7 @@ def test_a_hidden_revision_is_neither_named_nor_titled_on_an_unscoped_pack(tmp_p
     assert MARKER in json.dumps(control, default=str)
 
 
+
 def test_a_hidden_revision_ends_the_walk_and_names_nothing_past_it(tmp_path: Path, monkeypatch) -> None:
     """R3 -> R2 -> R1 (hidden) -> M (visible). The walk stops at R1, so M is not named either.
 
@@ -465,6 +483,7 @@ def test_a_hidden_revision_ends_the_walk_and_names_nothing_past_it(tmp_path: Pat
     assert first not in context_section
     assert old not in context_section, "the readable row beyond the hidden one is not named"
     assert first not in json.dumps(pack, default=str)
+
 
 
 def test_a_hidden_newer_revision_is_withheld_like_an_older_one(tmp_path: Path, monkeypatch) -> None:
@@ -494,6 +513,7 @@ def _move_to_project(context, memory_id: str, project: str) -> None:
     )
 
 
+
 def test_the_walk_stops_at_a_revision_in_another_project(tmp_path: Path, monkeypatch) -> None:
     """The project half of the walk's fence, at a hop the pointer sanitizer never sees.
 
@@ -512,6 +532,7 @@ def test_the_walk_stops_at_a_revision_in_another_project(tmp_path: Path, monkeyp
     assert first not in json.dumps(scoped, default=str)
     open_fence = _note(_pack(context, "kettle pantry cupboard", context_depth="high"), third)
     assert _named(open_fence, "supersedes") == [second, first, old], "the control: no project scope names them"
+
 
 
 def test_the_walk_stops_at_a_revision_the_person_is_not_linked_to(tmp_path: Path, monkeypatch) -> None:
@@ -548,6 +569,7 @@ def test_the_walk_stops_at_a_revision_the_person_is_not_linked_to(tmp_path: Path
     assert first not in json.dumps(pack["supersession_context"], default=str)
 
 
+
 def test_the_walk_stops_at_a_revision_outside_the_time_window(tmp_path: Path, monkeypatch) -> None:
     """The time half. R1 became valid in 2020, so a seven day window does not reach it.
 
@@ -563,6 +585,7 @@ def test_the_walk_stops_at_a_revision_outside_the_time_window(tmp_path: Path, mo
     assert _named(windowed, "supersedes") == [second]
     open_fence = _note(_pack(context, "kettle pantry cupboard", context_depth="high"), third)
     assert _named(open_fence, "supersedes") == [second, first, old], "the control: no window names them"
+
 
 
 def test_the_walk_keeps_an_id_only_reference_to_no_row_unless_the_pack_is_scoped(tmp_path: Path, monkeypatch) -> None:
@@ -586,6 +609,7 @@ def test_the_walk_keeps_an_id_only_reference_to_no_row_unless_the_pack_is_scoped
 # -- each fence input, pinned on its own where the tests above leave it out ------------
 
 
+
 def test_recall_validity_withholds_a_predecessor_for_the_keyless_owner(tmp_path: Path, monkeypatch) -> None:
     """The pointers of a middle row are looked up together, not one key at a time.
 
@@ -595,8 +619,8 @@ def test_recall_validity_withholds_a_predecessor_for_the_keyless_owner(tmp_path:
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, old = _captured(context, monkeypatch)
-    middle = _supersede(context, old)
-    newest = _supersede(context, middle, THIRD)
+    middle = _supersede(context, old, key=_owner_equal(context))
+    newest = _supersede(context, middle, THIRD, key=_owner_equal(context))
     _set(context, old, sensitivity="confidential")
     _set(context, middle, status="active")
 
@@ -605,6 +629,7 @@ def test_recall_validity_withholds_a_predecessor_for_the_keyless_owner(tmp_path:
     assert validity["superseded_by_memory_id"] == newest
     assert "supersedes_memory_id" not in validity
     assert old not in json.dumps(payload, default=str)
+
 
 
 def test_recall_validity_withholds_a_successor_outside_the_time_window(tmp_path: Path, monkeypatch) -> None:
@@ -624,6 +649,7 @@ def test_recall_validity_withholds_a_successor_outside_the_time_window(tmp_path:
     assert _result(open_window, memory_id)["validity"]["superseded_by_memory_id"] == replacement, "the control"
 
 
+
 def test_the_walk_stops_at_a_revision_outside_the_requested_domains(tmp_path: Path, monkeypatch) -> None:
     """The domain half of the walk's fence. R1 is in another domain, so a pack for ``project`` stops there.
 
@@ -641,6 +667,7 @@ def test_the_walk_stops_at_a_revision_outside_the_requested_domains(tmp_path: Pa
     assert MARKER not in json.dumps(pack, default=str)
     control = _pack(context, "kettle second shelf", context_depth="high")
     assert _named(_note(control, second), "supersedes") == [first, old], "the control: no domain filter names it"
+
 
 
 def test_supersession_context_names_nothing_when_the_first_hop_is_hidden() -> None:
@@ -698,6 +725,7 @@ NO_SCOPE = _ResolvedRetrievalScope(
 DEFAULT_CEILING = ["public", "internal", "private", "unknown"]
 
 
+
 def test_recent_changes_count_a_memory_tied_to_the_person_through_the_entity_graph(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -732,6 +760,7 @@ def test_recent_changes_count_a_memory_tied_to_the_person_through_the_entity_gra
     assert memory_id in _change_targets(pack)
 
 
+
 def test_recent_changes_on_a_store_without_scoped_events_apply_the_person_scope() -> None:
     """A store that cannot scope its event listing is fenced here, person included.
 
@@ -761,6 +790,7 @@ def test_recent_changes_on_a_store_without_scoped_events_apply_the_person_scope(
         sensitivity_allowed=DEFAULT_CEILING,
     )
     assert [change["target_id"] for change in changes] == ["m-ada"]
+
 
 
 def test_recent_changes_keep_an_event_for_no_row_on_a_window_only_pack() -> None:
@@ -815,6 +845,7 @@ def _seed_memories(context, *, count: int, sensitivity: str, label: str) -> list
     return _store(context, seed)
 
 
+
 def test_a_pack_keeps_the_visible_changes_found_before_the_scan_ceiling(tmp_path: Path, monkeypatch) -> None:
     """A run of hidden events longer than the scan returns a short list, not a failed pack.
 
@@ -853,6 +884,7 @@ def test_a_pack_keeps_the_visible_changes_found_before_the_scan_ceiling(tmp_path
     assert not set(hidden).intersection(json.dumps(pack, default=str).split('"'))
 
 
+
 def test_a_pack_on_a_store_without_scoped_events_keeps_the_visible_changes_found(monkeypatch) -> None:
     """The legacy listing path degrades the same way as the scoped one.
 
@@ -874,6 +906,7 @@ def test_a_pack_on_a_store_without_scoped_events_keeps_the_visible_changes_found
     except VNextRetrievalCompletenessError as error:
         raise AssertionError(f"the pack raised instead of listing what it found: {error}") from error
     assert _change_targets(pack) == ["m-new-b", "m-new-a"]
+
 
 
 def test_the_scan_ceiling_can_be_lowered_and_never_raised(monkeypatch) -> None:
@@ -899,6 +932,7 @@ def test_the_scan_ceiling_can_be_lowered_and_never_raised(monkeypatch) -> None:
     assert asked == [10, 20, 40, 64]
 
 
+
 def test_the_recent_changes_scan_ceiling_sits_between_the_first_fetch_and_the_legacy_ceiling() -> None:
     """The scan has to reach past the first fetch and stay well short of the 16384 row legacy ceiling.
 
@@ -908,6 +942,7 @@ def test_the_recent_changes_scan_ceiling_sits_between_the_first_fetch_and_the_le
     first_fetch = vnext_retrieval_module.DEFAULT_RECENT_CHANGES_LIMIT * 4
     ceiling = vnext_retrieval_module.RECENT_CHANGES_SCAN_MAX_ROWS
     assert first_fetch < ceiling <= vnext_retrieval_module.LEGACY_SCOPED_SCAN_MAX_ROWS // 4
+
 
 
 def test_memory_ids_go_to_the_store_in_batches_older_sqlite_builds_take() -> None:
@@ -936,6 +971,7 @@ def test_memory_ids_go_to_the_store_in_batches_older_sqlite_builds_take() -> Non
 # -- the controls cannot be left out ------------------------------------------------
 
 
+
 def test_the_pointer_fence_helper_tells_a_missing_row_from_a_hidden_one() -> None:
     """``targets`` holds the rows the pointers resolved to.
 
@@ -958,6 +994,7 @@ def test_the_pointer_fence_helper_tells_a_missing_row_from_a_hidden_one() -> Non
         )
         kept = {key for key, value in held[0].items() if value}
         assert kept == expected, fail_closed
+
 
 
 def test_every_fence_control_is_required() -> None:

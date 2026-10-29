@@ -66,8 +66,21 @@ GROUNDING_CELLS = [
 # -- grounding ------------------------------------------------------------------------------------------------------
 
 
+def _owner_equal(context) -> str:
+    """The owner's equal on a vault that holds keys: an unbound admin key."""
+    from alicebot_api.mcp_tools import _sqlite_path_from_url
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from alicebot_api.vnext_agent_keys import create_agent_key
+
+    user = str(context.user_id)
+    with sqlite_user_connection(_sqlite_path_from_url(context.database_url), user) as conn:
+        _record, raw = create_agent_key(SQLiteVNextStore(conn, user), user_id=user, agent_id="owner-equal", permission_profile="admin_agent", project_scope=None)
+    return raw
+
+
 def _grounding(vault: _Vault, key: str | None) -> tuple[object, object]:
-    pack = vault.call(key, "alice_context_pack", query=NAMES_QUERY, debug=True)
+    # The owner's control read runs as the owner's equal once keys exist.
+    pack = vault.call(key or _owner_equal(vault.context), "alice_context_pack", query=NAMES_QUERY, debug=True)
     return pack.get("grounding"), pack["trace"].get("grounding")  # type: ignore[union-attr]
 
 
@@ -174,7 +187,8 @@ def test_a_derived_mention_above_the_trusted_keys_ceiling_does_not_support_the_n
     with vault.store() as store:
         parent = _source(store, "mention-parent", domain=parent_domain, sensitivity=parent_sensitivity)
         _memory(store, "mention", NAME_TEXT, {"source_id": str(parent["id"])})
-    everything = vault.call(None, "alice_context_pack", query=NAMES_QUERY, debug=True, sensitivity_allowed=list(ALL_SENSITIVITY))
+    # The owner's read runs as the owner's equal once keys exist.
+    everything = vault.call(_owner_equal(vault.context), "alice_context_pack", query=NAMES_QUERY, debug=True, sensitivity_allowed=list(ALL_SENSITIVITY))
     assert everything["grounding"] == ONE_UNSUPPORTED, "the row must be a mention for the owner who asks for every level"
     assert _grounding(vault, key) == (BOTH_UNSUPPORTED, BOTH_UNSUPPORTED)
 
@@ -341,7 +355,8 @@ def test_a_store_without_match_any_gets_the_strict_probe() -> None:
 
 
 def _brief(vault: _Vault, key: str | None, **arguments: object) -> dict[str, object]:
-    brief = vault.call(key, "alice_resume", **arguments)["brief"]
+    # The owner's control read runs as the owner's equal once keys exist.
+    brief = vault.call(key or _owner_equal(vault.context), "alice_resume", **arguments)["brief"]
     assert isinstance(brief, dict)
     return {name: value for name, value in brief.items() if name != "generated_at"}  # type: ignore[union-attr]
 
@@ -569,10 +584,9 @@ def _project_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, project_v
 
 
 def _project_brief(context: MCPRuntimeContext, monkeypatch: pytest.MonkeyPatch, key: str | None, **arguments: object) -> dict[str, object]:
-    if key:
-        monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
-    else:
-        monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    # The owner's control read runs as the owner's equal once keys exist.
+    key = key or _owner_equal(context)
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
     brief = call_mcp_tool(context, name="alice_resume", arguments=dict(arguments))["brief"]
     return {name: value for name, value in brief.items() if name != "generated_at"}  # type: ignore[union-attr]
 

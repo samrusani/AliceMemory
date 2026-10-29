@@ -295,6 +295,7 @@ def world(vault: _Vault, monkeypatch: pytest.MonkeyPatch) -> _World:
 
 
 @pytest.mark.parametrize("reader", _READERS)
+
 def test_the_open_loop_list_withholds_what_the_reader_may_not_read(world: _World, reader: str) -> None:
     """``alice_open_loops`` returns every loop the key may read, and each loop names only the sources and memories the
     key may read: ``null`` (the key kept) for the rest. The own-project loop is the control that keeps a blanket
@@ -315,6 +316,7 @@ def test_the_open_loop_list_withholds_what_the_reader_may_not_read(world: _World
 
 @pytest.mark.parametrize("reference_key", ("source_refs", "sources"))
 @pytest.mark.parametrize("layout", ("object", "duplicate_key", "nested_text"))
+
 def test_encoded_json_references_are_withheld_on_the_real_key_list(world: _World, reference_key: str, layout: str) -> None:
     """A real key list removes decoded refused ids and keeps the admitted id and nearby values.
 
@@ -336,7 +338,7 @@ def test_encoded_json_references_are_withheld_on_the_real_key_list(world: _World
     loop_id = world.loops["encoded"]
     # This is the only loop returned, so another loop's column cannot supply the encoded id to the shared lookup.
     world.vault.sql("DELETE FROM open_loops WHERE id != ?", (loop_id,))
-    owner = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=None)
+    owner = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=world.vault.keys["owner_equal"])
     assert owner["is_error"] is False
     assert len(owner["payload"]["items"]) == 1
     stored = next(item for item in owner["payload"]["items"] if str(item["id"]) == loop_id)
@@ -353,6 +355,7 @@ def test_encoded_json_references_are_withheld_on_the_real_key_list(world: _World
 
 
 @pytest.mark.parametrize("case", ("memory_reference", "nested_source_reference", "duplicate_memory_key"))
+
 def test_encoded_memory_and_trace_references_are_collected_before_the_real_key_list(world: _World, case: str) -> None:
     """The collection and removal walk the same decoded JSON, with admitted and owner controls.
 
@@ -373,7 +376,7 @@ def test_encoded_memory_and_trace_references_are_collected_before_the_real_key_l
     world._plant("encoded_collection", metadata=metadata)
     loop_id = world.loops["encoded_collection"]
     world.vault.sql("DELETE FROM open_loops WHERE id != ?", (loop_id,))
-    owner = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=None)
+    owner = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=world.vault.keys["owner_equal"])
     assert owner["is_error"] is False
     assert len(owner["payload"]["items"]) == 1
     assert owner["payload"]["items"][0]["metadata_json"] == metadata
@@ -385,6 +388,7 @@ def test_encoded_memory_and_trace_references_are_collected_before_the_real_key_l
     assert admitted in decoded
     assert "cobalt" in decoded
     assert checked["kept"] == "control"
+
 
 
 def test_a_missing_encoded_sources_alias_is_withheld_for_the_key_and_owner(world: _World) -> None:
@@ -399,7 +403,7 @@ def test_a_missing_encoded_sources_alias_is_withheld_for_the_key_and_owner(world
     world._plant("missing_encoded_alias", metadata=metadata)
     loop_id = world.loops["missing_encoded_alias"]
     world.vault.sql("DELETE FROM open_loops WHERE id != ?", (loop_id,))
-    for key in (world.vault.keys["alpha_project"], None):
+    for key in (world.vault.keys["alpha_project"], world.vault.keys["owner_equal"]):
         response = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=key)
         assert response["is_error"] is False
         assert len(response["payload"]["items"]) == 1
@@ -411,6 +415,7 @@ def test_a_missing_encoded_sources_alias_is_withheld_for_the_key_and_owner(world
 
 @pytest.mark.parametrize("reader", _UPDATERS)
 @pytest.mark.parametrize("name", sorted(("own", "health", "confidential", "old_beta", "old_global", "old_deleted", "old_ghost", "old_upper", "old_metadata")))
+
 def test_the_open_loop_update_actions_withhold_what_the_reader_may_not_read(world: _World, reader: str, name: str) -> None:
     """``alice_open_loops`` with ``edit`` (and ``close``, ``snooze``, ``reopen``, which share the branch) returns the
     updated row. A key that may update the loop may not thereby read the source and memory it points at.
@@ -429,6 +434,7 @@ def test_the_open_loop_update_actions_withhold_what_the_reader_may_not_read(worl
 
 
 @pytest.mark.parametrize("action", ["close", "snooze", "reopen"])
+
 def test_the_other_update_actions_take_the_same_branch(world: _World, action: str) -> None:
     """The branch is shared, so close, snooze and reopen are held to the rule as edit is. Checked on the loop that
     holds the most references, as the project scoped key.
@@ -442,6 +448,7 @@ def test_the_other_update_actions_take_the_same_branch(world: _World, action: st
     answer = world.vault.wire("alice_open_loops", arguments, key=world.vault.keys["alpha_project"])
     assert answer["is_error"] is False, answer
     world.check_item("alpha_project", answer["payload"]["open_loop"], where=action)  # type: ignore[index]
+
 
 
 def test_a_read_only_key_cannot_update_a_loop_so_the_update_surfaces_are_not_a_way_around_the_list(
@@ -466,6 +473,7 @@ def test_a_read_only_key_cannot_update_a_loop_so_the_update_surfaces_are_not_a_w
 
 @pytest.mark.parametrize("reader", _UPDATERS)
 @pytest.mark.parametrize("name", sorted(("own", "health", "confidential", "old_beta", "old_global", "old_deleted", "old_ghost", "old_upper", "old_metadata")))
+
 def test_the_http_review_route_withholds_what_the_reader_may_not_read(world: _World, reader: str, name: str) -> None:
     """``POST /v0/vnext/open-loops/{id}/review`` returns the updated row.
 
@@ -479,6 +487,7 @@ def test_the_http_review_route_withholds_what_the_reader_may_not_read(world: _Wo
 
 
 @pytest.mark.parametrize("reader", _READERS)
+
 def test_the_http_context_pack_withholds_what_the_reader_may_not_read(world: _World, reader: str) -> None:
     """``POST /v0/vnext/context-packs`` returns the open loops it selects as whole rows. Every id of every refused kind
     is gone from the whole pack, not only from ``open_loops``, and each loop that is in the pack carries what the list
@@ -498,6 +507,7 @@ def test_the_http_context_pack_withholds_what_the_reader_may_not_read(world: _Wo
     # domain fence when the call names no domains, so it names the vault's health memory to a project scoped key. That
     # is the event list's own behavior, not a loop reference, and is not changed here.
     world.check_payload(reader, {key: value for key, value in pack.items() if key != "recent_changes"}, where="pack")
+
 
 
 def test_the_mcp_context_pack_and_resume_return_no_reference_at_all(world: _World) -> None:
@@ -525,6 +535,7 @@ def test_the_mcp_context_pack_and_resume_return_no_reference_at_all(world: _Worl
             assert "kiln followup" in text.lower(), (name, reader, "the loops are in the answer")
 
 
+
 def test_the_create_route_answers_with_the_same_rule(world: _World) -> None:
     """The loop the route stores goes back through the one output function. The ids were checked for this caller a
     moment earlier, so an admitted id is returned as it was stored, and the answer is the stored row.
@@ -537,6 +548,7 @@ def test_the_create_route_answers_with_the_same_rule(world: _World) -> None:
     assert status == 201
     assert body["open_loop"]["source_id"] == world.sources["confidential"]  # type: ignore[index]
     assert body["open_loop"]["memory_id"] == world.memories["confidential"]  # type: ignore[index]
+
 
 
 def test_a_keyless_caller_that_declares_a_profile_is_held_to_that_profile_on_the_legacy_surfaces(
@@ -625,6 +637,7 @@ def _raw_rows(vault: _Vault) -> dict[str, dict[str, object]]:
     return {str(row["id"]): json.loads(json.dumps(row, default=str)) for row in rows}
 
 
+
 def test_an_admin_key_gets_every_reference_it_may_read_and_the_row_is_otherwise_the_stored_row(world: _World) -> None:
     """The authorized reader. The ``admin_agent`` key may read the own, health and confidential rows, so on those
     three loops the list returns the stored row exactly, every field, and on the loops that point at rows nobody
@@ -652,6 +665,7 @@ def test_an_admin_key_gets_every_reference_it_may_read_and_the_row_is_otherwise_
 
 
 @pytest.mark.parametrize("reader", ["alpha_trusted", "alpha_project", "alpha_read_only"])
+
 def test_a_lower_reader_still_gets_every_loop_and_only_the_references_differ(world: _World, reader: str) -> None:
     """The loops are the reader's to read and they are all still returned, with every field the store holds. Only
     ``source_id``, ``memory_id`` and the references inside ``metadata_json`` differ from the stored row, so the fix
@@ -694,6 +708,7 @@ def _owner_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[_Owne
     owner.sql("UPDATE memories SET domain = 'health' WHERE id = ?", (memories["health"],))
     _bind_context_pack_route(owner, monkeypatch)
     return owner, sources, memories
+
 
 
 def test_the_owner_is_shown_every_live_reference_on_every_surface_exactly_as_stored(
@@ -752,6 +767,7 @@ def test_the_owner_is_shown_every_live_reference_on_every_surface_exactly_as_sto
         assert value in text
 
 
+
 def test_a_loop_that_points_at_a_deleted_source_shows_the_owner_no_id_either(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -782,6 +798,7 @@ def test_a_loop_that_points_at_a_deleted_source_shows_the_owner_no_id_either(
 
 
 # -- 3. the shape: a protected, a deleted and a missing reference read alike -------------------------------------
+
 
 
 def test_a_protected_a_deleted_and_a_missing_reference_read_alike(world: _World) -> None:
@@ -842,6 +859,7 @@ def _own_memory() -> dict[str, object]:
     return _memory_row(str(uuid4()), scope=["alpha"])
 
 
+
 def test_an_admitted_id_in_any_spelling_the_link_writer_reads_is_found_and_returned_as_stored() -> None:
     """Upper case, no hyphens, braces, ``urn:uuid:``, a ``source:`` prefix and padding all name the stored source, and
     ``memory:`` and the plain spellings name the memory. The lookup is made with the canonical id, and the value the
@@ -873,6 +891,7 @@ def test_an_admitted_id_in_any_spelling_the_link_writer_reads_is_found_and_retur
 
 
 @pytest.mark.parametrize("value", ["not-an-id", "", "   ", "12345", "00000000-0000-0000-0000-00000000000g", 12345])
+
 def test_a_value_that_is_no_id_in_any_spelling_is_withheld_like_a_missing_one(value: object) -> None:
     """A column holding something that is no id at all is a reference to nothing: ``null``, the key kept, and no store
     call is made for it.
@@ -886,6 +905,7 @@ def test_a_value_that_is_no_id_in_any_spelling_is_withheld_like_a_missing_one(va
     assert out[0]["source_id"] is None and out[0]["memory_id"] is None
     assert "source_id" in out[0] and "memory_id" in out[0]
     assert store.source_calls == [] and store.memory_calls == []
+
 
 
 def test_rows_and_columns_that_hold_uuid_objects_are_matched_as_the_postgres_store_returns_them() -> None:
@@ -902,6 +922,7 @@ def test_rows_and_columns_that_hold_uuid_objects_are_matched_as_the_postgres_sto
     loop = _loop(source_id=source["id"], memory_id=memory["id"])
     out = withhold_unreadable_references(_Rows([source], [memory]), [loop], fence=_FENCE)
     assert out[0]["source_id"] is source["id"] and out[0]["memory_id"] is memory["id"]
+
 
 
 def test_every_refused_state_of_a_reference_gives_the_same_row() -> None:
@@ -930,6 +951,7 @@ def test_every_refused_state_of_a_reference_gives_the_same_row() -> None:
     for row in out:
         assert (row["source_id"], row["memory_id"]) == (None, None)
         assert set(row) == set(loops[0])
+
 
 
 def test_a_store_that_cannot_look_rows_up_withholds_every_reference() -> None:
@@ -967,6 +989,7 @@ def test_a_store_that_cannot_look_rows_up_withholds_every_reference() -> None:
     assert single.asked == [f"source {source['id']}", f"memory {memory['id']}"]
 
 
+
 def test_ids_are_looked_up_in_batches_and_once_per_kind_however_many_loops_name_them() -> None:
     """1,200 distinct source ids are read in slices of at most 500 (a SQLite build from before 3.32 allows 999
     variables), the same for memories, and a source named by thirty loops is asked for once. A page of loops costs one
@@ -993,6 +1016,7 @@ def test_ids_are_looked_up_in_batches_and_once_per_kind_however_many_loops_name_
     assert store.source_calls == [[shared_source["id"]]] and store.memory_calls == [[shared_memory["id"]]]
 
 
+
 def test_nothing_is_read_when_the_rows_name_nothing() -> None:
     """Loops with no reference and metadata with no id make no store call, so the usual loop costs nothing.
 
@@ -1005,6 +1029,7 @@ def test_nothing_is_read_when_the_rows_name_nothing() -> None:
     assert out == loops
     assert store.source_calls == [] and store.memory_calls == []
     assert withhold_unreadable_references(store, [], fence=_FENCE) == []
+
 
 
 def test_the_rows_that_come_in_are_not_changed_and_a_row_with_nothing_to_withhold_is_equal_and_keeps_its_metadata() -> None:
@@ -1025,6 +1050,7 @@ def test_the_rows_that_come_in_are_not_changed_and_a_row_with_nothing_to_withhol
     assert out[0] == clean and out[0]["metadata_json"] is clean["metadata_json"]
     assert out[1]["source_id"] is None and out[1]["metadata_json"] == {"source_refs": [source["id"]]}
     assert dirty["metadata_json"] is dirty_metadata
+
 
 
 def test_a_key_the_row_does_not_have_is_not_added() -> None:
@@ -1093,6 +1119,7 @@ def _meta_ids() -> dict[str, str]:
         ),
     ],
 )
+
 def test_the_metadata_of_a_loop_loses_the_ids_the_rule_says_and_nothing_else(label: str, metadata, expected) -> None:  # type: ignore[no-untyped-def]
     """The rule, one case at a time. Under a key that names a reference (and below it) an id stays only if it names a
     row the reader may read, so a refused, a deleted and an unknown id read alike. Elsewhere an id goes only if it names
@@ -1110,6 +1137,7 @@ def test_the_metadata_of_a_loop_loses_the_ids_the_rule_says_and_nothing_else(lab
     )
     out = withhold_unreadable_references(store, [_loop(metadata_json=metadata(ids))], fence=_FENCE)
     assert out[0]["metadata_json"] == expected(ids), label
+
 
 
 def test_metadata_nested_deeper_than_the_scan_reads_is_dropped_and_does_not_raise() -> None:
@@ -1131,6 +1159,7 @@ def test_metadata_nested_deeper_than_the_scan_reads_is_dropped_and_does_not_rais
     assert depth < 100 and "bottom" not in json.dumps(metadata)
 
 
+
 def test_json_text_at_the_metadata_depth_limit_is_dropped_without_raising() -> None:
     """Decoded JSON obeys the same depth bound. Mutation: serialize ``_DROPPED`` instead of propagating it."""
 
@@ -1142,6 +1171,7 @@ def test_json_text_at_the_metadata_depth_limit_is_dropped_without_raising() -> N
     out = withhold_unreadable_references(_Rows(), [_loop(metadata_json={"kept": "control", "deep": nested})], fence=_FENCE)
     assert out[0]["metadata_json"]["kept"] == "control"
     assert "cobalt" not in json.dumps(out)
+
 
 
 def test_the_owners_fence_admits_a_live_row_of_any_project_and_refuses_a_deleted_one() -> None:
@@ -1160,6 +1190,7 @@ def test_the_owners_fence_admits_a_live_row_of_any_project_and_refuses_a_deleted
         fence=SourceReadFence.unfenced(),
     )
     assert [row["source_id"] for row in out] == [live_other["id"], live_global["id"], None]
+
 
 
 def test_the_pack_form_checks_open_loops_only_and_hands_back_a_copy() -> None:
@@ -1181,6 +1212,7 @@ def test_the_pack_form_checks_open_loops_only_and_hands_back_a_copy() -> None:
     assert withhold_unreadable_references_from_pack(_Rows(), bare, fence=_FENCE) == bare
 
 
+
 def test_the_one_loop_form_returns_the_checked_row() -> None:
     """``withhold_unreadable_references_from_loop`` is the one-row form the update surfaces call.
 
@@ -1190,6 +1222,7 @@ def test_the_one_loop_form_returns_the_checked_row() -> None:
     hidden = _source(str(uuid4()), scope=["beta"])
     out = withhold_unreadable_references_from_loop(_Rows([hidden]), _loop(source_id=hidden["id"]), fence=_FENCE)
     assert out["source_id"] is None
+
 
 
 def test_the_fence_is_a_required_keyword_only_argument_of_every_function_with_no_default() -> None:
@@ -1210,6 +1243,7 @@ def test_the_fence_is_a_required_keyword_only_argument_of_every_function_with_no
         assert parameter.default is inspect.Parameter.empty, function
         with pytest.raises(TypeError):
             function(_Rows(), [] if function is withhold_unreadable_references else {})  # type: ignore[call-arg]
+
 
 
 def test_the_reference_keys_include_every_key_the_reverse_lookup_of_a_source_reads() -> None:
@@ -1333,6 +1367,7 @@ def _withhold_calls(function: ast.FunctionDef) -> list[ast.Call]:
     ]
 
 
+
 def test_every_reader_of_an_open_loop_is_classified_and_a_fenced_one_contains_the_check() -> None:
     """The read-side twin of ``test_every_open_loop_create_site_is_classified``: a loop keeps ids of its own and every
     function that returns a row of ``open_loops`` (or a pack or a dashboard that holds whole rows) is listed here with
@@ -1371,6 +1406,7 @@ def test_every_reader_of_an_open_loop_is_classified_and_a_fenced_one_contains_th
             assert not used, (file, function, used)
 
 
+
 def test_the_fenced_readers_build_their_fence_from_the_callers_identity() -> None:
     """A fenced reader must hand the function the fence of the identity it resolved for the call, not the owner's. Read
     from the syntax tree: every ``fence=`` of a call in the fenced functions is ``SourceReadFence.for_identity(...)``
@@ -1397,6 +1433,7 @@ def test_the_fenced_readers_build_their_fence_from_the_callers_identity() -> Non
                 assert assigned and all(item.startswith("SourceReadFence.for_identity(") for item in assigned), (file, function)
 
 
+
 def test_the_create_route_returns_the_row_through_the_output_function_after_the_event_ids_are_read() -> None:
     """``create_vnext_open_loop`` stores the row, answers with the checked copy and keeps the event's target id from the
     stored row, so the answer and the audit row cannot disagree about which loop it was.
@@ -1409,6 +1446,7 @@ def test_the_create_route_returns_the_row_through_the_output_function_after_the_
     assert len(calls) == 1 and ast.unparse(calls[0].keywords[0].value) == "read_fence"
     answer = next(sub for sub in ast.walk(node) if isinstance(sub, ast.Call) and ast.unparse(sub.func) == "JSONResponse")
     assert "payload" in ast.unparse(answer) and "created" not in ast.unparse(answer)
+
 
 
 def test_the_projections_of_a_loop_hold_no_reference_and_drop_them() -> None:
@@ -1451,6 +1489,7 @@ def test_the_projections_of_a_loop_hold_no_reference_and_drop_them() -> None:
 
 
 # -- 6. the scheduler's report, the legacy tools, and the words ---------------------------------------------
+
 
 
 def test_the_scheduler_open_loop_report_copies_only_the_sources_its_identity_may_read() -> None:
@@ -1521,6 +1560,7 @@ def test_the_scheduler_open_loop_report_copies_only_the_sources_its_identity_may
         assert ("- Source: not linked" in str(artifact["content_markdown"])) is (not sees_confidential)
 
 
+
 def test_the_legacy_tools_that_return_whole_loops_take_no_identity_so_they_are_the_owners() -> None:
     """``alice_project_dashboard``, ``alice_vnext_context_pack``, ``alice_open_loop_extract`` and
     ``alice_open_loop_review`` return loops whole and advertise no identity argument, and they are served only with no
@@ -1538,6 +1578,7 @@ def test_the_legacy_tools_that_return_whole_loops_take_no_identity_so_they_are_t
         properties = set(tools[name]["inputSchema"].get("properties", {}))  # type: ignore[attr-defined]
         assert not properties & identity_fields, (name, properties & identity_fields)
         assert name in {str(tool["name"]) for tool in _LEGACY_TOOL_DEFINITIONS}, name
+
 
 
 def test_the_docs_say_what_the_readers_do_and_name_the_two_limits_that_remain() -> None:

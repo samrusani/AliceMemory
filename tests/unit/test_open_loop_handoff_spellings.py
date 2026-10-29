@@ -30,7 +30,9 @@ def test_real_key_withholds_every_named_spelling(world, shape, position):
     world._plant("handoff", metadata=metadata)
     loop_id = world.loops["handoff"]
     world.vault.sql("DELETE FROM open_loops WHERE id != ?", (loop_id,))
-    owner = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=None)
+        # The owner's read runs as the owner's equal (an unbound admin key) once
+    # keys exist: a keyless call is refused.
+    owner = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=world.vault.keys["owner_equal"])
     assert owner["payload"]["items"][0]["metadata_json"] == metadata
     item = world.list_items("alpha_project")[0]
     assert hidden not in cited_source_ids(item["metadata_json"]).named
