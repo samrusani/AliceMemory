@@ -59,12 +59,16 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
 
     raw_key = (os.environ.get(AGENT_API_KEY_ENV) or "").strip() or None
     if raw_key is None:
-        with _vnext_store_context(context) as store:
-            if store.count_active_agent_api_keys() > 0:
-                raise MCPNotPermittedError(
-                    "agent API keys are configured for this vault; every call needs "
-                    f"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')"
-                )
+        # The active-key count is read on a read-only connection, before any
+        # store is opened: an argument-validation refusal must stay a
+        # refusal that never touched the vault.
+        if _is_sqlite_backend(context) and _vault_has_active_key(
+            _sqlite_path_from_url(context.database_url)
+        ):
+            raise MCPNotPermittedError(
+                "agent API keys are configured for this vault; every call needs "
+                f"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')"
+            )
         try:
             return AgentIdentity.from_payload(arguments)
         except AgentIdentityValidationError as exc:
@@ -92,6 +96,28 @@ RESERVED_PROJECT_NAME_MESSAGE = (
 )
 #: The argument names that carry project names, on any tool.
 _PROJECT_NAME_ARGUMENTS = ("projects", "project", "project_scope")
+
+
+def _vault_has_active_key(sqlite_path: str) -> bool:
+    """One count query on a read-only connection: does the vault hold an
+    active (never revoked) agent key? A vault without the table yet reads as
+    keyless. The query never opens the store the handlers share."""
+
+    import sqlite3
+
+    path = Path(sqlite_path)
+    if not path.exists():
+        return False
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
+    try:
+        row = connection.execute(
+            "SELECT count(*) FROM agent_api_keys WHERE revoked_at IS NULL"
+        ).fetchone()
+        return bool(row and row[0] > 0)
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        connection.close()
 
 
 def _refuse_reserved_project_marker(arguments: Mapping[str, object]) -> None:

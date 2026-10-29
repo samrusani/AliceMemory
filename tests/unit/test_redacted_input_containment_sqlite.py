@@ -23,6 +23,7 @@ from alicebot_api.mcp.types import MCPRuntimeContext, MCPToolError, MCPToolNotFo
 from alicebot_api.onramp import bootstrap_database, sqlite_url_for_path
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
+from alicebot_api.mcp.types import MCPNotPermittedError
 from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_derived_labels import with_derived_from
 from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
@@ -94,6 +95,9 @@ class Vault:
                 name: create_agent_key(store, user_id=self.user, agent_id=name, permission_profile=profile, project_scope=bound)[1]
                 for name, (profile, bound) in PROFILES.items()
             }
+            # The owner's equal on a vault that holds keys (the brief's parity):
+            # an unbound admin_agent key gets what the owner gets.
+            self.owner_equal = create_agent_key(store, user_id=self.user, agent_id="owner-equal", permission_profile="admin_agent", project_scope=None)[1]
             self.contained = [str(row["id"]) for row in (self.weekly, self.update, self.consolidation, self.chain)] + [
                 card for card in self.old_cards
             ]
@@ -186,13 +190,18 @@ def test_no_restricted_profile_recovers_the_text_of_a_redacted_memory_through_an
 
 
 def test_the_owner_and_an_unbound_admin_key_still_read_the_rows_with_their_words(vault):
+    """The owner's leg ran keyless once; on a vault that holds keys a keyless
+    call is refused (reads included), so the leg runs as the owner's equal:
+    an unbound admin_agent key gets what the owner got."""
     vault.redact()
-    for key in (None, vault.keys["admin"]):
+    with pytest.raises(MCPNotPermittedError):
+        vault.call(None, "alice_explain", {"memory_id": vault.contained[0]})
+    for key in (vault.owner_equal, vault.keys["admin"]):
         for row_id in vault.contained:
             body = vault.call(key, "alice_explain", {"memory_id": row_id})
-            assert vault.sentinel in json.dumps(body, default=str), (key is None, row_id)
+            assert vault.sentinel in json.dumps(body, default=str), (key == vault.owner_equal, row_id)
         detail = vault.call(key, "alice_memory_review", {"review_item_id": vault.contained[0]})
-        assert vault.sentinel in json.dumps(detail, default=str), (key is None, "review detail")
+        assert vault.sentinel in json.dumps(detail, default=str), (key == vault.owner_equal, "review detail")
 
 
 def test_a_row_built_from_a_row_that_read_the_memory_is_contained_too(vault):

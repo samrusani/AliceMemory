@@ -482,9 +482,8 @@ def test_four_writers_keep_every_row(tmp_path: Path) -> None:
     env = dict(os.environ)
     env["PYTHONPATH"] = f"{REPO_ROOT}/apps/api/src:{REPO_ROOT}"
     env["ALICE_DATABASE"] = str(database)
-    worker = REPO_ROOT / "tests" / "unit" / "_keys_concurrent_writer.py"
-    if True:
-        worker.write_text(
+    worker = tmp_path / "writer.py"
+    worker.write_text(
             "\n".join([
                 "import json, os, sys",
                 "from alicebot_api.mcp.registry import call_mcp_tool",

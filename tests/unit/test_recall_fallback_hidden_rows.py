@@ -172,9 +172,18 @@ class _Vault:
         return self.call(key, "alice_recall", query=QUERY, debug=True, **extra)
 
     def owner_reads(self, row: Mapping[str, object]) -> bool:
-        """The control: the owner, asking for every sensitivity, reads the hidden row through the strict pass."""
+        """The control: an unbound admin_agent key (the owner's equal on a
+        vault that holds keys), asking for every sensitivity, reads the hidden
+        row through the strict pass."""
 
-        result = self.recall(None, sensitivity_allowed=list(ALL_SENSITIVITY))
+        if not hasattr(self, "_owner_equal"):
+            with self.store() as store:
+                _record, raw = create_agent_key(
+                    store, user_id=self.user_id, agent_id="owner-equal",
+                    permission_profile="admin_agent", project_scope=None,
+                )
+            self._owner_equal: str = raw
+        result = self.recall(self._owner_equal, sensitivity_allowed=list(ALL_SENSITIVITY))
         stage = result["retrieval"]["stages"]["fts"]  # type: ignore[index]
         return str(row["id"]) in {item["id"] for item in result["results"]} and stage["source"] == STRICT_PASS  # type: ignore[index, union-attr]
 

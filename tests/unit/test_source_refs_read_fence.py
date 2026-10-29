@@ -83,18 +83,37 @@ def vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> "_Vault":
     return _Vault(MCPRuntimeContext(database_url=sqlite_url_for_path(database), user_id=UUID(_USER_ID)))
 
 
-class _Vault:
-    """A throwaway SQLite vault, real agent keys of four kinds, and one source of each state."""
+@pytest.fixture
+def keyless_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> "_Vault":
+    """The same vault with no key on it: the owner's standing is every call's
+    standing, exactly as v0.22.0 behaved."""
+    monkeypatch.delenv(_KEY_ENV, raising=False)
+    monkeypatch.delenv(MCP_FULL_TOOLS_ENV, raising=False)
+    database = resolve_db_path(data_dir=str(tmp_path), db=None)
+    bootstrap_database(database, user_id=_USER_ID, user_email="local@alice")
+    return _Vault(MCPRuntimeContext(database_url=sqlite_url_for_path(database), user_id=UUID(_USER_ID)), keyed=False)
 
-    def __init__(self, context: MCPRuntimeContext) -> None:
+
+class _Vault:
+    """A throwaway SQLite vault, real agent keys of four kinds, and one source of each state.
+
+    ``keyed=False`` builds the keyless vault: no key is minted and every capture
+    runs with the owner's standing, exactly as v0.22.0 behaved - the keyless
+    rule's own subject.
+    """
+
+    def __init__(self, context: MCPRuntimeContext, *, keyed: bool = True) -> None:
         self.context = context
-        self.keys = {
-            "alpha_trusted": self._mint("trusted_local_agent", "alpha"),
-            "alpha_project": self._mint("project_scoped_agent", "alpha"),
-            "alpha_admin": self._mint("admin_agent", "alpha"),
-            "beta_trusted": self._mint("trusted_local_agent", "beta"),
-            "alpha_read_only": self._mint("read_only_agent", "alpha"),
-        }
+        self.keys: dict[str, str] = {}
+        if keyed:
+            self.keys = {
+                "owner_equal": self._mint("admin_agent", None),
+                "alpha_trusted": self._mint("trusted_local_agent", "alpha"),
+                "alpha_project": self._mint("project_scoped_agent", "alpha"),
+                "alpha_admin": self._mint("admin_agent", "alpha"),
+                "beta_trusted": self._mint("trusted_local_agent", "beta"),
+                "alpha_read_only": self._mint("read_only_agent", "alpha"),
+            }
         self.sources: dict[str, str] = {
             "own": self._capture(_TEXT["own"], self.keys["alpha_trusted"]),
             "health": self._capture(_TEXT["health"], self.keys["alpha_trusted"], domain="health"),
@@ -103,14 +122,14 @@ class _Vault:
             ),
             "deleted": self._capture(_TEXT["deleted"], self.keys["alpha_trusted"]),
             "beta": self._capture(_TEXT["beta"], self.keys["beta_trusted"]),
-            "global": self._capture(_TEXT["global"], None),
+            "global": self._capture(_TEXT["global"], None if not keyed else self.keys["owner_equal"]),
             "unknown": str(uuid4()),
         }
         self.sql("UPDATE sources SET deleted_at = '2026-01-01T00:00:00Z' WHERE id = ?", (self.sources["deleted"],))
 
     # -- plumbing -----------------------------------------------------------------------------------------------
 
-    def _mint(self, profile: str, project: str) -> str:
+    def _mint(self, profile: str, project: str | None) -> str:
         path = _sqlite_path_from_url(self.context.database_url)
         with sqlite_user_connection(path, _USER_ID) as conn:
             _record, raw = create_agent_key(
@@ -509,11 +528,11 @@ def test_the_owner_is_not_fenced_and_a_keyless_declaration_is_not_a_key(vault: _
     """
 
     beta = vault.sources["beta"]
-    owner = vault.commit(None, [beta])
+    owner = vault.commit("owner_equal", [beta])
     assert owner["is_error"] is False
     assert vault.link_sources(str(owner["payload"]["memory"]["id"])) == [beta]  # type: ignore[index]
-    assert _is_refusal(vault.commit(None, [vault.sources["deleted"]]))
-    assert _is_refusal(vault.commit(None, [vault.sources["unknown"]]))
+    assert _is_refusal(vault.commit("owner_equal", [vault.sources["deleted"]]))
+    assert _is_refusal(vault.commit("owner_equal", [vault.sources["unknown"]]))
 
     declared = {
         "agent_id": "keyless-agent",
@@ -521,6 +540,9 @@ def test_the_owner_is_not_fenced_and_a_keyless_declaration_is_not_a_key(vault: _
         "permission_profile": "trusted_local_agent",
         "project_scope": ["alpha"],
     }
+    # Once a key exists a keyless call is refused outright, whatever it
+    # declares: the declared profile's ceiling applies on the keyless vault
+    # (the keyless_vault fixture's tests), not here.
     other_project = vault.wire(
         "alice_memory_commit",
         {
@@ -534,7 +556,7 @@ def test_the_owner_is_not_fenced_and_a_keyless_declaration_is_not_a_key(vault: _
         },
         key=None,
     )
-    assert other_project["is_error"] is False, "a declared project is not a key and is not enforced"
+    assert other_project["is_error"] and other_project["payload"]["error"]["code"] == "not_permitted", other_project  # type: ignore[index]
     above = vault.wire(
         "alice_memory_commit",
         {
@@ -548,7 +570,7 @@ def test_the_owner_is_not_fenced_and_a_keyless_declaration_is_not_a_key(vault: _
         },
         key=None,
     )
-    assert _is_refusal(above), "the ceiling of the declared profile applies to a keyless agent"
+    assert above["is_error"] and above["payload"]["error"]["code"] == "not_permitted", above  # type: ignore[index]
 
 
 def test_a_store_that_cannot_look_a_source_up_refuses_every_id_and_one_that_can_look_up_one_at_a_time_works() -> None:
@@ -882,7 +904,7 @@ def test_the_owner_may_cite_another_projects_source_through_the_review_door(vaul
                 "title": "Alpha lathe serviced in May",
                 "provenance": {"source_id": vault.sources[kind]},
             },
-            key=None,
+            key=vault.keys["owner_equal"],
         )
         assert _is_refusal(answer), kind
     done = vault.wire(
@@ -893,7 +915,7 @@ def test_the_owner_may_cite_another_projects_source_through_the_review_door(vaul
             "title": "Alpha lathe serviced in May",
             "provenance": {"source_id": vault.sources["beta"]},
         },
-        key=None,
+        key=vault.keys["owner_equal"],
     )
     assert done["is_error"] is False, done
 
@@ -1099,7 +1121,7 @@ def _memories(vault: _Vault) -> dict[str, str]:
         "confidential": committed("alpha_trusted"),
         "deleted": committed("alpha_trusted"),
         "beta": committed("beta_trusted"),
-        "global": committed(None),
+        "global": committed("owner_equal" if vault.keys else None),
         "unknown": str(uuid4()),
     }
     vault.sql("UPDATE memories SET domain = 'health' WHERE id = ?", (ids["health"],))

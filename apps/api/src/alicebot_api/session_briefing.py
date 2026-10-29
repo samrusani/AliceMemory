@@ -53,6 +53,7 @@ from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.source_search_limits import source_search_query_breach
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_control import (
+    AgentIdentity,
     DEFAULT_AGENT_SENSITIVITY,
     evaluate_agent_policy,
     resource_project_scope,
