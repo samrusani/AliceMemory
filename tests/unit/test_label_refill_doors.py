@@ -178,26 +178,36 @@ def pack(call: Call, key: str | None, query: str = NEAR, **extra: object) -> dic
     return call(key, "alice_context_pack", query=query, max_items=PACK_ITEMS, debug=True, **extra)
 
 
-def recall_gives_a_full_page(call: Call, stores: Stores, provider: Any, key: str, hidden: int = HIDDEN) -> None:
+def _owner_equal_key(vault) -> str:
+    """The owner's equal on a vault that holds keys: an unbound admin key."""
+    from alicebot_api.vnext_agent_keys import create_agent_key
+
+    with vault.store() as store:
+        _record, raw = create_agent_key(store, user_id=vault.user_id, agent_id="owner-equal", permission_profile="admin_agent", project_scope=None)
+    return raw
+
+
+def recall_gives_a_full_page(vault, call: Call, stores: Stores, provider: Any, key: str, hidden: int = HIDDEN) -> None:
     add_visible(stores, provider)
     before = recall(call, key)
     assert before["count"] == LIMIT
     assert before["retrieval"]["stages"]["vector"] == {"status": "enabled", "candidate_count": RECALL_WINDOW}
     ids = add_hidden(stores, provider, hidden)
-    owner = recall(call, None, sensitivity_allowed=list(ALL_SENSITIVITY))
+    # The owner's control read runs as the owner's equal once keys exist.
+    owner = recall(call, _owner_equal_key(vault), sensitivity_allowed=list(ALL_SENSITIVITY))
     assert {item["id"] for item in owner["results"]} <= set(ids), "the hidden rows are the nearest, so the owner is shown them"
     after = recall(call, key)
     assert after == before
     assert not set(ids) & set(re.findall(r"[0-9a-f-]{36}", json.dumps(after, default=str)))
 
 
-def pack_gives_a_full_vector_stage(call: Call, stores: Stores, provider: Any, key: str, hidden: int = HIDDEN) -> None:
+def pack_gives_a_full_vector_stage(vault, call: Call, stores: Stores, provider: Any, key: str, hidden: int = HIDDEN) -> None:
     add_visible(stores, provider)
     before = pack(call, key)
     assert len(before["memories"]) == PACK_ITEMS
     assert before["trace"]["stages"]["vector"] == {"status": "enabled", "candidate_count": PACK_WINDOW}
     ids = add_hidden(stores, provider, hidden)
-    owner = pack(call, None, sensitivity_allowed=list(ALL_SENSITIVITY))
+    owner = pack(call, _owner_equal_key(vault), sensitivity_allowed=list(ALL_SENSITIVITY))
     assert {item["id"] for item in owner["memories"]} <= set(ids), "the hidden rows are the nearest, so the owner is shown them"
     after = pack(call, key)
     assert after["trace"]["stages"]["vector"] == before["trace"]["stages"]["vector"]
@@ -208,7 +218,7 @@ def pack_gives_a_full_vector_stage(call: Call, stores: Stores, provider: Any, ke
 TIME_QUERY = "what happened in March 2025"
 
 
-def pack_gives_a_full_temporal_stage(call: Call, stores: Stores, key: str, hidden: int = HIDDEN) -> None:
+def pack_gives_a_full_temporal_stage(vault, call: Call, stores: Stores, key: str, hidden: int = HIDDEN) -> None:
     """Rows dated at the middle of March are nearest to the window of the query. The readable rows are dated earlier in
     the month, so they follow. No embeddings endpoint is set, so the vector stage is off, and no row shares a word with the
     query, so only the temporal-anchor stage finds them."""
@@ -227,7 +237,7 @@ def pack_gives_a_full_temporal_stage(call: Call, stores: Stores, key: str, hidde
                               valid_from="2025-03-16T12:00:00+00:00")["id"])
             for index in range(hidden)
         ]
-    owner = pack(call, None, TIME_QUERY, sensitivity_allowed=list(ALL_SENSITIVITY))
+    owner = pack(call, _owner_equal_key(vault), TIME_QUERY, sensitivity_allowed=list(ALL_SENSITIVITY))
     assert {item["id"] for item in owner["memories"]} <= set(ids), "the hidden rows are the nearest, so the owner is shown them"
     after = pack(call, key, TIME_QUERY)
     assert after["trace"]["stages"]["temporal_anchor"] == before["trace"]["stages"]["temporal_anchor"]
@@ -248,7 +258,7 @@ def test_recall_gives_a_key_with_limits_a_full_page_when_hidden_nearest_rows_sit
 
     vault = _Vault(tmp_path, monkeypatch)
     with embeddings(monkeypatch) as provider:
-        recall_gives_a_full_page(vault.call, vault.store, provider, vault.key("read_only"))
+        recall_gives_a_full_page(vault, vault.call, vault.store, provider, vault.key("read_only"))
 
 
 def test_the_context_pack_vector_stage_is_full_for_a_key_with_limits_when_hidden_nearest_rows_sit_in_front(
@@ -263,7 +273,7 @@ def test_the_context_pack_vector_stage_is_full_for_a_key_with_limits_when_hidden
 
     vault = _Vault(tmp_path, monkeypatch)
     with embeddings(monkeypatch) as provider:
-        pack_gives_a_full_vector_stage(vault.call, vault.store, provider, vault.key("read_only"))
+        pack_gives_a_full_vector_stage(vault, vault.call, vault.store, provider, vault.key("read_only"))
 
 
 def test_the_context_pack_temporal_stage_is_full_for_a_key_with_limits_when_hidden_nearest_rows_sit_in_front(
@@ -278,7 +288,7 @@ def test_the_context_pack_temporal_stage_is_full_for_a_key_with_limits_when_hidd
     """
 
     vault = _Vault(tmp_path, monkeypatch)
-    pack_gives_a_full_temporal_stage(vault.call, vault.store, vault.key("read_only"))
+    pack_gives_a_full_temporal_stage(vault, vault.call, vault.store, vault.key("read_only"))
 
 
 def test_the_boundary_is_the_cap_minus_the_rows_the_stage_asks_for(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
