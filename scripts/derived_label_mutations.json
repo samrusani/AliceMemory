@@ -23733,9 +23733,9 @@
         {
           "file": "apps/api/src/alicebot_api/mcp/policy.py",
           "line": 62,
-          "before": "        with _vnext_store_context(context) as store:\n            if store.count_active_agent_api_keys() > 0:\n                raise MCPNotPermittedError(\n                    \"agent API keys are configured for this vault; every call needs \"\n                    f\"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')\"\n                )\n",
+          "before": "        # The active-key count is read on a read-only connection, before any\n        # store is opened: an argument-validation refusal must stay a\n        # refusal that never touched the vault.\n        if _is_sqlite_backend(context) and _vault_has_active_key(\n            _sqlite_path_from_url(context.database_url)\n        ):\n            raise MCPNotPermittedError(\n                \"agent API keys are configured for this vault; every call needs \"\n                f\"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')\"\n            )\n",
           "after": "",
-          "sha256": "df353bc481a156caf4d3ef4c0527848a9858d4d5380ba0024d514bcf1fee6656"
+          "sha256": "5b7be97d43ecbe28b08dd5d3adf16c60d45cb58d62f9fbeee41d1646369e7ac6"
         }
       ],
       "pytest": [
@@ -23749,10 +23749,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/policy.py",
-          "line": 63,
-          "before": "            if store.count_active_agent_api_keys() > 0:",
-          "after": "            if store.count_active_agent_api_keys() > 0 and \"agent_id\" in arguments:",
-          "sha256": "df353bc481a156caf4d3ef4c0527848a9858d4d5380ba0024d514bcf1fee6656"
+          "line": 65,
+          "before": "        if _is_sqlite_backend(context) and _vault_has_active_key(\n            _sqlite_path_from_url(context.database_url)\n        ):",
+          "after": "        if _is_sqlite_backend(context) and _vault_has_active_key(\n            _sqlite_path_from_url(context.database_url)\n        ) and \"agent_id\" in arguments:",
+          "sha256": "5b7be97d43ecbe28b08dd5d3adf16c60d45cb58d62f9fbeee41d1646369e7ac6"
         }
       ],
       "pytest": [
