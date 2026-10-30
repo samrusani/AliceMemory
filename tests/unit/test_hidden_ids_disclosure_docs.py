@@ -237,14 +237,14 @@ def test_the_security_note_covers_belief_and_edge_review() -> None:
 def test_the_known_limitations_page_lists_both_limits() -> None:
     """The page states the v0.20.2 limit and the one clause for v0.21.0, and the three promises that have no release.
 
-    The page is written for v0.22.0, so the id bullet opens with what v0.20.2 does and marks what v0.21.0 does with the
-    marker ``From v0.21.0``, which the page still carries beside what v0.22.0 added. The hash and the words of archived rows are planned with no release set (they were tracked for v0.21.0 until
+    The page is written for v0.23.0, so the id bullet opens with what v0.20.2 does and marks what v0.21.0 does with the
+    marker ``From v0.21.0``, which the page still carries beside what v0.22.0 and v0.23.0 added. The hash and the words of archived rows are planned with no release set (they were tracked for v0.21.0 until
     2026-10-21). The security note holds the detail and is linked from the lead-in of the list.
     """
 
     page = _text("docs/alpha/known-limitations.md")
     flat = " ".join(page.split())
-    assert "Open in v0.22.0, with the detail in the [security note](../release/derived-labels-security-note-draft.md):" in flat
+    assert "Open in v0.23.0, with the detail in the [security note](../release/derived-labels-security-note-draft.md):" in flat
     paragraph = _paragraph(page, "- v0.20.2 returns the ids of rows a key cannot read as stored.")
     assert paragraph.startswith(f" {NEW} a key with limits is not shown the id of a memory, a source, an artifact or an open loop it may not read")
     assert "the count of a list that lost an id is recomputed or dropped" in paragraph
