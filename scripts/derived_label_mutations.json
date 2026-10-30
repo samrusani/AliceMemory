@@ -294,7 +294,7 @@
           "line": 8,
           "before": "Doctor's derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and the doctor routes omit them for callers with limits.",
           "after": "",
-          "sha256": "88a7e79085a16540682a3ad8282cbc2d96a4e9d4cf218fc20168ebe757875536"
+          "sha256": "f602997a19f8c39cbf42ee663368f7383953beb2cd3f0be2559aeede96356dcd"
         }
       ],
       "pytest": [
@@ -1519,7 +1519,7 @@
           "line": 37,
           "before": "the count of a list that lost an id is recomputed or dropped",
           "after": "the count of a list that lost an id is kept",
-          "sha256": "655ea0484f0e45dd3f3d7ff1da4890211d41ffa6fc7b05540222de3eed4f2363"
+          "sha256": "65d166c415d619c312fc47e0de0038d016650226ca1ea0b686756e729a82aaab"
         }
       ],
       "pytest": [
@@ -1535,7 +1535,7 @@
           "line": 42,
           "before": "judged at most 128 rows of each list",
           "after": "listed",
-          "sha256": "655ea0484f0e45dd3f3d7ff1da4890211d41ffa6fc7b05540222de3eed4f2363"
+          "sha256": "65d166c415d619c312fc47e0de0038d016650226ca1ea0b686756e729a82aaab"
         }
       ],
       "pytest": [
@@ -3991,7 +3991,7 @@
           "line": 38,
           "before": "; from v0.21.0, a key with limits is not shown those",
           "after": "",
-          "sha256": "655ea0484f0e45dd3f3d7ff1da4890211d41ffa6fc7b05540222de3eed4f2363"
+          "sha256": "65d166c415d619c312fc47e0de0038d016650226ca1ea0b686756e729a82aaab"
         }
       ],
       "pytest": [
@@ -4733,7 +4733,7 @@
           "line": 37,
           "before": "the owner and an unbound admin key keep every id",
           "after": "every key keeps every id",
-          "sha256": "655ea0484f0e45dd3f3d7ff1da4890211d41ffa6fc7b05540222de3eed4f2363"
+          "sha256": "65d166c415d619c312fc47e0de0038d016650226ca1ea0b686756e729a82aaab"
         }
       ],
       "pytest": [
@@ -5212,7 +5212,7 @@
           "line": 40,
           "before": "the reports and derived rows built from a redacted memory are readable by the owner and an unbound admin key only until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "655ea0484f0e45dd3f3d7ff1da4890211d41ffa6fc7b05540222de3eed4f2363"
+          "sha256": "65d166c415d619c312fc47e0de0038d016650226ca1ea0b686756e729a82aaab"
         }
       ],
       "pytest": [
@@ -5244,7 +5244,7 @@
           "line": 40,
           "before": "removing it is planned, with no release set",
           "after": "removing it is done",
-          "sha256": "655ea0484f0e45dd3f3d7ff1da4890211d41ffa6fc7b05540222de3eed4f2363"
+          "sha256": "65d166c415d619c312fc47e0de0038d016650226ca1ea0b686756e729a82aaab"
         }
       ],
       "pytest": [
@@ -6054,7 +6054,7 @@
           "line": 40,
           "before": "are readable by the owner and an unbound admin key only",
           "after": "are readable by every key that reads the report",
-          "sha256": "655ea0484f0e45dd3f3d7ff1da4890211d41ffa6fc7b05540222de3eed4f2363"
+          "sha256": "65d166c415d619c312fc47e0de0038d016650226ca1ea0b686756e729a82aaab"
         }
       ],
       "pytest": [
@@ -6070,7 +6070,7 @@
           "line": 39,
           "before": ", and a key that can read the report reads it",
           "after": "",
-          "sha256": "655ea0484f0e45dd3f3d7ff1da4890211d41ffa6fc7b05540222de3eed4f2363"
+          "sha256": "65d166c415d619c312fc47e0de0038d016650226ca1ea0b686756e729a82aaab"
         }
       ],
       "pytest": [
@@ -6182,7 +6182,7 @@
           "line": 11,
           "before": "\n> **Update (2026-10-09):** the correction above says graph neighborhood returns edge explanations in v0.20.0, and that is so. On main, not in v0.20.0, it lists only the edges whose ends the key may read, and the graph edge review route applies the same rule. See the [draft security note](derived-labels-security-note-draft.md).\n",
           "after": "",
-          "sha256": "88a7e79085a16540682a3ad8282cbc2d96a4e9d4cf218fc20168ebe757875536"
+          "sha256": "f602997a19f8c39cbf42ee663368f7383953beb2cd3f0be2559aeede96356dcd"
         }
       ],
       "pytest": [
@@ -6244,9 +6244,9 @@
         {
           "file": "docs/alpha/known-limitations.md",
           "line": 33,
-          "before": "Open in v0.22.0, with the detail in the [security note]",
-          "after": "Open in v0.22.0, but graph edge explanations remain outside that ceiling, with the detail in the [security note]",
-          "sha256": "655ea0484f0e45dd3f3d7ff1da4890211d41ffa6fc7b05540222de3eed4f2363"
+          "before": "Open in v0.23.0, with the detail in the [security note]",
+          "after": "Open in v0.23.0, but graph edge explanations remain outside that ceiling, with the detail in the [security note]",
+          "sha256": "65d166c415d619c312fc47e0de0038d016650226ca1ea0b686756e729a82aaab"
         }
       ],
       "pytest": [
@@ -9459,7 +9459,7 @@
           "line": 41,
           "before": "keeps the title and description its caller typed, so words of the memory stay readable to every key that reads the loop",
           "after": "keeps the title and description its caller typed, so words of the memory are withheld from every key that reads the loop",
-          "sha256": "655ea0484f0e45dd3f3d7ff1da4890211d41ffa6fc7b05540222de3eed4f2363"
+          "sha256": "65d166c415d619c312fc47e0de0038d016650226ca1ea0b686756e729a82aaab"
         }
       ],
       "pytest": [
@@ -19322,7 +19322,7 @@
           "line": 309,
           "before": "removal of redacted text from reports is planned, with no release set, and\n  the vector stage of recall does not refill after hiding rows.\n",
           "after": "removal of redacted text from reports is planned, with no release set.\n",
-          "sha256": "e88b0f2827f3ad4c6ef0c4ab4c52a23867527979a1207e6956286724fe5ff5c7"
+          "sha256": "cbb0624bca02a315cbd4852cc10766cce97a66a3c9c26e39e42777834b177fd2"
         }
       ],
       "pytest": [
@@ -19338,7 +19338,7 @@
           "line": 233,
           "before": "- The vector stage of recall and of the context pack, the time stage of the\n  context pack,",
           "after": "- The refill of the vector stage of recall and of the context pack, the time stage of the\n  context pack,",
-          "sha256": "e88b0f2827f3ad4c6ef0c4ab4c52a23867527979a1207e6956286724fe5ff5c7"
+          "sha256": "cbb0624bca02a315cbd4852cc10766cce97a66a3c9c26e39e42777834b177fd2"
         }
       ],
       "pytest": [
@@ -20231,7 +20231,7 @@
           "line": 39,
           "before": "; hiding these words is planned, with no release set",
           "after": "",
-          "sha256": "655ea0484f0e45dd3f3d7ff1da4890211d41ffa6fc7b05540222de3eed4f2363"
+          "sha256": "65d166c415d619c312fc47e0de0038d016650226ca1ea0b686756e729a82aaab"
         }
       ],
       "pytest": [
