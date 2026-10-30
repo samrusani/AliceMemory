@@ -224,9 +224,11 @@ def _hook(data_dir: Path, *, key: str | None = None) -> subprocess.CompletedProc
     env["PYTHONPATH"] = f"{REPO_ROOT}/apps/api/src:{REPO_ROOT}"
     if key is not None:
         env[AGENT_API_KEY_ENV] = key
-    code = "import sys; from alicebot_api.session_start_hook import main; sys.exit(main(sys.argv[1:]))"
+    # Run as a module, which is how a host's hook command starts it. The test does not import the module, so the real-host
+    # workflow does not need to list this file among the paths that start its heavy job.
     return subprocess.run(
-        [sys.executable, "-c", code, "--data-dir", str(data_dir)], env=env, input="{}\n", capture_output=True, text=True, timeout=120
+        [sys.executable, "-m", "alicebot_api.session_start_hook", "--data-dir", str(data_dir)],
+        env=env, input="{}\n", capture_output=True, text=True, timeout=120,
     )
 
 
