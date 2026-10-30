@@ -36,7 +36,7 @@ HEADING = "## v0.21.0 \u2014 2026-10-22"
 NOTES_CEILING = 15_000
 
 CHECKSUMS_PATH = "docs/release/v0.21.0-checksums.txt"
-LATEST_TAG_COMMIT = "a6a5f49eebb7377f40b388f2ffe07290b05b85fb"
+LATEST_TAG_COMMIT = "116d21775c931e69478f691ab0e3fd1b1e68015d"
 WHEEL_SHA256 = "0f3377871981e98a1a64a85e82ad1bcef26fc23c322e3a48820d1a1834fe5bbf"
 SDIST_SHA256 = "49232235fc85f677b1f78551268d0574b5a45e30a2974a81ddcaa63d7721aecc"
 
@@ -128,19 +128,19 @@ def test_the_notes_stay_under_the_size_ceiling_and_keep_their_sections_in_order(
 
 
 def test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_the_install_lines() -> None:
-    """Mutations, each one alone: set the marketplace ``ref`` back to v0.21.1; change one hex digit of the marketplace
+    """Mutations, each one alone: set the marketplace ``ref`` back to v0.22.0; change one hex digit of the marketplace
     ``sha``; change the install command in the notes.
 
     The post-publication change of v0.21.0 moved the marketplace file to the v0.21.0 tag, the one of v0.21.1 moved it
-    on to the v0.21.1 tag, and the one of v0.22.0 moved it on to the v0.22.0 tag and the commit that tag points at, so it
-    names the latest published release. The v0.21.0 tag itself still pins v0.20.2, and the plugin page says so. The tree
-    has moved on to the version sites of the next release, which ``test_v0220_release_notes.py`` pins, so this test no
-    longer reads them. The control documents and the install lines name v0.22.0 as the latest release, and that test
-    pins them too.
+    on to the v0.21.1 tag, the one of v0.22.0 moved it on to the v0.22.0 tag, and the one of v0.23.0 moved it on to the
+    v0.23.0 tag and the commit that tag points at, so it names the latest published release. The v0.21.0 tag itself
+    still pins v0.20.2, and the plugin page says so. The tree has moved on to the version sites of the next release,
+    which ``test_v0230_release_notes.py`` pins, so this test no longer reads them. The control documents and the
+    install lines name v0.23.0 as the latest release, and that test pins them too.
     """
 
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.22.0"
+    assert marketplace["ref"] == "v0.23.0"
     assert marketplace["sha"] == LATEST_TAG_COMMIT
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.21.0 && alice-memory install" in notes

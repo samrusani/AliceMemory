@@ -21,7 +21,11 @@ v0.20.2 notes in ``test_v0202_release_notes.py``, and those in the v0.20.0 and v
 ``test_v0200_release_notes.py``. On 2026-10-27 the notes and the changelog section of v0.22.0 joined the list once
 it was published. The 2026-10-27 updates in the v0.21.1 notes are pinned in ``test_v0211_release_notes.py``, the one in
 the v0.22.0 notes in ``test_v0220_release_notes.py``, those in the v0.20.2 notes in ``test_v0202_release_notes.py``, and
-those in the v0.20.0 and v0.19.2 notes in ``test_v0200_release_notes.py``.
+those in the v0.20.0 and v0.19.2 notes in ``test_v0200_release_notes.py``. On 2026-10-30 the notes and the changelog
+section of v0.23.0 joined the list once it was published. The 2026-10-30 updates in the v0.22.0 and v0.21.1 notes are
+pinned in ``test_v0220_release_notes.py`` and ``test_v0211_release_notes.py``, the one in the v0.23.0 notes in
+``test_v0230_release_notes.py``, those in the v0.20.2 notes in ``test_v0202_release_notes.py``, and those in the v0.20.0
+and v0.19.2 notes in ``test_v0200_release_notes.py``.
 
 Three things are pinned here, by reading the tag with ``git show`` and not by
 trusting the working file:
@@ -67,7 +71,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHANGELOG = "CHANGELOG.md"
 # Changelog sections of published releases, unchanged since their tags except for dated lines.
-PUBLISHED_CHANGELOG_SECTIONS = ("v0.17.0", "v0.18.0", "v0.19.0", "v0.19.2", "v0.20.0", "v0.20.2", "v0.21.0", "v0.21.1", "v0.22.0")
+PUBLISHED_CHANGELOG_SECTIONS = ("v0.17.0", "v0.18.0", "v0.19.0", "v0.19.2", "v0.20.0", "v0.20.2", "v0.21.0", "v0.21.1", "v0.22.0", "v0.23.0")
 
 PUBLISHED_NOTES = (
     ("v0.17.0", "docs/release/v0.17.0-release-notes.md"),
@@ -79,6 +83,7 @@ PUBLISHED_NOTES = (
     ("v0.21.0", "docs/release/v0.21.0-release-notes.md"),
     ("v0.21.1", "docs/release/v0.21.1-release-notes.md"),
     ("v0.22.0", "docs/release/v0.22.0-release-notes.md"),
+    ("v0.23.0", "docs/release/v0.23.0-release-notes.md"),
 )
 
 # The dated 2026-10-01 update paragraphs, in file order, as read after quote

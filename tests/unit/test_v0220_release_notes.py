@@ -20,10 +20,11 @@ change to that behaviour has to update them.
 The notes are published. The change that followed publication moved their state to ``published`` and ``recorded``, added
 the checksums file, moved the marketplace file to the v0.22.0 tag and its commit, named v0.22.0 as the latest published
 release in the control documents and removed the release candidate line, as the change after v0.21.1 did, and added one
-dated 2026-10-27 update beside the notes' own marketplace step. The advisory identifier is still ``pending``: a later
-dated update adds it. The tagged lines of the notes and of the changelog section are held by
-``test_published_release_notes_stay_immutable.py``. The release check's pre-tag mode refuses the tree now, and one test
-below pins the three reasons.
+dated 2026-10-27 update beside the notes' own marketplace step. The change after v0.23.0 moved the marketplace file
+and the control documents on to v0.23.0, which ``test_v0230_release_notes.py`` pins, and added a dated 2026-10-30
+follow-up after that update. The advisory identifier is still ``pending``: a later dated update adds it. The tagged
+lines of the notes and of the changelog section are held by ``test_published_release_notes_stay_immutable.py``. The
+release check's pre-tag mode refuses the tree now, and one test below pins the three reasons.
 """
 
 from __future__ import annotations
@@ -69,21 +70,13 @@ HEADING = "## v0.22.0 \u2014 2026-10-26"
 # The notes are about 14,500 characters, and 17,500 leaves room for a correction and no more.
 NOTES_CEILING = 17_500
 
-# The v0.22.0 tag, the commit it points at, and the digests of the two files published for it.
+# The digests of the two files published for v0.22.0, the commit of the latest tag (v0.23.0), which the marketplace
+# file pins now, and the commit of the tag before v0.22.0.
 CHECKSUMS_PATH = "docs/release/v0.22.0-checksums.txt"
-TAG_COMMIT = "a6a5f49eebb7377f40b388f2ffe07290b05b85fb"
+LATEST_TAG_COMMIT = "116d21775c931e69478f691ab0e3fd1b1e68015d"
 PRIOR_TAG_COMMIT = "8d0bac271164ad494687ab599a96499ddfbcce66"
 WHEEL_SHA256 = "803f466454de8973ed64db47de9e3c366943fc8833ed3ae0b40fbd9a48018fdb"
 SDIST_SHA256 = "c2fe674d9d475ad04f6ed56df3ed4d55a1aef96209dbb1f8d86f07bf7634296a"
-
-CANDIDATE_LINE = "`v0.22.0` is the current release candidate. It is not published."
-LATEST_DOCS = (
-    "ARCHITECTURE.md",
-    "PRODUCT_BRIEF.md",
-    "ROADMAP.md",
-    "RELEASING.md",
-    "docs/vnext/README.md",
-)
 
 SECTIONS = [
     "What to do after upgrading",
@@ -312,19 +305,19 @@ def test_the_notes_stay_under_the_size_ceiling_and_keep_their_sections_in_order(
     assert headings == SECTIONS
 
 
-def test_the_marketplace_pins_the_published_release_and_the_notes_carry_its_install_lines() -> None:
-    """Mutations, each one alone: set the marketplace ``ref`` back to v0.21.1; change one hex digit of the marketplace
-    ``sha``; change the install command in the notes.
+def test_the_marketplace_pins_the_latest_release_and_the_notes_carry_the_install_lines() -> None:
+    """Mutations, each one alone: set the marketplace ``ref`` back to v0.22.0; change one hex digit of the marketplace
+    ``sha``; change the install command in the notes; change the copy of the marketplace file inside the v0.22.0 tag.
 
-    The post-publication change moved the marketplace file to the v0.22.0 tag and the commit that tag points at, so it
-    names the latest published release. The v0.22.0 tag itself still pins v0.21.1, and the plugin page says so. The tree
-    has moved on to the version sites of the next release, which ``test_v0230_release_notes.py`` pins, so this test no
-    longer reads them.
+    The post-publication change of v0.22.0 moved the marketplace file to the v0.22.0 tag, and the one of v0.23.0 moved
+    it on to the v0.23.0 tag and the commit that tag points at, so it names the latest published release. The v0.22.0
+    tag itself still pins v0.21.1, and the plugin page says so. The tree has moved on to the version sites of the next
+    release, which ``test_v0230_release_notes.py`` pins, so this test no longer reads them.
     """
 
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.22.0"
-    assert marketplace["sha"] == TAG_COMMIT
+    assert marketplace["ref"] == "v0.23.0"
+    assert marketplace["sha"] == LATEST_TAG_COMMIT
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.22.0 && alice-memory install" in notes
     assert "With uv: `uvx alice-memory install`." in notes
@@ -346,20 +339,27 @@ def _blocks(path: str) -> list[str]:
     return [" ".join(block) for block in blocks if block]
 
 
-def test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0220() -> None:
-    """Mutations, each one alone: delete the 2026-10-27 update; name v0.21.1 as what ``main`` pins in it; drop the
-    sentence about the copy inside the tag; move it away from step 7 of the upgrade steps; glue it to the end of
-    another paragraph; add a second dated update.
+def test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0220_and_then_v0230() -> None:
+    """Mutations, each one alone: delete either dated update; name v0.21.1 as what ``main`` pins in the first or v0.22.0
+    in the second; drop the sentence about the copy inside a tag; move them away from step 7 of the upgrade steps; swap
+    them; glue one to the end of another paragraph; add a third dated update.
 
     Step 7 of the upgrade steps says the marketplace file on ``main`` pins the v0.21.1 tag commit until a change after
     the release moves it. That sentence stays as tagged, and the update after it says the change has been made, as the
-    update beside step 6 of the v0.21.1 notes did.
+    update beside step 6 of the v0.21.1 notes did. The 2026-10-30 follow-up says the file was moved on to the v0.23.0
+    tag, and that the copy inside the v0.23.0 tag pins v0.22.0.
     """
 
     update = (
         "**Update (2026-10-27):** v0.22.0 is published, and the marketplace file on `main` now pins the v0.22.0 tag "
         "commit, so the marketplace install runs v0.22.0. The copy inside the v0.22.0 tag still pins v0.21.1, so add "
         "the marketplace from the repository, not from a checkout of the tag."
+    )
+    follow_up = (
+        "**Update (2026-10-30):** v0.23.0 is published, and the marketplace file on `main` now pins the v0.23.0 tag "
+        "commit, so the marketplace install runs v0.23.0. The copy inside the v0.22.0 tag still pins v0.21.1 and the "
+        "copy inside the v0.23.0 tag still pins v0.22.0, so add the marketplace from the repository, not from a "
+        "checkout of a tag."
     )
     blocks = _blocks(NOTES_PATH)
     positions = [index for index, block in enumerate(blocks) if block == update]
@@ -369,88 +369,11 @@ def test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0220() 
         "7. **Claude Code plugin.** The marketplace file on `main` pins the v0.21.1 tag commit until a change after "
         "this release moves it, so a marketplace install runs v0.21.1 code until then."
     )
-    assert blocks[index + 1] == "## The agent output route"
+    assert blocks[index + 1] == follow_up
+    assert blocks[index + 2] == "## The agent output route"
     assert _text(NOTES_PATH).count("Update (2026-10-27)") == 1
-    assert sum(block.startswith("**Update (") for block in blocks) == 1
-
-
-def test_the_control_documents_name_v0220_as_the_latest_published_release_and_v0211_as_the_prior_one() -> None:
-    """Mutations, each one alone: put the candidate line back into one control document or into the README; name
-    v0.21.1 as the latest published release in one of them; name v0.21.0 as the immediately prior release; set a
-    checksums or release notes pointer back to v0.21.1; put ``Targets`` back in the heading of the current state; point
-    the release notes link of the README or the vNext README at another release; set the lead of ``What `v0.21.1`
-    Shipped`` back to the latest published release; drop the v0.22.0 tag from the tag history of the current state or
-    set its pin sentence back to v0.21.1.
-
-    The candidate line of a later release names that release and is that release's test to pin, so only the v0.22.0
-    candidate line is refused here.
-    """
-
-    for name in LATEST_DOCS:
-        text = _text(name)
-        assert CANDIDATE_LINE not in text, name
-        assert "`v0.22.0` is the latest published release" in text, name
-        assert "`v0.21.1` is the latest published release" not in text, name
-    readme = _flat("README.md")
-    assert (
-        "`v0.22.0` is the latest published release and remains the install, checksum, and release-note baseline. "
-        "`v0.21.1` is the immediately prior published release."
-    ) in readme
-    assert CANDIDATE_LINE not in readme
-    assert "- [v0.22.0 release notes](docs/release/v0.22.0-release-notes.md)" in _text("README.md")
-    assert "[latest published release notes](../release/v0.22.0-release-notes.md)" in _flat("docs/vnext/README.md")
-    architecture = _flat("ARCHITECTURE.md")
-    assert "`docs/release/v0.22.0-checksums.txt`. - **Prior published:** `v0.21.1` is the immediately prior published release" in architecture
-    assert "artifact digests are in `docs/release/v0.21.1-checksums.txt`." in architecture
-    brief = _flat("PRODUCT_BRIEF.md")
-    assert "`v0.21.1` is the immediately prior published release" in brief
-    assert "exact digests in `docs/release/v0.22.0-checksums.txt`." in brief
-    roadmap = _flat("ROADMAP.md")
-    assert (
-        "`docs/release/v0.22.0-release-notes.md`, with artifact digests in `docs/release/v0.22.0-checksums.txt`. "
-        "`v0.21.1` is the immediately prior published release."
-    ) in roadmap
-    state = _text("CURRENT_STATE.md")
-    assert "What `v0.22.0` Targets" not in state
-    assert (
-        "\n## What `v0.22.0` Shipped\n\n`v0.22.0` is the latest published release and remains the install, checksum,\n"
-        "and baseline reference.\n\nIt shipped the fixes and additions on `main` after `v0.21.1`."
-    ) in state
-    assert state.index("## What `v0.22.0` Shipped") < state.index("## What `v0.21.1` Shipped")
-    assert "\n## What `v0.21.1` Shipped\n\n`v0.21.1` is the immediately prior published release.\n" in state
-    assert "\n## What `v0.21.0` Shipped\n\n`v0.21.0` is an earlier published release.\n" in state
-    assert "- `v0.22.0` is the latest published release." in state
-    assert "`v0.21.1` is the immediately prior\n  published release." in state
-    assert "`docs/release/v0.22.0-release-notes.md`\n- `docs/release/v0.22.0-checksums.txt`\n" in state
-    assert "`v0.21.1` is the immediately prior published release; its records are" in state
-    history = " ".join(state.split())
-    assert (
-        "The `v0.19.2` tag has the file too, still pinned to the `v0.19.0` tag commit, the `v0.20.0` tag has it still "
-        "pinned to the `v0.19.2` tag commit, the `v0.20.2` tag has it still pinned to the `v0.20.0` tag commit, the "
-        "`v0.21.0` tag has it still pinned to the `v0.20.2` tag commit, the `v0.21.1` tag has it still pinned to the "
-        "`v0.21.0` tag commit, and the `v0.22.0` tag has it still pinned to the `v0.21.1` tag commit."
-    ) in history
-    assert "pins the plugin to the `v0.22.0` tag commit, so the plugin installs from that marketplace." in history
-    assert "- [v0.22.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/" + NOTES_PATH + ")" in state
-
-
-def test_the_install_and_checkout_lines_name_v0220_as_the_latest_release() -> None:
-    """Mutations, each one alone: set the ``--tag`` of the headless install guide, the latest release tag it names, the
-    checkout line of the quickstart or the baseline named by the reference paths page back to v0.21.1.
-
-    The README's checkout line is pinned in ``test_readme_facts_live_in_the_docs.py``. The lines pinned here name the
-    release a reader installs or checks out, so they move with each release. A comparison with v0.21.1 elsewhere in the
-    docs is history and stays.
-    """
-
-    guide = _flat("docs/alpha/headless-ubuntu-install.md")
-    assert "use the latest published release tag (`v0.22.0`) for an immutable deployment." in guide
-    assert "with the latest published release tag (`v0.22.0`): `--tag v0.22.0`." in guide
-    assert "v0.21.1" not in guide
-    quickstart = _flat("docs/alpha/quickstart.md")
-    assert "To run v0.22.0, run `git checkout v0.22.0` before `make setup`." in quickstart
-    assert "git checkout v0.21.1" not in quickstart
-    assert "on top of the latest published `v0.22.0` baseline." in _flat("docs/integrations/reference-paths.md")
+    assert _text(NOTES_PATH).count("Update (2026-10-30)") == 1
+    assert sum(block.startswith("**Update (") for block in blocks) == 2
 
 
 def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section() -> None:

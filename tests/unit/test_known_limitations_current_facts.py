@@ -1,6 +1,6 @@
 """The facts that only the known limitations page states are pinned, and the numbers on it are the ones the code enforces.
 
-The page is a short list of what is limited now in v0.22.0. Most of its statements are pinned next to the pages that
+The page is a short list of what is limited now in v0.23.0. Most of its statements are pinned next to the pages that
 explain them (the local-folder scan, the HTTP edge, the expiry and commit text bullets and the rest). A bound that
 another page owns is one short sentence on the page and a link, and the page that owns it holds the rest and is pinned
 here, so the fact is not lost when it leaves the page:
@@ -79,7 +79,7 @@ def _under(heading_start: str, bullet: str) -> bool:
 
     raw = (ROOT / "docs/alpha/known-limitations.md").read_text(encoding="utf-8")
     start = raw.index(heading_start)
-    following = [raw.find(lead, start + 1) for lead in ("\nPostgres stack and outbound calls", "\nOpen in v0.22.0")]
+    following = [raw.find(lead, start + 1) for lead in ("\nPostgres stack and outbound calls", "\nOpen in v0.23.0")]
     end = min(position for position in following if position != -1)
     return _flat(bullet.removeprefix("- ")) in _flat(raw[start:end])
 
@@ -156,7 +156,7 @@ def test_the_error_bullet_names_the_generic_codes_and_the_three_that_tell_a_refu
     and the three generic codes come before them.
 
     The three are read from ``MCP_CODED_ERROR_CODES``: the four coded errors less ``invalid_request``, which a query over a
-    size limit already got in v0.20.0. The page is written for v0.22.0 and this bullet carries no marker.
+    size limit already got in v0.20.0. The page is written for v0.23.0 and this bullet carries no marker.
 
     Mutations, each one alone: on the page, delete ``precondition_failed`` from the list, delete ``except
     `invalid_request` for a rejected argument or an oversized query``, move a generic code after the three or put
@@ -318,8 +318,8 @@ def test_the_sqlite_boundaries_bullets_and_the_deletion_bullet_point_at_the_page
     the migration and the key rule. SQLite source deletion keeps events, hashes, memory text and backups until the VACUUM
     step, and the importers page states each of them.
 
-    Mutations, each one alone: on the page, delete ``no automatic migration to Postgres``, ``every keyless MCP call is refused`` or
-    ``freed space keeps text until the VACUUM step``; in the agent guide, delete ``every keyless MCP call is
+    Mutations, each one alone: on the page, delete ``no automatic migration to Postgres``, ``From v0.23.0,``, ``keyless MCP calls are
+    refused`` or ``freed space keeps text until the VACUUM step``; in the agent guide, delete ``every keyless MCP call is
     refused, reads included``; in the importers page, delete ``Append-only source events retain old titles and
     hashes`` or ``Earlier backups and copies still hold the text``.
     """
@@ -327,7 +327,7 @@ def test_the_sqlite_boundaries_bullets_and_the_deletion_bullet_point_at_the_page
     bullet = _bullet("no web console review")
     for clause in ("no scheduler", "one user per database file", "no automatic migration to Postgres"):
         assert clause in bullet, clause
-    assert "Agent keys exist on SQLite" in bullet
+    assert "From v0.23.0, agent keys exist on SQLite" in bullet
     assert "keyless MCP calls are refused" in bullet
     assert "a key does not stop a process that runs as your OS user from reading the vault file" in bullet
     assert _under("SQLite mode (", bullet)
