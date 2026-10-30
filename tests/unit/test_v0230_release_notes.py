@@ -493,7 +493,8 @@ def test_the_upgrade_steps_name_every_action_an_existing_user_takes_in_order() -
         "the hook and `alice-memory brief` print nothing and exit 0",
         "mint an unbound `admin_agent` key for each",
         "**The commands you run yourself keep running as the owner and take no key**",
-        "`import`, `export`, `doctor`, `sleep`, `sleep-proposals`, `import-markdown`, `import-chatgpt` and `keys`",
+        "`import`, `export`, `doctor`, `sleep`, `sleep-proposals`, `import-markdown`, `import-chatgpt`, `labels`, "
+        "`sources`, `project` and `keys`",
         "**Mint keys again after an import.**",
         "The JSONL export drops keys",
         "A copy of the vault file taken after a checkpoint keeps its keys",
@@ -525,7 +526,7 @@ def test_the_notes_name_the_limits_they_say_matter() -> None:
     for needle in (
         "It does not claim that keys keep an agent away from your data.",
         "It does not claim that an unbound `admin_agent` key reads everything the keyless owner reads",
-        "the evidence of an archived source is the exception above",
+        "the evidence of an archived source is one exception, set out above",
         "It does not claim that the vectors answer better.",
         "neither of two model families answered measurably better",
         "the gemma4 family lost 5 of 46 exact-term questions with vectors",
@@ -1226,7 +1227,8 @@ def test_the_headline_changes_of_the_notes_each_have_a_changelog_entry() -> None
     assert "they do not stop a process that runs as your OS user from reading the vault file" in keys
     assert "The JSONL export still drops keys, so keys are minted again after an import from an export; a file copy after a checkpoint keeps them." in keys
     assert "au" + "dit" not in keys.lower()
-    assert "au" + "dit" not in entries[2].lower()
+    # The malformed id entry names a legacy tool whose name holds the word; only text outside code spans counts.
+    assert "au" + "dit" not in re.sub(r"`[^`]*`", "", entries[2]).lower()
     migrations = entries[5]
     for revision in CHANGED_MIGRATIONS:
         assert f"`{revision}`" in migrations, revision

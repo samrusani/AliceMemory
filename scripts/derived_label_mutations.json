@@ -13959,7 +13959,7 @@
       "edits": [
         {
           "file": "docs/alpha/agent-integration.md",
-          "line": 404,
+          "line": 408,
           "before": "standard text), which does not name the reason. The reason and the commands\nthat find and revoke the key are written to the server log at warning level;\nthe line names no key, which `alicebot agent keys list` shows with its\n`project_scope`.",
           "after": "standard text).",
           "sha256": "a02188ec3e2ae09cc7f5f6c244a07e8d90364eab3bf4e7fbb8c99f92d4f989de"
