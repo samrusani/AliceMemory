@@ -869,7 +869,7 @@ def _masked_hook_item(item: object, hidden: list[str]) -> object:
 
 
 def _own_env(payload: Mapping[str, object]) -> dict[str, str]:
-    """The env values install writes for ``payload``: ALICE_MEMORY_DATA_DIR = its --data-dir, and the agent key's environment reference (a ${VARNAME} the host resolves, never a raw key)."""
+    """The env value install writes for ``payload``: ALICE_MEMORY_DATA_DIR = its --data-dir. Install writes no agent key and no reference to one."""
 
     own: dict[str, str] = {}
     args = payload.get("args")
