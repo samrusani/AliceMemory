@@ -16,6 +16,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import sqlite3
 import uuid
 from pathlib import Path
@@ -192,6 +193,11 @@ def _keyed_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
         permission_profile="trusted_local_agent",
     )
     monkeypatch.delenv(AGENT_API_KEY_ENV, raising=False)
+    # The keyed writer's label is stored at commit time; the key is revoked
+    # here so the keyless read below runs on the keyless vault the rule
+    # leaves alone (the restored vault's writes are owner writes either way).
+    with sqlite_user_connection(_sqlite_path_from_url(context.database_url), USER_ID) as conn:
+        SQLiteVNextStore(conn, USER_ID).revoke_agent_api_key(key_id=str(_record["id"]))
     assert _recall_writers(context) == [{"id": "hermes-keyed", "established": VERIFIED}]
     return database, context
 
@@ -491,7 +497,17 @@ def test_restoring_into_a_keyed_vault_reads_like_an_owner_write(
     capsys.readouterr()
     assert _import(target, forged) == 0
     assert _receipt_count(capsys.readouterr().out) >= 1
-    assert _recall_writers(context) == [{"id": FORGED_ID, "established": UNVERIFIED}]
+    # The vault holds a key, so the read runs with a key (a keyless call is
+    # refused); the writer labels are data every reader of the row sees.
+    with sqlite_user_connection(_sqlite_path_from_url(context.database_url), USER_ID) as conn:
+        _record, reader_key = create_agent_key(
+            SQLiteVNextStore(conn, USER_ID), user_id=USER_ID, agent_id="reader", permission_profile="admin_agent", project_scope=None
+        )
+    os.environ[AGENT_API_KEY_ENV] = reader_key
+    try:
+        assert _recall_writers(context) == [{"id": FORGED_ID, "established": UNVERIFIED}]
+    finally:
+        os.environ.pop(AGENT_API_KEY_ENV, None)
     identity = json.loads(str(_stored(target, "memories", "metadata_json")[0]))["agentic_memory"]["agent_identity"]
     assert identity["claimed_auth"] == "agent_api_key"
 
