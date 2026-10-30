@@ -678,8 +678,41 @@ def test_the_settings_and_flags_the_notes_list_are_all_that_this_release_adds(v0
     assert all(set(flags_old[command]) <= set(flags_new[command]) for command in flags_old)
     changed = {command: set(flags_new[command]) - set(flags_old.get(command, [])) for command in flags_new if set(flags_new[command]) != set(flags_old.get(command, []))}
     assert set(changed) == {"keys", "keys create", "keys list", "keys revoke"}
-    assert changed["keys create"] == {"--agent-id", "--profile", "--label", "--project", "--json", "--data-dir", "--db", "--user-id", "--user-email", "--help"}
+    common = {"--data-dir", "--db", "--user-id", "--user-email", "--help"}
+    assert changed["keys"] == {"--help"}
+    assert changed["keys create"] == common | {"--agent-id", "--profile", "--label", "--project", "--json"}
+    assert changed["keys list"] == common | {"--limit", "--json"}
+    assert changed["keys revoke"] == common | {"--json"}
     assert "--agent-key-env" not in json.dumps(flags_new)
+
+
+_OWN_ENV_CODE = (
+    "import importlib, json\n"
+    "module = importlib.import_module('alicebot_api.' + 'host_install')\n"
+    "cases = [{'args': ['mcp', '--data-dir', '/x/y']}, {'args': ['mcp']}, {'args': [1]}, {}, "
+    "{'args': ['--from', 'alice-memory==1', 'alice-memory', 'mcp', '--data-dir', '/d']}]\n"
+    "print(json.dumps([module._own_env(case) for case in cases]))\n"
+)
+
+
+def test_install_writes_the_same_environment_values_as_v0220_and_never_a_key(v0220_tree: Path) -> None:
+    """Mutations, each one alone: make ``_own_env`` of ``host_install.py`` add ``ALICE_AGENT_API_KEY``, a reference to
+    it or any other value; add a flag to ``alice-memory install`` (the flags test above fails too).
+
+    The notes say that ``alice-memory install`` takes the same flags and writes the same environment values. The helper
+    that decides the values is run on five payloads by the v0.22.0 export and by this tree. The module is loaded with
+    ``importlib`` so that this file does not import a host module, which the real-host workflow lists by path.
+    """
+
+    old = _old_python(v0220_tree, _OWN_ENV_CODE)
+    new = subprocess.run(
+        [sys.executable, "-c", _OWN_ENV_CODE], env=_env_for(REPO_ROOT / "apps" / "api" / "src"), capture_output=True, text=True, timeout=180
+    )
+    assert old.returncode == 0 and new.returncode == 0, (old.stderr, new.stderr)
+    assert json.loads(old.stdout) == json.loads(new.stdout)
+    assert json.loads(new.stdout)[0] == {"ALICE_MEMORY_DATA_DIR": "/x/y"}
+    assert AGENT_API_KEY_ENV not in new.stdout
+    assert "`alice-memory install` takes the same flags and writes the same environment values." in _flat(NOTES_PATH)
 
 
 def _packages_in(where: Path) -> list[str]:
@@ -813,8 +846,13 @@ def test_a_vault_with_an_active_key_refuses_a_keyless_call_and_v0220_answered_it
             _call(context, name, arguments, key=None, monkeypatch=monkeypatch)
     monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
     monkeypatch.setenv("ALICE_MCP_LEGACY_TOOLS", "1")
-    with pytest.raises(MCPNotPermittedError):
-        _call(context, "alice_vnext_undo_memory", {"memory_id": "00000000-0000-0000-0000-0000000000aa"}, key=None, monkeypatch=monkeypatch)
+    # Two legacy tools that resolve no agent identity of their own, so only the refusal in call_mcp_tool stops them.
+    for legacy, arguments in (
+        ("alice_open_loop_extract", {"person_name": "someone"}),
+        ("alice_graph_neighborhood", {"target_id": "00000000-0000-0000-0000-0000000000aa"}),
+    ):
+        with pytest.raises(MCPNotPermittedError):
+            _call(context, legacy, arguments, key=None, monkeypatch=monkeypatch)
     monkeypatch.delenv("ALICE_MCP_FULL_TOOLS")
     monkeypatch.delenv("ALICE_MCP_LEGACY_TOOLS")
     assert _call(context, "alice_recall", query, key=key, monkeypatch=monkeypatch)["source_count"] >= 1
