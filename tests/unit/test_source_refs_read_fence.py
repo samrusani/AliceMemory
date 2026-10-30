@@ -114,15 +114,16 @@ class _Vault:
                 "beta_trusted": self._mint("trusted_local_agent", "beta"),
                 "alpha_read_only": self._mint("read_only_agent", "alpha"),
             }
+        reader_of = (lambda name: self.keys.get(name)) if keyed else (lambda name: None)
         self.sources: dict[str, str] = {
-            "own": self._capture(_TEXT["own"], self.keys["alpha_trusted"]),
-            "health": self._capture(_TEXT["health"], self.keys["alpha_trusted"], domain="health"),
+            "own": self._capture(_TEXT["own"], reader_of("alpha_trusted")),
+            "health": self._capture(_TEXT["health"], reader_of("alpha_trusted"), domain="health"),
             "confidential": self._capture(
-                _TEXT["confidential"], self.keys["alpha_admin"], sensitivity="confidential"
+                _TEXT["confidential"], reader_of("alpha_admin"), sensitivity="confidential"
             ),
-            "deleted": self._capture(_TEXT["deleted"], self.keys["alpha_trusted"]),
-            "beta": self._capture(_TEXT["beta"], self.keys["beta_trusted"]),
-            "global": self._capture(_TEXT["global"], None if not keyed else self.keys["owner_equal"]),
+            "deleted": self._capture(_TEXT["deleted"], reader_of("alpha_trusted")),
+            "beta": self._capture(_TEXT["beta"], reader_of("beta_trusted")),
+            "global": self._capture(_TEXT["global"], reader_of("owner_equal")),
             "unknown": str(uuid4()),
         }
         self.sql("UPDATE sources SET deleted_at = '2026-01-01T00:00:00Z' WHERE id = ?", (self.sources["deleted"],))
@@ -1948,3 +1949,45 @@ def test_every_intake_that_names_a_source_or_memory_is_classified() -> None:
     for table in (_HTTP_INTAKES, _MCP_INTAKES):
         for key, disposition in table.items():
             assert disposition.startswith(_INTAKE_KINDS), (key, disposition)
+
+
+def test_a_keyless_declaration_on_a_keyless_vault_is_held_to_its_ceiling(keyless_vault, monkeypatch) -> None:
+    """On a vault with no key the keyless rules are the v0.22.0 ones: a keyless
+    call that declares a profile is honored as its caller's own declaration —
+    the declared project is not enforced (the payload's claims are the
+    caller's), and the declared profile's ceiling applies (a confidential
+    input is refused to a trusted declaration).
+
+    Guards: the keyless declaration path of the identity resolution; the
+    ceiling check behind it.
+    """
+
+    declared = {
+        "agent_id": "keyless-agent",
+        "agent_type": "coding_agent",
+        "permission_profile": "trusted_local_agent",
+        "project_scope": ["alpha"],
+    }
+    committed = keyless_vault.commit(
+        None,
+        [],
+        title="Declared keyless entry",
+        canonical_text="Declared keyless entry lists the pottery wall calendar.",
+        memory_type="project_fact",
+        domain="project",
+        sensitivity="internal",
+        **declared,
+    )
+    assert not committed["is_error"], committed
+    refused = keyless_vault.wire("alice_memory_commit", {
+        "title": "Declared confidential entry",
+        "canonical_text": "Declared confidential entry lists the salary bands.",
+        "memory_type": "project_fact",
+        "domain": "project",
+        "sensitivity": "confidential",
+        **declared,
+    }, key=None)
+    # The declared ceiling applied: the answer carries the ceiling guidance
+    # (tell the user; the owner can raise the clearance) instead of a commit.
+    assert not refused["is_error"], refused
+    assert "clearance" in json.dumps(refused, default=str), refused

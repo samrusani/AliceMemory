@@ -62,13 +62,21 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
         # The active-key count is read on a read-only connection, before any
         # store is opened: an argument-validation refusal must stay a
         # refusal that never touched the vault.
-        if _is_sqlite_backend(context) and _vault_has_active_key(
-            _sqlite_path_from_url(context.database_url)
-        ):
-            raise MCPNotPermittedError(
-                "agent API keys are configured for this vault; every call needs "
-                f"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')"
-            )
+        if _is_sqlite_backend(context):
+            try:
+                has_active_key = _vault_has_active_key(_sqlite_path_from_url(context.database_url))
+            except Exception:
+                # The vault could not be checked; the call is refused rather
+                # than answered with the owner's standing.
+                raise MCPNotPermittedError(
+                    "the vault's agent keys could not be checked; every call needs "
+                    f"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')"
+                ) from None
+            if has_active_key:
+                raise MCPNotPermittedError(
+                    "agent API keys are configured for this vault; every call needs "
+                    f"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')"
+                )
         try:
             return AgentIdentity.from_payload(arguments)
         except AgentIdentityValidationError as exc:
@@ -101,21 +109,27 @@ _PROJECT_NAME_ARGUMENTS = ("projects", "project", "project_scope")
 def _vault_has_active_key(sqlite_path: str) -> bool:
     """One count query on a read-only connection: does the vault hold an
     active (never revoked) agent key? A vault without the table yet reads as
-    keyless. The query never opens the store the handlers share."""
+    keyless; any other error raises (the caller refuses the call rather than
+    answer it with the owner's standing). The URI is built the way the onramp
+    builds one (``Path(...).resolve().as_uri()``), so a ``#``, ``?`` or ``%``
+    in the data directory's name cannot make SQLite open a different path.
+    The query never opens the store the handlers share."""
 
     import sqlite3
 
     path = Path(sqlite_path)
     if not path.exists():
         return False
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
+    connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=5.0)
     try:
         row = connection.execute(
             "SELECT count(*) FROM agent_api_keys WHERE revoked_at IS NULL"
         ).fetchone()
         return bool(row and row[0] > 0)
-    except sqlite3.OperationalError:
-        return False
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc).lower():
+            return False
+        raise
     finally:
         connection.close()
 

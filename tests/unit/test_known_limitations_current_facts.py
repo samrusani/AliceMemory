@@ -325,11 +325,11 @@ def test_the_sqlite_boundaries_bullets_and_the_deletion_bullet_point_at_the_page
     """
 
     bullet = _bullet("no web console review")
-    for clause in ("no scheduler", "one user per database file", "no automatic Postgres migration"):
+    for clause in ("no scheduler", "one user per database file", "no automatic migration to Postgres"):
         assert clause in bullet, clause
     assert "Agent keys exist on SQLite" in bullet
     assert "keyless MCP calls are refused" in bullet
-    assert "they do not stop a process that runs as your OS user from reading the vault file" in bullet
+    assert "a key does not stop a process that runs as your OS user from reading the vault file" in bullet
     assert _under("SQLite mode (", bullet)
     agent = _read("docs/alpha/agent-integration.md")
     assert "`alice-memory keys create`" in agent

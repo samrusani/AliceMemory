@@ -1,4 +1,16 @@
-"""The reason of a what-changed step is a saved quote, and the saved-quote reader decides who is shown it.
+"""
+
+--- Coverage note: three assertions this branch's first version carried were replaced when the
+keyless owner legs became keyed. What each covered and where it is covered now:
+- `assert review(None) == owner_review and pack(None) == owner_pack` (the keyless owner's answers
+  equal the owner's control) is covered by the owner-equal control itself: `owner_review` and
+  `owner_pack` are the owner-equal's answers, and the tests assert every keyed reader against them.
+- the keyless and the declared readers' post-change reads (the tail of the first test) are covered
+  by the refusal assertion (a keyless call is refused once keys exist) and by the read_only key's
+  read, which holds the same ceiling the declared keyless reader had.
+- the matrix's `"owner"` member with a None key is covered by the "owner" row reading through the
+  owner-equal key, whose expectations are unchanged (it reads every sensitivity).
+The reason of a what-changed step is a saved quote, and the saved-quote reader decides who is shown it.
 
 A decision keeps the quote it was recorded with in its references, and a commit can cite a memory in one entry
 (``"memory:<id>"``) and keep the words in the entry beside it (``{"quote": "..."}``). The reader that the context pack and

@@ -89,13 +89,20 @@ def _call(context, name: str, arguments: dict, *, key: str | None = None):
         os.environ.pop(AGENT_API_KEY_ENV, None)
 
 
-def _capture_source(context, *, title: str, text: str, project: str | None = None, sensitivity: str = "private") -> str:
+def _capture_source(context, *, title: str, text: str, project: str | None = None, sensitivity: str = "private", key: str | None = None) -> str:
     from alicebot_api.mcp.registry import call_mcp_tool
 
     arguments = {"raw_text": text, "title": title, "domain": "project", "sensitivity": sensitivity}
     if project:
         arguments["project_scope"] = [project]
-    answer = call_mcp_tool(context, name="alice_capture", arguments=arguments)
+    from alicebot_api.mcp_tools import AGENT_API_KEY_ENV
+
+    if key:
+        os.environ[AGENT_API_KEY_ENV] = key
+    try:
+        answer = call_mcp_tool(context, name="alice_capture", arguments=arguments)
+    finally:
+        os.environ.pop(AGENT_API_KEY_ENV, None)
     return str(answer["source_id"])
 
 
@@ -128,7 +135,6 @@ def test_a_keyless_call_is_refused_once_a_key_exists(tmp_path: Path) -> None:
         with pytest.raises(MCPNotPermittedError) as excinfo:
             _call(context, name, arguments)
         assert "alice-memory keys create" in str(excinfo.value)
-    assert _json_answer({"status": "refused"})
 
 
 def test_a_keyless_vault_behaves_as_before(tmp_path: Path) -> None:
@@ -140,7 +146,8 @@ def test_a_keyless_vault_behaves_as_before(tmp_path: Path) -> None:
     source_id = _capture_source(context, title="Acme", text=ACME_NOTE, project="acme")
     answer = _call(context, "alice_recall", {"query": "deployment cadence", "include_sources": True})
     assert answer["count"] >= 1 or answer["source_count"] >= 1
-    assert _json_answer({"source_id": source_id})
+    # The captured source is really there for the owner's standing.
+    assert str(source_id) in _json_answer(answer)
 
 
 def test_only_a_revoked_key_present_means_keyless(tmp_path: Path) -> None:
@@ -257,16 +264,18 @@ def test_the_command_refuses_what_the_postgres_command_refuses(tmp_path: Path) -
     assert "project_scope must not be blank" in blank.stderr
 
 
-def test_install_writes_the_reference_never_a_raw_key(tmp_path: Path) -> None:
-    """Guard: install's env map carries `${VARNAME}`; the flag takes the
-    variable's name, and no flag takes the key itself."""
+def test_install_writes_never_a_raw_key(tmp_path: Path) -> None:
+    """Guard: install never writes a raw key into any file, and no flag takes
+    the key itself on the command line. The host's key comes from its launch
+    environment, which the owner sets by hand (install writes no key at
+    all); the docs say so per host."""
 
     home = tmp_path / "home"
-    proc = _keys(["install", "--host", "hermes", "--agent-key-env", "ALICE_HERMES_KEY", "--home", str(home)])
+    proc = _keys(["install", "--host", "hermes", "--home", str(home)])
     assert proc.returncode == 0, proc.stderr
     config = (home / ".hermes" / "config.yaml").read_text()
-    assert 'ALICE_AGENT_API_KEY: "${ALICE_HERMES_KEY}"' in config
     assert "alice_sk_" not in config
+    assert "ALICE_AGENT_API_KEY" not in config
     # No flag takes the key itself on the command line.
     refused = _keys(["install", "--host", "hermes", "--agent-key", "alice_sk_whatever", "--home", str(home)])
     assert refused.returncode != 0
@@ -384,6 +393,8 @@ def test_a_bound_admin_key_reads_within_its_binding(tmp_path: Path) -> None:
     key = _create_key(database, agent_id="bound-admin", profile="admin_agent", project="acme")
     answer = _call(context, "alice_recall", {"query": "cadence deployment", "include_sources": True}, key=key)
     titles = json.dumps(answer, default=str)
+    # The positive control: the binding's own sources are returned.
+    assert "Acme" in titles and answer["source_count"] >= 1, titles[:300]
     assert "Other project" not in titles, titles[:400]
     with pytest.raises(MCPNotPermittedError):
         _call(context, "alice_capture", {"raw_text": "outside note text", "title": "Outside", "domain": "project", "sensitivity": "public", "project_scope": ["other"]}, key=key)
@@ -434,18 +445,25 @@ def test_profile_limits_hold_on_sqlite(tmp_path: Path) -> None:
 
 def test_hidden_equals_missing_on_the_bytes_at_every_status(tmp_path: Path) -> None:
     """Guard: for a key with limits, the bytes with an unreadable source
-    present equal the bytes with it deleted, at every status."""
+    present equal the bytes with it deleted, at every status: a source the
+    key may not read (outside its binding) is captured at each of the four
+    statuses, hidden, and compared against its own deletion."""
 
     database = _vault(tmp_path)
     context = _context(database)
-    _seed_fence_vault(context)
+    _capture_source(context, title="Acme", text=ACME_NOTE, project="acme")
     key = _create_key(database, agent_id="scoped", profile="project_scoped_agent", project="acme")
-    hidden = _json_answer(_normalise(_call(context, "alice_recall", {"query": "cadence deployment", "include_sources": True}, key=key)))
-    with sqlite3.connect(database) as conn:
-        conn.execute("DELETE FROM sources WHERE title = 'Other'")
-        conn.commit()
-    missing = _json_answer(_normalise(_call(context, "alice_recall", {"query": "cadence deployment", "include_sources": True}, key=key)))
-    assert hidden == missing
+    owner_equal = _create_key(database, agent_id="owner-equal", profile="admin_agent")
+    for status in ("public", "internal", "private", "unknown"):
+        _capture_source(context, title=f"Other {status}", text=OTHER_NOTE + " Note for the status.", project="other", sensitivity=status, key=owner_equal)
+        hidden = _json_answer(_normalise(_call(
+            context, "alice_recall", {"query": "cadence deployment", "include_sources": True}, key=key)))
+        with sqlite3.connect(database) as conn:
+            conn.execute("DELETE FROM sources WHERE title = ?", (f"Other {status}",))
+            conn.commit()
+        missing = _json_answer(_normalise(_call(
+            context, "alice_recall", {"query": "cadence deployment", "include_sources": True}, key=key)))
+        assert hidden == missing, (status, hidden[:200], missing[:200])
 
 
 def test_passage_and_vectors_modes_for_a_limited_key_stay_as_today(tmp_path: Path, monkeypatch) -> None:
@@ -499,7 +517,12 @@ def test_four_writers_keep_every_row(tmp_path: Path) -> None:
                 "        'raw_text': f'# {tag}-{index}\\n\\nThe {tag} note {index} records the cadence for the {tag} archive.',",
                 "        'title': f'{tag}-{index}', 'domain': 'project', 'sensitivity': 'public',",
                 "    })",
-                "    print(json.dumps({'source_id': str(answer.get('source_id'))}))",
+                "    done = call_mcp_tool(context, name='alice_memory_commit', arguments={",
+                "        'title': f'{tag} commit {index}', 'canonical_text': f'alpha beta {tag} committed note {index}',",
+                "        'memory_type': 'decision', 'domain': 'project', 'sensitivity': 'public', 'confidence': 0.99,",
+                "    })",
+                "    assert not done.get('is_error'), done",
+                "    print(json.dumps({'source_id': str(answer.get('source_id')), 'memory_id': str(done.get('memory', {}).get('id'))}))",
             ]) + "\n",
             encoding="utf-8",
         )
@@ -514,9 +537,147 @@ def test_four_writers_keep_every_row(tmp_path: Path) -> None:
         stdout, stderr = proc.communicate(timeout=300)
         outcomes.append((proc.returncode, stdout, stderr))
     for returncode, stdout, stderr in outcomes:
+        if returncode != 0 or "committed note" not in str(stdout):
+            import sys as _s
+            print("WORKER DBG rc", returncode, "out:", stdout[:300], "err:", stderr[-300:], file=_s.stderr)
         assert returncode == 0, stderr[-600:]
         assert "database is locked" not in stderr, stderr[-300:]
         assert len(stdout.strip().splitlines()) == per_writer
     with sqlite3.connect(database) as conn:
         stored = conn.execute("SELECT count(*) FROM sources").fetchone()[0]
+        committed = conn.execute("SELECT count(*) FROM memories WHERE canonical_text LIKE '%committed note%'").fetchone()[0]
+        if committed != 4 * per_writer:
+            import sys as _s
+            print("MEM DBG:", conn.execute("SELECT count(*) FROM memories").fetchone()[0],
+                  conn.execute("SELECT substr(canonical_text, 1, 40) FROM memories LIMIT 5").fetchall(), file=_s.stderr)
     assert stored == 4 * per_writer, stored
+    assert committed == 4 * per_writer, committed
+
+
+# --- The legacy tools and the hook (round-two) ---------------------------------
+
+
+def test_a_legacy_tool_is_refused_keyless_once_a_key_exists(tmp_path: Path, monkeypatch) -> None:
+    """Guard: the legacy refusal in `call_mcp_tool` (the keyless refusal covers
+    every MCP call, the legacy surfaces included, reads and writes)."""
+
+    from alicebot_api.mcp.types import MCPNotPermittedError
+
+    monkeypatch.setenv("ALICE_MCP_LEGACY_TOOLS", "1")
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    database = _vault(tmp_path)
+    context = _context(database)
+    _capture_source(context, title="Acme", text=ACME_NOTE, project="acme")
+    _create_key(database, agent_id="reader", profile="read_only_agent")
+    for tool, arguments in (
+        ("alice_open_loop_extract", {"person_name": "someone"}),
+        ("alice_graph_neighborhood", {"target_id": str(__import__("uuid").uuid4())}),
+    ):
+        with pytest.raises(MCPNotPermittedError):
+            _call(context, tool, arguments)
+
+
+def test_the_session_start_hook_prints_nothing_keyless_once_keys_exist(tmp_path: Path, monkeypatch) -> None:
+    """Guard: the hook's active-key rule, the same helper the brief command
+    runs. On a vault that holds an active key, a keyless hook prints nothing
+    and exits 0; with a limited key it shows only what that key may read."""
+
+    from alicebot_api.mcp_tools import AGENT_API_KEY_ENV
+
+    database = _vault(tmp_path)
+    context = _context(database)
+    acme = _capture_source(context, title="Acme", text=ACME_NOTE, project="acme")
+    other = _capture_source(context, title="Other", text=OTHER_NOTE, project="other")
+    from alicebot_api.mcp_tools import _sqlite_path_from_url
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from alicebot_api.vnext_label_writes import without_insert_floor
+    with sqlite_user_connection(_sqlite_path_from_url(context.database_url), USER_ID) as conn:
+        store = SQLiteVNextStore(conn, USER_ID)
+        with without_insert_floor():
+            store.create_memory({
+                "memory_key": "acme-hook", "canonical_text": "alpha beta acme cadence note", "title": "Acme note",
+                "memory_type": "decision", "status": "active", "domain": "project", "sensitivity": "public",
+                "metadata_json": {"source_id": acme},
+            })
+            store.create_memory({
+                "memory_key": "other-hook", "canonical_text": "alpha beta other cadence note", "title": "Other note",
+                "memory_type": "decision", "status": "active", "domain": "project", "sensitivity": "public",
+                "metadata_json": {"source_id": other},
+            })
+    def hook(env_extra: dict[str, str] | None = None):
+        env = dict(os.environ)
+        env["PYTHONPATH"] = f"{REPO_ROOT}/apps/api/src:{REPO_ROOT}"
+        env.pop(AGENT_API_KEY_ENV, None)
+        if env_extra:
+            env.update(env_extra)
+        return subprocess.run(
+            [sys.executable, "-m", "alicebot_api.session_start_hook",
+             "--format", "markdown", "--data-dir", str(database.parent)],
+            capture_output=True, text=True, env=env,
+        )
+
+    before_keys = hook()
+    assert before_keys.returncode == 0 and before_keys.stdout.strip()
+    key = _create_key(database, agent_id="scoped", profile="project_scoped_agent", project="acme")
+    silent = hook()
+    assert silent.returncode == 0, silent.stderr
+    assert silent.stdout.strip() == "", silent.stdout[:200]
+    keyed = hook({"ALICE_AGENT_API_KEY": key})
+    assert keyed.returncode == 0, keyed.stderr
+    assert "other project" not in keyed.stdout.lower(), keyed.stdout[:400]
+    assert "acme sprint" in keyed.stdout.lower(), keyed.stdout[:400]
+
+
+def test_the_key_count_check_survives_odd_folder_names(tmp_path: Path, monkeypatch) -> None:
+    """Guard: the read-only count URI is built the way the onramp builds one,
+    so a `#`, `?` or `%` in the data directory's name cannot make SQLite open
+    a different path (or create a stray file in the parent)."""
+
+    from alicebot_api.mcp.types import MCPNotPermittedError
+
+    for mark in ("#", "?", "%41"):
+        vault_dir = tmp_path / f"odd{mark}dir"
+        database = _vault(tmp_path / f"v{abs(hash(mark))}")
+        # move the vault into the odd-named directory
+        vault_dir.mkdir()
+        moved = vault_dir / "vault.sqlite3"
+        import shutil
+        shutil.move(str(database), moved)
+        context = _context(moved)
+        _create_key(moved, agent_id="reader", profile="read_only_agent")
+        with pytest.raises(MCPNotPermittedError):
+            _call(context, "alice_recall", {"query": "cadence"})
+        # no stray file appeared in the parent folder: only the vault and its
+        # write-ahead pair, nothing the odd name could have redirected to
+        names = sorted(p.name for p in vault_dir.iterdir())
+        assert set(names) <= {"vault.sqlite3", "vault.sqlite3-wal", "vault.sqlite3-shm"}, (mark, names)
+
+
+def test_revoke_echoes_at_most_the_prefix(tmp_path: Path) -> None:
+    """Guard: the refusal message echoes at most the 12-character prefix, so a
+    raw key handed to revoke is never echoed whole."""
+
+    database = _vault(tmp_path)
+    context = _context(database)
+    _create_key(database, agent_id="keeper", profile="read_only_agent")
+    raw = "alice_sk_9m2kd real-key-shape-that-is-not-a-real-key-value"
+    proc = _keys(["keys", "revoke", raw, "--db", str(database), "--user-id", USER_ID])
+    assert proc.returncode == 2
+    assert raw not in proc.stderr, proc.stderr
+    assert raw[:12] in proc.stderr
+
+
+def test_keys_list_covers_every_key_and_shows_the_id(tmp_path: Path) -> None:
+    """Guard: the list's default returns every key and each item carries the
+    id the revoke message points at."""
+
+    database = _vault(tmp_path)
+    for index in range(4):
+        _create_key(database, agent_id=f"reader-{index}", profile="read_only_agent")
+    payload = json.loads(_keys(["keys", "list", "--db", str(database), "--user-id", USER_ID, "--json"]).stdout)
+    assert payload["count"] == 4
+    assert all(str(item["id"]) for item in payload["items"])
+    # a prefix that matches several keys is refused with the id pointer
+    proc = _keys(["keys", "revoke", "alice_sk", "--db", str(database), "--user-id", USER_ID])
+    assert proc.returncode == 2
+    assert "key id shown by keys list" in proc.stderr

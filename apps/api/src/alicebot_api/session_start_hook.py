@@ -88,6 +88,7 @@ from alicebot_api.project_view import ProjectView, resolve_view_at_edge, working
 from alicebot_api.session_briefing import (
     brief_char_len,
     compile_local_session_brief,
+    session_brief_identity,
     fit_emitted_session_brief,
     sensitive_global_exclusion,
 )
@@ -310,6 +311,12 @@ def _run(args: argparse.Namespace) -> int:
     duplicate = _claude_duplicate_setup_line()
     prefix = f"{duplicate}\n" if duplicate else ""
     view = _project_view_for_hook(args, db_path, payload)
+    # The active-key rule, shared with the brief command: with an active key
+    # on the vault the brief runs as the key's agent (only what it may read);
+    # keyless with keys it prints nothing and exits 0.
+    identity, quiet = session_brief_identity(db_path, UUID(str(args.user_id)))
+    if quiet:
+        return 0
     markdown = compile_local_session_brief(
         db_path,
         user_id=args.user_id,
@@ -317,6 +324,7 @@ def _run(args: argparse.Namespace) -> int:
         project_view=view,
         exclude_global_domains=sensitive_global_exclusion(view),
         reserve=brief_char_len(prefix),
+        identity=identity,
     )
     markdown = fit_emitted_session_brief(prefix + markdown)
     _emit_context(markdown.rstrip("\n"), output_format=args.format)

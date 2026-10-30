@@ -454,6 +454,36 @@ def compile_session_brief(
     )
 
 
+def session_brief_identity(db_path: Path, user_id: UUID | str) -> tuple[AgentIdentity | None, bool]:
+    """The brief caller's identity under the active-key rule, shared by the
+    brief command and the session-start hook.
+
+    Returns ``(identity, quiet)``: a vault with no active key keeps the
+    owner's stance (``None, False``); with an active key on the vault, the
+    environment's ``ALICE_AGENT_API_KEY`` resolves to the caller
+    ``(identity, False)``, and a missing or unresolvable key shows nothing
+    ``(None, True)`` (a host hook never fails a session).
+    """
+
+    import os
+
+    from alicebot_api.mcp_tools import AGENT_API_KEY_ENV
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from alicebot_api.vnext_agent_keys import resolve_agent_identity
+
+    with sqlite_user_connection(db_path, user_id) as connection:
+        store = SQLiteVNextStore(connection, user_id)
+        if store.count_active_agent_api_keys() == 0:
+            return None, False
+        raw_key = (os.environ.get(AGENT_API_KEY_ENV) or "").strip() or None
+        if raw_key is None:
+            return None, True
+        try:
+            return resolve_agent_identity(store, user_id=user_id, raw_key=raw_key, payload={}), False
+        except Exception:
+            return None, True
+
+
 def compile_local_session_brief(
     db_path: Path,
     *,

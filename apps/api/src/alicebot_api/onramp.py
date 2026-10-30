@@ -1435,19 +1435,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print planned paths and snippets. Write nothing.",
     )
     install_parser.add_argument(
-        "--agent-key-env",
-        default=None,
-        metavar="VARNAME",
-        type=_agent_key_env_name,
-        help=(
-            "Name of the environment variable each configured host reads the "
-            "agent API key from. Install writes the reference "
-            "ALICE_AGENT_API_KEY=${VARNAME} into the host's environment map "
-            "and never a raw key. Set VARNAME in the host's own environment. "
-            "Hermes only (the host install writes an environment map for)."
-        ),
-    )
-    install_parser.add_argument(
         "--write-mcpb",
         default=None,
         help="Write a Claude Desktop .mcpb zip that launches uvx alice-memory mcp.",
@@ -1517,7 +1504,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="List the vault's agent keys. Prefixes only, never hashes or raw keys.",
     )
     _add_database_arguments(keys_list)
-    keys_list.add_argument("--limit", type=int, default=50, help="Maximum keys to return.")
+    keys_list.add_argument("--limit", type=int, default=0, help="Maximum keys to return (0, the default, returns every key).")
     keys_list.add_argument("--json", action="store_true", help="Print JSON records instead of the human table.")
     keys_revoke = keys_commands.add_parser("revoke", help="Revoke one agent key, by key prefix or key id.")
     _add_database_arguments(keys_revoke)
@@ -1644,19 +1631,9 @@ def _project_view_for_command(args: argparse.Namespace, db_path: Path) -> Projec
     return view
 
 
-def _agent_key_env_name(value: str) -> str:
-    """The environment variable's name: uppercase, digits and underscores, so
-    an abbreviation of the flag never carries a key value itself."""
-
-    import re as _re
-
-    if not _re.fullmatch(r"[A-Z_][A-Z0-9_]*", value or ""):
-        raise argparse.ArgumentTypeError("the environment variable name must be uppercase letters, digits and underscores")
-    return value
-
-
 def _agent_key_public_record(record) -> dict:
     return {
+        "id": record.get("id"),
         "key_prefix": record.get("key_prefix"),
         "agent_id": record.get("agent_id"),
         "permission_profile": record.get("permission_profile"),
@@ -1730,7 +1707,9 @@ def _run_keys_list(args: argparse.Namespace) -> int:
         secure_parent=args.db is None,
     )
     with sqlite_user_connection(db_path, args.user_id) as connection:
-        records = SQLiteVNextStore(connection, args.user_id).list_agent_api_keys(limit=args.limit)
+        records = SQLiteVNextStore(connection, args.user_id).list_agent_api_keys(limit=args.limit or 10**9)
+        returned = len(records)
+        left_out = 0
     items = [_agent_key_public_record(record) for record in records]
     if args.json:
         print(json.dumps({"items": items, "count": len(items), "order": ["created_at_desc", "id_desc"]},
@@ -1770,12 +1749,14 @@ def _run_keys_revoke(args: argparse.Namespace) -> int:
             matches = [
                 record
                 for record in records
-                if str(record.get("id")) == selector or str(record.get("key_prefix") or "") == selector
+                if str(record.get("id")) == selector
+                or str(record.get("key_prefix") or "").startswith(selector)
             ]
+            shown = selector[:12]
             if not matches:
-                raise AgentKeyValidationError(f"no agent API key matches '{selector}'")
+                raise AgentKeyValidationError(f"no agent API key matches '{shown}'")
             if len(matches) > 1:
-                raise AgentKeyValidationError(f"key prefix '{selector}' matches multiple keys; revoke by key id instead")
+                raise AgentKeyValidationError(f"key prefix '{shown}' matches several keys; revoke by the key id shown by keys list")
             revoked = store.revoke_agent_api_key(key_id=str(matches[0]["id"]))
             if revoked is None:
                 raise AgentKeyValidationError(f"agent API key '{selector}' is already revoked")
@@ -1789,36 +1770,8 @@ def _run_keys_revoke(args: argparse.Namespace) -> int:
     return 0
 
 
-def _vault_active_key_identity(db_path, user_id):
-    """The resolved identity of ``ALICE_AGENT_API_KEY`` on this vault, or None.
-
-    A missing key, a bad key and a revoked key all resolve to None: a host
-    hook must never fail a session, and an unresolvable key shows nothing.
-    """
-
-    import os as _os
-
-    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
-    from alicebot_api.mcp_tools import AGENT_API_KEY_ENV
-    from alicebot_api.vnext_agent_keys import resolve_agent_identity
-
-    raw_key = (_os.environ.get(AGENT_API_KEY_ENV) or "").strip() or None
-    if raw_key is None:
-        return None
-    try:
-        with sqlite_user_connection(db_path, user_id) as connection:
-            return resolve_agent_identity(
-                SQLiteVNextStore(connection, user_id),
-                user_id=user_id,
-                raw_key=raw_key,
-                payload={},
-            )
-    except Exception:
-        return None
-
-
 def _run_brief(args: argparse.Namespace) -> int:
-    from alicebot_api.session_briefing import compile_local_session_brief, sensitive_global_exclusion
+    from alicebot_api.session_briefing import compile_local_session_brief, sensitive_global_exclusion, session_brief_identity
 
     db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
     bootstrap_database(
@@ -1827,19 +1780,13 @@ def _run_brief(args: argparse.Namespace) -> int:
         user_email=args.user_email,
         secure_parent=args.db is None,
     )
-    identity = None
-    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
-
-    with sqlite_user_connection(db_path, args.user_id) as connection:
-        has_active_key = SQLiteVNextStore(connection, args.user_id).count_active_agent_api_keys() > 0
-    if has_active_key:
-        # Once the vault holds an active key the brief runs as the key's
-        # agent: it shows only what that key may read. Without a key in the
-        # environment it prints nothing and exits 0 (a host hook never fails
-        # a session), and a key that does not resolve shows nothing too.
-        identity = _vault_active_key_identity(db_path, args.user_id)
-        if identity is None:
-            return 0
+    # The active-key rule, shared with the session-start hook: once the
+    # vault holds an active key the brief runs as the key's agent and shows
+    # only what that key may read; without a key in the environment it prints
+    # nothing and exits 0 (a host hook never fails a session).
+    identity, quiet = session_brief_identity(db_path, args.user_id)
+    if quiet:
+        return 0
     view = _project_view_for_command(args, db_path)
     if view is None:
         return 2
@@ -2140,7 +2087,6 @@ def _run_install(args: argparse.Namespace) -> int:
                 hosts=args.hosts,
                 dry_run=args.dry_run,
                 write_mcpb=args.write_mcpb,
-                agent_key_env=args.agent_key_env,
             )
         )
     except InstallFailed as failed:

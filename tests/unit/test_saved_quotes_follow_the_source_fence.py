@@ -591,6 +591,9 @@ def test_a_reader_who_may_read_every_source_is_shown_exactly_what_the_owner_is_s
         return payload["memories"], payload["supporting_evidence"]  # type: ignore[index]
 
     owner_review, owner_pack = review("owner_equal"), pack("owner_equal")
+    # The before-the-label-changes control: the owner's equal's answers, to
+    # be compared byte for byte after the reclassify.
+    owner_before = (owner_review, owner_pack)
     assert _WORD_A in json.dumps(owner_review), "the control: the full-read reader's review carries the quote"
     assert _WORD_A in json.dumps(owner_pack), "the control: the full-read reader's pack carries the quote"
     scoped_pack = pack("trusted")
@@ -600,6 +603,9 @@ def test_a_reader_who_may_read_every_source_is_shown_exactly_what_the_owner_is_s
         assert pack(who) == (owner_pack if who == "unbound" else scoped_pack), (door, who)
     vault.reclassify(source_id, "confidential")
 
+    # The owner's equal after the reclassify: still the same bytes (the
+    # unbound admin reads every sensitivity), and still the before state.
+    assert (review("owner_equal"), pack("owner_equal")) == owner_before, door
     assert review("admin") == owner_review and pack("admin") == scoped_pack, door
 
 

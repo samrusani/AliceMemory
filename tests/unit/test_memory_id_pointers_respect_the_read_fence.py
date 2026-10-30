@@ -610,12 +610,14 @@ def test_the_walk_keeps_an_id_only_reference_to_no_row_unless_the_pack_is_scoped
 
 
 
-def test_recall_validity_withholds_a_predecessor_for_the_keyless_owner(tmp_path: Path, monkeypatch) -> None:
+def test_recall_validity_withholds_a_predecessor_for_the_owners_equal_key(tmp_path: Path, monkeypatch) -> None:
     """The pointers of a middle row are looked up together, not one key at a time.
 
     An unscoped read keeps a pointer it never looked up, so only a lookup of both
-    ids can find that the predecessor is above the ceiling. Mutation: build
-    ``pointer_ids`` in ``fence_validity_memory_ids`` from the first id key only.
+    ids can find that the predecessor is above the ceiling. The read runs as the
+    owner's equal (an unbound admin key), since a keyless call is refused on a
+    vault that holds keys. Mutation: build ``pointer_ids`` in
+    ``fence_validity_memory_ids`` from the first id key only.
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, old = _captured(context, monkeypatch)
@@ -629,7 +631,6 @@ def test_recall_validity_withholds_a_predecessor_for_the_keyless_owner(tmp_path:
     assert validity["superseded_by_memory_id"] == newest
     assert "supersedes_memory_id" not in validity
     assert old not in json.dumps(payload, default=str)
-
 
 
 def test_recall_validity_withholds_a_successor_outside_the_time_window(tmp_path: Path, monkeypatch) -> None:

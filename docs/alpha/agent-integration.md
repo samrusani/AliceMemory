@@ -323,11 +323,12 @@ environment:
 - set `ALICE_AGENT_API_KEY=<the key>` in the environment the host's MCP server
   process starts with (Claude Code and the plugin: the `env` map of the
   host's MCP entry, or the launch environment of your user session);
-- `alice-memory install --host hermes --agent-key-env ALICE_HERMES_KEY` writes
-  the reference `ALICE_AGENT_API_KEY: ${ALICE_HERMES_KEY}` into the Hermes
-  config's environment map; set `ALICE_HERMES_KEY` in the environment Hermes
-  launches with. Install never writes a raw key into any file, and a flag
-  that took the key itself on the command line does not exist (shell history).
+- set the variable in the environment the host launches with (Hermes does
+  not inherit your shell's environment and its config's env map is not the
+  place for a secret), so export `ALICE_AGENT_API_KEY` in the launchd
+  session, the terminal, or the wrapper that starts the host. There is no
+  flag that takes the key itself: a key on a command line lands in shell
+  history, and install never writes a raw key into any file.
 
 The owner's own agent hosts need a key too once keys exist: mint an unbound
 `admin_agent` key for each of them (`alice-memory keys create --agent-id <host>
