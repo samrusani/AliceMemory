@@ -144,7 +144,7 @@ The published LongMemEval figures carry a known issue: the model answering each 
 
 ## Status
 
-`v0.22.0` is the latest published release and remains the install, checksum, and release-note baseline. `v0.21.1` is the immediately prior published release. [Current state](CURRENT_STATE.md) lists the tags that were never published. Alice is a public-alpha, pre-1.0 project:
+`v0.22.0` is the latest published release and remains the install, checksum, and release-note baseline. `v0.21.1` is the immediately prior published release. `v0.23.0` is the current release candidate. It is not published. [Current state](CURRENT_STATE.md) lists the tags that were never published. Alice is a public-alpha, pre-1.0 project:
 
 - **Local-first, single-user.** One operator, one machine (or one headless server reached over SSH).
 - **Review-governed writes.** Agents propose or commit through policy; outcomes are commit, confirm, review, or reject. The review step is the trust boundary for durable memory.
