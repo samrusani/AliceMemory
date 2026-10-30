@@ -341,8 +341,12 @@ environment:
 
 The owner's own agent hosts need a key too once keys exist: mint an unbound
 `admin_agent` key for each of them (`alice-memory keys create --agent-id <host>
---profile admin_agent`). The human-run commands (`import`, `export`, `doctor`,
-`sleep`, `proposals`, `keys`, `import-markdown`, `import-chatgpt`) keep running
+--profile admin_agent`). Such a key does not get everything the keyless owner
+gets: for a memory whose cited source was archived, `alice_explain` is refused
+to the key, and `alice_memory_review` and `alice_context_pack` leave out that
+source's id, which the owner still gets. The human-run commands
+(`import`, `export`, `doctor`, `sleep`, `sleep-proposals`, `keys`, `labels`,
+`sources`, `project`, `import-markdown`, `import-chatgpt`) keep running
 as the owner; they are not agent doors and take no key. A revoked key is
 refused on its next call, and when the last active key is revoked the vault is
 keyless again and behaves as before. The JSONL export does not contain keys, so

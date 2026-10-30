@@ -109,6 +109,40 @@ not install it; and `v0.20.1`, whose publish run reached its first job's time
 limit while it reran the unit suite, before anything was built. Neither of the
 last two has a PyPI artifact or a published GitHub Release.
 
+## What `v0.23.0` Targets
+
+`v0.23.0` is the current release candidate. It is not published.
+
+It takes the fixes and additions on `main` after `v0.22.0`. The SQLite vault gets agent keys,
+and once a vault holds an active key a keyless MCP call is refused. `alice_recall` returns ten
+note passages by default. The vNext routes and tools answer not found, not a server error, for
+a value that is not an id, and thirteen migrations complete for the self-hosted database owner.
+It adds no tool, no setting and no migration: PostgreSQL stays at revision `20261011_0097`. It
+adds the `keys` command to `alice-memory`.
+
+- [v0.23.0 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.23.0-release-notes.md)
+
+`v0.23.0` has these changes. `v0.22.0` does not.
+
+- `alice-memory keys create`, `keys list` and `keys revoke` manage per-agent keys on the SQLite
+  vault. With at least one active key on the vault, an MCP call without `ALICE_AGENT_API_KEY` is
+  refused, and `alice-memory brief` and the session-start hook print nothing without it. A
+  vault with no active key behaves as in `v0.22.0`.
+- `alice_recall` returns ten note passages by default in passage and vectors mode, where it
+  returned eight.
+- `GET /v0/vnext/beliefs/{belief_id}/state`, `POST /v0/vnext/open-loops/{loop_id}/review`,
+  `GET /v0/vnext/projects/{project_id}/dashboard` and
+  `POST /v0/vnext/projects/update-candidates/{artifact_id}/review` answer HTTP 404 for a value
+  that is not an id. `POST /v0/vnext/open-loops/extract` answers HTTP 404 for a person that is
+  not stored, and `POST /v0/vnext/context-packs` returns the pack when a memory's source id is
+  in a reference spelling.
+- Thirteen Alembic files complete for the self-hosted database owner on a vault that carries
+  data. The head is the same.
+- `alice-memory import-markdown` is faster on SQLite and stores the same result.
+- Still open, listed in the release notes: keys do not stop a process that runs as your OS
+  user from reading the vault file, and an unbound `admin_agent` key does not get the evidence
+  of a source that was archived, which the keyless owner gets.
+
 ## What `v0.22.0` Shipped
 
 `v0.22.0` is the latest published release and remains the install, checksum,

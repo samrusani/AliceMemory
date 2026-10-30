@@ -72,3 +72,5 @@ Agent developers — people building or operating AI agents who need durable, ex
 
 `v0.22.0` is the latest published release and remains the install, checksum,
 and baseline reference.
+
+`v0.23.0` is the current release candidate. It is not published.

@@ -73,20 +73,21 @@ def test_the_changelog_has_the_dated_heading_right_after_the_v0202_section() -> 
     v0.20.2 and v0.20.0; remove the blank line between the last v0.20.2 entry and the v0.20.0 heading.
 
     The Unreleased section was empty on the release commit. It may hold entries now that main has
-    moved on, so this test no longer asks for it to be empty. It still asks that the v0.22.0, v0.21.1, v0.21.0, v0.20.2,
-    v0.20.0 and v0.19.2 sections follow it in that order, one heading each.
+    moved on, so this test no longer asks for it to be empty. It still asks that the v0.23.0, v0.22.0, v0.21.1, v0.21.0,
+    v0.20.2, v0.20.0 and v0.19.2 sections follow it in that order, one heading each.
     """
 
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
     assert sections[1].startswith("Unreleased\n")
     assert sections[1].endswith("\n")
-    assert sections[2].startswith("v0.22.0 \u2014 2026-10-26\n")
-    assert sections[3].startswith("v0.21.1 \u2014 2026-10-23\n")
-    assert sections[4].startswith("v0.21.0 \u2014 2026-10-22\n")
-    assert sections[5].startswith("v0.20.2 \u2014 2026-10-17\n")
-    assert sections[6].startswith("v0.20.0 \u2014 2026-10-02\n")
-    assert sections[7].startswith("v0.19.2 \u2014 2026-10-01\n")
+    assert sections[2].startswith("v0.23.0 \u2014 2026-10-30\n")
+    assert sections[3].startswith("v0.22.0 \u2014 2026-10-26\n")
+    assert sections[4].startswith("v0.21.1 \u2014 2026-10-23\n")
+    assert sections[5].startswith("v0.21.0 \u2014 2026-10-22\n")
+    assert sections[6].startswith("v0.20.2 \u2014 2026-10-17\n")
+    assert sections[7].startswith("v0.20.0 \u2014 2026-10-02\n")
+    assert sections[8].startswith("v0.19.2 \u2014 2026-10-01\n")
     assert changelog.count(HEADING) == 1
     assert "Unreleased (on main" not in changelog.split(HEADING)[1].split("\n## v0.19.2")[0]
 
