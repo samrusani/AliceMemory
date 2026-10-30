@@ -329,6 +329,15 @@ environment:
   session, the terminal, or the wrapper that starts the host. There is no
   flag that takes the key itself: a key on a command line lands in shell
   history, and install never writes a raw key into any file.
+- the session-start hook (`alice-memory-session-start`, which the host's
+  hooks and the plugin run) is a separate process from the MCP server: an
+  MCP server env map does not reach it. It reads `ALICE_AGENT_API_KEY` from
+  ITS OWN environment (the host's launch environment: what you set for the
+  host, the hook sees, because hooks inherit the host's environment). Once
+  keys exist, a hook without the key prints nothing and exits 0: the
+  session starts with no brief until the host's environment carries the
+  key. An MCP server's env map alone (Claude Code's `mcpServers` entry) is
+  not enough for the hook.
 
 The owner's own agent hosts need a key too once keys exist: mint an unbound
 `admin_agent` key for each of them (`alice-memory keys create --agent-id <host>
