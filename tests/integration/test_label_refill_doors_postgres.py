@@ -44,7 +44,7 @@ def test_recall_gives_a_key_with_limits_a_full_page_when_hidden_nearest_rows_sit
 
     vault = _Postgres(label_harness, monkeypatch, "read_only")
     with embeddings(monkeypatch) as provider:
-        recall_gives_a_full_page(vault.call, label_harness.store, provider, vault.key)
+        recall_gives_a_full_page(label_harness, vault.call, label_harness.store, provider, vault.key)
 
 
 def test_the_context_pack_vector_stage_is_full_for_a_key_with_limits_when_hidden_nearest_rows_sit_in_front(
@@ -54,7 +54,7 @@ def test_the_context_pack_vector_stage_is_full_for_a_key_with_limits_when_hidden
 
     vault = _Postgres(label_harness, monkeypatch, "read_only")
     with embeddings(monkeypatch) as provider:
-        pack_gives_a_full_vector_stage(vault.call, label_harness.store, provider, vault.key)
+        pack_gives_a_full_vector_stage(label_harness, vault.call, label_harness.store, provider, vault.key)
 
 
 def test_the_context_pack_temporal_stage_is_full_for_a_key_with_limits_when_hidden_nearest_rows_sit_in_front(
@@ -63,7 +63,7 @@ def test_the_context_pack_temporal_stage_is_full_for_a_key_with_limits_when_hidd
     """Mutation: the edit of the SQLite test of this name."""
 
     vault = _Postgres(label_harness, monkeypatch, "read_only")
-    pack_gives_a_full_temporal_stage(vault.call, label_harness.store, vault.key)
+    pack_gives_a_full_temporal_stage(label_harness, vault.call, label_harness.store, vault.key)
 
 
 def _get(harness: Any, path: str, key: str, **query: str) -> tuple[int, dict[str, Any]]:
