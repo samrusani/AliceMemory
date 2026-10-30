@@ -795,7 +795,7 @@ def test_the_report_names_support_rate_variance_and_privileges() -> None:
     assert showcase.ALICE_PRIVILEGE_NOTE in text
     assert "sensitivity_allowed" in text
     assert "in process" in text
-    assert "cannot create a key" in text
+    assert "keys minted through the product command" in text or "alice-memory keys create" in text
     assert "Keyed PostgreSQL permission path: not run." in text
     assert "No leak rate is reported for that path." in text
     try:

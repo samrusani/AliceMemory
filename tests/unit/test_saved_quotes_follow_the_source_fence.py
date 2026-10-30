@@ -63,6 +63,7 @@ _KEY_SPECS = {
     "unbound": ("trusted_local_agent", None),
 }
 _AGENT_IDS = {name: f"{profile}-{project or 'none'}" for name, (profile, project) in _KEY_SPECS.items()}
+_AGENT_IDS["owner_equal"] = "admin_agent-none"
 
 # Who may still read the source after each change, from the policy of each profile and nothing else: the default
 # ceiling is public, internal, private and unknown (read_only: public, internal, unknown; admin: everything); a
@@ -89,6 +90,12 @@ class _Vault:
         self.keys = (
             {name: self._mint(profile, project) for name, (profile, project) in _KEY_SPECS.items()} if with_keys else {}
         )
+        if with_keys:
+            # The owner's equal on a vault that holds keys: an unbound admin
+            # key reads every source of every project and every sensitivity,
+            # which is what the owner's keyless reads did. Not a member of
+            # the authorization matrix above; it is the control reader.
+            self.keys["owner_equal"] = self._mint("admin_agent", None)
         # The writers of the doors below: a key of the vault, or the owner when the vault has no key.
         self.writer: str | None = "trusted" if with_keys else None
         self.reviewer: str | None = "admin" if with_keys else None
@@ -184,7 +191,10 @@ class _Vault:
         done = self.wire(
             "alice_capture",
             {"raw_text": raw_text, "title": title, "domain": "project", "sensitivity": "internal"},
-            who=None if as_owner else self.writer,
+            # The projectless capture ran keyless once; on a vault that holds
+            # keys it runs as the owner's equal (an unbound admin key), whose
+            # capture belongs to no project either.
+            who="owner_equal" if as_owner else self.writer,
         )
         assert done["is_error"] is False, done
         source_id = str(done["payload"]["source_id"])  # type: ignore[index]
@@ -482,6 +492,7 @@ def _is_http(surface: str) -> bool:
 
 
 @pytest.mark.parametrize("door", _DOORS)
+
 def test_every_reader_carries_the_saved_quote_before_the_label_changes(vault: _Vault, door: str) -> None:
     """The control for the tests below. Before any change of label, every reader returns the quote to every key and to
     the owner, through every door that saves one, so a reader that is silent afterwards withheld it. The link and the
@@ -493,7 +504,7 @@ def test_every_reader_carries_the_saved_quote_before_the_label_changes(vault: _V
 
     source_id = vault.capture_source()
     memory_id, query = _make(vault, door, source_id)
-    for who in (*_KEY_SPECS, None):
+    for who in _KEY_SPECS:
         for surface, answer in _readers(vault, who, memory_id, query).items():
             assert answer["is_error"] is False, (who, surface, answer["text"][:300])  # type: ignore[index]
             if surface != "review":
@@ -505,6 +516,7 @@ def test_every_reader_carries_the_saved_quote_before_the_label_changes(vault: _V
 
 @pytest.mark.parametrize("variant", _VARIANTS)
 @pytest.mark.parametrize("door", _DOORS)
+
 def test_a_reader_withholds_the_quote_of_a_source_the_caller_may_no_longer_read(
     vault: _Vault, door: str, variant: str
 ) -> None:
@@ -543,11 +555,15 @@ def test_a_reader_withholds_the_quote_of_a_source_the_caller_may_no_longer_read(
                     surface,
                 )
             assert _holds_quote(answer) is (who in authorized), (door, variant, who, surface)
-    for surface, answer in _readers(vault, None, memory_id, query).items():
-        assert _holds_quote(answer), ("the owner is not fenced", door, variant, surface)
+    for surface, answer in _readers(vault, "owner_equal", memory_id, query).items():
+        # The owner's equal reads what the owner read, except after an
+        # archive: the saved-quote reader refuses an archived source for
+        # every key, so the owner's archived-source quote is a human-CLI read.
+        assert _holds_quote(answer) is (variant != "archived"), ("the owner's equal is not fenced", door, variant, surface)
 
 
 @pytest.mark.parametrize("door", _DOORS)
+
 def test_a_reader_who_may_read_every_source_is_shown_exactly_what_the_owner_is_shown(vault: _Vault, door: str) -> None:
     """Authorized readers are unchanged. While the source is readable, the review of every kind of key is byte for byte
     the owner's. The pack depends on the scope of the caller (a pack with a project scope leaves out the ``event_time``
@@ -574,20 +590,27 @@ def test_a_reader_who_may_read_every_source_is_shown_exactly_what_the_owner_is_s
         payload = vault.pack(who, query)["payload"]
         return payload["memories"], payload["supporting_evidence"]  # type: ignore[index]
 
-    owner_review, owner_pack = review(None), pack(None)
-    assert _WORD_A in json.dumps(owner_review), "the control: the owner's review carries the quote"
-    assert _WORD_A in json.dumps(owner_pack), "the control: the owner's pack carries the quote"
+    owner_review, owner_pack = review("owner_equal"), pack("owner_equal")
+    # The before-the-label-changes control: the owner's equal's answers, to
+    # be compared byte for byte after the reclassify.
+    owner_before = (owner_review, owner_pack)
+    assert _WORD_A in json.dumps(owner_review), "the control: the full-read reader's review carries the quote"
+    assert _WORD_A in json.dumps(owner_pack), "the control: the full-read reader's pack carries the quote"
     scoped_pack = pack("trusted")
     assert _WORD_A in json.dumps(scoped_pack)
     for who in _KEY_SPECS:
         assert review(who) == owner_review, (door, who)
         assert pack(who) == (owner_pack if who == "unbound" else scoped_pack), (door, who)
     vault.reclassify(source_id, "confidential")
-    assert review(None) == owner_review and pack(None) == owner_pack
+
+    # The owner's equal after the reclassify: still the same bytes (the
+    # unbound admin reads every sensitivity), and still the before state.
+    assert (review("owner_equal"), pack("owner_equal")) == owner_before, door
     assert review("admin") == owner_review and pack("admin") == scoped_pack, door
 
 
 @pytest.mark.parametrize("variant", _VARIANTS)
+
 def test_the_table_is_what_explain_says(vault: _Vault, variant: str) -> None:
     """The expectations above come from the policy of each profile. ``alice_explain`` applies the same test to every
     source a memory cites and fails closed for a key that may not read one, and it was never changed, so it is an
@@ -605,6 +628,7 @@ def test_the_table_is_what_explain_says(vault: _Vault, variant: str) -> None:
 
 
 @pytest.mark.parametrize("variant", ("confidential", "archived"))
+
 def test_the_owner_is_shown_what_was_stored_over_http(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, variant: str
 ) -> None:
@@ -641,6 +665,7 @@ def test_the_owner_is_shown_what_was_stored_over_http(
 
 
 @pytest.mark.parametrize("variant", ("confidential", "archived"))
+
 def test_the_id_of_a_source_the_caller_may_not_read_is_withheld_with_its_quote(vault: _Vault, variant: str) -> None:
     """A commit through ``alice_memory_commit`` keeps the ids it cited in more places than the link: in
     ``metadata_json.agentic_memory.source_refs``, in ``value.source_refs`` and in the ``new_value`` of its revision. On
@@ -692,6 +717,7 @@ def test_the_id_of_a_source_the_caller_may_not_read_is_withheld_with_its_quote(v
 
 
 @pytest.mark.parametrize(("variant", "excerpt_is_returned"), [("confidential", False), ("health", False)])
+
 def test_the_pack_sources_section_is_a_separate_reader(vault: _Vault, variant: str, excerpt_is_returned: bool) -> None:
     """The pack's ``sources`` section is the source's own excerpt, read by the source search, a different reader from
     the quote the memory saved. It holds a source to the project of the key, to the sensitivity ceiling, to deletion
@@ -731,6 +757,7 @@ def _manage(vault: _Vault, who: str, verb: str, memory_id: str) -> dict[str, obj
 
 @pytest.mark.parametrize("verb", ("expire", "unexpire", "undo", "forget"))
 @pytest.mark.parametrize("door", ("edit_and_approve", "http_commit"))
+
 def test_a_verb_returns_the_row_with_the_saved_quote_before_the_label_changes(
     vault: _Vault, verb: str, door: str
 ) -> None:
@@ -753,6 +780,7 @@ def test_a_verb_returns_the_row_with_the_saved_quote_before_the_label_changes(
 @pytest.mark.parametrize("variant", ("confidential", "archived"))
 @pytest.mark.parametrize("verb", ("expire", "unexpire", "undo", "forget"))
 @pytest.mark.parametrize("door", ("edit_and_approve", "http_commit"))
+
 def test_a_verb_hands_back_the_row_without_the_quote_of_a_source_the_caller_may_not_read(
     vault: _Vault, door: str, verb: str, variant: str
 ) -> None:
@@ -793,6 +821,7 @@ def test_a_verb_hands_back_the_row_without_the_quote_of_a_source_the_caller_may_
 
 
 @pytest.mark.parametrize("who", ("trusted", "project"))
+
 def test_the_http_verb_routes_hand_back_the_row_without_the_quote(vault: _Vault, who: str) -> None:
     """``POST /v0/vnext/memories/expire``, ``unexpire`` and ``undo`` return the same rows over HTTP, with the same fence:
     a key that may not read the confidential source gets the row without the quote.
@@ -855,6 +884,7 @@ def _plant_saved_quote(vault: _Vault, memory_id: str, source_id: str) -> None:
 
 @pytest.mark.parametrize("variant", ("confidential", "archived"))
 @pytest.mark.parametrize("action", ("approve", "reject", "supersede-existing"))
+
 def test_alice_memory_correct_hands_back_the_row_without_the_quote_of_a_source_the_admin_may_not_read(
     vault: _Vault, action: str, variant: str
 ) -> None:
@@ -889,6 +919,7 @@ def test_alice_memory_correct_hands_back_the_row_without_the_quote_of_a_source_t
 
 
 @pytest.mark.parametrize("variant", ("confidential", "archived"))
+
 def test_the_http_review_route_hands_back_the_row_without_the_quote_of_a_source_the_admin_may_not_read(
     vault: _Vault, variant: str
 ) -> None:
@@ -942,6 +973,7 @@ _ID_SURFACES = ("review",)
 
 
 @pytest.mark.parametrize("door", _LINKLESS_DOORS)
+
 def test_a_memory_with_no_link_carries_its_quote_and_its_source_id_in_its_own_copies_before_the_label_changes(
     vault: _Vault, door: str
 ) -> None:
@@ -967,11 +999,12 @@ def test_a_memory_with_no_link_carries_its_quote_and_its_source_id_in_its_own_co
                 assert _pack_holds_the_memory(answer, memory_id, http=_is_http(surface)), (who, surface)
         explained = vault.explain(who, memory_id)
         assert explained["is_error"] is False and _holds_quote(explained), (door, who)
-    assert _holds_quote(vault.review(None, memory_id)), "the owner"
+    assert _holds_quote(vault.review("owner_equal", memory_id)), "the owner's equal reads what the owner read"
 
 
 @pytest.mark.parametrize("variant", _VARIANTS)
 @pytest.mark.parametrize("door", _LINKLESS_DOORS)
+
 def test_the_copies_of_a_memory_with_no_link_follow_its_source_when_the_source_is_reclassified(
     vault: _Vault, door: str, variant: str
 ) -> None:
@@ -1024,11 +1057,15 @@ def test_the_copies_of_a_memory_with_no_link_follow_its_source_when_the_source_i
             assert _holds_quote(explained)
         else:
             assert source_id not in str(explained["text"]) and _WORD_A not in str(explained["text"])
-    for surface, answer in _readers(vault, None, memory_id, query).items():
-        assert (_holds_quote(answer)) is (surface in _COPY_SURFACES), ("the owner is not fenced", door, variant, surface)
+    for surface, answer in _readers(vault, "owner_equal", memory_id, query).items():
+        # The archived source's quote is refused to every key, the owner's
+        # human-CLI read aside; every other variant's quote is held on the
+        # copy surfaces exactly as the owner's keyless read held it.
+        assert (_holds_quote(answer)) is (surface in _COPY_SURFACES and variant != "archived"), ("the owner's equal is not fenced", door, variant, surface)
 
 
 @pytest.mark.parametrize("door", _LINKLESS_DOORS)
+
 def test_a_reader_who_may_read_the_source_is_shown_the_same_rows_for_a_memory_with_no_link(
     vault: _Vault, door: str
 ) -> None:
@@ -1058,6 +1095,7 @@ def test_a_reader_who_may_read_the_source_is_shown_the_same_rows_for_a_memory_wi
 
 
 @pytest.mark.parametrize("door", _LINKLESS_DOORS)
+
 def test_the_pack_budget_does_not_count_the_bytes_it_withholds(vault: _Vault, door: str) -> None:
     """The pack prices each memory row for its token budget. Rows are held to the caller's read fence before they are
     priced, so the size a restricted caller is told does not include the quote that was withheld from it. Before, the
@@ -1086,6 +1124,7 @@ def test_the_pack_budget_does_not_count_the_bytes_it_withholds(vault: _Vault, do
 
 
 @pytest.mark.parametrize("variant", ("confidential", "archived"))
+
 def test_the_quote_on_the_link_to_a_readable_source_is_withheld_when_a_sibling_link_is_refused(
     vault: _Vault, variant: str
 ) -> None:
@@ -1127,6 +1166,7 @@ def test_the_quote_on_the_link_to_a_readable_source_is_withheld_when_a_sibling_l
 
 
 @pytest.mark.parametrize("variant", ("confidential", "archived"))
+
 def test_a_quote_that_says_something_else_stays_on_a_link_when_another_source_is_refused(
     vault: _Vault, variant: str
 ) -> None:
@@ -1163,6 +1203,7 @@ def test_a_quote_that_says_something_else_stays_on_a_link_when_another_source_is
             assert ("supports" in roles) is (who in authorized), (variant, who, surface)
 
 
+
 def test_a_source_with_no_project_is_outside_the_fence_of_a_key_bound_to_a_project(vault: _Vault) -> None:
     """A source the owner captured belongs to no project. A key bound to a project is blocked on a source with no project
     (``require_explicit_project_scope``), so after this change ``alice_memory_review`` by id leaves out the link, the
@@ -1194,6 +1235,7 @@ def test_a_source_with_no_project_is_outside_the_fence_of_a_key_bound_to_a_proje
 
 
 
+
 def test_a_derived_copy_of_a_projectless_source_is_denied_to_bound_keys(vault: _Vault) -> None:
     source_id = vault.capture_source(as_owner=True)
     candidate = vault._candidate("Projectlesscopy: the alpha kiln shelf is cleaned on Fridays")
@@ -1204,6 +1246,7 @@ def test_a_derived_copy_of_a_projectless_source_is_denied_to_bound_keys(vault: _
         assert answer["is_error"] is not readable, (who, answer)
         assert _holds_quote(answer) is readable, who
         assert _holds_source_id(answer, source_id) is readable, who
+
 
 
 def test_current_derived_copy_is_denied_as_a_whole_after_source_relabel(vault: _Vault) -> None:

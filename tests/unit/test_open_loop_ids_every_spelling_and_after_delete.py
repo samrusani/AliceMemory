@@ -1267,7 +1267,9 @@ def test_each_reader_is_shown_in_every_spelling_exactly_the_ids_its_own_fence_ad
             world._plant(name, metadata={"project_scope": ["alpha"], "evidence": stored})
             expected[world.loops[name]] = {"project_scope": ["alpha"], "evidence": stored if kind in readable else shown}
     if reader == "owner":
-        answer = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=None)
+        # The owner's read runs as the owner's equal (an unbound admin key)
+        # once keys exist; a keyless call is refused.
+        answer = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=world.vault.keys["owner_equal"])
         assert answer["is_error"] is False, answer
         items = answer["payload"]["items"]  # type: ignore[index]
     else:
@@ -1292,7 +1294,7 @@ def test_the_owner_is_shown_no_id_of_a_deleted_row_in_any_spelling(world: _World
             "evidence": {"quote_from": UUID(deleted).hex, "own": own, "note": f"see {deleted.upper()}"},
         },
     )
-    answer = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=None)
+    answer = world.vault.wire("alice_open_loops", {"status": "all", "limit": 100}, key=world.vault.keys["owner_equal"])
     assert answer["is_error"] is False, answer
     item = next(row for row in answer["payload"]["items"] if row["id"] == world.loops["owner_probe"])  # type: ignore[index]
     assert item["metadata_json"] == {"project_scope": ["alpha"], "evidence": {"own": own, "note": f"see {_CUT}"}}

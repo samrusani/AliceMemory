@@ -57,7 +57,15 @@ the code. From v0.15.1 on, each version's release notes list its known gaps.
 - PostgreSQL runtime access uses the application role and per-user RLS. Keep the
   admin database credential confined to migrations and administrative recovery.
   SQLite is a single-user on-ramp protected by owner-only filesystem
-  permissions, not by database RLS.
+  permissions, not by database RLS. On that vault, agent keys (minted with
+  `alice-memory keys create`) tell Alice which agent is asking and limit what
+  Alice returns to it; they do not stop a process that runs as your OS user
+  from reading the vault file. A hostile or prompt-injected agent that can run
+  shell commands as your OS user can read the vault file directly, outside what
+  keys protect against; keeping such an agent from your data, and running
+  agents on several machines against one vault, needs the packaged PostgreSQL
+  deployment, where reads go through the API's key checks and RLS instead of a
+  file a local process can open.
 - Public CLI, MCP, connector, and importer surfaces must preserve provenance and
   policy boundaries. Imported and provider-returned text is data, never policy.
 - Consequential side effects remain approval-bounded.

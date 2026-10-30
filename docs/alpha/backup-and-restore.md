@@ -3,6 +3,14 @@
 Back up Alice before upgrading, changing embedding providers, or performing
 bulk lifecycle work. Test a restore before treating any file as a backup.
 
+## Keys are not exported
+
+The JSONL export drops agent keys, so after an import from an export the keys
+must be minted again (`alice-memory keys create`); a file copy of the vault
+after a checkpoint keeps them. Keys tell Alice which agent is asking and limit
+what Alice returns to that agent; they do not stop a process that runs as your
+OS user from reading the vault file.
+
 ## SQLite on-ramp
 
 Use the packaged export command with `--out`. It verifies and copies a stable

@@ -10,6 +10,18 @@ page. This page exists for humans wiring things up. For the full verb
 contract (outcomes, audit guarantees, and honest boundaries) see the
 [Memory Operations Protocol](../memory-operations-protocol.md).
 
+## Agent keys and the keyless refusal
+
+Agent keys exist on the SQLite vault: `alice-memory keys create` mints one per
+agent (the raw key is printed once; only its hash and prefix are stored), and
+keys tell Alice which agent is asking and limit what Alice returns to that
+agent. They do not stop a process that runs as your OS user from reading the
+vault file. Once the vault holds at least one active key, an MCP call without
+`ALICE_AGENT_API_KEY` is refused with the same not-permitted answer as a bad
+key, for every core tool, reads included; the brief command prints nothing
+instead. A bad or revoked key answers as it always did, and revoking the last
+active key returns the vault to the keyless behaviour.
+
 ## Start the server
 
 ```bash
@@ -371,11 +383,14 @@ response; they are the source of truth.
 
 To run the MCP server under a specific agent identity, set
 `ALICE_AGENT_API_KEY` in the server env to a key created with
-`alicebot agent keys create` (see
+`alicebot agent keys create` on Postgres or `alice-memory keys create` on
+the SQLite vault (see
 [agent-integration.md](agent-integration.md)). Without it, the server runs
-as local operator tooling. Key creation requires Postgres — in SQLite
-on-ramp mode, leave `ALICE_AGENT_API_KEY` unset; payload identity is
-honored and audited as `unauthenticated_local`.
+as local operator tooling while the vault holds no active key; once it
+holds one, every keyless call is refused, reads included, until the server
+environment carries a key. Keys tell Alice which agent is asking and limit
+what Alice returns to that agent; they do not stop a process that runs as
+your OS user from reading the vault file.
 
 A key-bound MCP server exposes only the enabled core set: the default three,
 or all the core tools when `ALICE_MCP_FULL_TOOLS=1`. The legacy flag is deliberately

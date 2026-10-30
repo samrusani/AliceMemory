@@ -170,6 +170,8 @@ from .synthesis import (
     _handle_alice_graph_edge_review,
     _handle_alice_graph_neighborhood,
 )
+from .policy import _vault_has_active_key, _is_sqlite_backend
+from .runtime import _sqlite_path_from_url
 from .types import (
     MCPArgumentError,
     MCPNotPermittedError,
@@ -528,6 +530,18 @@ def call_mcp_tool(
         raise MCPToolNotFoundError(
             f"tool '{name}' is part of the legacy MCP surface, which is disabled whenever "
             f"{AGENT_API_KEY_ENV} is configured"
+        )
+    if (
+        name in _LEGACY_TOOL_NAMES
+        and not (os.environ.get(AGENT_API_KEY_ENV) or "").strip()
+        and _is_sqlite_backend(context)
+        and _vault_has_active_key(_sqlite_path_from_url(context.database_url))
+    ):
+        # The keyless refusal covers every MCP call on a vault that holds an
+        # active key; the legacy tools are no exception (reads included).
+        raise MCPNotPermittedError(
+            "agent API keys are configured for this vault; every call needs "
+            f"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')"
         )
     if name not in _CORE_TOOL_NAMES and not _legacy_tools_enabled():
         raise MCPToolNotFoundError(

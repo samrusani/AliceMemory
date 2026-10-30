@@ -95,6 +95,7 @@ _MARKER_SHAPES = {
 
 
 @pytest.mark.parametrize("shape", list(_MARKER_SHAPES))
+
 def test_a_ref_that_merely_contains_a_marker_changes_no_answer_for_a_caller_who_may_read_the_cited_source(
     vault: _Vault, shape: str
 ) -> None:
@@ -113,7 +114,7 @@ def test_a_ref_that_merely_contains_a_marker_changes_no_answer_for_a_caller_who_
     stray = str(uuid4())
     memory_id, query, _body = _commit_with_refs(vault, _MARKER_SHAPES[shape](allowed, stray), tag="marker" + shape[:4])
     assert _link_count(vault, memory_id) == 1
-    owner_review = vault.review(None, memory_id)["payload"]
+    owner_review = vault.review("owner_equal", memory_id)["payload"]
     for who in _KEY_SPECS:
         surfaces = _surfaces(vault, who, memory_id, query)
         for surface, answer in surfaces.items():
@@ -125,6 +126,7 @@ def test_a_ref_that_merely_contains_a_marker_changes_no_answer_for_a_caller_who_
 
 @pytest.mark.parametrize("variant", ("confidential", "archived"))
 @pytest.mark.parametrize("shape", list(_MARKER_SHAPES))
+
 def test_the_same_ref_withholds_the_quote_when_the_id_names_a_source_the_caller_may_not_read(
     vault: _Vault, shape: str, variant: str
 ) -> None:
@@ -152,6 +154,7 @@ def test_the_same_ref_withholds_the_quote_when_the_id_names_a_source_the_caller_
 # -- 2. an id that names an archived or removed source ---------------------------------------------------------------
 
 
+
 def test_a_limit_an_id_that_names_a_source_removed_from_the_database_is_not_judged_where_it_could_be_a_chunk_id(
     vault: _Vault,
 ) -> None:
@@ -172,6 +175,7 @@ def test_a_limit_an_id_that_names_a_source_removed_from_the_database_is_not_judg
     assert answer["is_error"] is False
     assert _holds_quote(answer), "the stated limit: a removed source named under an unlisted key is not judged"
     assert vault.explain("trusted", memory_id)["is_error"] is False
+
 
 
 def test_a_limit_an_incidental_id_tells_a_caller_who_stores_a_memory_whether_it_names_a_source_it_may_not_read(
@@ -214,6 +218,7 @@ def test_a_limit_an_incidental_id_tells_a_caller_who_stores_a_memory_whether_it_
         assert vault.explain("trusted", memory_id)["is_error"] is True, memory_id
 
 
+
 def test_the_store_lookup_that_includes_archived_sources_returns_them_and_the_usual_lookup_does_not(vault: _Vault) -> None:
     """``get_sources_by_ids(..., include_deleted=True)`` is what lets the reader tell an id that names an archived source from
     an id that names none. On the SQLite store of a real vault: an archived source's row comes back with ``deleted_at`` set, a
@@ -242,6 +247,7 @@ def test_the_store_lookup_that_includes_archived_sources_returns_them_and_the_us
 
 
 # -- 3. the metadata of a revision -----------------------------------------------------------------------------------
+
 
 
 def test_the_refs_a_proposal_keeps_in_its_revision_follow_the_fence_like_the_memorys_own(vault: _Vault) -> None:
@@ -282,6 +288,7 @@ def test_the_refs_a_proposal_keeps_in_its_revision_follow_the_fence_like_the_mem
 # -- 4. a huge ref ---------------------------------------------------------------------------------------------------
 
 
+
 def test_a_ref_of_a_hundred_kilobytes_stored_by_the_proposal_door_is_read_in_time_that_grows_with_its_size(
     vault: _Vault,
 ) -> None:
@@ -311,6 +318,7 @@ def test_a_ref_of_a_hundred_kilobytes_stored_by_the_proposal_door_is_read_in_tim
 
 
 # -- 5. what a review stores when no quote is sent -------------------------------------------------------------------
+
 
 
 def test_a_review_that_sends_no_quote_stores_the_memory_text_on_the_link_and_null_in_the_copy(vault: _Vault) -> None:
@@ -428,6 +436,7 @@ def _zero_led_params() -> list[object]:
 
 
 @pytest.mark.parametrize(("door", "shape", "zeros", "variant"), _zero_led_params())
+
 def test_a_source_with_a_leading_zero_named_with_whitespace_keeps_its_quote_from_every_reader(
     vault: _Vault, door: str, shape: str, zeros: int, variant: str
 ) -> None:
@@ -469,5 +478,5 @@ def test_a_source_with_a_leading_zero_named_with_whitespace_keeps_its_quote_from
             assert answer["is_error"] is False, (door, shape, variant, who, surface, str(answer["text"])[:300])
             assert _holds_quote(answer) is (before[(who, surface)] and who in authorized), (door, shape, variant, who, surface)
         assert (vault.explain(who, memory_id)["is_error"] is False) is (who in authorized), (door, shape, variant, who)
-    for surface, answer in _surfaces(vault, None, memory_id, query).items():
-        assert _holds_quote(answer) is (linked or not surface.startswith("pack")), ("the owner", door, shape, variant, surface)
+    for surface, answer in _surfaces(vault, "owner_equal", memory_id, query).items():
+        assert _holds_quote(answer) is ((linked or not surface.startswith("pack")) and variant != "archived"), ("the owner's equal", door, shape, variant, surface)

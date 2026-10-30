@@ -53,6 +53,7 @@ from alicebot_api.source_ranking import SourceRanking
 from alicebot_api.source_search_limits import source_search_query_breach
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_control import (
+    AgentIdentity,
     DEFAULT_AGENT_SENSITIVITY,
     evaluate_agent_policy,
     resource_project_scope,
@@ -453,6 +454,36 @@ def compile_session_brief(
     )
 
 
+def session_brief_identity(db_path: Path, user_id: UUID | str) -> tuple[AgentIdentity | None, bool]:
+    """The brief caller's identity under the active-key rule, shared by the
+    brief command and the session-start hook.
+
+    Returns ``(identity, quiet)``: a vault with no active key keeps the
+    owner's stance (``None, False``); with an active key on the vault, the
+    environment's ``ALICE_AGENT_API_KEY`` resolves to the caller
+    ``(identity, False)``, and a missing or unresolvable key shows nothing
+    ``(None, True)`` (a host hook never fails a session).
+    """
+
+    import os
+
+    from alicebot_api.mcp_tools import AGENT_API_KEY_ENV
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from alicebot_api.vnext_agent_keys import resolve_agent_identity
+
+    with sqlite_user_connection(db_path, user_id) as connection:
+        store = SQLiteVNextStore(connection, user_id)
+        if store.count_active_agent_api_keys() == 0:
+            return None, False
+        raw_key = (os.environ.get(AGENT_API_KEY_ENV) or "").strip() or None
+        if raw_key is None:
+            return None, True
+        try:
+            return resolve_agent_identity(store, user_id=user_id, raw_key=raw_key, payload={}), False
+        except Exception:
+            return None, True
+
+
 def compile_local_session_brief(
     db_path: Path,
     *,
@@ -461,21 +492,26 @@ def compile_local_session_brief(
     project_view: ProjectView,
     exclude_global_domains: frozenset[str],
     reserve: int = 0,
+    identity: AgentIdentity | None = None,
 ) -> str:
     """Operator CLI path: evaluate policy, then compile against that fence.
 
     The caller is the owner (no agent identity), so the view's tuple is the
     project fence. A caller with no view on purpose, the doctor and the demo,
-    passes ``ProjectView.unscoped()`` and the empty set.
+    passes ``ProjectView.unscoped()`` and the empty set. ``identity`` is the
+    resolved agent identity of a keyed brief: its policy decision (domain and
+    sensitivity limits, its project scope, locked) replaces the owner's, so
+    the brief shows only what the key may read.
     """
 
     decision = evaluate_agent_policy(
-        identity=None,
+        identity=identity,
         action="context_pack.request",
         domains=(),
         sensitivity_allowed=DEFAULT_AGENT_SENSITIVITY,
         project_scope=(),
     )
+    identity_scope = tuple(sorted(decision.effective_project_scope))
     with sqlite_user_connection(db_path, user_id) as connection:
         store = SQLiteVNextStore(connection, user_id)
         return compile_session_brief(
@@ -486,8 +522,8 @@ def compile_local_session_brief(
                 view=project_view,
                 decision_scope=decision.effective_project_scope,
                 requested_scope=(),
-                identity_scope=(),
-                identity_locked=False,
+                identity_scope=identity_scope,
+                identity_locked=identity is not None,
             ),
             project_view=project_view,
             exclude_global_domains=exclude_global_domains,

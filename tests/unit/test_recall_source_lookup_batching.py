@@ -638,11 +638,11 @@ def _call(context, name, arguments, *, key=None, full=False):
         os.environ.pop(MCP_FULL_TOOLS_ENV, None)
 
 
-def _mint(context, *, profile: str, project: str) -> str:
+def _mint(context, *, profile: str, project: str | None) -> str:
     _record, raw = _store_do(
         context,
         lambda s, _c: create_agent_key(
-            s, user_id=USER_ID, agent_id=f"{profile}-{project}", permission_profile=profile, project_scope=project
+            s, user_id=USER_ID, agent_id=f"{profile}-{project or 'owner'}", permission_profile=profile, project_scope=project
         ),
     )
     return raw
@@ -656,12 +656,12 @@ def _capture(context, writer: str, text: str) -> tuple[str, str]:
         key=writer,
         full=True,
     )
-    review = _call(context, "alice_memory_review", {"status": "all", "limit": 100}, full=True)
+    review = _call(context, "alice_memory_review", {"status": "all", "limit": 100}, key=writer, full=True)
     memory_id = next(str(i["id"]) for i in review["items"] if text in json.dumps(i, default=str))
     return str(captured["source_id"]), memory_id
 
 
-def _supersede(context, memory_id: str, text: str) -> str:
+def _supersede(context, memory_id: str, text: str, *, key: str | None = None) -> str:
     done = _call(
         context,
         "alice_memory_correct",
@@ -672,6 +672,7 @@ def _supersede(context, memory_id: str, text: str) -> str:
             "replacement_body": {"text": text},
             "reason": "moved",
         },
+        key=key,
         full=True,
     )
     return str(done["replacement_object"]["id"])
@@ -685,14 +686,14 @@ def _seed_mixed_vault(context, monkeypatch) -> dict[str, str]:
     """Six excerpts that need six different answers from the label and its fence."""
 
     writer = _mint(context, profile="project_scoped_agent", project="acme")
-    ids: dict[str, str] = {}
+    ids: dict[str, str] = {"owner_equal": _mint(context, profile="admin_agent", project=None)}
     ids["current_source"], _current = _capture(context, writer, "The kettle is stored on the zeroth shelf.")
 
     ids["visible_source"], visible_memory = _capture(context, writer, "The kettle is stored on the third shelf.")
-    ids["visible_replacement"] = _supersede(context, visible_memory, "The kettle is stored on the first shelf.")
+    ids["visible_replacement"] = _supersede(context, visible_memory, "The kettle is stored on the first shelf.", key=ids["owner_equal"])
 
     ids["hidden_source"], hidden_memory = _capture(context, writer, "The kettle is stored on the fourth shelf.")
-    ids["hidden_replacement"] = _supersede(context, hidden_memory, "The kettle is stored on the sixth shelf.")
+    ids["hidden_replacement"] = _supersede(context, hidden_memory, "The kettle is stored on the sixth shelf.", key=ids["owner_equal"])
     _set(context, ids["hidden_replacement"], sensitivity="confidential")
 
     ids["edited_source"], edited_memory = _capture(context, writer, "The kettle is stored on the fifth shelf.")
@@ -705,11 +706,12 @@ def _seed_mixed_vault(context, monkeypatch) -> dict[str, str]:
             "body": {"text": "The kettle is stored on the seventh shelf."},
             "reason": "moved",
         },
+        key=ids["owner_equal"],
         full=True,
     )
 
     ids["forgotten_source"], forgotten_memory = _capture(context, writer, "The kettle is stored on the second shelf.")
-    _supersede(context, forgotten_memory, "The kettle is stored on the eighth shelf.")
+    _supersede(context, forgotten_memory, "The kettle is stored on the eighth shelf.", key=ids["owner_equal"])
     _store_do(
         context,
         lambda _s, conn: conn.execute(
@@ -718,7 +720,7 @@ def _seed_mixed_vault(context, monkeypatch) -> dict[str, str]:
     )
 
     ids["beta_source"], beta_memory = _capture(context, writer, "The kettle is stored on the ninth shelf.")
-    _supersede(context, beta_memory, "The kettle is stored on the tenth shelf.")
+    _supersede(context, beta_memory, "The kettle is stored on the tenth shelf.", key=ids["owner_equal"])
 
     def move(store, _conn):
         row = store.get_source(ids["beta_source"])
@@ -764,7 +766,9 @@ def test_labels_and_outputs_are_identical_to_the_per_source_path(tmp_path: Path,
         return recall, pack
 
     seen_labels: list[tuple[dict[str, dict[str, object]], dict[str, dict[str, object]]]] = []
-    for key in (None, ids["acme_reader"], ids["beta_reader"]):
+    # The owner's leg ran keyless once; on a vault that holds keys a
+    # keyless call is refused, so the leg runs as the owner's equal.
+    for key in (ids["owner_equal"], ids["acme_reader"], ids["beta_reader"]):
         batched_recall, batched_pack = run(key)
         with monkeypatch.context() as patch:
             patch.setattr(SQLiteVNextStore, "list_memories_referencing_sources", None)
@@ -823,10 +827,11 @@ def test_recall_and_pack_run_one_memory_lookup_for_all_packed_sources(tmp_path: 
 
     context = _context(tmp_path, monkeypatch)
     writer = _mint(context, profile="project_scoped_agent", project="acme")
+    owner_equal = _mint(context, profile="admin_agent", project=None)
     for index in range(10):
         _source_id, memory_id = _capture(context, writer, f"The kettle is stored on shelf number {index}.")
         if index % 2:
-            _supersede(context, memory_id, f"The kettle is stored on shelf number {index + 100}.")
+            _supersede(context, memory_id, f"The kettle is stored on shelf number {index + 100}.", key=owner_equal)
 
     from alicebot_api.mcp_tools import _sqlite_path_from_url
 

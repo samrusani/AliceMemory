@@ -42,11 +42,16 @@ AGENT_API_KEY_ENV = "ALICE_AGENT_API_KEY"
 def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> AgentIdentity | None:
     """Resolve the calling agent's identity for one MCP tool call.
 
-    Without ``ALICE_AGENT_API_KEY`` the MCP server is local operator tooling
-    (it already holds direct database credentials), so payload identity is
-    honored and carries the default ``unauthenticated_local`` auth marker.
-    With the key set, identity is resolved and enforced against the issued
-    key record exactly like the HTTP surface.
+    With ``ALICE_AGENT_API_KEY`` the identity is resolved and enforced against
+    the issued key record exactly like the HTTP surface; a bad or revoked key
+    answers as it always did. Without the key the call is keyless: it is
+    refused with the not-permitted answer once the vault holds at least one
+    active key (reads included, the same rule the HTTP surface applies), and
+    while the vault holds no active key it stays local operator tooling that
+    honors the payload identity with the default ``unauthenticated_local``
+    auth marker. The rule lifts by itself when the last active key is gone
+    (revoked keys do not count), so revoking every key returns the vault to
+    the keyless behaviour.
     """
 
     if context.agent_identity_resolved:
@@ -54,6 +59,24 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
 
     raw_key = (os.environ.get(AGENT_API_KEY_ENV) or "").strip() or None
     if raw_key is None:
+        # The active-key count is read on a read-only connection, before any
+        # store is opened: an argument-validation refusal must stay a
+        # refusal that never touched the vault.
+        if _is_sqlite_backend(context):
+            try:
+                has_active_key = _vault_has_active_key(_sqlite_path_from_url(context.database_url))
+            except Exception:
+                # The vault could not be checked; the call is refused rather
+                # than answered with the owner's standing.
+                raise MCPNotPermittedError(
+                    "the vault's agent keys could not be checked; every call needs "
+                    f"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')"
+                ) from None
+            if has_active_key:
+                raise MCPNotPermittedError(
+                    "agent API keys are configured for this vault; every call needs "
+                    f"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')"
+                )
         try:
             return AgentIdentity.from_payload(arguments)
         except AgentIdentityValidationError as exc:
@@ -81,6 +104,34 @@ RESERVED_PROJECT_NAME_MESSAGE = (
 )
 #: The argument names that carry project names, on any tool.
 _PROJECT_NAME_ARGUMENTS = ("projects", "project", "project_scope")
+
+
+def _vault_has_active_key(sqlite_path: str) -> bool:
+    """One count query on a read-only connection: does the vault hold an
+    active (never revoked) agent key? A vault without the table yet reads as
+    keyless; any other error raises (the caller refuses the call rather than
+    answer it with the owner's standing). The URI is built the way the onramp
+    builds one (``Path(...).resolve().as_uri()``), so a ``#``, ``?`` or ``%``
+    in the data directory's name cannot make SQLite open a different path.
+    The query never opens the store the handlers share."""
+
+    import sqlite3
+
+    path = Path(sqlite_path)
+    if not path.exists():
+        return False
+    connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=5.0)
+    try:
+        row = connection.execute(
+            "SELECT count(*) FROM agent_api_keys WHERE revoked_at IS NULL"
+        ).fetchone()
+        return bool(row and row[0] > 0)
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc).lower():
+            return False
+        raise
+    finally:
+        connection.close()
 
 
 def _refuse_reserved_project_marker(arguments: Mapping[str, object]) -> None:

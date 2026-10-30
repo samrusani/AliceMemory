@@ -29,6 +29,12 @@ from alicebot_api.onramp import bootstrap_database, resolve_db_path, sqlite_url_
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.surface_flags import MCP_FULL_TOOLS_ENV
 from alicebot_api.vnext_agent_keys import create_agent_key
+
+
+def _owner_equal(context) -> str:
+    """The owner's equal on a vault that holds keys: an unbound admin key."""
+    _record, raw = _store(context, lambda s: create_agent_key(s, user_id=context.user_id, agent_id="owner-equal", permission_profile="admin_agent", project_scope=None))
+    return raw
 from alicebot_api.vnext_source_fence import SourceReadFence
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
@@ -87,12 +93,12 @@ def _captured(context) -> tuple[str, str]:
         key=writer,
         full=True,
     )
-    review = _call(context, "alice_memory_review", {"status": "all", "limit": 20}, full=True)
+    review = _call(context, "alice_memory_review", {"status": "all", "limit": 20}, key=writer, full=True)
     memory_id = next(str(i["id"]) for i in review["items"] if OLD in json.dumps(i, default=str))
     return str(captured["source_id"]), memory_id
 
 
-def _supersede(context, memory_id: str, text: str = NEW) -> str:
+def _supersede(context, memory_id: str, text: str = NEW, *, key: str | None = None) -> str:
     done = _call(
         context,
         "alice_memory_correct",
@@ -103,6 +109,7 @@ def _supersede(context, memory_id: str, text: str = NEW) -> str:
             "replacement_body": {"text": text},
             "reason": "moved",
         },
+        key=key or _owner_equal(context),
         full=True,
     )
     return str(done["replacement_object"]["id"])
@@ -145,23 +152,25 @@ def _stale_source(payload: dict) -> dict:
 
 
 def _recall_source(context, key=None) -> dict:
-    return _stale_source(_call(context, "alice_recall", {"query": OLD}, key=key))
+    # The owner's control read runs as the owner's equal once keys exist.
+    return _stale_source(_call(context, "alice_recall", {"query": OLD}, key=key or _owner_equal(context)))
 
 
 def _pack_source(context, key=None) -> dict:
-    return _stale_source(_call(context, "alice_context_pack", {"query": OLD}, key=key, full=True))
+    return _stale_source(_call(context, "alice_context_pack", {"query": OLD}, key=key or _owner_equal(context), full=True))
 
 
 def _retire(context, memory_id: str, how: str) -> None:
     if how == "forget":
-        _call(context, "alice_memory_manage", {"action": "forget", "memory_id": memory_id}, full=True)
+        _call(context, "alice_memory_manage", {"action": "forget", "memory_id": memory_id}, key=_owner_equal(context), full=True)
     elif how == "undo":
-        _call(context, "alice_memory_manage", {"action": "undo", "memory_id": memory_id}, full=True)
+        _call(context, "alice_memory_manage", {"action": "undo", "memory_id": memory_id}, key=_owner_equal(context), full=True)
     elif how == "reject":
         _call(
             context,
             "alice_memory_correct",
             {"action": "reject", "review_item_id": memory_id, "reason": "wrong"},
+            key=_owner_equal(context),
             full=True,
         )
     else:  # pragma: no cover - guards the parametrisation
@@ -185,7 +194,7 @@ def test_label_names_no_id_after_the_successor_is_retired(tmp_path: Path, monkey
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     for source in (_recall_source(context), _pack_source(context)):
         assert source["current_memory_id"] == replacement
 
@@ -205,8 +214,8 @@ def test_label_names_no_id_when_the_last_of_two_successors_was_forgotten(tmp_pat
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context)
-    first = _supersede(context, memory_id, MIDDLE)
-    second = _supersede(context, first)
+    first = _supersede(context, memory_id, MIDDLE, key=_owner_equal(context))
+    second = _supersede(context, first, key=_owner_equal(context))
     assert _recall_source(context)["current_memory_id"] == second
     _retire(context, second, "forget")
     source = _recall_source(context)
@@ -238,7 +247,7 @@ def test_label_names_no_id_when_the_successor_was_deleted(tmp_path: Path, monkey
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     _soft_delete(context, replacement)
     for source in (_recall_source(context), _pack_source(context)):
         assert source["derived_memory_corrected"] is True
@@ -252,7 +261,7 @@ def test_label_still_names_a_live_successor_in_the_fence(tmp_path: Path, monkeyp
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     reader = _mint(context, profile="read_only_agent", project="acme")
     for source in (_recall_source(context, reader), _pack_source(context, reader)):
         assert source["current_memory_id"] == replacement
@@ -335,7 +344,7 @@ def _pack_memory(pack: dict, memory_id: str) -> dict:
 def _active_row_pointing_at_a_hidden_successor(context) -> tuple[str, str]:
     """The old row is still active and its pointer names a successor above the ceiling."""
     _source_id, memory_id = _captured(context)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     _set(context, replacement, sensitivity="confidential")
     _set(context, memory_id, status="active")
     return memory_id, replacement
@@ -352,7 +361,9 @@ def test_pack_keeps_superseded_true_without_the_id_like_recall(tmp_path: Path, m
     context = _context(tmp_path, monkeypatch)
     memory_id, replacement = _active_row_pointing_at_a_hidden_successor(context)
     reader = _mint(context, profile="read_only_agent", project="acme")
-    for key in (None, reader):
+    # The owner's leg ran keyless once; on a vault that holds keys a keyless
+    # call is refused, so the leg runs as the owner's equal.
+    for key in (_owner_equal(context), reader):
         recall = _call(context, "alice_recall", {"query": OLD}, key=key)
         recalled = next(row for row in recall["results"] if row["id"] == memory_id)
         pack = _call(context, "alice_context_pack", {"query": OLD}, key=key, full=True)
@@ -388,7 +399,7 @@ def test_pack_keeps_superseded_when_the_domain_filter_hides_the_successor(tmp_pa
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     _set(context, replacement, domain="professional")
     _set(context, memory_id, status="active")
     packed = _pack_memory(_pack(context, OLD, domains=("project",)), memory_id)
@@ -481,11 +492,12 @@ def _typed_memory_and_hidden_memory(context, memory_type: str) -> tuple[str, str
 
 
 def _debug_pack(context, *, key=None, **arguments) -> dict:
+    # The owner's control pack runs as the owner's equal once keys exist.
     return _call(
         context,
         "alice_context_pack",
         {"query": "deploy window Tuesday", "debug": True, **arguments},
-        key=key,
+        key=key or _owner_equal(context),
         full=True,
     )
 
@@ -514,7 +526,8 @@ def test_debug_sections_carry_no_hidden_id_from_metadata(tmp_path: Path, monkeyp
         nested={"deeper": [{"memory_id": hidden, "kept": "yes"}], hidden: "keyed by the id"},
     )
     reader = _mint(context, profile="read_only_agent", project="acme")
-    for key in (None, reader):
+    # The owner's leg runs as the owner's equal once keys exist.
+    for key in (_owner_equal(context), reader):
         pack = _debug_pack(context, key=key)
         assert hidden not in json.dumps(pack) and hidden.upper() not in json.dumps(pack)
         section = pack[TYPED_SECTION[memory_type]]
@@ -557,7 +570,7 @@ def test_debug_sections_keep_ids_that_name_no_memory_and_the_visible_ones(tmp_pa
     _add_metadata(context, memory_id, related_memory=hidden, unknown=OTHER_ID, sibling=_typed)
     before = _store(context, lambda s: s.get_memory(memory_id))["metadata_json"]
     assert before["source_id"] == source_id and before["source_chunk_id"]
-    pack = _call(context, "alice_context_pack", {"query": OLD, "debug": True}, full=True)
+    pack = _call(context, "alice_context_pack", {"query": OLD, "debug": True}, key=_owner_equal(context), full=True)
     metadata = next(item for item in pack["decisions"] if item["id"] == memory_id)["metadata_json"]
     assert "related_memory" not in metadata
     assert metadata["source_id"] == source_id
@@ -610,12 +623,12 @@ def test_a_realistic_supersession_copy_does_not_leak_into_the_debug_section(tmp_
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     _set(context, replacement, memory_type="decision")
     _set(context, memory_id, sensitivity="confidential")
     row = _store(context, lambda s: s.get_memory(replacement))
     assert row["metadata_json"].get("supersedes") == memory_id, "the planted copy is there to begin with"
-    pack = _call(context, "alice_context_pack", {"query": NEW, "debug": True}, full=True)
+    pack = _call(context, "alice_context_pack", {"query": NEW, "debug": True}, key=_owner_equal(context), full=True)
     assert memory_id not in json.dumps(pack)
     decision = next(item for item in pack["decisions"] if item["id"] == replacement)
     assert "supersedes" not in decision["metadata_json"]

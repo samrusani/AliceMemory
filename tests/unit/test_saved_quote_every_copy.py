@@ -165,6 +165,7 @@ def _link_count(vault: _Vault, memory_id: str) -> int:
 
 @pytest.mark.parametrize("surface", ["review", "pack", "http_pack"])
 @pytest.mark.parametrize("variant", ["confidential", "archived"])
+
 def test_a_nested_reference_cannot_leave_the_hidden_quote_on_the_link_to_the_readable_source(
     vault: _Vault, surface: str, variant: str
 ) -> None:
@@ -203,6 +204,7 @@ def test_a_nested_reference_cannot_leave_the_hidden_quote_on_the_link_to_the_rea
 
 
 @pytest.mark.parametrize("variant", _VARIANTS)
+
 def test_the_nested_reference_is_withheld_from_every_key_that_may_not_read_b_and_kept_for_the_rest(
     vault: _Vault, variant: str
 ) -> None:
@@ -238,10 +240,12 @@ def test_the_nested_reference_is_withheld_from_every_key_that_may_not_read_b_and
         links = vault.review(who, memory_id)["payload"]["review"]["provenance_links"]  # type: ignore[index]
         assert [str(link["source_id"]) for link in links] == [allowed], (variant, who)
         assert (links[0]["quote"] is not None) is (who in authorized), (variant, who)
-    for surface, answer in _readers(vault, None, memory_id, query).items():
-        assert _holds_quote(answer), ("the owner is shown what was stored", variant, surface)
+    for surface, answer in _readers(vault, "owner_equal", memory_id, query).items():
+        # The archived source's quote is refused to every key, the owner's
+        # human-CLI read aside.
+        assert _holds_quote(answer) is (variant != "archived"), ("the owner is shown what was stored", variant, surface)
     if variant == "confidential":
-        assert vault.review("admin", memory_id)["payload"] == vault.review(None, memory_id)["payload"]
+        assert vault.review("admin", memory_id)["payload"] == vault.review("owner_equal", memory_id)["payload"]
 
 
 # -- 2. every shape a writer stores -------------------------------------------------------------------------------
@@ -258,6 +262,7 @@ def _shape_params() -> list[object]:
 
 
 @pytest.mark.parametrize(("label", "variant"), _shape_params())
+
 def test_a_ref_in_any_shape_that_names_b_withholds_the_quote_from_a_key_that_may_not_read_b(
     vault: _Vault, label: str, variant: str
 ) -> None:
@@ -311,8 +316,8 @@ def test_a_ref_in_any_shape_that_names_b_withholds_the_quote_from_a_key_that_may
             assert answer["is_error"] is False, (label, variant, who, surface, str(answer["text"])[:300])
             assert _holds_quote(answer) is (before[(who, surface)] and who in authorized), (label, variant, who, surface)
         assert (vault.explain(who, memory_id)["is_error"] is False) is (who in authorized), (label, variant, who)
-    for surface, answer in surfaces(None).items():
-        assert _holds_quote(answer) is (linked or not surface.startswith("pack")), ("the owner", label, variant, surface)
+    for surface, answer in surfaces("owner_equal").items():
+        assert _holds_quote(answer) is ((linked or not surface.startswith("pack")) and variant != "archived"), ("the owner's equal", label, variant, surface)
 
 
 # -- 3. long and odd excerpts --------------------------------------------------------------------------------------
@@ -338,6 +343,7 @@ _LONG_EXCERPTS = {
 
 
 @pytest.mark.parametrize("kind", list(_LONG_EXCERPTS))
+
 def test_a_long_or_odd_excerpt_is_withheld_whole_from_the_link_and_the_copy(vault: _Vault, kind: str) -> None:
     """The excerpt reaches the link and the copy as one string, whatever its length or whitespace: a tab, a no-break space,
     an em space and CRLF are collapsed once by the commit door and the 4,000 characters the HTTP model allows arrive whole.
@@ -391,6 +397,7 @@ def _correct(vault: _Vault, **arguments: object) -> dict[str, object]:
 
 
 @pytest.mark.parametrize("variant", ("confidential", "archived"))
+
 def test_a_reviewer_who_copies_the_excerpt_of_a_held_commit_onto_a_readable_source_cannot_leak_it(
     vault: _Vault, variant: str
 ) -> None:
@@ -424,6 +431,7 @@ def test_a_reviewer_who_copies_the_excerpt_of_a_held_commit_onto_a_readable_sour
 
 
 @pytest.mark.parametrize("variant", ("confidential", "archived"))
+
 def test_the_superseded_memory_of_a_nested_reference_withholds_its_quote_like_the_replacement(
     vault: _Vault, variant: str
 ) -> None:
@@ -457,6 +465,7 @@ def test_the_superseded_memory_of_a_nested_reference_withholds_its_quote_like_th
 
 @pytest.mark.parametrize("door", ("held", "confirmed"))
 @pytest.mark.parametrize("variant", ("confidential", "archived"))
+
 def test_a_held_or_confirmed_commit_with_a_nested_reference_has_no_link_and_withholds_its_copy(
     vault: _Vault, door: str, variant: str
 ) -> None:
@@ -498,6 +507,7 @@ def test_a_held_or_confirmed_commit_with_a_nested_reference_has_no_link_and_with
 # -- 5. nothing changes for a caller who may read every source ----------------------------------------------------
 
 
+
 def test_a_caller_who_may_read_every_source_is_shown_exactly_what_the_owner_is_shown_for_refs_that_hold_other_ids(
     vault: _Vault,
 ) -> None:
@@ -522,7 +532,7 @@ def test_a_caller_who_may_read_every_source_is_shown_exactly_what_the_owner_is_s
         "meeting notes",
     ]
     memory_id, query, _body = _commit_with_refs(vault, refs, tag="otherids")
-    owner_review = vault.review(None, memory_id)["payload"]
+    owner_review = vault.review("owner_equal", memory_id)["payload"]
     assert _WORD_A in json.dumps(owner_review)
     for who in _KEY_SPECS:
         assert vault.review(who, memory_id)["payload"] == owner_review, who
@@ -531,6 +541,7 @@ def test_a_caller_who_may_read_every_source_is_shown_exactly_what_the_owner_is_s
     vault.reclassify(restricted, "confidential")
     for who in _KEY_SPECS:
         assert vault.review(who, memory_id)["payload"] == owner_review, ("an unrelated source changed", who)
+
 
 
 def test_the_text_of_a_quote_is_not_read_as_a_reference(vault: _Vault) -> None:
@@ -556,6 +567,7 @@ def test_the_text_of_a_quote_is_not_read_as_a_reference(vault: _Vault) -> None:
     for who in ("trusted", "project"):
         assert _holds_quote(vault.review(who, candidate)), who
         assert vault.explain(who, candidate)["is_error"] is False, who
+
 
 
 def test_the_owner_is_shown_what_was_stored_for_a_nested_reference(
@@ -618,6 +630,7 @@ _PRODUCER_EXCERPTS = {
 
 
 @pytest.mark.parametrize("kind", list(_PRODUCER_EXCERPTS))
+
 def test_every_writer_saves_the_same_string_on_the_link_and_in_the_copy_and_cuts_nothing(vault: _Vault, kind: str) -> None:
     """The derivation of the match rule, kept as a test. Each writer that saves a quote is run on SQLite with an excerpt and
     the string on the link is compared with the string in the memory's copy.

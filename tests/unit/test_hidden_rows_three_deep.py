@@ -58,17 +58,19 @@ def _resume(call: Call, key: str | None, **arguments: object) -> dict[str, Any]:
     return {"decision": json.loads(last["canonical_text"]) if last else None, "loops": [_title(item) for item in brief["open_loops"]]}
 
 
-def decision_is_not_changed(call: Call, stores: Stores, key: str, domain: str, level: str) -> None:
+def decision_is_not_changed(call: Call, stores: Stores, key: str, domain: str, level: str, owner_key: str | None = None) -> None:
     before = _resume(call, key, query="alpha")
     assert before["decision"], before
     with stores() as store:
         row = _chain(store, _source(store, "parent", domain=domain, sensitivity=level), "alpha hidden newest decision")
-    owner = call(None, "alice_resume", query="alpha", sensitivity_allowed=list(ALL_SENSITIVITY))["brief"]["last_decision"]
+    # The owner's control read runs as the owner's equal once keys exist
+    # (a keyless call is refused on a keyed vault).
+    owner = call(owner_key, "alice_resume", query="alpha", sensitivity_allowed=list(ALL_SENSITIVITY))["brief"]["last_decision"]
     assert owner["id"] == str(row["id"]), "the row must be the newest decision for a caller who may read it"
     assert _resume(call, key, query="alpha") == before
 
 
-def loops_are_not_changed(call: Call, stores: Stores, key: str, domain: str, level: str) -> None:
+def loops_are_not_changed(call: Call, stores: Stores, key: str, domain: str, level: str, owner_key: str | None = None) -> None:
     with stores() as store:
         store.create_open_loop({"title": "visible loop", "domain": "project", "sensitivity": "public", "status": "open", "metadata_json": {}})
     before = _resume(call, key)
@@ -81,7 +83,7 @@ def loops_are_not_changed(call: Call, stores: Stores, key: str, domain: str, lev
                 "title": "hidden newest loop", "domain": "project", "sensitivity": "public", "status": "open",
                 "metadata_json": {"derived_from": {"memories": [str(top["id"])], "counts": {"memories": 1}}},
             })
-    owner = call(None, "alice_resume", sensitivity_allowed=list(ALL_SENSITIVITY))["brief"]["open_loops"]
+    owner = call(owner_key, "alice_resume", sensitivity_allowed=list(ALL_SENSITIVITY))["brief"]["open_loops"]
     assert "hidden newest loop" in [_title(item) for item in owner], "the loop must be there for a caller who may read it"
     assert _resume(call, key) == before
     pack = call(key, "alice_context_pack", query="loop", debug=True)
@@ -128,7 +130,7 @@ def test_a_hidden_decision_three_deep_does_not_change_the_last_decision(
     chain), or ``sensitivity_allowed=sensitivity_filter`` with the trusted levels there (the private chain)."""
 
     vault = _Vault(tmp_path, monkeypatch)
-    decision_is_not_changed(vault.call, vault.store, vault.key("read_only"), domain, level)
+    decision_is_not_changed(vault.call, vault.store, vault.key("read_only"), domain, level, owner_key=vault.key("owner_equal"))
 
 
 @pytest.mark.parametrize(("label", "domain", "level"), CHAINS)
@@ -140,7 +142,7 @@ def test_a_hidden_loop_three_deep_does_not_change_the_open_loops_of_resume_or_th
     loop check of ``compile_context_pack``."""
 
     vault = _Vault(tmp_path, monkeypatch)
-    loops_are_not_changed(vault.call, vault.store, vault.key("read_only"), domain, level)
+    loops_are_not_changed(vault.call, vault.store, vault.key("read_only"), domain, level, owner_key=vault.key("owner_equal"))
 
 
 @pytest.mark.parametrize(

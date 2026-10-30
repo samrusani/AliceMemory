@@ -116,7 +116,10 @@ def test_a_loop_its_caller_wrote_over_a_memory_stays_readable_after_the_memory_i
         rows = {str(row["id"]): row for row in _loops(vault, vault.keys[name])}
         assert loop_id in rows, name
         assert words in json.dumps(rows[loop_id], default=str), name
-    owner_rows = {str(row["id"]): row for row in _loops(vault, None)}
+    # The owner's list ran keyless once; on a vault that holds keys a keyless
+    # call is refused, so the leg runs as the owner's equal (an unbound admin
+    # key gets what the owner got).
+    owner_rows = {str(row["id"]): row for row in _loops(vault, vault.owner_equal)}
     assert loop_id in owner_rows
     for name in RESTRICTED:
         shown = {str(row["id"]): row for row in _loops(vault, vault.keys[name])}
@@ -139,7 +142,10 @@ def test_the_owner_and_an_unbound_admin_key_read_contained_rows_by_id_but_not_th
 
     vault.redact()
     queries = ("Atlas played hours", "Project state", "Merge Atlas", "Again")
-    for key in (None, vault.keys["admin"]):
+    # The owner's leg ran keyless once; on a vault that holds keys a keyless
+    # call is refused (reads included), so the leg runs as the owner's equal:
+    # an unbound admin_agent key gets what the owner got.
+    for key in (vault.owner_equal, vault.keys["admin"]):
         for row_id in vault.contained:
             assert vault.sentinel in json.dumps(vault.call(key, "alice_explain", {"memory_id": row_id}), default=str)
             detail = vault.call(key, "alice_memory_review", {"review_item_id": row_id})

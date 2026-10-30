@@ -428,7 +428,7 @@ def test_an_unrestricted_key_reads_every_domain_with_or_without_naming_them(
 
 
 @pytest.mark.parametrize("tool", sorted(TOOLS))
-def test_the_owner_reads_every_domain_of_every_project(vault: Vault, tool: str) -> None:
+def test_the_owner_reads_every_domain_of_every_project(keyless_vault: Vault, tool: str) -> None:
     """Mutation: apply the permitted set to a call with no identity (derive it before the ``identity is None`` return of
     ``evaluate_agent_policy``).
 
@@ -437,11 +437,11 @@ def test_the_owner_reads_every_domain_of_every_project(vault: Vault, tool: str) 
     """
 
     for domains in (None, []):
-        answer = vault.read(tool, key=None, domains=domains)
+        answer = keyless_vault.read(tool, key=None, domains=domains)
         assert answer["is_error"] is False, answer
-        found = vault.found(answer)
-        _assert_permitted_content_returns(vault, tool, found, SEEDED)
-        assert vault.held_back_in(answer) == sorted(HELD_BACK)
+        found = keyless_vault.found(answer)
+        _assert_permitted_content_returns(keyless_vault, tool, found, SEEDED)
+        assert keyless_vault.held_back_in(answer) == sorted(HELD_BACK)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -467,7 +467,7 @@ KEYLESS_IDENTITIES: dict[str, tuple[dict[str, object], bool]] = {
 @pytest.mark.parametrize("tool", sorted(TOOLS))
 @pytest.mark.parametrize("name", sorted(KEYLESS_IDENTITIES))
 def test_a_keyless_call_that_declares_a_profile_is_held_to_that_profile_when_it_names_no_domain(
-    vault: Vault, name: str, tool: str
+    keyless_vault: Vault, name: str, tool: str
 ) -> None:
     """Mutation: remove the omitted-request branch of ``_filtered_domains`` (the same edit as the first test).
 
@@ -480,14 +480,14 @@ def test_a_keyless_call_that_declares_a_profile_is_held_to_that_profile_when_it_
 
     identity, held_back = KEYLESS_IDENTITIES[name]
     arguments = {**{k: v for k, v in TOOLS[tool].items() if k not in {"project_scope", "project"}}, **identity}
-    answer = vault.wire(tool, arguments, key=None)
+    answer = keyless_vault.wire(tool, arguments, key=None)
     assert answer["is_error"] is False, (name, tool, answer)
-    found = vault.found(answer)
+    found = keyless_vault.found(answer)
     if held_back:
-        assert vault.held_back_in(answer) == [], (name, tool)
+        assert keyless_vault.held_back_in(answer) == [], (name, tool)
         _assert_permitted_content_returns(vault, tool, found, PERMITTED_SEEDED)
     else:
-        assert vault.held_back_in(answer) == sorted(HELD_BACK), (name, tool)
+        assert keyless_vault.held_back_in(answer) == sorted(HELD_BACK), (name, tool)
         _assert_permitted_content_returns(vault, tool, found, SEEDED)
 
 
@@ -536,7 +536,7 @@ def test_the_per_project_fill_applies_the_domain_filter_to_the_project_rows_of_a
     assert vault.error_code(refused) == "not_permitted"
 
 
-def test_the_per_project_fill_of_a_keyless_declared_profile_is_held_to_it(vault: Vault) -> None:
+def test_the_per_project_fill_of_a_keyless_declared_profile_is_held_to_it(keyless_vault: Vault) -> None:
     """Mutation: the same three edits as the test above. A keyless call that declares ``read_only_agent`` reads the project
     view with scoping on, and now leaves out the project's held-back rows.
     """
@@ -546,9 +546,9 @@ def test_the_per_project_fill_of_a_keyless_declared_profile_is_held_to_it(vault:
         "max_open_loops": 20,
         "agent_id": "someagent",
     }
-    answer = vault.wire("alice_resume", arguments, key=None, scoping=True)
+    answer = keyless_vault.wire("alice_resume", arguments, key=None, scoping=True)
     assert answer["is_error"] is False, answer
-    assert vault.held_back_in(answer) == []
+    assert keyless_vault.held_back_in(answer) == []
     loops = answer["payload"]["brief"]["open_loops"]  # type: ignore[index]
     assert {str(loop["domain"]) for loop in loops} == set(PERMITTED_SEEDED)
 

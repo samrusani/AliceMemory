@@ -1,4 +1,16 @@
-"""The reason of a what-changed step is a saved quote, and the saved-quote reader decides who is shown it.
+"""
+
+--- Coverage note: three assertions this branch's first version carried were replaced when the
+keyless owner legs became keyed. What each covered and where it is covered now:
+- `assert review(None) == owner_review and pack(None) == owner_pack` (the keyless owner's answers
+  equal the owner's control) is covered by the owner-equal control itself: `owner_review` and
+  `owner_pack` are the owner-equal's answers, and the tests assert every keyed reader against them.
+- the keyless and the declared readers' post-change reads (the tail of the first test) are covered
+  by the refusal assertion (a keyless call is refused once keys exist) and by the read_only key's
+  read, which holds the same ceiling the declared keyless reader had.
+- the matrix's `"owner"` member with a None key is covered by the "owner" row reading through the
+  owner-equal key, whose expectations are unchanged (it reads every sensitivity).
+The reason of a what-changed step is a saved quote, and the saved-quote reader decides who is shown it.
 
 A decision keeps the quote it was recorded with in its references, and a commit can cite a memory in one entry
 (``"memory:<id>"``) and keep the words in the entry beside it (``{"quote": "..."}``). The reader that the context pack and
@@ -75,7 +87,7 @@ KEYED = (
     ("admin", "admin_agent", None),
     ("admin_bound", "admin_agent", ALPHA),
 )
-READS_CONFIDENTIAL = {"owner", "admin", "admin_bound"}
+READS_CONFIDENTIAL = {"owner", "owner_equal", "admin", "admin_bound"}
 DECLARED = {"agent_identity": {"agent_id": "declared-reader", "permission_profile": "read_only_agent"}}
 
 
@@ -106,10 +118,14 @@ def _vault(tmp_path: Path, name: str) -> tuple[Path, str]:
 def _keys(path: Path, user_id: str) -> dict[str, str]:
     with sqlite_user_connection(path, user_id) as conn:
         store = SQLiteVNextStore(conn, user_id)
-        return {
+        keys = {
             name: create_agent_key(store, user_id=user_id, agent_id=name, permission_profile=profile, project_scope=project)[1]
             for name, profile, project in KEYED
         }
+        # The owner's equal on a vault that holds keys: an unbound admin key
+        # gets what the owner gets.
+        keys["owner_equal"] = create_agent_key(store, user_id=user_id, agent_id="owner-equal", permission_profile="admin_agent", project_scope=None)[1]
+        return keys
 
 
 def _both_doors(
@@ -194,13 +210,19 @@ def test_a_quote_in_a_sibling_entry_of_a_memory_that_became_confidential_is_with
         return [_reasons(answer)[step] for answer in _both_doors(path, user_id, keys[name], "lantern policy", monkeypatch)]
 
     for name in keys:
+        if name == "owner_equal":
+            continue
         assert with_key(name) == [shown] * 2, name
     with sqlite_user_connection(path, user_id) as conn:
         SQLiteVNextStore(conn, user_id).update_memory(
             memory_id=str(cited["id"]), patch={"sensitivity": "confidential", "domain": "legal"}, actor_type="system"
         )
-    assert owner(route=False) == [shown]
+    # The owner's read runs as the owner's equal once keys exist (a keyless
+    # call is refused): an unbound admin key gets what the owner got.
+    assert [_reasons(answer)[step] for answer in [_tool(path, user_id, keys["owner_equal"], {"topic": "lantern policy"}, monkeypatch)]] == [shown]
     for name in keys:
+        if name == "owner_equal":
+            continue
         expected = shown if name in READS_CONFIDENTIAL else None
         answers = with_key(name)
         assert answers == [expected, expected], name
@@ -209,14 +231,19 @@ def test_a_quote_in_a_sibling_entry_of_a_memory_that_became_confidential_is_with
         # The same caller, asked about the same memory by ``alice_explain``, is shown the quote exactly when this read shows it.
         explained = _explained(path, user_id, keys[name], step, monkeypatch)
         assert (explained is not None and MARK in explained) == (expected is not None), name
-    after = _tool(path, user_id, None, {"topic": "lantern policy", **DECLARED}, monkeypatch)
+    # The declared keyless reader of the pre-change rows is refused once
+    # keys exist; the same profile's key reads with the same ceiling.
+    after = _tool(path, user_id, keys["read_only"], {"topic": "lantern policy"}, monkeypatch)
     assert _reasons(after)[step] is None
     assert MARK not in json.dumps(after)
     # The pack is asked of every caller it answers with the reference list. It shows the quote to the owner and to the
     # unbound admin key, and to no other caller, which is the answer this read gives.
     for name in PACK_CALLERS:
-        key = keys.get(name)
-        rows = _pack_rows(path, user_id, key, "lantern policy", monkeypatch, declared=name == "declared")
+        # The owner and the declared keyless readers are keys now: the
+        # owner's equal (an unbound admin) and the read_only key read with
+        # the same ceilings those callers had.
+        key = keys["owner_equal"] if name == "owner" else keys.get("read_only") if name == "declared" else keys.get(name)
+        rows = _pack_rows(path, user_id, key, "lantern policy", monkeypatch)
         assert (MARK in json.dumps(rows[step], default=str)) == (name in UNLIMITED), name
 
 
@@ -246,6 +273,8 @@ def test_a_quote_that_names_a_retired_memory_in_an_incidental_place_is_withheld(
     _install_route(monkeypatch, path, user_id)
     keys = _keys(path, user_id)
     for name, key in keys.items():
+        if name == "owner_equal":
+            continue
         for answer in _both_doors(path, user_id, key, "lantern policy", monkeypatch):
             assert _reasons(answer)[str(decision["id"])] is not None, name
     with sqlite_user_connection(path, user_id) as conn:
@@ -255,6 +284,8 @@ def test_a_quote_that_names_a_retired_memory_in_an_incidental_place_is_withheld(
         else:
             assert redact_memory_flow(store, memory_id=str(cited["id"]), reason="synthetic")["status"] == "redacted"
     for name, key in keys.items():
+        if name == "owner_equal":
+            continue
         for answer in _both_doors(path, user_id, key, "lantern policy", monkeypatch):
             reasons = _reasons(answer)
             assert (reasons[str(decision["id"])] is not None) == (name in UNLIMITED), (how, name)
@@ -262,13 +293,19 @@ def test_a_quote_that_names_a_retired_memory_in_an_incidental_place_is_withheld(
             if name not in UNLIMITED:
                 assert MARK not in json.dumps(answer), (how, name)
     for name in PACK_CALLERS:
-        rows = _pack_rows(path, user_id, keys.get(name), "lantern policy", monkeypatch, declared=name == "declared")
+        if name == "owner":
+            rows = _pack_rows(path, user_id, keys["owner_equal"], "lantern policy", monkeypatch)
+        elif name == "declared":
+            rows = _pack_rows(path, user_id, keys["read_only"], "lantern policy", monkeypatch)
+        else:
+            rows = _pack_rows(path, user_id, keys.get(name), "lantern policy", monkeypatch)
         assert (MARK in json.dumps(rows[str(decision["id"])], default=str)) == (name in UNLIMITED), (how, name)
-    keyless = _tool(path, user_id, None, {"topic": "lantern policy"}, monkeypatch)
-    assert _reasons(keyless)[str(decision["id"])] is not None
-    declared = _tool(path, user_id, None, {"topic": "lantern policy", **DECLARED}, monkeypatch)
-    assert _reasons(declared)[str(decision["id"])] is None
-    assert MARK not in json.dumps(declared)
+    # A keyless call is refused once keys exist: the keyless and the declared
+    # readers of the rows above are the owner-equal and the read_only key.
+    from alicebot_api.mcp.types import MCPNotPermittedError
+
+    with pytest.raises(MCPNotPermittedError):
+        _tool(path, user_id, None, {"topic": "lantern policy"}, monkeypatch)
 
 
 def test_a_source_is_cited_only_from_an_entry_whose_other_inputs_are_all_readable(
@@ -310,7 +347,9 @@ def test_a_source_is_cited_only_from_an_entry_whose_other_inputs_are_all_readabl
                 found[str(step["id"])] = {item["source_id"] for item in step["sources"]}
         return found
 
-    for who, key in {**keys, "owner": None}.items():
+    # The owner's read runs as the owner's equal once keys exist (a
+    # keyless call is refused); the "owner" name keeps its expectations.
+    for who, key in {**keys, "owner": keys["owner_equal"]}.items():
         answers = [_tool(path, user_id, key, {"topic": "citation keel"}, monkeypatch)]
         if who != "owner":
             answers.append(_route(user_id, key, "citation keel"))

@@ -148,7 +148,7 @@ def test_instruction_shaped_memory_is_framed_and_attributed_on_each_surface(
         permission_profile="trusted_local_agent",
         **common,
     )
-    _record, raw_key = _store_read(
+    key_id, raw_key = _store_read(
         context,
         lambda store: create_agent_key(
             store,
@@ -168,6 +168,10 @@ def test_instruction_shaped_memory_is_framed_and_attributed_on_each_surface(
         **common,
     )
     monkeypatch.delenv(AGENT_API_KEY_ENV, raising=False)
+    # The keyed writer's label is stored at commit time; the key is revoked
+    # here so the keyless reads below run on the keyless vault the rule
+    # leaves alone.
+    _store_read(context, lambda store: store.revoke_agent_api_key(key_id=str(key_id["id"])))
 
     _store_read(
         context,
@@ -522,7 +526,7 @@ def test_owner_correct_does_not_keep_verified_by_key(
     from alicebot_api.vnext_agent_keys import create_agent_key
 
     context = _context(tmp_path)
-    _record, raw_key = _store_read(
+    key_id, raw_key = _store_read(
         context,
         lambda store: create_agent_key(
             store,
@@ -546,6 +550,7 @@ def test_owner_correct_does_not_keep_verified_by_key(
         permission_profile="trusted_local_agent",
     )
     monkeypatch.delenv(AGENT_API_KEY_ENV, raising=False)
+    _store_read(context, lambda store: store.revoke_agent_api_key(key_id=str(key_id["id"])))
     memory_id = committed["memory"]["id"]
     rewritten = f"{INSTRUCTION} owner-rewrite {TOKEN}"
     corrected = _service(
@@ -571,7 +576,7 @@ def test_keyless_other_agent_correct_does_not_keep_verified_by_key(
     from alicebot_api.vnext_agent_keys import create_agent_key
 
     context = _context(tmp_path)
-    _record, raw_key = _store_read(
+    key_id, raw_key = _store_read(
         context,
         lambda store: create_agent_key(
             store,
@@ -595,6 +600,7 @@ def test_keyless_other_agent_correct_does_not_keep_verified_by_key(
         permission_profile="trusted_local_agent",
     )
     monkeypatch.delenv(AGENT_API_KEY_ENV, raising=False)
+    _store_read(context, lambda store: store.revoke_agent_api_key(key_id=str(key_id["id"])))
     memory_id = committed["memory"]["id"]
     rewritten = f"{INSTRUCTION} other-rewrite {TOKEN}"
     corrected = _service(
@@ -620,7 +626,7 @@ def test_keyless_confirm_with_text_does_not_keep_verified_by_key(
     from alicebot_api.vnext_agent_keys import create_agent_key
 
     context = _context(tmp_path)
-    _record, raw_key = _store_read(
+    key_id, raw_key = _store_read(
         context,
         lambda store: create_agent_key(
             store,
@@ -645,6 +651,7 @@ def test_keyless_confirm_with_text_does_not_keep_verified_by_key(
         permission_profile="trusted_local_agent",
     )
     monkeypatch.delenv(AGENT_API_KEY_ENV, raising=False)
+    _store_read(context, lambda store: store.revoke_agent_api_key(key_id=str(key_id["id"])))
     assert pending["status"] == "confirmation_required", pending
     rewritten = f"{INSTRUCTION} confirm-rewrite {TOKEN}"
     confirmed = _service(
@@ -673,7 +680,7 @@ def test_recent_changes_label_the_agent_not_the_owner(
     from alicebot_api.vnext_agent_keys import create_agent_key
 
     context = _context(tmp_path)
-    _record, raw_key = _store_read(
+    key_id, raw_key = _store_read(
         context,
         lambda store: create_agent_key(
             store,
@@ -697,6 +704,7 @@ def test_recent_changes_label_the_agent_not_the_owner(
         permission_profile="trusted_local_agent",
     )
     monkeypatch.delenv(AGENT_API_KEY_ENV, raising=False)
+    _store_read(context, lambda store: store.revoke_agent_api_key(key_id=str(key_id["id"])))
     resume = _call(context, "alice_resume", query=TOKEN, max_open_loops=0, max_recent_changes=8)
     pack = _call(context, "alice_context_pack", query=TOKEN, max_items=8)
     resume_changes = [

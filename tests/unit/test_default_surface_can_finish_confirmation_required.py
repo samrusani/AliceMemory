@@ -646,14 +646,27 @@ SALARY = {
 SALARY_QUERY = "salary band confidential"
 
 
+def _owner_equal_key(context) -> str:
+    from alicebot_api.mcp_tools import AGENT_API_KEY_ENV as _ENV  # noqa: F401  (the caller's env name)
+    from alicebot_api.vnext_agent_keys import create_agent_key
+
+    record, raw = _store_read(
+        context, lambda store: create_agent_key(store, user_id=USER_ID, agent_id="owner-equal", permission_profile="admin_agent", project_scope=None)
+    )
+    return raw
+
+
 def _owner_recall_ids(context, monkeypatch: pytest.MonkeyPatch, query: str) -> set[str]:
-    """Recall as the keyless owner, allowed to see confidential rows, so a
-    confidential row that became searchable could not hide behind a filter."""
+    """Recall as the owner's equal (an unbound admin key), allowed to see confidential rows, so a
+    confidential row that became searchable could not hide behind a filter. On a vault with keys
+    the keyless owner call is refused, so the read carries the owner's equal."""
 
     from alicebot_api.mcp_tools import AGENT_API_KEY_ENV
 
+    owner_key = _owner_equal_key(context)
+
     with monkeypatch.context() as scoped:
-        scoped.delenv(AGENT_API_KEY_ENV, raising=False)
+        scoped.setenv(AGENT_API_KEY_ENV, owner_key)
         return _recalled_ids(
             context,
             query=query,
@@ -703,7 +716,7 @@ def test_a_key_cannot_confirm_its_own_write_above_its_ceiling_but_can_reject_it(
     with monkeypatch.context() as scoped:
         from alicebot_api.mcp_tools import AGENT_API_KEY_ENV
 
-        scoped.delenv(AGENT_API_KEY_ENV, raising=False)
+        scoped.setenv(AGENT_API_KEY_ENV, _owner_equal_key(context))
         control = _commit_pending(
             context, **{**SALARY, "canonical_text": "The salary band for the user is confidential and reviewed yearly."}
         )

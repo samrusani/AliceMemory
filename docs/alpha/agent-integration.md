@@ -25,12 +25,15 @@ Agents should use Alice as a durable, private, provenance-aware, reviewable memo
    No Postgres yet? `alice-memory mcp --data-dir ~/.alice` serves the same
    default three tools against a local SQLite file. No `DATABASE_URL` needed.
 
-2. (Recommended on Postgres) Bind the server to an agent identity: create
-   a key with `alicebot agent keys create` and set `ALICE_AGENT_API_KEY`
-   in the MCP server env (details under [Authentication](#authentication)).
-   Key creation requires Postgres — in SQLite on-ramp mode, skip this step
-   and leave `ALICE_AGENT_API_KEY` unset; payload identity is honored and
-   audited as `unauthenticated_local`.
+2. (Recommended) Bind the server to an agent identity: create a key and
+   set `ALICE_AGENT_API_KEY` in the MCP server env (details under
+   [Authentication](#authentication)). On Postgres create it with
+   `alicebot agent keys create`; on the SQLite vault mint it with
+   `alice-memory keys create` (each agent gets its own key; keys tell Alice
+   which agent is asking and limit what Alice returns to it, and they do
+   not stop a process that runs as your OS user from reading the vault
+   file). Once the vault holds an active key, a keyless MCP call is
+   refused, reads included.
 3. Drop one of the skill blocks into your agent's instructions:
    [hermes-skill.md](hermes-skill.md) for personal assistants,
    [openclaw-skill.md](openclaw-skill.md) for coding agents.
@@ -292,6 +295,59 @@ UTF-8 is answered as before, with its text in `input`, and a request with
 `Content-Type: application/json` is answered as before. v0.19.2 answers HTTP 500
 for such a body.
 
+### Agent keys on the SQLite vault (`alice-memory`)
+
+Each agent gets its own key on the local SQLite vault: keys tell Alice which
+agent is asking and limit what Alice returns to that agent. They do not stop a
+process that runs as your OS user from reading the vault file.
+
+Mint one key per agent and one for each agent host you run yourself:
+
+```bash
+alice-memory keys create --agent-id claude-code --profile admin_agent --label "Claude Code host"
+alice-memory keys create --agent-id openclaw --profile project_scoped_agent --project acme
+```
+
+`--profile` takes the five profiles the PostgreSQL command takes, `--project`
+binds the key to one project (the same validation and the same refusals as
+`alicebot agent keys create --project-scope`). The raw key is printed exactly
+once; only its sha256 hash and a short prefix are stored. `alice-memory keys
+list` shows prefixes, agent ids, profiles, labels, projects, created, last used
+and revoked state, never a hash or a raw key, and `alice-memory keys revoke
+<prefix>` revokes one key.
+
+Once the vault holds at least one active key, every keyless MCP call is
+refused (reads included), so give each agent host its own key in that host's
+environment:
+
+- set `ALICE_AGENT_API_KEY=<the key>` in the environment the host's MCP server
+  process starts with (Claude Code and the plugin: the `env` map of the
+  host's MCP entry, or the launch environment of your user session);
+- set the variable in the environment the host launches with (Hermes does
+  not inherit your shell's environment and its config's env map is not the
+  place for a secret), so export `ALICE_AGENT_API_KEY` in the launchd
+  session, the terminal, or the wrapper that starts the host. There is no
+  flag that takes the key itself: a key on a command line lands in shell
+  history, and install never writes a raw key into any file.
+- the session-start hook (`alice-memory-session-start`, which the host's
+  hooks and the plugin run) is a separate process from the MCP server: an
+  MCP server env map does not reach it. It reads `ALICE_AGENT_API_KEY` from
+  ITS OWN environment (the host's launch environment: what you set for the
+  host, the hook sees, because hooks inherit the host's environment). Once
+  keys exist, a hook without the key prints nothing and exits 0: the
+  session starts with no brief until the host's environment carries the
+  key. An MCP server's env map alone (Claude Code's `mcpServers` entry) is
+  not enough for the hook.
+
+The owner's own agent hosts need a key too once keys exist: mint an unbound
+`admin_agent` key for each of them (`alice-memory keys create --agent-id <host>
+--profile admin_agent`). The human-run commands (`import`, `export`, `doctor`,
+`sleep`, `proposals`, `keys`, `import-markdown`, `import-chatgpt`) keep running
+as the owner; they are not agent doors and take no key. A revoked key is
+refused on its next call, and when the last active key is revoked the vault is
+keyless again and behaves as before. The JSONL export does not contain keys, so
+after an import from an export the keys must be minted again.
+
 ## Scopes
 
 Memories carry four scopes. `user_id` is the hard tenancy boundary (RLS);
@@ -419,11 +475,14 @@ Identity requirements:
 - When a key is in play, the key record — not the payload — determines
   `agent_id` and `permission_profile`; claiming a different agent or a
   higher profile is rejected and logged.
-- Keys cannot be minted in SQLite on-ramp mode — `alicebot agent keys
-  create` requires Postgres. Leave `ALICE_AGENT_API_KEY` unset there:
-  identity is honored and audited as `unauthenticated_local`. If it is
-  set anyway, enforcement fails closed and every core tool call is refused,
-  reads included.
+- Keys are minted on the SQLite vault with `alice-memory keys create`
+  (the raw key is printed once; only its hash and prefix are stored).
+  Once the vault holds at least one active key, every keyless MCP call is
+  refused, reads included; without an active key the vault is keyless and
+  identity is honored and audited as `unauthenticated_local`. Keys tell
+  Alice which agent is asking and limit what Alice returns to it; they do
+  not stop a process that runs as your OS user from reading the vault
+  file.
 
 ## CLI Example
 

@@ -179,7 +179,8 @@ from alicebot_api.sqlite_store import (
     ensure_sqlite_user,
     sqlite_user_connection,
 )
-from alicebot_api.vnext_agent_keys import AGENT_KEY_AUTH
+from alicebot_api.vnext_agent_control import PERMISSION_PROFILES
+from alicebot_api.vnext_agent_keys import AGENT_KEY_AUTH, AgentKeyValidationError
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_embeddings import (
     EMBEDDING_SIGNATURE_VERSION,
@@ -221,6 +222,7 @@ _KNOWN_COMMANDS = (
     "install",
     "project",
     "labels",
+    "keys",
 )
 
 _EXPORT_FORMAT = "alice-memory-jsonl"
@@ -1464,6 +1466,51 @@ def build_parser() -> argparse.ArgumentParser:
     source_prune.add_argument("--older-than", type=int, default=None, metavar="DAYS", help="Only versions replaced at least this many days ago.")
     source_prune.add_argument("--yes", action="store_true", help="Apply the scrub. Without it, preview and exit 2.")
 
+    keys_parser = subparsers.add_parser(
+        "keys",
+        help="Manage per-agent API keys on the local SQLite vault.",
+        description=(
+            "Agent keys tell Alice which agent is asking and limit what Alice "
+            "returns to that agent. They do not stop a process that runs as "
+            "your OS user from reading the vault file."
+        ),
+    )
+    keys_commands = keys_parser.add_subparsers(dest="keys_command", required=True)
+    keys_create = keys_commands.add_parser(
+        "create",
+        help="Mint a per-agent API key. The raw key is printed exactly once.",
+    )
+    _add_database_arguments(keys_create)
+    keys_create.add_argument("--agent-id", required=True, help="Agent id the key authenticates.")
+    keys_create.add_argument(
+        "--profile",
+        required=True,
+        choices=PERMISSION_PROFILES,
+        help="Permission profile granted to the key.",
+    )
+    keys_create.add_argument("--label", default=None, help="Optional human-readable key label.")
+    keys_create.add_argument(
+        "--project",
+        default=None,
+        help=(
+            "Optionally bind the key to one project. Identities resolved from a bound key "
+            "carry that project scope (payloads may narrow it, never widen it) and write "
+            "actions outside the scope are blocked by policy."
+        ),
+    )
+    keys_create.add_argument("--json", action="store_true", help="Print the JSON record instead of the human output.")
+    keys_list = keys_commands.add_parser(
+        "list",
+        help="List the vault's agent keys. Prefixes only, never hashes or raw keys.",
+    )
+    _add_database_arguments(keys_list)
+    keys_list.add_argument("--limit", type=int, default=0, help="Maximum keys to return (0, the default, returns every key).")
+    keys_list.add_argument("--json", action="store_true", help="Print JSON records instead of the human table.")
+    keys_revoke = keys_commands.add_parser("revoke", help="Revoke one agent key, by key prefix or key id.")
+    _add_database_arguments(keys_revoke)
+    keys_revoke.add_argument("key", help="Key prefix or key id to revoke.")
+    keys_revoke.add_argument("--json", action="store_true", help="Print the JSON record instead of the human line.")
+
     import_markdown_parser = subparsers.add_parser(
         "import-markdown",
         help="Import a Markdown folder or file into local SQLite sources.",
@@ -1584,8 +1631,35 @@ def _project_view_for_command(args: argparse.Namespace, db_path: Path) -> Projec
     return view
 
 
-def _run_brief(args: argparse.Namespace) -> int:
-    from alicebot_api.session_briefing import compile_local_session_brief, sensitive_global_exclusion
+def _agent_key_public_record(record) -> dict:
+    return {
+        "id": record.get("id"),
+        "key_prefix": record.get("key_prefix"),
+        "agent_id": record.get("agent_id"),
+        "permission_profile": record.get("permission_profile"),
+        "project_scope": record.get("project_scope"),
+        "label": record.get("label"),
+        "created_at": record.get("created_at"),
+        "last_used_at": record.get("last_used_at"),
+        "revoked_at": record.get("revoked_at"),
+        "revoked": record.get("revoked_at") is not None,
+    }
+
+
+def _emit_keys_error(message: str) -> int:
+    """A keys command refusal: the same fixed words the PostgreSQL CLI prints."""
+    print(
+        json.dumps({"error": {"code": "invalid_request", "message": message}},
+                   ensure_ascii=True, separators=(",", ":"), sort_keys=True),
+        file=sys.stderr,
+        flush=True,
+    )
+    return 2
+
+
+def _run_keys_create(args: argparse.Namespace) -> int:
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from alicebot_api.vnext_agent_keys import create_agent_key
 
     db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
     bootstrap_database(
@@ -1594,6 +1668,125 @@ def _run_brief(args: argparse.Namespace) -> int:
         user_email=args.user_email,
         secure_parent=args.db is None,
     )
+    try:
+        with sqlite_user_connection(db_path, args.user_id) as connection:
+            record, raw_key = create_agent_key(
+                SQLiteVNextStore(connection, args.user_id),
+                user_id=args.user_id,
+                agent_id=args.agent_id,
+                permission_profile=args.profile,
+                label=args.label,
+                project_scope=args.project,
+            )
+    except AgentKeyValidationError as exc:
+        return _emit_keys_error(str(exc))
+    if args.json:
+        print(json.dumps({
+            "status": "created",
+            "key": _agent_key_public_record(record),
+            "raw_key": raw_key,
+            "warning": "Store this key now. It is shown exactly once; only its sha256 hash is persisted.",
+        }, ensure_ascii=True, sort_keys=True))
+        return 0
+    print(raw_key)
+    print("Store this key now; it is not shown again, and only its sha256 hash is stored.")
+    print(f"Agent: {record['agent_id']}  profile: {record['permission_profile']}"
+          + (f"  project: {record['project_scope']}" if record.get("project_scope") else "")
+          + (f"  label: {record['label']}" if record.get("label") else ""))
+    return 0
+
+
+def _run_keys_list(args: argparse.Namespace) -> int:
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+
+    db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
+    bootstrap_database(
+        db_path,
+        user_id=args.user_id,
+        user_email=args.user_email,
+        secure_parent=args.db is None,
+    )
+    with sqlite_user_connection(db_path, args.user_id) as connection:
+        records = SQLiteVNextStore(connection, args.user_id).list_agent_api_keys(limit=args.limit or 10**9)
+        returned = len(records)
+        left_out = 0
+    items = [_agent_key_public_record(record) for record in records]
+    if args.json:
+        print(json.dumps({"items": items, "count": len(items), "order": ["created_at_desc", "id_desc"]},
+                         ensure_ascii=True, sort_keys=True))
+        return 0
+    if not items:
+        print("No agent keys on this vault.")
+        return 0
+    for item in items:
+        state = "revoked" if item["revoked"] else "active"
+        print(
+            f"{item['key_prefix']}  {item['agent_id']}  {item['permission_profile']}"
+            f"  project={item['project_scope'] or '-'}  label={item['label'] or '-'}"
+            f"  created={item['created_at']}  last_used={item['last_used_at'] or '-'}  {state}"
+        )
+    return 0
+
+
+def _run_keys_revoke(args: argparse.Namespace) -> int:
+    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+    from alicebot_api.vnext_agent_keys import AgentKeyValidationError
+
+    selector = args.key.strip()
+    if not selector:
+        return _emit_keys_error("a key prefix or key id is required")
+    db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
+    bootstrap_database(
+        db_path,
+        user_id=args.user_id,
+        user_email=args.user_email,
+        secure_parent=args.db is None,
+    )
+    try:
+        with sqlite_user_connection(db_path, args.user_id) as connection:
+            store = SQLiteVNextStore(connection, args.user_id)
+            records = store.list_agent_api_keys(limit=200)
+            matches = [
+                record
+                for record in records
+                if str(record.get("id")) == selector
+                or str(record.get("key_prefix") or "").startswith(selector)
+            ]
+            shown = selector[:12]
+            if not matches:
+                raise AgentKeyValidationError(f"no agent API key matches '{shown}'")
+            if len(matches) > 1:
+                raise AgentKeyValidationError(f"key prefix '{shown}' matches several keys; revoke by the key id shown by keys list")
+            revoked = store.revoke_agent_api_key(key_id=str(matches[0]["id"]))
+            if revoked is None:
+                raise AgentKeyValidationError(f"agent API key '{selector}' is already revoked")
+    except AgentKeyValidationError as exc:
+        return _emit_keys_error(str(exc))
+    record = _agent_key_public_record(revoked)
+    if args.json:
+        print(json.dumps({"status": "revoked", "key": record}, ensure_ascii=True, sort_keys=True))
+        return 0
+    print(f"Revoked {record['key_prefix']} ({record['agent_id']}); its next call is refused.")
+    return 0
+
+
+def _run_brief(args: argparse.Namespace) -> int:
+    from alicebot_api.session_briefing import compile_local_session_brief, sensitive_global_exclusion, session_brief_identity
+
+    db_path = resolve_db_path(data_dir=args.data_dir, db=args.db)
+    bootstrap_database(
+        db_path,
+        user_id=args.user_id,
+        user_email=args.user_email,
+        secure_parent=args.db is None,
+    )
+    # The active-key rule, shared with the session-start hook: once the
+    # vault holds an active key the brief runs as the key's agent and shows
+    # only what that key may read; without a key in the environment it prints
+    # nothing and exits 0 (a host hook never fails a session).
+    identity, quiet = session_brief_identity(db_path, args.user_id)
+    if quiet:
+        return 0
     view = _project_view_for_command(args, db_path)
     if view is None:
         return 2
@@ -1603,6 +1796,7 @@ def _run_brief(args: argparse.Namespace) -> int:
         query=args.query,
         project_view=view,
         exclude_global_domains=sensitive_global_exclusion(view),
+        identity=identity,
     )
     print(markdown)
     return 0
@@ -4792,6 +4986,13 @@ def main(argv: list[str] | None = None) -> int:
             return _run_import_chatgpt(args)
         if args.command == "reindex-embeddings":
             return _run_reindex_embeddings(args)
+        if args.command == "keys":
+            if args.keys_command == "create":
+                return _run_keys_create(args)
+            if args.keys_command == "list":
+                return _run_keys_list(args)
+            if args.keys_command == "revoke":
+                return _run_keys_revoke(args)
         if args.command == "brief":
             return _run_brief(args)
         if args.command == "doctor":

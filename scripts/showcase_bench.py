@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Mapping, Sequence
 import json
+import subprocess
 import math
 import os
 from pathlib import Path
@@ -83,15 +84,13 @@ FAILURE_CLASSES = (
 # Normal approximation: 95 percent two-sided, 80 percent power, variance 0.5 for a paired 0/1 difference.
 PAIRED_Z = 1.96 + 0.8416212335729143
 HARNESS_PRIVILEGE_SECTION = (
-    "Harness privileges. The harness does three things a user of the same store cannot do. "
-    "It creates team keys on a SQLite vault. The shipped SQLite product cannot create a key "
-    "(alicebot agent keys create requires Postgres) and a configured key is refused. "
-    "It resolves identities in process and hands them to the MCP session. "
-    "It passes sensitivity_allowed from the team profile into alice_recall. "
+    "Harness privileges. The harness creates team keys through the product's own command "
+    "(alice-memory keys create). It resolves identities in process and hands them to the MCP session, "
+    "and it passes sensitivity_allowed from the team profile into alice_recall. "
     "An Alice answer, and a leak rate from those answers, depends on these privileges."
 )
 ALICE_PRIVILEGE_NOTE = (
-    "depends on harness privileges: sqlite team key, in-process identity, sensitivity_allowed"
+    "depends on harness privileges: keys minted through the product command, in-process identity, sensitivity_allowed"
 )
 
 _RECALL = (
@@ -1206,24 +1205,35 @@ def _indexed_notes(db_path: Path) -> int:
 
 
 def _create_keys(db_path: Path) -> dict[str, str]:
+    """Mint the team keys through the product's own command.
+
+    ``alice-memory keys create`` is the shipped way to mint a key on the
+    SQLite vault, so the measured path is the product's path: one command run
+    per team key, same agent ids, profiles and labels as before. The raw key
+    is read from the command's output once and handed to the MCP session.
+    """
+
+    import json as _json
     from uuid import UUID
 
-    from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
-    from alicebot_api.vnext_agent_keys import create_agent_key
+    import sys as _sys
 
     user_id = UUID(bench.DEFAULT_USER_ID)
     keys: dict[str, str] = {}
-    with sqlite_user_connection(db_path, user_id) as conn:
-        store = SQLiteVNextStore(conn, user_id)
-        for team, profile in TEAM_PROFILES.items():
-            _record, raw = create_agent_key(
-                store,
-                user_id=user_id,
-                agent_id=f"showcase-{team}",
-                permission_profile=profile,
-                label=team,
-            )
-            keys[team] = raw
+    for team, profile in TEAM_PROFILES.items():
+        proc = subprocess.run(
+            [
+                _sys.executable, "-m", "alicebot_api.onramp", "keys", "create",
+                "--agent-id", f"showcase-{team}",
+                "--profile", profile,
+                "--label", team,
+                "--db", str(db_path),
+                "--user-id", str(user_id),
+                "--json",
+            ],
+            capture_output=True, text=True, check=True,
+        )
+        keys[team] = str(_json.loads(proc.stdout.strip().splitlines()[-1])["raw_key"])
     return keys
 
 

@@ -59,14 +59,19 @@ def _call(context, name, arguments, *, key=None, full=False):
         os.environ.pop(MCP_FULL_TOOLS_ENV, None)
 
 
-def _mint(context, *, profile: str, project: str) -> str:
+def _mint(context, *, profile: str, project: str | None) -> str:
     _record, raw = _store(
         context,
         lambda s: create_agent_key(
-            s, user_id=USER_ID, agent_id=f"{profile}-{project}", permission_profile=profile, project_scope=project
+            s, user_id=USER_ID, agent_id=f"{profile}-{project or 'owner'}", permission_profile=profile, project_scope=project
         ),
     )
     return raw
+
+
+def _owner_equal(context) -> str:
+    """The owner's equal on a vault that holds keys: an unbound admin key."""
+    return _mint(context, profile="admin_agent", project=None)
 
 
 def _captured(context, monkeypatch):
@@ -78,12 +83,12 @@ def _captured(context, monkeypatch):
         key=writer,
         full=True,
     )
-    review = _call(context, "alice_memory_review", {"status": "all", "limit": 20}, full=True)
+    review = _call(context, "alice_memory_review", {"status": "all", "limit": 20}, key=writer, full=True)
     memory_id = next(str(i["id"]) for i in review["items"] if OLD in json.dumps(i, default=str))
     return str(captured["source_id"]), memory_id
 
 
-def _supersede(context, memory_id: str, text: str = NEW) -> str:
+def _supersede(context, memory_id: str, text: str = NEW, *, key: str | None = None) -> str:
     done = _call(
         context,
         "alice_memory_correct",
@@ -94,6 +99,7 @@ def _supersede(context, memory_id: str, text: str = NEW) -> str:
             "replacement_body": {"text": text},
             "reason": "moved",
         },
+        key=key or _owner_equal(context),
         full=True,
     )
     return str(done["replacement_object"]["id"])
@@ -121,11 +127,12 @@ def _source(payload: dict) -> dict:
 
 
 def _recall_source(context, key) -> dict:
-    return _source(_call(context, "alice_recall", {"query": OLD}, key=key))
+    return _source(_call(context, "alice_recall", {"query": OLD}, key=key or _owner_equal(context)))
 
 
 def _pack_source(context, key) -> dict:
-    return _source(_call(context, "alice_context_pack", {"query": OLD}, key=key, full=True))
+    return _source(_call(context, "alice_context_pack", {"query": OLD}, key=key or _owner_equal(context), full=True))
+
 
 
 def test_label_names_the_successor_when_it_is_inside_the_fence(tmp_path: Path, monkeypatch) -> None:
@@ -135,11 +142,12 @@ def test_label_names_the_successor_when_it_is_inside_the_fence(tmp_path: Path, m
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context, monkeypatch)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     reader = _mint(context, profile="read_only_agent", project="acme")
     for source in (_recall_source(context, reader), _pack_source(context, reader)):
         assert source["derived_memory_corrected"] is True
         assert source["current_memory_id"] == replacement
+
 
 
 def test_recall_hides_a_successor_above_the_sensitivity_ceiling(tmp_path: Path, monkeypatch) -> None:
@@ -150,13 +158,14 @@ def test_recall_hides_a_successor_above_the_sensitivity_ceiling(tmp_path: Path, 
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context, monkeypatch)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     _set(context, replacement, sensitivity="confidential")
     reader = _mint(context, profile="read_only_agent", project="acme")
     source = _recall_source(context, reader)
     assert source["derived_memory_corrected"] is True, "the stale label must survive; only the id is withheld"
     assert "current_memory_id" not in source
     assert replacement not in json.dumps(_call(context, "alice_recall", {"query": OLD}, key=reader), default=str)
+
 
 
 def test_pack_hides_a_successor_above_the_sensitivity_ceiling(tmp_path: Path, monkeypatch) -> None:
@@ -167,12 +176,13 @@ def test_pack_hides_a_successor_above_the_sensitivity_ceiling(tmp_path: Path, mo
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context, monkeypatch)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     _set(context, replacement, sensitivity="confidential")
     reader = _mint(context, profile="read_only_agent", project="acme")
     source = _pack_source(context, reader)
     assert source["derived_memory_corrected"] is True
     assert "current_memory_id" not in source
+
 
 
 def test_recall_hides_an_in_place_corrected_memory_above_the_ceiling(tmp_path: Path, monkeypatch) -> None:
@@ -186,6 +196,7 @@ def test_recall_hides_an_in_place_corrected_memory_above_the_ceiling(tmp_path: P
         context,
         "alice_memory_correct",
         {"action": "edit-and-approve", "review_item_id": memory_id, "body": {"text": NEW}, "reason": "moved"},
+        key=_owner_equal(context),
         full=True,
     )
     _set(context, memory_id, sensitivity="confidential")
@@ -195,6 +206,7 @@ def test_recall_hides_an_in_place_corrected_memory_above_the_ceiling(tmp_path: P
     assert "current_memory_id" not in source
 
 
+
 def test_recall_hides_a_chain_whose_last_hop_is_hidden(tmp_path: Path, monkeypatch) -> None:
     """M -> R1 (visible) -> R2 (hidden). The id must be withheld, not downgraded to R1.
 
@@ -202,13 +214,14 @@ def test_recall_hides_a_chain_whose_last_hop_is_hidden(tmp_path: Path, monkeypat
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context, monkeypatch)
-    first = _supersede(context, memory_id)
-    second = _supersede(context, first, "The kettle is stored on the second shelf.")
+    first = _supersede(context, memory_id, key=_owner_equal(context))
+    second = _supersede(context, first, "The kettle is stored on the second shelf.", key=_owner_equal(context))
     _set(context, second, sensitivity="confidential")
     reader = _mint(context, profile="read_only_agent", project="acme")
     source = _recall_source(context, reader)
     assert "current_memory_id" not in source
     assert first not in json.dumps(source) and second not in json.dumps(source)
+
 
 
 def test_recall_hides_an_id_from_a_reader_bound_to_another_project(tmp_path: Path, monkeypatch) -> None:
@@ -219,7 +232,7 @@ def test_recall_hides_an_id_from_a_reader_bound_to_another_project(tmp_path: Pat
     """
     context = _context(tmp_path, monkeypatch)
     source_id, memory_id = _captured(context, monkeypatch)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
 
     def move(store):
         row = store.get_source(source_id)
@@ -234,6 +247,7 @@ def test_recall_hides_an_id_from_a_reader_bound_to_another_project(tmp_path: Pat
     assert source["derived_memory_corrected"] is True
     assert "current_memory_id" not in source
     assert replacement not in json.dumps(source)
+
 
 
 def test_a_dangling_successor_is_not_named() -> None:
@@ -254,6 +268,7 @@ def test_a_dangling_successor_is_not_named() -> None:
     memory = {"id": "m1", "status": "superseded", "superseded_by": "gone"}
     assert _current_memory_id(Store(), memory, memory_visible=lambda _row: True) == ""
     assert _current_memory_id(StoreWithoutLookup(), memory, memory_visible=lambda _row: True) == ""
+
 
 
 def test_the_visibility_control_has_no_default() -> None:
@@ -295,6 +310,7 @@ class _ChainStore:
         return self.rows.get(memory_id)
 
 
+
 def test_the_depth_cap_does_not_name_an_unchecked_row() -> None:
     """The row the walk ends on after eight fetches is checked like every other hop.
 
@@ -312,6 +328,7 @@ def test_the_depth_cap_does_not_name_an_unchecked_row() -> None:
     assert _current_memory_id(store, rows["n0"], memory_visible=lambda row: row["id"] != "n7") == ""
 
 
+
 def test_the_depth_cap_ends_the_walk_without_naming_a_stale_row() -> None:
     """Twelve visible hops: the row the cap stops on is still superseded, so nothing is named.
 
@@ -327,6 +344,7 @@ def test_the_depth_cap_ends_the_walk_without_naming_a_stale_row() -> None:
     assert _current_memory_id(store, rows["n0"], memory_visible=lambda row: row["id"] != "n8") == ""
 
 
+
 def test_recall_hides_a_successor_outside_the_requested_domains(tmp_path: Path, monkeypatch) -> None:
     """The domain half of the fence. Fails if the predicate checks sensitivity and not domain.
 
@@ -335,7 +353,7 @@ def test_recall_hides_a_successor_outside_the_requested_domains(tmp_path: Path, 
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context, monkeypatch)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     _set(context, replacement, domain="professional")
     reader = _mint(context, profile="read_only_agent", project="acme")
     narrowed = _source(_call(context, "alice_recall", {"query": OLD, "domains": ["project"]}, key=reader))
@@ -363,6 +381,7 @@ def _pack_memory(pack: dict, memory_id: str) -> dict:
     return rows[0]
 
 
+
 def test_pack_drops_a_supersedes_pointer_to_a_predecessor_above_the_ceiling(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -375,7 +394,7 @@ def test_pack_drops_a_supersedes_pointer_to_a_predecessor_above_the_ceiling(
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context, monkeypatch)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     _set(context, memory_id, sensitivity="confidential")
 
     hidden = _pack_memory(_pack(context, NEW), replacement)
@@ -390,6 +409,7 @@ def test_pack_drops_a_supersedes_pointer_to_a_predecessor_above_the_ceiling(
     assert (allowed.get("validity") or {}).get("supersedes_memory_id") == memory_id
 
 
+
 def test_pack_treats_a_pointer_it_cannot_resolve_as_it_did_before(tmp_path: Path, monkeypatch) -> None:
     """A pointer to no row is not a hidden row, so the fence change leaves it alone.
 
@@ -401,13 +421,14 @@ def test_pack_treats_a_pointer_it_cannot_resolve_as_it_did_before(tmp_path: Path
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context, monkeypatch)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     dead = "00000000-0000-4000-8000-00000000dead"
     _set(context, replacement, supersedes=dead)
 
     assert _pack_memory(_pack(context, NEW), replacement).get("supersedes") == dead
     scoped = _pack_memory(_pack(context, NEW, projects=("acme",)), replacement)
     assert "supersedes" not in scoped
+
 
 
 def test_the_predicate_applies_people_and_time_scope_like_the_memory_stages() -> None:
@@ -461,6 +482,7 @@ def _unfiltered(context, **request_fields) -> dict:
     return _source(_pack(context, OLD, **request_fields))
 
 
+
 def test_a_chain_of_ten_rows_names_no_id() -> None:
     """The walk takes eight hops. Nine rows are named (above); ten are not.
 
@@ -476,6 +498,7 @@ def test_a_chain_of_ten_rows_names_no_id() -> None:
     assert _current_memory_id(store, rows["n0"], memory_visible=lambda _row: True) == ""
 
 
+
 def test_pack_drops_a_superseded_by_pointer_to_a_hidden_successor(tmp_path: Path, monkeypatch) -> None:
     """``superseded_by`` goes through the same fence as ``supersedes``.
 
@@ -487,7 +510,7 @@ def test_pack_drops_a_superseded_by_pointer_to_a_hidden_successor(tmp_path: Path
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context, monkeypatch)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     _set(context, replacement, sensitivity="confidential")
     _set(context, memory_id, status="active")
 
@@ -504,6 +527,7 @@ def test_pack_drops_a_superseded_by_pointer_to_a_hidden_successor(tmp_path: Path
     assert allowed.get("superseded_by") == replacement, "the control: a caller allowed to read it keeps the pointer"
 
 
+
 def test_pack_label_hides_a_successor_outside_the_requested_domains(tmp_path: Path, monkeypatch) -> None:
     """The pack builds its own predicate, and it carries the requested domains.
 
@@ -513,13 +537,14 @@ def test_pack_label_hides_a_successor_outside_the_requested_domains(tmp_path: Pa
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context, monkeypatch)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     _set(context, replacement, domain="professional")
 
     narrowed = _unfiltered(context, domains=("project",))
     assert narrowed["derived_memory_corrected"] is True
     assert "current_memory_id" not in narrowed
     assert _unfiltered(context)["current_memory_id"] == replacement, "the control: no domain filter names it"
+
 
 
 def test_pack_drops_a_supersedes_pointer_to_a_predecessor_outside_the_requested_domains(
@@ -533,7 +558,7 @@ def test_pack_drops_a_supersedes_pointer_to_a_predecessor_outside_the_requested_
     """
     context = _context(tmp_path, monkeypatch)
     _source_id, memory_id = _captured(context, monkeypatch)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     _set(context, memory_id, domain="professional")
 
     narrowed = _pack_memory(_pack(context, NEW, domains=("project",)), replacement)
@@ -551,7 +576,7 @@ def _people_scoped_vault(context, monkeypatch, *, link_successor: bool) -> str:
     successor's id. With ``link_successor`` false only the older memory is linked.
     """
     source_id, memory_id = _captured(context, monkeypatch)
-    replacement = _supersede(context, memory_id)
+    replacement = _supersede(context, memory_id, key=_owner_equal(context))
     person = _store(context, lambda s: s.create_entity({"entity_type": "person", "name": "Ada"}))
     linked = (memory_id, replacement) if link_successor else (memory_id,)
     for linked_id in linked:
@@ -581,6 +606,7 @@ def _people_scoped_vault(context, monkeypatch, *, link_successor: bool) -> str:
     return replacement
 
 
+
 def test_recall_label_counts_a_person_link_made_through_the_entity_graph(tmp_path: Path, monkeypatch) -> None:
     """A memory linked to the person by a graph edge is inside a people-scoped read.
 
@@ -590,9 +616,10 @@ def test_recall_label_counts_a_person_link_made_through_the_entity_graph(tmp_pat
     """
     context = _context(tmp_path, monkeypatch)
     replacement = _people_scoped_vault(context, monkeypatch, link_successor=True)
-    source = _source(_call(context, "alice_recall", {"query": OLD, "people": ["ada"]}))
+    source = _source(_call(context, "alice_recall", {"query": OLD, "people": ["ada"]}, key=_owner_equal(context)))
     assert source["derived_memory_corrected"] is True
     assert source.get("current_memory_id") == replacement
+
 
 
 def test_recall_label_hides_a_successor_the_person_is_not_linked_to(tmp_path: Path, monkeypatch) -> None:
@@ -602,10 +629,11 @@ def test_recall_label_hides_a_successor_the_person_is_not_linked_to(tmp_path: Pa
     """
     context = _context(tmp_path, monkeypatch)
     replacement = _people_scoped_vault(context, monkeypatch, link_successor=False)
-    source = _source(_call(context, "alice_recall", {"query": OLD, "people": ["ada"]}))
+    source = _source(_call(context, "alice_recall", {"query": OLD, "people": ["ada"]}, key=_owner_equal(context)))
     assert source["derived_memory_corrected"] is True
     assert "current_memory_id" not in source
     assert replacement not in json.dumps(source, default=str)
+
 
 
 def test_pack_label_counts_a_person_link_made_through_the_entity_graph(tmp_path: Path, monkeypatch) -> None:
@@ -621,6 +649,7 @@ def test_pack_label_counts_a_person_link_made_through_the_entity_graph(tmp_path:
     assert source.get("current_memory_id") == replacement
 
 
+
 def test_pack_label_hides_a_successor_the_person_is_not_linked_to(tmp_path: Path, monkeypatch) -> None:
     """Pack-site twin of the recall test above.
 
@@ -632,6 +661,7 @@ def test_pack_label_hides_a_successor_the_person_is_not_linked_to(tmp_path: Path
     assert source["derived_memory_corrected"] is True
     assert "current_memory_id" not in source
     assert replacement not in json.dumps(source, default=str)
+
 
 
 def test_a_stale_quote_elsewhere_in_the_source_does_not_label_the_excerpt() -> None:

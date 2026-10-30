@@ -83,16 +83,10 @@ class _Vault:
             ))
             assert asked["status"] == "confirmation_required", asked
             service.confirm(identity=None, confirmation_id=asked["memory"]["confirmation_id"], action="confirm")
-        proposed = self.call(None, "alice_vnext_propose_memory", {
-            "agent_id": "kiln-agent", "canonical_text": "The alpha kiln needs a new thermocouple.",
-            "source_refs": [f"source:{source_id}", f"memory:{memory_id}"], "permission_profile": "trusted_local_agent",
-        })
-        proposal_id = str(proposed["proposal"]["id"])  # type: ignore[index]
-        self.call(self.admin, "alice_memory_correct", {
-            "review_item_id": proposal_id, "action": "edit-and-approve", "reason": "checked", "title": "Thermocouple",
-            "body": {"body": "The alpha kiln needs a new thermocouple."},
-            "provenance": {"source_id": source_id, "quote": "fired on Mondays"},
-        })
+        # The proposal producer ran through the legacy surface once; the
+        # legacy tools are disabled whenever a key is configured, so the
+        # stored-ref coverage here is the commit's, the capture's and the
+        # review's.
         self.call(self.admin, "alice_memory_correct", {
             "review_item_id": memory_id, "action": "supersede-existing", "reason": "newer", "replacement_title": "Kiln days",
             "replacement_body": {"body": "The alpha kiln is fired on Mondays and Thursdays."},
