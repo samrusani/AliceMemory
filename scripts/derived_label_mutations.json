@@ -23885,9 +23885,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_sqlite_agent_keys.py::test_the_key_count_check_survives_odd_folder_names"
+        "tests/unit/test_sqlite_agent_keys.py::test_an_unreadable_vault_refuses_the_keyless_call"
       ],
-      "expected_failure": "test_the_key_count_check_survives_odd_folder_names"
+      "expected_failure": "test_an_unreadable_vault_refuses_the_keyless_call"
     },
     {
       "name": "the-legacy-tools-answer-to-the-keyless-refusal",

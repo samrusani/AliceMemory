@@ -628,6 +628,20 @@ def test_the_session_start_hook_prints_nothing_keyless_once_keys_exist(tmp_path:
     assert "acme sprint" in keyed.stdout.lower(), keyed.stdout[:400]
 
 
+def test_an_unreadable_vault_refuses_the_keyless_call(tmp_path: Path, monkeypatch) -> None:
+    """Guard: the count's error branch. A vault that cannot be read (a corrupt
+    file) refuses the keyless call instead of answering it with the owner's
+    standing."""
+
+    from alicebot_api.mcp.types import MCPNotPermittedError
+
+    corrupt = tmp_path / "corrupt.sqlite3"
+    corrupt.write_bytes(b"this is not a database file" * 100)
+    context = _context(corrupt)
+    with pytest.raises(MCPNotPermittedError):
+        _call(context, "alice_recall", {"query": "cadence"})
+
+
 def test_the_key_count_check_survives_odd_folder_names(tmp_path: Path, monkeypatch) -> None:
     """Guard: the read-only count URI is built the way the onramp builds one,
     so a `#`, `?` or `%` in the data directory's name cannot make SQLite open
