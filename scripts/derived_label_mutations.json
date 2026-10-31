@@ -23943,10 +23943,10 @@
       "edits": [
         {
           "file": ".github/workflows/tests.yml",
-          "line": 63,
-          "before": "selection: \"tests/unit/test_d*.py tests/unit/test_su*.py tests/unit/test_sq*.py tests/unit/test_se*.py tests/unit/test_f*.py tests/unit/test_sh*.py tests/unit/test_e[n-z]*.py\"",
-          "after": "selection: \"tests/unit/test_d*.py tests/unit/test_su*.py tests/unit/test_se*.py tests/unit/test_f*.py tests/unit/test_sh*.py tests/unit/test_e[n-z]*.py\"",
-          "sha256": "7db7b0e9e0c8aaa9e9b9fb222c1f51accc796ecca99f3e7a7fb45e3c5e07591b"
+          "line": 71,
+          "before": "selection: \"tests/unit/test_saved_quote_[a-l]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_sq*.py tests/unit/test_so*.py\"",
+          "after": "selection: \"tests/unit/test_saved_quote_[a-l]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_so*.py\"",
+          "sha256": "a3db9d80c882de844ee50d59324f45cdc27e5086b2bd4a97651cf638781115fe"
         }
       ],
       "pytest": [
@@ -23960,9 +23960,9 @@
         {
           "file": ".github/workflows/tests.yml",
           "line": 71,
-          "before": "selection: \"tests/unit/test_saved_quote_[m-z]*.py\"",
-          "after": "selection: \"tests/unit/test_saved_quote_*.py\"",
-          "sha256": "7db7b0e9e0c8aaa9e9b9fb222c1f51accc796ecca99f3e7a7fb45e3c5e07591b"
+          "before": "selection: \"tests/unit/test_saved_quote_[a-l]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_sq*.py tests/unit/test_so*.py\"",
+          "after": "selection: \"tests/unit/test_saved_quote_*.py tests/unit/test_saved_quotes_*.py tests/unit/test_sq*.py tests/unit/test_so*.py\"",
+          "sha256": "a3db9d80c882de844ee50d59324f45cdc27e5086b2bd4a97651cf638781115fe"
         }
       ],
       "pytest": [
