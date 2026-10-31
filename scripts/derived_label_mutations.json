@@ -23958,10 +23958,10 @@
       "edits": [
         {
           "file": ".github/workflows/tests.yml",
-          "line": 73,
-          "before": "selection: \"tests/unit/test_saved_quote_[m-z]*.py\"",
-          "after": "selection: \"tests/unit/test_saved_quote_[a-z]*.py\"",
-          "sha256": "b4ef1c2f29e55de210014d0aadabf7c793558c5679e309cd3d0b4085e8b1a290"
+          "line": 74,
+          "before": "selection: \"tests/unit/test_u*.py tests/unit/test_v*.py tests/unit/test_saved_quote_[m-z]*.py\"",
+          "after": "selection: \"tests/unit/test_u*.py tests/unit/test_v*.py tests/unit/test_saved_quote_*.py\"",
+          "sha256": "1c5a557739c1ef98244e8483c1ad966106d22735a1f65be8e8246985ef401945"
         }
       ],
       "pytest": [
