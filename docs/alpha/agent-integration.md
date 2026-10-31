@@ -321,14 +321,28 @@ refused (reads included), so give each agent host its own key in that host's
 environment:
 
 - set `ALICE_AGENT_API_KEY=<the key>` in the environment the host's MCP server
-  process starts with (Claude Code and the plugin: the `env` map of the
-  host's MCP entry, or the launch environment of your user session);
-- set the variable in the environment the host launches with (Hermes does
-  not inherit your shell's environment and its config's env map is not the
-  place for a secret), so export `ALICE_AGENT_API_KEY` in the launchd
-  session, the terminal, or the wrapper that starts the host. There is no
-  flag that takes the key itself: a key on a command line lands in shell
-  history, and install never writes a raw key into any file.
+  process starts with. How the key gets there depends on the host:
+  - Claude Code and the plugin: the `env` map of the host's MCP entry, or the
+    launch environment of your user session.
+  - Codex passes a stdio server only `HOME`, `PATH`, `LANG` and a few other
+    names, so a key exported in the shell that starts Codex does not reach
+    Alice by itself. Name it in the alice table's `env_vars`
+    (`env_vars = ["ALICE_AGENT_API_KEY"]`) to forward the shell's value, or
+    set it in the same table's `env` (see [Codex](../integrations/codex.md)).
+    A re-run of install keeps both.
+  - Hermes: put the key in the `env` map of `mcp_servers.alice`, the route
+    the [Hermes](../integrations/hermes.md) page shows. A re-run of install
+    keeps it and never prints it. This repository does not show that Hermes
+    passes your shell's environment on to the server, so do not rely on an
+    exported variable.
+
+  A key written into a host's config file is stored there as plain text that
+  your OS user can read, which is the same reach keys already leave open.
+  None of these routes has been run against a real host in this repository.
+  To check one, make a call from the host: once the vault holds a key, a
+  call that did not receive it is refused, and a call that did is answered.
+- there is no flag that takes the key itself: a key on a command line lands
+  in shell history, and install never writes a raw key into any file.
 - the session-start hook (`alice-memory-session-start`, which the host's
   hooks and the plugin run) is a separate process from the MCP server: an
   MCP server env map does not reach it. It reads `ALICE_AGENT_API_KEY` from
