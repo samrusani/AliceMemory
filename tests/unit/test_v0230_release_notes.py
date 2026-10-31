@@ -346,24 +346,16 @@ def test_the_notes_stay_under_the_size_ceiling_and_keep_their_sections_in_order(
     assert headings == SECTIONS
 
 
-def test_every_version_site_names_0230_and_the_marketplace_pins_the_published_release() -> None:
-    """Mutations, each one alone: set one version site or one plugin pin back to 0.22.0; set the marketplace ``ref``
-    back to v0.22.0; change one hex digit of the marketplace ``sha``; change the install command in the notes; change
-    the copy of the marketplace file inside the v0.23.0 tag.
+def test_the_marketplace_pins_the_published_release_and_the_notes_carry_its_install_lines() -> None:
+    """Mutations, each one alone: set the marketplace ``ref`` back to v0.22.0; change one hex digit of the marketplace
+    ``sha``; change the install command in the notes; change the copy of the marketplace file inside the v0.23.0 tag.
 
-    The six sites are the ones ``scripts/release_check.py`` requires. The post-publication change moved the marketplace
-    file to the v0.23.0 tag and the commit that tag points at, so it names the latest published release. The v0.23.0 tag
-    itself still pins v0.22.0, and the plugin page says so.
+    The post-publication change moved the marketplace file to the v0.23.0 tag and the commit that tag points at, so it
+    names the latest published release. The v0.23.0 tag itself still pins v0.22.0, and the plugin page says so. The tree
+    has moved on to the version sites of the next release, which ``test_v0231_release_notes.py`` pins, so this test no
+    longer reads them.
     """
 
-    pyproject = tomllib.loads(_text("pyproject.toml"))["project"]["version"]
-    assert pyproject == "0.23.0"
-    assert json.loads(_text("apps/web/package.json"))["version"] == pyproject
-    assert json.loads(_text("packaging/mcpb/manifest.json"))["version"] == pyproject
-    assert json.loads(_text("plugins/alice-memory/.claude-plugin/plugin.json"))["version"] == pyproject
-    for name in ("plugins/alice-memory/.mcp.json", "plugins/alice-memory/hooks/hooks.json"):
-        assert f"alice-memory=={pyproject}" in _text(name), name
-        assert "alice-memory==0.22.0" not in _text(name), name
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
     assert marketplace["ref"] == RELEASE_TAG
     assert marketplace["sha"] == TAG_COMMIT
@@ -502,20 +494,21 @@ def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section(
     put the marker for the unreleased state back into the v0.23.0 section.
 
     The Unreleased section is empty on the release commit. It may hold entries once main has moved on, so this test does
-    not ask for it to be empty. It asks that the v0.23.0, v0.22.0, v0.21.1 and v0.21.0 sections follow it in that order,
-    one heading each.
+    not ask for it to be empty. It asks that the v0.23.1, v0.23.0, v0.22.0, v0.21.1 and v0.21.0 sections follow it in
+    that order, one heading each.
     """
 
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
     assert sections[1].startswith("Unreleased\n")
-    assert sections[2].startswith("v0.23.0 \u2014 2026-10-30\n")
-    assert sections[3].startswith("v0.22.0 \u2014 2026-10-26\n")
-    assert sections[4].startswith("v0.21.1 \u2014 2026-10-23\n")
-    assert sections[5].startswith("v0.21.0 \u2014 2026-10-22\n")
+    assert sections[2].startswith("v0.23.1 \u2014 2026-10-31\n")
+    assert sections[3].startswith("v0.23.0 \u2014 2026-10-30\n")
+    assert sections[4].startswith("v0.22.0 \u2014 2026-10-26\n")
+    assert sections[5].startswith("v0.21.1 \u2014 2026-10-23\n")
+    assert sections[6].startswith("v0.21.0 \u2014 2026-10-22\n")
     assert changelog.count(HEADING) == 1
-    assert "Unreleased (on" not in sections[2]
     assert "Unreleased (on" not in sections[3]
+    assert "Unreleased (on" not in sections[4]
 
 
 def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or_the_manifest() -> None:
@@ -1369,23 +1362,25 @@ def test_the_headline_changes_of_the_notes_each_have_a_changelog_entry() -> None
 
 def test_the_release_check_accepts_the_tree_and_its_pre_tag_mode_refuses_the_published_notes() -> None:
     """Mutations, each one alone: set a status of the notes back to pending; delete the checksums file; delete the
-    dated heading; set one version site back to 0.22.0.
+    dated heading.
 
     ``release_check.py`` passes on the tree. Its ``--require-finalized-release-docs`` mode is the pre-tag rule and
     refuses a published tree on purpose, for the same three reasons as after v0.22.0: both statuses must be pending
-    before the tag, and the checksums file must not exist on the pre-publication tag.
+    before the tag, and the checksums file must not exist on the pre-publication tag. The package version of the tree is
+    the next release's (``test_v0231_release_notes.py`` pins it), so the rule is run for the version of these notes.
     """
 
     metadata, issues = release_check.validate_metadata(REPO_ROOT)
     assert issues == []
-    assert metadata.version == "0.23.0"
-    assert release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=False) == []
+    version = "0.23.0"
+    assert metadata.version != version
+    assert release_check.validate_release_document_state(REPO_ROOT, version=version, require_finalized=False) == []
     published = [
         "release notes alice-release-state publication_status must be pending before tag",
         "release notes alice-release-state checksums_status must be pending before tag",
         "docs/release/v0.23.0-checksums.txt must not exist on the pre-publication tag",
     ]
-    issues = release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=True)
+    issues = release_check.validate_release_document_state(REPO_ROOT, version=version, require_finalized=True)
     assert [issue for issue in issues if issue in published] == published
     # Once main has an Unreleased CHANGELOG entry, the pre-tag mode also says the section must be empty for a tag.
     # That is true of every later commit and is the only other issue allowed here.

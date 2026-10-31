@@ -109,6 +109,30 @@ not install it; and `v0.20.1`, whose publish run reached its first job's time
 limit while it reran the unit suite, before anything was built. Neither of the
 last two has a PyPI artifact or a published GitHub Release.
 
+## What `v0.23.1` Targets
+
+`v0.23.1` is the current release candidate. It is not published.
+
+It is a patch release on `v0.23.0` and takes two changes from `main`. The agent guide
+says how the MCP server of Codex and of Hermes gets `ALICE_AGENT_API_KEY` on a SQLite
+vault that holds a key, and one docstring is corrected. It changes no behaviour and adds
+no tool, command, setting or migration: PostgreSQL stays at revision `20261011_0097`.
+
+- [v0.23.1 release notes](https://github.com/samrusani/AliceMemory/blob/main/docs/release/v0.23.1-release-notes.md)
+
+`v0.23.1` has these changes. `v0.23.0` does not.
+
+- The section on agent keys in `docs/alpha/agent-integration.md` names the alice table's
+  `env_vars` or `env` for Codex, and the `env` map of `mcp_servers.alice` for Hermes. The
+  `v0.23.0` guide gave Codex no route and told Hermes users to export the key in the shell.
+- The docstring of `host_install._own_env` no longer mentions an environment reference to
+  the agent key. Install writes none, as in `v0.23.0`.
+- The unit tests run as six CI shard jobs, and the showcase bench mints its keys in
+  process. Neither is in the PyPI package.
+- Still open, listed in the release notes: none of the routes in the guide has been run
+  against a real host in this repository, and a key written into a host's config file is
+  plain text that your OS user can read.
+
 ## What `v0.23.0` Shipped
 
 `v0.23.0` is the latest published release and remains the install, checksum,
