@@ -39,8 +39,10 @@ jobs:
     # when this limit is below the shard count times the shard limit plus a margin.
     # The one-process rerun took 3,876 s on a runner, and the release rule wants a
     # release step under half of its job's limit, so 120 minutes was not enough:
-    # 180 allows the step up to 90 minutes.
-    timeout-minutes: 180
+    # 200 = six unit shards of 20 minutes (the suite runs here in one process
+    # from the tag) plus the 80 minute margin the unit test pins; it allows
+    # the recheck step up to 100 minutes.
+    timeout-minutes: 200
     steps:
       - name: Require repository release-control attestation variable
         env:

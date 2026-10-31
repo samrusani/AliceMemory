@@ -18,7 +18,7 @@ jobs:
   # job named below stays the required status check of the main ruleset by
   # failing unless every one of those jobs succeeded.
   python-unit-shards:
-    name: Unit tests, shard ${{ matrix.shard }} of 5 (SQLite)
+    name: Unit tests, shard ${{ matrix.shard }} of 6 (SQLite)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -29,38 +29,42 @@ jobs:
         # they cover every file of tests/unit exactly once, and a unit test
         # (tests/unit/test_ci_unit_job_split.py) fails if a file matches none.
         #
-        # The shards are balanced by the time their files took in CI with coverage
-        # on: one local run of every file, scaled for each file by the CI time of
-        # its old shard over the local time of that shard (the mean of two
-        # complete CI runs of the four shard layout, since one runner is slower
-        # than another). That gives 11.4 to 12.0 minutes of tests each, about 12
-        # to 13 minutes as jobs, against the 20 minute limit and the 17 minute
-        # split line recorded in gates.json. The four shards before had reached
-        # 19.6 minutes of tests in the longest. The saved-quote files are the
-        # heaviest family: shard 4 runs the test_saved_quote_ files alone (the
-        # vault tests, test_saved_quote_memory_refs_vault.py, are among them), and
-        # the other saved files run in shards 1 and 2. The one file
-        # test_entity_disclosure_fence.py is about 8 minutes of shard 5. The
-        # what-changed files run in shard 1 with the other w files. A new file
-        # that no pattern selects fails the split test.
+        # The layout comes from the CI time of each file, read from the logs of
+        # both attempts of run 41202686940 (six shards, coverage on): each -q
+        # progress line has a timestamp and a test count, and the test ids,
+        # collected in the order bash expands the patterns, map each test to its
+        # file. On the mean of the two attempts every shard below holds 11.1 to
+        # 11.3 minutes of tests, about 11.7 to 11.9 minutes as a job, against
+        # the 20 minute limit and the 17 minute split line recorded in
+        # gates.json. The heaviest files took about the same time on both
+        # attempts: test_entity_disclosure_fence.py about 8 minutes (shard 2),
+        # test_saved_quote_memory_refs_vault.py about 4.5 (shard 6) and
+        # test_saved_quote_every_copy.py about 3.4 (shard 5). The light files
+        # depend on the runner: shard 1 of that run took 10.9 minutes of tests
+        # on one attempt and 6.0 on the other. A new file that no pattern
+        # selects fails the split test.
         #
-        # By 2026-10-30 shard 2 took 19 to 20 minutes as a job, past the split
-        # line, because the two showcase bench test files grew from about 67 to
-        # 140 seconds locally once the bench minted each team key with its own
-        # alice-memory keys create process. test_showcase_bench_vectors.py moved
-        # to shard 1 and test_showcase_bench.py to shard 5, the two shards that
-        # ran about 12 minutes as jobs.
+        # By 2026-10-30 shard 2 of five took 19 to 20 minutes as a job, past the
+        # split line, because the two showcase bench test files grew from about
+        # 67 to 140 seconds locally once the bench minted each team key with its
+        # own alice-memory keys create process. #699 moved the two bench files
+        # to shards 1 and 5, and the longest two of the five then took 17:41 and
+        # 17:17 on one run of main. The bench now mints each key through the
+        # command's own entry point in process, and the unit tests run as six
+        # shards.
         include:
           - shard: 1
-            selection: "tests/unit/test_[p-r]*.py tests/unit/test_saved_p*.py tests/unit/test_[t-w]*.py tests/unit/test_showcase_bench_*.py"
+            selection: "tests/unit/test_[0-9a-d]*.py tests/unit/test_[g-h]*.py tests/unit/test_[jk]*.py tests/unit/test_s[cikl]*.py"
           - shard: 2
-            selection: "tests/unit/test_[0-9a-c]*.py tests/unit/test_s[!ahoq]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_showcase_[!b]*.py"
+            selection: "tests/unit/test_e*.py tests/unit/test_f*.py tests/unit/test_i*.py"
           - shard: 3
-            selection: "tests/unit/test_[j-o]*.py tests/unit/test_s[oq]*.py"
+            selection: "tests/unit/test_[l-p]*.py"
           - shard: 4
-            selection: "tests/unit/test_saved_quote_*.py"
+            selection: "tests/unit/test_[q-r]*.py tests/unit/test_[t-z]*.py tests/unit/test_s[eh]*.py"
           - shard: 5
-            selection: "tests/unit/test_[d-i]*.py tests/unit/test_showcase_bench.py"
+            selection: "tests/unit/test_saved_quote_[!m]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_so*.py"
+          - shard: 6
+            selection: "tests/unit/test_saved_quote_m*.py tests/unit/test_sq*.py tests/unit/test_s[tu]*.py"
     env:
       COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
@@ -182,7 +186,7 @@ jobs:
           merge-multiple: true
           path: coverage-data
       - name: Combine the shard coverage data (every shard must have written some)
-        run: python scripts/combine_python_coverage.py --data-dir coverage-data --shards 5
+        run: python scripts/combine_python_coverage.py --data-dir coverage-data --shards 6
       - name: Combined coverage baseline
         # The same threshold, configuration and per-file floor that the single
         # unit job enforced, now on the combined data of all shards.

@@ -209,7 +209,7 @@ def test_the_whole_source_site_never_reaches_the_memo(tmp_path: Path, monkeypatc
 
 
 def test_two_memo_sites_never_share_an_entry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Guard: the memo key carries the call site (the tower's exact-input memo).
+    """Guard: the memo key carries the call site (the exact-input memo).
 
     Two sites asked for the same field value must each run the door: a key
     that drops the site answers the second site from the first site's
