@@ -4246,7 +4246,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py\"",
           "after": "tests/performance/test_label_read_handoff_budget.py\"",
-          "sha256": "847e19e5bf3ae9d12a68c876ad69e5592ef625352761bd5fed38d93daa57c2b5",
+          "sha256": "a1883d38a1504f2770738c30922886ceac44c95dbe84960b436862ce99a329c1",
           "line": 2605
         }
       ],
@@ -12455,7 +12455,7 @@
           "line": 2413,
           "before": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"2.0\"",
           "after": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"",
-          "sha256": "847e19e5bf3ae9d12a68c876ad69e5592ef625352761bd5fed38d93daa57c2b5"
+          "sha256": "a1883d38a1504f2770738c30922886ceac44c95dbe84960b436862ce99a329c1"
         }
       ],
       "pytest": [
@@ -17568,7 +17568,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
           "after": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
-          "sha256": "847e19e5bf3ae9d12a68c876ad69e5592ef625352761bd5fed38d93daa57c2b5",
+          "sha256": "a1883d38a1504f2770738c30922886ceac44c95dbe84960b436862ce99a329c1",
           "line": 2559
         }
       ],
@@ -17840,7 +17840,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
           "after": "          ALICE_READ_ABSOLUTE_GATE: \"1\"\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
-          "sha256": "847e19e5bf3ae9d12a68c876ad69e5592ef625352761bd5fed38d93daa57c2b5",
+          "sha256": "a1883d38a1504f2770738c30922886ceac44c95dbe84960b436862ce99a329c1",
           "line": 2560
         }
       ],
@@ -17856,7 +17856,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_round2_read_budget_postgres.py::test_postgres_round2_read_budgets[one-hidden]'\n",
           "after": "",
-          "sha256": "847e19e5bf3ae9d12a68c876ad69e5592ef625352761bd5fed38d93daa57c2b5",
+          "sha256": "a1883d38a1504f2770738c30922886ceac44c95dbe84960b436862ce99a329c1",
           "line": 2426
         }
       ],
@@ -17872,7 +17872,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_read_handoff_budget_postgres.py::test_postgres_five_thousand_native_read_budgets[False]'\n",
           "after": "",
-          "sha256": "847e19e5bf3ae9d12a68c876ad69e5592ef625352761bd5fed38d93daa57c2b5",
+          "sha256": "a1883d38a1504f2770738c30922886ceac44c95dbe84960b436862ce99a329c1",
           "line": 2427
         }
       ],
@@ -23636,7 +23636,7 @@
           "line": 2413,
           "before": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"2.0\"",
           "after": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"",
-          "sha256": "847e19e5bf3ae9d12a68c876ad69e5592ef625352761bd5fed38d93daa57c2b5"
+          "sha256": "a1883d38a1504f2770738c30922886ceac44c95dbe84960b436862ce99a329c1"
         }
       ],
       "pytest": [
@@ -23945,7 +23945,7 @@
           "line": 68,
           "before": "selection: \"tests/unit/test_saved_quote_[n-z]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_so*.py tests/unit/test_sq*.py\"",
           "after": "selection: \"tests/unit/test_saved_quote_[n-z]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_so*.py\"",
-          "sha256": "847e19e5bf3ae9d12a68c876ad69e5592ef625352761bd5fed38d93daa57c2b5"
+          "sha256": "a1883d38a1504f2770738c30922886ceac44c95dbe84960b436862ce99a329c1"
         }
       ],
       "pytest": [
