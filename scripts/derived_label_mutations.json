@@ -23936,6 +23936,86 @@
         "tests/unit/test_showcase_bench_harness.py::test_the_bench_mints_its_keys_without_a_process_per_key"
       ],
       "expected_failure": "test_the_bench_mints_its_keys_without_a_process_per_key"
+    },
+    {
+      "name": "every-unit-file-stays-in-a-shard",
+      "edits": [
+        {
+          "file": ".github/workflows/tests.yml",
+          "line": 68,
+          "before": "selection: \"tests/unit/test_saved_quote_[n-z]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_so*.py tests/unit/test_sq*.py\"",
+          "after": "selection: \"tests/unit/test_saved_quote_[n-z]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_so*.py tests/unit/test_sq*.py\"",
+          "sha256": "847e19e5bf3ae9d12a68c876ad69e5592ef625352761bd5fed38d93daa57c2b5"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ci_unit_job_split.py::test_the_shards_are_disjoint_and_together_cover_every_unit_test_file_once"
+      ],
+      "expected_failure": "test_the_shards_are_disjoint_and_together_cover_every_unit_test_file_once"
+    },
+    {
+      "name": "a-unit-file-is-in-exactly-one-shard",
+      "edits": [
+        {
+          "file": ".github/workflows/tests.yml",
+          "line": 66,
+          "before": "selection: \"tests/unit/test_saved_quote_[a-m]*.py\"",
+          "after": "selection: \"tests/unit/test_saved_quote_*.py\"",
+          "sha256": "847e19e5bf3ae9d12a68c876ad69e5592ef625352761bd5fed38d93daa57c2b5"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ci_unit_job_split.py::test_the_shards_are_disjoint_and_together_cover_every_unit_test_file_once"
+      ],
+      "expected_failure": "test_the_shards_are_disjoint_and_together_cover_every_unit_test_file_once"
+    },
+    {
+      "name": "the-shard-count-agrees-with-gates",
+      "edits": [
+        {
+          "file": "gates.json",
+          "line": 144,
+          "before": "\"shard_count\": 6,",
+          "after": "\"shard_count\": 5,",
+          "sha256": "e580322d1f3c5c4adf7025443005c2d4a4c39530b7df6027373c16d3ea8078b1"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_alice_bench_gates.py::test_the_ci_time_budget_matches_the_workflow_it_describes"
+      ],
+      "expected_failure": "test_the_ci_time_budget_matches_the_workflow_it_describes"
+    },
+    {
+      "name": "the-publish-limit-covers-six-shards",
+      "edits": [
+        {
+          "file": ".github/workflows/publish-pypi.yml",
+          "line": 45,
+          "before": "    timeout-minutes: 200",
+          "after": "    timeout-minutes: 180",
+          "sha256": "817298b154610e75b8be207dfca6e4fff6a053ce4d6720d3c416063950ee2a21"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_publish_workflow_time_limit.py::test_every_publish_job_that_reruns_the_suite_has_time_for_it"
+      ],
+      "expected_failure": "test_every_publish_job_that_reruns_the_suite_has_time_for_it"
+    },
+    {
+      "name": "the-rehearsal-limit-matches-the-publish-limit",
+      "edits": [
+        {
+          "file": ".github/workflows/publish-recheck-rehearsal.yml",
+          "line": 23,
+          "before": "    timeout-minutes: 200",
+          "after": "    timeout-minutes: 201",
+          "sha256": "fd1447a1a265152c32d321b781abceca329f6b40b555de0f4e8fe774e2ae0fba"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_publish_recheck_rehearsal.py::test_each_mutation_is_found"
+      ],
+      "expected_failure": "test_the_mutations_are_caught"
     }
   ]
 }
