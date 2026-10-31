@@ -67,7 +67,7 @@ readback:
 
    The required check named
    `Unit tests + live eval battery (SQLite)` is the summary job of the unit
-   tests in `tests.yml`. The unit tests run as five shard jobs, the model-free
+   tests in `tests.yml`. The unit tests run as six shard jobs, the model-free
    eval battery runs in its own job, and a coverage job combines the shard data
    and enforces the coverage threshold. The summary
    needs all of them, runs whatever they did, and fails unless each one
@@ -457,9 +457,11 @@ shard jobs. Its `timeout-minutes` must cover the shard count times the shard
 limit plus a margin, and `tests/unit/test_publish_workflow_time_limit.py` fails
 when it does not. Raise the publish limit in the same pull request that adds a
 shard or raises the shard limit. `v0.20.1` was never published because this job
-reached its old 35 minute limit while it reran the suite. The limit is 180
-minutes, because the one-process rerun took 3,876 s on a runner and a release
-step must take less than half of its job's limit.
+reached its old 35 minute limit while it reran the suite. The limit is 200
+minutes (six unit shards of 20 minutes plus the 80 minute margin), because the
+one-process rerun took 3,876 s on a runner and a release step must take less
+than half of its job's limit; it was 180 for five shards before the unit tests
+outgrew them.
 
 `publish-recheck-rehearsal.yml` runs the install step and the recheck step of that
 first job on a runner before a release tag exists, with the same commands, the same

@@ -235,8 +235,8 @@ MUTATIONS: list[tuple[str, str, str, str, str]] = [
     ("publish recheck, one character", "publish", "--cov-fail-under=50", "--cov-fail-under=51", RECHECK_STEP),
     ("rehearsal recheck, one character", "rehearsal", "--min-percent 45", "--min-percent 44", RECHECK_STEP),
     ("rehearsal install", "rehearsal", "build==1.5.0", "build==1.5.1", INSTALL_STEP),
-    ("rehearsal timeout", "rehearsal", "timeout-minutes: 180", "timeout-minutes: 179", "timeout-minutes of the rehearsal"),
-    ("publish timeout", "publish", "timeout-minutes: 180", "timeout-minutes: 181", "timeout-minutes of the rehearsal"),
+    ("rehearsal timeout", "rehearsal", "timeout-minutes: 200", "timeout-minutes: 199", "timeout-minutes of the rehearsal"),
+    ("publish timeout", "publish", "timeout-minutes: 200", "timeout-minutes: 201", "timeout-minutes of the rehearsal"),
     (
         "rehearsal checkout pin",
         "rehearsal",
@@ -302,7 +302,7 @@ MUTATIONS: list[tuple[str, str, str, str, str]] = [
         "            exit 1\n          fi\n\n      - name: Later\n        run: echo later\n",
         "must write the job summary",
     ),
-    ("report limit differs from the timeout", "rehearsal", 'JOB_TIMEOUT_MINUTES: "180"', 'JOB_TIMEOUT_MINUTES: "181"', "JOB_TIMEOUT_MINUTES"),
+    ("report limit differs from the timeout", "rehearsal", 'JOB_TIMEOUT_MINUTES: "200"', 'JOB_TIMEOUT_MINUTES: "201"', "JOB_TIMEOUT_MINUTES"),
     (
         "stamp step removed",
         "rehearsal",

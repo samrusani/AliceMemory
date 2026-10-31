@@ -202,9 +202,9 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     shard_job = workflow["jobs"]["python-unit-shards"]
     summary_job = workflow["jobs"]["python-unit"]
     assert shard_job["timeout-minutes"] == budget["timeout_minutes"] == 20
-    assert budget["shard_count"] == len(shard_job["strategy"]["matrix"]["include"]) == 5
+    assert budget["shard_count"] == len(shard_job["strategy"]["matrix"]["include"]) == 6
     assert budget["required_check"] == summary_job["name"] == "Unit tests + live eval battery (SQLite)"
-    assert budget["job"].startswith("python-unit-shards ") and "shard N of 5" in budget["job"]
+    assert budget["job"].startswith("python-unit-shards ") and "shard N of 6" in budget["job"]
     assert budget["split_threshold_minutes"] == 17 < budget["timeout_minutes"]
     assert budget["new_test_budget_seconds"] == 90
     measured = budget["measured_seconds"]
@@ -216,6 +216,16 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     assert third["measured_on"] == "2026-10-19" and "longest of the four shard jobs" in third["measured_scope"]
     four_shards = third["four_shards_longest_job_seconds"]
     assert len(four_shards) == 2 and min(four_shards) >= budget["split_threshold_minutes"] * 60, "the sample is why they were split again"
+    fourth = budget["fourth_split"]
+    assert set(fourth) == {"measured_on", "measured_scope", "five_shards_longest_job_seconds",
+                           "main_jobs_past_the_split_line_seconds", "note"}
+    assert fourth["measured_on"] == "2026-10-31" and "the five shard jobs" in fourth["measured_scope"]
+    five_shards = fourth["five_shards_longest_job_seconds"]
+    # Only measured values: on e65e67a6 no shard job ran past the split line
+    # (the longest was 1010 s), and on main 116d2177 two did (1061 and 1037).
+    assert len(five_shards) == 2 and five_shards == [1010, 1061]
+    past_line = fourth["main_jobs_past_the_split_line_seconds"]
+    assert past_line == [1061, 1037] and min(past_line) >= budget["split_threshold_minutes"] * 60
     before = budget["before_split"]
     assert before["job"] == "python-unit (Unit tests + live eval battery, SQLite)"
     assert before["measured_runs"] == 70

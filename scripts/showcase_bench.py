@@ -23,6 +23,7 @@ from pathlib import Path
 import random
 import re
 import shutil
+import sys
 import time
 from typing import Any
 
@@ -1204,37 +1205,75 @@ def _indexed_notes(db_path: Path) -> int:
     return int(row[0]) if row else 0
 
 
-def _create_keys(db_path: Path) -> dict[str, str]:
-    """Mint the team keys through the product's own command.
+def _mint_via_command(db_path: Path, user_id, agent_id: str, profile: str, label: str) -> str:
+    """Mint one key by running the product command's own entry point in process.
 
     ``alice-memory keys create`` is the shipped way to mint a key on the
-    SQLite vault, so the measured path is the product's path: one command run
-    per team key, same agent ids, profiles and labels as before. The raw key
-    is read from the command's output once and handed to the MCP session.
+    SQLite vault, so the measured path is the product's path. The command's
+    own ``main`` runs the same argument parse and the same handler here that
+    ``python -m alicebot_api.onramp`` would run in a new interpreter; an
+    interpreter per key costs about 0.4 s of start-up per key (measured: six
+    runs of the command, median 0.41 s on the bench's machine), and the bench
+    tests build many times, so the harness calls the entry point in process
+    with stdout captured and restores everything the call touches (stdout and
+    stderr, the environment, logging handlers and levels, the working
+    directory, ``sys.argv``). The raw key is read from the captured output
+    once and handed to the MCP session.
     """
 
-    import json as _json
+    import contextlib
+    import io
+    import logging as _logging
+
+    from alicebot_api.onramp import main as onramp_main
+
+    argv = [
+        "keys", "create",
+        "--agent-id", agent_id, "--profile", profile, "--label", label,
+        "--db", str(db_path), "--user-id", str(user_id), "--json",
+    ]
+    out = io.StringIO()
+    err = io.StringIO()
+    before_argv = list(sys.argv)
+    before_cwd = os.getcwd()
+    before_env = dict(os.environ)
+    root = _logging.getLogger()
+    before_handlers = list(root.handlers)
+    before_level = root.level
+    exit_code: object = 0
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            exit_code = onramp_main(argv)
+    except SystemExit as exc:
+        exit_code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 2)
+    finally:
+        sys.argv = before_argv
+        os.chdir(before_cwd)
+        os.environ.clear()
+        os.environ.update(before_env)
+        root = _logging.getLogger()
+        for handler in list(root.handlers):
+            root.removeHandler(handler)
+        for handler in before_handlers:
+            root.addHandler(handler)
+        root.setLevel(before_level)
+    if exit_code != 0:
+        raise bench.BenchError(f"keys create failed ({exit_code}): {err.getvalue().strip()[:200]}")
+    return str(json.loads(out.getvalue().strip().splitlines()[-1])["raw_key"])
+
+
+def _create_keys(db_path: Path) -> dict[str, str]:
+    """Mint the team keys through the product's own command, in process."""
+
     from uuid import UUID
 
-    import sys as _sys
-
     user_id = UUID(bench.DEFAULT_USER_ID)
-    keys: dict[str, str] = {}
-    for team, profile in TEAM_PROFILES.items():
-        proc = subprocess.run(
-            [
-                _sys.executable, "-m", "alicebot_api.onramp", "keys", "create",
-                "--agent-id", f"showcase-{team}",
-                "--profile", profile,
-                "--label", team,
-                "--db", str(db_path),
-                "--user-id", str(user_id),
-                "--json",
-            ],
-            capture_output=True, text=True, check=True,
+    return {
+        team: _mint_via_command(
+            db_path, user_id, f"showcase-{team}", profile, team,
         )
-        keys[team] = str(_json.loads(proc.stdout.strip().splitlines()[-1])["raw_key"])
-    return keys
+        for team, profile in TEAM_PROFILES.items()
+    }
 
 
 def note_scopes(notes: Sequence[Any]) -> tuple[dict[str, list[str]], list[str]]:
