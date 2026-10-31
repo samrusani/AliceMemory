@@ -83,7 +83,7 @@ jobs:
         # No threshold here: one shard sees only part of the code. The combined
         # data is gated in the coverage job.
         run: python -m pytest ${{ matrix.selection }} -q --cov=alicebot_api --cov-report=
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: python-unit-coverage-shard-${{ matrix.shard }}
           path: coverage-data/shard-${{ matrix.shard }}.coverage
@@ -294,7 +294,7 @@ jobs:
         run: >-
           python scripts/test_distribution_artifact.py
           dist/*.whl dist/*.tar.gz --expected-version ${{ steps.version.outputs.value }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: alice-memory-distributions-${{ github.sha }}
           path: |
@@ -2427,7 +2427,7 @@ jobs:
 
       - name: Retain paired read-budget samples, including failed runs
         if: always() && matrix.integration_check != 'Default surface integration smoke (Postgres)'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           # One name for the one entry that writes samples; the shard and budget
           # jobs below use names of their own, so no two uploads of a run collide.
@@ -2571,7 +2571,7 @@ jobs:
         # Only the shards that run a test which writes samples have a file to
         # upload, and for those a missing file is an error.
         if: always() && matrix.read_budget_evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: round3-integration-read-budgets-shard-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl
@@ -2634,7 +2634,7 @@ jobs:
         run: ./.venv/bin/python -m pytest ${{ matrix.selection }} -q --timeout=180 --session-timeout=1500
       - name: Retain paired read-budget samples, including failed runs
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: round3-sqlite-read-budgets-part-${{ matrix.part }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/round3-sqlite-read-budgets.jsonl
@@ -2714,7 +2714,7 @@ jobs:
         run: pnpm test:browser
       - name: Retain Playwright diagnostics
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: playwright-diagnostics-${{ github.sha }}
           path: |
