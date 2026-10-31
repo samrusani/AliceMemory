@@ -80,6 +80,9 @@ jobs:
           cache: pip
       - name: Install
         run: python -m pip install -e '.[dev]'
+      - name: TEMP ratio probe (test_passage_vectors alone)
+        run: |
+          python -m pytest tests/unit/test_passage_vectors.py -k test_an_append_does_not_hold -s
       - name: Unit tests of this shard with coverage data
         # No threshold here: one shard sees only part of the code. The combined
         # data is gated in the coverage job.
