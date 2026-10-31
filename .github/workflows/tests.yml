@@ -62,13 +62,13 @@ jobs:
         # longest of the five still took 17:17 and 17:41 on one runner.
         include:
           - shard: 1
-            selection: "tests/unit/test_[a-c]*.py tests/unit/test_sc*.py tests/unit/test_sh*.py tests/unit/test_s[i-l]*.py tests/unit/test_st*.py"
+            selection: "tests/unit/test_[a-c]*.py tests/unit/test_sc*.py tests/unit/test_s[i-l]*.py tests/unit/test_st*.py"
           - shard: 2
-            selection: "tests/unit/test_d*.py tests/unit/test_su*.py tests/unit/test_se*.py tests/unit/test_f*.py tests/unit/test_e[n-z]*.py tests/unit/test_[w-z]*.py"
+            selection: "tests/unit/test_[w-z]*.py tests/unit/test_d*.py tests/unit/test_su*.py tests/unit/test_se*.py tests/unit/test_f*.py"
           - shard: 3
-            selection: "tests/unit/test_[g-o]*.py tests/unit/test_e[a-m]*.py"
+            selection: "tests/unit/test_[g-o]*.py tests/unit/test_e[a-m]*.py tests/unit/test_e[n-z]*.py"
           - shard: 4
-            selection: "tests/unit/test_[p-r]*.py tests/unit/test_[0-9]*.py"
+            selection: "tests/unit/test_[p-r]*.py tests/unit/test_[0-9]*.py tests/unit/test_sh*.py"
           - shard: 5
             selection: "tests/unit/test_t*.py tests/unit/test_saved_quote_[a-l]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_sq*.py"
           - shard: 6
