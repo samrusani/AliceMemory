@@ -7,6 +7,7 @@ from uuid import UUID
 import numpy as np
 
 from alicebot_api.onramp import bootstrap_database
+from alicebot_api.sqlite_schema import ensure_source_chunk_vectors_table
 from alicebot_api.source_embedding_policy import ChunkSignature
 from alicebot_api.sqlite_store import sqlite_user_connection
 from alicebot_api.vnext_stores.sqlite import chunk_vector_cache
@@ -22,6 +23,7 @@ bootstrap_database(database, user_id=UUID(user), user_email="local@alice")
 
 conn = sqlite3.connect(database)
 conn.execute("PRAGMA foreign_keys=OFF")
+ensure_source_chunk_vectors_table(conn)
 
 
 def insert(start, count):
