@@ -23978,7 +23978,7 @@
           "line": 111,
           "before": "\"shard_count\": 6,",
           "after": "\"shard_count\": 5,",
-          "sha256": "5a0a08d0a273a6891d44c2fb04cd3a63174885a20dc3747b211343f29478b49d"
+          "sha256": "d285238b591c50aee2c1599270505a764906e676e999d07d59af1bc47f3536cf"
         }
       ],
       "pytest": [
@@ -24026,7 +24026,7 @@
           "line": 142,
           "before": "      \"five_shards_longest_job_seconds\": [1010, 1061],",
           "after": "      \"five_shards_longest_job_seconds\": [1010, 1019],",
-          "sha256": "5a0a08d0a273a6891d44c2fb04cd3a63174885a20dc3747b211343f29478b49d"
+          "sha256": "d285238b591c50aee2c1599270505a764906e676e999d07d59af1bc47f3536cf"
         }
       ],
       "pytest": [
