@@ -29,46 +29,42 @@ jobs:
         # they cover every file of tests/unit exactly once, and a unit test
         # (tests/unit/test_ci_unit_job_split.py) fails if a file matches none.
         #
-        # The shards are balanced by the time their files took in CI with coverage
-        # on: one local run of every file, scaled for each file by the CI time of
-        # its old shard over the local time of that shard (the mean of two
-        # complete CI runs of the four shard layout, since one runner is slower
-        # than another). That gives 11.4 to 12.0 minutes of tests each, about 12
-        # to 13 minutes as jobs, against the 20 minute limit and the 17 minute
-        # split line recorded in gates.json. The four shards before had reached
-        # 19.6 minutes of tests in the longest. The saved-quote files are the
-        # the heaviest I/O families spread widest: the test_saved_quote_
-        # files split between shards 5 and 6 at the letter m (the vault file
-        # test_saved_quote_memory_refs_vault.py is the single heaviest unit
-        # file), the test_e files split between shards 2 and 3 the same way,
-        # and the s files spread by their second letter (so to shard 3,
-        # sq/sh to shard 2, st to shard 1). Every shard's expected job time
-        # is about 8 to 13 minutes (the per-file timings scaled by the job
-        # times the runs measured), with the 20 minute limit for a slow
-        # runner. A new file that no pattern selects fails the split test.
+        # The layout comes from the CI time of each file, read from the logs of
+        # both attempts of run 41202686940 (six shards, coverage on): each -q
+        # progress line has a timestamp and a test count, and the test ids,
+        # collected in the order bash expands the patterns, map each test to its
+        # file. On the mean of the two attempts every shard below holds 11.1 to
+        # 11.3 minutes of tests, about 11.7 to 11.9 minutes as a job, against
+        # the 20 minute limit and the 17 minute split line recorded in
+        # gates.json. The heaviest files took about the same time on both
+        # attempts: test_entity_disclosure_fence.py about 8 minutes (shard 2),
+        # test_saved_quote_memory_refs_vault.py about 4.5 (shard 6) and
+        # test_saved_quote_every_copy.py about 3.4 (shard 5). The light files
+        # depend on the runner: shard 1 of that run took 10.9 minutes of tests
+        # on one attempt and 6.0 on the other. A new file that no pattern
+        # selects fails the split test.
         #
-        # By 2026-10-30 two of the five shards took 19 to 20 minutes as jobs,
-        # past the split line, because the two showcase bench test files grew
-        # from about 67 to 140 seconds locally once the bench minted each team
-        # key with its own interpreter. #699 moved the two bench files between
-        # shards as a stopgap; the bench now mints each key through the
-        # command's own entry point in process (about 85 seconds of the three
-        # files saved locally), and on 2026-10-31 the unit tests were split
-        # into six shards of about 12 to 13 expected minutes each, because the
-        # longest of the five still took 17:17 and 17:41 on one runner.
+        # By 2026-10-30 shard 2 of five took 19 to 20 minutes as a job, past the
+        # split line, because the two showcase bench test files grew from about
+        # 67 to 140 seconds locally once the bench minted each team key with its
+        # own alice-memory keys create process. #699 moved the two bench files
+        # to shards 1 and 5, and the longest two of the five then took 17:41 and
+        # 17:17 on one run of main. The bench now mints each key through the
+        # command's own entry point in process, and the unit tests run as six
+        # shards.
         include:
           - shard: 1
-            selection: "tests/unit/test_[a-c]*.py tests/unit/test_st*.py tests/unit/test_sc*.py tests/unit/test_s[i-l]*.py"
+            selection: "tests/unit/test_[0-9a-d]*.py tests/unit/test_[g-h]*.py tests/unit/test_[jk]*.py tests/unit/test_s[cikl]*.py"
           - shard: 2
-            selection: "tests/unit/test_d*.py tests/unit/test_su*.py tests/unit/test_sq*.py tests/unit/test_se*.py tests/unit/test_f*.py tests/unit/test_sh*.py tests/unit/test_e[n-z]*.py"
+            selection: "tests/unit/test_e*.py tests/unit/test_f*.py tests/unit/test_i*.py"
           - shard: 3
-            selection: "tests/unit/test_[g-o]*.py tests/unit/test_e[a-m]*.py tests/unit/test_so*.py"
+            selection: "tests/unit/test_[l-p]*.py"
           - shard: 4
-            selection: "tests/unit/test_[p-r]*.py tests/unit/test_[t-z]*.py tests/unit/test_[0-9]*.py"
+            selection: "tests/unit/test_[q-r]*.py tests/unit/test_[t-z]*.py tests/unit/test_s[eh]*.py"
           - shard: 5
-            selection: "tests/unit/test_saved_quote_[a-l]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py"
+            selection: "tests/unit/test_saved_quote_[!m]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_so*.py"
           - shard: 6
-            selection: "tests/unit/test_saved_quote_[m-z]*.py"
+            selection: "tests/unit/test_saved_quote_m*.py tests/unit/test_sq*.py tests/unit/test_s[tu]*.py"
     env:
       COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
