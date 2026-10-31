@@ -79,15 +79,6 @@ jobs:
           cache: pip
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: Temporary append peak probe
-        if: matrix.shard == 4
-        run: |
-          for mode in base single late_before; do
-            DB=$(mktemp -d)/probe.db
-            python scripts/tmp_append_peak_probe.py "$DB" 00000000-0000-0000-0000-000000000001 30000 8000 "$mode"
-          done
-          DB=$(mktemp -d)/probe.db
-          NUMPY_MADVISE_HUGEPAGE=0 python scripts/tmp_append_peak_probe.py "$DB" 00000000-0000-0000-0000-000000000001 30000 8000 base
       - name: Unit tests of this shard with coverage data
         # No threshold here: one shard sees only part of the code. The combined
         # data is gated in the coverage job.
