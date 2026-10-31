@@ -1784,6 +1784,7 @@ def test_the_matrix_mapping_carries_no_hugepage_advice(tmp_path: Path) -> None:
         pytest.skip("the hugepage advice is a Linux allocator behaviour")
     import numpy
 
+    from alicebot_api.source_embedding_policy import ChunkSignature
     from alicebot_api.sqlite_schema import ensure_source_chunk_vectors_table
     from alicebot_api.vnext_stores.sqlite import chunk_vector_cache
 
