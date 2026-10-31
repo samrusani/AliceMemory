@@ -1675,8 +1675,12 @@ def test_an_append_does_not_hold_the_old_and_the_new_matrix_at_once(tmp_path: Pa
     assert completed.returncode == 0, completed.stderr
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     assert result["built"] == 30000 and result["grown"] == 38000
-    # TEMPORARY: print the ratio without asserting (the measurement study).
-    import sys as _sys
-    ratio = result["delta"] / result["matrix"]
-    print(f"APPEND RATIO: {ratio:.3f} (delta {result['delta']} / matrix {result['matrix']})", file=_sys.stderr)
-    assert True or result["delta"] < 1.0 * result["matrix"], result
+    # The measured ratios, by where the probe ran: 1.004 alone on a runner
+    # (run 41171043843, the temporary probe step: delta 92,536,832 against the
+    # 92,160,000-byte matrix, so the second open can allocate the whole new
+    # matrix with no reuse); 0.80 inside the shard, twice (runs 41154722623
+    # attempts 1 and 2: deltas 73,756,672 and 73,826,304); 0.10 to 0.11
+    # locally. The allocator's reuse of the freed matrix grows with the
+    # process's prior work, so the bound sits between the measured reality
+    # and the concatenate mutant's ~2.2 (holding both arrays at once).
+    assert result["delta"] < 1.5 * result["matrix"], result

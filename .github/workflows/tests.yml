@@ -37,12 +37,14 @@ jobs:
         # to 13 minutes as jobs, against the 20 minute limit and the 17 minute
         # split line recorded in gates.json. The four shards before had reached
         # 19.6 minutes of tests in the longest. The saved-quote files are the
-        # heaviest family: the test_saved_quote_ files are split between
-        # shards 5 and 6 by the next path segment (the vault file
-        # test_saved_quote_memory_refs_vault.py sorts into shard 5 with the
-        # other m-prefixed quote files), and the rest of the s files run
-        # across shards 1, 2, 4 and 6 by their second letter. A new file that
-        # no pattern selects fails the split test.
+        # the heaviest I/O families spread widest: the test_saved_quote_
+        # files split between shards 5 and 6 by the next path segment, the
+        # test_e files split between shards 3 and 6 the same way, and the
+        # rest of the s files across shards 1, 2 and 6 by their second
+        # letter. Every shard's expected job time is about 9 to 10.5 minutes
+        # (the per-file timings scaled by the job times the runs measured),
+        # with the 20 minute limit for a slow runner. A new file that no
+        # pattern selects fails the split test.
         #
         # By 2026-10-30 two of the five shards took 19 to 20 minutes as jobs,
         # past the split line, because the two showcase bench test files grew
@@ -57,15 +59,15 @@ jobs:
           - shard: 1
             selection: "tests/unit/test_[a-c]*.py tests/unit/test_sc*.py tests/unit/test_s[i-l]*.py"
           - shard: 2
-            selection: "tests/unit/test_[d-d]*.py tests/unit/test_su*.py tests/unit/test_[t-z]*.py tests/unit/test_[0-9]*.py tests/unit/test_sq*.py tests/unit/test_sh*.py"
+            selection: "tests/unit/test_d*.py tests/unit/test_su*.py tests/unit/test_sq*.py tests/unit/test_se*.py tests/unit/test_[t-z]*.py tests/unit/test_[0-9]*.py tests/unit/test_sh*.py"
           - shard: 3
             selection: "tests/unit/test_[g-o]*.py tests/unit/test_e[a-m]*.py"
           - shard: 4
-            selection: "tests/unit/test_[p-r]*.py tests/unit/test_st*.py tests/unit/test_se*.py tests/unit/test_e[n-z]*.py tests/unit/test_f*.py"
+            selection: "tests/unit/test_[p-r]*.py"
           - shard: 5
             selection: "tests/unit/test_saved_quote_[a-m]*.py"
           - shard: 6
-            selection: "tests/unit/test_saved_quote_[n-z]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_so*.py"
+            selection: "tests/unit/test_saved_quote_[n-z]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_so*.py tests/unit/test_e[n-z]*.py tests/unit/test_f*.py tests/unit/test_st*.py"
     env:
       COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
@@ -80,9 +82,6 @@ jobs:
           cache: pip
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: TEMP ratio probe (test_passage_vectors alone)
-        run: |
-          python -m pytest tests/unit/test_passage_vectors.py -k test_an_append_does_not_hold -s
       - name: Unit tests of this shard with coverage data
         # No threshold here: one shard sees only part of the code. The combined
         # data is gated in the coverage job.
