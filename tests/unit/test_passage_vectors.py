@@ -1653,10 +1653,13 @@ print(json.dumps({"built": built, "grown": grown, "delta": after - before, "matr
 
 
 def test_an_append_does_not_hold_the_old_and_the_new_matrix_at_once(tmp_path: Path) -> None:
-    """The matrix grows in place, so an append costs about the rows it adds and not a second copy of the matrix.
+    """The matrix grows in place, so an append does not hold the old and the new matrix at once.
 
     Measured as the growth of the peak resident size of a process that builds a copy of 30,000 vectors and then
-    appends 8,000 (``tracemalloc`` counts a resize as a second block, so it cannot tell the two apart).
+    appends 8,000 (``tracemalloc`` counts a resize as a second block, so it cannot tell the two apart). The
+    bound is 1.0 times the matrix: in-place growth's peak delta on a runner measured between 0.55 and 0.8 of the
+    matrix (the second open rebuilds the matrix and the allocator's reuse of the freed one varies by runner), while
+    holding both at once measures about 2.2 times.
     Mutation: grow the matrix with ``np.concatenate``, which holds the old and the new array at once.
     """
 
@@ -1672,4 +1675,8 @@ def test_an_append_does_not_hold_the_old_and_the_new_matrix_at_once(tmp_path: Pa
     assert completed.returncode == 0, completed.stderr
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     assert result["built"] == 30000 and result["grown"] == 38000
-    assert result["delta"] < 0.6 * result["matrix"], result
+    # The bound separates in-place growth (the runner measured the peak
+    # delta between 0.55 and 0.8 of the matrix: the second open rebuilds
+    # the matrix and how much of the freed one the allocator reuses varies
+    # by runner) from holding both at once (about 2.2 times the matrix).
+    assert result["delta"] < 1.0 * result["matrix"], result
