@@ -18429,8 +18429,8 @@
           "file": "scripts/showcase_bench.py",
           "before": "SUPPORT_PROFILE = \"memory_proposal_agent\"",
           "after": "SUPPORT_PROFILE = \"admin_agent\"",
-          "sha256": "259ad872d9bbd5bf49ff35a8aea0754b19038042755977427f0db5b965635f26",
-          "line": 48
+          "sha256": "9f4888bed52f885e81a2ed4a2b8945ad58a1cb33b8fe467e67c9743731560777",
+          "line": 49
         }
       ],
       "pytest": [
@@ -22143,10 +22143,10 @@
       "edits": [
         {
           "file": "scripts/showcase_bench.py",
-          "line": 1981,
+          "line": 2019,
           "before": "    if args.arm == \"alice\":\n        require_vectors_ready(run_dir)",
           "after": "    if args.arm == \"alice\":\n        pass",
-          "sha256": "259ad872d9bbd5bf49ff35a8aea0754b19038042755977427f0db5b965635f26"
+          "sha256": "9f4888bed52f885e81a2ed4a2b8945ad58a1cb33b8fe467e67c9743731560777"
         }
       ],
       "pytest": [
@@ -22159,10 +22159,10 @@
       "edits": [
         {
           "file": "scripts/showcase_bench.py",
-          "line": 1981,
+          "line": 2019,
           "before": "    if args.arm == \"alice\":\n        require_vectors_ready(run_dir)",
           "after": "    if True:\n        require_vectors_ready(run_dir)",
-          "sha256": "259ad872d9bbd5bf49ff35a8aea0754b19038042755977427f0db5b965635f26"
+          "sha256": "9f4888bed52f885e81a2ed4a2b8945ad58a1cb33b8fe467e67c9743731560777"
         }
       ],
       "pytest": [
@@ -23920,6 +23920,22 @@
         "tests/unit/test_sqlite_agent_keys.py::test_revoke_echoes_at_most_the_prefix"
       ],
       "expected_failure": "test_revoke_echoes_at_most_the_prefix"
+    },
+    {
+      "name": "the-bench-mints-keys-without-a-process-per-key",
+      "edits": [
+        {
+          "file": "scripts/showcase_bench.py",
+          "line": 1270,
+          "before": "    return {\n        team: _mint_via_command(",
+          "after": "    import subprocess as _subprocess\n    def _mint_by_process(db_path, user_id, agent_id, profile, label):\n        proc = _subprocess.run([sys.executable, \"-m\", \"alicebot_api.onramp\", \"keys\", \"create\", \"--agent-id\", agent_id, \"--profile\", profile, \"--label\", label, \"--db\", str(db_path), \"--user-id\", str(user_id), \"--json\"], capture_output=True, text=True, check=True)\n        return str(json.loads(proc.stdout.strip().splitlines()[-1])[\"raw_key\"])\n    return {\n        team: _mint_by_process(",
+          "sha256": "9f4888bed52f885e81a2ed4a2b8945ad58a1cb33b8fe467e67c9743731560777"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_showcase_bench_harness.py::test_the_bench_mints_its_keys_without_a_process_per_key"
+      ],
+      "expected_failure": "test_the_bench_mints_its_keys_without_a_process_per_key"
     }
   ]
 }
