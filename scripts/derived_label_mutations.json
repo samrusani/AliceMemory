@@ -23944,7 +23944,7 @@
           "file": ".github/workflows/tests.yml",
           "line": 68,
           "before": "selection: \"tests/unit/test_saved_quote_[n-z]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_so*.py tests/unit/test_sq*.py\"",
-          "after": "selection: \"tests/unit/test_saved_quote_[n-z]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_so*.py tests/unit/test_sq*.py\"",
+          "after": "selection: \"tests/unit/test_saved_quote_[n-z]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_so*.py\"",
           "sha256": "847e19e5bf3ae9d12a68c876ad69e5592ef625352761bd5fed38d93daa57c2b5"
         }
       ],
@@ -24015,7 +24015,7 @@
       "pytest": [
         "tests/unit/test_publish_recheck_rehearsal.py::test_each_mutation_is_found"
       ],
-      "expected_failure": "test_the_mutations_are_caught"
+      "expected_failure": "test_each_mutation_is_found"
     }
   ]
 }
