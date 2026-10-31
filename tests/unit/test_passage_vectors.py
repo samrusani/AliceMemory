@@ -1660,7 +1660,7 @@ def test_an_append_does_not_hold_the_old_and_the_new_matrix_at_once(tmp_path: Pa
     ratios of the real code: 1.004 alone on a runner (both attempts of run 41184285103, the temporary study's step;
     measured and not explained here), 0.80 inside the shard on the older layout (run 41154722623, attempts 1 and 2),
     0.108 twice locally. The concatenate mutant: 1.486 alone on the runner (both attempts of the same run) and 4.72
-    locally (the append grows in batches, so each concatenate allocates a new full matrix); the mutant was NOT
+    locally (the append grows in batches, so each concatenate allocates a new full matrix); the mutant was not
     measured inside the shard. The bound is 1.2: above the real code's every measured ratio on the runner, under the
     mutant's measured ratios on both.
     Mutation: grow the matrix with ``np.concatenate``, which holds the old and the new array at once.
@@ -1678,20 +1678,8 @@ def test_an_append_does_not_hold_the_old_and_the_new_matrix_at_once(tmp_path: Pa
     assert completed.returncode == 0, completed.stderr
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     assert result["built"] == 30000 and result["grown"] == 38000
-    # The bound is 1.2 of the matrix: above the real code's every measured
-    # runner ratio (1.004 alone on both attempts of run 41184285103, 0.80
-    # in-shard on run 41154722623, 0.108 locally) and under the mutant's
-    # measured ratios (1.486 alone on the runner, 4.72 locally). The
-    # mutant's in-shard ratio was not measured.
+    # Between the real code's measured ratios and the mutant's (see the docstring).
     assert result["delta"] < 1.2 * result["matrix"], result
-    # (run 41171043843, the temporary probe step: delta 92,536,832 against the
-    # 92,160,000-byte matrix, so the second open can allocate the whole new
-    # matrix with no reuse); 0.80 inside the shard, twice (runs 41154722623
-    # attempts 1 and 2: deltas 73,756,672 and 73,826,304); 0.10 to 0.11
-    # locally. The allocator's reuse of the freed matrix grows with the
-    # process's prior work, so the bound sits between the measured reality
-    # and the concatenate mutant's ~2.2 (holding both arrays at once).
-    assert result["delta"] < 1.5 * result["matrix"], result
 
 
 def test_an_append_keeps_the_same_matrix_object(tmp_path: Path) -> None:
