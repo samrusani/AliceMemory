@@ -24016,6 +24016,22 @@
         "tests/unit/test_publish_recheck_rehearsal.py::test_each_mutation_is_found"
       ],
       "expected_failure": "test_each_mutation_is_found"
+    },
+    {
+      "name": "the-split-record-holds-only-measured-values",
+      "edits": [
+        {
+          "file": "gates.json",
+          "line": 142,
+          "before": "      \"five_shards_longest_job_seconds\": [1010, 1061],",
+          "after": "      \"five_shards_longest_job_seconds\": [1010, 1019],",
+          "sha256": "7172eea3664b4d5b3a60c123ac5e81299d128b3ce28a0eaab00e6bc9d4a69177"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_alice_bench_gates.py::test_the_ci_time_budget_matches_the_workflow_it_describes"
+      ],
+      "expected_failure": "test_the_ci_time_budget_matches_the_workflow_it_describes"
     }
   ]
 }

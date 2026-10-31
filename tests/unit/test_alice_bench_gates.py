@@ -217,10 +217,15 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     four_shards = third["four_shards_longest_job_seconds"]
     assert len(four_shards) == 2 and min(four_shards) >= budget["split_threshold_minutes"] * 60, "the sample is why they were split again"
     fourth = budget["fourth_split"]
-    assert set(fourth) == {"measured_on", "measured_scope", "five_shards_longest_job_seconds", "note"}
+    assert set(fourth) == {"measured_on", "measured_scope", "five_shards_longest_job_seconds",
+                           "main_jobs_past_the_split_line_seconds", "note"}
     assert fourth["measured_on"] == "2026-10-31" and "the five shard jobs" in fourth["measured_scope"]
     five_shards = fourth["five_shards_longest_job_seconds"]
-    assert len(five_shards) == 2 and min(five_shards) >= budget["split_threshold_minutes"] * 60, "the sample is why they were split again"
+    # Only measured values: on e65e67a6 no shard job ran past the split line
+    # (the longest was 1010 s), and on main 116d2177 two did (1061 and 1037).
+    assert len(five_shards) == 2 and five_shards == [1010, 1061]
+    past_line = fourth["main_jobs_past_the_split_line_seconds"]
+    assert past_line == [1061, 1037] and min(past_line) >= budget["split_threshold_minutes"] * 60
     before = budget["before_split"]
     assert before["job"] == "python-unit (Unit tests + live eval battery, SQLite)"
     assert before["measured_runs"] == 70

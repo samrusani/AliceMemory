@@ -1211,9 +1211,10 @@ def _mint_via_command(db_path: Path, user_id, agent_id: str, profile: str, label
     ``alice-memory keys create`` is the shipped way to mint a key on the
     SQLite vault, so the measured path is the product's path. The command's
     own ``main`` runs the same argument parse and the same handler here that
-    ``python -m alicebot_api.onramp`` would run in a new interpreter; the
-    interpreter-per-key form was measured at about ten seconds of startup per
-    key across a bench run, so the harness calls the entry point in process
+    ``python -m alicebot_api.onramp`` would run in a new interpreter; an
+    interpreter per key costs about 0.4 s of start-up per key (measured: six
+    runs of the command, median 0.41 s on the bench's machine), and the bench
+    tests build many times, so the harness calls the entry point in process
     with stdout captured and restores everything the call touches (stdout and
     stderr, the environment, logging handlers and levels, the working
     directory, ``sys.argv``). The raw key is read from the captured output
@@ -1244,7 +1245,7 @@ def _mint_via_command(db_path: Path, user_id, agent_id: str, profile: str, label
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             exit_code = onramp_main(argv)
     except SystemExit as exc:
-        exit_code = exc.code if isinstance(exc.code, int) else (0 if exc.code in (None,) else 2)
+        exit_code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 2)
     finally:
         sys.argv = before_argv
         os.chdir(before_cwd)

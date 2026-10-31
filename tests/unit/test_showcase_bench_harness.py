@@ -17,8 +17,9 @@ import pytest
 def test_the_bench_mints_its_keys_without_a_process_per_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Guard: the bench mints its team keys by calling the product command's
     own entry point in process; minting by starting an interpreter per key
-    (about ten seconds of startup per key) fails here because the minting
-    runs with ``subprocess`` patched to refuse any run."""
+    (about 0.4 s of startup per key, measured on six runs of the command;
+    about 1.6 s under coverage) fails here because the minting runs with
+    ``subprocess`` patched to refuse any run."""
 
     import subprocess as _subprocess
 
