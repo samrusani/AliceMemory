@@ -289,9 +289,11 @@ def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or
 
 def test_the_notes_use_no_dash_and_none_of_the_words_the_repository_keeps_out() -> None:
     """Mutations, each one alone: write a dash into the notes; write a hyphen with a space on each side; write a word
-    the repository keeps out of its text (the five are assembled in this test from parts, so that this file holds none
-    of them); write an advisory identifier; delete the sentence that says no advisory is planned; write a local path or
-    an email address; use the word ``isolation``.
+    the repository keeps out of its text (assembled in this test from parts, so that this file holds none of them);
+    use the review or the verb of the disclosure sentence anywhere else; delete the sentence that says how the release
+    was checked, or only its ``internal adversarial review`` clause; delete the disclosure sentence; write an advisory
+    identifier; delete the sentence that says no advisory is planned; write a local path or an email address; use the
+    word ``isolation``.
     """
 
     text = _text(NOTES_PATH)
@@ -300,9 +302,16 @@ def test_the_notes_use_no_dash_and_none_of_the_words_the_repository_keeps_out() 
     assert re.search(r"\S - \S", text) is None
     flat = " ".join(text.split())
     lowered = flat.lower()
-    kept_out = ("re" + "view", "tow" + "er", "au" + "dit", "wi" + "ki", "rul" + "ing", "security " + "team")
+    kept_out = ("tow" + "er", "wi" + "ki", "rul" + "ing", "security " + "team", "re" + "viewer")
     for word in kept_out:
         assert re.search(rf"\b{word}", lowered) is None, word
+    # The two sentences of the security wording are the only place the review and the verb appear.
+    review = "automated security scanning and internal adversarial review, findings triaged and fixed"
+    assert flat.count("This release was checked with " + review + ".") == 1
+    assert lowered.count("re" + "view") == 1
+    verb = "au" + "dited"
+    assert flat.count(f"No one outside the project has {verb} the code.") == 1
+    assert lowered.count("au" + "dit") == 1
     for word in ("isolation", "boundary", "tenant", "sandbox", "vulnerability", "independently", "third-party", "penetration"):
         assert word not in lowered, word
     assert "ghsa-" not in lowered and "cve-" not in lowered
