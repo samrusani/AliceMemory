@@ -37,18 +37,19 @@ jobs:
         # to 13 minutes as jobs, against the 20 minute limit and the 17 minute
         # split line recorded in gates.json. The four shards before had reached
         # 19.6 minutes of tests in the longest. The saved-quote files are the
-        # the heaviest I/O families spread widest: the test_saved_quote_
-        # files split between shards 5 and 6 at the letter m (the vault file
+        # the heaviest I/O families sit with the lightest neighbours: the
+        # test_e files split between shards 2 and 3 at the letter m (the
+        # entity fence file is the heaviest of the e files and shard 2's
+        # largest tenant), the test_saved_quote_ files split between shards
+        # 5 and 6 at the same letter (the vault file
         # test_saved_quote_memory_refs_vault.py is the single heaviest unit
-        # file), the test_e files split between shards 2 and 3 the same way,
-        # and the t/u/v/w files spread one range per shard (t to shard 5, u
-        # and v to shard 6, w to shard 1) so no shard carries the p-r files
-        # plus a heavy family. Every shard's expected job time is about 9 to
-        # 11.5 minutes (the per-file timings scaled by the three attempts'
-        # mean per shard), with the 20 minute limit for a slow runner: a slow
-        # runner has measured about twice the per-test time of a fast one,
-        # so a rerun shows it. A new file that no pattern selects fails the
-        # split test.
+        # file and shard 6's largest tenant), and the t/u/v and w-z ranges
+        # spread one per shard. Every shard's expected job time is about 7
+        # to 11.5 minutes (the per-file timings scaled by the three
+        # attempts' mean scale per shard, 2.3 to 2.6), with the 20 minute
+        # limit for a slow runner: a slow runner has measured about twice
+        # the per-test time of a fast one, so a rerun shows it. A new file
+        # that no pattern selects fails the split test.
         #
         # By 2026-10-30 two of the five shards took 19 to 20 minutes as jobs,
         # past the split line, because the two showcase bench test files grew
@@ -61,9 +62,9 @@ jobs:
         # longest of the five still took 17:17 and 17:41 on one runner.
         include:
           - shard: 1
-            selection: "tests/unit/test_[a-c]*.py tests/unit/test_sc*.py tests/unit/test_s[i-l]*.py tests/unit/test_st*.py tests/unit/test_sh*.py tests/unit/test_[w-z]*.py"
+            selection: "tests/unit/test_[a-c]*.py tests/unit/test_sc*.py tests/unit/test_sh*.py tests/unit/test_s[i-l]*.py tests/unit/test_st*.py tests/unit/test_[w-z]*.py"
           - shard: 2
-            selection: "tests/unit/test_d*.py tests/unit/test_su*.py tests/unit/test_se*.py tests/unit/test_f*.py tests/unit/test_e[n-z]*.py tests/unit/test_so*.py"
+            selection: "tests/unit/test_d*.py tests/unit/test_su*.py tests/unit/test_se*.py tests/unit/test_f*.py tests/unit/test_e[n-z]*.py"
           - shard: 3
             selection: "tests/unit/test_[g-o]*.py tests/unit/test_e[a-m]*.py"
           - shard: 4
@@ -71,7 +72,7 @@ jobs:
           - shard: 5
             selection: "tests/unit/test_t*.py tests/unit/test_saved_quote_[a-l]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_sq*.py"
           - shard: 6
-            selection: "tests/unit/test_u*.py tests/unit/test_v*.py tests/unit/test_saved_quote_[m-z]*.py"
+            selection: "tests/unit/test_u*.py tests/unit/test_v*.py tests/unit/test_saved_quote_[m-z]*.py tests/unit/test_so*.py"
     env:
       COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
