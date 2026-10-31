@@ -538,3 +538,5 @@ macOS with `shasum -a 256 -c SHA256SUMS`.
 
 `v0.23.0` is the latest published release and remains the install, checksum,
 and baseline reference.
+
+`v0.23.1` is the current release candidate. It is not published.
