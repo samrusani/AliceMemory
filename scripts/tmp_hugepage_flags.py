@@ -46,7 +46,7 @@ conn.close()
 def flags_of(ptr):
     with open("/proc/self/smaps") as fh:
         for line in fh:
-            if "-" not in line or ":" not in line.split()[0]:
+            if "-" not in line.split()[0] or ":" in line.split()[0]:
                 continue
             span = line.split()[0]
             low, high = (int(part, 16) for part in span.split("-"))
