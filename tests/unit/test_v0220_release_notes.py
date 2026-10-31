@@ -381,20 +381,21 @@ def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section(
     put the marker for the unreleased state back into the v0.22.0 section.
 
     The Unreleased section is empty on the release commit. It may hold entries once main has moved on, so this test does
-    not ask for it to be empty. It asks that the v0.23.0, v0.22.0, v0.21.1 and v0.21.0 sections follow it in that
-    order, one heading each.
+    not ask for it to be empty. It asks that the v0.23.1, v0.23.0, v0.22.0, v0.21.1 and v0.21.0 sections follow it in
+    that order, one heading each.
     """
 
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
     assert sections[1].startswith("Unreleased\n")
-    assert sections[2].startswith("v0.23.0 \u2014 2026-10-30\n")
-    assert sections[3].startswith("v0.22.0 \u2014 2026-10-26\n")
-    assert sections[4].startswith("v0.21.1 \u2014 2026-10-23\n")
-    assert sections[5].startswith("v0.21.0 \u2014 2026-10-22\n")
+    assert sections[2].startswith("v0.23.1 \u2014 2026-10-31\n")
+    assert sections[3].startswith("v0.23.0 \u2014 2026-10-30\n")
+    assert sections[4].startswith("v0.22.0 \u2014 2026-10-26\n")
+    assert sections[5].startswith("v0.21.1 \u2014 2026-10-23\n")
+    assert sections[6].startswith("v0.21.0 \u2014 2026-10-22\n")
     assert changelog.count(HEADING) == 1
-    assert "Unreleased (on" not in sections[3]
     assert "Unreleased (on" not in sections[4]
+    assert "Unreleased (on" not in sections[5]
 
 
 def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or_the_manifest() -> None:
