@@ -325,7 +325,8 @@ def test_the_notes_use_no_dash_and_none_of_the_words_the_repository_keeps_out() 
 def test_the_lead_paragraph_says_who_should_take_the_release_what_changed_and_that_there_is_no_migration() -> None:
     """Mutations, each one alone: delete the sentence that names Codex and Hermes; delete the sentence that lets everyone
     else stay on v0.23.0; delete the sentence that says there is no migration; unbold the paragraph; say behaviour
-    changes.
+    changes; name another table or key for Codex, another table for Hermes, or another file or change for the
+    docstring in the bullets under the paragraph.
     """
 
     text = _text(NOTES_PATH)
@@ -342,6 +343,11 @@ def test_the_lead_paragraph_says_who_should_take_the_release_what_changed_and_th
     assert "Everyone else can stay on v0.23.0." in flat
     bullets = [" ".join(item.split()) for item in text.split("\n\n")[2].split("\n- ")]
     assert len(bullets) == 3
+    assert bullets[0].endswith(" The guide now names the alice table's `env_vars` or `env`.")
+    assert bullets[1].endswith(" The guide now names the `env` map of `mcp_servers.alice`, which the Hermes page describes.")
+    assert bullets[2] == (
+        "The docstring of `_own_env` in `host_install.py` no longer says install writes a reference to the agent key."
+    )
 
 
 def test_the_upgrade_steps_name_every_action_an_existing_user_takes_in_order() -> None:
