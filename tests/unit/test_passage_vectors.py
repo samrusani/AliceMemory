@@ -1749,33 +1749,33 @@ def test_an_append_keeps_the_same_matrix_object(tmp_path: Path) -> None:
             assert entry.matrix is matrix_objects[0], "the append rebound the entry's matrix"
 
 
-def _vmflags_of(pointer: int) -> str:
-    """The VmFlags line of the /proc/self/smaps mapping that holds ``pointer`` (Linux only)."""
+def _vmflags_over(pointer: int, size: int) -> list[str]:
+    """The VmFlags of every /proc/self/smaps entry that overlaps the byte range of ``pointer`` (Linux only)."""
 
+    flags: list[str] = []
     with open("/proc/self/smaps") as mapping_file:
+        start = None
         for line in mapping_file:
             head = line.split()
             if len(head) < 1 or "-" not in head[0] or ":" in head[0]:
+                if start is not None and line.startswith("VmFlags"):
+                    flags.append(line.strip())
                 continue
             low, high = (int(part, 16) for part in head[0].split("-"))
-            if low <= pointer < high:
-                for inner in mapping_file:
-                    if inner.startswith("VmFlags"):
-                        return inner.strip()
-                    inner_head = inner.split()
-                    if len(inner_head) > 0 and "-" in inner_head[0] and ":" in inner_head[0]:
-                        break
-    return "mapping not found"
+            start = low if low < pointer + size and high > pointer else None
+    return flags
 
 
 def test_the_matrix_mapping_carries_no_hugepage_advice(tmp_path: Path) -> None:
-    """On Linux the mappings that hold the matrix carry no hugepage advice, after a build and after an append.
+    """On Linux no mapping that holds the matrix carries the hugepage flag, after a build and after an append.
 
-    numpy advises ``madvise(MADV_HUGEPAGE)`` on blocks it allocates at 4 MiB and up, and on Linux
-    a ``realloc`` of a block numpy advised makes a new block and copies the old one, so the first
-    append after a build held the old and the new matrix at once (measured, see the peak tests).
-    The matrix is made small and grown by ``ndarray.resize`` itself, and a block that ``realloc``
-    made carries no advice. Skipped off Linux: the advice is a Linux allocator behaviour.
+    numpy advises ``madvise(MADV_HUGEPAGE)`` on blocks it allocates at 4 MiB and up, from the first page boundary
+    after the data pointer, and on Linux a ``realloc`` of a block numpy advised makes a new block and copies the old
+    one, so the first append after a build held the old and the new matrix at once (measured, see the peak tests).
+    The matrix is made small and grown by ``ndarray.resize`` itself, and a block that ``realloc`` made carries no
+    advice on any page of it. The check reads every mapping that overlaps the matrix's bytes, because the advice of a
+    block numpy advised starts after the pointer's own page. Skipped off Linux: the advice is a Linux allocator
+    behaviour.
 
     Mutation: make the matrix with a full size ``np.empty`` in the build again.
     """
@@ -1809,15 +1809,12 @@ def test_the_matrix_mapping_carries_no_hugepage_advice(tmp_path: Path) -> None:
 
     insert(0, 3000)
     conn.close()
-    pointers: list[int] = []
     with sqlite_user_connection(database, USER_ID) as c:
         with chunk_vector_view(c, USER_ID, signature) as view:
             assert view.total_rows == 3000
             entry = chunk_vector_cache._REGISTRY[(str(database), USER_ID)]
-            pointer = entry.matrix.ctypes.data
-            pointers.append(pointer)
-            flags = _vmflags_of(pointer)
-            assert "hg" not in flags, flags
+            flags = _vmflags_over(entry.matrix.ctypes.data, entry.matrix.nbytes)
+            assert flags and all("hg" not in line for line in flags), flags
     conn = sqlite3.connect(database)
     conn.execute("PRAGMA foreign_keys=OFF")
     insert(3000, 500)
@@ -1826,12 +1823,11 @@ def test_the_matrix_mapping_carries_no_hugepage_advice(tmp_path: Path) -> None:
         with chunk_vector_view(c, USER_ID, signature) as view:
             assert view.total_rows == 3500
             entry = chunk_vector_cache._REGISTRY[(str(database), USER_ID)]
-            pointer = entry.matrix.ctypes.data
-            pointers.append(pointer)
-            flags = _vmflags_of(pointer)
-            assert "hg" not in flags, flags
+            flags = _vmflags_over(entry.matrix.ctypes.data, entry.matrix.nbytes)
+            assert flags and all("hg" not in line for line in flags), flags
     sanity = numpy.empty((3000, 768), dtype=numpy.float32)
-    assert "hg" in _vmflags_of(sanity.ctypes.data), "the check cannot see the advice numpy gives"
+    sanity_flags = _vmflags_over(sanity.ctypes.data, sanity.nbytes)
+    assert any("hg" in line for line in sanity_flags), "the check cannot see the advice numpy gives"
 
 
 _APPEND_PEAK_PROBE = r"""
