@@ -355,8 +355,10 @@ def test_the_notes_name_the_three_limits_they_say_matter_most() -> None:
 
 
 def test_the_notes_state_the_publish_limit_and_the_workflows_say_the_same() -> None:
-    """The note under "Docs and tooling" gives the new limit and the measured time, the changelog has an entry for it,
-    ``RELEASING.md`` states it, and both workflow files hold 180 minutes.
+    """The note under "Docs and tooling" gives the limit v0.21.0 shipped (180 minutes; the note's text is the
+    tag's own) and the measured time, the changelog has an entry for it, ``RELEASING.md`` states the limit of
+    the day. The limit rose to 200 on 2026-10-31 with the unit tests' sixth shard (six shards of 20 minutes
+    plus the same 80 minute margin), so the workflow files now hold 200, not the note's 180.
 
     Mutations, each one alone: set ``timeout-minutes`` of ``build-and-verify`` or of the rehearsal back to 120; set
     ``JOB_TIMEOUT_MINUTES`` of the rehearsal to another number; delete the note from the notes, the entry from the
@@ -372,10 +374,10 @@ def test_the_notes_state_the_publish_limit_and_the_workflows_say_the_same() -> N
     ) in note
     publish = yaml.safe_load(_text(".github/workflows/publish-pypi.yml"))["jobs"]["build-and-verify"]
     rehearsal_jobs = yaml.safe_load(_text(".github/workflows/publish-recheck-rehearsal.yml"))["jobs"]
-    assert publish["timeout-minutes"] == 180
-    assert [job["timeout-minutes"] for job in rehearsal_jobs.values()] == [180]
+    assert publish["timeout-minutes"] == 200
+    assert [job["timeout-minutes"] for job in rehearsal_jobs.values()] == [200]
     report = [step for job in rehearsal_jobs.values() for step in job["steps"] if "JOB_TIMEOUT_MINUTES" in (step.get("env") or {})]
-    assert [str(step["env"]["JOB_TIMEOUT_MINUTES"]) for step in report] == ["180"]
+    assert [str(step["env"]["JOB_TIMEOUT_MINUTES"]) for step in report] == ["200"]
     # 3,876 s is under half of 180 minutes (5,400 s) and over half of 120 minutes (3,600 s).
     assert 3_600 < 3_876 < 5_400
     limit_entries = [entry for entry in _entries() if entry.startswith("Internal change, no behaviour change: the first job of `publish-pypi.yml`")]
@@ -383,7 +385,8 @@ def test_the_notes_state_the_publish_limit_and_the_workflows_say_the_same() -> N
     assert "now has a `timeout-minutes` of 180, up from 120" in limit_entries[0]
     assert "that step took 3,876 s on a runner, about 65 minutes" in limit_entries[0]
     assert limit_entries[0].endswith("No migration is required.")
-    assert "The limit is 180 minutes, because the one-process rerun took 3,876 s on a runner" in _flat("RELEASING.md")
+    releasing = _flat("RELEASING.md")
+    assert "The limit is 200 minutes (six unit shards of 20 minutes plus the 80 minute margin), because the one-process rerun took 3,876 s on a runner" in releasing
 
 
 def test_the_headline_changes_of_the_notes_each_have_a_changelog_entry() -> None:

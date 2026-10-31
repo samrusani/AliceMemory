@@ -57,15 +57,15 @@ jobs:
           - shard: 1
             selection: "tests/unit/test_[a-c]*.py tests/unit/test_sc*.py tests/unit/test_s[i-l]*.py"
           - shard: 2
-            selection: "tests/unit/test_[d-f]*.py tests/unit/test_su*.py tests/unit/test_[t-z]*.py tests/unit/test_[0-9]*.py"
+            selection: "tests/unit/test_[d-d]*.py tests/unit/test_su*.py tests/unit/test_[t-z]*.py tests/unit/test_[0-9]*.py tests/unit/test_sq*.py"
           - shard: 3
-            selection: "tests/unit/test_[g-o]*.py"
+            selection: "tests/unit/test_[g-o]*.py tests/unit/test_e[a-m]*.py"
           - shard: 4
             selection: "tests/unit/test_[p-r]*.py tests/unit/test_st*.py tests/unit/test_se*.py"
           - shard: 5
             selection: "tests/unit/test_sh*.py tests/unit/test_saved_quote_[a-m]*.py"
           - shard: 6
-            selection: "tests/unit/test_saved_quote_[n-z]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_so*.py tests/unit/test_sq*.py"
+            selection: "tests/unit/test_saved_quote_[n-z]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_so*.py tests/unit/test_e[n-z]*.py tests/unit/test_f*.py"
     env:
       COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
