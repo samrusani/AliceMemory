@@ -12,8 +12,8 @@ v0.20.2 raised the limit to 120 minutes. The one-process rerun then took 3,876 s
 a runner, about 65 minutes, and the release rule is that a release step must take
 less than half of its job's limit (``publish-recheck-rehearsal.yml`` fails a run past
 it), so 120 minutes was not enough. v0.21.0 raised the limit to 180 for five shards;
-the unit tests outgrew five shards of 20 minutes (two shard jobs took 17:17 and 17:41 on
-one runner), so the unit tests run as six shards and this limit is 200 = 6 x 20 + 80,
+the unit tests outgrew five shards of 20 minutes (two shard jobs of one run of main took
+17:17 and 17:41), so the unit tests run as six shards and this limit is 200 = 6 x 20 + 80,
 with the same margin.
 
 The rule here: a publish job that reruns the unit suite must have at least the
@@ -59,9 +59,10 @@ TESTS_WORKFLOW = ROOT / ".github" / "workflows" / "tests.yml"
 # Minutes above the CI total (shard count times the shard limit). Twenty are for
 # everything in the publish job other than the unit rerun: at v0.20.0 the whole job
 # took 11 minutes, the unit rerun included. Sixty are for the half-limit rule: the
-# one-process rerun took 3,876 s (65 minutes) against 100 minutes of CI shard limits,
-# so the step needs a limit of at least 130 minutes, and the rest keeps room for the
-# suite to grow. Six shards of 20 minutes plus 80 is the 200 of the publish job.
+# one-process rerun took 3,876 s (65 minutes) when the five shards' limits came to
+# 100 minutes, so the step needed a limit of at least 130 minutes, and the rest keeps
+# room for the suite to grow. Six shards of 20 minutes plus 80 is the 200 of the
+# publish job.
 MARGIN_MINUTES = 80
 # The most a job on a GitHub-hosted runner may run.
 HOSTED_JOB_MAX_MINUTES = 360

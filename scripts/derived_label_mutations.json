@@ -18429,7 +18429,7 @@
           "file": "scripts/showcase_bench.py",
           "before": "SUPPORT_PROFILE = \"memory_proposal_agent\"",
           "after": "SUPPORT_PROFILE = \"admin_agent\"",
-          "sha256": "5fe610a136bd5e87736e2edf2ab01ce1ae7c4294384de0a99b270957d34df352",
+          "sha256": "fd9985d7286df83365a9c695143c56786aab125886b5786ca91af22196e66f50",
           "line": 49
         }
       ],
@@ -22144,10 +22144,10 @@
       "edits": [
         {
           "file": "scripts/showcase_bench.py",
-          "line": 2020,
+          "line": 2023,
           "before": "    if args.arm == \"alice\":\n        require_vectors_ready(run_dir)",
           "after": "    if args.arm == \"alice\":\n        pass",
-          "sha256": "5fe610a136bd5e87736e2edf2ab01ce1ae7c4294384de0a99b270957d34df352"
+          "sha256": "fd9985d7286df83365a9c695143c56786aab125886b5786ca91af22196e66f50"
         }
       ],
       "pytest": [
@@ -22160,10 +22160,10 @@
       "edits": [
         {
           "file": "scripts/showcase_bench.py",
-          "line": 2020,
+          "line": 2023,
           "before": "    if args.arm == \"alice\":\n        require_vectors_ready(run_dir)",
           "after": "    if True:\n        require_vectors_ready(run_dir)",
-          "sha256": "5fe610a136bd5e87736e2edf2ab01ce1ae7c4294384de0a99b270957d34df352"
+          "sha256": "fd9985d7286df83365a9c695143c56786aab125886b5786ca91af22196e66f50"
         }
       ],
       "pytest": [
@@ -23927,10 +23927,10 @@
       "edits": [
         {
           "file": "scripts/showcase_bench.py",
-          "line": 1271,
+          "line": 1274,
           "before": "    return {\n        team: _mint_via_command(",
           "after": "    import subprocess as _subprocess\n    def _mint_by_process(db_path, user_id, agent_id, profile, label):\n        proc = _subprocess.run([sys.executable, \"-m\", \"alicebot_api.onramp\", \"keys\", \"create\", \"--agent-id\", agent_id, \"--profile\", profile, \"--label\", label, \"--db\", str(db_path), \"--user-id\", str(user_id), \"--json\"], capture_output=True, text=True, check=True)\n        return str(json.loads(proc.stdout.strip().splitlines()[-1])[\"raw_key\"])\n    return {\n        team: _mint_by_process(",
-          "sha256": "5fe610a136bd5e87736e2edf2ab01ce1ae7c4294384de0a99b270957d34df352"
+          "sha256": "fd9985d7286df83365a9c695143c56786aab125886b5786ca91af22196e66f50"
         }
       ],
       "pytest": [
@@ -23978,7 +23978,7 @@
           "line": 111,
           "before": "\"shard_count\": 6,",
           "after": "\"shard_count\": 5,",
-          "sha256": "d285238b591c50aee2c1599270505a764906e676e999d07d59af1bc47f3536cf"
+          "sha256": "d911fa1bbf11dcc8592b91d98dc73d25ed004f7260dac146ca969a754ba2d5fc"
         }
       ],
       "pytest": [
@@ -24026,13 +24026,29 @@
           "line": 142,
           "before": "      \"five_shards_longest_job_seconds\": [1010, 1061],",
           "after": "      \"five_shards_longest_job_seconds\": [1010, 1019],",
-          "sha256": "d285238b591c50aee2c1599270505a764906e676e999d07d59af1bc47f3536cf"
+          "sha256": "d911fa1bbf11dcc8592b91d98dc73d25ed004f7260dac146ca969a754ba2d5fc"
         }
       ],
       "pytest": [
         "tests/unit/test_alice_bench_gates.py::test_the_ci_time_budget_matches_the_workflow_it_describes"
       ],
       "expected_failure": "test_the_ci_time_budget_matches_the_workflow_it_describes"
+    },
+    {
+      "name": "the-bench-reports-a-failed-mint",
+      "edits": [
+        {
+          "file": "scripts/showcase_bench.py",
+          "line": 1263,
+          "before": "    if exit_code != 0:\n        raise bench.BenchError(",
+          "after": "    if False:\n        raise bench.BenchError(",
+          "sha256": "fd9985d7286df83365a9c695143c56786aab125886b5786ca91af22196e66f50"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_showcase_bench_harness.py::test_a_failed_mint_raises_the_command_error"
+      ],
+      "expected_failure": "test_a_failed_mint_raises_the_command_error"
     }
   ]
 }

@@ -1212,13 +1212,16 @@ def _mint_via_command(db_path: Path, user_id, agent_id: str, profile: str, label
     SQLite vault, so the measured path is the product's path. The command's
     own ``main`` runs the same argument parse and the same handler here that
     ``python -m alicebot_api.onramp`` would run in a new interpreter; an
-    interpreter per key costs about 0.4 s of start-up per key (measured: six
-    runs of the command, median 0.41 s on the bench's machine), and the bench
-    tests build many times, so the harness calls the entry point in process
-    with stdout captured and restores everything the call touches (stdout and
-    stderr, the environment, logging handlers and levels, the working
-    directory, ``sys.argv``). The raw key is read from the captured output
-    once and handed to the MCP session.
+    interpreter per key costs about 0.4 s of start-up per key (measured
+    locally: the median of six runs of the command was 0.41 s with a warm
+    bytecode cache and 0.77 s without one), and the bench tests build many
+    times, so the harness calls the entry point in process with stdout and
+    stderr captured. Afterwards it puts back the environment, the root
+    logger's handlers and level, the working directory and ``sys.argv``, in
+    case the command ever changes them; today it changes none of them. A
+    nonzero exit raises ``BenchError`` with the command's error output. The
+    raw key is read from the captured output once and handed to the MCP
+    session.
     """
 
     import contextlib

@@ -1657,12 +1657,13 @@ def test_an_append_does_not_hold_the_old_and_the_new_matrix_at_once(tmp_path: Pa
 
     Measured as the growth of the peak resident size of a process that builds a copy of 30,000 vectors and then
     appends 8,000 (``tracemalloc`` counts a resize as a second block, so it cannot tell the two apart). The measured
-    ratios of the real code: 1.004 alone on a runner (both attempts of run 41184285103, the temporary study's step;
-    measured and not explained here), 0.80 inside the shard on the older layout (run 41154722623, attempts 1 and 2),
+    ratios of the real code: 1.004 alone on a runner (both attempts of run 41184285103, a temporary step of its shard 4
+    job that ran the probe alone; measured and not explained here), 0.80 inside the shard on the older layout (run 41154722623, attempts 1 and 2),
     0.108 twice locally. The concatenate mutant: 1.486 alone on the runner (both attempts of the same run) and 4.72
     locally (the append grows in batches, so each concatenate allocates a new full matrix); the mutant was not
     measured inside the shard. The bound is 1.2: above the real code's every measured ratio on the runner, under the
-    mutant's measured ratios on both.
+    mutant's measured ratios on both. The ratio is a ceiling on the peak; the check that does not depend on the
+    allocator is ``test_an_append_keeps_the_same_matrix_object`` below.
     Mutation: grow the matrix with ``np.concatenate``, which holds the old and the new array at once.
     """
 
