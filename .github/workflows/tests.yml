@@ -40,14 +40,15 @@ jobs:
         # the heaviest I/O families spread widest: the test_saved_quote_
         # files split between shards 5 and 6 at the letter m (the vault file
         # test_saved_quote_memory_refs_vault.py is the single heaviest unit
-        # file and shard 6's largest tenant), the test_e files split between
-        # shards 2 and 3 the same way, and the rest of the s files spread by
-        # their second letter (sh to shard 1, so to shard 2, sq to shard 5).
-        # Every shard's expected job time is about 8 to 12.5 minutes (the
-        # per-file timings scaled by the medians of the runs measured), with
-        # the 20 minute limit for a slow runner: a slow runner has measured
-        # about twice the per-test time of a fast one, so a rerun shows it.
-        # A new file that no pattern selects fails the split test.
+        # file), the test_e files split between shards 2 and 3 the same way,
+        # and the t/u/v/w files spread one range per shard (t to shard 5, u
+        # and v to shard 6, w to shard 1) so no shard carries the p-r files
+        # plus a heavy family. Every shard's expected job time is about 9 to
+        # 11.5 minutes (the per-file timings scaled by the three attempts'
+        # mean per shard), with the 20 minute limit for a slow runner: a slow
+        # runner has measured about twice the per-test time of a fast one,
+        # so a rerun shows it. A new file that no pattern selects fails the
+        # split test.
         #
         # By 2026-10-30 two of the five shards took 19 to 20 minutes as jobs,
         # past the split line, because the two showcase bench test files grew
@@ -60,17 +61,17 @@ jobs:
         # longest of the five still took 17:17 and 17:41 on one runner.
         include:
           - shard: 1
-            selection: "tests/unit/test_[a-c]*.py tests/unit/test_sc*.py tests/unit/test_s[i-l]*.py tests/unit/test_st*.py tests/unit/test_sk*.py tests/unit/test_sl*.py tests/unit/test_sh*.py"
+            selection: "tests/unit/test_[a-c]*.py tests/unit/test_sc*.py tests/unit/test_s[i-l]*.py tests/unit/test_st*.py tests/unit/test_sh*.py tests/unit/test_[w-z]*.py"
           - shard: 2
             selection: "tests/unit/test_d*.py tests/unit/test_su*.py tests/unit/test_se*.py tests/unit/test_f*.py tests/unit/test_e[n-z]*.py tests/unit/test_so*.py"
           - shard: 3
             selection: "tests/unit/test_[g-o]*.py tests/unit/test_e[a-m]*.py"
           - shard: 4
-            selection: "tests/unit/test_[p-r]*.py tests/unit/test_[t-z]*.py tests/unit/test_[0-9]*.py"
+            selection: "tests/unit/test_[p-r]*.py tests/unit/test_[0-9]*.py"
           - shard: 5
-            selection: "tests/unit/test_saved_quote_[a-l]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_sq*.py"
+            selection: "tests/unit/test_t*.py tests/unit/test_saved_quote_[a-l]*.py tests/unit/test_saved_quotes_*.py tests/unit/test_saved_provenance_*.py tests/unit/test_sq*.py"
           - shard: 6
-            selection: "tests/unit/test_saved_quote_[m-z]*.py"
+            selection: "tests/unit/test_u*.py tests/unit/test_v*.py tests/unit/test_saved_quote_[m-z]*.py"
     env:
       COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
@@ -85,6 +86,22 @@ jobs:
           cache: pip
       - name: Install
         run: python -m pip install -e '.[dev]'
+      - name: TEMP passage-vectors ratio study (real alone, mutant alone, then restored)
+        run: |
+          if [ "${{ matrix.shard }}" != "4" ]; then exit 0; fi
+          python -m pytest tests/unit/test_passage_vectors.py -k test_an_append_does_not_hold -s -p no:cacheprovider
+          python - <<'PYEOF'
+          import json, pathlib
+          cases = json.loads(pathlib.Path("scripts/derived_label_mutations.json").read_text())["cases"]
+          case = next(c for c in cases if c["name"] == "passage-vectors-append-doubles-the-matrix")
+          for edit in case["edits"]:
+              target = pathlib.Path(edit["file"])
+              text = target.read_text()
+              assert text.count(edit["before"]) == 1, edit["file"]
+              target.write_text(text.replace(edit["before"], edit["after"]))
+          PYEOF
+          python -m pytest tests/unit/test_passage_vectors.py -k test_an_append_does_not_hold -s -p no:cacheprovider
+          git checkout -- apps/api/src/alicebot_api/vnext_stores/sqlite/chunk_vector_cache.py
       - name: Unit tests of this shard with coverage data
         # No threshold here: one shard sees only part of the code. The combined
         # data is gated in the coverage job.
