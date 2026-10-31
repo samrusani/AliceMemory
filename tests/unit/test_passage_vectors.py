@@ -1766,68 +1766,111 @@ def _vmflags_over(pointer: int, size: int) -> list[str]:
     return flags
 
 
+_HUGEPAGE_PROBE = r"""
+import json, sqlite3, sys
+from pathlib import Path
+from uuid import UUID
+import numpy as np
+from alicebot_api.onramp import bootstrap_database
+from alicebot_api.source_embedding_policy import ChunkSignature
+from alicebot_api.sqlite_store import sqlite_user_connection
+from alicebot_api.vnext_stores.sqlite import chunk_vector_cache
+from alicebot_api.vnext_stores.sqlite.chunk_vector_cache import chunk_vector_view
+
+database, user, first_rows, more_rows = Path(sys.argv[1]), sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+signature = ChunkSignature("p", "m", "e", 1, 1, 0)
+rng = np.random.default_rng(13)
+bootstrap_database(database, user_id=UUID(user), user_email="local@alice")
+conn = sqlite3.connect(database)
+conn.execute("PRAGMA foreign_keys=OFF")
+from alicebot_api.sqlite_schema import ensure_source_chunk_vectors_table
+ensure_source_chunk_vectors_table(conn)
+
+def insert(start, count):
+    for low in range(start, start + count, 1000):
+        high = min(low + 1000, start + count)
+        block = rng.random((high - low, 768), dtype=np.float32)
+        conn.executemany(
+            "INSERT INTO source_chunk_embeddings (chunk_id, user_id, source_id, dimensions, embedding, provider, model, "
+            "endpoint, signature_version, header_version, prefix_version, content_sha256) "
+            "VALUES (?, ?, ?, 768, ?, 'p', 'm', 'e', 1, 1, 0, 'x')",
+            [(f"c{low + i}", user, f"s{(low + i) % 50}", block[i].tobytes()) for i in range(high - low)],
+        )
+    conn.commit()
+
+def flags_over(pointer, size):
+    found = []
+    with open("/proc/self/smaps") as mapping_file:
+        hold = None
+        for line in mapping_file:
+            head = line.split()
+            if len(head) < 1 or "-" not in head[0] or ":" in head[0]:
+                if hold is not None and line.startswith("VmFlags"):
+                    found.append(line.split(":")[1].strip())
+                continue
+            low, high = (int(part, 16) for part in head[0].split("-"))
+            hold = low if low < pointer + size and high > pointer else None
+    return found
+
+insert(0, first_rows)
+conn.close()
+with sqlite_user_connection(database, user) as c:
+    with chunk_vector_view(c, user, signature) as view:
+        built = view.total_rows
+        entry = chunk_vector_cache._REGISTRY[(str(database), user)]
+        flags_built = flags_over(entry.matrix.ctypes.data, entry.matrix.nbytes)
+insert(first_rows, more_rows)
+with sqlite_user_connection(database, user) as c:
+    with chunk_vector_view(c, user, signature) as view:
+        grown = view.total_rows
+        entry = chunk_vector_cache._REGISTRY[(str(database), user)]
+        flags_grown = flags_over(entry.matrix.ctypes.data, entry.matrix.nbytes)
+sanity = np.empty((first_rows, 768), dtype=np.float32)
+sanity_flags = flags_over(sanity.ctypes.data, sanity.nbytes)
+print(json.dumps({
+    "built": built, "grown": grown,
+    "advised_built": any("hg" in line for line in flags_built),
+    "advised_grown": any("hg" in line for line in flags_grown),
+    "sanity_advised": any("hg" in line for line in sanity_flags),
+    "flags_built": flags_built, "flags_grown": flags_grown,
+}))
+"""
+
+
 def test_the_matrix_mapping_carries_no_hugepage_advice(tmp_path: Path) -> None:
-    """On Linux no mapping that holds the matrix carries the hugepage flag, after a build and after an append.
+    """In a fresh process on Linux no mapping that holds the matrix carries the hugepage flag.
 
-    numpy advises ``madvise(MADV_HUGEPAGE)`` on blocks it allocates at 4 MiB and up, from the first page boundary
-    after the data pointer, and on Linux a ``realloc`` of a block numpy advised makes a new block and copies the old
-    one, so the first append after a build held the old and the new matrix at once (measured, see the peak tests).
-    The matrix is made small and grown by ``ndarray.resize`` itself, and a block that ``realloc`` made carries no
-    advice on any page of it. The check reads every mapping that overlaps the matrix's bytes, because the advice of a
-    block numpy advised starts after the pointer's own page. Skipped off Linux: the advice is a Linux allocator
-    behaviour.
+    numpy advises ``madvise(MADV_HUGEPAGE)`` on blocks it allocates at 4 MiB and up, and on Linux a ``realloc`` of a
+    block numpy advised makes a new block and copies the old one, so the first append after a build held the old and
+    the new matrix at once (measured, see the peak tests). The matrix is made small and grown by ``ndarray.resize``
+    itself, and a block that ``realloc`` made carries no advice of its own. The check runs in a fresh subprocess,
+    where the matrix is the only allocation of the size that numpy advises: in a longer lived process the flag is
+    carried by the region an earlier advised allocation poisoned, and an advised or a realloc made block cannot be
+    told apart there (measured on a runner, run 41251953900, job of shard 3: the fixed code's matrix showed the flag
+    on a later page inside the test process). The probe also allocates a full size ``np.empty`` and checks the advice
+    shows on it, so a check that cannot see the flag fails instead of passing.
 
+    Skipped off Linux: the advice is a Linux allocator behaviour.
     Mutation: make the matrix with a full size ``np.empty`` in the build again.
     """
 
     if sys.platform != "linux":
         pytest.skip("the hugepage advice is a Linux allocator behaviour")
-    import numpy
-
-    from alicebot_api.source_embedding_policy import ChunkSignature
-    from alicebot_api.sqlite_schema import ensure_source_chunk_vectors_table
-    from alicebot_api.vnext_stores.sqlite import chunk_vector_cache
+    import os
 
     database = make_vault(tmp_path)
-    signature = ChunkSignature("p", "m", "e", 1, 1, 0)
-    rng = numpy.random.default_rng(13)
-    conn = sqlite3.connect(database)
-    conn.execute("PRAGMA foreign_keys=OFF")
-    ensure_source_chunk_vectors_table(conn)
-
-    def insert(start, count):
-        for low in range(start, start + count, 1000):
-            high = min(low + 1000, start + count)
-            block = rng.random((high - low, 768), dtype=numpy.float32)
-            conn.executemany(
-                "INSERT INTO source_chunk_embeddings (chunk_id, user_id, source_id, dimensions, embedding, provider, model, "
-                "endpoint, signature_version, header_version, prefix_version, content_sha256) "
-                "VALUES (?, ?, ?, 768, ?, 'p', 'm', 'e', 1, 1, 0, 'x')",
-                [(f"c{low + i}", USER_ID, f"s{(low + i) % 50}", block[i].tobytes()) for i in range(high - low)],
-            )
-        conn.commit()
-
-    insert(0, 3000)
-    conn.close()
-    with sqlite_user_connection(database, USER_ID) as c:
-        with chunk_vector_view(c, USER_ID, signature) as view:
-            assert view.total_rows == 3000
-            entry = chunk_vector_cache._REGISTRY[(str(database), USER_ID)]
-            flags = _vmflags_over(entry.matrix.ctypes.data, entry.matrix.nbytes)
-            assert flags and all("hg" not in line for line in flags), flags
-    conn = sqlite3.connect(database)
-    conn.execute("PRAGMA foreign_keys=OFF")
-    insert(3000, 500)
-    conn.close()
-    with sqlite_user_connection(database, USER_ID) as c:
-        with chunk_vector_view(c, USER_ID, signature) as view:
-            assert view.total_rows == 3500
-            entry = chunk_vector_cache._REGISTRY[(str(database), USER_ID)]
-            flags = _vmflags_over(entry.matrix.ctypes.data, entry.matrix.nbytes)
-            assert flags and all("hg" not in line for line in flags), flags
-    sanity = numpy.empty((3000, 768), dtype=numpy.float32)
-    sanity_flags = _vmflags_over(sanity.ctypes.data, sanity.nbytes)
-    assert any("hg" in line for line in sanity_flags), "the check cannot see the advice numpy gives"
+    environment = {key: value for key, value in os.environ.items() if not key.startswith(("ALICE_", "ALICEBOT_"))}
+    environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[2] / "apps/api/src")
+    completed = subprocess.run(
+        [sys.executable, "-c", _HUGEPAGE_PROBE, str(database), USER_ID, "3000", "500"],
+        capture_output=True, text=True, env=environment, timeout=300,
+    )
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result["built"] == 3000 and result["grown"] == 3500
+    assert not result["advised_built"], result
+    assert not result["advised_grown"], result
+    assert result["sanity_advised"], "the check cannot see the advice numpy gives"
 
 
 _APPEND_PEAK_PROBE = r"""
