@@ -1672,10 +1672,21 @@ def test_an_append_does_not_hold_the_old_and_the_new_matrix_at_once(tmp_path: Pa
     assert completed.returncode == 0, completed.stderr
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     assert result["built"] == 30000 and result["grown"] == 38000
-    # TEMPORARY (the measurement study): the ratio printed, no assert.
-    import sys as _sys
-    print(f"APPEND RATIO: {result['delta'] / result['matrix']:.3f} (delta {result['delta']} matrix {result['matrix']})", file=_sys.stderr)
-    assert True or result["delta"] < 1.5 * result["matrix"], result
+    # The measured ratios of the real code, by where the probe ran: 1.004
+    # alone on a runner (twice: runs 41184285103 attempts 1 and 2, the
+    # temporary study's step: delta 92,536,832 against the 92,160,000-byte
+    # matrix, so the second open can allocate the whole new matrix with no
+    # reuse); 0.80 inside the shard, twice (run 41154722623 attempts 1 and
+    # 2: deltas 73,756,672 and 73,826,304); 0.10 to 0.11 locally. The
+    # allocator's reuse of the freed matrix grows with the process's prior
+    # work. The concatenate mutant measured 1.486 alone on the same runner
+    # (delta 136,925,184 and 136,937,472) - it holds the new array beside
+    # the old, whose pages the runner's allocator frees to the system at
+    # once. The bound sits between the real code's 1.004 and the mutant's
+    # 1.486 at 1.2; the two are close enough that this test alone may not
+    # separate them on every runner (the mutant's in-shard ratio is not
+    # measured), so the review decides the bound with these numbers.
+    assert result["delta"] < 1.2 * result["matrix"], result
     # (run 41171043843, the temporary probe step: delta 92,536,832 against the
     # 92,160,000-byte matrix, so the second open can allocate the whole new
     # matrix with no reuse); 0.80 inside the shard, twice (runs 41154722623
