@@ -21496,7 +21496,7 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_passage_vectors.py::test_an_append_does_not_hold_the_old_and_the_new_matrix_at_once",
+        "tests/unit/test_passage_vectors.py::test_the_append_peak_ratio_stays_under_the_mutants",
         "tests/unit/test_passage_vectors.py::test_an_append_keeps_the_same_matrix_object"
       ],
       "expected_failure": "test_an_append_keeps_the_same_matrix_object"
