@@ -1819,7 +1819,11 @@ with sqlite_user_connection(database, user) as c:
         built = view.total_rows
         entry = chunk_vector_cache._REGISTRY[(str(database), user)]
         flags_built = flags_over(entry.matrix.ctypes.data, entry.matrix.nbytes)
+conn = sqlite3.connect(database)
+conn.execute("PRAGMA foreign_keys=OFF")
+ensure_source_chunk_vectors_table(conn)
 insert(first_rows, more_rows)
+conn.close()
 with sqlite_user_connection(database, user) as c:
     with chunk_vector_view(c, user, signature) as view:
         grown = view.total_rows
