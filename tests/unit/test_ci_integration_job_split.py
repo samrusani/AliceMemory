@@ -541,7 +541,7 @@ def test_each_shard_keeps_the_job_environment_of_the_old_job() -> None:
     steps = _steps(SHARDS_JOB)
     assert steps[0]["uses"].startswith("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1")
     assert steps[0]["with"] == {"fetch-depth": 0}
-    assert any(step.get("uses", "").startswith("actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97") and step["with"] == {"python-version": "3.12", "cache": "pip"} for step in steps)
+    assert any(step.get("uses", "").startswith("actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0") and step["with"] == {"python-version": "3.12", "cache": "pip"} for step in steps)
     _same_steps_as_the_smoke_job(
         SHARDS_JOB,
         (MERGE_BASE_STEP, "Install (repo-local venv, integration tests spawn scripts that require .venv)", "Bootstrap extension and app role"),
@@ -693,7 +693,7 @@ def test_every_job_that_writes_samples_uploads_them_on_every_outcome() -> None:
     smoke_upload = _step(SMOKE_JOB, UPLOAD_STEP)
     for upload in (budget_upload, shard_upload, smoke_upload):
         assert upload["if"].startswith("always()")
-        assert upload["uses"].startswith("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+        assert upload["uses"].startswith("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9")
         assert upload["with"]["if-no-files-found"] == "error"
         assert upload["with"]["retention-days"] == 7
     assert budget_upload["if"] == "always()"
