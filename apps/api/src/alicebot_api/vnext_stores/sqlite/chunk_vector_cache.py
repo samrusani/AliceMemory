@@ -330,10 +330,10 @@ def _rebuild(
             raise ChunkVectorCacheRefused(REFUSED_OVER_CAP)
         entry.dims = dims
         # The matrix is made small and grown to the full row count by ndarray.resize before it is filled, so the
-        # large block is made by realloc. numpy advises madvise(MADV_HUGEPAGE) only when it allocates a block, and a
-        # block it advises realloc of a mapped chunk copies on Linux (an append then holds the old and the new matrix
-        # at once, one whole matrix at the first append after a build). A block that realloc made carries no such
-        # advice, and realloc extends or moves it without a copy.
+        # large block is made by realloc. numpy gives a block it allocates the hugepage advice on Linux, and realloc
+        # of a block numpy advised was measured to make a new block and copy the old one there, so the first append
+        # after a build held the old and the new matrix at once, about one whole matrix at the peak. A block that
+        # realloc made carries no advice of its own, and growing it was measured to extend or move it without a copy.
         matrix = np.empty((1, dims), dtype=np.float32)
         matrix.resize((expected, dims), refcheck=False)
         codes = np.empty(expected, dtype=np.int32)

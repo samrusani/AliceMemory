@@ -1659,7 +1659,7 @@ def test_the_append_peak_ratio_stays_under_the_mutants(tmp_path: Path) -> None:
     appends 8,000 (``tracemalloc`` counts a resize as a second block, so it cannot tell the two apart). Measured
     values of the real code: 1.004 alone on a runner (both attempts of run 41184285103), 0.80 inside the shard on the
     older layout (run 41154722623, attempts 1 and 2; the difference from the alone value is not explained), 0.108 twice
-    locally, and 0.28 with the matrix made by ``resize`` (run 41239843252, both attempts, job 124668259420). On that
+    locally, and 0.279 to 0.282 with the matrix made by ``resize`` (run 41245601876 attempt 1 job 124668259420, and run 41247157273 attempts 1 and 2). On that
     older runner code the whole excess arrived inside the first resize after the build, because a matrix numpy
     allocated directly carries hugepage advice on Linux and ``realloc`` of an advised block copies it; the build now
     makes the matrix by ``resize`` itself, and the measured rise of one append is under half a matrix (see
