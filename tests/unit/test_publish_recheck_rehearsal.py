@@ -247,8 +247,8 @@ MUTATIONS: list[tuple[str, str, str, str, str]] = [
     (
         "rehearsal setup-python pin",
         "rehearsal",
-        "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
-        "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b98",
+        "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
+        "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e1",
         "setup-python@ pin",
     ),
     ("rehearsal python version", "rehearsal", 'python-version: "3.12"', 'python-version: "3.13"', "python-version"),

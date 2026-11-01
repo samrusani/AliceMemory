@@ -427,7 +427,7 @@ def test_each_shard_writes_its_own_data_file_and_uploads_exactly_it() -> None:
     name = combine.DATA_FILE_TEMPLATE.format(number="${{ matrix.shard }}")
     assert _job(SHARDS_JOB)["env"] == {"COVERAGE_FILE": f"${{{{ github.workspace }}}}/coverage-data/{name}"}
     upload = _steps(SHARDS_JOB)[-1]
-    assert upload["uses"].startswith("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+    assert upload["uses"].startswith("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9")
     assert upload["with"]["path"] == f"coverage-data/{name}"
     assert upload["with"]["if-no-files-found"] == "error"
     assert upload["with"]["name"] == "python-unit-coverage-shard-${{ matrix.shard }}"
@@ -442,7 +442,7 @@ def test_the_combine_job_downloads_every_shard_and_demands_one_file_per_shard() 
     """
 
     download = next(step for step in _steps(COVERAGE_JOB) if "download-artifact" in str(step.get("uses")))
-    assert download["uses"].startswith("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c")
+    assert download["uses"].startswith("actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333")
     assert download["with"]["merge-multiple"] is True
     for entry in _shards():
         artifact = f"python-unit-coverage-shard-{entry['shard']}"

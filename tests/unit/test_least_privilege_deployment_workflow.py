@@ -105,11 +105,11 @@ def test_ops_job_preserves_check_identity_full_history_and_action_pins() -> None
     }
     assert (
         _field_value(_step(job, "Set up Python"), "uses", 8)
-        == "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"
+        == "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0"
     )
     assert (
         _field_value(_step(job, "Upload sanitized evidence"), "uses", 8)
-        == "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        == "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
     )
 
 
