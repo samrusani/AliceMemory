@@ -3,7 +3,7 @@
 ## Requirements and status
 
 - Support status: legacy surface of the Postgres stack. It is not part of the default SQLite install. It is kept working: CI runs its unit and web tests. New integrations use the core MCP tools.
-- Backend: Postgres. The two HTTP routes belong to the HTTP API, which runs only on Postgres, and the two web panels read those routes, so they need the API on port 8000 and the web console (see [Full stack](../../README.md#full-stack-postgres--review-console)). `alicebot status` refuses a SQLite URL.
+- Backend: Postgres. The two HTTP routes belong to the HTTP API, which runs only on Postgres, and the two web panels read those routes, so they need the API on port 8000 and the web console (see [Full stack](../overview.md#full-stack-postgres--review-console)). `alicebot status` refuses a SQLite URL.
 - Settings: none beyond the Postgres setup. This page names no MCP tool, so `ALICE_MCP_LEGACY_TOOLS` plays no part.
 
 Two bounded visibility surfaces cover memory hygiene and conversation health. They aggregate existing data and have no storage of their own.

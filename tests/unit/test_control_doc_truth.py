@@ -322,6 +322,12 @@ def test_phase3_active_docs_record_published_v0120_boundary() -> None:
 
 
 def test_memory_operations_and_product_docs_do_not_overclaim_audit_provenance() -> None:
+    """The protocol, the product brief and the README claim provenance only as far as it is measured.
+
+    Mutation: write "every answer carries explainable provenance" into the README, or drop the README's
+    sentence that source-backed answers trace to the supplied evidence, or move the provenance bullet out of
+    the product overview page without moving this pin with it. This test fails.
+    """
     repo_root = Path(__file__).resolve().parents[2]
     protocol = (repo_root / "docs/memory-operations-protocol.md").read_text(encoding="utf-8")
     product = (repo_root / "PRODUCT_BRIEF.md").read_text(encoding="utf-8")
@@ -336,8 +342,11 @@ def test_memory_operations_and_product_docs_do_not_overclaim_audit_provenance() 
     assert "Explicit commits may legitimately have no source reference" in product
     assert "every memory traces back to source evidence" not in product
     assert "source-backed answers trace to the evidence that was supplied" in readme
-    assert "when\n  evidence was supplied, provenance links" in readme
-    assert "Explicit commits may legitimately have no source reference" in readme
+    # The wrapped provenance bullet and the explicit-commit sentence moved with the "What Alice stores"
+    # section from the README to the product overview page; the pins moved with the section.
+    overview = (repo_root / "docs/overview.md").read_text(encoding="utf-8")
+    assert "when\n  evidence was supplied, provenance links" in overview
+    assert "Explicit commits may legitimately have no source reference" in overview
     assert "every answer carries explainable provenance" not in readme
     assert "every memory can explain which sources" not in readme
 

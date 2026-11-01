@@ -8,7 +8,10 @@ that is not read from the grades file; list a page that is not in the checkout.
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -248,3 +251,21 @@ def test_the_pages_the_summary_names_say_what_the_summary_says_of_them() -> None
         # The summary says each page gives its method and where the run departed from the plan.
         assert "## Departures from the plan" in page
         assert "## What was run" in page
+
+
+def test_the_plain_command_runs_without_pythonpath(tmp_path: Path) -> None:
+    """The plain command, run as a file from a checkout, needs no PYTHONPATH.
+
+    Measured on a checkout at the v0.23.1 tag and on main: without the bootstrap the plain command stops with
+    "ModuleNotFoundError: No module named 'scripts'" before it writes anything.
+
+    Mutation: remove the sys.path bootstrap at the top of the script. This test fails.
+    """
+
+    environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    completed = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "showcase_walkthrough.py"), "--run-dir", str(tmp_path / "run")],
+        capture_output=True, text=True, timeout=600, env=environment,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "ModuleNotFoundError" not in completed.stderr
