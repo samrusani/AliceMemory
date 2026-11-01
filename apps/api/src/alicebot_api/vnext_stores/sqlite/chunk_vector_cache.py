@@ -12,8 +12,12 @@ recall is the cost this cache exists to avoid. This module is its own cache:
   built at. A trigger of the vector table rewrites the token when a row is overwritten or deleted, by whatever path
   and from whatever process. Rows that were added are found by their row number and appended. Nothing here reads
   ``embedding_stamp``, so a memory re-embed leaves this cache alone.
-* **No doubling.** The matrix, the norms and the source codes grow in place (``ndarray.resize``), so an append never
-  holds the old and the new array at once.
+* **The append peak.** The matrix, the norms and the source codes grow in place (``ndarray.resize``): on Linux with
+  glibc and on macOS an append was measured not to hold a second copy of the matrix (an append holds at most one page
+  of fetched rows beside the grown arrays). Other allocators were not measured. The matrix is made small and grown by
+  ``ndarray.resize`` to the row count of the build before it is filled, because a block numpy allocates directly
+  carries ``madvise(MADV_HUGEPAGE)`` advice on Linux, and a ``realloc`` of a block numpy advised copies it: the first
+  append after such a build held the old and the new matrix at once (about one whole matrix at the peak).
 * **Cap.** ``ALICE_SOURCE_VECTOR_CACHE_MAX_MB`` (default 512, about 170,000 vectors of 768 floats) limits the
   vector arrays of the copy (``resident_bytes``: the matrix, the norms and the source codes; the ids, the indexes and the
   temporary buffers of a build or a scan are not counted). Over it the cache refuses with ``over_cap`` and the vector stage reports that status and is
@@ -325,7 +329,13 @@ def _rebuild(
             entry.reset()
             raise ChunkVectorCacheRefused(REFUSED_OVER_CAP)
         entry.dims = dims
-        matrix = np.empty((expected, dims), dtype=np.float32)
+        # The matrix is made small and grown to the full row count by ndarray.resize before it is filled, so the
+        # large block is made by realloc. numpy gives a block it allocates the hugepage advice on Linux, and realloc
+        # of a block numpy advised was measured to make a new block and copy the old one there, so the first append
+        # after a build held the old and the new matrix at once, about one whole matrix at the peak. A block that
+        # realloc made carries no advice of its own, and growing it was measured to extend or move it without a copy.
+        matrix = np.empty((1, dims), dtype=np.float32)
+        matrix.resize((expected, dims), refcheck=False)
         codes = np.empty(expected, dtype=np.int32)
         filled = 0
         cursor = _query_rows(
@@ -428,7 +438,8 @@ def _append(entry: _Entry, conn: sqlite3.Connection, user_id: str, signature: Ch
         if (start + len(fresh)) * _row_bytes(entry.dims) > max_bytes:
             entry.reset()
             raise ChunkVectorCacheRefused(REFUSED_OVER_CAP)
-        # In place: the arrays are the same objects before and after, so no second copy of the matrix exists.
+        # In place: the arrays are the same objects before and after. On Linux with glibc and on macOS the resize was
+        # measured not to hold a second copy of the matrix; other allocators were not measured.
         entry.matrix.resize((start + len(fresh), entry.dims), refcheck=False)
         entry.codes.resize(start + len(fresh), refcheck=False)
         kept = 0
