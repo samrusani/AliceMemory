@@ -4,8 +4,17 @@ Every claim in the notes comes from an entry of the changelog. These tests pin t
 weaken: the release identity and its published state, the checksums record, the marketplace pin, the dated changelog
 heading, the security wording, the steps an upgrading user must act on, the numbers that drift
 (the PostgreSQL revision, the Next.js versions and the token floors, read at the v0.21.1 tag) and the lists of texts
-whose verdict changes, which are run against the module and against v0.16.0's own code. Each test names the mutation
-that must fail it.
+whose verdict changes, which are run against the module of the v0.21.1 tag and against v0.16.0's own code. Each test
+names the mutation that must fail it.
+
+What the release held is read from the v0.21.1 tag and never from the working tree: the files of the tag with
+``git show``, the changelog section of the tag, and the credential check, whose code is exported with ``git archive``
+and run in a subprocess. The tree moves on with every later change to main (a changed floor, an entry under
+Unreleased, a dated paragraph in a published section), and a published claim about the release must not fail because
+of one. The tree is read only for what must stay true after the release: the notes and their published state, the
+checksums file, the marketplace pin, the dated heading of the changelog and the check that no marker for the unreleased
+state is left. The frozen copy of v0.16.0's credential code in ``legacy_v0160_credential_oracle.py`` is test support
+and is imported as it is.
 
 The notes are published. The change that followed publication moved their state to ``published`` and ``recorded``, added
 the checksums file, moved the marketplace file to the v0.21.1 tag and its commit, named v0.21.1 as the latest published
@@ -24,15 +33,18 @@ from __future__ import annotations
 import ast
 import itertools
 import json
+import os
 import re
 import string
+import subprocess
+import sys
+import tarfile
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 
 import scripts.release_check as release_check
-from alicebot_api import legacy_credential_check as legacy
-from alicebot_api.credential_floor import credential_verdict
 from tests.unit import legacy_v0160_credential_oracle as oracle
 from tests.unit.test_published_release_notes_stay_immutable import _tagged
 from tests.unit.test_v0210_release_notes import _tagged_listing
@@ -40,6 +52,7 @@ from tests.unit.test_v0210_release_notes import _tagged_listing
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NOTES_PATH = "docs/release/v0.21.1-release-notes.md"
 RELEASE_TAG = "v0.21.1"
+PRIOR_TAG = "v0.21.0"
 HEADING = "## v0.21.1 \u2014 2026-10-23"
 # A patch release: the notes are about 9,800 characters, and 12,000 leaves room for a correction and no more.
 NOTES_CEILING = 12_000
@@ -79,7 +92,9 @@ def _section(text: str, heading: str) -> str:
 
 
 def _changelog_section() -> str:
-    changelog = _text("CHANGELOG.md")
+    """The v0.21.1 section of the changelog as the tag held it: a dated paragraph added later is not part of it."""
+
+    changelog = _tagged(RELEASE_TAG, "CHANGELOG.md")
     return changelog.split(HEADING)[1].split("\n## v0.21.0")[0]
 
 
@@ -406,8 +421,8 @@ def test_the_numbers_in_the_notes_are_the_ones_the_release_tag_has() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The texts whose verdict changes, run against the module and against v0.16.0's own code. v0.21.0 read the bare
-# marker as v0.16.0 did, and the comparison harness (test_legacy_credential_check.py) holds the module to
+# The texts whose verdict changes, run against the module of the v0.21.1 tag and against v0.16.0's own code. v0.21.0 read
+# the bare marker as v0.16.0 did, and the comparison harness (test_legacy_credential_check.py) holds the module to
 # v0.16.0's verdict on everything the floors and the lead do not touch, so the oracle stands for v0.21.0 on the texts
 # below, none of which a carve-out excuses. The verdicts were also read from the v0.21.0 module itself.
 # Synthetic tokens are built from pieces and a sequential run, so no whole scanner-shaped token sits in the source.
@@ -432,8 +447,64 @@ def _refused(module: object, text: str) -> tuple[bool, bool]:
     )
 
 
-# Refused in v0.21.0 at both doors, accepted now at both: the four texts of the comparison table that move, and the
-# short codes and names the notes give.
+def _export(tag: str, tmp_path_factory: pytest.TempPathFactory, name: str, *paths: str) -> Path:
+    """``paths`` of ``tag``, made with ``git archive`` into a new temporary folder.
+
+    A checkout without tags skips the tests that use it, and under ``CI`` they fail instead, the rule of
+    ``test_published_release_notes_stay_immutable.py``.
+    """
+
+    _tagged(tag, "pyproject.toml")  # skips, or fails under CI, when the tag cannot be read
+    done = subprocess.run(["git", "archive", tag, *paths], cwd=REPO_ROOT, capture_output=True, check=True)
+    target = tmp_path_factory.mktemp(name)
+    with tarfile.open(fileobj=BytesIO(done.stdout)) as archive:
+        archive.extractall(target, filter="data")
+    return target
+
+
+def _env_for(source_root: Path) -> dict[str, str]:
+    """The environment of a child process that imports ``alicebot_api`` from ``source_root``, with no ``ALICE_`` setting."""
+
+    env = {name: value for name, value in os.environ.items() if not name.startswith("ALICE_")}
+    env.pop("DATABASE_URL", None)
+    env["PYTHONPATH"] = str(source_root)
+    return env
+
+
+# Asks the credential check of the exported tag about every text at once: the verdict of each door of a note with the
+# title ``Note``, then the verdict of the credential detector (another module) on a lower case and an upper case code.
+_VERDICTS_CODE = (
+    "import json, sys\n"
+    "from alicebot_api.credential_floor import credential_verdict\n"
+    "from alicebot_api.legacy_credential_check import commit_gate_refuses, promotion_floor_refuses\n"
+    "texts = json.loads(sys.stdin.read())\n"
+    "print(json.dumps({\n"
+    "    'doors': [[bool(commit_gate_refuses('Note', text)), bool(promotion_floor_refuses('Note', text))] for text in texts],\n"
+    "    'lower': credential_verdict('Order sk-20260301 today.'),\n"
+    "    'upper': credential_verdict('Order SK-20260301 today.'),\n"
+    "}))\n"
+)
+
+
+class _TagVerdicts:
+    """The two doors of the credential check as the v0.21.1 tag answered, with the interface ``_refused`` calls."""
+
+    def __init__(self, doors: dict[str, tuple[bool, bool]], lower: str | None, upper: str | None) -> None:
+        self._doors = doors
+        self.lower_case_code_verdict = lower
+        self.upper_case_code_verdict = upper
+
+    def commit_gate_refuses(self, title: str, text: str) -> bool:
+        assert title == "Note"
+        return self._doors[text][0]
+
+    def promotion_floor_refuses(self, title: str, text: str) -> bool:
+        assert title == "Note"
+        return self._doors[text][1]
+
+
+# Refused in v0.21.0 at both doors, accepted at both by the v0.21.1 tag: the four texts of the comparison table that
+# move, and the short codes and names the notes give.
 _NOW_ACCEPTED = (
     "SK-LEARN is the old name",
     "sk-learn_v2 and friends",
@@ -452,13 +523,17 @@ _NOW_ACCEPTED = (
 
 
 @pytest.mark.parametrize("text", _NOW_ACCEPTED)
-def test_the_codes_and_names_the_notes_give_were_refused_by_v0210_and_are_accepted_now(text: str) -> None:
-    """Mutations, each one alone: set a floor in ``legacy._TOKEN_BODIES`` to 0 (the bare marker comes back); put the
-    ``sk-`` prefix pattern back to 8 characters; add a text to the tuple that the module still refuses.
+def test_the_codes_and_names_the_notes_give_were_refused_by_v0210_and_are_accepted_at_the_tag(
+    text: str, tagged_credentials: _TagVerdicts
+) -> None:
+    """Mutations, each one alone: read the v0.21.0 tag where the fixture reads the v0.21.1 tag (the bare marker is read
+    there, so it refuses every text of the tuple); add a text to the tuple that the module at the tag still refuses; read
+    the working tree's module where the fixture reads the tag (a tree whose floors changed so that it refuses one of the
+    texts, as the tree after a later change can, fails it).
     """
 
     assert _refused(oracle, text) == (True, True), text
-    assert _refused(legacy, text) == (False, False), text
+    assert _refused(tagged_credentials, text) == (False, False), text
 
 
 # The underscore led tokens the notes name: (text, whether the commit gate moves too). The commit gate's own prefix
@@ -478,14 +553,18 @@ _NOW_REFUSED = {
 
 
 @pytest.mark.parametrize("label", sorted(_NOW_REFUSED))
-def test_a_token_right_after_an_underscore_was_accepted_by_v0210_and_is_refused_now(label: str) -> None:
-    """Mutations, each one alone: put the lead boundary of the floored markers back to v0.16.0's, which counts an
-    underscore; remove a marker from the table of bodies; flip the commit gate flag of a row of the table.
+def test_a_token_right_after_an_underscore_was_accepted_by_v0210_and_is_refused_at_the_tag(
+    label: str, tagged_credentials: _TagVerdicts
+) -> None:
+    """Mutations, each one alone: read the v0.21.0 tag where the fixture reads the v0.21.1 tag (it does not read a token
+    right after an underscore, so it accepts every row); flip the commit gate flag of a row of the table; read the working
+    tree's module where the fixture reads the tag (a tree whose lead boundary changed so that it stops reading one of the
+    rows, as the tree after a later change can, fails it).
     """
 
     text, commit_moves = _NOW_REFUSED[label]
     assert _refused(oracle, text) == (not commit_moves, False), label
-    assert _refused(legacy, text) == (True, True), label
+    assert _refused(tagged_credentials, text) == (True, True), label
 
 
 def test_the_notes_list_the_underscore_led_tokens_the_table_moves() -> None:
@@ -516,46 +595,84 @@ def test_the_notes_list_the_underscore_led_tokens_the_table_moves() -> None:
     ) in markers
 
 
-def test_the_boundary_that_stays_and_the_rules_that_do_not_change() -> None:
-    """The texts the notes say are not read or are still refused give the same verdict as v0.21.0.
+# Texts that the notes say are still read, and texts that v0.21.0 did not read and the tag does not read. Module level so
+# that the fixture below asks the exported tag about all of them in one subprocess.
+_DOTTED_BODY = "ab.cd-ef_gh" * 4
+_STILL_READ = {
+    "ghs_ followed by 36 class characters": "Use " + "gh" + "s_" + _DOTTED_BODY[:36] + " for the deploy.",
+    "ghu_ followed by 36 class characters": "Use " + "gh" + "u_" + _DOTTED_BODY[:36] + " for the deploy.",
+    "ghs_ followed by a long snake case name": "Use " + "gh" + "s_" + "weekly_import_job_configuration_name_one",
+    "the stateless installation token": "gh" + "s_" + "1234" + "_" + "eyJ" + _seq(33) + "." + "eyJ" + _seq(127) + "." + _seq(342),
+    "ghp_ and 8 characters": "Room " + "gh" + "p_" + "12345678" + " is booked.",
+    "xoxb- and 8 characters": "Room " + "xo" + "xb-" + "12345678" + " is booked.",
+    "an AWS key id": "Key " + "AK" + "IA" + "ABCDEFGH12345678" + " is listed.",
+}
+_SAME_AS_V0210 = {
+    "a letter and then a ghs_ token": "Use app token X" + "gh" + "s_" + _seq(36) + " for the deploy.",
+    "a digit and then an npm_ token": "Use app token 7" + "np" + "m_" + _seq(36) + " for the deploy.",
+    "PART_SK-2291": "PART_SK-2291",
+    "deploy_ghu_config": "deploy_ghu_config is the setting.",
+}
+_PUBLIC_KEY_LINE = "Deploy key: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ deploy@host"
 
-    Mutations, each one alone: drop the letter or digit from the lead boundary (a marker glued onto a word is read);
-    take the ``ghs_`` class back to letters and digits (a long dotted body after ``ghs_`` stops being read); change the
-    ``ghp_`` or ``xoxb-`` prefix rule from 8 to 9 characters; raise the minimum of the credential detector's ``sk-`` rule
-    so that it stops reading the lower case code.
+
+@pytest.fixture(scope="module")
+def tagged_credentials(tmp_path_factory: pytest.TempPathFactory) -> _TagVerdicts:
+    """The verdicts of the credential check of the v0.21.1 tag on every text of this file.
+
+    The code of the tag is exported with ``git archive`` and run in one subprocess, which answers for all the texts at
+    once. Nothing of the working tree's credential check is imported.
     """
 
-    body = "ab.cd-ef_gh" * 4
-    still_read = {
-        "ghs_ followed by 36 class characters": "Use " + "gh" + "s_" + body[:36] + " for the deploy.",
-        "ghu_ followed by 36 class characters": "Use " + "gh" + "u_" + body[:36] + " for the deploy.",
-        "ghs_ followed by a long snake case name": "Use " + "gh" + "s_" + "weekly_import_job_configuration_name_one",
-        "the stateless installation token": "gh" + "s_" + "1234" + "_" + "eyJ" + _seq(33) + "." + "eyJ" + _seq(127) + "." + _seq(342),
-        "ghp_ and 8 characters": "Room " + "gh" + "p_" + "12345678" + " is booked.",
-        "xoxb- and 8 characters": "Room " + "xo" + "xb-" + "12345678" + " is booked.",
-        "an AWS key id": "Key " + "AK" + "IA" + "ABCDEFGH12345678" + " is listed.",
-    }
-    for label, text in still_read.items():
+    tree = _export(RELEASE_TAG, tmp_path_factory, "v0211", "apps/api/src")
+    texts = sorted(
+        {
+            *_NOW_ACCEPTED,
+            *(text for text, _commit_moves in _NOW_REFUSED.values()),
+            *_STILL_READ.values(),
+            *_SAME_AS_V0210.values(),
+            _PUBLIC_KEY_LINE,
+        }
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", _VERDICTS_CODE],
+        env=_env_for(tree / "apps" / "api" / "src"),
+        input=json.dumps(texts),
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert done.returncode == 0, done.stderr
+    answer = json.loads(done.stdout)
+    doors = {text: (door[0], door[1]) for text, door in zip(texts, answer["doors"], strict=True)}
+    return _TagVerdicts(doors, answer["lower"], answer["upper"])
+
+
+def test_the_boundary_that_stays_and_the_rules_that_do_not_change_at_the_tag(tagged_credentials: _TagVerdicts) -> None:
+    """The texts the notes say are not read or are still refused give the same verdict at the v0.21.1 tag as v0.21.0.
+
+    Mutations, each one alone: move a text of the first table into the second (the tag reads it); put into the second
+    table a text that the tag does not read, or into the first one a text that it reads; expect the public key line to be
+    refused; expect the lower case code to be unread by the credential detector; read the working tree's module where the
+    fixture reads the tag (a tree whose lead boundary, ``ghs_`` class or prefix rules changed so that one verdict of the
+    tables turns, as the tree after a later change can, fails it).
+    """
+
+    for label, text in _STILL_READ.items():
         assert _refused(oracle, text)[0], label
-        assert _refused(legacy, text)[0], label
-    assert _refused(legacy, still_read["the stateless installation token"]) == (True, True)
+        assert _refused(tagged_credentials, text)[0], label
+    assert _refused(tagged_credentials, _STILL_READ["the stateless installation token"]) == (True, True)
     # The credential detector is another module (``credential_floor``): it reads a lower case ``sk-`` followed by 8 or
     # more characters that hold a digit, and not the upper case code.
-    assert credential_verdict("Order sk-20260301 today.") is not None
-    assert credential_verdict("Order SK-20260301 today.") is None
-    # Not read by v0.21.0 and not read now: a letter or a digit before the marker, and a short name after an underscore
+    assert tagged_credentials.lower_case_code_verdict is not None
+    assert tagged_credentials.upper_case_code_verdict is None
+    # Not read by v0.21.0 and not read by the v0.21.1 tag: a letter or a digit before the marker, and a short name after an underscore
     # (the underscore hid the marker in v0.21.0, and the floor keeps the name out now).
-    same_as_v0210 = {
-        "a letter and then a ghs_ token": "Use app token X" + "gh" + "s_" + _seq(36) + " for the deploy.",
-        "a digit and then an npm_ token": "Use app token 7" + "np" + "m_" + _seq(36) + " for the deploy.",
-        "PART_SK-2291": "PART_SK-2291",
-        "deploy_ghu_config": "deploy_ghu_config is the setting.",
-    }
-    for label, text in same_as_v0210.items():
+    for label, text in _SAME_AS_V0210.items():
         assert _refused(oracle, text) == (False, False), label
-        assert _refused(legacy, text) == (False, False), label
+        assert _refused(tagged_credentials, text) == (False, False), label
     # A public key line is excused by the carve-out of the module, which v0.16.0's own code does not have.
-    assert _refused(legacy, "Deploy key: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ deploy@host") == (False, False)
+    assert _refused(tagged_credentials, _PUBLIC_KEY_LINE) == (False, False)
 
 
 def test_the_notes_name_the_limits_they_say_matter() -> None:
@@ -579,7 +696,9 @@ def test_the_notes_name_the_limits_they_say_matter() -> None:
 
 def test_the_headline_changes_of_the_notes_each_have_a_changelog_entry() -> None:
     """Mutations, each one alone: delete the changelog entry of a change the notes name, or reword its first words;
-    delete the sentence of the entry that names the underscore.
+    delete the sentence of the entry that names the underscore; read the v0.21.0 tag where the changelog section is read
+    from the v0.21.1 tag; read the working tree where it reads the tag (a dated update paragraph at the end of the v0.21.1
+    section, which the immutability test allows, becomes part of the last entry and fails the end of the sentence).
     """
 
     starts = (

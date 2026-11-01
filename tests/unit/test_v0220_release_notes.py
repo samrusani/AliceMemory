@@ -5,17 +5,22 @@ weaken: the release identity and its published state, the checksums record, the 
 pin, the dated changelog heading, the security wording and the pending advisory identifier, the steps an upgrading user
 must act on, the numbers that drift (the tool counts, the PostgreSQL revision, the settings and flags, and the limits
 and defaults of the vectors) and the claims about what changes. Those claims are run, not read: the endpoint rules, the
-opt-in values and the off-by-default import against the module and a loopback endpoint, and the policy decision of each
-kind of request to the agent output route. Each test names the mutation that must fail it.
+opt-in values and the off-by-default import against the code of the tag and a loopback endpoint, and the policy decision
+of each kind of request to the agent output route.
 
 What the notes say about the release itself is read at the v0.22.0 tag, and every comparison with v0.21.1 reads both of
 its sides from the tags. Each tag is exported with ``git archive`` into a temporary folder, and the code of the export
-is run in a subprocess. The Alembic folder, the settings, the flags, the tool counts, the limits of the vectors and the
-code of the agent output route are therefore not read from the working tree, so a later change to ``main`` (a migration
+is run in a subprocess. The Alembic folder, the settings, the flags, the tool counts, the limits of the vectors, the
+package list and the manifest of the source distribution, the pages that say "From v0.22.0", the changelog section and
+the code of the agent output route are therefore not read from the working tree, so a later change to ``main`` (a migration
 edited in place, a new setting, a new tool) does not make a published claim about what v0.22.0 shipped fail. The
 behaviour tests further down (the endpoint rules, the opt-in values, the policy decisions, the import and the vault that
-v0.21.1 opens) still run the module of the working tree, as ``test_credential_marker_lengths.py`` does, and a later
-change to that behaviour has to update them.
+v0.21.1 opens) run the code of the v0.22.0 tag in a subprocess as well, so a later change to that behaviour does not fail
+them. The tree is read only for what must stay true after the release: the published state of the notes and their dated
+updates, the checksums files, the marketplace pin, the dated heading of the changelog, the scan for the marker of the
+unreleased state and the wording rules for the notes. Each test names the mutation that must fail it, and for a test that
+reads the tag the mutations include reading the v0.21.1 tag where it reads the v0.22.0 tag (when that tag fails it) and
+reading the tree where it reads the tag.
 
 The notes are published. The change that followed publication moved their state to ``published`` and ``recorded``, added
 the checksums file, moved the marketplace file to the v0.22.0 tag and its commit, named v0.22.0 as the latest published
@@ -24,7 +29,8 @@ dated 2026-10-27 update beside the notes' own marketplace step. The change after
 and the control documents on to v0.23.0, which ``test_v0230_release_notes.py`` pins, and added a dated 2026-10-30
 follow-up after that update. The change after v0.23.1 moved them on to v0.23.1, which ``test_v0231_release_notes.py``
 pins, and added a dated 2026-11-01 follow-up after those. The advisory identifier is still ``pending``: a later dated
-update adds it. The tagged lines of the notes and of the changelog section are held by
+update adds it, and the test that pins the pending identifier reads the tagged notes, so that update does not fail it. The
+tagged lines of the notes and of the changelog section are held by
 ``test_published_release_notes_stay_immutable.py``. The release check's pre-tag mode refuses the tree now, and one test
 below pins the three reasons.
 """
@@ -38,31 +44,16 @@ import re
 import subprocess
 import sys
 import tarfile
-import urllib.request
 from io import BytesIO
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 import tomllib
 
 import scripts.release_check as release_check
-from alicebot_api.mcp.retrieval import recall_source_ranking
-from alicebot_api.onramp import main as alice_memory_main
-from alicebot_api.routers._vnext_shared import _vnext_agent_identity
-from alicebot_api.routers.vnext_memories import VNextAgentOutputIngestRequest
-from alicebot_api.source_embedding_policy import endpoint_is_loopback, source_embedding_settings
-from alicebot_api.source_ranking import SourceRanking
-from alicebot_api.vnext_agent_control import evaluate_agent_policy
-from tests.unit.passage_vector_support import (
-    EMBEDDINGS_BASE_URL_ENV,
-    EMBEDDINGS_MODEL_ENV,
-    SEARCH_QUALITY_ENV,
-    SOURCE_EMBEDDINGS_ENV,
-    ScriptedServer,
-    quiet_environment,
-)
+from tests.unit.passage_vector_support import ScriptedServer
 from tests.unit.test_published_release_notes_stay_immutable import _tagged
+from tests.unit.test_v0210_release_notes import _tagged_listing
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NOTES_PATH = "docs/release/v0.22.0-release-notes.md"
@@ -91,6 +82,12 @@ SECTIONS = [
     "Install",
 ]
 
+# The settings the tests below set for the code of the tag, written out so that a rename on main does not change what
+# a claim about v0.22.0 sets.
+SOURCE_EMBEDDINGS_ENV = "ALICE_SOURCE_EMBEDDINGS"
+EMBEDDINGS_BASE_URL_ENV = "ALICE_EMBEDDINGS_BASE_URL"
+EMBEDDINGS_MODEL_ENV = "ALICE_EMBEDDINGS_MODEL"
+
 NEW_SETTINGS = (
     "ALICE_SOURCE_EMBEDDINGS",
     "ALICE_SOURCE_EMBEDDINGS_MAX_VECTORS",
@@ -116,8 +113,16 @@ def _section(text: str, heading: str) -> str:
     return " ".join(match.group("body").split())
 
 
+def _tagged_flat(path: str) -> str:
+    """``path`` as the v0.22.0 tag held it, whitespace collapsed."""
+
+    return " ".join(_tagged(RELEASE_TAG, path).split())
+
+
 def _changelog_section() -> str:
-    changelog = _text("CHANGELOG.md")
+    """The v0.22.0 section of the changelog as the tag held it: a dated paragraph added later is not part of it."""
+
+    changelog = _tagged(RELEASE_TAG, "CHANGELOG.md")
     return changelog.split(HEADING)[1].split("\n## v0.21.1")[0]
 
 
@@ -130,8 +135,8 @@ def _entries() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _export(tag: str, factory: pytest.TempPathFactory, name: str) -> Path:
-    """``apps/api/src`` and ``apps/api/alembic`` of ``tag``, made with ``git archive``.
+def _export(tag: str, factory: pytest.TempPathFactory, name: str, *paths: str) -> Path:
+    """``paths`` of ``tag`` (``apps/api/src`` and ``apps/api/alembic`` when none is named), made with ``git archive``.
 
     A checkout without tags skips the tests that use it, and under ``CI`` they fail instead, the rule of
     ``test_published_release_notes_stay_immutable.py``.
@@ -139,7 +144,7 @@ def _export(tag: str, factory: pytest.TempPathFactory, name: str) -> Path:
 
     _tagged(tag, "pyproject.toml")  # skips, or fails under CI, when the tag cannot be read
     done = subprocess.run(
-        ["git", "archive", tag, "apps/api/src", "apps/api/alembic"], cwd=REPO_ROOT, capture_output=True, check=True
+        ["git", "archive", tag, *(paths or ("apps/api/src", "apps/api/alembic"))], cwd=REPO_ROOT, capture_output=True, check=True
     )
     target = factory.mktemp(name)
     with tarfile.open(fileobj=BytesIO(done.stdout)) as archive:
@@ -156,9 +161,12 @@ def v0211_tree(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="module")
 def v0220_tree(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """The code and the Alembic folder of the tag of this release, v0.22.0."""
+    """The package source, the Alembic folder, ``workers``, ``pyproject.toml`` and ``MANIFEST.in`` of the tag of this
+    release, v0.22.0."""
 
-    return _export(RELEASE_TAG, tmp_path_factory, "v0220")
+    return _export(
+        RELEASE_TAG, tmp_path_factory, "v0220", "apps/api/src", "apps/api/alembic", "workers", "pyproject.toml", "MANIFEST.in"
+    )
 
 
 _NUMBERS_CODE = (
@@ -217,19 +225,45 @@ def _env_for(source_root: Path) -> dict[str, str]:
     return env
 
 
-def _old(tree: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    """``alice-memory`` with the arguments, run from the code of the v0.21.1 tag. Nothing of ``ALICE_`` is passed on."""
+def _run(
+    tree: Path, code: str, *args: str, env: dict[str, str] | None = None, cwd: Path | None = None
+) -> subprocess.CompletedProcess[str]:
+    """``code`` run in a subprocess that imports ``alicebot_api`` from the export ``tree``. Nothing of ``ALICE_`` is passed
+    on except what ``env`` names."""
 
-    code = "import sys; from alicebot_api.onramp import main; sys.exit(main(sys.argv[1:]))"
     return subprocess.run(
-        [sys.executable, "-c", code, *args], env=_env_for(tree / "apps" / "api" / "src"), capture_output=True, text=True, timeout=180
+        [sys.executable, "-c", code, *args],
+        env={**_env_for(tree / "apps" / "api" / "src"), **(env or {})},
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=180,
     )
 
 
-def _new(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, str, str]:
-    code = alice_memory_main(list(args))
-    captured = capsys.readouterr()
-    return code, captured.out, captured.err
+# ``alice-memory`` as a host starts it. No proxy of the machine is asked for, as the tests of the endpoint rule need.
+_COMMAND = (
+    "import sys, urllib.request\n"
+    "urllib.request.getproxies = lambda: {}\n"
+    "from alicebot_api.onramp import main\n"
+    "sys.exit(main(sys.argv[1:]))\n"
+)
+
+
+def _old(tree: Path, *args: str, env: dict[str, str] | None = None, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """``alice-memory`` with the arguments, run from the code of the tag whose export is ``tree``. Nothing of ``ALICE_`` is
+    passed on except what ``env`` names."""
+
+    return _run(tree, _COMMAND, *args, env=env, cwd=cwd)
+
+
+def _cli(
+    tree: Path, *args: str, env: dict[str, str] | None = None, cwd: Path | None = None
+) -> tuple[int, str, str]:
+    """The exit code, standard output and standard error of ``alice-memory`` run from the export ``tree``."""
+
+    done = _old(tree, *args, env=env, cwd=cwd)
+    return done.returncode, done.stdout, done.stderr
 
 
 def _notes_folder(tmp_path: Path) -> Path:
@@ -413,7 +447,8 @@ def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section(
 
 def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or_the_manifest() -> None:
     """Mutation: put the marker for the unreleased state of v0.21.1 back into any document, docstring, test or case of
-    the mutation manifest, with or without the word ``Unreleased``.
+    the mutation manifest, with or without the word ``Unreleased``. This reads the whole tree, because the marker must
+    stay out of everything that main holds.
 
     The pattern is written as a regular expression so that this file does not hold the marker itself. It also reads
     the form without the word ``Unreleased``, which three documents carried. The published v0.18.0 notes carry two dated
@@ -433,12 +468,23 @@ def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or
     paths.append(REPO_ROOT / "scripts/derived_label_mutations.json")
     hits = [str(path.relative_to(REPO_ROOT)) for path in paths if pattern.search(path.read_text(encoding="utf-8"))]
     assert hits == []
+
+
+def test_the_pages_the_notes_send_a_reader_to_say_what_changed_from_v0220_at_the_tag() -> None:
+    """Mutations, each one alone: read the v0.21.1 tag where this test reads the v0.22.0 tag (the pages have no such
+    sentence there); read the working tree where it reads the tag, after a change that rewords one of the three
+    sentences.
+
+    The three pages said "From v0.22.0, " where a measurement or a tool description changed, and the tag holds them
+    that way. A page that main rewrites later is not the page the notes pointed at.
+    """
+
     for name in (
         "docs/benchmarks/showcase/what-changed-and-why.md",
         "docs/benchmarks/showcase/harness.md",
         "docs/alpha/mcp-tools.md",
     ):
-        assert "From v0.22.0, " in _flat(name), name
+        assert "From v0.22.0, " in _tagged_flat(name), name
 
 
 # ---------------------------------------------------------------------------
@@ -466,12 +512,25 @@ def test_the_notes_use_no_dash_and_only_the_allowed_security_wording() -> None:
     lowered = flat.lower()
     for forbidden in ("independently", "third-party", "third party", "penetration", "pentest", "external review"):
         assert forbidden not in lowered, forbidden
-    # The identifier of the advisory is not assigned yet. A later dated update adds it; the tagged sentence stays.
-    assert flat.count("Advisory identifier: pending.") == 1
-    assert "ghsa-" not in lowered and "cve-" not in lowered
+    # The identifier of the advisory is not assigned in the tagged notes; the next test reads that at the tag.
     for banned in ("wiki", "tower", "reviewer", "security team"):
         assert banned not in lowered, banned
     assert "Security" in SECTIONS
+
+
+def test_the_notes_at_the_tag_say_the_advisory_identifier_is_pending_and_name_none() -> None:
+    """Mutations, each one alone: read the v0.21.1 tag where this test reads the v0.22.0 tag (it has no such notes, so
+    the read fails under ``CI``); read the working tree where it reads the tag, after the dated update that adds the
+    advisory identifier (the tree notes then name one and the sentence stays as tagged).
+
+    The identifier of the advisory is not assigned in the tagged notes. A later dated update adds it and leaves the
+    tagged sentence as it is, so the claim about what v0.22.0 said is read from the tag.
+    """
+
+    flat = _tagged_flat(NOTES_PATH)
+    assert flat.count("Advisory identifier: pending.") == 1
+    lowered = flat.lower()
+    assert "ghsa-" not in lowered and "cve-" not in lowered
 
 
 def test_the_upgrade_steps_name_every_action_an_existing_user_takes_in_order() -> None:
@@ -657,28 +716,32 @@ def _packages_in(where: Path) -> list[str]:
     return found
 
 
-def test_the_package_holds_none_of_the_bench_scripts_the_walkthrough_or_the_console() -> None:
-    """Mutation: add ``scripts`` or ``apps/web`` to the package list of ``pyproject.toml``, or a line for either to
-    ``MANIFEST.in``.
+def test_the_package_holds_none_of_the_bench_scripts_the_walkthrough_or_the_console(v0220_tree: Path) -> None:
+    """Mutations, each one alone: add ``scripts`` or ``apps/web`` to the package list of ``pyproject.toml``, or a line for
+    either to ``MANIFEST.in`` (each in the files at the v0.22.0 tag); list ``scripts/`` of the v0.21.1 tag where this
+    test lists the v0.22.0 tag (the walkthrough is not there); read the working tree where this test reads the tag,
+    after a change that adds a line to ``MANIFEST.in``.
 
     The wheel is the packages under ``apps/api/src`` and ``workers``, and the source distribution adds the files
     ``MANIFEST.in`` names. A wheel and a source distribution of the tree were built to check this and hold no file from
-    ``scripts/`` or ``apps/web``; this test pins what decides it.
+    ``scripts/`` or ``apps/web``; this test pins what decides it. The files that decide it are read from the export of the
+    tag, and the scripts the notes name are looked for in the listing of ``scripts/`` at the tag.
     """
 
-    setuptools_config = tomllib.loads(_text("pyproject.toml"))["tool"]["setuptools"]
+    setuptools_config = tomllib.loads((v0220_tree / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["setuptools"]
     assert setuptools_config["packages"]["find"]["where"] == ["apps/api/src", "workers"]
     assert "package-data" not in setuptools_config and "data-files" not in setuptools_config
-    packages = [pkg for where in ("apps/api/src", "workers") for pkg in _packages_in(REPO_ROOT / where)]
+    packages = [pkg for where in ("apps/api/src", "workers") for pkg in _packages_in(v0220_tree / where)]
     assert packages and not [pkg for pkg in packages if pkg.split(".")[0] in {"scripts", "web", "apps"}]
-    assert _text("MANIFEST.in").split("\n") == [
+    assert (v0220_tree / "MANIFEST.in").read_text(encoding="utf-8").split("\n") == [
         "include apps/api/alembic.ini",
         "include eval/fixtures/public_eval_suites.json",
         "recursive-include apps/api/alembic *.py",
         "",
     ]
+    scripts = _tagged_listing(RELEASE_TAG, "scripts")
     for script in ("alice_bench.py", "showcase_bench.py", "showcase_walkthrough.py"):
-        assert (REPO_ROOT / "scripts" / script).is_file(), script
+        assert script in scripts, script
     other = _section(_text(NOTES_PATH), "Other changes in the package")
     assert "are not part of the PyPI package" in other
     assert "hold no file from `scripts/` or `apps/web`" in other
@@ -689,57 +752,101 @@ def test_the_package_holds_none_of_the_bench_scripts_the_walkthrough_or_the_cons
 # ---------------------------------------------------------------------------
 
 
-def _decision(agent_id: str, **fields: object):
-    request = VNextAgentOutputIngestRequest(
-        user_id=uuid4(), agent_id=agent_id, title="Kiln schedule note", content="The kiln schedule moves to Tuesday.", **fields
-    )
-    identity = _vnext_agent_identity(request)
-    return evaluate_agent_policy(
-        identity=identity,
-        action="source.capture",
-        domains=(request.domain,),
-        sensitivity_allowed=(request.sensitivity,),
-        project_scope=tuple(request.project_scope),
-        write_policy="proposal_only" if request.propose_memory else None,
-    )
+def _policy_key(agent_id: str, fields: dict[str, object]) -> str:
+    return json.dumps([agent_id, fields], sort_keys=True)
+
+
+# (id, agent id, fields of the request, whether the policy blocks it): the requests that step 3 of the upgrade steps lists.
+_POLICY_CASES = (
+    ("read_only_agent", "probe-agent", {"permission_profile": "read_only_agent"}, True),
+    ("memory_proposal_agent", "probe-agent", {"permission_profile": "memory_proposal_agent"}, True),
+    ("no key, no profile, another agent id", "kiln-bot", {}, True),
+    ("declared read_only_agent", "kiln-bot", {"permission_profile": "read_only_agent"}, True),
+    ("hermes", "hermes", {}, False),
+    ("openclaw", "openclaw", {}, False),
+    ("declared trusted_local_agent", "kiln-bot", {"permission_profile": "trusted_local_agent"}, False),
+    ("declared admin_agent", "kiln-bot", {"permission_profile": "admin_agent"}, False),
+    ("trusted, proposes", "probe-agent", {"permission_profile": "trusted_local_agent", "propose_memory": True}, False),
+)
+_DOMAIN_REQUEST = (
+    "scoped-agent",
+    {"permission_profile": "project_scoped_agent", "domain": "health", "project_scope": ["Alpha"]},
+)
+_SENSITIVITY_REQUEST = ("proposal-agent", {"permission_profile": "memory_proposal_agent", "sensitivity": "confidential"})
+
+# Builds the request model of the agent output route and asks the policy for the decision the route asks for, for each
+# (agent id, fields) pair of the argument. Prints the decision and the reasons of each.
+_POLICY_CODE = (
+    "import json, sys\n"
+    "from uuid import uuid4\n"
+    "from alicebot_api.routers._vnext_shared import _vnext_agent_identity\n"
+    "from alicebot_api.routers.vnext_memories import VNextAgentOutputIngestRequest\n"
+    "from alicebot_api.vnext_agent_control import evaluate_agent_policy\n"
+    "answers = []\n"
+    "for agent_id, fields in json.loads(sys.argv[1]):\n"
+    "    request = VNextAgentOutputIngestRequest(\n"
+    "        user_id=uuid4(), agent_id=agent_id, title='Kiln schedule note',\n"
+    "        content='The kiln schedule moves to Tuesday.', **fields)\n"
+    "    identity = _vnext_agent_identity(request)\n"
+    "    decision = evaluate_agent_policy(\n"
+    "        identity=identity,\n"
+    "        action='source.capture',\n"
+    "        domains=(request.domain,),\n"
+    "        sensitivity_allowed=(request.sensitivity,),\n"
+    "        project_scope=tuple(request.project_scope),\n"
+    "        write_policy='proposal_only' if request.propose_memory else None,\n"
+    "    )\n"
+    "    answers.append({'decision': decision.decision, 'reasons': list(decision.reasons)})\n"
+    "print(json.dumps(answers))\n"
+)
+
+
+@pytest.fixture(scope="module")
+def policy_answers(v0220_tree: Path) -> dict[str, dict[str, object]]:
+    """The decision of the policy at the v0.22.0 tag for each request above, from one subprocess."""
+
+    requests = [(agent_id, fields) for _name, agent_id, fields, _blocked in _POLICY_CASES]
+    requests += [_DOMAIN_REQUEST, _SENSITIVITY_REQUEST]
+    run = _run(v0220_tree, _POLICY_CODE, json.dumps(requests))
+    assert run.returncode == 0, run.stderr
+    answers = json.loads(run.stdout)
+    return {_policy_key(agent_id, fields): answer for (agent_id, fields), answer in zip(requests, answers, strict=True)}
 
 
 @pytest.mark.parametrize(
     ("agent_id", "fields", "blocked"),
-    [
-        pytest.param("probe-agent", {"permission_profile": "read_only_agent"}, True, id="read_only_agent"),
-        pytest.param("probe-agent", {"permission_profile": "memory_proposal_agent"}, True, id="memory_proposal_agent"),
-        pytest.param("kiln-bot", {}, True, id="no key, no profile, another agent id"),
-        pytest.param("kiln-bot", {"permission_profile": "read_only_agent"}, True, id="declared read_only_agent"),
-        pytest.param("hermes", {}, False, id="hermes"),
-        pytest.param("openclaw", {}, False, id="openclaw"),
-        pytest.param("kiln-bot", {"permission_profile": "trusted_local_agent"}, False, id="declared trusted_local_agent"),
-        pytest.param("kiln-bot", {"permission_profile": "admin_agent"}, False, id="declared admin_agent"),
-        pytest.param("probe-agent", {"permission_profile": "trusted_local_agent", "propose_memory": True}, False, id="trusted, proposes"),
-    ],
+    [pytest.param(agent_id, fields, blocked, id=name) for name, agent_id, fields, blocked in _POLICY_CASES],
 )
 def test_the_kinds_of_request_the_notes_say_are_refused_are_the_ones_the_policy_blocks(
-    agent_id: str, fields: dict[str, object], blocked: bool
+    agent_id: str, fields: dict[str, object], blocked: bool, policy_answers: dict[str, dict[str, object]]
 ) -> None:
     """Mutations, each one alone: let an agent id that is not ``hermes`` or ``openclaw`` default to a profile that may
-    write; let ``read_only_agent`` write; let ``hermes`` default to ``read_only_agent``.
+    write; let ``read_only_agent`` write; let ``hermes`` default to ``read_only_agent`` (each in the code at the v0.22.0
+    tag); read the working tree where this test reads the tag, after a later change to the profile defaults.
 
-    Step 3 of the upgrade steps lists these requests. The route builds its decision from the same two calls.
+    Step 3 of the upgrade steps lists these requests. The route builds its decision from the same two calls. The
+    decision is made by the code of the v0.22.0 tag, run in a subprocess, so a later change to the policy on main does
+    not fail a claim about what v0.22.0 did. The v0.21.1 tag decides these requests the same way (what changed there
+    is the route), so reading it where this test reads the v0.22.0 tag does not fail it.
     """
 
-    decision = _decision(agent_id, **fields)
-    assert (decision.decision == "blocked") is blocked, decision
+    answer = policy_answers[_policy_key(agent_id, fields)]
+    assert (answer["decision"] == "blocked") is blocked, answer
 
 
-def test_a_key_whose_domains_or_sensitivity_exclude_the_request_is_blocked() -> None:
-    """Mutation: let ``project_scoped_agent`` capture a ``health`` source; let ``memory_proposal_agent`` capture a
-    ``confidential`` one.
+def test_a_key_whose_domains_or_sensitivity_exclude_the_request_is_blocked(
+    policy_answers: dict[str, dict[str, object]],
+) -> None:
+    """Mutations, each one alone: let ``project_scoped_agent`` capture a ``health`` source; let ``memory_proposal_agent``
+    capture a ``confidential`` one (each in the code at the v0.22.0 tag); read the working tree where this test reads the
+    tag, after a later change to the restricted domains or sensitivities of a profile. The v0.21.1 tag decides these
+    requests the same way, so reading it does not fail this test.
     """
 
-    domain = _decision("scoped-agent", permission_profile="project_scoped_agent", domain="health", project_scope=["Alpha"])
-    assert domain.decision == "blocked" and "all_requested_domains_restricted" in domain.reasons
-    sensitivity = _decision("proposal-agent", permission_profile="memory_proposal_agent", sensitivity="confidential")
-    assert sensitivity.decision == "blocked" and "restricted_sensitivity_filtered" in sensitivity.reasons
+    domain = policy_answers[_policy_key(*_DOMAIN_REQUEST)]
+    assert domain["decision"] == "blocked" and "all_requested_domains_restricted" in domain["reasons"]  # type: ignore[operator]
+    sensitivity = policy_answers[_policy_key(*_SENSITIVITY_REQUEST)]
+    assert sensitivity["decision"] == "blocked" and "restricted_sensitivity_filtered" in sensitivity["reasons"]  # type: ignore[operator]
 
 
 def _route_function(source: str) -> ast.FunctionDef:
@@ -812,79 +919,154 @@ def test_the_route_stops_on_a_blocked_decision_before_the_service_writes_and_v02
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "base_url",
-    [
-        "http://localhost:11434/v1",
-        "http://LOCALHOST:11434/v1",
-        "http://embed.localhost:11434/v1",
-        "http://127.0.0.1:11434/v1",
-        "http://127.3.4.5:11434/v1",
-        "http://[::1]:11434/v1",
-        "https://localhost/v1",
-    ],
+_LOCAL_ENDPOINTS = (
+    "http://localhost:11434/v1",
+    "http://LOCALHOST:11434/v1",
+    "http://embed.localhost:11434/v1",
+    "http://127.0.0.1:11434/v1",
+    "http://127.3.4.5:11434/v1",
+    "http://[::1]:11434/v1",
+    "https://localhost/v1",
 )
-def test_the_endpoints_on_this_machine_are_the_ones_the_notes_list(base_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+_OTHER_ENDPOINTS = (
+    "http://127.1:11434/v1",
+    "http://2130706433:11434/v1",
+    "http://0x7f000001:11434/v1",
+    "http://[::ffff:127.0.0.1]:11434/v1",
+    "http://192.0.2.1:11434/v1",
+    "http://embeddings.example.com/v1",
+    "http://localhost.example.com/v1",
+    "ftp://localhost/v1",
+    "",
+)
+
+# Asks the rule of the tag for each endpoint with no proxy in the environment, then for a loopback endpoint when a proxy
+# of the environment would carry the request. The patches are the ones the tests applied to the module in process.
+_LOOPBACK_CODE = (
+    "import json, sys, urllib.request\n"
+    "from alicebot_api.source_embedding_policy import endpoint_is_loopback\n"
+    "urllib.request.getproxies = lambda: {}\n"
+    "plain = {url: endpoint_is_loopback(url) for url in json.loads(sys.argv[1])}\n"
+    "urllib.request.getproxies = lambda: {'http': 'http://127.0.0.1:3128'}\n"
+    "urllib.request.proxy_bypass = lambda _host: False\n"
+    "proxied = endpoint_is_loopback('http://127.0.0.1:11434/v1')\n"
+    "print(json.dumps({'plain': plain, 'proxied': proxied}))\n"
+)
+
+# The values of the opt-in, and unset, as the settings of the tag read them.
+_OPT_IN_VALUES = ("1", "true", "yes", "enabled", "off", "", "on")
+_OPT_IN_CODE = (
+    "import json, sys\n"
+    "from alicebot_api.source_embedding_policy import SOURCE_EMBEDDINGS_ENV, source_embedding_settings\n"
+    "answers = {value: source_embedding_settings({SOURCE_EMBEDDINGS_ENV: value}).enabled for value in json.loads(sys.argv[1])}\n"
+    "print(json.dumps({'values': answers, 'unset': source_embedding_settings({}).enabled, 'name': SOURCE_EMBEDDINGS_ENV}))\n"
+)
+
+# The ranking each value of ``ALICE_SEARCH_QUALITY`` names, from the environment and from the recall edge.
+_RANKING_CODE = (
+    "import json, os\n"
+    "from alicebot_api.mcp.retrieval import recall_source_ranking\n"
+    "from alicebot_api.source_ranking import SourceRanking\n"
+    "env = 'ALICE_SEARCH_QUALITY'\n"
+    "from_environment = {\n"
+    "    'vectors': SourceRanking.from_environment({env: 'vectors'}).mode,\n"
+    "    'passage': SourceRanking.from_environment({env: 'passage'}).mode,\n"
+    "    'off': SourceRanking.from_environment({env: 'off'}).mode,\n"
+    "    'unset passage': SourceRanking.from_environment({}, unset=SourceRanking.passage()).mode,\n"
+    "}\n"
+    "sqlite_store = type('SQLiteVNextStore', (), {})()\n"
+    "postgres_store = type('PostgresVNextStore', (), {})()\n"
+    "def edge(store, value):\n"
+    "    if value is None:\n"
+    "        os.environ.pop(env, None)\n"
+    "    else:\n"
+    "        os.environ[env] = value\n"
+    "    return recall_source_ranking(store, None).mode\n"
+    "at_edge = {\n"
+    "    'vectors on sqlite': edge(sqlite_store, 'vectors'),\n"
+    "    'vectors on postgresql': edge(postgres_store, 'vectors'),\n"
+    "    'unset on sqlite': edge(sqlite_store, None),\n"
+    "    'passage on sqlite': edge(sqlite_store, 'passage'),\n"
+    "    'off on sqlite': edge(sqlite_store, 'off'),\n"
+    "}\n"
+    "print(json.dumps({'from_environment': from_environment, 'at_edge': at_edge}))\n"
+)
+
+
+@pytest.fixture(scope="module")
+def endpoint_answers(v0220_tree: Path) -> dict[str, object]:
+    """What the rule at the v0.22.0 tag says about every endpoint above, from one subprocess."""
+
+    run = _run(v0220_tree, _LOOPBACK_CODE, json.dumps([*_LOCAL_ENDPOINTS, *_OTHER_ENDPOINTS]))
+    assert run.returncode == 0, run.stderr
+    return json.loads(run.stdout)
+
+
+@pytest.fixture(scope="module")
+def opt_in_answers(v0220_tree: Path) -> dict[str, object]:
+    """What the settings at the v0.22.0 tag say for each value of the opt-in, from one subprocess."""
+
+    run = _run(v0220_tree, _OPT_IN_CODE, json.dumps(list(_OPT_IN_VALUES)))
+    assert run.returncode == 0, run.stderr
+    return json.loads(run.stdout)
+
+
+@pytest.mark.parametrize("base_url", _LOCAL_ENDPOINTS)
+def test_the_endpoints_on_this_machine_are_the_ones_the_notes_list(base_url: str, endpoint_answers: dict[str, object]) -> None:
     """Mutations, each one alone: stop reading ``.localhost`` names; stop reading ``::1``; read a name that resolves to
-    loopback as local.
+    loopback as local (each in the code at the v0.22.0 tag); read the v0.21.1 tag where this test reads the v0.22.0 tag
+    (it has no ``source_embedding_policy`` module); read the working tree where this test reads the tag, after a later
+    change to the rule.
     """
 
-    monkeypatch.setattr(urllib.request, "getproxies", lambda: {})
-    assert endpoint_is_loopback(base_url)
+    assert endpoint_answers["plain"][base_url]  # type: ignore[index]
 
 
-@pytest.mark.parametrize(
-    "base_url",
-    [
-        "http://127.1:11434/v1",
-        "http://2130706433:11434/v1",
-        "http://0x7f000001:11434/v1",
-        "http://[::ffff:127.0.0.1]:11434/v1",
-        "http://192.0.2.1:11434/v1",
-        "http://embeddings.example.com/v1",
-        "http://localhost.example.com/v1",
-        "ftp://localhost/v1",
-        "",
-    ],
-)
-def test_every_other_endpoint_is_not_on_this_machine(base_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("base_url", _OTHER_ENDPOINTS)
+def test_every_other_endpoint_is_not_on_this_machine(base_url: str, endpoint_answers: dict[str, object]) -> None:
     """Mutations, each one alone: read ``127.1`` or an IPv4-mapped form as loopback; read a name that merely starts with
-    ``localhost`` as local.
+    ``localhost`` as local (each in the code at the v0.22.0 tag); read the v0.21.1 tag where this test reads the v0.22.0
+    tag; read the working tree where this test reads the tag, after a later change to the rule.
     """
 
-    monkeypatch.setattr(urllib.request, "getproxies", lambda: {})
-    assert not endpoint_is_loopback(base_url)
+    assert not endpoint_answers["plain"][base_url]  # type: ignore[index]
 
 
-def test_an_endpoint_behind_a_proxy_is_not_on_this_machine(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation: stop asking whether a proxy of the environment would carry the request."""
-
-    monkeypatch.setattr(urllib.request, "getproxies", lambda: {"http": "http://127.0.0.1:3128"})
-    monkeypatch.setattr(urllib.request, "proxy_bypass", lambda _host: False)
-    assert not endpoint_is_loopback("http://127.0.0.1:11434/v1")
-
-
-@pytest.mark.parametrize("value", ["1", "true", "yes", "enabled", "off", ""])
-def test_the_values_the_notes_say_leave_the_opt_in_off_leave_it_off(value: str) -> None:
-    """Mutation: let ``1``, ``true`` or ``yes`` turn the opt-in on."""
-
-    assert not source_embedding_settings({SOURCE_EMBEDDINGS_ENV: value}).enabled
-    assert source_embedding_settings({SOURCE_EMBEDDINGS_ENV: "on"}).enabled
-    assert not source_embedding_settings({}).enabled
-
-
-def test_the_value_vectors_is_known_now_and_v0211_refused_it(v0211_tree: Path) -> None:
-    """Mutations, each one alone: stop accepting ``vectors`` in ``SourceRanking.from_environment``; make unset rank
-    as ``vectors``.
-
-    The v0.21.1 side runs the code of the tag: ``from_environment`` raises for a value it does not know, and
-    ``alice_recall`` answers ``tool_request_failed`` for that error.
+def test_an_endpoint_behind_a_proxy_is_not_on_this_machine(endpoint_answers: dict[str, object]) -> None:
+    """Mutations: stop asking whether a proxy of the environment would carry the request (in the code at the v0.22.0
+    tag); read the v0.21.1 tag where this test reads the v0.22.0 tag.
     """
 
-    assert SourceRanking.from_environment({SEARCH_QUALITY_ENV: "vectors"}).mode == "vectors"
-    assert SourceRanking.from_environment({SEARCH_QUALITY_ENV: "passage"}).mode == "passage"
-    assert SourceRanking.from_environment({SEARCH_QUALITY_ENV: "off"}).mode == "document"
-    assert SourceRanking.from_environment({}, unset=SourceRanking.passage()).mode == "passage"
+    assert not endpoint_answers["proxied"]
+
+
+@pytest.mark.parametrize("value", [value for value in _OPT_IN_VALUES if value != "on"])
+def test_the_values_the_notes_say_leave_the_opt_in_off_leave_it_off(value: str, opt_in_answers: dict[str, object]) -> None:
+    """Mutations: let ``1``, ``true`` or ``yes`` turn the opt-in on (in the code at the v0.22.0 tag); read the v0.21.1
+    tag where this test reads the v0.22.0 tag; read the working tree where this test reads the tag, after a later change
+    to the values the opt-in accepts.
+    """
+
+    assert opt_in_answers["name"] == SOURCE_EMBEDDINGS_ENV
+    assert not opt_in_answers["values"][value]  # type: ignore[index]
+    assert opt_in_answers["values"]["on"]  # type: ignore[index]
+    assert not opt_in_answers["unset"]
+
+
+def test_the_value_vectors_is_known_now_and_v0211_refused_it(v0211_tree: Path, v0220_tree: Path) -> None:
+    """Mutations, each one alone: stop accepting ``vectors`` in ``SourceRanking.from_environment`` (in the code at the
+    v0.22.0 tag); make unset rank as ``vectors`` (the same); read the v0.21.1 tag where this test reads the v0.22.0 tag
+    (the tag before refuses the value ``vectors``); read the working tree where this test reads
+    the tag, after a later change to the values of ``ALICE_SEARCH_QUALITY``.
+
+    Both sides run the code of a tag in a subprocess: ``from_environment`` raises for a value it does not know at
+    v0.21.1, and ``alice_recall`` answers ``tool_request_failed`` for that error.
+    """
+
+    new = _run(v0220_tree, _RANKING_CODE)
+    assert new.returncode == 0, new.stderr
+    modes = json.loads(new.stdout)["from_environment"]
+    assert modes == {"vectors": "vectors", "passage": "passage", "off": "document", "unset passage": "passage"}
     env = _env_for(v0211_tree / "apps" / "api" / "src")
     code = (
         "from alicebot_api.source_ranking import SourceRanking\n"
@@ -898,50 +1080,53 @@ def test_the_value_vectors_is_known_now_and_v0211_refused_it(v0211_tree: Path) -
     assert old.stdout.split() == ["refused", "passage"], old.stderr
 
 
-def test_vectors_ranks_as_passage_on_postgresql_and_the_other_values_rank_as_they_did(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vectors_ranks_as_passage_on_postgresql_and_the_other_values_rank_as_they_did(v0220_tree: Path) -> None:
     """Mutations, each one alone: let ``recall_source_ranking`` return ``vectors`` for the PostgreSQL store; change what
-    unset, ``passage`` or ``off`` rank as on SQLite.
+    unset, ``passage`` or ``off`` rank as on SQLite (each in the code at the v0.22.0 tag); read the v0.21.1 tag where
+    this test reads the v0.22.0 tag; read the working tree where this test reads the tag, after a later change to the
+    ranking the recall edge picks.
     """
 
-    sqlite_store = type("SQLiteVNextStore", (), {})()
-    postgres_store = type("PostgresVNextStore", (), {})()
-    monkeypatch.setenv(SEARCH_QUALITY_ENV, "vectors")
-    assert recall_source_ranking(sqlite_store, None).mode == "vectors"
-    assert recall_source_ranking(postgres_store, None).mode == "passage"
-    monkeypatch.delenv(SEARCH_QUALITY_ENV)
-    assert recall_source_ranking(sqlite_store, None).mode == "passage"
-    monkeypatch.setenv(SEARCH_QUALITY_ENV, "passage")
-    assert recall_source_ranking(sqlite_store, None).mode == "passage"
-    monkeypatch.setenv(SEARCH_QUALITY_ENV, "off")
-    assert recall_source_ranking(sqlite_store, None).mode == "document"
+    run = _run(v0220_tree, _RANKING_CODE)
+    assert run.returncode == 0, run.stderr
+    at_edge = json.loads(run.stdout)["at_edge"]
+    assert at_edge["vectors on sqlite"] == "vectors"
+    assert at_edge["vectors on postgresql"] == "passage"
+    assert at_edge["unset on sqlite"] == "passage"
+    assert at_edge["passage on sqlite"] == "passage"
+    assert at_edge["off on sqlite"] == "document"
     vectors = _section(_text(NOTES_PATH), "Passage vectors, an opt-in")
     assert "Without any of them, and on PostgreSQL, `alice_recall` answers as `passage` does" in vectors
     assert "Unset, `passage` and `off` rank as they did, and nothing reads the vectors unless `vectors` is set." in vectors
 
 
 def test_nothing_is_sent_by_default_and_with_the_opt_in_the_chunks_go_to_this_machine_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, v0220_tree: Path
 ) -> None:
     """Mutations, each one alone: send chunks when only the two endpoint variables are set; send them to an endpoint that
-    is not on this machine; leave the document prefix off; leave the table out of ``--drop``; let ``--drop`` send text.
+    is not on this machine; leave the document prefix off; leave the table out of ``--drop``; let ``--drop`` send text
+    (each in the code at the v0.22.0 tag); read the v0.21.1 tag where this test reads the v0.22.0 tag (it embeds no
+    chunk and has no ``--sources``); read the working tree where this test reads the tag, after a later change to when
+    chunks are sent.
 
-    This runs ``import-markdown``, ``doctor`` and ``reindex-embeddings`` against a loopback endpoint that records every
-    text it receives. The model name carries no prefix rule, so the prefix is asserted with a ``nomic-embed-text`` model.
+    This runs ``import-markdown``, ``doctor`` and ``reindex-embeddings`` of the v0.22.0 tag, each in a subprocess,
+    against a loopback endpoint that records every text it receives. The model name carries no prefix rule, so the
+    prefix is asserted with a ``nomic-embed-text`` model.
     """
 
-    quiet_environment(monkeypatch, opt_in=False)
-    monkeypatch.chdir(tmp_path)
     folder = _notes_folder(tmp_path)
     with ScriptedServer() as server:
-        monkeypatch.setenv(EMBEDDINGS_BASE_URL_ENV, server.base_url)
-        monkeypatch.setenv(EMBEDDINGS_MODEL_ENV, "nomic-embed-text:v1.5")
+        endpoint = {EMBEDDINGS_BASE_URL_ENV: server.base_url, EMBEDDINGS_MODEL_ENV: "nomic-embed-text:v1.5"}
+
+        def cli(*args: str, **settings: str) -> tuple[int, str, str]:
+            return _cli(v0220_tree, *args, env={**endpoint, **settings}, cwd=tmp_path)
 
         # Off: the endpoint variables are set, the opt-in is not.
         off = tmp_path / "off"
-        code, out, _err = _new(capsys, "import-markdown", "--from", str(folder), "--data-dir", str(off))
+        code, out, _err = cli("import-markdown", "--from", str(folder), "--data-dir", str(off))
         assert code == 0 and "chunk_embeddings" not in json.loads(out)
         assert server.texts == [] and "source_chunk_embeddings" not in _tables(off / "memory.db")
-        code, out, _err = _new(capsys, "doctor", "--data-dir", str(off))
+        code, out, _err = cli("doctor", "--data-dir", str(off))
         lines = out.splitlines()
         assert lines[lines.index("source embeddings: off") :][:5] == [
             "source embeddings: off",
@@ -950,14 +1135,13 @@ def test_nothing_is_sent_by_default_and_with_the_opt_in_the_chunks_go_to_this_ma
             "chunks with a stale vector: 0",
             "chunks skipped: not counted while source embeddings are off",
         ]
-        monkeypatch.setenv(SOURCE_EMBEDDINGS_ENV, "yes")
-        _new(capsys, "import-markdown", "--from", str(folder), "--data-dir", str(tmp_path / "yes"))
+        cli("import-markdown", "--from", str(folder), "--data-dir", str(tmp_path / "yes"), **{SOURCE_EMBEDDINGS_ENV: "yes"})
         assert server.texts == []
 
         # On: the chunks go to the endpoint on this machine, behind the document prefix, after the commit.
-        monkeypatch.setenv(SOURCE_EMBEDDINGS_ENV, "on")
+        on = {SOURCE_EMBEDDINGS_ENV: "on"}
         vault = tmp_path / "on"
-        code, out, _err = _new(capsys, "import-markdown", "--from", str(folder), "--data-dir", str(vault))
+        code, out, _err = cli("import-markdown", "--from", str(folder), "--data-dir", str(vault), **on)
         receipt = json.loads(out)
         assert code == 0 and receipt["chunk_embeddings"]["embedded"] == len(server.texts) > 0
         assert receipt["chunk_embeddings"]["pending"] == 0
@@ -966,27 +1150,30 @@ def test_nothing_is_sent_by_default_and_with_the_opt_in_the_chunks_go_to_this_ma
 
         # Delete: nothing is sent, the table goes, and v0.21.1's view of the vault is as before.
         sent = len(server.texts)
-        code, out, _err = _new(capsys, "reindex-embeddings", "--sources", "--drop", "--data-dir", str(vault))
+        code, out, _err = cli("reindex-embeddings", "--sources", "--drop", "--data-dir", str(vault), **on)
         assert code == 0 and json.loads(out)["dropped"] == sent
         assert len(server.texts) == sent and "source_chunk_embeddings" not in _tables(vault / "memory.db")
 
         # An endpoint that is not on this machine: nothing is sent and the chunks stay pending.
-        monkeypatch.setenv(EMBEDDINGS_BASE_URL_ENV, "http://127.1:9/v1")
         remote = tmp_path / "remote"
-        code, out, _err = _new(capsys, "import-markdown", "--from", str(folder), "--data-dir", str(remote))
+        code, out, _err = _cli(
+            v0220_tree,
+            "import-markdown", "--from", str(folder), "--data-dir", str(remote),
+            env={**endpoint, **on, EMBEDDINGS_BASE_URL_ENV: "http://127.1:9/v1"},
+            cwd=tmp_path,
+        )
         counted = json.loads(out)["chunk_embeddings"]
         assert code == 0 and counted["embedded"] == 0 and counted["pending"] > 0
         assert counted["pending_reasons"] == {"endpoint_not_on_this_machine": counted["pending"]}
         assert len(server.texts) == sent
 
 
-def test_a_chunk_that_is_a_list_of_links_or_too_short_is_not_sent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Mutations, each one alone: send a chunk of links only; send a chunk shorter than the least; send on a dry run."""
+def test_a_chunk_that_is_a_list_of_links_or_too_short_is_not_sent(tmp_path: Path, v0220_tree: Path) -> None:
+    """Mutations, each one alone: send a chunk of links only; send a chunk shorter than the least; send on a dry run
+    (each in the code at the v0.22.0 tag); read the v0.21.1 tag where this test reads the v0.22.0 tag; read the working
+    tree where this test reads the tag, after a later change to which chunks are sent.
+    """
 
-    quiet_environment(monkeypatch, opt_in=True)
-    monkeypatch.chdir(tmp_path)
     folder = tmp_path / "edge"
     folder.mkdir()
     (folder / "tiny.md").write_text("# T\n\nok\n", encoding="utf-8")
@@ -996,56 +1183,73 @@ def test_a_chunk_that_is_a_list_of_links_or_too_short_is_not_sent(
         encoding="utf-8",
     )
     with ScriptedServer() as server:
-        monkeypatch.setenv(EMBEDDINGS_BASE_URL_ENV, server.base_url)
-        monkeypatch.setenv(EMBEDDINGS_MODEL_ENV, "scripted-embed")
-        code, out, _err = _new(capsys, "import-markdown", "--from", str(folder), "--data-dir", str(tmp_path / "v"))
+        settings = {
+            SOURCE_EMBEDDINGS_ENV: "on",
+            EMBEDDINGS_BASE_URL_ENV: server.base_url,
+            EMBEDDINGS_MODEL_ENV: "scripted-embed",
+        }
+        code, out, _err = _cli(
+            v0220_tree, "import-markdown", "--from", str(folder), "--data-dir", str(tmp_path / "v"), env=settings, cwd=tmp_path
+        )
         counted = json.loads(out)["chunk_embeddings"]
         assert code == 0 and counted["embedded"] == 1 == len(server.texts)
         assert counted["skipped"] == {"link_only": 1, "too_short": 1}
         before = len(server.texts)
-        code, out, _err = _new(capsys, "import-markdown", "--from", str(folder), "--data-dir", str(tmp_path / "dry"), "--dry-run")
+        code, out, _err = _cli(
+            v0220_tree,
+            "import-markdown", "--from", str(folder), "--data-dir", str(tmp_path / "dry"), "--dry-run",
+            env=settings,
+            cwd=tmp_path,
+        )
         assert code == 0 and json.loads(out)["chunk_embeddings"]["reason"] == "dry_run" and len(server.texts) == before
 
 
 def test_v0211_opens_a_vault_that_holds_vectors_but_cannot_export_it_until_they_are_dropped(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], v0211_tree: Path
+    tmp_path: Path, v0211_tree: Path, v0220_tree: Path
 ) -> None:
     """Mutations, each one alone: make the table of vectors part of the schema that every vault gets (the vault that never
-    turned the opt-in on then holds it); let ``--drop`` leave the table behind; make the export of v0.21.1 skip the table.
+    turned the opt-in on then holds it); let ``--drop`` leave the table behind; make the export of v0.21.1 skip the table
+    (each in the code of its tag); read the v0.21.1 tag where this test reads the v0.22.0 tag (it makes no vectors);
+    read the working tree where this test reads the tag, after a later change to the vault the opt-in writes.
 
-    The v0.21.1 side runs the code of the tag on vaults that the current code wrote: the vault that never turned the
-    opt-in on opens and exports, the vault that holds vectors opens and its export fails, and after ``--drop`` it exports.
+    Both sides run the code of a tag in a subprocess, on vaults that the other side wrote: the vault that never turned
+    the opt-in on opens and exports, the vault that holds vectors opens and its export fails, and after ``--drop`` it
+    exports.
     """
 
-    quiet_environment(monkeypatch, opt_in=False)
-    monkeypatch.chdir(tmp_path)
     folder = _notes_folder(tmp_path)
     plain = tmp_path / "plain"
-    assert _new(capsys, "import-markdown", "--from", str(folder), "--data-dir", str(plain))[0] == 0
+    assert _cli(v0220_tree, "import-markdown", "--from", str(folder), "--data-dir", str(plain), cwd=tmp_path)[0] == 0
     assert "source_chunk_embeddings" not in _tables(plain / "memory.db")
     assert _old(v0211_tree, "doctor", "--data-dir", str(plain)).returncode == 0
     assert _old(v0211_tree, "export", "--data-dir", str(plain), "--out", str(tmp_path / "plain.jsonl")).returncode == 0
 
     with ScriptedServer() as server:
-        monkeypatch.setenv(EMBEDDINGS_BASE_URL_ENV, server.base_url)
-        monkeypatch.setenv(EMBEDDINGS_MODEL_ENV, "scripted-embed")
-        monkeypatch.setenv(SOURCE_EMBEDDINGS_ENV, "on")
+        settings = {
+            SOURCE_EMBEDDINGS_ENV: "on",
+            EMBEDDINGS_BASE_URL_ENV: server.base_url,
+            EMBEDDINGS_MODEL_ENV: "scripted-embed",
+        }
+
+        def new(*args: str) -> tuple[int, str, str]:
+            return _cli(v0220_tree, *args, env=settings, cwd=tmp_path)
+
         embedded = tmp_path / "embedded"
-        assert _new(capsys, "import-markdown", "--from", str(folder), "--data-dir", str(embedded))[0] == 0
+        assert new("import-markdown", "--from", str(folder), "--data-dir", str(embedded))[0] == 0
         assert "source_chunk_embeddings" in _tables(embedded / "memory.db")
         assert _old(v0211_tree, "doctor", "--data-dir", str(embedded)).returncode == 0
         failed = _old(v0211_tree, "export", "--data-dir", str(embedded), "--out", str(tmp_path / "embedded.jsonl"))
         assert failed.returncode != 0 and "export_failed" in failed.stderr
-        # This tree exports it, leaves the vectors out and says how many it left.
-        code, _out, err = _new(capsys, "export", "--data-dir", str(embedded), "--out", str(tmp_path / "new.jsonl"))
+        # The v0.22.0 tag exports it, leaves the vectors out and says how many it left.
+        code, _out, err = new("export", "--data-dir", str(embedded), "--out", str(tmp_path / "new.jsonl"))
         assert code == 0 and "this vault holds" in err and "source chunk vectors" in err
-        # A vault written by v0.21.1 opens here.
+        # A vault written by v0.21.1 opens in v0.22.0.
         written = tmp_path / "written"
         assert _old(v0211_tree, "import-markdown", "--from", str(folder), "--data-dir", str(written)).returncode == 0
-        assert _new(capsys, "doctor", "--data-dir", str(written))[0] == 0
+        assert new("doctor", "--data-dir", str(written))[0] == 0
         assert "source_chunk_embeddings" not in _tables(written / "memory.db")
         # Drop, and v0.21.1 exports it.
-        assert _new(capsys, "reindex-embeddings", "--sources", "--drop", "--data-dir", str(embedded))[0] == 0
+        assert new("reindex-embeddings", "--sources", "--drop", "--data-dir", str(embedded))[0] == 0
         assert _old(v0211_tree, "export", "--data-dir", str(embedded), "--out", str(tmp_path / "after.jsonl")).returncode == 0
     steps = _section(_text(NOTES_PATH), "What to do after upgrading")
     assert "v0.21.1 opens a vault that holds chunk vectors, but its `alice-memory export` fails on it until they are dropped" in steps

@@ -5,8 +5,16 @@ weaken: the release identity, the security wording, the steps an upgrading user 
 migrations, the one-time SQLite repair, the label check and the sentence an owner reads after the upgrade), the three
 statements about hidden events, the repair event and the weekly-synthesis memory on SQLite, the behaviour an
 integrator sees, and the lists of what is still open and what this release closed. The names the notes give for the
-repair (the state key, the cause, the migrations) are read from the code, so a change of the code that leaves the
-notes behind fails here. Each test names the mutation that must fail it.
+repair (the state key, the cause, the migrations) are read from the code and the migrations folder of the v0.20.2
+tag, so a change of the code at the tag that leaves the notes behind fails here and a later change of the tree does
+not. Each test names the mutation that must fail it.
+
+What the release held in a page that later changes reword (the guides, the security note, the current state document)
+is read from the v0.20.2 tag with ``git show``, and never from the working tree, and so is what the 2026-10-22 updates
+say about the limitations page at the v0.21.0 tag. A checkout without tags skips those tests, and under ``CI`` they
+fail instead. The tree is read for what must stay true after the release: the published state of the notes, the
+checksums file, the marketplace pin, the dated heading of the changelog, the notes and the changelog section (which
+only gain dated paragraphs) and the dated updates.
 
 The notes are published and the post-publication change recorded the digests, moved the marketplace file to the
 tag and added the dated 2026-10-17 updates. The v0.21.0 post-publication change moved the marketplace file on to the
@@ -21,15 +29,21 @@ the changelog section are held by ``test_published_release_notes_stay_immutable.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from pathlib import Path
 
-from alicebot_api.vnext_label_repair import REPAIR_CAUSE, REPAIR_STATE_KEY
-from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
+import pytest
+
+from tests.unit.test_published_release_notes_stay_immutable import _tagged
+from tests.unit.test_v0210_release_notes import _tagged_listing
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NOTES_PATH = "docs/release/v0.20.2-release-notes.md"
+# The v0.20.2 tag, and the v0.21.0 tag that the 2026-10-22 updates of the notes speak about.
+RELEASE_TAG = "v0.20.2"
+NEXT_TAG = "v0.21.0"
 HEADING = "## v0.20.2 \u2014 2026-10-17"
 NOTE_PATH = "docs/release/derived-labels-security-note-draft.md"
 CHECKSUMS_PATH = "docs/release/v0.20.2-checksums.txt"
@@ -61,6 +75,35 @@ def _text(path: str) -> str:
 
 def _flat(path: str) -> str:
     return " ".join(_text(path).split())
+
+
+def _tagged_flat(path: str, tag: str = RELEASE_TAG) -> str:
+    """``path`` as ``tag`` held it (the v0.20.2 tag unless another is named), whitespace collapsed. It skips without
+    tags, and fails under ``CI``."""
+
+    return " ".join(_tagged(tag, path).split())
+
+
+@pytest.fixture(scope="module")
+def repair_names() -> dict[str, object]:
+    """The state key, the cause and the bound of a read, as the v0.20.2 tag has them.
+
+    They are read from the source at the tag with ``ast`` and not imported, so a later change to the repair does not
+    make the published notes wrong.
+    """
+
+    wanted = {
+        "apps/api/src/alicebot_api/vnext_label_repair.py": ("REPAIR_STATE_KEY", "REPAIR_CAUSE"),
+        "apps/api/src/alicebot_api/vnext_label_sql.py": ("READABLE_SCAN_CAP",),
+    }
+    found: dict[str, object] = {}
+    for path, names in wanted.items():
+        for node in ast.parse(_tagged(RELEASE_TAG, path)).body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                if node.targets[0].id in names:
+                    found[node.targets[0].id] = ast.literal_eval(node.value)
+    assert sorted(found) == ["READABLE_SCAN_CAP", "REPAIR_CAUSE", "REPAIR_STATE_KEY"], found
+    return found
 
 
 def _section(text: str, heading: str) -> str:
@@ -207,9 +250,12 @@ def test_the_notes_use_no_dash_and_only_the_allowed_security_wording() -> None:
     assert "ghsa-" not in lowered and "cve-" not in lowered
 
 
-def test_the_upgrade_steps_name_every_action_an_existing_user_takes_in_order() -> None:
+def test_the_upgrade_steps_name_every_action_an_existing_user_takes_in_order(repair_names: dict[str, object]) -> None:
     """Mutations, each one alone: delete one numbered step; swap two; drop the command, the revision or the setting a
-    step names.
+    step names; change the state key or the cause in the source at the v0.20.2 tag; read the working tree where they are
+    read (after a later change to another repair version, this test fails).
+
+    The state key and the cause are read from the source at the tag, not from the tree.
     """
 
     steps = _section(_text(NOTES_PATH), "What to do after upgrading")
@@ -227,8 +273,8 @@ def test_the_upgrade_steps_name_every_action_an_existing_user_takes_in_order() -
         "rolls the relabels, their audit events and the FORCE change back together",
         "The downgrade keeps the repaired labels",
         "run `alicebot vnext labels check` after such a restore, and `alicebot vnext labels repair` if it lists a row",
-        f"stamps the vault with the state key `{REPAIR_STATE_KEY}`",
-        f"with the cause `{REPAIR_CAUSE}`",
+        f"stamps the vault with the state key `{repair_names['REPAIR_STATE_KEY']}`",
+        f"with the cause `{repair_names['REPAIR_CAUSE']}`",
         "The open pass never stops a vault from opening",
         "`alicebot vnext labels check` (PostgreSQL) and `alice-memory labels check` (SQLite)",
         "Check reads a snapshot and does not upgrade the live vault",
@@ -250,18 +296,23 @@ def test_the_upgrade_steps_name_every_action_an_existing_user_takes_in_order() -
     assert steps.index("`20261004_0095`") < steps.index("`labels check`") < steps.index("`~global`")
 
 
-def test_the_owner_facing_sentence_and_the_three_additions_are_in_the_notes_the_changelog_and_the_pages() -> None:
+def test_the_owner_facing_sentence_and_the_three_additions_are_in_the_notes_the_changelog_and_the_pages(
+    repair_names: dict[str, object],
+) -> None:
     """The sentence an owner reads after the upgrade, the statement about hidden events in a five-event window, the
     name of the repair event and the statement about a weekly-synthesis memory on SQLite are each in the notes, in the
     changelog and in the security note, and the event name is in the guides that describe the repair.
 
-    Mutations, each one alone: delete one of the three sentences from the notes, the changelog or the security note;
-    delete ``memory.labels_raised`` from a guide; delete ``repair_v4`` from the notes.
+    Mutations, each one alone: delete one of the three sentences from the notes or the changelog; delete ``repair_v4``
+    from the notes; read the v0.20.0 tag where this test reads the security note or a guide; read the working tree where it reads either (after a later change that
+    rewords a sentence in the security note or a guide, this test fails).
+
+    The security note and the two guides are read from the v0.20.2 tag, and the cause from the source at the tag.
     """
 
     notes = _flat(NOTES_PATH)
     changelog = " ".join(_changelog_section().split())
-    note = _flat(NOTE_PATH)
+    note = _tagged_flat(NOTE_PATH)
     assert OWNER_SENTENCE in notes
     assert OWNER_SENTENCE in note
     assert (
@@ -276,29 +327,34 @@ def test_the_owner_facing_sentence_and_the_three_additions_are_in_the_notes_the_
         assert HIDDEN_EVENTS_SENTENCE in text, name
         assert WEEKLY_SQLITE_SENTENCE in text, name
         assert LABELS_RAISED in text, name
-        assert f"`{REPAIR_CAUSE}`" in text, name
+        assert f"`{repair_names['REPAIR_CAUSE']}`" in text, name
     for name in ("docs/alpha/backup-and-restore.md", "docs/alpha/mcp-tools.md"):
-        text = _flat(name)
+        text = _tagged_flat(name)
         assert LABELS_RAISED in text, name
-        assert f"`{REPAIR_CAUSE}`" in text, name
-    assert WEEKLY_SQLITE_SENTENCE in _flat("docs/alpha/mcp-tools.md")
+        assert f"`{repair_names['REPAIR_CAUSE']}`" in text, name
+    assert WEEKLY_SQLITE_SENTENCE in _tagged_flat("docs/alpha/mcp-tools.md")
 
 
-def test_the_names_the_notes_give_for_the_repair_are_the_ones_the_code_has() -> None:
-    """The state key, the cause, the bound of a read and the migrations are read from the code.
+def test_the_names_the_notes_give_for_the_repair_are_the_ones_the_code_has(repair_names: dict[str, object]) -> None:
+    """The state key, the cause, the bound of a read and the migrations are read from the code at the v0.20.2 tag.
 
-    Mutations, each one alone: change ``REPAIR_STATE_KEY`` or ``REPAIR_CAUSE`` in ``vnext_label_repair.py``; change
-    ``READABLE_SCAN_CAP``; rename a migration file; add a later migration.
+    Mutations, each one alone: delete the state key, the cause or the bound from the notes; read the v0.20.0 tag where
+    this test lists the migrations folder; read the working tree where it reads the tag (after a later change that adds a
+    migration, as the next release does, this test fails). The test also fails if the source or the folder at the tag
+    held another state key, cause, bound or chain of revisions than the notes name.
+
+    The source and the migrations folder are read from the tag, so a repair version or a migration added to main later
+    does not fail a test that says what v0.20.2 shipped.
     """
 
-    assert REPAIR_STATE_KEY == "derived_labels_v4"
-    assert REPAIR_CAUSE == "repair_v4"
-    assert READABLE_SCAN_CAP == 128
+    assert repair_names["REPAIR_STATE_KEY"] == "derived_labels_v4"
+    assert repair_names["REPAIR_CAUSE"] == "repair_v4"
+    assert repair_names["READABLE_SCAN_CAP"] == 128
     notes = _flat(NOTES_PATH)
-    assert f"`{REPAIR_STATE_KEY}`" in notes and f"`{REPAIR_CAUSE}`" in notes
-    assert "`READABLE_SCAN_CAP`" in notes and f"at most {READABLE_SCAN_CAP} rows" in notes
-    versions = REPO_ROOT / "apps" / "api" / "alembic" / "versions"
-    names = sorted(path.name for path in versions.glob("*.py"))
+    assert f"`{repair_names['REPAIR_STATE_KEY']}`" in notes and f"`{repair_names['REPAIR_CAUSE']}`" in notes
+    assert "`READABLE_SCAN_CAP`" in notes and f"at most {repair_names['READABLE_SCAN_CAP']} rows" in notes
+    folder = "apps/api/alembic/versions"
+    names = sorted(name for name in _tagged_listing(RELEASE_TAG, folder) if name.endswith(".py"))
     assert names[-4:] == [
         "20260721_0094_browser_clip_capabilities.py",
         "20261004_0095_derived_restricted_domains.py",
@@ -310,8 +366,8 @@ def test_the_names_the_notes_give_for_the_repair_are_the_ones_the_code_has() -> 
         ("20261004_0095", "20261005_0096"),
         ("20261005_0096", "20261011_0097"),
     ):
-        migration = next(path for path in versions.glob(f"{new}_*.py"))
-        assert f'down_revision = "{old}"' in migration.read_text(encoding="utf-8"), new
+        migration = next(name for name in names if name.startswith(f"{new}_"))
+        assert f'down_revision = "{old}"' in _tagged(RELEASE_TAG, f"{folder}/{migration}"), new
 
 
 def test_the_security_section_describes_effects_and_refers_to_the_advisories() -> None:
@@ -458,9 +514,15 @@ def test_notes_say_why_the_number_is_0_20_2_and_that_nothing_was_published_as_0_
 
 
 def test_the_retired_v0201_number_is_recorded_in_the_current_state() -> None:
-    """Mutation: drop `v0.20.1` from the never-published list, or keep the count at five, and this fails."""
+    """Mutations, each one alone: drop `v0.20.1` from the never-published list, or keep the count at five; read the
+    v0.20.0 tag where this test reads the current state at the v0.20.2 tag; read the working tree where it reads the tag
+    (after a later change that records another tag that was never published, as the list of this page grows, this test
+    fails).
 
-    state = " ".join((REPO_ROOT / "CURRENT_STATE.md").read_text(encoding="utf-8").split())
+    The page is read from the v0.20.2 tag, where it recorded the retired number.
+    """
+
+    state = _tagged_flat("CURRENT_STATE.md")
     assert "`v0.19.1`, superseded by `v0.19.2`; and `v0.20.1`, superseded by `v0.20.2`." in state
     assert state.count("Six tags exist that were never published") == 2
     assert "Five tags exist" not in state
@@ -800,6 +862,11 @@ def test_the_notes_say_beside_each_item_that_v0210_fixed_or_changed_it() -> None
     tagged and a dated update follows it. Each update names v0.21.0 and where the fix stops. The memory audit item
     keeps its 2026-10-21 correction directly after it, and its update follows the correction. The statement about
     the folder paths in the connector status said a fix was planned for v0.21.0, and v0.21.0 does not contain it.
+
+    The limitations that v0.21.0 leaves as they were are read on the limitations page at the v0.21.0 tag, the release the
+    updates speak about, and not on the page as it is now. More mutations, each one alone: read the v0.20.2 tag where this
+    test reads that page; read the working tree where it reads the page (after a later change that fixes one of those
+    limitations and removes it from the page, this test fails).
     """
 
     blocks = _blocks(NOTES_PATH)
@@ -825,7 +892,7 @@ def test_the_notes_say_beside_each_item_that_v0210_fixed_or_changed_it() -> None
     # An update glued to the end of another paragraph, with no blank line, is no paragraph of its own.
     assert _text(NOTES_PATH).count("Update (2026-10-22)") == len(updates)
 
-    limits_page = _flat("docs/alpha/known-limitations.md")
+    limits_page = _tagged_flat("docs/alpha/known-limitations.md", NEXT_TAG)
     for opening, still_listed in V0202_ITEMS_UNCHANGED_IN_V0210:
         positions = [index for index, block in enumerate(blocks) if opening in block]
         assert len(positions) == 1, (opening, positions)
@@ -842,6 +909,10 @@ def test_the_2026_10_22_updates_carry_the_limits_the_v0210_changelog_and_notes_s
 
     The updates restate numbers and exceptions that the v0.21.0 changelog section and the v0.21.0 notes hold, so the
     two cannot drift apart: each fact an update states is also in the changelog or the notes.
+
+    The sentence of the limitations page is read at the v0.21.0 tag. More mutations, each one alone: read the v0.20.2 tag
+    where this test reads that page; read the working tree where it reads the page (after a later change that rewords
+    the sentence, this test fails).
     """
 
     changelog = " ".join(_changelog_section_of("v0.21.0").split())
@@ -862,8 +933,8 @@ def test_the_2026_10_22_updates_carry_the_limits_the_v0210_changelog_and_notes_s
     )
     for fact in facts_in_changelog:
         assert fact in changelog, fact
-    assert "an id that names no row at a position the product does not type is shown as written" in _flat(
-        "docs/alpha/known-limitations.md"
+    assert "an id that names no row at a position the product does not type is shown as written" in _tagged_flat(
+        "docs/alpha/known-limitations.md", NEXT_TAG
     )
     facts_in_notes = (
         "An id inside free text, such as the text of a readable memory, is not removed.",

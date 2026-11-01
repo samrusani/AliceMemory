@@ -6,6 +6,13 @@ pin the parts a later edit could quietly weaken: the release identity, the
 security wording, the steps an upgrading user must act on, the numbers of the
 embeddings upgrade check, and the lists of what is open and what is fixed. Each
 test names the mutation that must fail it.
+
+What the release held in a page that later changes reword (the MCP guide, the OpenCode page, the importers page and the
+backup guide) is read from the v0.20.0 tag with ``git show``, and never from the working tree: a claim about the release
+must not fail because a later change rewords one of those pages. A checkout without tags skips those tests, and under
+``CI`` they fail instead. The tree is read for what must stay true after the release: the published state of the notes,
+the marketplace pin, the dated heading of the changelog, the notes and the changelog section (which only gain dated
+paragraphs), and one test that keeps the claims v0.19.2 got wrong out of the pages as they are now.
 """
 
 from __future__ import annotations
@@ -14,9 +21,12 @@ import json
 import re
 from pathlib import Path
 
+from tests.unit.test_published_release_notes_stay_immutable import _tagged
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NOTES_PATH = "docs/release/v0.20.0-release-notes.md"
 HEADING = "## v0.20.0 \u2014 2026-10-02"
+RELEASE_TAG = "v0.20.0"
 
 
 def _text(path: str) -> str:
@@ -25,6 +35,12 @@ def _text(path: str) -> str:
 
 def _flat(path: str) -> str:
     return " ".join(_text(path).split())
+
+
+def _tagged_flat(path: str) -> str:
+    """``path`` as the v0.20.0 tag held it, whitespace collapsed. It skips without tags, and fails under ``CI``."""
+
+    return " ".join(_tagged(RELEASE_TAG, path).split())
 
 
 def _section(text: str, heading: str) -> str:
@@ -289,36 +305,32 @@ def _changelog_section() -> str:
 
 def test_the_embedded_text_is_described_with_its_summary_and_no_twenty_thousand_limit() -> None:
     """Mutations, each one alone: write "8,001 to 20,000 characters" or "a commit accepts up to 20,000" back
-    into the notes, the changelog, the README or the MCP guide; drop the sentence that gives the summary's size
-    or the one that says SQLite has no length limit.
+    into the notes or the changelog; drop the sentence that gives the summary's size or the one that says SQLite has no
+    length limit; read the v0.19.2 tag where this test reads the MCP guide; read the working tree where it reads the guide (after a later change that rewords the sentence about the cap,
+    this test fails).
 
     The embedded text of a memory is its title, its text and its summary, and the summary of a committed
     memory is the first 280 characters of its text, so a text of about 7,700 characters can cross the cap. The
     20,000 limit belongs to the Postgres HTTP commit models only: `alice_memory_commit` on SQLite stored a
     2,000,000 character memory whole, in v0.19.2 and in this release.
+
+    The MCP guide is read from the v0.20.0 tag, because a later change may reword it. The README and the limitations
+    page are held by ``test_the_pages_as_they_are_now_keep_the_retired_claims_out_and_the_readme_states_the_cap``.
     """
 
     notes = _flat(NOTES_PATH)
     changelog = " ".join(_changelog_section().split())
-    readme = _flat("README.md")
-    mcp = _flat("docs/integrations/mcp.md")
-    for name, text in (("notes", notes), ("changelog", changelog), ("readme", readme), ("mcp guide", mcp)):
+    mcp = _tagged_flat("docs/integrations/mcp.md")
+    for name, text in (("notes", notes), ("changelog", changelog), ("mcp guide", mcp)):
         assert "8,001 to 20,000" not in text, name
         assert "a commit accepts up to 20,000" not in text, name
     assert "The summary of a committed memory is the first 280 characters of its text" in notes
     assert "a memory with text of about 7,700 characters or more can be over the default cap" in notes
     assert "the first 280 characters of its text), so a memory whose text is about 7,700 characters or more" in changelog
-    # The README states the cap in one sentence and no more: the 8,000 character rule for a long memory lives in the
-    # MCP guide below, and the tools page (see test_readme_facts_live_in_the_docs.py) holds what the endpoint receives.
-    assert "cuts each memory and each query to its first 8,000 characters" in readme
-    assert "`ALICE_EMBEDDINGS_MAX_INPUT_CHARS` changes that cap" in readme
     assert "A memory whose embedded text (its title, text and summary) is over 8,000 characters is embedded from its first 8,000" in mcp
     limitations = _section(_text(NOTES_PATH), "Known limitations")
     assert "`alice_memory_commit` on SQLite has no length limit" in limitations
     assert "The Postgres HTTP commit routes take up to 20,000 characters of text" in limitations
-    # The limitations page describes v0.20.2 and no longer retells that v0.20.0 had no limit: that comparison is pinned on
-    # the v0.20.0 notes above, on mcp-tools.md (test_commit_text_limit.py) and on the v0.20.2 notes.
-    assert "has no length limit" not in _flat("docs/alpha/known-limitations.md")
 
 
 def test_the_pack_lead_admits_an_empty_pack_and_the_notes_name_the_tool_set() -> None:
@@ -340,21 +352,25 @@ def test_the_changelog_and_the_notes_claim_nothing_that_v0192_never_had_or_did()
     """Mutations, each one alone, put the old sentence back: "the doctor counted 3"; "capture-file still has no
     limit"; "the reason `has the same id but different content`"; "no longer return such a memory"; "v0.19.2
     answered HTTP 500 and HTTP 422"; "Every outbound call goes through one function"; "9.0 seconds"; "to a file and
-    to standard output, and leaves no output file"; "Re-running Hermes or OpenCode `install` keeps".
+    to standard output, and leaves no output file"; "Re-running Hermes or OpenCode `install` keeps". Read the
+    v0.19.2 tag where this test reads the OpenCode page or the importers page at the v0.20.0 tag; read the working tree
+    where it reads either (after a later change that rewords the sentence, this test fails).
 
     Each was found false by running v0.19.2 and this branch side by side. v0.19.2 had no doctor count, so
     "counted" is wrong for it. Every vnext file command takes `--max-file-mib`. Nothing prints the skip reason.
     Expired memories were already absent from recall and the pack. The 500 on the commit route in v0.19.2 was
     not about the body size. The headless alpha check opens URLs with `urlopen`. A strict `opencode.json` kept
     every key install did not write in v0.19.2.
+
+    The two integration pages are read from the v0.20.0 tag. The backup guide and the limitations page, which must
+    keep the retired sentences out as they are now, are held by
+    ``test_the_pages_as_they_are_now_keep_the_retired_claims_out_and_the_readme_states_the_cap``.
     """
 
     notes = _flat(NOTES_PATH)
     changelog = " ".join(_changelog_section().split())
-    backup = _flat("docs/alpha/backup-and-restore.md")
-    limits = _flat("docs/alpha/known-limitations.md")
-    opencode = _flat("docs/integrations/opencode.md")
-    importers = _flat("docs/integrations/importers.md")
+    opencode = _tagged_flat("docs/integrations/opencode.md")
+    importers = _tagged_flat("docs/integrations/importers.md")
 
     assert "the doctor counted 3" not in changelog
     assert "reindex sent 3 texts in v0.19.2, which had no doctor count, and the doctor counts 2 and reindex sends 2 now" in changelog
@@ -363,17 +379,12 @@ def test_the_changelog_and_the_notes_claim_nothing_that_v0192_never_had_or_did()
         "`alicebot vnext sources capture-file`, `alicebot vnext connectors browser-clipper capture --file` and "
         "`alicebot vnext agents ingest-output --file` take the same 16 MiB limit and the same option"
     ) in changelog
-    for name, text in (("changelog", changelog), ("notes", notes), ("backup guide", backup)):
+    for name, text in (("changelog", changelog), ("notes", notes)):
         assert "same id but different content" not in text, name
     assert "of every packed row together, cuts a branch nested past" in changelog
 
     assert "no longer return such a memory" not in notes
     assert "Recall and the context pack do not return such a memory, as in v0.19.2" in notes
-    assert "no longer return it" not in limits
-    # The closing paragraph that said recall and the context pack never returned an expired memory is gone from the limitations
-    # page. The v0.20.0 notes above hold the comparison, and the v0.20.2 changelog entry says the three doors now agree with
-    # recall and the context pack (test_expired_memories_docs.py).
-    assert "while recall and the context pack do not return it, as in v0.19.2" not in limits
 
     assert "where v0.19.2 answered HTTP 500 and HTTP 422" not in notes
     assert "where v0.19.2 has no cap and reads the whole body" in notes
@@ -391,32 +402,32 @@ def test_the_changelog_and_the_notes_claim_nothing_that_v0192_never_had_or_did()
         assert "A strict `opencode.json` kept every key that install did not write in both versions" in text
     assert "is refused on this path. A strict `opencode.json` kept every key that install did not write" in opencode
 
-    assert "The process log gets the traceback." not in importers
     assert "the traceback only at debug level" in importers
 
 
 def test_a_failed_export_to_standard_output_is_not_said_to_leave_nothing() -> None:
     """Mutations, each one alone: write "to a file and to standard output, and leaves no output file" back;
-    drop the sentence about standard output from the notes, the changelog or the backup guide.
+    drop the sentence about standard output from the notes or the changelog; read the v0.19.2 tag where this test reads
+    the backup guide; read the working tree where it reads the guide (after a
+    later change that rewords the sentence about standard output, this test fails).
 
     `--out` leaves no file. A redirect of standard output holds the records written before the failure and
     no footer, in v0.19.2 and in this release, and `alice-memory import` refuses that file. The limitations page
     states the export failure and links the backup guide, which holds the standard output half, so this test pins
-    that half on the guide (the page that explains export) and on the dated records, not on the page.
+    that half on the guide (the page that explains export) and on the dated records, not on the page. The guide is
+    read from the v0.20.0 tag. The limitations page, which must keep the retired sentence out as it is now, is held
+    by ``test_the_pages_as_they_are_now_keep_the_retired_claims_out_and_the_readme_states_the_cap``.
     """
 
     notes = _flat(NOTES_PATH)
     changelog = " ".join(_changelog_section().split())
-    backup = _flat("docs/alpha/backup-and-restore.md")
+    backup = _tagged_flat("docs/alpha/backup-and-restore.md")
     for name, text in (("notes", notes), ("changelog", changelog), ("backup guide", backup)):
         assert "to a file and to standard output, and leaves no output file" not in text, name
         assert "to a file or to standard output, then prints" not in text, name
         assert "To standard output it has already written records by then and stops with no footer" in text, name
         assert "a shell redirect keeps a partial file that import refuses" in text, name
         assert "With `--out` it leaves no output file" in text, name
-    limits = _flat("docs/alpha/known-limitations.md")
-    assert "to a file and to standard output, and leaves no output file" not in limits
-    assert "to a file or to standard output, then prints" not in limits
     assert "and its standard output was partial in the same way" in notes
     assert "Its standard output was partial in the same way." in changelog
     assert "The standard output of v0.19.2 was partial in the same way." in backup
@@ -425,6 +436,48 @@ def test_a_failed_export_to_standard_output_is_not_said_to_leave_nothing() -> No
     assert "With `--out` it writes no file, and to standard output it leaves a partial stream that import refuses" in notes
     limitations = _section(_text(NOTES_PATH), "Known limitations")
     assert "An export to standard output that fails has already written part of the stream, with no footer" in limitations
+
+
+def test_the_pages_as_they_are_now_keep_the_retired_claims_out_and_the_readme_states_the_cap() -> None:
+    """Mutations, each one alone: write "8,001 to 20,000 characters" or "a commit accepts up to 20,000" back into the README
+    or the MCP guide; drop the README sentence that gives the cap or the one that names
+    ``ALICE_EMBEDDINGS_MAX_INPUT_CHARS``; write "same id but different content", "to a file and to standard output, and
+    leaves no output file" or "to a file or to standard output, then prints" back into the backup guide; write
+    "has no length limit", "no longer return it", the sentence about recall and the context pack, or either export
+    sentence back into the known limitations page; write "The process log gets the traceback." back into the importers
+    page.
+
+    These pages are read from the working tree, because the claims must stay true of them as they are now. They are not
+    facts of the v0.20.0 tag: its README worded the cap at more length, and its limitations page still retold the
+    comparisons with v0.19.2 that the v0.20.2 change removed. What the release held in the guides is in the tests above,
+    which read the tag.
+    """
+
+    readme = _flat("README.md")
+    mcp = _flat("docs/integrations/mcp.md")
+    for name, text in (("readme", readme), ("mcp guide", mcp)):
+        assert "8,001 to 20,000" not in text, name
+        assert "a commit accepts up to 20,000" not in text, name
+    # The README states the cap in one sentence and no more: the 8,000 character rule for a long memory lives in the
+    # MCP guide, and the tools page (see test_readme_facts_live_in_the_docs.py) holds what the endpoint receives.
+    assert "cuts each memory and each query to its first 8,000 characters" in readme
+    assert "`ALICE_EMBEDDINGS_MAX_INPUT_CHARS` changes that cap" in readme
+    backup = _flat("docs/alpha/backup-and-restore.md")
+    assert "same id but different content" not in backup
+    assert "to a file and to standard output, and leaves no output file" not in backup
+    assert "to a file or to standard output, then prints" not in backup
+    limits = _flat("docs/alpha/known-limitations.md")
+    assert "no longer return it" not in limits
+    # The closing paragraph that said recall and the context pack never returned an expired memory is gone from the limitations
+    # page. The v0.20.0 notes hold the comparison, and the v0.20.2 changelog entry says the three doors now agree with
+    # recall and the context pack (test_expired_memories_docs.py).
+    assert "while recall and the context pack do not return it, as in v0.19.2" not in limits
+    assert "to a file and to standard output, and leaves no output file" not in limits
+    assert "to a file or to standard output, then prints" not in limits
+    # The limitations page describes v0.20.2 and no longer retells that v0.20.0 had no limit: that comparison is pinned on
+    # the v0.20.0 notes, on mcp-tools.md (test_commit_text_limit.py) and on the v0.20.2 notes.
+    assert "has no length limit" not in limits
+    assert "The process log gets the traceback." not in _flat("docs/integrations/importers.md")
 
 
 def test_the_recall_timings_are_one_set_and_the_long_query_figure_is_not_a_slowdown() -> None:
