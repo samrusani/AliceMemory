@@ -3,7 +3,7 @@
 ## Requirements and status
 
 - Support status: legacy surface of the Postgres stack. It is not part of the default SQLite install. It is kept working: CI runs `evals run` against Postgres and compares the report with the checked-in baseline. New integrations use the core MCP tools.
-- Backend: Postgres. The `alicebot` CLI refuses a SQLite URL and the HTTP API runs only on Postgres. The harness needs a migrated database and a valid Alice user id (see [Full stack](../../README.md#full-stack-postgres--review-console)). `evals run` also writes its run and result rows to that database.
+- Backend: Postgres. The `alicebot` CLI refuses a SQLite URL and the HTTP API runs only on Postgres. The harness needs a migrated database and a valid Alice user id (see [Full stack](../overview.md#full-stack-postgres--review-console)). `evals run` also writes its run and result rows to that database.
 - Settings: none. This page names no MCP tool, so `ALICE_MCP_LEGACY_TOOLS` plays no part, and no `ALICE_LEGACY_SURFACES` flag is needed.
 
 The public harness is a reproducible local eval surface for Alice's quality.

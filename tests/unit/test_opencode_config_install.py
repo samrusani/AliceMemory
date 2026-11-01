@@ -889,22 +889,26 @@ def test_opencode_rewrites_config_json_when_it_holds_alice(
 
 
 def test_readme_names_opencode_briefly_and_changelog_says_it_masks_command() -> None:
-    """README says OpenCode is opt-in in one sentence and links the integration doc.
+    """The opt-in sentence about OpenCode is one line and links the integration doc.
 
-    The OpenCode detail lives in the changelog and docs/integrations/opencode.md.
-    Mutation: drop the README sentence, or grow an OpenCode section in README
-    past two lines, or drop the masking sentence from the changelog. This test fails.
+    The sentence moved with the install details from the README to the product overview page, and the pin
+    moved with it; the README keeps at most two lines that mention OpenCode.
+    Mutation: drop the sentence from the overview page, put an OpenCode section back into README.md past
+    two lines, or drop the masking sentence from the changelog. This test fails.
     """
 
     root = Path(__file__).resolve().parents[2]
-    text = (root / "README.md").read_text(encoding="utf-8")
+    # The one sentence about OpenCode moved with the install details from the README to the product overview page;
+    # the pins moved with it. The README keeps only a mention of the host in the install line.
+    text = (root / "docs/overview.md").read_text(encoding="utf-8")
     sentence = (
         "OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. "
-        "See [OpenCode](docs/integrations/opencode.md)."
+        "See [OpenCode](integrations/opencode.md)."
     )
     opencode_lines = [line for line in text.splitlines() if "opencode" in line.casefold()]
     assert sentence in opencode_lines
-    assert len(opencode_lines) <= 2
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    assert len([line for line in readme.splitlines() if "opencode" in line.casefold()]) <= 2
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "When alice already sits in `config.json`, that file is the one" in changelog
     assert "A dry run masks the command array." in " ".join(changelog.split())

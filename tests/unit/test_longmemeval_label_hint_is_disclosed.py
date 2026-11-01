@@ -191,11 +191,12 @@ def _pages_without_the_pointer(pages: dict[str, str]) -> list[str]:
 
 
 def test_the_readme_states_no_longmemeval_figure_and_links_the_page() -> None:
-    """Mutation: write 81.2%, 79.4% or 64.6% into README.md, put a LongMemEval badge back, or drop the
-    links to the benchmark page and the showcase baseline.
+    """Mutation: write 81.2%, 79.4% or 64.6% into README.md, put a LongMemEval badge back, drop the
+    link to the benchmark page from the Benchmark section, or drop the showcase baseline link from the README.
 
-    The README shows no benchmark percentage. It says the figures carry a known issue and sends the reader
-    to the benchmark page, which holds the figures and the disclosure (the next test).
+    The README shows no benchmark percentage. Its Benchmark section says the figures carry a known issue and
+    sends the reader to the benchmark page, which holds the figures and the disclosure (the next test). The
+    showcase baseline link may sit in the README's results list; the pin is that the README links it.
     """
 
     readme = README.read_text(encoding="utf-8")
@@ -205,7 +206,8 @@ def test_the_readme_states_no_longmemeval_figure_and_links_the_page() -> None:
     benchmarks = " ".join(_section(readme, "Benchmark").split())
     assert "known issue" in benchmarks
     assert "(docs/benchmarks/longmemeval/README.md)" in benchmarks
-    assert "(docs/benchmarks/showcase/phase0-baseline.md)" in benchmarks
+    # The showcase baseline link may sit in the README's own results list; the pin is that the README links it.
+    assert "(docs/benchmarks/showcase/phase0-baseline.md)" in readme
     # The dated corrections in the published release notes send the reader to "the Benchmark section of the README".
     assert "\n## Benchmark\n" in readme
 

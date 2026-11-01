@@ -240,10 +240,15 @@ CONTROL_DOC_TRUTH_RULES: tuple[ControlDocTruthRule, ...] = (
     ControlDocTruthRule(
         relative_path="README.md",
         required_markers=(
-            "**The continuity layer for AI agents.**",
+            "## Status",
+        ),
+    ),
+    ControlDocTruthRule(
+        relative_path="docs/overview.md",
+        required_markers=(
             "make doctor",
             "ALICE_MCP_LEGACY_TOOLS=1",
-            "## Status",
+            "## Full stack (Postgres + review console)",
         ),
     ),
     ControlDocTruthRule(

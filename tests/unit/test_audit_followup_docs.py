@@ -383,7 +383,8 @@ def test_write_mcpb_is_documented_in_the_cli_reference_and_not_the_quickstart(
 
 # --- 3. The seven legacy pages ----------------------------------------------------------
 
-FULL_STACK = "[Full stack](../../README.md#full-stack-postgres--review-console)"
+# The "Full stack" section moved from the README to the product overview page; the pins moved with it.
+FULL_STACK = "[Full stack](../overview.md#full-stack-postgres--review-console)"
 WORDS = {3: "three", 4: "four"}
 
 MUTATIONS_PAGE = "docs/memory/p12-s2-automated-memory-operations.md"

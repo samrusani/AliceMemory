@@ -58,7 +58,7 @@ def _word(number: int) -> str:
 
 # Pages that name every core tool the default three do not include.
 _PAGES_THAT_NAME_THE_OTHER_CORE_TOOLS = (
-    "README.md",
+    "docs/overview.md",
     "ARCHITECTURE.md",
     "docs/integrations/mcp.md",
     "docs/alpha/mcp-tools.md",

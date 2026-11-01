@@ -18,11 +18,21 @@ points to the published result pages, whose titles it reads from those pages.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# The plain command, `python scripts/showcase_walkthrough.py` from a checkout, must run without the caller
+# setting PYTHONPATH. When the script is run as a file, only its own directory is on the path, and the imports
+# of the scripts package and of the package source below would fail.
+_ROOT = Path(__file__).resolve().parents[1]
+for _path in (str(_ROOT), str(_ROOT / "apps" / "api" / "src")):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
+
 import argparse
 import json
 import os
 from collections.abc import Mapping
-from pathlib import Path
 from uuid import UUID
 
 import scripts.alice_bench as bench

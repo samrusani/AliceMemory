@@ -440,8 +440,8 @@ def test_a_failed_export_to_standard_output_is_not_said_to_leave_nothing() -> No
 
 def test_the_pages_as_they_are_now_keep_the_retired_claims_out_and_the_readme_states_the_cap() -> None:
     """Mutations, each one alone: write "8,001 to 20,000 characters" or "a commit accepts up to 20,000" back into the README
-    or the MCP guide; drop the README sentence that gives the cap or the one that names
-    ``ALICE_EMBEDDINGS_MAX_INPUT_CHARS``; write "same id but different content", "to a file and to standard output, and
+    or the MCP guide; drop the overview page sentence that gives the cap or the one that names
+    ``ALICE_EMBEDDINGS_MAX_INPUT_CHARS``; put the cap sentences back into README.md; write "same id but different content", "to a file and to standard output, and
     leaves no output file" or "to a file or to standard output, then prints" back into the backup guide; write
     "has no length limit", "no longer return it", the sentence about recall and the context pack, or either export
     sentence back into the known limitations page; write "The process log gets the traceback." back into the importers
@@ -454,14 +454,16 @@ def test_the_pages_as_they_are_now_keep_the_retired_claims_out_and_the_readme_st
     """
 
     readme = _flat("README.md")
+    # The embeddings section moved from the README to the product overview page; the cap pins moved with it.
+    overview = _flat("docs/overview.md")
     mcp = _flat("docs/integrations/mcp.md")
     for name, text in (("readme", readme), ("mcp guide", mcp)):
         assert "8,001 to 20,000" not in text, name
         assert "a commit accepts up to 20,000" not in text, name
     # The README states the cap in one sentence and no more: the 8,000 character rule for a long memory lives in the
     # MCP guide, and the tools page (see test_readme_facts_live_in_the_docs.py) holds what the endpoint receives.
-    assert "cuts each memory and each query to its first 8,000 characters" in readme
-    assert "`ALICE_EMBEDDINGS_MAX_INPUT_CHARS` changes that cap" in readme
+    assert "cuts each memory and each query to its first 8,000 characters" in overview
+    assert "`ALICE_EMBEDDINGS_MAX_INPUT_CHARS` changes that cap" in overview
     backup = _flat("docs/alpha/backup-and-restore.md")
     assert "same id but different content" not in backup
     assert "to a file and to standard output, and leaves no output file" not in backup

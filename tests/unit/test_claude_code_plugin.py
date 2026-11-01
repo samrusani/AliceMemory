@@ -1558,7 +1558,7 @@ def _flat_paragraphs(path: Path) -> list[str]:
 
 
 def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
-    """The plugin docs, the changelog, the README and the quickstart say what v0.19.0 ships and v0.18.0 does not.
+    """The plugin docs, the changelog, the quickstart and the product overview page (which holds the install block the README moved there) say what v0.19.0 ships and v0.18.0 does not.
 
     The plugin page and the plugin README open by saying the plugin ships in
     v0.19.0 and that v0.18.0 has no Claude Code plugin. The paragraph that
@@ -1568,13 +1568,14 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     ignores it, and one of them holds the relative-value sentence. The
     changelog's v0.19.0 section and the quickstart each keep the plugin line they
     already have, and the sections above v0.19.0's (the Unreleased section and
-    v0.19.2's) do not hold a plugin entry of v0.19.0's. The README, the
+    v0.19.2's) do not hold a plugin entry of v0.19.0's. The overview page, the
     quickstart, the plugin page and the plugin README say the plugin installs from
     the `alicememory` marketplace, give the two commands, and no longer say it
-    arrives once v0.19.0 is published. The README keeps no version comparison at
-    all: the v0.18.0 clause lives in the changelog, the quickstart, the plugin page
-    and the plugin README, and the README names no v0.18.0. The reader must not
-    take v0.19.0's behaviour for v0.18.0's.
+    arrives once v0.19.0 is published. The README keeps no version comparison and
+    no plugin block: the v0.18.0 clause lives in the changelog, the quickstart, the
+    plugin page and the plugin README, the install block lives in the overview
+    page, and the README names neither v0.18.0 nor the marketplace commands. The
+    reader must not take v0.19.0's behaviour for v0.18.0's.
 
     Mutations, each one alone: drop "v0.18.0 has no Claude Code plugin" from the
     top of either plugin file; change ``ignores`` to ``reads`` for
@@ -1584,10 +1585,10 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     Claude Code plugin" clause from the changelog or the quickstart; write v0.18.0
     into the README; move a plugin entry from the v0.19.0 changelog section up into the v0.19.2
     section or back under Unreleased;
-    put "once v0.19.0 is published" back into the README, the quickstart, the
+    put "once v0.19.0 is published" back into the overview page, the quickstart, the
     plugin page or the plugin README; drop either marketplace command from one
-    of those four files; change the README's pin sentence or its add-from-main
-    clause; put the tag-by-tag history (the v0.19.0 tag has no marketplace
+    of those four files; change the overview's pin sentence or its add-from-main
+    clause; put the marketplace commands or the plugin block back into README.md; put the tag-by-tag history (the v0.19.0 tag has no marketplace
     file, the v0.19.2 tag still pins v0.19.0, the v0.20.0 tag still pins
     v0.19.2, the v0.20.2 tag still pins v0.20.0, the v0.21.0 tag still pins
     v0.20.2, the v0.21.1 tag still pins v0.21.0, the v0.22.0 tag still pins v0.21.1, the v0.23.0 tag still pins
@@ -1660,9 +1661,13 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         assert sentence not in unreleased, sentence
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    # The README keeps no version comparison. The v0.18.0 clause is pinned above for the changelog and below for the
-    # quickstart, the plugin page and the plugin README.
+    # The README keeps no version comparison and no plugin install block. The v0.18.0 clause is pinned above for the
+    # changelog and below for the quickstart, the plugin page and the plugin README, and the plugin block moved with
+    # the install details to the product overview page; the pins moved with it.
     assert "v0.18.0" not in readme
+    assert "claude plugin marketplace add" not in readme
+    assert "(docs/overview.md)" in readme
+    overview = (ROOT / "docs/overview.md").read_text(encoding="utf-8")
     assert (
         "The Claude Code plugin in `plugins/alice-memory` installs from the "
         "`alicememory` marketplace:\n\n"
@@ -1672,9 +1677,9 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         "```\n\n"
         "The marketplace file on `main` pins the plugin to the v0.23.1 tag commit, "
         "so add it from `main`, not from a checkout of a tag. "
-    ) in readme
+    ) in overview
     guide_url = "https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md"
-    assert "See [Claude Code plugin](docs/integrations/claude-code-plugin.md), which lists what each tag pins." in readme
+    assert "See [Claude Code plugin](integrations/claude-code-plugin.md), which lists what each tag pins." in overview
 
     plugin_readme_text = " ".join((ROOT / "plugins" / "alice-memory" / "README.md").read_text(encoding="utf-8").split())
     assert (
@@ -1719,7 +1724,7 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
     ) in quickstart.splitlines()
 
     for name in (
-        "README.md",
+        "docs/overview.md",
         "docs/alpha/quickstart.md",
         "docs/integrations/claude-code-plugin.md",
         "plugins/alice-memory/README.md",
@@ -1729,8 +1734,9 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         assert "A later post-publication change adds" not in text, name
         assert "there is nothing to add from the tag alone" not in text, name
         assert "claude plugin marketplace add samrusani/AliceMemory" in text, name
-        # The README keeps the two commands only; the clone fallback lives in the other three pages.
-        if name != "README.md":
+        # The README keeps no marketplace command; the commands live in the overview page, the quickstart,
+        # the plugin page and the plugin README, and the clone fallback lives in those four too.
+        if name != "docs/overview.md":
             assert "claude plugin marketplace add <path to the clone>" in text, name
         assert "claude plugin install alice-memory@alicememory" in text, name
 
@@ -1765,7 +1771,7 @@ def test_the_marketplace_pins_the_latest_published_release_and_the_docs_name_tha
 
     tag = r"(v\d+\.\d+\.\d+)"
     sites = {
-        "README.md": (rf"pins the plugin to the {tag} tag commit",),
+        "docs/overview.md": (rf"pins the plugin to the {tag} tag commit",),
         "docs/integrations/claude-code-plugin.md": (
             rf"pinned to the {tag} tag and to that tag's commit",
             rf"one plugin entry pinned to the {tag} tag commit",
@@ -1815,12 +1821,14 @@ def test_the_docs_install_from_the_repo_shorthand_with_two_fallbacks() -> None:
         "docs/integrations/claude-code-plugin.md",
         "plugins/alice-memory/README.md",
     )
+    overview_raw = (ROOT / "docs/overview.md").read_text(encoding="utf-8")
     readme_raw = (ROOT / "README.md").read_text(encoding="utf-8")
-    readme_first = readme_raw.index("claude plugin marketplace add ")
-    assert readme_raw[readme_first:].startswith(shorthand)
-    assert readme_raw[readme_first + len(shorthand)] in "`\n"
-    assert " ".join(readme_raw.split()).count(shorthand) == 1
-    assert "claude plugin install alice-memory@alicememory" in readme_raw
+    overview_first = overview_raw.index("claude plugin marketplace add ")
+    assert overview_raw[overview_first:].startswith(shorthand)
+    assert overview_raw[overview_first + len(shorthand)] in "`\n"
+    assert " ".join(overview_raw.split()).count(shorthand) == 1
+    assert "claude plugin install alice-memory@alicememory" in overview_raw
+    assert "claude plugin marketplace add" not in readme_raw
     for name in names:
         raw = (ROOT / name).read_text(encoding="utf-8")
         text = " ".join(raw.split())
