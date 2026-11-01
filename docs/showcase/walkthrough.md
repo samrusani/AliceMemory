@@ -6,7 +6,7 @@ One command shows what a meeting shows:
 python scripts/showcase_walkthrough.py
 ```
 
-Run it from a checkout of the repository. It uses the same runtime the tests use: a checkout with its own install (`pip install -e '.[dev]'`) or `PYTHONPATH=<checkout>:<checkout>/apps/api/src`. On the machine measured below it took about 27 seconds on the v0.23.1 tag and about 23 seconds on main, and printed 37 lines with no warning and no error. It calls no model and reaches nothing outside the checkout: the demo vault and data directory are written under `showcase-demo-run/` next to where you run it (`--run-dir` moves it).
+Run it from a checkout of the repository. From this change the plain command works as written: the script puts its own checkout and package source on the path. On the v0.23.1 tag the plain command stops with ModuleNotFoundError, and there it needs `PYTHONPATH=<checkout>:<checkout>/apps/api/src` or the checkout's own editable install. The measured times below were taken with that PYTHONPATH set: about 27 seconds on the v0.23.1 tag and about 23 seconds on main, 37 output lines, no warning and no error. It calls no model and reaches nothing outside the checkout: the demo vault and data directory are written under `showcase-demo-run/` next to where you run it (`--run-dir` moves it).
 
 ## What each part shows
 

@@ -106,6 +106,29 @@ def test_the_meeting_shows_the_price_and_hides_the_hr_note(tmp_path: Path) -> No
     assert "Keyed PostgreSQL permission path" not in text
 
 
+def test_the_replaced_price_is_the_june_price_of_the_fixture(tmp_path: Path) -> None:
+    """The price the walkthrough shows as replaced is the June price of the fixture's notes.
+
+    The fixture company's pricing notes record 480 ledger units on 15 January 2025, a raise to 640 on
+    2 June 2025, and the cut to 520 on 18 November 2025, so the price the correction replaces is the June
+    one. The expected number is read from the fixture note here, not typed in this test. Measured on the
+    meeting transcript.
+
+    Mutation: record the 480 price as the replaced price again (scripts/showcase_decisions.py). This test fails.
+    """
+
+    from tests.fixtures.showcase_company import company as fixture_company
+
+    june_note = next(note for note in fixture_company._planted() if note.relative_path == "pricing/changes/keel-640.md")
+    june_price = re.search(r"raised to (\d+) ledger units", june_note.body).group(1)
+    database, keys = _vault(tmp_path)
+    text = meeting_text(database, keys)
+    replaced = re.findall(r'History: \S+ "(the list price was[^"]+)"', text)
+    # The chain prints oldest first: the June price, then the cut that replaced it.
+    assert replaced[0] == f"the list price was raised to {june_price} ledger units", replaced
+    assert "480" not in replaced[0], replaced
+
+
 def test_the_teams_the_policy_names_can_read_what_support_is_refused(tmp_path: Path) -> None:
     database, keys = _vault(tmp_path)
     assert HR_PAY in json.dumps(_recall(database, keys, "leadership", HR_QUESTION))
@@ -257,15 +280,20 @@ def test_the_plain_command_runs_without_pythonpath(tmp_path: Path) -> None:
     """The plain command, run as a file from a checkout, needs no PYTHONPATH.
 
     Measured on a checkout at the v0.23.1 tag and on main: without the bootstrap the plain command stops with
-    "ModuleNotFoundError: No module named 'scripts'" before it writes anything.
+    "ModuleNotFoundError: No module named 'scripts'" before it writes anything. The test asks for --help, whose
+    path runs the same imports: removing the bootstrap fails it in under a second, and the full walkthrough is
+    measured in the tag run, not in every unit run.
 
     Mutation: remove the sys.path bootstrap at the top of the script. This test fails.
     """
 
+    # --help is enough: the imports at the top of the script run before argument parsing, so a missing
+    # bootstrap fails here in under a second instead of running the whole walkthrough in every unit run.
     environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
     completed = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "showcase_walkthrough.py"), "--run-dir", str(tmp_path / "run")],
-        capture_output=True, text=True, timeout=600, env=environment,
+        [sys.executable, str(ROOT / "scripts" / "showcase_walkthrough.py"), "--help"],
+        capture_output=True, text=True, timeout=60, env=environment,
     )
     assert completed.returncode == 0, completed.stderr
     assert "ModuleNotFoundError" not in completed.stderr
+    assert "Scripted showcase walkthrough" in completed.stdout

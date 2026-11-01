@@ -41,7 +41,9 @@ def test_the_readme_keeps_no_version_history_and_one_from_v0210_line() -> None:
     assert not [line for line in readme.splitlines() if re.match(r"(From|In|Since) v0\.\d+\.\d+\b", line)]
     assert not re.search(r"\b(?:From|In) v0\.(?:1[0-9]|20)\.\d+[ ,]", readme)
     assert "Unreleased (on main" not in readme
-    marked = [line for line in readme.splitlines() if "From v0.21.0" in line]
+    # The one From v0.21.0 line moved with the tool list to the product overview page; the pins moved with it.
+    overview = _text("docs/overview.md")
+    marked = [line for line in overview.splitlines() if "From v0.21.0" in line]
     assert len(marked) == 1
     assert marked[0].count("From v0.21.0") == 1
     assert "From v0.21.0, `alice_what_changed` is one of the other nine core tools" in marked[0]
@@ -58,12 +60,17 @@ def test_the_readme_security_wording_is_unchanged() -> None:
 
 
 def test_the_readme_names_the_default_tools_and_the_package_runtime() -> None:
-    """Mutation: drop one of the three default tools, the OpenClaw prefix sentence, or the install note."""
+    """Mutation: drop one of the three default tools, the OpenClaw prefix sentence, or the install note.
+
+    The README keeps the three default tools and the install note; the OpenClaw prefix sentence moved with the
+    tool list to the product overview page, and the pin moved with it.
+    """
 
     readme = _text("README.md")
     for tool in ("alice_memory_commit", "alice_recall", "alice_resume"):
         assert f"- `{tool}`:" in readme
-    assert "OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches the model as `alice__alice_recall`." in readme
+    overview = _text("docs/overview.md")
+    assert "OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches the model as `alice__alice_recall`." in overview
     assert "The name `alice-core` on PyPI belongs to an unrelated project." in readme
     assert "To run v0.23.1, run `git checkout v0.23.1` before `make setup`." in readme
 
@@ -88,7 +95,8 @@ def test_the_skill_pack_steps_moved_to_the_agent_integration_page() -> None:
 
     readme = _text("README.md")
     assert "cp -R" not in readme and "Skill packs" not in readme
-    assert "(docs/alpha/agent-integration.md#skill-packs)" in readme
+    # The skill packs link moved with the connect details to the product overview page.
+    assert "(docs/alpha/agent-integration.md#skill-packs)" in _text("docs/overview.md")
 
 
 def test_the_openclaw_one_line_add_moved_to_the_openclaw_page() -> None:
@@ -121,7 +129,8 @@ def test_the_embeddings_behaviour_lives_on_the_tools_page() -> None:
         "lists the failed memory ids and the endpoint's reason (at most 300 characters, withheld if it looks like a credential)",
     ):
         assert sentence in page, sentence
-    assert "(docs/alpha/mcp-tools.md#embeddings)" in _text("README.md")
+    # The embeddings link moved with the embeddings section to the product overview page.
+    assert "(docs/alpha/mcp-tools.md#embeddings)" in _text("docs/overview.md")
 
 
 def test_the_install_page_gives_the_host_flags_for_the_defaults_and_hermes() -> None:
@@ -141,7 +150,8 @@ def test_the_postgres_mcp_config_lives_in_the_agent_integration_page_not_the_rea
     assert '"DATABASE_URL": "postgresql://alicebot_app:alicebot_app@localhost:5432/alicebot"' in page
     readme = _text("README.md")
     assert "alicebot_api.mcp_server" not in readme and "alicebot_app" not in readme
-    assert "use the config in [agent integration](docs/alpha/agent-integration.md)" in readme
+    # The connect sentence moved with the connect details to the product overview page.
+    assert "use the config in [agent integration](docs/alpha/agent-integration.md)" in _text("docs/overview.md")
 
 
 def test_the_never_published_tags_are_listed_outside_the_readme() -> None:

@@ -29,15 +29,15 @@ Corrections are first-class: when a memory is corrected or superseded, future re
 
 ## Install details
 
-Install writes MCP config for Claude Desktop, Claude Code, Cursor, and OpenClaw, plus a SessionStart hook for Claude Code and Cursor so the next session can inject the brief. It backs up each file before it rewrites it, and `--dry-run` prints the plan and writes nothing. It does not import a vault. See [Install with alice-memory](docs/alpha/quickstart.md#install-with-alice-memory).
+Install writes MCP config for Claude Desktop, Claude Code, Cursor, and OpenClaw, plus a SessionStart hook for Claude Code and Cursor so the next session can inject the brief. It backs up each file before it rewrites it, and `--dry-run` prints the plan and writes nothing. It does not import a vault. See [Install with alice-memory](alpha/quickstart.md#install-with-alice-memory).
 
 Any `--host` replaces the default set, so name every host you want written.
 
-Hermes is opt-in with `--host hermes`, which edits `config.yaml` in Hermes's home. See [Hermes](docs/integrations/hermes.md).
+Hermes is opt-in with `--host hermes`, which edits `config.yaml` in Hermes's home. See [Hermes](integrations/hermes.md).
 
-OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. See [OpenCode](docs/integrations/opencode.md).
+OpenCode is opt-in with `--host opencode`, which writes `opencode.json` or `opencode.jsonc`. See [OpenCode](integrations/opencode.md).
 
-Codex is opt-in with `--host codex`, which edits `config.toml` in Codex's home and adds a SessionStart hook that Codex skips until you trust it once. See [Codex](docs/integrations/codex.md).
+Codex is opt-in with `--host codex`, which edits `config.toml` in Codex's home and adds a SessionStart hook that Codex skips until you trust it once. See [Codex](integrations/codex.md).
 
 The Claude Code plugin in `plugins/alice-memory` installs from the `alicememory` marketplace:
 
@@ -46,7 +46,7 @@ claude plugin marketplace add samrusani/AliceMemory
 claude plugin install alice-memory@alicememory
 ```
 
-The marketplace file on `main` pins the plugin to the v0.23.1 tag commit, so add it from `main`, not from a checkout of a tag. See [Claude Code plugin](docs/integrations/claude-code-plugin.md), which lists what each tag pins.
+The marketplace file on `main` pins the plugin to the v0.23.1 tag commit, so add it from `main`, not from a checkout of a tag. See [Claude Code plugin](integrations/claude-code-plugin.md), which lists what each tag pins.
 
 For a host that wants a config file, paste this (no `DATABASE_URL`):
 
@@ -85,13 +85,23 @@ make doctor
 make dev
 ```
 
-`make dev` runs the API on port 8000 and the review console at `http://localhost:3000/vnext`. The [alpha quickstart](docs/alpha/quickstart.md) has the full walkthrough, with demo data and smoke checks.
+`make dev` runs the API on port 8000 and the review console at `http://localhost:3000/vnext`. The [alpha quickstart](alpha/quickstart.md) has the full walkthrough, with demo data and smoke checks.
+
+## The MCP tools
+
+The default MCP surface is three tools:
+
+- `alice_memory_commit`: record one fact as durable, immediately recallable memory. Policy-checked: committed, confirmation-required, review-required, or rejected.
+- `alice_recall`: search memory, with full-text, vector and entity-graph results fused by rank. Also returns matching passages from captured documents under `sources`.
+- `alice_resume`: resumption brief for a project or thread.
+
+The other core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. From v0.21.0, `alice_what_changed` is one of the other nine core tools. OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches the model as `alice__alice_recall`. For the full Postgres stack from a checkout, use the config in [agent integration](alpha/agent-integration.md), which also covers the optional [skill packs](alpha/agent-integration.md#skill-packs).
 
 ## Connect an agent
 
-Point any MCP-capable agent or IDE at the Alice server. For the packaged SQLite runtime, use the `uvx` config from the README's Quickstart. For the full Postgres stack from a checkout, use the config in [agent integration](docs/alpha/agent-integration.md).
+Point any MCP-capable agent or IDE at the Alice server. For the packaged SQLite runtime, use the `uvx` config from the README's Quickstart. For the full Postgres stack from a checkout, use the config in [agent integration](alpha/agent-integration.md).
 
-Calling directly from a human client (Claude Desktop, an IDE)? `alice_memory_commit` needs only `title` and `canonical_text`, with no identity fields. Agent integrations declare `agent_id` and `agent_type`, and custom agents calling the HTTP API use per-agent API keys; see [agent integration](docs/alpha/agent-integration.md), which also covers the optional [skill packs](docs/alpha/agent-integration.md#skill-packs). Every tool is listed in [MCP tools](docs/alpha/mcp-tools.md). The retained legacy tools need `ALICE_MCP_LEGACY_TOOLS=1` and a keyless local-operator server; see the [MCP guide](docs/integrations/mcp.md).
+Calling directly from a human client (Claude Desktop, an IDE)? `alice_memory_commit` needs only `title` and `canonical_text`, with no identity fields. Agent integrations declare `agent_id` and `agent_type`, and custom agents calling the HTTP API use per-agent API keys; see [agent integration](alpha/agent-integration.md), which also covers the optional [skill packs](alpha/agent-integration.md#skill-packs). Every tool is listed in [MCP tools](alpha/mcp-tools.md). The retained legacy tools need `ALICE_MCP_LEGACY_TOOLS=1` and a keyless local-operator server; see the [MCP guide](integrations/mcp.md).
 
 ## Embeddings
 
@@ -103,7 +113,7 @@ ALICE_EMBEDDINGS_MODEL=nomic-embed-text
 ALICE_EMBEDDINGS_API_KEY=            # only if the endpoint requires one
 ```
 
-Alice embeds only memories that recall can return, and cuts each memory and each query to its first 8,000 characters; `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` changes that cap. Search fuses full-text, vector, and entity-graph results by reciprocal rank: FTS5 and cosine similarity on SQLite, full-text search and pgvector 0.8+ (iterative HNSW) on Postgres. With no embeddings endpoint, search skips the vector list and the retrieval trace says so. Details are in [MCP tools](docs/alpha/mcp-tools.md#embeddings).
+Alice embeds only memories that recall can return, and cuts each memory and each query to its first 8,000 characters; `ALICE_EMBEDDINGS_MAX_INPUT_CHARS` changes that cap. Search fuses full-text, vector, and entity-graph results by reciprocal rank: FTS5 and cosine similarity on SQLite, full-text search and pgvector 0.8+ (iterative HNSW) on Postgres. With no embeddings endpoint, search skips the vector list and the retrieval trace says so. Details are in [MCP tools](alpha/mcp-tools.md#embeddings).
 
 ## How it is built
 
@@ -123,25 +133,25 @@ Alice is a public-alpha, pre-1.0 project:
 
 ## Docs
 
-- [Quickstart walkthrough](docs/alpha/quickstart.md)
-- [Agent integration](docs/alpha/agent-integration.md)
-- [MCP tools](docs/alpha/mcp-tools.md)
-- [Custom agent guide](docs/alpha/custom-agent-guide.md)
-- [Known limitations](docs/alpha/known-limitations.md)
-- [Backup and restore](docs/alpha/backup-and-restore.md)
-- [Single-tenant deployment](docs/deployment/single-tenant-self-hosted.md)
-- [Disaster recovery](docs/runbooks/disaster-recovery.md)
-- [Health and monitoring](docs/runbooks/health-and-monitoring.md)
-- [Upgrade v0.12.0 to current](docs/runbooks/upgrade-v0.12-to-current.md)
-- [Security and privacy](docs/alpha/security-and-privacy.md)
-- [v0.23.1 release notes](docs/release/v0.23.1-release-notes.md)
+- [Quickstart walkthrough](alpha/quickstart.md)
+- [Agent integration](alpha/agent-integration.md)
+- [MCP tools](alpha/mcp-tools.md)
+- [Custom agent guide](alpha/custom-agent-guide.md)
+- [Known limitations](alpha/known-limitations.md)
+- [Backup and restore](alpha/backup-and-restore.md)
+- [Single-tenant deployment](deployment/single-tenant-self-hosted.md)
+- [Disaster recovery](runbooks/disaster-recovery.md)
+- [Health and monitoring](runbooks/health-and-monitoring.md)
+- [Upgrade v0.12.0 to current](runbooks/upgrade-v0.12-to-current.md)
+- [Security and privacy](alpha/security-and-privacy.md)
+- [v0.23.1 release notes](release/v0.23.1-release-notes.md)
 - [All release notes](https://github.com/samrusani/AliceMemory/releases)
-- [Release procedure](RELEASING.md)
-- [Architecture](ARCHITECTURE.md)
-- [Roadmap](ROADMAP.md)
-- [Changelog](CHANGELOG.md)
-- [Walkthrough](docs/showcase/walkthrough.md)
+- [Release procedure](../RELEASING.md)
+- [Architecture](../ARCHITECTURE.md)
+- [Roadmap](../ROADMAP.md)
+- [Changelog](../CHANGELOG.md)
+- [Walkthrough](showcase/walkthrough.md)
 
 ## Contributing
 
-Issues, integrations, importers, and eval contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues, integrations, importers, and eval contributions are welcome. See [CONTRIBUTING.md](../CONTRIBUTING.md).

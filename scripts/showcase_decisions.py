@@ -24,11 +24,13 @@ PRODUCT_AGENT = "showcase-product"
 
 
 def record_planted_prices(db_path: Path) -> tuple[str, str]:
-    """Store the 480 price and the 520 price through the tools.
+    """Store the June price and the November price through the tools.
 
-    Returns the two memory ids, older then newer. Sales records the first
-    price. Each team then calls ``alice_memory_correct``. Leadership, which
-    may correct, records the replacement. The other teams are refused.
+    Returns the two memory ids, older then newer. Sales records the June
+    price, the 640 ledger units the company's notes record on 2 June 2025.
+    Each team then calls ``alice_memory_correct``. Leadership, which may
+    correct, records the replacement, the 520 cut of 18 November 2025. The
+    other teams are refused.
     """
 
     user_id = UUID(bench.DEFAULT_USER_ID)
@@ -40,7 +42,7 @@ def record_planted_prices(db_path: Path) -> tuple[str, str]:
         agent_id="showcase-sales",
         permission_profile="trusted_local_agent",
         title="Keel sensor kit price",
-        text="the list price was 480 ledger units",
+        text="the list price was raised to 640 ledger units",
         domain="financial",
         sensitivity="private",
     )
