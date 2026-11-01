@@ -1679,7 +1679,7 @@ def test_the_docs_say_what_v0190_ships_and_keep_the_option_rules() -> None:
         "so add it from `main`, not from a checkout of a tag. "
     ) in overview
     guide_url = "https://github.com/samrusani/AliceMemory/blob/main/docs/integrations/claude-code-plugin.md"
-    assert "See [Claude Code plugin](docs/integrations/claude-code-plugin.md), which lists what each tag pins." in overview
+    assert "See [Claude Code plugin](integrations/claude-code-plugin.md), which lists what each tag pins." in overview
 
     plugin_readme_text = " ".join((ROOT / "plugins" / "alice-memory" / "README.md").read_text(encoding="utf-8").split())
     assert (

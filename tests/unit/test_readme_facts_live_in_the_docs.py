@@ -96,7 +96,7 @@ def test_the_skill_pack_steps_moved_to_the_agent_integration_page() -> None:
     readme = _text("README.md")
     assert "cp -R" not in readme and "Skill packs" not in readme
     # The skill packs link moved with the connect details to the product overview page.
-    assert "(docs/alpha/agent-integration.md#skill-packs)" in _text("docs/overview.md")
+    assert "(alpha/agent-integration.md#skill-packs)" in _text("docs/overview.md")
 
 
 def test_the_openclaw_one_line_add_moved_to_the_openclaw_page() -> None:
@@ -130,7 +130,7 @@ def test_the_embeddings_behaviour_lives_on_the_tools_page() -> None:
     ):
         assert sentence in page, sentence
     # The embeddings link moved with the embeddings section to the product overview page.
-    assert "(docs/alpha/mcp-tools.md#embeddings)" in _text("docs/overview.md")
+    assert "(alpha/mcp-tools.md#embeddings)" in _text("docs/overview.md")
 
 
 def test_the_install_page_gives_the_host_flags_for_the_defaults_and_hermes() -> None:
@@ -151,7 +151,7 @@ def test_the_postgres_mcp_config_lives_in_the_agent_integration_page_not_the_rea
     readme = _text("README.md")
     assert "alicebot_api.mcp_server" not in readme and "alicebot_app" not in readme
     # The connect sentence moved with the connect details to the product overview page.
-    assert "use the config in [agent integration](docs/alpha/agent-integration.md)" in _text("docs/overview.md")
+    assert "use the config in [agent integration](alpha/agent-integration.md)" in _text("docs/overview.md")
 
 
 def test_the_never_published_tags_are_listed_outside_the_readme() -> None:
