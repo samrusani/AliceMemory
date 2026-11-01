@@ -4,7 +4,7 @@
 
 **Long-term memory with permissions, for a company's teams of AI agents.**
 
-Alice is a local-first memory service for a company's teams of AI agents (sales, support, product) under one owner. Teams share what one of them learns, and a team's key decides what it may read. Writes land as policy-checked commits or reviewable proposals, and source-backed answers trace to the evidence that was supplied. Agents connect over MCP, HTTP API, or CLI. Public alpha, one maintainer; read the [known limitations](docs/alpha/known-limitations.md) first.
+Alice is a local-first memory service for a company's teams of AI agents (sales, support, product) under one owner. Teams share what one of them learns, and a team's key decides what it may read. Writes land as policy-checked commits or reviewable proposals, and source-backed answers trace to the evidence that was supplied. Agents connect over MCP, HTTP API, or CLI (public alpha, one maintainer; see the [known limitations](docs/alpha/known-limitations.md)).
 
 ```bash
 uvx alice-memory install --data-dir ~/.alice
@@ -13,24 +13,23 @@ uvx alice-memory demo --vault ~/Notes --data-dir ~/.alice-demo
 
 ![import then quote](docs/examples/alice-memory-demo.gif)
 
-`python scripts/showcase_walkthrough.py` builds the demo company in about half a minute and prints a recorded meeting: teams recall what one learned, sales asks what changed and why, support is refused the HR pay and the draft price. It calls no model ([the walkthrough page](docs/showcase/walkthrough.md)).
+`python scripts/showcase_walkthrough.py` builds the demo company in about half a minute and prints a recorded meeting: teams recall what one learned, sales asks what changed and why, support is refused the HR pay and the draft price; it calls no model ([walkthrough](docs/showcase/walkthrough.md)).
 
 ## Quickstart
 
 ```bash
 uvx alice-memory install --data-dir ~/.alice
-# or, without uv: pip install alice-memory && alice-memory install --data-dir ~/.alice
 ```
 
 Install writes MCP config for Claude Desktop, Claude Code, Cursor and OpenClaw, plus SessionStart hooks; `--dry-run` writes nothing ([Install with alice-memory](docs/alpha/quickstart.md#install-with-alice-memory)). The PyPI package is [`alice-memory`](https://pypi.org/project/alice-memory/). The name `alice-core` on PyPI belongs to an unrelated project.
 
 The default MCP surface is three tools:
 
-- `alice_memory_commit`: **record one fact as durable, immediately recallable memory.** Policy-checked: committed, confirmation-required, review-required, or rejected.
-- `alice_recall`: search memory, with full-text, vector and entity-graph results fused by rank. Also returns matching passages from captured documents under `sources`.
-- `alice_resume`: resumption brief for a project or thread.
+- `alice_memory_commit`: record one fact as durable, immediately recallable memory; policy-checked into commit, confirmation, review, or rejection.
+- `alice_recall`: search memory, fusing full-text, vector and entity-graph results; also returns matching passages from captured documents under `sources`.
+- `alice_resume`: resumption brief for a project.
 
-The other core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. From v0.21.0, `alice_what_changed` is one of the other nine core tools. OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches the model as `alice__alice_recall`. For the full Postgres stack from a checkout, use the config in [agent integration](docs/alpha/agent-integration.md) ([skill packs](docs/alpha/agent-integration.md#skill-packs)). Embeddings take any OpenAI-compatible endpoint; the cap is in [MCP tools](docs/alpha/mcp-tools.md#embeddings).
+The other core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. From v0.21.0, `alice_what_changed` is one of the other nine core tools. OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches the model as `alice__alice_recall`. For the full Postgres stack from a checkout, use the config in [agent integration](docs/alpha/agent-integration.md) ([skill packs](docs/alpha/agent-integration.md#skill-packs)). Embeddings take any OpenAI-compatible endpoint ([MCP tools](docs/alpha/mcp-tools.md#embeddings)).
 
 ## Measured
 
@@ -41,7 +40,7 @@ The other core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`,
 
 ## Status
 
-`v0.23.1` is the latest published release and remains the install, checksum, and release-note baseline. Public alpha, pre-1.0, one maintainer; [Current state](CURRENT_STATE.md) lists the tags that were never published. To run v0.23.1, run `git checkout v0.23.1` before `make setup`.
+`v0.23.1` is the latest published release and remains the install, checksum, and release-note baseline. `v0.23.0` is the immediately prior published release. Public alpha, pre-1.0, one maintainer; [Current state](CURRENT_STATE.md) lists the tags that were never published. To run v0.23.1, run `git checkout v0.23.1` before `make setup`.
 
 ## Benchmark
 
@@ -49,7 +48,8 @@ The published LongMemEval figures carry a known issue: the model answering each 
 
 ## Docs
 
-[Product overview](docs/overview.md), [agent integration](docs/alpha/agent-integration.md), [MCP tools](docs/alpha/mcp-tools.md), [v0.23.1 release notes](docs/release/v0.23.1-release-notes.md), [all release notes](https://github.com/samrusani/AliceMemory/releases), [changelog](CHANGELOG.md).
+- [Product overview](docs/overview.md), [agent integration](docs/alpha/agent-integration.md), [MCP tools](docs/alpha/mcp-tools.md), [changelog](CHANGELOG.md)
+- [v0.23.1 release notes](docs/release/v0.23.1-release-notes.md), [all release notes](https://github.com/samrusani/AliceMemory/releases)
 
 ## Security
 

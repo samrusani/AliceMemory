@@ -67,6 +67,12 @@ def _read_cli_sources() -> str:
 
 
 def test_vnext_public_preview_docs_cover_release_polish_acceptance() -> None:
+    """The packaging pages keep the acceptance markers where each fact now lives.
+
+    Mutation: drop the quickstart or agent-integration link or the package name from README.md, drop the
+    "continuity layer for AI agents" framing from PRODUCT_BRIEF.md, drop ``ALICE_MCP_LEGACY_TOOLS`` from the
+    product overview page, or drop one of the other pages' markers. This test fails.
+    """
     readme = _read("README.md")
     overview = _read("docs/vnext/README.md")
     quickstart = _read("docs/vnext/quickstart.md")
@@ -75,13 +81,15 @@ def test_vnext_public_preview_docs_cover_release_polish_acceptance() -> None:
     contributor = _read("docs/vnext/contributor-guide.md")
     checklist = _read("docs/release/vnext-public-release-checklist.md")
 
+    # The one-page README retires the "continuity layer" lead sentence; the framing lives in PRODUCT_BRIEF.md,
+    # and the legacy-tools marker moved with the connect details to the product overview page.
     for marker in (
-        "The continuity layer for AI agents.",
         "docs/alpha/quickstart.md",
-        "ALICE_MCP_LEGACY_TOOLS",
         "alice-memory",
     ):
         assert marker in readme
+    assert "continuity layer for AI agents" in _read("PRODUCT_BRIEF.md")
+    assert "ALICE_MCP_LEGACY_TOOLS" in _read("docs/overview.md")
 
     assert "docs/alpha/quickstart.md" in quickstart
     assert "Connector Boundary" in architecture
@@ -138,13 +146,15 @@ def test_public_alpha_packaging_docs_and_commands_are_discoverable() -> None:
     makefile = _read("Makefile")
     gitignore = _read(".gitignore")
 
+    # The one-page README retires the "continuity layer" lead; the framing sentence lives in PRODUCT_BRIEF.md
+    # and the product overview page, and this pin moved with it.
     for marker in (
-        "The continuity layer for AI agents.",
         "make setup",
         "docs/alpha/quickstart.md",
         "docs/alpha/agent-integration.md",
     ):
         assert marker in readme
+    assert "continuity layer for AI agents" in _read("PRODUCT_BRIEF.md")
 
     assert "alicebot vnext alpha check" in quickstart
 
