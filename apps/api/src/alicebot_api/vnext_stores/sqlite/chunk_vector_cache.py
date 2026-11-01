@@ -329,7 +329,13 @@ def _rebuild(
             entry.reset()
             raise ChunkVectorCacheRefused(REFUSED_OVER_CAP)
         entry.dims = dims
-        matrix = np.empty((expected, dims), dtype=np.float32)
+        # The matrix is made small and grown to the full row count by ndarray.resize before it is filled, so the
+        # large block is made by realloc. numpy gives a block it allocates the hugepage advice on Linux, and realloc
+        # of a block numpy advised was measured to make a new block and copy the old one there, so the first append
+        # after a build held the old and the new matrix at once, about one whole matrix at the peak. A block that
+        # realloc made carries no advice of its own, and growing it was measured to extend or move it without a copy.
+        matrix = np.empty((1, dims), dtype=np.float32)
+        matrix.resize((expected, dims), refcheck=False)
         codes = np.empty(expected, dtype=np.int32)
         filled = 0
         cursor = _query_rows(
