@@ -1652,18 +1652,23 @@ print(json.dumps({"built": built, "grown": grown, "delta": after - before, "matr
 """
 
 
-def test_an_append_does_not_hold_the_old_and_the_new_matrix_at_once(tmp_path: Path) -> None:
-    """The matrix grows in place, so an append does not hold the old and the new matrix at once.
+def test_the_append_peak_ratio_stays_under_the_mutants(tmp_path: Path) -> None:
+    """The peak rise of a process over an append stays under 1.2 of the matrix, and the mutant's is above it.
 
     Measured as the growth of the peak resident size of a process that builds a copy of 30,000 vectors and then
-    appends 8,000 (``tracemalloc`` counts a resize as a second block, so it cannot tell the two apart). The measured
-    ratios of the real code: 1.004 alone on a runner (both attempts of run 41184285103, a temporary step of its shard 4
-    job that ran the probe alone; measured and not explained here), 0.80 inside the shard on the older layout (run 41154722623, attempts 1 and 2),
-    0.108 twice locally. The concatenate mutant: 1.486 alone on the runner (both attempts of the same run) and 4.72
-    locally (the append grows in batches, so each concatenate allocates a new full matrix); the mutant was not
-    measured inside the shard. The bound is 1.2: above the real code's every measured ratio on the runner, under the
-    mutant's measured ratios on both. The ratio is a ceiling on the peak; the check that does not depend on the
-    allocator is ``test_an_append_keeps_the_same_matrix_object`` below.
+    appends 8,000 (``tracemalloc`` counts a resize as a second block, so it cannot tell the two apart). Measured
+    values of the real code: 1.004 alone on a runner (both attempts of run 41184285103), 0.80 inside the shard on the
+    older layout (run 41154722623, attempts 1 and 2; the difference from the alone value is not explained), 0.108 twice
+    locally, and 0.279 to 0.282 with the matrix made by ``resize`` (run 41245601876 attempt 1 job 124668259420, and run 41247157273 attempts 1 and 2). On that
+    older runner code the whole excess arrived inside the first resize after the build, because a matrix numpy
+    allocated directly carries hugepage advice on Linux and ``realloc`` of an advised block copies it; the build now
+    makes the matrix by ``resize`` itself, and the measured rise of one append is under half a matrix (see
+    ``test_an_append_rises_by_under_half_a_matrix_on_linux``). The concatenate mutant: 1.486 alone on the runner (both
+    attempts of run 41184285103) and 4.72 locally (the append grows in batches, so each concatenate allocates a new
+    full matrix); the mutant was not measured inside the shard. The bound 1.2 is above the real code's every measured
+    ratio and under the mutant's measured ratios on both platforms. The ratio is a ceiling on the peak; the checks
+    that do not depend on the allocator are ``test_an_append_keeps_the_same_matrix_object`` and
+    ``test_the_matrix_mapping_carries_no_hugepage_advice``.
     Mutation: grow the matrix with ``np.concatenate``, which holds the old and the new array at once.
     """
 
@@ -1742,3 +1747,334 @@ def test_an_append_keeps_the_same_matrix_object(tmp_path: Path) -> None:
             # open built: resize keeps the object; a concatenate rebinds it.
             entry = chunk_vector_cache._REGISTRY[(str(database), USER_ID)]
             assert entry.matrix is matrix_objects[0], "the append rebound the entry's matrix"
+
+
+def _vmflags_over(pointer: int, size: int) -> list[str]:
+    """The VmFlags of every /proc/self/smaps entry that overlaps the byte range of ``pointer`` (Linux only)."""
+
+    flags: list[str] = []
+    with open("/proc/self/smaps") as mapping_file:
+        start = None
+        for line in mapping_file:
+            head = line.split()
+            if len(head) < 1 or "-" not in head[0] or ":" in head[0]:
+                if start is not None and line.startswith("VmFlags"):
+                    flags.append(line.strip())
+                continue
+            low, high = (int(part, 16) for part in head[0].split("-"))
+            start = low if low < pointer + size and high > pointer else None
+    return flags
+
+
+_HUGEPAGE_PROBE = r"""
+import json, sqlite3, sys
+from pathlib import Path
+from uuid import UUID
+import numpy as np
+from alicebot_api.onramp import bootstrap_database
+from alicebot_api.source_embedding_policy import ChunkSignature
+from alicebot_api.sqlite_store import sqlite_user_connection
+from alicebot_api.vnext_stores.sqlite import chunk_vector_cache
+from alicebot_api.vnext_stores.sqlite.chunk_vector_cache import chunk_vector_view
+
+database, user, first_rows, more_rows = Path(sys.argv[1]), sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+signature = ChunkSignature("p", "m", "e", 1, 1, 0)
+rng = np.random.default_rng(13)
+bootstrap_database(database, user_id=UUID(user), user_email="local@alice")
+conn = sqlite3.connect(database)
+conn.execute("PRAGMA foreign_keys=OFF")
+from alicebot_api.sqlite_schema import ensure_source_chunk_vectors_table
+ensure_source_chunk_vectors_table(conn)
+
+def insert(start, count):
+    for low in range(start, start + count, 1000):
+        high = min(low + 1000, start + count)
+        block = rng.random((high - low, 768), dtype=np.float32)
+        conn.executemany(
+            "INSERT INTO source_chunk_embeddings (chunk_id, user_id, source_id, dimensions, embedding, provider, model, "
+            "endpoint, signature_version, header_version, prefix_version, content_sha256) "
+            "VALUES (?, ?, ?, 768, ?, 'p', 'm', 'e', 1, 1, 0, 'x')",
+            [(f"c{low + i}", user, f"s{(low + i) % 50}", block[i].tobytes()) for i in range(high - low)],
+        )
+    conn.commit()
+
+def flags_over(pointer, size):
+    found = []
+    with open("/proc/self/smaps") as mapping_file:
+        hold = None
+        for line in mapping_file:
+            head = line.split()
+            if len(head) < 1 or "-" not in head[0] or ":" in head[0]:
+                if hold is not None and line.startswith("VmFlags"):
+                    found.append(line.split(":")[1].strip())
+                continue
+            low, high = (int(part, 16) for part in head[0].split("-"))
+            hold = low if low < pointer + size and high > pointer else None
+    return found
+
+insert(0, first_rows)
+conn.close()
+with sqlite_user_connection(database, user) as c:
+    with chunk_vector_view(c, user, signature) as view:
+        built = view.total_rows
+        entry = chunk_vector_cache._REGISTRY[(str(database), user)]
+        flags_built = flags_over(entry.matrix.ctypes.data, entry.matrix.nbytes)
+conn = sqlite3.connect(database)
+conn.execute("PRAGMA foreign_keys=OFF")
+ensure_source_chunk_vectors_table(conn)
+insert(first_rows, more_rows)
+conn.close()
+with sqlite_user_connection(database, user) as c:
+    with chunk_vector_view(c, user, signature) as view:
+        grown = view.total_rows
+        entry = chunk_vector_cache._REGISTRY[(str(database), user)]
+        flags_grown = flags_over(entry.matrix.ctypes.data, entry.matrix.nbytes)
+sanity = np.empty((first_rows, 768), dtype=np.float32)
+sanity_flags = flags_over(sanity.ctypes.data, sanity.nbytes)
+print(json.dumps({
+    "built": built, "grown": grown,
+    "advised_built": any("hg" in line for line in flags_built),
+    "advised_grown": any("hg" in line for line in flags_grown),
+    "sanity_advised": any("hg" in line for line in sanity_flags),
+    "flags_built": flags_built, "flags_grown": flags_grown,
+}))
+"""
+
+
+def test_the_matrix_mapping_carries_no_hugepage_advice(tmp_path: Path) -> None:
+    """In a fresh process on Linux no mapping that holds the matrix carries the hugepage flag.
+
+    numpy advises ``madvise(MADV_HUGEPAGE)`` on blocks it allocates at 4 MiB and up, and on Linux a ``realloc`` of a
+    block numpy advised makes a new block and copies the old one, so the first append after a build held the old and
+    the new matrix at once (measured, see the peak tests). The matrix is made small and grown by ``ndarray.resize``
+    itself, and a block that ``realloc`` made carries no advice of its own. The check runs in a fresh subprocess,
+    where the matrix is the only allocation of the size that numpy advises: in a longer lived process the flag is
+    carried by the region an earlier advised allocation poisoned, and an advised or a realloc made block cannot be
+    told apart there (measured on a runner, run 41251953900, shard 3, job 124687481625: the fixed code's matrix,
+    9.2 MB, over the 4 MiB size numpy advises at, showed the flag on a later page inside the test process). The probe
+    also allocates a full size ``np.empty`` and checks the advice shows on it, so a check that cannot see the flag
+    fails instead of passing.
+
+    Skipped off Linux: the advice is a Linux allocator behaviour.
+    Mutation: make the matrix with a full size ``np.empty`` in the build again.
+    """
+
+    if sys.platform != "linux":
+        pytest.skip("the hugepage advice is a Linux allocator behaviour")
+    import os
+
+    database = make_vault(tmp_path)
+    environment = {key: value for key, value in os.environ.items() if not key.startswith(("ALICE_", "ALICEBOT_"))}
+    environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[2] / "apps/api/src")
+    completed = subprocess.run(
+        [sys.executable, "-c", _HUGEPAGE_PROBE, str(database), USER_ID, "3000", "500"],
+        capture_output=True, text=True, env=environment, timeout=300,
+    )
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result["built"] == 3000 and result["grown"] == 3500
+    assert not result["advised_built"], result
+    assert not result["advised_grown"], result
+    assert result["sanity_advised"], "the check cannot see the advice numpy gives"
+
+
+_APPEND_PEAK_PROBE = r"""
+import json, sqlite3, sys
+import numpy as np
+from alicebot_api.sqlite_schema import ensure_source_chunk_vectors_table
+from alicebot_api.source_embedding_policy import ChunkSignature
+from alicebot_api.sqlite_store import sqlite_user_connection
+from alicebot_api.vnext_stores.sqlite.chunk_vector_cache import chunk_vector_view
+
+database, user, first_rows, more_rows = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+signature = ChunkSignature("p", "m", "e", 1, 1, 0)
+rng = np.random.default_rng(7)
+conn = sqlite3.connect(database)
+conn.execute("PRAGMA foreign_keys=OFF")
+ensure_source_chunk_vectors_table(conn)
+
+def insert(start, count):
+    for low in range(start, start + count, 1000):
+        high = min(low + 1000, start + count)
+        block = rng.random((high - low, 768), dtype=np.float32)
+        conn.executemany(
+            "INSERT INTO source_chunk_embeddings (chunk_id, user_id, source_id, dimensions, embedding, provider, model, "
+            "endpoint, signature_version, header_version, prefix_version, content_sha256) "
+            "VALUES (?, ?, ?, 768, ?, 'p', 'm', 'e', 1, 1, 0, 'x')",
+            [(f"c{low + i}", user, f"s{(low + i) % 50}", block[i].tobytes()) for i in range(high - low)],
+        )
+    conn.commit()
+
+insert(0, first_rows)
+conn.close()
+with sqlite_user_connection(database, user) as c:
+    with chunk_vector_view(c, user, signature) as view:
+        built = view.total_rows
+
+def hwm():
+    with open("/proc/self/status") as status:
+        for line in status:
+            if line.startswith("VmHWM"):
+                return int(line.split()[1]) * 1024
+
+conn = sqlite3.connect(database)
+conn.execute("PRAGMA foreign_keys=OFF")
+insert(first_rows, more_rows)
+conn.close()
+before = hwm()
+with sqlite_user_connection(database, user) as c:
+    with chunk_vector_view(c, user, signature) as view:
+        grown = view.total_rows
+after = hwm()
+print(json.dumps({"built": built, "grown": grown, "rise": after - before, "matrix": first_rows * 768 * 4}))
+"""
+
+
+_LONG_LIVED_PROBE = r"""
+import json, sqlite3, sys
+from pathlib import Path
+from uuid import UUID
+import numpy as np
+from alicebot_api.onramp import bootstrap_database
+from alicebot_api.source_embedding_policy import ChunkSignature
+from alicebot_api.sqlite_store import sqlite_user_connection
+from alicebot_api.vnext_stores.sqlite import chunk_vector_cache
+from alicebot_api.vnext_stores.sqlite.chunk_vector_cache import chunk_vector_view
+
+database, user, first_rows, more_rows = Path(sys.argv[1]), sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+signature = ChunkSignature("p", "m", "e", 1, 1, 0)
+rng = np.random.default_rng(7)
+bootstrap_database(database, user_id=UUID(user), user_email="local@alice")
+conn = sqlite3.connect(database)
+conn.execute("PRAGMA foreign_keys=OFF")
+from alicebot_api.sqlite_schema import ensure_source_chunk_vectors_table
+ensure_source_chunk_vectors_table(conn)
+
+def insert(start, count):
+    for low in range(start, start + count, 1000):
+        high = min(low + 1000, start + count)
+        block = rng.random((high - low, 768), dtype=np.float32)
+        conn.executemany(
+            "INSERT INTO source_chunk_embeddings (chunk_id, user_id, source_id, dimensions, embedding, provider, model, "
+            "endpoint, signature_version, header_version, prefix_version, content_sha256) "
+            "VALUES (?, ?, ?, 768, ?, 'p', 'm', 'e', 1, 1, 0, 'x')",
+            [(f"c{low + i}", user, f"s{(low + i) % 50}", block[i].tobytes()) for i in range(high - low)],
+        )
+    conn.commit()
+
+def flags_over(pointer, size):
+    found = []
+    with open("/proc/self/smaps") as mapping_file:
+        hold = None
+        for line in mapping_file:
+            head = line.split()
+            if len(head) < 1 or "-" not in head[0] or ":" in head[0]:
+                if hold is not None and line.startswith("VmFlags"):
+                    found.append(line.split(":")[1].strip())
+                continue
+            low, high = (int(part, 16) for part in head[0].split("-"))
+            hold = low if low < pointer + size and high > pointer else None
+    return found
+
+def hwm():
+    with open("/proc/self/status") as status:
+        for line in status:
+            if line.startswith("VmHWM"):
+                return int(line.split()[1]) * 1024
+
+# Warm up like a server that has served large arrays: several sizes between 4 and 32 MiB, allocated and freed,
+# twice, so the dynamic mmap threshold rises and advised regions exist.
+for round_index in range(2):
+    for mebibytes in (4, 8, 16, 24, 32):
+        warm = np.empty((mebibytes * 1024 * 1024) // 4, dtype=np.float32)
+        warm[:] = 1.0
+        del warm
+
+insert(0, first_rows)
+conn.close()
+with sqlite_user_connection(database, user) as c:
+    with chunk_vector_view(c, user, signature) as view:
+        built = view.total_rows
+        entry = chunk_vector_cache._REGISTRY[(str(database), user)]
+        flags_built = flags_over(entry.matrix.ctypes.data, entry.matrix.nbytes)
+        hwm_built = hwm()
+conn = sqlite3.connect(database)
+conn.execute("PRAGMA foreign_keys=OFF")
+ensure_source_chunk_vectors_table(conn)
+insert(first_rows, more_rows)
+conn.close()
+with sqlite_user_connection(database, user) as c:
+    with chunk_vector_view(c, user, signature) as view:
+        grown = view.total_rows
+        entry = chunk_vector_cache._REGISTRY[(str(database), user)]
+        flags_grown = flags_over(entry.matrix.ctypes.data, entry.matrix.nbytes)
+after = hwm()
+matrix = first_rows * 768 * 4
+print(json.dumps({
+    "built": built, "grown": grown, "matrix": matrix, "rise": after - hwm_built,
+    "advised_built": any("hg" in line for line in flags_built),
+    "advised_grown": any("hg" in line for line in flags_grown),
+}))
+"""
+
+
+def test_an_append_in_a_long_lived_process_stays_under_half_a_matrix(tmp_path: Path) -> None:
+    """On Linux, after the process has allocated and freed large arrays, one append still rises under half a matrix.
+
+    A server is a long lived process: this shape warms the allocator up first, allocating and freeing numpy arrays of
+    several sizes between 4 and 32 MiB twice, which raises the allocator's dynamic mmap threshold and leaves advised
+    regions behind, and only then builds a copy of 30,000 vectors of 768 and appends 8,000. Measured on a runner in
+    this shape: the rise stayed at about 0.28 of the matrix and no mapping over the matrix carried the hugepage flag,
+    after the build and after the append (the values are in the pull request that chose the bound).
+
+    Skipped off Linux: the measured copy is a Linux allocator behaviour.
+    Mutation: make the matrix with a full size ``np.empty`` in the build again.
+    """
+
+    if sys.platform != "linux":
+        pytest.skip("the measured copy is a Linux allocator behaviour")
+    import os
+
+    database = make_vault(tmp_path)
+    environment = {key: value for key, value in os.environ.items() if not key.startswith(("ALICE_", "ALICEBOT_"))}
+    environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[2] / "apps/api/src")
+    completed = subprocess.run(
+        [sys.executable, "-c", _LONG_LIVED_PROBE, str(database), USER_ID, "30000", "8000"],
+        capture_output=True, text=True, env=environment, timeout=300,
+    )
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result["built"] == 30000 and result["grown"] == 38000
+    assert result["rise"] < 0.5 * result["matrix"], result
+    assert not result["advised_built"] and not result["advised_grown"], result
+
+
+def test_an_append_rises_by_under_half_a_matrix_on_linux(tmp_path: Path) -> None:
+    """On Linux the peak rise of a process over one append stays under half of the matrix.
+
+    Measured in fresh subprocesses of this shape on a runner: the values are in the pull request
+    that chose the bound. The build itself holds the fetched rows of one page at a time, and the
+    append adds about a quarter of the matrix of rows here, so an in place growth costs a small
+    share of the matrix. A build that makes the matrix with a full size ``np.empty`` on Linux
+    makes the first append copy the matrix (a block numpy advised is copied by ``realloc``), a
+    rise of about one whole matrix.
+
+    Skipped off Linux: the copy is a Linux allocator behaviour, and macOS reports no per moment
+    resident peak the check could read.
+    """
+
+    if sys.platform != "linux":
+        pytest.skip("the measured copy is a Linux allocator behaviour")
+    import os
+
+    database = make_vault(tmp_path)
+    environment = {key: value for key, value in os.environ.items() if not key.startswith(("ALICE_", "ALICEBOT_"))}
+    environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[2] / "apps/api/src")
+    completed = subprocess.run(
+        [sys.executable, "-c", _APPEND_PEAK_PROBE, str(database), USER_ID, "30000", "8000"],
+        capture_output=True, text=True, env=environment, timeout=300,
+    )
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result["built"] == 30000 and result["grown"] == 38000
+    assert result["rise"] < 0.5 * result["matrix"], result
