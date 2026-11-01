@@ -69,7 +69,7 @@ claude plugin marketplace add samrusani/AliceMemory
 claude plugin install alice-memory@alicememory
 ```
 
-The marketplace file on `main` pins the plugin to the v0.23.0 tag commit, so add it from `main`, not from a checkout of a tag. See [Claude Code plugin](docs/integrations/claude-code-plugin.md), which lists what each tag pins.
+The marketplace file on `main` pins the plugin to the v0.23.1 tag commit, so add it from `main`, not from a checkout of a tag. See [Claude Code plugin](docs/integrations/claude-code-plugin.md), which lists what each tag pins.
 
 For a host that wants a config file, paste this (no `DATABASE_URL`):
 
@@ -97,7 +97,7 @@ OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches
 
 ### Full stack (Postgres + review console)
 
-For Postgres with pgvector, the web review console, and the core memory scheduler workflows, run from a repo checkout. Requirements: Python 3.12+, Node 20+, pnpm, Docker, Git. The clone checks out `main`, which can be ahead of the latest release. To run v0.23.0, run `git checkout v0.23.0` before `make setup`.
+For Postgres with pgvector, the web review console, and the core memory scheduler workflows, run from a repo checkout. Requirements: Python 3.12+, Node 20+, pnpm, Docker, Git. The clone checks out `main`, which can be ahead of the latest release. To run v0.23.1, run `git checkout v0.23.1` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git
@@ -144,7 +144,7 @@ The published LongMemEval figures carry a known issue: the model answering each 
 
 ## Status
 
-`v0.23.0` is the latest published release and remains the install, checksum, and release-note baseline. `v0.22.0` is the immediately prior published release. `v0.23.1` is the current release candidate. It is not published. [Current state](CURRENT_STATE.md) lists the tags that were never published. Alice is a public-alpha, pre-1.0 project:
+`v0.23.1` is the latest published release and remains the install, checksum, and release-note baseline. `v0.23.0` is the immediately prior published release. [Current state](CURRENT_STATE.md) lists the tags that were never published. Alice is a public-alpha, pre-1.0 project:
 
 - **Local-first, single-user.** One operator, one machine (or one headless server reached over SSH).
 - **Review-governed writes.** Agents propose or commit through policy; outcomes are commit, confirm, review, or reject. The review step is the trust boundary for durable memory.
@@ -167,7 +167,7 @@ The published LongMemEval figures carry a known issue: the model answering each 
 - [Health and monitoring](docs/runbooks/health-and-monitoring.md)
 - [Upgrade v0.12.0 to current](docs/runbooks/upgrade-v0.12-to-current.md)
 - [Security and privacy](docs/alpha/security-and-privacy.md)
-- [v0.23.0 release notes](docs/release/v0.23.0-release-notes.md)
+- [v0.23.1 release notes](docs/release/v0.23.1-release-notes.md)
 - [All release notes](https://github.com/samrusani/AliceMemory/releases)
 - [Release procedure](RELEASING.md)
 - [Architecture](ARCHITECTURE.md)
