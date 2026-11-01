@@ -1850,9 +1850,10 @@ def test_the_matrix_mapping_carries_no_hugepage_advice(tmp_path: Path) -> None:
     itself, and a block that ``realloc`` made carries no advice of its own. The check runs in a fresh subprocess,
     where the matrix is the only allocation of the size that numpy advises: in a longer lived process the flag is
     carried by the region an earlier advised allocation poisoned, and an advised or a realloc made block cannot be
-    told apart there (measured on a runner, run 41251953900, job of shard 3: the fixed code's matrix showed the flag
-    on a later page inside the test process). The probe also allocates a full size ``np.empty`` and checks the advice
-    shows on it, so a check that cannot see the flag fails instead of passing.
+    told apart there (measured on a runner, run 41251953900, shard 3, job 124687481625: the fixed code's matrix,
+    9.2 MB, over the 4 MiB size numpy advises at, showed the flag on a later page inside the test process). The probe
+    also allocates a full size ``np.empty`` and checks the advice shows on it, so a check that cannot see the flag
+    fails instead of passing.
 
     Skipped off Linux: the advice is a Linux allocator behaviour.
     Mutation: make the matrix with a full size ``np.empty`` in the build again.
