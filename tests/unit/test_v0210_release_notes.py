@@ -13,6 +13,13 @@ after v0.21.1 moved the marketplace file and the control documents on to v0.21.1
 ``test_v0211_release_notes.py`` pins, and added a dated 2026-10-23 update to these notes. The tagged lines of the notes
 and of the changelog section are held by ``test_published_release_notes_stay_immutable.py``. The release check's pre-tag
 mode refuses the tree now, and one test below pins the three reasons.
+
+What the release held in the workflows, the releasing guide and the changelog section is read from the v0.21.0 tag with
+``git show``, and never from the working tree: a limit that a later change raises, or a dated paragraph added to the
+changelog section, must not fail a published claim about the release. A checkout without tags skips those tests, and
+under ``CI`` they fail instead. The tree is read for what must stay true after the release: the published state of the
+notes, the checksums file, the marketplace pin, the dated heading of the changelog, the notes (which only gain dated
+paragraphs), and the one number that the workflows and the releasing guide must agree on as they are now.
 """
 
 from __future__ import annotations
@@ -61,6 +68,21 @@ def _text(path: str) -> str:
 
 def _flat(path: str) -> str:
     return " ".join(_text(path).split())
+
+
+def _tagged_flat(path: str) -> str:
+    """``path`` as the v0.21.0 tag held it, whitespace collapsed. It skips without tags, and fails under ``CI``."""
+
+    return " ".join(_tagged(RELEASE_TAG, path).split())
+
+
+def _tagged_entries() -> list[str]:
+    """The entries of the v0.21.0 section of the changelog as the tag held it: a dated paragraph added later is not part
+    of any of them."""
+
+    changelog = _tagged(RELEASE_TAG, "CHANGELOG.md")
+    section = changelog.split(HEADING)[1].split("\n## v0.20.2")[0]
+    return [" ".join(item.split()) for item in section.split("\n- ")[1:]]
 
 
 def _section(text: str, heading: str) -> str:
@@ -360,11 +382,18 @@ def test_the_notes_state_the_publish_limit_and_the_workflows_say_the_same() -> N
     """The note under "Docs and tooling" gives the limit v0.21.0 shipped (180 minutes; the note's text is the
     tag's own) and the measured time, the changelog has an entry for it, ``RELEASING.md`` states the limit of
     the day. The limit rose to 200 on 2026-10-31 with the unit tests' sixth shard (six shards of 20 minutes
-    plus the same 80 minute margin), so the workflow files now hold 200, not the note's 180.
+    plus the same 80 minute margin), so the workflow files in the tree now hold 200, not the note's 180.
 
-    Mutations, each one alone: set ``timeout-minutes`` of ``build-and-verify`` or of the rehearsal back to 120; set
-    ``JOB_TIMEOUT_MINUTES`` of the rehearsal to another number; delete the note from the notes, the entry from the
-    changelog or the sentence from ``RELEASING.md``.
+    The workflow files, the changelog section and the releasing guide are read from the v0.21.0 tag, where the limit
+    was 180 in all of them. The number the tree holds now is held by
+    ``test_the_publish_limit_of_the_workflows_and_the_releasing_guide_is_one_number``.
+
+    Mutations, each one alone: set ``timeout-minutes`` of ``build-and-verify`` or of the rehearsal back to 120 at the
+    tag; set ``JOB_TIMEOUT_MINUTES`` of the rehearsal to another number; delete the note from the notes, the entry from
+    the changelog or the sentence from ``RELEASING.md``; read the v0.20.2 tag where this test reads the workflows (they
+    held 120 there); read the working tree where it reads the workflows, the changelog section or the releasing guide
+    (after a later change that raises the limit, or adds a dated paragraph after the first entry of the section, this
+    test fails).
     """
 
     note = _section(_text(NOTES_PATH), "Docs and tooling")
@@ -374,21 +403,42 @@ def test_the_notes_state_the_publish_limit_and_the_workflows_say_the_same() -> N
         "while a release step must take less than half of its job's limit. "
         "`publish-recheck-rehearsal.yml` has the same limit."
     ) in note
-    publish = yaml.safe_load(_text(".github/workflows/publish-pypi.yml"))["jobs"]["build-and-verify"]
-    rehearsal_jobs = yaml.safe_load(_text(".github/workflows/publish-recheck-rehearsal.yml"))["jobs"]
-    assert publish["timeout-minutes"] == 200
-    assert [job["timeout-minutes"] for job in rehearsal_jobs.values()] == [200]
+    publish = yaml.safe_load(_tagged(RELEASE_TAG, ".github/workflows/publish-pypi.yml"))["jobs"]["build-and-verify"]
+    rehearsal_jobs = yaml.safe_load(_tagged(RELEASE_TAG, ".github/workflows/publish-recheck-rehearsal.yml"))["jobs"]
+    assert publish["timeout-minutes"] == 180
+    assert [job["timeout-minutes"] for job in rehearsal_jobs.values()] == [180]
     report = [step for job in rehearsal_jobs.values() for step in job["steps"] if "JOB_TIMEOUT_MINUTES" in (step.get("env") or {})]
-    assert [str(step["env"]["JOB_TIMEOUT_MINUTES"]) for step in report] == ["200"]
+    assert [str(step["env"]["JOB_TIMEOUT_MINUTES"]) for step in report] == ["180"]
     # 3,876 s is under half of 180 minutes (5,400 s) and over half of 120 minutes (3,600 s).
     assert 3_600 < 3_876 < 5_400
-    limit_entries = [entry for entry in _entries() if entry.startswith("Internal change, no behaviour change: the first job of `publish-pypi.yml`")]
+    limit_entries = [entry for entry in _tagged_entries() if entry.startswith("Internal change, no behaviour change: the first job of `publish-pypi.yml`")]
     assert len(limit_entries) == 1
     assert "now has a `timeout-minutes` of 180, up from 120" in limit_entries[0]
     assert "that step took 3,876 s on a runner, about 65 minutes" in limit_entries[0]
     assert limit_entries[0].endswith("No migration is required.")
-    releasing = _flat("RELEASING.md")
-    assert "The limit is 200 minutes (six unit shards of 20 minutes plus the 80 minute margin), because the one-process rerun took 3,876 s on a runner" in releasing
+    releasing = _tagged_flat("RELEASING.md")
+    assert "The limit is 180 minutes, because the one-process rerun took 3,876 s on a runner" in releasing
+
+
+def test_the_publish_limit_of_the_workflows_and_the_releasing_guide_is_one_number() -> None:
+    """Mutations, each one alone: set ``timeout-minutes`` of ``build-and-verify`` or of the rehearsal job to a number
+    that the other does not hold; set ``JOB_TIMEOUT_MINUTES`` of the rehearsal to another number; change the number in
+    the sentence of ``RELEASING.md``.
+
+    The limit follows the unit suite (it rose from 180 to 200 on 2026-10-31 with the sixth shard), so this test names no
+    number. It asks that the publish job, the rehearsal job, the half-of-the-limit rule of the rehearsal step and the
+    releasing guide agree with each other as they are now. The limit v0.21.0 shipped is read at the tag by the test
+    above.
+    """
+
+    publish = yaml.safe_load(_text(".github/workflows/publish-pypi.yml"))["jobs"]["build-and-verify"]
+    rehearsal_jobs = yaml.safe_load(_text(".github/workflows/publish-recheck-rehearsal.yml"))["jobs"]
+    limit = publish["timeout-minutes"]
+    assert isinstance(limit, int) and limit > 0
+    assert [job["timeout-minutes"] for job in rehearsal_jobs.values()] == [limit]
+    report = [step for job in rehearsal_jobs.values() for step in job["steps"] if "JOB_TIMEOUT_MINUTES" in (step.get("env") or {})]
+    assert [str(step["env"]["JOB_TIMEOUT_MINUTES"]) for step in report] == [str(limit)]
+    assert f"The limit is {limit} minutes" in _flat("RELEASING.md")
 
 
 def test_the_headline_changes_of_the_notes_each_have_a_changelog_entry() -> None:
