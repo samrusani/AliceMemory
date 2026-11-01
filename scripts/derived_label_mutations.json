@@ -22307,10 +22307,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 193,
+          "line": 203,
           "before": "    return _tool(database, keys[team], \"alice_recall\", {\"query\": query, \"sensitivity_allowed\": allowed})",
           "after": "    return _tool(database, keys[team], \"alice_recall\", {\"query\": query})",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22323,10 +22323,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 97,
+          "line": 107,
           "before": "    if HR_PAY not in json.dumps(hr_control) or DRAFT_PRICE not in json.dumps(draft_control):",
           "after": "    if False:",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22339,10 +22339,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 100,
+          "line": 110,
           "before": "    if HR_PAY in hidden or DRAFT_PRICE in hidden:",
           "after": "    if False:",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22355,10 +22355,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 102,
+          "line": 112,
           "before": "    if PRICE_UNITS not in json.dumps(price) or PRICE_UNITS in json.dumps(support_price):",
           "after": "    if False:",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22371,10 +22371,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 90,
+          "line": 100,
           "before": "    price = _tool(database, keys[\"sales\"], \"alice_what_changed\", {\"topic\": PRICE_TOPIC})",
           "after": "    price = _tool(database, keys[\"support\"], \"alice_what_changed\", {\"topic\": PRICE_TOPIC})",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22387,10 +22387,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 163,
+          "line": 173,
           "before": "        \"confidence\": 0.95,\n        \"rationale\": ACCOUNT_REASON,\n    }",
           "after": "        \"confidence\": 0.95,\n    }",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22403,10 +22403,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 222,
+          "line": 232,
           "before": "    if CONTRACT in text:\n        return f\"The stored notes include {CONTRACT}.\"",
           "after": "    if False:\n        return f\"The stored notes include {CONTRACT}.\"",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22419,10 +22419,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 274,
+          "line": 284,
           "before": "            \"No graded answers were given, so this run has no accuracy or leak figure.\\n\"",
           "after": "            showcase.render_report([]) + \"No graded answers were given, so this run has no accuracy or leak figure.\\n\"",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22435,10 +22435,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 297,
+          "line": 307,
           "before": "        correct = sum(1 for item in items if item.get(\"correct\"))",
           "after": "        correct = len(items)",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22451,10 +22451,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 298,
+          "line": 308,
           "before": "        leaks = sum(1 for item in items if item.get(\"leak\"))",
           "after": "        leaks = 0",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22467,10 +22467,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 299,
+          "line": 309,
           "before": "        low, high = showcase.wilson_interval(correct, len(items))",
           "after": "        low, high = 0.0, 1.0",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22483,10 +22483,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 291,
+          "line": 301,
           "before": "        if str(row[\"arm\"]).startswith(\"mem0\"):",
           "after": "        if False:",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22499,10 +22499,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 310,
+          "line": 320,
           "before": "    if any(key[2] == \"alice\" for key in groups):",
           "after": "    if False:",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22515,10 +22515,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 282,
+          "line": 292,
           "before": "    if len(kinds) > 1:",
           "after": "    if False:",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22531,10 +22531,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 285,
+          "line": 295,
           "before": "    if kind == \"hidden\":",
           "after": "    if False:",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22547,10 +22547,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 327,
+          "line": 337,
           "before": "        if not isinstance(row, dict) or not {\"arm\", \"task\", \"correct\"} <= set(row):",
           "after": "        if False:",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22563,10 +22563,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 323,
+          "line": 333,
           "before": "    if not isinstance(loaded, list):",
           "after": "    if False:",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22579,10 +22579,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 287,
+          "line": 297,
           "before": "    lines = [showcase.DEVELOPMENT_HEADER.rstrip() if kind == \"development\" else _DEMONSTRATION_HEADER]",
           "after": "    lines = [showcase.DEVELOPMENT_HEADER.rstrip()]",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22595,10 +22595,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 343,
+          "line": 353,
           "before": "        lines.append(f\"  {title} ({relative})\" if title else f\"  {relative}\")",
           "after": "        lines.append(f\"  {relative}\")",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
@@ -22707,10 +22707,10 @@
       "edits": [
         {
           "file": "scripts/showcase_walkthrough.py",
-          "line": 259,
+          "line": 269,
           "before": "                    if step is not None:",
           "after": "                    if True:",
-          "sha256": "3894c1e87eb3fdcaa3368428f7e6de0bb6ed4e2d54554ceab4fb2e1f7336be28"
+          "sha256": "889cabeaafb3bd40a64d5e3d07a3c542931b38a4fad03b304d6bf33316953bad"
         }
       ],
       "pytest": [
