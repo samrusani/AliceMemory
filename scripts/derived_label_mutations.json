@@ -294,7 +294,7 @@
           "line": 8,
           "before": "Doctor's derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and the doctor routes omit them for callers with limits.",
           "after": "",
-          "sha256": "f602997a19f8c39cbf42ee663368f7383953beb2cd3f0be2559aeede96356dcd"
+          "sha256": "cfc7fc473e6df43550d5f4904fdd757295e78d28291f7b3f7321eda597dbc2b4"
         }
       ],
       "pytest": [
@@ -6182,7 +6182,7 @@
           "line": 11,
           "before": "\n> **Update (2026-10-09):** the correction above says graph neighborhood returns edge explanations in v0.20.0, and that is so. On main, not in v0.20.0, it lists only the edges whose ends the key may read, and the graph edge review route applies the same rule. See the [draft security note](derived-labels-security-note-draft.md).\n",
           "after": "",
-          "sha256": "f602997a19f8c39cbf42ee663368f7383953beb2cd3f0be2559aeede96356dcd"
+          "sha256": "cfc7fc473e6df43550d5f4904fdd757295e78d28291f7b3f7321eda597dbc2b4"
         }
       ],
       "pytest": [
@@ -19322,7 +19322,7 @@
           "line": 333,
           "before": "removal of redacted text from reports is planned, with no release set, and\n  the vector stage of recall does not refill after hiding rows.\n",
           "after": "removal of redacted text from reports is planned, with no release set.\n",
-          "sha256": "45118c752101b169f4a2f0f39ccb4a139029c3de940af3902c96ac6a1a6425bb"
+          "sha256": "7928841e225f38685f58a06b84ab8ed4d566d8d587175bab54560cd7e1eab62f"
         }
       ],
       "pytest": [
@@ -19338,7 +19338,7 @@
           "line": 257,
           "before": "- The vector stage of recall and of the context pack, the time stage of the\n  context pack,",
           "after": "- The refill of the vector stage of recall and of the context pack, the time stage of the\n  context pack,",
-          "sha256": "45118c752101b169f4a2f0f39ccb4a139029c3de940af3902c96ac6a1a6425bb"
+          "sha256": "7928841e225f38685f58a06b84ab8ed4d566d8d587175bab54560cd7e1eab62f"
         }
       ],
       "pytest": [
