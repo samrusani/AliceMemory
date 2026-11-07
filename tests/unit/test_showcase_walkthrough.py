@@ -129,6 +129,26 @@ def test_the_replaced_price_is_the_june_price_of_the_fixture(tmp_path: Path) -> 
     assert "480" not in replaced[0], replaced
 
 
+def test_the_walkthrough_page_names_the_june_price_as_the_one_replaced() -> None:
+    """The walkthrough page describes the price history the script prints: the June raise, then the cut.
+
+    The June price is read from the fixture note, as in the test above.
+
+    Mutation: write the January price back into the page ("the June list price of 480 ledger units cut to 520").
+    This test fails.
+    """
+
+    from tests.fixtures.showcase_company import company as fixture_company
+
+    june_note = next(note for note in fixture_company._planted() if note.relative_path == "pricing/changes/keel-640.md")
+    june_price = re.search(r"raised to (\d+) ledger units", june_note.body).group(1)
+    page = (ROOT / "docs" / "showcase" / "walkthrough.md").read_text(encoding="utf-8")
+    sentence = next(line for line in page.splitlines() if "The price history shows" in line)
+    assert f"raised to {june_price} ledger units" in sentence, sentence
+    assert "cut to 520" in sentence, sentence
+    assert "480" not in sentence, sentence
+
+
 def test_the_teams_the_policy_names_can_read_what_support_is_refused(tmp_path: Path) -> None:
     database, keys = _vault(tmp_path)
     assert HR_PAY in json.dumps(_recall(database, keys, "leadership", HR_QUESTION))

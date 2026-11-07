@@ -11,7 +11,7 @@ Run it from a checkout of the repository. From this change the plain command wor
 ## What each part shows
 
 1. **Recall.** Sales asks which service contract Larkspur Metals signed for the Keel sensor kit; the answer includes the contract identifier `QF-C-2041`. Support asks for the same agreement and gets the same stored fact: teams share what one of them learned.
-2. **What changed and why.** Sales asks `alice_what_changed` about the Larkspur Metals account and about the Keel sensor kit price. The answer is the recorded chain: the current step, the recorded reason, and the history. The price history shows the June list price of 480 ledger units cut to 520, with the recorded reason for the cut.
+2. **What changed and why.** Sales asks `alice_what_changed` about the Larkspur Metals account and about the Keel sensor kit price. The answer is the recorded chain: the current step, the recorded reason, and the history. The price history shows the list price raised to 640 ledger units in June, then cut to 520, with the recorded reason for the cut. Each history line carries the date the setup recorded it, which is the day of the run, not a date from the company's notes.
 3. **The refusal.** Support asks for Mara Quen's compensation and for the draft list price. Both answers hold none of the restricted text: support's key does not reach the HR note or the pricing draft. Leadership asking the HR question and sales asking the draft question were given the facts, so the refusal is a permission and not an empty search. The script checks that control before it prints the refusal.
 4. **Benchmark summary.** With no grades file this part carries no number. It names the published result pages and links them.
 
