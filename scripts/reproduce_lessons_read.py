@@ -237,6 +237,49 @@ def main():
                 == 3
             )
             assert conn.execute("select count(*) from memory_revisions").fetchone()[0] == 0
+        shared_admin = key(db, "shared", "admin_agent")
+        shared_limited = key(db, "shared", "project_scoped_agent")
+        shared = decoded(
+            call(
+                db,
+                shared_admin,
+                [
+                    (
+                        "alice_memory_commit",
+                        {
+                            "lesson": {**lesson, "applies_when": "sharedidentity rebase"},
+                            "confidence": 0.7,
+                            "agent_id": "shared",
+                        },
+                    )
+                ],
+            )[0]
+        )
+        assert shared["status"] == "confirmation_required"
+        confirmed_shared = decoded(
+            call(
+                db,
+                shared_limited,
+                [
+                    (
+                        "alice_memory_manage",
+                        {
+                            "action": "confirm",
+                            "memory_id": shared["memory"]["id"],
+                            "confirmation_id": shared["confirmation_id"],
+                            "agent_id": "shared",
+                        },
+                    )
+                ],
+            )[0]
+        )
+        assert confirmed_shared["memory"]["status"] == "active"
+        with sqlite3.connect(db) as conn:
+            assert conn.execute(
+                "select action, actor_id from memory_revisions where memory_id = ? order by revision_number desc limit 1",
+                (shared["memory"]["id"],),
+            ).fetchone() == ("agentic_memory_confirm_confirm", "shared")
+        print("shared agent id: admin writes, project-scoped key confirms")
         print("statuses: committed, review_required, confirmation_required")
         print("recall fields and waiting visibility: verified")
         print("publication revisions:", ", ".join(actions))
