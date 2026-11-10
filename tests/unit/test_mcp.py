@@ -56,6 +56,7 @@ CORE_TOOL_NAMES = [
     "alice_capture",
     "alice_memory_commit",
     "alice_recall",
+    "alice_lessons",
     "alice_resume",
     "alice_context_pack",
     "alice_open_loops",
@@ -199,11 +200,11 @@ def test_full_tools_flag_lists_the_eleven_core_tools_in_definition_order(monkeyp
     ("full_tools_value", "mcp_legacy_value", "legacy_surfaces_value", "expected_prefix", "expected_count"),
     [
         pytest.param(None, None, None, DEFAULT_TOOL_NAMES, 3, id="default-three"),
-        pytest.param("1", None, None, CORE_TOOL_NAMES, 12, id="full-core"),
+        pytest.param("1", None, None, CORE_TOOL_NAMES, 13, id="full-core"),
         pytest.param(None, "1", None, DEFAULT_TOOL_NAMES, 65, id="default-plus-long-tail"),
-        pytest.param("1", "1", None, CORE_TOOL_NAMES, 74, id="full-plus-long-tail"),
+        pytest.param("1", "1", None, CORE_TOOL_NAMES, 75, id="full-plus-long-tail"),
         pytest.param(None, "1", "1", DEFAULT_TOOL_NAMES, 68, id="default-plus-legacy-surfaces"),
-        pytest.param("1", "1", "1", CORE_TOOL_NAMES, 77, id="full-plus-legacy-surfaces"),
+        pytest.param("1", "1", "1", CORE_TOOL_NAMES, 78, id="full-plus-legacy-surfaces"),
     ],
 )
 def test_full_tools_and_legacy_gate_combinations_have_exact_tool_counts(
@@ -7615,7 +7616,7 @@ def test_key_bound_mcp_server_hides_and_rejects_the_legacy_surface(monkeypatch) 
 
     listed_tools = list_mcp_tools()
     listed = {str(tool["name"]) for tool in listed_tools}
-    assert len(listed_tools) == 12
+    assert len(listed_tools) == 13
     assert listed == set(CORE_TOOL_NAMES)
     assert "alice_recall_debug" not in listed
 

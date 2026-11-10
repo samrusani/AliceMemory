@@ -25,8 +25,8 @@
   unmeasured, so the number may be overstated by an unknown amount. See
   `docs/benchmarks/longmemeval/README.md`.
 - Alice remains public-alpha, pre-1.0, local-first, single-user, and self-hosted.
-- The MCP registry on main is 12-core/65-legacy/77-total. The default handshake
-  stays at three tools. `ALICE_MCP_FULL_TOOLS=1` exposes all twelve core tools.
+- The MCP registry on main is 13-core/65-legacy/78-total. The default handshake
+  stays at three tools. `ALICE_MCP_FULL_TOOLS=1` exposes all thirteen core tools.
 
 ## What `v0.11.1` Shipped
 
@@ -267,7 +267,7 @@ PostgreSQL stays at revision `20261011_0097`.
   a nested array, a blank string or the text of a JSON object or array.
 - `alice_what_changed` and `POST /v0/vnext/changes` answer the recorded decision
   history of one topic as chains of current, upcoming, disputed and past steps.
-  The full tool surface holds twelve core tools. `alice_memory_correct` with
+  The full tool surface holds thirteen core tools. `alice_memory_correct` with
   `replacement_body.decision_text` stores that text.
 - A killed `alice-memory import` no longer leaves its working copy in the data
   directory: the next import into that vault and the next open of an existing

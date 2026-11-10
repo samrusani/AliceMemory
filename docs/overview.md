@@ -95,7 +95,7 @@ The default MCP surface is three tools:
 - `alice_recall`: search memory, with full-text, vector and entity-graph results fused by rank. Also returns matching passages from captured documents under `sources`.
 - `alice_resume`: resumption brief for a project or thread.
 
-The other core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. From v0.21.0, `alice_what_changed` is one of the other nine core tools. OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches the model as `alice__alice_recall`. For the full Postgres stack from a checkout, use the config in [agent integration](alpha/agent-integration.md), which also covers the optional [skill packs](alpha/agent-integration.md#skill-packs).
+The other core tools (`alice_capture`, `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`, `alice_explain`, `alice_lessons`) stay defined and become listed and callable when `ALICE_MCP_FULL_TOOLS=1`. From v0.21.0, `alice_what_changed` is one of the other ten core tools. OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches the model as `alice__alice_recall`. For the full Postgres stack from a checkout, use the config in [agent integration](alpha/agent-integration.md), which also covers the optional [skill packs](alpha/agent-integration.md#skill-packs).
 
 ## Connect an agent
 

@@ -53,6 +53,7 @@ ALLOWED_UNSCOPED_SITES: Counter[tuple[str, str, str]] = Counter(
         ("mcp/projects.py", "_handle_alice_project_dashboard", "_mcp_agent_policy_preflight"): 1,
         ("mcp/projects.py", "_handle_alice_vnext_open_loops", "_mcp_agent_policy_preflight"): 1,
         ("mcp/projects.py", "_handle_alice_project_update_candidate", "_policy_checked"): 1,
+        ("mcp/retrieval.py", "_handle_alice_lessons", "_mcp_agent_policy_preflight"): 1,
         ("mcp/retrieval.py", "_handle_alice_recall", "_mcp_agent_policy_preflight"): 1,
         ("mcp/retrieval.py", "_handle_alice_recent_decisions", "_mcp_agent_policy_preflight"): 1,
         ("mcp/retrieval.py", "_handle_alice_recent_changes", "_mcp_agent_policy_preflight"): 1,

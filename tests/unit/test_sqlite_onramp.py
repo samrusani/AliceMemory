@@ -55,6 +55,7 @@ CORE_TOOL_NAMES = [
     "alice_capture",
     "alice_memory_commit",
     "alice_recall",
+    "alice_lessons",
     "alice_resume",
     "alice_context_pack",
     "alice_open_loops",

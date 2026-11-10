@@ -3,7 +3,7 @@
 Alice's MCP server exposes three tools by default (`alice_memory_commit`,
 `alice_recall`, `alice_resume`). The other core tools become listed
 and callable when `ALICE_MCP_FULL_TOOLS=1`. From v0.21.0,
-`alice_what_changed` is one of the other nine core tools, which makes all twelve
+`alice_what_changed` is one of the other ten core tools, which makes all thirteen
 core tools with `ALICE_MCP_FULL_TOOLS=1`. v0.20.2 does not have it. The legacy long-tail surface
 is available behind a separate environment flag.
 
@@ -117,7 +117,8 @@ Optional:
 
 `ALICE_MCP_FULL_TOOLS=1` also advertises `alice_capture`, `alice_context_pack`,
 `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`,
-`alice_memory_correct`, `alice_memory_manage`, and `alice_explain`. From v0.21.0,
+`alice_memory_correct`, `alice_memory_manage`, `alice_explain`, and
+`alice_lessons`. From v0.21.0,
 it also advertises `alice_what_changed`.
 
 Full schemas with per-parameter descriptions come from `tools/list`.
@@ -126,9 +127,9 @@ Details and examples: [docs/alpha/mcp-tools.md](../alpha/mcp-tools.md).
 ## Legacy Tool Surface
 
 With `ALICE_MCP_LEGACY_TOOLS=1`, 62 retained legacy memory tools are listed
-alongside whatever core set is enabled (65 with the default three, 74 with
-the full 12). With the task-brief flag as well, the counts are 68 and
-77. From v0.21.0, the counts with the full core set include
+alongside whatever core set is enabled (65 with the default three, 75 with
+the full 13). With the task-brief flag as well, the counts are 68 and
+78. From v0.21.0, the counts with the full core set include
 `alice_what_changed`, so each is one lower in v0.20.2. On the SQLite backend most legacy tools are listed but their calls fail:
 the ones that read the continuity store (for example `alice_brief`,
 `alice_timeline`, `alice_state_at` and the task-brief tools) and most of the

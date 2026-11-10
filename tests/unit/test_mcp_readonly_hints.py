@@ -25,6 +25,7 @@ USER_ID = "00000000-0000-0000-0000-000000000001"
 _READ_ONLY = frozenset(
     {
         "alice_recall",
+        "alice_lessons",
         "alice_resume",
         "alice_context_pack",
         "alice_recent_decisions",

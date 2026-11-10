@@ -400,6 +400,23 @@ def list_revisions(self, memory_id: str) -> list[VNextRow]:
     )
 
 
+def list_revisions_for_memories(self, memory_ids: Sequence[str]) -> list[VNextRow]:
+    """Every revision of the given memories, in one statement."""
+
+    ids = [str(item) for item in memory_ids if str(item)]
+    if not ids:
+        return []
+    return self._fetch_all(
+        f"""
+                SELECT {REVISION_COLUMNS}
+                FROM memory_revisions
+                WHERE memory_id::text = ANY(%s::text[])
+                ORDER BY memory_id ASC, revision_number ASC, sequence_no ASC, id ASC
+                """,
+        (ids,),
+    )
+
+
 for _store_method in (
     _append_mutation_event,
     append_event,
@@ -409,6 +426,7 @@ for _store_method in (
     count_events,
     append_revision,
     list_revisions,
+    list_revisions_for_memories,
 ):
     _store_method.__module__ = "alicebot_api.vnext_store"
     _store_method.__qualname__ = f"PostgresVNextStore.{_store_method.__name__}"

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import fnmatch
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Final, Protocol, cast
 from alicebot_api.continuity_brief import compile_continuity_brief
 from alicebot_api.continuity_recall import (
@@ -56,7 +58,18 @@ from alicebot_api.vnext_agent_control import (
     AgentPolicyBlockedError,
     PolicyDecision,
 )
-from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
+from alicebot_api.json_bounds import is_remembered, remember_durable, replay_durable
+from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
+from alicebot_api.vnext_event_log import append_event
+from alicebot_api.vnext_label_guard import admit_loaded, sensitivity_ceiling
+from alicebot_api.vnext_memory_commit import (
+    LessonBlock,
+    VNextMemoryCommitService,
+    VNextMemoryCommitValidationError,
+    _agentic_metadata,
+    _lesson_block_from_payload,
+    _lesson_paths,
+)
 from alicebot_api.vnext_open_loop_references import withhold_unreadable_references_from_loop
 from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_projects import VNextProjectService
@@ -64,6 +77,8 @@ from alicebot_api.vnext_recall_visibility import memory_window_is_open
 from alicebot_api.vnext_repositories import JsonObject as VNextJsonObject
 from alicebot_api.vnext_source_fence import SourceReadFence
 from alicebot_api.recall_framing import (
+    WRITER_ESTABLISHED_DECLARED_ON_KEYLESS_INSTALL,
+    WRITER_OWNER,
     memory_writer,
     present_model_item,
     with_result_framing,
@@ -1646,3 +1661,371 @@ def _handle_alice_timeline(context: MCPRuntimeContext, arguments: Mapping[str, o
                 ),
             ),
         )
+
+
+_LESSON_TASK_LIMIT = 1000
+_LESSONS_DEFAULT_LIMIT = 5
+_LESSONS_MAX_LIMIT = 10
+# Revisions that publish a lesson, and the word the answer uses for each.
+# A commit or a confirm counts only when its actor is the owner or an admin_agent.
+# approved covers the review door and the other acts that turn a waiting lesson active.
+_LESSON_PUBLISHING_ACTS = {
+    "agentic_memory_commit": "committed",
+    "agentic_memory_confirm_confirm": "confirmed",
+    "memory_correct_approve": "approved",
+    "memory_review_accept": "approved",
+    "memory_review_promote": "approved",
+    "agentic_memory_consolidation_accept": "approved",
+}
+_LESSON_ACTOR_CHECKED = frozenset({"committed", "confirmed"})
+
+
+def _lesson_stamp(value: object) -> str:
+    if isinstance(value, datetime):
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    return str(value or "")
+
+
+def _lesson_instant(value: object) -> float:
+    text = _lesson_stamp(value)
+    if not text:
+        return 0.0
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _stored_object(value: object) -> Mapping[str, object] | None:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    if isinstance(value, Mapping):
+        return value
+    return None
+
+
+def _current_lesson(memory: Mapping[str, object]) -> LessonBlock | None:
+    value = _stored_object(memory.get("value"))
+    if value is None:
+        return None
+    try:
+        return _lesson_block_from_payload(value.get("lesson"))
+    except VNextMemoryCommitValidationError:
+        return None
+
+
+def _revision_holds_lesson(revision: Mapping[str, object]) -> bool:
+    value = _stored_object(revision.get("new_value"))
+    if value is None:
+        return False
+    try:
+        _lesson_block_from_payload(value.get("lesson"))
+    except VNextMemoryCommitValidationError:
+        return False
+    return True
+
+
+def _commit_actor_may_publish(memory: Mapping[str, object], revision: Mapping[str, object]) -> bool:
+    actor_type = str(revision.get("actor_type") or "")
+    actor_id = revision.get("actor_id")
+    actor_text = actor_id.strip() if isinstance(actor_id, str) else ""
+    if actor_type == "user" and not actor_text:
+        return True
+    identity = _agentic_metadata(memory).get("agent_identity")
+    if not isinstance(identity, Mapping):
+        return False
+    return identity.get("permission_profile") == "admin_agent" and identity.get("agent_id") == actor_text
+
+
+def _published_lesson(memory: Mapping[str, object], revisions: Sequence[object]) -> dict[str, str] | None:
+    """The publishing act on an active lesson, or None when the row is not published."""
+
+    if str(memory.get("status") or "") != "active":
+        return None
+    chosen: Mapping[str, object] | None = None
+    chosen_how = ""
+    chosen_key: tuple[str, int, str] | None = None
+    for revision in revisions:
+        if not isinstance(revision, Mapping):
+            continue
+        how = _LESSON_PUBLISHING_ACTS.get(str(revision.get("action") or ""))
+        if how is None:
+            continue
+        if not _revision_holds_lesson(revision):
+            continue
+        if how in _LESSON_ACTOR_CHECKED and not _commit_actor_may_publish(memory, revision):
+            continue
+        raw_number = revision.get("revision_number")
+        try:
+            number = int(raw_number) if raw_number is not None and not isinstance(raw_number, bool) else 0
+        except (TypeError, ValueError):
+            number = 0
+        key = (
+            _lesson_stamp(revision.get("created_at")),
+            number,
+            str(revision.get("id") or ""),
+        )
+        if chosen_key is None or key > chosen_key:
+            chosen = revision
+            chosen_how = how
+            chosen_key = key
+    if chosen is None:
+        return None
+    actor_id = chosen.get("actor_id")
+    actor_text = actor_id.strip() if isinstance(actor_id, str) else ""
+    return {"by": actor_text or "owner", "at": _lesson_stamp(chosen.get("created_at")), "how": chosen_how}
+
+
+def _lesson_path_key(path: str) -> str:
+    return path[2:] if path.startswith("./") else path
+
+
+def _lesson_path_entries(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return ()
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return ()
+    return tuple(entry for entry in value if isinstance(entry, str))
+
+
+def _lesson_paths_hit(call_paths: Sequence[str], lesson_paths: Sequence[str]) -> bool:
+    calls = [_lesson_path_key(path) for path in call_paths]
+    lessons = [_lesson_path_key(path) for path in lesson_paths]
+    return any(fnmatch.fnmatchcase(call, lesson) for call in calls for lesson in lessons)
+
+
+def _lesson_stage_rows(
+    service: VNextRetrievalService,
+    *,
+    query: str,
+    domains: list[str],
+    sensitivity_allowed: list[str],
+    projects: tuple[str, ...],
+    read_fence: SourceReadFence,
+    limit: int,
+    only_ids: tuple[str, ...] | None = None,
+) -> tuple[list[VNextJsonObject], list[VNextJsonObject]]:
+    """Lesson rows from the recall full-text stage, and from the vector stage when it is on.
+
+    The vector list is empty when no embedding endpoint is configured, which is the same
+    answer alice_recall gives that stage. The graph stage is not called.
+    """
+
+    candidate_limit = max(len(only_ids), 1) if only_ids else max(limit * 2, limit)
+    fts_rows, _source = service._memory_fts_rows(
+        query=query,
+        domains=domains,
+        sensitivity_allowed=sensitivity_allowed,
+        limit=candidate_limit,
+        projects=projects,
+        memory_types=("procedure",),
+        read_fence=read_fence,
+        require_lesson=True,
+        only_ids=only_ids,
+    )
+    vector_rows, vector_stage = service._memory_vector_rows(
+        query=query,
+        domains=domains,
+        sensitivity_allowed=sensitivity_allowed,
+        limit=candidate_limit,
+        projects=projects,
+        memory_types=("procedure",),
+        label_refill=read_fence.entity_read_fenced,
+        require_lesson=True,
+        only_ids=only_ids,
+    )
+    if vector_stage != VECTOR_STAGE_ENABLED:
+        vector_rows = []
+    return fts_rows, vector_rows
+
+
+def _append_unseen(head: list[VNextJsonObject], extra: list[VNextJsonObject]) -> list[VNextJsonObject]:
+    """Keep the head's order and put any new rows after it, in the extra list's order."""
+
+    seen = {str(row.get("id") or "") for row in head}
+    merged = list(head)
+    for row in extra:
+        row_id = str(row.get("id") or "")
+        if row_id and row_id not in seen:
+            seen.add(row_id)
+            merged.append(row)
+    return merged
+
+
+def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
+    task = _parse_required_text(arguments, "task")
+    if len(task) > _LESSON_TASK_LIMIT:
+        raise MCPArgumentError(f"task must be at most {_LESSON_TASK_LIMIT} characters")
+    if "paths" in arguments:
+        try:
+            call_paths = _lesson_paths(arguments.get("paths"))
+        except VNextMemoryCommitValidationError as exc:
+            raise MCPArgumentError(str(exc)) from exc
+    else:
+        call_paths = ()
+    limit = _parse_int(
+        arguments, key="limit", default=_LESSONS_DEFAULT_LIMIT, minimum=1, maximum=_LESSONS_MAX_LIMIT,
+    )
+    identity = _agent_identity_from_arguments(context, arguments)
+    ceiling = sensitivity_ceiling(identity)
+    decision = _mcp_agent_policy_preflight(
+        context,
+        arguments,
+        action="memory.recall",
+        domains=(),
+        sensitivity_allowed=ALL_SENSITIVITY if ceiling is None else ceiling,
+        project_scope=(),
+        project_view=ProjectView.unscoped(),
+    )
+    domains = list(decision.effective_domains)
+    sensitivity_allowed = list(decision.effective_sensitivity_allowed)
+    projects = tuple(decision.effective_project_scope)
+    read_fence = SourceReadFence.for_identity(identity)
+
+    with _vnext_store_context(context) as store:
+        lock = getattr(store, "lock_label_writes", None)
+        if callable(lock):
+            lock()
+        service = VNextRetrievalService(store)
+        fts_rows, vector_rows = _lesson_stage_rows(
+            service,
+            query=task,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+            read_fence=read_fence,
+            limit=limit,
+        )
+        path_ids: set[str] = set()
+        path_rows: dict[str, VNextJsonObject] = {}
+        if call_paths:
+            for slim in store.list_lesson_path_rows(
+                domains=domains or None,
+                sensitivity_allowed=sensitivity_allowed,
+                projects=projects,
+            ):
+                if not isinstance(slim, Mapping):
+                    continue
+                row_id = str(slim.get("id") or "")
+                if row_id and _lesson_paths_hit(call_paths, _lesson_path_entries(slim.get("lesson_paths"))):
+                    path_ids.add(row_id)
+            head_ids = {str(row.get("id") or "") for row in fts_rows}
+            head_ids.update(str(row.get("id") or "") for row in vector_rows)
+            missing = tuple(row_id for row_id in path_ids if row_id not in head_ids)
+            if missing:
+                extra_fts, extra_vector = _lesson_stage_rows(
+                    service,
+                    query=task,
+                    domains=domains,
+                    sensitivity_allowed=sensitivity_allowed,
+                    projects=projects,
+                    read_fence=read_fence,
+                    limit=limit,
+                    only_ids=missing,
+                )
+                fts_rows = _append_unseen(fts_rows, extra_fts)
+                vector_rows = _append_unseen(vector_rows, extra_vector)
+            have = {str(row.get("id") or "") for row in fts_rows}
+            have.update(str(row.get("id") or "") for row in vector_rows)
+            needed = tuple(row_id for row_id in path_ids if row_id not in have)
+            fetched = store.get_memories_by_ids(needed) if needed else []
+            for row in admit_loaded(
+                store,
+                kind="memory",
+                rows=fetched,
+                domains=domains,
+                sensitivity_allowed=sensitivity_allowed,
+                projects=projects,
+            ):
+                if isinstance(row, Mapping):
+                    path_rows[str(row.get("id") or "")] = cast(VNextJsonObject, row)
+            for row in (*fts_rows, *vector_rows):
+                row_id = str(row.get("id") or "")
+                if row_id in path_ids:
+                    path_rows.setdefault(row_id, row)
+        ranked: dict[str, list[VNextJsonObject]] = {"fts": fts_rows}
+        if vector_rows:
+            ranked["vector"] = vector_rows
+        by_id: dict[str, VNextJsonObject] = {}
+        scores: dict[str, float] = {}
+        for item, score, _ranks in reciprocal_rank_fusion(ranked):
+            row_id = str(item.get("id") or "")
+            if row_id and row_id not in by_id:
+                by_id[row_id] = item
+                scores[row_id] = score
+        for row_id, row in path_rows.items():
+            by_id.setdefault(row_id, row)
+        shaped: list[tuple[str, VNextJsonObject, LessonBlock]] = []
+        for row_id, row in by_id.items():
+            block = _current_lesson(row)
+            if block is None:
+                continue
+            if row_id not in scores and row_id not in path_ids:
+                continue
+            shaped.append((row_id, row, block))
+        revisions_by_id: dict[str, list[object]] = {}
+        if shaped:
+            loaded = store.list_revisions_for_memories([row_id for row_id, _row, _block in shaped])
+            for revision in loaded:
+                if isinstance(revision, Mapping):
+                    revisions_by_id.setdefault(str(revision.get("memory_id") or ""), []).append(revision)
+        ranked_rows: list[tuple[int, float, float, str, VNextJsonObject, LessonBlock, dict[str, str]]] = []
+        for row_id, row, block in shaped:
+            published = _published_lesson(row, revisions_by_id.get(row_id, ()))
+            if published is None:
+                continue
+            text_hit = row_id in scores
+            path_hit = row_id in path_ids
+            if text_hit and path_hit:
+                group = 0
+            elif path_hit:
+                group = 1
+            elif text_hit:
+                group = 2
+            else:
+                continue
+            ranked_rows.append((
+                group,
+                -(scores[row_id] if text_hit else 0.0),
+                -_lesson_instant(row.get("created_at")),
+                row_id,
+                row,
+                block,
+                published,
+            ))
+        ranked_rows.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
+        chosen = ranked_rows[:limit]
+        lessons: list[JsonObject] = []
+        for _group, _score, _instant, row_id, row, block, published in chosen:
+            writer = memory_writer(store, row)
+            lessons.append({
+                "id": row_id,
+                "applies_when": block.applies_when,
+                "what_happened": block.what_happened,
+                "do_instead": block.do_instead,
+                "paths": list(block.paths),
+                "writer": {
+                    "id": str(writer.get("id") or WRITER_OWNER),
+                    "established": str(
+                        writer.get("established") or WRITER_ESTABLISHED_DECLARED_ON_KEYLESS_INSTALL
+                    ),
+                },
+                "published": cast(JsonObject, published),
+            })
+        marker = ("agent.lessons_requested",)
+        if not is_remembered(replay_durable(marker)):
+            append_event(
+                store,
+                event_type="agent.lessons_requested",
+                actor_type="agent" if identity is not None else "user",
+                actor_id=identity.agent_id if identity is not None else None,
+                payload={"returned": len(lessons), "limit": limit, "paths_given": len(call_paths)},
+            )
+            remember_durable(marker, True)
+        return _json_object(with_result_framing({"count": len(lessons), "lessons": lessons}))
