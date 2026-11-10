@@ -15,13 +15,12 @@ _REVISION_FIELDS = frozenset(
 
 def stream_lesson_revisions(self: Any, memory_ids: Sequence[str]) -> Iterator[dict[str, object]]:
     columns = ", ".join("r." + column for column in REVISION_COLUMNS if column in _REVISION_FIELDS)
+    # Column names come from the shared constants; IDs are bound parameters.
     cursor = self._execute(
-        f"""
-            SELECT {columns}, json_extract(r.new_value, '$.lesson') AS publication_lesson
-            FROM json_each(?) AS selected
-            JOIN memory_revisions AS r ON r.memory_id = selected.value AND r.user_id = ?
-            ORDER BY CAST(selected.key AS INTEGER), r.revision_number ASC, r.sequence_no ASC, r.id ASC
-            """,
+        f"SELECT {columns}, json_extract(r.new_value, '$.lesson') AS publication_lesson "  # nosec B608
+        "FROM json_each(?) AS selected "
+        "JOIN memory_revisions AS r ON r.memory_id = selected.value AND r.user_id = ? "
+        "ORDER BY CAST(selected.key AS INTEGER), r.revision_number ASC, r.sequence_no ASC, r.id ASC",
         (json.dumps(list(memory_ids)), self.user_id),
     )
     for row in cursor:
