@@ -423,6 +423,62 @@ def test_a_path_row_from_a_domain_the_caller_cannot_read_stays_out(
     assert [item["id"] for item in answer["lessons"]] == [visible["memory"]["id"]]
 
 
+def test_the_vector_stage_returns_the_nearest_lesson_with_no_floor(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The vector stage runs when an embedding endpoint is configured, and it has no distance floor.
+
+    One published lesson is stored with the stub's matching vector. The matching task returns
+    it. An unrelated task does not match the text, and the same stage still returns the lesson
+    because nothing drops a far neighbour. With no endpoint, the unrelated task returns nothing.
+    """
+
+    from alicebot_api.vnext_embeddings import (
+        EMBEDDING_SIGNATURE_VERSION,
+        endpoint_fingerprint,
+        memory_embedding_content_sha256,
+    )
+    import alicebot_api.vnext_retrieval as retrieval_module
+
+    class Stub:
+        provider = "fake"
+        model = "fake-embed"
+        base_url = "https://embed.example/v1"
+
+        def embed_text(self, text: str) -> list[float]:
+            if "rebase" in text:
+                return [1.0, 0.0]
+            return [0.0, 1.0]
+
+        def embed_batch(self, texts: list[str]) -> list[list[float]]:
+            return [self.embed_text(text) for text in texts]
+
+    published = _commit(vault, monkeypatch, None, _lesson("rebasing a feature branch onto main"))
+    memory_id = published["memory"]["id"]
+    with sqlite_user_connection(vault.path, vault.user_id) as conn:
+        store = SQLiteVNextStore(conn, vault.user_id)
+        memory = store.get_memory(memory_id)
+        assert memory is not None
+        stored = store.update_memory_embedding(
+            memory_id=memory_id,
+            vector=[1.0, 0.0],
+            provider=Stub.provider,
+            model=Stub.model,
+            endpoint=endpoint_fingerprint(Stub.base_url),
+            content_sha256=memory_embedding_content_sha256(memory),
+            signature_version=EMBEDDING_SIGNATURE_VERSION,
+        )
+    assert stored is not None
+    monkeypatch.setattr(retrieval_module, "get_embedding_provider", lambda: Stub())
+    matching = vault.call(monkeypatch, None, "alice_lessons", {"task": TASK})
+    unrelated = vault.call(monkeypatch, None, "alice_lessons", {"task": "pottery kiln glaze"})
+    assert [item["id"] for item in matching["lessons"]] == [memory_id]
+    assert [item["id"] for item in unrelated["lessons"]] == [memory_id]
+    monkeypatch.setattr(retrieval_module, "get_embedding_provider", lambda: None)
+    without = vault.call(monkeypatch, None, "alice_lessons", {"task": "pottery kiln glaze"})
+    assert without["lessons"] == []
+
+
 def test_a_lesson_block_with_no_publishing_act_is_not_returned(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
     """Guard: a publishing revision counts only when its new value holds a lesson.
 

@@ -348,7 +348,9 @@ is a CLI verb, not a fourth always-on agent tool.
   active row whose history has no publishing act. A lesson
   matches when its text matches `task` the way `alice_recall` matches a query,
   or one of its paths matches one of `paths` (`fnmatch` on the call path
-  against the lesson path, after a leading `./` is dropped). Order: path and
+  against the lesson path, after a leading `./` is dropped). When an embedding
+  endpoint is configured, the vector stage ranks by distance with no floor, so
+  an unrelated task can still return the nearest lesson. Order: path and
   text, then path only, then text only; inside a group, by text rank, then
   newer first, then by id. Each answer writes one `agent.lessons_requested`
   event whose payload is `returned`, `limit` and `paths_given`. The event does
