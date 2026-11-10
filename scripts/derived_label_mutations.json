@@ -25058,9 +25058,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_store_memory_access_split.py::test_memory_access_methods_are_direct_grafts_in_native_backend_order"
+        "tests/unit/test_lessons_read.py::test_confidential_lesson_follows_the_key_ceiling"
       ],
-      "expected_failure": "test_memory_access_methods_are_direct_grafts_in_native_backend_order"
+      "expected_failure": "test_confidential_lesson_follows_the_key_ceiling"
     },
     {
       "name": "lessons-postgres-store-stream",
@@ -25074,9 +25074,25 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_store_memory_access_split.py::test_memory_access_methods_are_direct_grafts_in_native_backend_order"
+        "tests/integration/test_lessons_read_postgres.py::test_published_lessons_use_postgres_fence_and_revision"
       ],
-      "expected_failure": "test_memory_access_methods_are_direct_grafts_in_native_backend_order"
+      "expected_failure": "test_published_lessons_use_postgres_fence_and_revision"
+    },
+    {
+      "name": "lessons-revision-candidate-scope",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "line": 110,
+          "before": "projects = tuple(decision.effective_project_scope)",
+          "after": "projects = ()",
+          "sha256": "363d9d057eb25b276c8e27e23b833f4ddb27db5c0e51f49dbf2f901729b3fc60"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_read.py::test_revision_reads_exclude_other_projects"
+      ],
+      "expected_failure": "test_revision_reads_exclude_other_projects"
     }
   ]
 }
