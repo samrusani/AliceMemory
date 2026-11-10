@@ -206,9 +206,11 @@ def _texts(result: Mapping[str, object]) -> list[object]:
 def test_a_hidden_strict_hit_does_not_change_the_answer_or_the_trace_of_a_restricted_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, name: str
 ) -> None:
-    """Mutation: replace the condition that runs the OR pass after a strict pass that left no readable row
-    (``if relaxable and not selected and "match_any" not in options and read_fence.entity_read_fenced:`` in
-    ``VNextRetrievalService._memory_fts_rows``) with ``if False:``.
+    """Guard: a strict pass with no admitted row still permits the OR pass.
+
+    Keyed SQLite reads admit rows inside the store, so their mutation disables
+    ``relaxable`` in ``VNextRetrievalService._memory_fts_rows``. Other stores
+    retain the later ``not selected`` guard after retrieval-stage admission.
 
     The pass runs the strict pass and, on main before this change, stopped there because the hidden row matched, so
     the key got no result and the label ``sqlite_fts`` where the vault without the row gave the visible memory and

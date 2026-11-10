@@ -15776,9 +15776,9 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
-          "line": 3287,
-          "before": "if relaxable and not selected and \"match_any\" not in options and read_fence.entity_read_fenced:",
-          "after": "if False:",
+          "line": 3231,
+          "before": "relaxable = fts and len(fts_fallback_tokens(query)) >= 2",
+          "after": "relaxable = False",
           "sha256": "6f6ac591e7cb50cc6d830fa7ba8990d54ead48203241f8ce5b6ce34f8e1c1af4"
         }
       ],
