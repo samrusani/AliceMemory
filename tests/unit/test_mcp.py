@@ -268,7 +268,7 @@ def test_legacy_flag_exposes_the_long_tail_after_the_core_tools(legacy_tools_ena
     names = [tool["name"] for tool in tools]
 
     assert names[: len(CORE_TOOL_NAMES)] == CORE_TOOL_NAMES
-    assert len(names) == len(set(names)) == 77
+    assert len(names) == len(set(names)) == 78
     for legacy_name in (
         "alice_brief",
         "alice_recall_debug",
@@ -286,10 +286,10 @@ def test_legacy_flag_exposes_the_long_tail_after_the_core_tools(legacy_tools_ena
 @pytest.mark.parametrize(
     ("mcp_legacy_value", "legacy_surfaces_value", "expected_count", "task_briefs_enabled"),
     [
-        pytest.param(None, None, 12, False, id="both-disabled"),
-        pytest.param("1", None, 74, False, id="mcp-long-tail-only"),
-        pytest.param(None, "1", 12, False, id="legacy-http-only"),
-        pytest.param("1", "1", 77, True, id="both-enabled"),
+        pytest.param(None, None, 13, False, id="both-disabled"),
+        pytest.param("1", None, 75, False, id="mcp-long-tail-only"),
+        pytest.param(None, "1", 13, False, id="legacy-http-only"),
+        pytest.param("1", "1", 78, True, id="both-enabled"),
     ],
 )
 def test_mcp_gate_combinations_have_exact_tool_counts(
@@ -322,7 +322,7 @@ def test_mcp_long_tail_preserves_preexisting_truthy_flag_values(monkeypatch, ena
     monkeypatch.delenv(mcp_tools_module.LEGACY_SURFACES_ENV, raising=False)
     monkeypatch.delenv(mcp_tools_module.AGENT_API_KEY_ENV, raising=False)
 
-    assert len(list_mcp_tools()) == 74
+    assert len(list_mcp_tools()) == 75
 
 
 def test_task_brief_mcp_tools_use_neutral_public_arguments(legacy_tools_enabled) -> None:
