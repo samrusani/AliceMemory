@@ -232,3 +232,26 @@ def test_fenced_rank_ignores_unmatched_text_length(vault, monkeypatch):
     key = mint(vault, "project_scoped_agent")
     result = call(vault, monkeypatch, key, "alice_recall", {"query": QUERY, "include_sources": False})
     assert [row["id"] for row in result["results"]] == ids
+
+
+@pytest.mark.parametrize("hidden_kind", ("stored", "derived"))
+def test_what_changed_fences_a_hidden_predecessor(vault, monkeypatch, hidden_kind):
+    """Guard: a history walk still judges stored and derived labels after its start was admitted."""
+    ids = []
+    for text in ("Private predecessor marker", "luminousmigration decision"):
+        result = call(vault, monkeypatch, None, "alice_memory_commit", {"title": "Decision", "canonical_text": text, "memory_type": "decision", "domain": "project", "sensitivity": "public", "project_scope": ["alpha"]})
+        assert result["status"] == "committed"
+        ids.append(result["memory"]["id"])
+    with sqlite_user_connection(vault, USER) as conn:
+        conn.execute("UPDATE memories SET supersedes=? WHERE id=?", (ids[0], ids[1]))
+        conn.execute("UPDATE memories SET superseded_by=? WHERE id=?", (ids[1], ids[0]))
+        if hidden_kind == "stored":
+            conn.execute("UPDATE memories SET sensitivity='confidential', domain='legal' WHERE id=?", (ids[0],))
+        else:
+            source = SQLiteVNextStore(conn, USER).create_source({"source_type": "note", "title": "Restricted source", "content_hash": "restricted", "domain": "legal", "sensitivity": "confidential"})
+            conn.execute("UPDATE memories SET metadata_json=json_set(metadata_json, '$.source_id', ?) WHERE id=?", (str(source["id"]), ids[0]))
+    key = mint(vault, "project_scoped_agent")
+    answer = call(vault, monkeypatch, key, "alice_what_changed", {"topic": "luminousmigration"})
+    dumped = json.dumps(answer)
+    assert ids[1] in dumped and len(answer["chains"]) == 1
+    assert ids[0] not in dumped and "Private predecessor marker" not in dumped

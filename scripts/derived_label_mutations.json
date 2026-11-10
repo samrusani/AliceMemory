@@ -18483,9 +18483,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_what_changed.py::test_a_support_key_does_not_see_an_hr_decision"
+        "tests/unit/test_ranked_read_hidden_rows.py::test_what_changed_fences_a_hidden_predecessor"
       ],
-      "expected_failure": "test_a_support_key_does_not_see_an_hr_decision"
+      "expected_failure": "test_what_changed_fences_a_hidden_predecessor"
     },
     {
       "name": "what-changed-citation-follows-the-saved-quote-rules",
@@ -18596,9 +18596,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_what_changed_review.py::test_the_read_judges_the_derived_label"
+        "tests/unit/test_ranked_read_hidden_rows.py::test_what_changed_fences_a_hidden_predecessor"
       ],
-      "expected_failure": "test_the_read_judges_the_derived_label"
+      "expected_failure": "test_what_changed_fences_a_hidden_predecessor"
     },
     {
       "name": "what-changed-binds-a-source-to-its-project",
