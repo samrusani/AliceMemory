@@ -24326,7 +24326,10 @@
       ],
       "pytest": [
         "tests/unit/test_lesson_block_commit.py::test_a_lesson_takes_every_arm_a_plain_write_takes",
-        "tests/unit/test_lesson_block_commit.py::test_an_agent_output_lesson_takes_the_plain_write_s_path"
+        "tests/unit/test_lesson_block_commit.py::test_the_keyless_owner_s_lesson_takes_every_arm_a_plain_write_takes",
+        "tests/unit/test_lesson_block_commit.py::test_a_bound_key_s_lesson_keeps_the_arm_s_reason_in_its_reasons",
+        "tests/unit/test_lesson_block_commit.py::test_an_agent_output_lesson_takes_the_plain_write_s_path",
+        "tests/unit/test_lesson_block_commit.py::test_a_proposal_only_key_s_lesson_waits_like_its_plain_write"
       ],
       "expected_failure": "tests/unit/test_lesson_block_commit.py::test_a_lesson_takes_every_arm_a_plain_write_takes"
     }

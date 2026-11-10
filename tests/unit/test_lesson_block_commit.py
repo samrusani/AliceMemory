@@ -1016,36 +1016,77 @@ def test_the_other_lifecycle_doors_leave_a_lesson_s_block_and_text_alone(vault: 
         ("external_source", {"source_type": "email"}),
         ("bulk_source_refs", {"source_refs": [f"note:{i}" for i in range(9)]}),
         ("low_confidence", {"confidence": 0.4}),
+        ("sensitive_confirmation", {"sensitivity": "private"}),
         ("wrong_domain", {"domain": "personal"}),
     ],
 )
 def test_a_lesson_takes_every_arm_a_plain_write_takes(vault: Vault, monkeypatch: pytest.MonkeyPatch, arm: str, extra: dict) -> None:
     """Guard: the lesson floor runs AFTER the plain arms, never inside the chain.
 
+    Each arm runs twice for an admin key and once for the keyless owner on a vault with no
+    keys, where nothing else decides the answer: the lesson carries the SAME arm fields as the
+    plain write, and its status AND reason must equal the plain write's. The wrong domain runs
+    for the bound key too, where the arm's own reason must appear in the lesson's reasons.
+
     Mutation: put the lesson arm back into the elif chain where it ends the
-    chain for every lesson (``mutation-lesson-chain-arm``); the wrong-domain
-    lesson waits and is STORED where the plain write is rejected, and the
-    assertions fail.
+    chain for every lesson (``mutation-lesson-chain-arm``, an ``elif
+    request.lesson is not None: pass`` in front of the intent arm); each
+    arm's case fails: the external-source, nine-ref, low-confidence and
+    sensitive lessons COMMIT (or wait with another reason) where the plain
+    write waits or asks for confirmation, and the wrong-domain lesson waits
+    and is STORED where the plain write is rejected.
     """
 
-    writer = _first_key_with_agent(vault, "writer", "project_scoped_agent", "alpha")
+    if arm == "wrong_domain":
+        writer = _first_key_with_agent(vault, "writer", "project_scoped_agent", "alpha")
+        identity_args = {"agent_id": "writer", "agent_type": "coding_agent"}
+        base: dict[str, object] = {"domain": "project"}
+    else:
+        admin = _first_key_with_agent(vault, "admin", "admin_agent")
+        writer = admin
+        identity_args = {"agent_id": "admin", "agent_type": "coding_agent"}
+        base = {"domain": "project"}
     plain_body: dict[str, object] = {
         "title": "Plain note", "canonical_text": "Repin the mutation manifest before committing.",
-        "memory_type": "procedure", "domain": "project", "agent_id": "writer", "agent_type": "coding_agent",
-        **extra,
+        "memory_type": "procedure", **base, **identity_args, **extra,
     }
-    lesson_body: dict[str, object] = {"lesson": LESSON, "agent_id": "writer", "agent_type": "coding_agent"}
-    if "domain" in extra:
-        lesson_body["domain"] = extra["domain"]
+    lesson_body: dict[str, object] = {"lesson": LESSON, **base, **identity_args, **extra}
     plain = vault.call(monkeypatch, writer, "alice_memory_commit", plain_body)
     lesson = vault.call(monkeypatch, writer, "alice_memory_commit", lesson_body)
-    if plain["status"] == "rejected":
+    if arm == "wrong_domain":
+        assert plain["status"] == "rejected", arm
         assert lesson["status"] == "rejected", arm
-        assert lesson["reason"] == plain["reason"], arm
+        assert lesson["reason"] == plain["reason"] == "project_scoped_agent_domain_out_of_scope", arm
         assert vault.memory_count() == 0, arm  # neither write stored
-    else:
-        assert lesson["status"] == "review_required", arm
-        assert lesson["policy_decision"]["reason"] == "lesson_requires_approval", arm
+        return
+    assert lesson["status"] == plain["status"], (arm, plain["status"], lesson["status"])
+    assert lesson["policy_decision"]["reason"] == plain["policy_decision"]["reason"], arm
+    assert lesson["policy_decision"]["reason"] != "lesson_requires_approval", arm
+
+
+def test_the_keyless_owner_s_lesson_takes_every_arm_a_plain_write_takes(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Guard: the same arms for the keyless owner on a vault with no keys, where no profile arm
+    runs. Each lesson carries the arm's fields like the plain write, and the answers must match.
+
+    Mutation: the same chain mutation; each case here fails because the lesson skips the arm
+    and commits where the plain write waits.
+    """
+
+    owner_vault = Vault(vault.path.parent / f"keyless-{uuid4().hex}")
+    for arm, extra in (
+        ("external_source", {"source_type": "email"}),
+        ("bulk_source_refs", {"source_refs": [f"note:{i}" for i in range(9)]}),
+        ("low_confidence", {"confidence": 0.4}),
+    ):
+        plain_body: dict[str, object] = {
+            "title": "Plain note", "canonical_text": "Repin the mutation manifest before committing.",
+            "memory_type": "procedure", "domain": "project", **extra,
+        }
+        lesson_body: dict[str, object] = {"lesson": LESSON, "domain": "project", **extra}
+        plain = owner_vault.call(monkeypatch, None, "alice_memory_commit", plain_body)
+        lesson = owner_vault.call(monkeypatch, None, "alice_memory_commit", lesson_body)
+        assert lesson["status"] == plain["status"], (arm, plain["status"], lesson["status"])
+        assert lesson["policy_decision"]["reason"] == plain["policy_decision"]["reason"], arm
 
 
 def test_a_proposal_only_key_s_lesson_waits_like_its_plain_write(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1128,3 +1169,37 @@ def test_the_service_correct_refusal_on_a_sqlite_vault(vault: Vault, monkeypatch
                 memory_id=memory_id, canonical_text=REFUSED_SENTENCES[0],
             )
     assert row() == approved_row
+
+
+@pytest.mark.parametrize(
+    "arm,extra",
+    [
+        ("external_source", {"source_type": "email"}),
+        ("bulk_source_refs", {"source_refs": [f"note:{i}" for i in range(9)]}),
+        ("low_confidence", {"confidence": 0.4}),
+    ],
+)
+def test_a_bound_key_s_lesson_keeps_the_arm_s_reason_in_its_reasons(vault: Vault, monkeypatch: pytest.MonkeyPatch, arm: str, extra: dict) -> None:
+    """Guard: the plain arm runs before the publisher rule for a bound key, and its reason stays
+    in the lesson's reasons next to ``lesson_requires_approval``.
+
+    Mutation: the chain mutation; the arm is skipped for the lesson, the arm's reason never
+    appears, and the assertion fails.
+    """
+
+    writer = _first_key_with_agent(vault, "writer", "project_scoped_agent", "alpha")
+    plain = vault.call(
+        monkeypatch, writer, "alice_memory_commit",
+        {"title": "Plain note", "canonical_text": "Repin the mutation manifest before committing.",
+         "memory_type": "procedure", "domain": "project", "agent_id": "writer", "agent_type": "coding_agent", **extra},
+    )
+    assert plain["status"] == "review_required", arm
+    arm_reason = plain["policy_decision"]["reason"]
+    lesson = vault.call(
+        monkeypatch, writer, "alice_memory_commit",
+        {"lesson": LESSON, "domain": "project", "agent_id": "writer", "agent_type": "coding_agent", **extra},
+    )
+    assert lesson["status"] == "review_required", arm
+    reasons = lesson["policy_decision"]["reasons"]
+    assert arm_reason in reasons, (arm, reasons)
+    assert "lesson_requires_approval" in reasons, (arm, reasons)
