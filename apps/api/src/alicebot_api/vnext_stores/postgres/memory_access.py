@@ -1103,7 +1103,6 @@ def search_memories_vector(
     # SET LOCAL scopes it to the current transaction.
     with self.conn.cursor() as cur:
         cur.execute("SET LOCAL hnsw.iterative_scan = 'strict_order'")
-    lesson_sql = " AND status = 'active' AND jsonb_typeof(value -> 'lesson') = 'object'" if lessons_only else ""
     result_columns = (
         "id, user_id, metadata_json, domain, sensitivity, project_id, created_at, updated_at, "
         "valid_from, canonical_text, title, summary"
@@ -1115,7 +1114,6 @@ def search_memories_vector(
                 FROM memories
                 WHERE deleted_at IS NULL
                   AND embedding_vector IS NOT NULL
-                  {lesson_sql}
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))

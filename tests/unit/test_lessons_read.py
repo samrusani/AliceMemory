@@ -847,3 +847,26 @@ def test_nonadmin_writer_cannot_publish_by_commit_or_confirm(vault, monkeypatch,
         )
     answer = vault.call(monkeypatch, writer, "alice_lessons", {"task": "rebasing", "agent_id": "writer"})
     assert answer["count"] == 0
+
+
+def test_vector_fusion_keeps_text_ties_stable(vault, monkeypatch):
+    """Guard: equal text scores enter vector fusion in creation and id order."""
+    import alicebot_api.vnext_retrieval as retrieval
+    from alicebot_api.vnext_embeddings import EMBEDDING_SIGNATURE_VERSION, memory_embedding_content_sha256
+    from tests.unit.test_vnext_retrieval import StubEmbeddingProvider
+
+    ids = [vault.commit(monkeypatch, None)["memory"]["id"] for _ in range(3)]
+    with sqlite3.connect(vault.path) as conn:
+        conn.execute("update memories set created_at = '2020-01-01T00:00:00Z'")
+        conn.commit()
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        store = SQLiteVNextStore(conn, vault.user)
+        for memory_id in ids:
+            row = store.get_memory(memory_id)
+            store.update_memory_embedding(
+                memory_id=memory_id, vector=[0.1] * 1536, provider="stub", model="stub-embedding",
+                content_sha256=memory_embedding_content_sha256(row), signature_version=EMBEDDING_SIGNATURE_VERSION,
+            )
+    monkeypatch.setattr(retrieval, "get_embedding_provider", lambda: StubEmbeddingProvider())
+    answer = vault.call(monkeypatch, None, "alice_lessons", {"task": "rebasing", "limit": 10})
+    assert [row["id"] for row in answer["lessons"]] == sorted(ids)

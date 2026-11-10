@@ -45,7 +45,7 @@ SOURCE_RECEIPTS = {
     # Re-minted so the two roll-up lookups overlap scope united with floor.
     # Every other statement still uses the scope expression. Previous receipt 46946cc0...
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "c331bca04ae62537e409bdfab916829fd9ee0c3da34b51d2615aae8d9be3e070"
+        "e8b31c35c51641560d215884b2ccb6883def800bea0069709679e2bc55295c0b"
     ),
     # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
     # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
@@ -96,7 +96,7 @@ SOURCE_RECEIPTS = {
     # Re-minted so the memory partition read passes the floor identity.
     # Previous receipt 1580dca3...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "011017ff0b34eb5b72fe7101d618bf21a8b67e1a6a4c242b5c0930b4d902c112"
+        "3b57b6f0c0127394b3526aa57c3e5f80e5e9e9b7a4810ef2ef9f57b73dd8eb0d"
     ),
 }
 

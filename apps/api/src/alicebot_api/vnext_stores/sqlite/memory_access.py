@@ -1422,7 +1422,7 @@ def search_memories_vector(
                   AND deleted_at IS NULL
                   AND embedding IS NOT NULL
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{scope_sql}"""
-    lesson_sql = " AND status = 'active' AND json_type(value, '$.lesson') = 'object'" if lessons_only else ""
+    lesson_sql = ""
     if lesson_candidate_ids is not None:
         lesson_sql += " AND id IN (SELECT value FROM json_each(?))"
         params.append(json.dumps(sorted(lesson_candidate_ids)))

@@ -5038,7 +5038,7 @@
           "line": 805,
           "before": "                WHERE deleted_at IS NULL\n                  AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}\n                  AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')\n                  AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR memory_type = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])\n                  AND (%s::text[] IS NULL OR created_by_agent_id = ANY(%s::text[]))\n                  AND (%s::text IS NULL OR run_id = %s)\n                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp())\n                  AND (\n                    memory_key ILIKE ANY(%s::text[])",
           "after": "                WHERE TRUE\n                  AND TRUE\n                  AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')\n                  AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR memory_type = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])\n                  AND (%s::text[] IS NULL OR created_by_agent_id = ANY(%s::text[]))\n                  AND (%s::text IS NULL OR run_id = %s)\n                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp())\n                  AND (\n                    memory_key ILIKE ANY(%s::text[])",
-          "sha256": "c331bca04ae62537e409bdfab916829fd9ee0c3da34b51d2615aae8d9be3e070"
+          "sha256": "e8b31c35c51641560d215884b2ccb6883def800bea0069709679e2bc55295c0b"
         }
       ],
       "pytest": [
@@ -23259,10 +23259,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py",
-          "line": 1288,
+          "line": 1286,
           "before": "                WHERE confirmation_id = %s\n",
           "after": "                WHERE confirmation_id = %s::uuid\n",
-          "sha256": "c331bca04ae62537e409bdfab916829fd9ee0c3da34b51d2615aae8d9be3e070"
+          "sha256": "e8b31c35c51641560d215884b2ccb6883def800bea0069709679e2bc55295c0b"
         }
       ],
       "pytest": [
@@ -24532,7 +24532,7 @@
           "line": 1263,
           "before": "expiry_sql, expiry_params = self._expiry_clause(include_expired, prefix=\"m.\")",
           "after": "expiry_sql, expiry_params = self._expiry_clause(True, prefix=\"m.\")",
-          "sha256": "011017ff0b34eb5b72fe7101d618bf21a8b67e1a6a4c242b5c0930b4d902c112"
+          "sha256": "3b57b6f0c0127394b3526aa57c3e5f80e5e9e9b7a4810ef2ef9f57b73dd8eb0d"
         }
       ],
       "pytest": [
@@ -24564,7 +24564,7 @@
           "line": 1284,
           "before": "        if lessons_only else \"-bm25(memories_fts, 1.0, 0.4, 0.2, 0.4, 0.1)\"",
           "after": "        if False else \"-bm25(memories_fts, 1.0, 0.4, 0.2, 0.4, 0.1)\"",
-          "sha256": "011017ff0b34eb5b72fe7101d618bf21a8b67e1a6a4c242b5c0930b4d902c112"
+          "sha256": "3b57b6f0c0127394b3526aa57c3e5f80e5e9e9b7a4810ef2ef9f57b73dd8eb0d"
         }
       ],
       "pytest": [
@@ -24596,13 +24596,13 @@
           "line": 1280,
           "before": "\"fts_score DESC, m.created_at DESC, m.id ASC\" if lessons_only",
           "after": "\"fts_score DESC, m.created_at DESC, m.id DESC\" if lessons_only",
-          "sha256": "011017ff0b34eb5b72fe7101d618bf21a8b67e1a6a4c242b5c0930b4d902c112"
+          "sha256": "3b57b6f0c0127394b3526aa57c3e5f80e5e9e9b7a4810ef2ef9f57b73dd8eb0d"
         }
       ],
       "pytest": [
-        "tests/unit/test_lessons_read.py::test_default_limit_and_stable_ties"
+        "tests/unit/test_lessons_read.py::test_vector_fusion_keeps_text_ties_stable"
       ],
-      "expected_failure": "test_default_limit_and_stable_ties"
+      "expected_failure": "test_vector_fusion_keeps_text_ties_stable"
     },
     {
       "name": "lessons-confirm-actor",
@@ -24641,10 +24641,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py",
-          "line": 1425,
-          "before": "lesson_sql = \" AND status = 'active' AND json_type(value, '$.lesson') = 'object'\" if lessons_only else \"\"",
-          "after": "lesson_sql = \"\"",
-          "sha256": "011017ff0b34eb5b72fe7101d618bf21a8b67e1a6a4c242b5c0930b4d902c112"
+          "line": 1427,
+          "before": "lesson_sql += \" AND id IN (SELECT value FROM json_each(?))\"",
+          "after": "lesson_sql += \" AND ? IS NOT NULL\"",
+          "sha256": "3b57b6f0c0127394b3526aa57c3e5f80e5e9e9b7a4810ef2ef9f57b73dd8eb0d"
         }
       ],
       "pytest": [
@@ -24852,7 +24852,7 @@
           "line": 342,
           "before": "lesson_sql = \" AND jsonb_typeof(value -> 'lesson') = 'object'\" if lessons_only else \"\"",
           "after": "lesson_sql = \"\"",
-          "sha256": "c331bca04ae62537e409bdfab916829fd9ee0c3da34b51d2615aae8d9be3e070"
+          "sha256": "e8b31c35c51641560d215884b2ccb6883def800bea0069709679e2bc55295c0b"
         }
       ],
       "pytest": [
@@ -24868,7 +24868,7 @@
           "line": 544,
           "before": "lesson_sql = \" AND json_type(value, '$.lesson') = 'object'\" if lessons_only else \"\"",
           "after": "lesson_sql = \"\"",
-          "sha256": "011017ff0b34eb5b72fe7101d618bf21a8b67e1a6a4c242b5c0930b4d902c112"
+          "sha256": "3b57b6f0c0127394b3526aa57c3e5f80e5e9e9b7a4810ef2ef9f57b73dd8eb0d"
         }
       ],
       "pytest": [
@@ -25038,7 +25038,7 @@
           "before": "\"2 * (SELECT COALESCE(sum(cardinality(term.positions)), 0) \"",
           "after": "\"3 * (SELECT COALESCE(sum(cardinality(term.positions)), 0) \"",
           "line": 915,
-          "sha256": "c331bca04ae62537e409bdfab916829fd9ee0c3da34b51d2615aae8d9be3e070"
+          "sha256": "e8b31c35c51641560d215884b2ccb6883def800bea0069709679e2bc55295c0b"
         }
       ],
       "pytest": [
@@ -25102,7 +25102,7 @@
           "before": "lesson_sql += \" AND m.id IN (SELECT value FROM json_each(?))\"",
           "after": "lesson_sql += \" AND ? IS NOT NULL\"",
           "line": 1279,
-          "sha256": "011017ff0b34eb5b72fe7101d618bf21a8b67e1a6a4c242b5c0930b4d902c112"
+          "sha256": "3b57b6f0c0127394b3526aa57c3e5f80e5e9e9b7a4810ef2ef9f57b73dd8eb0d"
         }
       ],
       "pytest": [
@@ -25138,7 +25138,7 @@
           "before": "lesson_sql += \" AND id IN (SELECT value FROM json_each(?))\"",
           "after": "lesson_sql += \" AND ? IS NOT NULL\"",
           "line": 1427,
-          "sha256": "011017ff0b34eb5b72fe7101d618bf21a8b67e1a6a4c242b5c0930b4d902c112"
+          "sha256": "3b57b6f0c0127394b3526aa57c3e5f80e5e9e9b7a4810ef2ef9f57b73dd8eb0d"
         }
       ],
       "pytest": [
@@ -25156,7 +25156,7 @@
           "before": "candidate_sql = \" AND id = ANY(%s::uuid[])\"",
           "after": "candidate_sql = \" AND %s::uuid[] IS NOT NULL\"",
           "line": 1094,
-          "sha256": "c331bca04ae62537e409bdfab916829fd9ee0c3da34b51d2615aae8d9be3e070"
+          "sha256": "e8b31c35c51641560d215884b2ccb6883def800bea0069709679e2bc55295c0b"
         }
       ],
       "pytest": [
@@ -25174,7 +25174,7 @@
           "before": "lesson_sql += \" AND id = ANY(%s::uuid[])\"",
           "after": "lesson_sql += \" AND %s::uuid[] IS NOT NULL\"",
           "line": 906,
-          "sha256": "c331bca04ae62537e409bdfab916829fd9ee0c3da34b51d2615aae8d9be3e070"
+          "sha256": "e8b31c35c51641560d215884b2ccb6883def800bea0069709679e2bc55295c0b"
         }
       ],
       "pytest": [
@@ -25201,6 +25201,22 @@
         "text"
       ],
       "expected_failure": "test_hidden_path_prefix_does_not_hide_a_visible_lesson"
+    },
+    {
+      "name": "lessons-result-id-order",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "before": "        candidates.sort(key=lambda item: str(item[0][\"id\"]))",
+          "after": "        pass",
+          "line": 177,
+          "sha256": "363d9d057eb25b276c8e27e23b833f4ddb27db5c0e51f49dbf2f901729b3fc60"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_read.py::test_default_limit_and_stable_ties"
+      ],
+      "expected_failure": "test_default_limit_and_stable_ties"
     }
   ]
 }
