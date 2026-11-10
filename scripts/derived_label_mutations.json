@@ -24781,6 +24781,70 @@
       "expected_failure": "test_tools_list_annotations_for_default_and_full"
     },
     {
+      "name": "lessons-door-classification",
+      "edits": [
+        {
+          "file": "tests/unit/test_label_door_registry.py",
+          "line": 89,
+          "before": "    \"mcp/lessons.py:_handle_alice_lessons\": None,\n",
+          "after": "",
+          "sha256": "50f563ed4791c71ab2be41254b2bc0b7b38eef86abce4b63cc3c9a053b2e834d"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_door_registry.py::test_every_scanned_reader_is_classified"
+      ],
+      "expected_failure": "test_every_scanned_reader_is_classified"
+    },
+    {
+      "name": "lessons-attribution-classification",
+      "edits": [
+        {
+          "file": "tests/unit/test_label_door_registry.py",
+          "line": 150,
+          "before": "    \"mcp/lessons.py:_RevisionView.list_events\": \"private attribution delegate; memory_writer receives only a memory admitted by the lesson handler\",\n",
+          "after": "",
+          "sha256": "50f563ed4791c71ab2be41254b2bc0b7b38eef86abce4b63cc3c9a053b2e834d"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_door_registry.py::test_every_scanned_reader_is_classified"
+      ],
+      "expected_failure": "test_every_scanned_reader_is_classified"
+    },
+    {
+      "name": "lessons-door-guard",
+      "edits": [
+        {
+          "file": "tests/unit/test_label_door_registry.py",
+          "line": 89,
+          "before": "    \"mcp/lessons.py:_handle_alice_lessons\": None,",
+          "after": "    \"mcp/lessons.py:_handle_alice_lessons\": \"_publication\",",
+          "sha256": "50f563ed4791c71ab2be41254b2bc0b7b38eef86abce4b63cc3c9a053b2e834d"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_door_registry.py::test_every_exact_door_calls_the_guard"
+      ],
+      "expected_failure": "test_every_exact_door_calls_the_guard"
+    },
+    {
+      "name": "lessons-policy-view",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "line": 155,
+          "before": "        project_view=ProjectView.unscoped(),",
+          "after": "        project_view=None,",
+          "sha256": "c3c46b5d96511dba53345c78e3389c9cd7feba25a817df42ae58626ed577a916"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_per_project_policy_views.py::test_every_read_choke_point_call_names_its_view_and_every_unscoped_site_is_listed"
+      ],
+      "expected_failure": "test_every_read_choke_point_call_names_its_view_and_every_unscoped_site_is_listed"
+    },
+    {
       "name": "lessons-package-module",
       "edits": [
         {
