@@ -464,13 +464,6 @@ SCHEDULER_RUN_COLUMNS = """
 
 
 
-
-
-
-
-
-
-
 def lock_brain_charter(store: Any) -> None:
     """Serialize the saves of the brain charter, and the readability check before one, per user.
 
