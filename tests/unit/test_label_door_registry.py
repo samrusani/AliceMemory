@@ -13,7 +13,6 @@ READS = {
     "get_memory",
     "get_memory_for_update",
     "get_memories_by_ids",
-    "list_lesson_memories",
     "list_lesson_path_rows",
     "list_revisions_for_memories",
     "list_memories",

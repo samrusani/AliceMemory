@@ -196,7 +196,6 @@ from alicebot_api.vnext_stores.sqlite.memory_access import (
     search_memories_by_time as _memory_search_memories_by_time,
     search_memories_fts as _memory_search_memories_fts,
     search_memories_vector as _memory_search_memories_vector,
-    list_lesson_memories as _memory_list_lesson_memories,
     list_lesson_path_rows as _memory_list_lesson_path_rows,
 )
 from alicebot_api.vnext_stores.sqlite.primitives import (
@@ -1961,7 +1960,6 @@ class SQLiteVNextStore:
         else:
             conn.execute(f"RELEASE SAVEPOINT {name}")
 
-    list_lesson_memories = _memory_list_lesson_memories
     list_lesson_path_rows = _memory_list_lesson_path_rows
     list_revisions_for_memories = _events_list_revisions_for_memories
 

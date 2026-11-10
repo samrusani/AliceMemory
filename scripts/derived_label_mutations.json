@@ -469,8 +469,8 @@
           "file": "apps/api/src/alicebot_api/sqlite_store.py",
           "before": "    key = (\"sqlite-parent-hints\", raw)",
           "after": "    key = (\"sqlite-parent-hints\", \"\")",
-          "sha256": "f5f0dffe06f5f0d74eeda7d563c6caf93a72e51606a0f88a1c52e870164a48bc",
-          "line": 432
+          "sha256": "2a52eb29eac68ab0896fa2dd831fad3f936b3dafbbc43966bc056312b84a5ad9",
+          "line": 431
         }
       ],
       "pytest": [
@@ -517,8 +517,8 @@
           "file": "apps/api/src/alicebot_api/vnext_store.py",
           "before": "OR COALESCE(NULLIF(s.domain, ''), 'unknown') = ANY(%s::text[])",
           "after": "OR %s::text[] IS NOT NULL",
-          "line": 631,
-          "sha256": "e47e54ddfa6be9f28a5062a943963620525b19690b3f377697c286aef86185f3"
+          "line": 632,
+          "sha256": "8b63d1ad5c2f628fd0d3d3daf502495741de3dfb8d90fa46da22656ecc02cb28"
         }
       ],
       "pytest": [
@@ -533,8 +533,8 @@
           "file": "apps/api/src/alicebot_api/vnext_store.py",
           "before": "COALESCE(NULLIF(s.sensitivity, ''), 'unknown') = ANY(%s::text[])",
           "after": "%s::text[] IS NOT NULL",
-          "line": 633,
-          "sha256": "e47e54ddfa6be9f28a5062a943963620525b19690b3f377697c286aef86185f3"
+          "line": 634,
+          "sha256": "8b63d1ad5c2f628fd0d3d3daf502495741de3dfb8d90fa46da22656ecc02cb28"
         }
       ],
       "pytest": [
@@ -565,8 +565,8 @@
           "file": "apps/api/src/alicebot_api/vnext_store.py",
           "before": "e.target_id = s.id::text",
           "after": "lower(e.target_id) = s.id::text",
-          "line": 629,
-          "sha256": "e47e54ddfa6be9f28a5062a943963620525b19690b3f377697c286aef86185f3"
+          "line": 630,
+          "sha256": "8b63d1ad5c2f628fd0d3d3daf502495741de3dfb8d90fa46da22656ecc02cb28"
         }
       ],
       "pytest": [
@@ -3121,10 +3121,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_store.py",
-          "line": 1951,
+          "line": 1950,
           "before": "            invalidate_read_labels(self)",
           "after": "            pass",
-          "sha256": "f5f0dffe06f5f0d74eeda7d563c6caf93a72e51606a0f88a1c52e870164a48bc"
+          "sha256": "2a52eb29eac68ab0896fa2dd831fad3f936b3dafbbc43966bc056312b84a5ad9"
         }
       ],
       "pytest": [
@@ -3670,10 +3670,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 634,
+          "line": 635,
           "before": "                 AND NOT {event_names_a_row_sql(\"e\")}\"\"\",",
           "after": "                 AND TRUE\"\"\",",
-          "sha256": "e47e54ddfa6be9f28a5062a943963620525b19690b3f377697c286aef86185f3"
+          "sha256": "8b63d1ad5c2f628fd0d3d3daf502495741de3dfb8d90fa46da22656ecc02cb28"
         }
       ],
       "pytest": [
@@ -3686,10 +3686,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 654,
+          "line": 655,
           "before": " <> 'source' OR {event_names_a_row_sql()})",
           "after": " <> 'source')",
-          "sha256": "e47e54ddfa6be9f28a5062a943963620525b19690b3f377697c286aef86185f3"
+          "sha256": "8b63d1ad5c2f628fd0d3d3daf502495741de3dfb8d90fa46da22656ecc02cb28"
         }
       ],
       "pytest": [
@@ -3702,10 +3702,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 519,
+          "line": 520,
           "before": "        if kind == \"edge\":",
           "after": "        if False:",
-          "sha256": "e47e54ddfa6be9f28a5062a943963620525b19690b3f377697c286aef86185f3"
+          "sha256": "8b63d1ad5c2f628fd0d3d3daf502495741de3dfb8d90fa46da22656ecc02cb28"
         }
       ],
       "pytest": [
@@ -3718,10 +3718,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_store.py",
-          "line": 525,
+          "line": 524,
           "before": "        if kind == \"edge\":",
           "after": "        if False:",
-          "sha256": "f5f0dffe06f5f0d74eeda7d563c6caf93a72e51606a0f88a1c52e870164a48bc"
+          "sha256": "2a52eb29eac68ab0896fa2dd831fad3f936b3dafbbc43966bc056312b84a5ad9"
         }
       ],
       "pytest": [
@@ -5038,7 +5038,7 @@
           "line": 826,
           "before": "                WHERE deleted_at IS NULL\n                  AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}\n                  AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')\n                  AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR memory_type = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])\n                  AND (%s::text[] IS NULL OR created_by_agent_id = ANY(%s::text[]))\n                  AND (%s::text IS NULL OR run_id = %s)\n                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp()){lesson_sql}\n                  AND (\n                    memory_key ILIKE ANY(%s::text[])",
           "after": "                WHERE TRUE\n                  AND TRUE\n                  AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')\n                  AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR memory_type = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])\n                  AND (%s::text[] IS NULL OR created_by_agent_id = ANY(%s::text[]))\n                  AND (%s::text IS NULL OR run_id = %s)\n                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp()){lesson_sql}\n                  AND (\n                    memory_key ILIKE ANY(%s::text[])",
-          "sha256": "9dcccb7d91eda614311e42a7957e3f20e993945b671e14c31ee2e4de609b068a"
+          "sha256": "02fdd8c0307287bebf3410c047f37ea88520abfca2d7aa59044eea72fd7afc67"
         }
       ],
       "pytest": [
@@ -7060,10 +7060,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 2934,
+          "line": 2935,
           "before": "        lock_brain_charter(self)\n        row = self._fetch_one(\n            \"upsert_brain_charter\",",
           "after": "        row = self._fetch_one(\n            \"upsert_brain_charter\",",
-          "sha256": "e47e54ddfa6be9f28a5062a943963620525b19690b3f377697c286aef86185f3"
+          "sha256": "8b63d1ad5c2f628fd0d3d3daf502495741de3dfb8d90fa46da22656ecc02cb28"
         }
       ],
       "pytest": [
@@ -7402,17 +7402,17 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 2844,
+          "line": 2845,
           "before": "                  SELECT id AS next_id\n",
           "after": "                  SELECT id\n",
-          "sha256": "e47e54ddfa6be9f28a5062a943963620525b19690b3f377697c286aef86185f3"
+          "sha256": "8b63d1ad5c2f628fd0d3d3daf502495741de3dfb8d90fa46da22656ecc02cb28"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 2858,
+          "line": 2859,
           "before": "                WHERE task_queue.id = next_task.next_id\n",
           "after": "                WHERE task_queue.id = next_task.id\n",
-          "sha256": "e47e54ddfa6be9f28a5062a943963620525b19690b3f377697c286aef86185f3"
+          "sha256": "8b63d1ad5c2f628fd0d3d3daf502495741de3dfb8d90fa46da22656ecc02cb28"
         }
       ],
       "pytest": [
@@ -7425,17 +7425,17 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 2844,
+          "line": 2845,
           "before": "                  SELECT id AS next_id\n",
           "after": "                  SELECT id\n",
-          "sha256": "e47e54ddfa6be9f28a5062a943963620525b19690b3f377697c286aef86185f3"
+          "sha256": "8b63d1ad5c2f628fd0d3d3daf502495741de3dfb8d90fa46da22656ecc02cb28"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 2858,
+          "line": 2859,
           "before": "                WHERE task_queue.id = next_task.next_id\n",
           "after": "                WHERE task_queue.id = next_task.id\n",
-          "sha256": "e47e54ddfa6be9f28a5062a943963620525b19690b3f377697c286aef86185f3"
+          "sha256": "8b63d1ad5c2f628fd0d3d3daf502495741de3dfb8d90fa46da22656ecc02cb28"
         }
       ],
       "pytest": [
@@ -7752,10 +7752,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_store.py",
-          "line": 2917,
+          "line": 2918,
           "before": "            payload=task_status_payload(status, details),\n",
           "after": "            payload={\"operation\": \"update_status\", \"status\": status, \"details\": details},\n",
-          "sha256": "e47e54ddfa6be9f28a5062a943963620525b19690b3f377697c286aef86185f3"
+          "sha256": "8b63d1ad5c2f628fd0d3d3daf502495741de3dfb8d90fa46da22656ecc02cb28"
         }
       ],
       "pytest": [
@@ -15031,10 +15031,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_store.py",
-          "line": 668,
+          "line": 667,
           "before": "                decoded[key] = loads_stored(value)\n",
           "after": "                decoded[key] = json.loads(value)\n",
-          "sha256": "f5f0dffe06f5f0d74eeda7d563c6caf93a72e51606a0f88a1c52e870164a48bc"
+          "sha256": "2a52eb29eac68ab0896fa2dd831fad3f936b3dafbbc43966bc056312b84a5ad9"
         }
       ],
       "pytest": [
@@ -21433,10 +21433,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_store.py",
-          "line": 1344,
+          "line": 1343,
           "before": "            prefix=\"s.\",\n            domains=domains,",
           "after": "            prefix=\"s.\",\n            domains=None,",
-          "sha256": "f5f0dffe06f5f0d74eeda7d563c6caf93a72e51606a0f88a1c52e870164a48bc"
+          "sha256": "2a52eb29eac68ab0896fa2dd831fad3f936b3dafbbc43966bc056312b84a5ad9"
         }
       ],
       "pytest": [
@@ -23262,7 +23262,7 @@
           "line": 1279,
           "before": "                WHERE confirmation_id = %s\n",
           "after": "                WHERE confirmation_id = %s::uuid\n",
-          "sha256": "9dcccb7d91eda614311e42a7957e3f20e993945b671e14c31ee2e4de609b068a"
+          "sha256": "02fdd8c0307287bebf3410c047f37ea88520abfca2d7aa59044eea72fd7afc67"
         }
       ],
       "pytest": [
@@ -23426,10 +23426,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_store.py",
-          "line": 1132,
+          "line": 1131,
           "before": "                WHERE content_hash = ?\n                  AND user_id = ?\n                  AND deleted_at IS NULL\n                ORDER BY +captured_at DESC, +id DESC\n                \"\"\",",
           "after": "                WHERE content_hash = ?\n                  AND user_id = ?\n                ORDER BY +captured_at DESC, +id DESC\n                \"\"\",",
-          "sha256": "f5f0dffe06f5f0d74eeda7d563c6caf93a72e51606a0f88a1c52e870164a48bc"
+          "sha256": "2a52eb29eac68ab0896fa2dd831fad3f936b3dafbbc43966bc056312b84a5ad9"
         }
       ],
       "pytest": [
@@ -23831,10 +23831,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/sqlite_store.py",
-          "line": 1833,
+          "line": 1832,
           "before": "                \"key_prefix\": str(row[\"key_prefix\"]),\n                \"label\": row.get(\"label\"),",
           "after": "                \"key_prefix\": str(row[\"key_prefix\"]),\n                \"key_hash\": str(row[\"key_hash\"]),\n                \"label\": row.get(\"label\"),",
-          "sha256": "f5f0dffe06f5f0d74eeda7d563c6caf93a72e51606a0f88a1c52e870164a48bc"
+          "sha256": "2a52eb29eac68ab0896fa2dd831fad3f936b3dafbbc43966bc056312b84a5ad9"
         }
       ],
       "pytest": [
@@ -24388,7 +24388,7 @@
           "line": 1679,
           "before": "    params: list[object] = [self.user_id, *domain_params, *sensitivity_params, *project_params, *expiry_params]\n    where = (\n        \"m.user_id = ? \"\n        \"AND m.deleted_at IS NULL \"\n        f\"AND {label_sql} \"\n        \"AND m.memory_type = 'procedure' \"\n        f\"AND json_type(m.value, '$.lesson') = 'object'{domain_sql}{sensitivity_sql}{project_sql}{expiry_sql}\"\n    )",
           "after": "    params: list[object] = [self.user_id, *domain_params, *sensitivity_params, *project_params]\n    where = (\n        \"m.user_id = ? \"\n        \"AND m.deleted_at IS NULL \"\n        f\"AND {label_sql} \"\n        \"AND m.memory_type = 'procedure' \"\n        f\"AND json_type(m.value, '$.lesson') = 'object'{domain_sql}{sensitivity_sql}{project_sql}\"\n    )",
-          "sha256": "fab8e9cf2bf97166d57a6acdb52336847cd16b1cc8f970b0391c6222bf437102"
+          "sha256": "d7517ec858dd812c5da776d0226d1b1722f60f0718d75539ee97dd1f15a4ad89"
         }
       ],
       "pytest": [

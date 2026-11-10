@@ -579,7 +579,7 @@ def test_a_bound_key_reads_the_same_lessons_when_hidden_rows_are_added(
     """Guard: the lessons read passes the caller's domains, sensitivity and project scope into the recall stages and the lesson list.
 
     Mutation: pass an empty project scope, every domain and every sensitivity into ``_lesson_stage_rows``
-    and ``list_lesson_memories``. The copy that holds another project's lesson then answers differently
+    and ``list_lesson_path_rows``. The copy that holds another project's lesson then answers differently
     and this fails.
     """
 
@@ -630,7 +630,7 @@ def test_retired_lessons_are_not_returned_and_an_unexpired_one_is(
     """Guard: a row that is not active is dropped, and the lesson list uses the recall expiry clause.
 
     Mutation: remove ``status != "active"`` from ``_published_lesson``. The superseded lesson is
-    returned and this fails. Mutation: remove the expiry clause from ``list_lesson_memories``. The
+    returned and this fails. Mutation: remove the expiry clause from ``list_lesson_path_rows``. The
     expired lesson is returned and this fails.
     """
 

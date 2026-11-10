@@ -135,7 +135,7 @@ def test_a_lesson_block_with_no_publishing_act_is_not_returned_on_postgres(migra
 def test_a_bound_key_does_not_read_another_projects_lesson_on_postgres(migrated_database_urls, monkeypatch) -> None:
     """Guard: the lessons read passes the caller's project scope into the PostgreSQL lesson list and search.
 
-    Mutation: pass an empty project scope into ``list_lesson_memories``. The beta key then sees the
+    Mutation: pass an empty project scope into ``list_lesson_path_rows``. The beta key then sees the
     alpha lesson and this fails.
     """
 

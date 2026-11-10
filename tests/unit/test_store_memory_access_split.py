@@ -44,12 +44,13 @@ SOURCE_RECEIPTS = {
     # and drops the ``deleted_at IS NULL`` clause only when it is true. Previous Postgres receipt f642880f...
     # Re-minted so the two roll-up lookups overlap scope united with floor.
     # Every other statement still uses the scope expression. Previous receipt 46946cc0...
-    # Re-minted for the optional lesson predicate on the three search reads and for list_lesson_memories.
+    # Re-minted for the optional lesson predicate on the three search reads and for list_lesson_path_rows.
     # The predicate is empty unless a caller asks for lessons, so an ordinary search keeps its statement.
     # Re-minted once more so the lesson where interpolates POSTGRES_UNEXPIRED_SQL, the same expiry test
-    # the other reads use. Previous receipt 46370909...
+    # the other reads use. Re-minted again when the unused lesson list was removed and the path read
+    # started carrying created time and status. Previous receipt a296f1ae...
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "a296f1ae1642814ef51f9267ba23ecc7b3714a8637b5e57b7a5fdf15b2f1a1ae"
+        "02fdd8c0307287bebf3410c047f37ea88520abfca2d7aa59044eea72fd7afc67"
     ),
     # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
     # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
@@ -99,9 +100,11 @@ SOURCE_RECEIPTS = {
     # Re-minted so the two roll-up lookups overlap scope or floor. Previous receipt 64f21989...
     # Re-minted so the memory partition read passes the floor identity.
     # Previous receipt 1580dca3...
-    # Re-minted for the same optional lesson predicate and list_lesson_memories.
+    # Re-minted for the same optional lesson predicate and list_lesson_path_rows.
+    # Re-minted again when the unused lesson list was removed and the path read
+    # started carrying created time and status.
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "a68a3e62298c819ad4089325e9f7a9702c175acb928cba6b5011b9f42d81fa64"
+        "d7517ec858dd812c5da776d0226d1b1722f60f0718d75539ee97dd1f15a4ad89"
     ),
 }
 
@@ -237,8 +240,8 @@ EXPECTED_CLASS_ORDERS = {
     # those two names restores the previous receipt (172, 6f1a459f...).
     # One Postgres-only method more, ``get_edge``, after ``create_edge`` (2026-10-08): the edge review route reads one edge
     # by id before it judges its ends. Previous receipt (184, e5bb6fbb...). Every other member keeps its order.
-    # list_lesson_memories and list_revisions_for_memories are appended after savepoint.
-    "PostgresVNextStore": (188, "21915f98457338d7a5ad60586db07cfbb894b8cbce95b727c02753c16603b126"),
+    # list_lesson_path_rows and list_revisions_for_memories are appended after savepoint.
+    "PostgresVNextStore": (187, "0f6fc30b31a57e2abb8a93856c718e1c5e2c12ac08518fd27d4cc18f8e484f95"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
@@ -256,7 +259,7 @@ EXPECTED_CLASS_ORDERS = {
     # Label lock: lock_label_writes and read_label_rows follow __init__. Dropping
     # those two names restores the previous receipt (134, 13012720...).
     # The same two methods, appended after savepoint.
-    "SQLiteVNextStore": (144, "109405cde545c5d66cab598df7aa25103fed8dd3c7016b5753c8277225d9cf29"),
+    "SQLiteVNextStore": (143, "0b6eb87e9ba8cfa939c017b8bf824fe50f9ff00538047175a25f5f6ad984a823"),
 }
 
 

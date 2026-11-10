@@ -1687,29 +1687,6 @@ def _lesson_memory_where(
     return where, tuple(params)
 
 
-def list_lesson_memories(
-    self,
-    *,
-    domains: list[str] | None = None,
-    sensitivity_allowed: list[str] | None = None,
-    projects: tuple[str, ...] = (),
-) -> list[VNextRow]:
-    """Procedure rows whose stored value holds a lesson object, under the same fence as memory search.
-
-    One statement for the whole set. The caller keeps a row only when it is active and a publishing
-    revision carries the lesson.
-    """
-
-    where, params = _lesson_memory_where(
-        self, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=projects,
-    )
-    prefixed = ", ".join(f"m.{column}" for column in MEMORY_COLUMNS)
-    return self._fetch_all(
-        f"SELECT {prefixed} FROM memories m WHERE {where}",
-        params,
-    )
-
-
 def list_lesson_path_rows(
     self,
     *,
@@ -1717,9 +1694,9 @@ def list_lesson_path_rows(
     sensitivity_allowed: list[str] | None = None,
     projects: tuple[str, ...] = (),
 ) -> list[VNextRow]:
-    """Id and stored lesson paths for the rows ``list_lesson_memories`` would return.
+    """Id, stored lesson paths, created time and status for procedure rows that hold a lesson.
 
-    One statement. The caller matches paths, then loads the full row only for a match.
+    One statement. The caller matches paths, then loads a full row only for an answer it still needs.
     """
 
     where, params = _lesson_memory_where(
@@ -1760,7 +1737,6 @@ for _memory_method in (
     search_memories_fts,
     search_memories_vector,
     search_memories_by_time,
-    list_lesson_memories,
     list_lesson_path_rows,
 ):
     _memory_method.__module__ = "alicebot_api.sqlite_store"

@@ -152,7 +152,6 @@ from alicebot_api.vnext_stores.postgres.memory_access import (
     latest_agentic_commit_memory as _memory_latest_agentic_commit_memory,
     list_accepted_rollup_cards as _memory_list_accepted_rollup_cards,
     list_memories as _memory_list_memories,
-    list_lesson_memories as _memory_list_lesson_memories,
     list_lesson_path_rows as _memory_list_lesson_path_rows,
     list_memories_by_statuses as _memory_list_memories_by_statuses,
     list_memories_for_staleness_sweep as _memory_list_memories_for_staleness_sweep,
@@ -461,6 +460,8 @@ SCHEDULER_RUN_COLUMNS = """
                   agent_identity_json,
                   metadata_json
                 """
+
+
 
 
 
@@ -3988,7 +3989,6 @@ class PostgresVNextStore:
         else:
             self.conn.execute(f"RELEASE SAVEPOINT {name}")
 
-    list_lesson_memories = _memory_list_lesson_memories
     list_lesson_path_rows = _memory_list_lesson_path_rows
     list_revisions_for_memories = _events_list_revisions_for_memories
 

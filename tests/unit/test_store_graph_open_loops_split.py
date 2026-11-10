@@ -177,9 +177,8 @@ EXPECTED_CLASS_ORDERS = {
     # lock_label_writes and read_label_rows follow __init__. Previous receipt (172, 6f1a459f...).
     # One Postgres-only method more, ``get_edge``, after ``create_edge`` (2026-10-08): the edge review route reads one edge
     # by id before it judges its ends. Previous receipt (184, e5bb6fbb...). Every other member keeps its order.
-    # list_lesson_memories, list_lesson_path_rows and list_revisions_for_memories
-    # are appended after savepoint.
-    "PostgresVNextStore": (188, "21915f98457338d7a5ad60586db07cfbb894b8cbce95b727c02753c16603b126"),
+    # list_lesson_path_rows and list_revisions_for_memories are appended after savepoint.
+    "PostgresVNextStore": (187, "0f6fc30b31a57e2abb8a93856c718e1c5e2c12ac08518fd27d4cc18f8e484f95"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
@@ -196,7 +195,7 @@ EXPECTED_CLASS_ORDERS = {
     # prunable_sources here; every pre-existing class member keeps its order.
     # lock_label_writes and read_label_rows follow __init__. Previous receipt (134, 13012720...).
     # The same three methods, appended after savepoint.
-    "SQLiteVNextStore": (144, "109405cde545c5d66cab598df7aa25103fed8dd3c7016b5753c8277225d9cf29"),
+    "SQLiteVNextStore": (143, "0b6eb87e9ba8cfa939c017b8bf824fe50f9ff00538047175a25f5f6ad984a823"),
 }
 EXPECTED_COLUMN_AST = {
     POSTGRES_COLUMNS_PATH: {
