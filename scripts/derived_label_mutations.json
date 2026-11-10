@@ -24356,7 +24356,7 @@
           "line": 79,
           "before": "action in {\"memory_correct_approve\", \"memory_review_accept\", \"memory_review_promote\"}",
           "after": "action in {\"memory_review_accept\", \"memory_review_promote\"}",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24372,7 +24372,7 @@
           "line": 76,
           "before": "and kind == \"promoted\" and _writer_can_publish(row):",
           "after": "and kind == \"promoted\" and False:",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24388,7 +24388,7 @@
           "line": 55,
           "before": "return row.get(\"created_by_agent_id\") is None and not (",
           "after": "return False and row.get(\"created_by_agent_id\") is None and not (",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24404,7 +24404,7 @@
           "line": 91,
           "before": "    return None\n\n\ndef _handle_alice_lessons",
           "after": "    return {\"by\": \"owner\", \"at\": \"missing\", \"how\": \"committed\"}\n\n\ndef _handle_alice_lessons",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24420,7 +24420,7 @@
           "line": 43,
           "before": "    return any(\n        fnmatch.fnmatchcase(path.removeprefix(\"./\"), entry.removeprefix(\"./\")) for path in paths for entry in entries\n    )",
           "after": "    return False",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24436,7 +24436,7 @@
           "line": 96,
           "before": "if len(task) > 1000:",
           "after": "if False:",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24484,7 +24484,7 @@
           "line": 233,
           "before": "payload={\"returned\": len(result), \"limit\": limit, \"paths_given\": len(paths)},",
           "after": "payload={\"returned\": len(result), \"limit\": limit, \"paths_given\": len(paths), \"task\": task},",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24516,7 +24516,7 @@
           "line": 71,
           "before": "if not isinstance(lesson, Mapping) or published_lesson != lesson:",
           "after": "if not isinstance(lesson, Mapping):",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24532,7 +24532,7 @@
           "line": 126,
           "before": "            include_expired=False,",
           "after": "            include_expired=True,",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24548,7 +24548,7 @@
           "line": 113,
           "before": "projects = tuple(decision.effective_project_scope)",
           "after": "projects = ()",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24580,7 +24580,7 @@
           "line": 188,
           "before": "        revisions = store.stream_lesson_revisions(list(indexed))",
           "after": "        for memory_id in indexed:\n            store.list_revisions(memory_id)\n        revisions = store.stream_lesson_revisions(list(indexed))",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24612,7 +24612,7 @@
           "line": 87,
           "before": "actor = revision.get(\"actor_id\") if actor_type == \"agent\" else \"owner\"",
           "after": "actor = \"owner\"",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24628,7 +24628,7 @@
           "line": 95,
           "before": "task = _parse_required_text(arguments, \"task\")",
           "after": "task = str(arguments.get(\"task\") or \"\")",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24660,7 +24660,7 @@
           "line": 131,
           "before": "        rows = admit_loaded(\n            store, kind=\"memory\", rows=rows, domains=domains, sensitivity_allowed=sensitivity, projects=projects\n        )",
           "after": "        rows = rows",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24676,7 +24676,7 @@
           "line": 58,
           "before": "return isinstance(identity, Mapping) and identity.get(\"permission_profile\") == \"admin_agent\"",
           "after": "return True",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24692,7 +24692,7 @@
           "line": 74,
           "before": "if action == \"agentic_memory_commit\" and kind == \"created\" and _writer_can_publish(row):",
           "after": "if False:",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24708,7 +24708,7 @@
           "line": 71,
           "before": "if not isinstance(lesson, Mapping) or published_lesson != lesson:",
           "after": "if not isinstance(lesson, Mapping):",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24724,7 +24724,7 @@
           "line": 113,
           "before": "projects = tuple(decision.effective_project_scope)",
           "after": "projects = ()",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24740,7 +24740,7 @@
           "line": 79,
           "before": "action in {\"memory_correct_approve\", \"memory_review_accept\", \"memory_review_promote\"}",
           "after": "action in {\"memory_correct_approve\"}",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24756,7 +24756,7 @@
           "line": 197,
           "before": "                except VNextMemoryCommitValidationError:\n                    continue",
           "after": "                except VNextMemoryCommitValidationError:\n                    lesson = _lesson_block_from_payload({\"applies_when\": \"broken\", \"what_happened\": \"broken\", \"do_instead\": \"fix\"})",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24836,7 +24836,7 @@
           "line": 108,
           "before": "        project_view=ProjectView.unscoped(),",
           "after": "        project_view=None,",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24955,10 +24955,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "before": "sensitivity_allowed=ALL_SENSITIVITY,",
+          "before": "sensitivity_allowed=sensitivity_ceiling(identity) or ALL_SENSITIVITY,",
           "after": "sensitivity_allowed=(\"public\", \"internal\", \"private\", \"unknown\"),",
           "line": 109,
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24974,7 +24974,7 @@
           "before": "action == \"agentic_memory_commit\" and kind == \"created\" and _writer_can_publish(row)",
           "after": "action == \"agentic_memory_commit\" and _writer_can_publish(row)",
           "line": 74,
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -24990,7 +24990,7 @@
           "before": "if len(choices) == limit:",
           "after": "if False:",
           "line": 203,
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -25006,7 +25006,7 @@
           "before": "        candidates.sort(key=lambda item: str(item[0].get(\"created_at\") or \"\"), reverse=True)",
           "after": "        pass",
           "line": 183,
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -25022,7 +25022,7 @@
           "before": "            lesson_projection=True,",
           "after": "            lesson_projection=False,",
           "line": 128,
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -25086,7 +25086,7 @@
           "line": 113,
           "before": "projects = tuple(decision.effective_project_scope)",
           "after": "projects = ()",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -25210,7 +25210,7 @@
           "before": "        candidates.sort(key=lambda item: str(item[0][\"id\"]))",
           "after": "        pass",
           "line": 182,
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -25226,7 +25226,7 @@
           "line": 188,
           "before": "        revisions = store.stream_lesson_revisions(list(indexed))",
           "after": "        revisions = iter({\"memory_id\": mid, \"publication_lesson\": block, \"action\": \"memory_correct_approve\", \"revision_type\": \"promoted\", \"actor_type\": \"user\", \"created_at\": \"2020-01-01T00:00:00Z\"} for mid, (_row, block, *_rest) in indexed.items())",
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -25308,7 +25308,7 @@
           "before": "    metadata = row.get(\"metadata_json\", row.get(\"lesson_metadata_raw\"))",
           "after": "    metadata = row.get(\"metadata_json\")",
           "line": 49,
-          "sha256": "d69c82bb8c00e472ddb9a80aafa3f4179242630770046156b47d373ecda5041b"
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
         }
       ],
       "pytest": [
@@ -25331,6 +25331,38 @@
         "tests/unit/test_mcp.py::test_fake_vnext_mcp_store_list_signatures_match_production_and_reject_unknown_keywords"
       ],
       "expected_failure": "test_fake_vnext_mcp_store_list_signatures_match_production_and_reject_unknown_keywords"
+    },
+    {
+      "name": "lessons-policy-request-ceiling",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "before": "sensitivity_allowed=sensitivity_ceiling(identity) or ALL_SENSITIVITY,",
+          "after": "sensitivity_allowed=ALL_SENSITIVITY,",
+          "line": 109,
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_read.py::test_project_key_does_not_emit_a_sensitivity_filter_event"
+      ],
+      "expected_failure": "test_project_key_does_not_emit_a_sensitivity_filter_event"
+    },
+    {
+      "name": "lessons-text-rank-order",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "before": "        candidates.sort(key=lambda item: item[4], reverse=True)",
+          "after": "        pass",
+          "line": 184,
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_read.py::test_text_rank_precedes_creation_time_in_matching_group"
+      ],
+      "expected_failure": "test_text_rank_precedes_creation_time_in_matching_group"
     }
   ]
 }

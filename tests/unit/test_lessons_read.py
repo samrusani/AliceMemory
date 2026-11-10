@@ -158,7 +158,7 @@ def test_confirmation_by_matching_nonadmin_identity(vault, monkeypatch):
 
 
 def test_confidential_lesson_follows_the_key_ceiling(vault, monkeypatch):
-    """Guard: the policy is asked for all levels before it applies the key ceiling."""
+    """Guard: the policy request includes every level allowed by the key ceiling."""
     admin = vault.key("admin", "admin_agent", "alpha")
     limited = vault.key("reader", "project_scoped_agent", "alpha")
     held = vault.commit(monkeypatch, admin, "admin", sensitivity="confidential")
@@ -879,3 +879,30 @@ def test_unbound_admin_writer_is_read_from_lazy_metadata(vault, monkeypatch):
     answer = vault.call(monkeypatch, admin, "alice_lessons", {"task": "rebasing", "agent_id": "publisher"})
     assert [item["id"] for item in answer["lessons"]] == [lesson["memory"]["id"]]
     assert answer["lessons"][0]["published"]["by"] == "publisher"
+
+
+@pytest.mark.parametrize("profile", ["project_scoped_agent", "read_only_agent", "admin_agent"])
+def test_project_key_does_not_emit_a_sensitivity_filter_event(vault, monkeypatch, profile):
+    """Guard: the policy request stays within the caller's sensitivity ceiling."""
+    publisher = vault.key("publisher", "admin_agent", "alpha")
+    reader = vault.key("reader", profile, "alpha")
+    lesson = vault.commit(monkeypatch, publisher, "publisher")
+    with sqlite3.connect(vault.path) as conn:
+        before = {row[0] for row in conn.execute("select id from event_log")}
+    answer = vault.call(monkeypatch, reader, "alice_lessons", {"task": "rebasing", "agent_id": "reader"})
+    with sqlite3.connect(vault.path) as conn:
+        events = [(row[0], row[1]) for row in conn.execute("select id, event_type from event_log") if row[0] not in before]
+    assert [item["id"] for item in answer["lessons"]] == [lesson["memory"]["id"]]
+    assert sum(kind == "agent.lessons_requested" for _, kind in events) == 1
+    assert all(kind != "agent.policy_filtered" for _, kind in events)
+
+
+def test_text_rank_precedes_creation_time_in_matching_group(vault, monkeypatch):
+    """Guard: a higher text rank wins before creation time in the same match group."""
+    strong = vault.commit(monkeypatch, None, lesson={**LESSON, "applies_when": "amber cobalt"})["memory"]["id"]
+    weak = vault.commit(monkeypatch, None, lesson={**LESSON, "applies_when": "amber"})["memory"]["id"]
+    with sqlite3.connect(vault.path) as conn:
+        conn.execute("update memories set created_at = '2020-01-01T00:00:00Z' where id = ?", (strong,))
+        conn.execute("update memories set created_at = '2021-01-01T00:00:00Z' where id = ?", (weak,))
+    answer = vault.call(monkeypatch, None, "alice_lessons", {"task": "amber cobalt citrine"})
+    assert [item["id"] for item in answer["lessons"]] == [strong, weak]

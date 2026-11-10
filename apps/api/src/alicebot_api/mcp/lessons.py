@@ -13,7 +13,7 @@ from alicebot_api.recall_framing import memory_writer, with_result_framing
 from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_json import json_safe
-from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded
+from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded, sensitivity_ceiling
 from alicebot_api.vnext_memory_commit import (
     VNextMemoryCommitValidationError,
     _lesson_block_from_payload,
@@ -106,7 +106,7 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
         arguments,
         action="memory.recall",
         project_view=ProjectView.unscoped(),
-        sensitivity_allowed=ALL_SENSITIVITY,
+        sensitivity_allowed=sensitivity_ceiling(identity) or ALL_SENSITIVITY,
     )
     domains = list(decision.effective_domains)
     sensitivity = list(decision.effective_sensitivity_allowed)
