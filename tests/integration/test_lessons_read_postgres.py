@@ -249,3 +249,37 @@ def test_postgres_search_excludes_unreadable_candidates(migrated_database_urls, 
     after = call_mcp_tool(context, name="alice_lessons", arguments=args)
     assert before == after
     assert [item["id"] for item in after["lessons"]] == [str(visible["memory"]["id"])]
+
+
+def test_postgres_project_key_does_not_emit_a_sensitivity_filter_event(migrated_database_urls, monkeypatch):
+    """Guard: the PostgreSQL policy request stays within the caller's ceiling."""
+    url = migrated_database_urls["app"]
+    user = seed_user(url, email="lessons-policy-postgres@example.invalid")
+    with user_connection(url, user) as conn:
+        store = PostgresVNextStore(conn)
+        _, publisher = create_agent_key(
+            store, user_id=user, agent_id="publisher", permission_profile="admin_agent", project_scope="alpha"
+        )
+        _, reader = create_agent_key(
+            store, user_id=user, agent_id="reader", permission_profile="project_scoped_agent", project_scope="alpha"
+        )
+    context = MCPRuntimeContext(database_url=url, user_id=user)
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", publisher)
+    lesson = call_mcp_tool(
+        context,
+        name="alice_memory_commit",
+        arguments={
+            "agent_id": "publisher",
+            "lesson": {"applies_when": "rebasing", "what_happened": "Conflict.", "do_instead": "Inspect both."},
+        },
+    )
+    with user_connection(url, user) as conn:
+        before = {str(row["id"]) for row in PostgresVNextStore(conn).list_events()}
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", reader)
+    answer = call_mcp_tool(context, name="alice_lessons", arguments={"task": "rebasing", "agent_id": "reader"})
+    with user_connection(url, user) as conn:
+        events = [row for row in PostgresVNextStore(conn).list_events() if str(row["id"]) not in before]
+    assert [item["id"] for item in answer["lessons"]] == [str(lesson["memory"]["id"])]
+    assert sum(row["event_type"] == "agent.lessons_requested" for row in events) == 1
+    assert all(row["event_type"] != "agent.policy_filtered" for row in events)

@@ -25363,6 +25363,22 @@
         "tests/unit/test_lessons_read.py::test_text_rank_precedes_creation_time_in_matching_group"
       ],
       "expected_failure": "test_text_rank_precedes_creation_time_in_matching_group"
+    },
+    {
+      "name": "lessons-postgres-policy-request-ceiling",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "line": 109,
+          "before": "sensitivity_allowed=sensitivity_ceiling(identity) or ALL_SENSITIVITY,",
+          "after": "sensitivity_allowed=ALL_SENSITIVITY,",
+          "sha256": "7335c0d476b3a5edaf82b6b2e540f84f98c1a28703cf9ef80b2a928ad2087e3a"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_lessons_read_postgres.py::test_postgres_project_key_does_not_emit_a_sensitivity_filter_event"
+      ],
+      "expected_failure": "test_postgres_project_key_does_not_emit_a_sensitivity_filter_event"
     }
   ]
 }
