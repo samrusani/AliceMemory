@@ -1243,6 +1243,7 @@ def search_memories_fts(
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
     lessons_only: bool = False,
+    lesson_candidate_ids: frozenset[str] | None = None,
 ) -> list[VNextRow]:
     # Strict pass ANDs every non-stopword term (websearch parity);
     # match_any (the retrieval OR-fallback) ORs them instead so a
@@ -1274,6 +1275,8 @@ def search_memories_fts(
     from alicebot_api.vnext_label_sql import hidden_memory_input_sql
     label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=True)
     lesson_sql = " AND m.status = 'active' AND json_type(m.value, '$.lesson') = 'object'" if lessons_only else ""
+    if lesson_candidate_ids is not None:
+        lesson_sql += " AND m.id IN (SELECT value FROM json_each(?))"
     ordering = "fts_score DESC, m.created_at DESC, m.id ASC" if lessons_only else "fts_score DESC, m.updated_at DESC, m.created_at DESC, m.id DESC"
     score_sql = (
         "2 * (coalesce(length(highlight(memories_fts, 0, char(1), '')), 0) - length(coalesce(m.title, ''))) + "
@@ -1281,6 +1284,8 @@ def search_memories_fts(
         if lessons_only else "-bm25(memories_fts, 1.0, 0.4, 0.2, 0.4, 0.1)"
     )
     params: list[object] = [match_expression, self.user_id]
+    if lesson_candidate_ids is not None:
+        params.append(json.dumps(sorted(lesson_candidate_ids)))
     params.extend(domain_params)
     params.extend(sensitivity_params)
     params.extend(type_params)
@@ -1341,6 +1346,7 @@ def search_memories_vector(
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
     lessons_only: bool = False,
+    lesson_candidate_ids: frozenset[str] | None = None,
 ) -> list[VNextRow]:
     if not query_vector:
         raise ContinuityStoreInvariantError("embedding vectors must not be empty")
@@ -1417,6 +1423,9 @@ def search_memories_vector(
                   AND embedding IS NOT NULL
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{scope_sql}"""
     lesson_sql = " AND status = 'active' AND json_type(value, '$.lesson') = 'object'" if lessons_only else ""
+    if lesson_candidate_ids is not None:
+        lesson_sql += " AND id IN (SELECT value FROM json_each(?))"
+        params.append(json.dumps(sorted(lesson_candidate_ids)))
     predicate_sql = f"{base_predicate_sql}{signature_sql}{lesson_sql}"
     # Step 1a -- resident vector cache (Stage 2). When enabled and within
     # its byte cap, the ranking comes from the process-local float32 matrix

@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from alicebot_api.db import user_connection
 from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext
@@ -201,3 +203,49 @@ def test_postgres_http_review_publishing_acts(migrated_database_urls, monkeypatc
     assert all(
         row["published"]["how"] == "approved" and row["published"]["by"] == "publisher" for row in result["lessons"]
     )
+
+
+@pytest.mark.parametrize("mode", ["text", "vector"])
+def test_postgres_search_excludes_unreadable_candidates(migrated_database_urls, monkeypatch, mode):
+    """Guard: hidden matches cannot displace a readable lesson."""
+    import alicebot_api.vnext_retrieval as retrieval
+    from alicebot_api.vnext_embeddings import EMBEDDING_SIGNATURE_VERSION, memory_embedding_content_sha256
+    from tests.unit.test_vnext_retrieval import StubEmbeddingProvider
+
+    url = migrated_database_urls["app"]
+    user = seed_user(url, email="lessons-vector-fence@example.invalid")
+    with user_connection(url, user) as conn:
+        store = PostgresVNextStore(conn)
+        _, admin = create_agent_key(store, user_id=user, agent_id="publisher", permission_profile="admin_agent", project_scope="alpha")
+        _, reader = create_agent_key(store, user_id=user, agent_id="reader", permission_profile="project_scoped_agent", project_scope="alpha")
+    context = MCPRuntimeContext(database_url=url, user_id=user)
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", admin)
+    monkeypatch.setattr(retrieval, "get_embedding_provider", lambda: StubEmbeddingProvider() if mode == "vector" else None)
+    original_page = retrieval.page_after_label_drop
+    monkeypatch.setattr(retrieval, "page_after_label_drop", lambda **kwargs: original_page(**kwargs, cap=1))
+    block = {"applies_when": "rebasing", "what_happened": "Conflict.", "do_instead": "Inspect both."}
+    visible = call_mcp_tool(context, name="alice_memory_commit", arguments={"lesson": block, "agent_id": "publisher"})
+    with user_connection(url, user) as conn:
+        store = PostgresVNextStore(conn)
+        memory = store.get_memory(str(visible["memory"]["id"]))
+        store.update_memory_embedding(memory_id=str(memory["id"]), vector=[1.0, *([0.0] * 1535)], provider="stub", model="stub-embedding", content_sha256=memory_embedding_content_sha256(memory), signature_version=EMBEDDING_SIGNATURE_VERSION)
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", reader)
+    args = {"task": "rebasing" if mode == "text" else "unrelatedtoken", "agent_id": "reader"}
+    before = call_mcp_tool(context, name="alice_lessons", arguments=args)
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", admin)
+    hidden = call_mcp_tool(context, name="alice_memory_commit", arguments={"lesson": block, "agent_id": "publisher"})
+    with user_connection(url, user) as conn:
+        store = PostgresVNextStore(conn)
+        source = store.create_source({"source_type": "note", "title": "Restricted input", "domain": "project", "sensitivity": "confidential", "content_hash": "sha256:restricted", "metadata_json": {"project_scope": ["alpha"]}})
+        public = store.create_source({"source_type": "note", "title": "Public input", "domain": "project", "sensitivity": "internal", "content_hash": "sha256:public-input", "metadata_json": {"project_scope": ["alpha"]}})
+        memory = store.get_memory(str(hidden["memory"]["id"]))
+        metadata = dict(memory["metadata_json"])
+        metadata["derived_from"] = {"sources": [str(public["id"]), str(source["id"])]}
+        conn.execute("UPDATE memories SET metadata_json = %s::jsonb WHERE id = %s::uuid", (json.dumps(metadata), str(memory["id"])))
+        memory = store.get_memory(str(memory["id"]))
+        store.update_memory_embedding(memory_id=str(memory["id"]), vector=[0.1] * 1536, provider="stub", model="stub-embedding", content_sha256=memory_embedding_content_sha256(memory), signature_version=EMBEDDING_SIGNATURE_VERSION)
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", reader)
+    after = call_mcp_tool(context, name="alice_lessons", arguments=args)
+    assert before == after
+    assert [item["id"] for item in after["lessons"]] == [str(visible["memory"]["id"])]

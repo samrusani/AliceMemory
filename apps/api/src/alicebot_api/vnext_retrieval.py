@@ -3219,6 +3219,7 @@ class VNextRetrievalService:
                    "sensitivity_allowed": sensitivity_allowed, **filters, **scope_filters}
         if lessons_only:
             options["lessons_only"] = True
+            options["lesson_candidate_ids"] = lesson_admitted_ids
         fts = callable(search_memories_fts)
         source = str(getattr(self.store, "fts_stage_source", "postgres_fts")) if fts else "store_lexical"
         rows = active_search(limit=limit, **options)
@@ -3248,7 +3249,7 @@ class VNextRetrievalService:
 
             def select_rows(raw):
                 if lesson_admitted_ids is not None:
-                    return [row for row in raw if str(row.get("id")) in lesson_admitted_ids]
+                    return list(raw)
                 return admit_loaded(
                     self.store, kind="memory", rows=raw, domains=domains,
                     sensitivity_allowed=sensitivity_allowed, projects=projects,
@@ -3347,6 +3348,7 @@ class VNextRetrievalService:
             }
             if lessons_only:
                 search_kwargs["lessons_only"] = True
+                search_kwargs["lesson_candidate_ids"] = lesson_admitted_ids
             effective_people = tuple(sorted(scope.people)) if scope is not None else scope_people
             effective_window_start = scope.window_start if scope is not None else scope_window_start
             effective_window_end = scope.window_end if scope is not None else scope_window_end

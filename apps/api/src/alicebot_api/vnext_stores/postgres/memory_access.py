@@ -880,6 +880,7 @@ def search_memories_fts(
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
     lessons_only: bool = False,
+    lesson_candidate_ids: frozenset[str] | None = None,
 ) -> list[VNextRow]:
     memory_type_list = list(memory_types) or None
     project_list = list(project_scope_identity(projects)) or None
@@ -901,6 +902,8 @@ def search_memories_fts(
     from alicebot_api.vnext_label_sql import hidden_memory_input_sql
     label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=False, alias="memories")
     lesson_sql = " AND status = 'active' AND jsonb_typeof(value -> 'lesson') = 'object'" if lessons_only else ""
+    if lesson_candidate_ids is not None:
+        lesson_sql += " AND id = ANY(%s::uuid[])"
     ordering = "fts_score DESC, created_at DESC, id ASC" if lessons_only else "fts_score DESC, updated_at DESC, created_at DESC, id DESC"
     lesson_tsv = "(setweight(to_tsvector('english', coalesce(title, '')), 'A') || setweight(to_tsvector('english', coalesce(canonical_text, '')), 'B'))"
     result_columns = "id" if lessons_only else MEMORY_COLUMNS
@@ -964,6 +967,7 @@ def search_memories_fts(
                 """,
         (
             *score_params,
+            *((sorted(lesson_candidate_ids),) if lesson_candidate_ids is not None else ()),
             domains,
             domains,
             sensitivity_allowed,
@@ -1019,6 +1023,7 @@ def search_memories_vector(
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
     lessons_only: bool = False,
+    lesson_candidate_ids: frozenset[str] | None = None,
 ) -> list[VNextRow]:
     vector_param = _vector_literal(query_vector)
     memory_type_list = list(memory_types) or None
@@ -1084,6 +1089,10 @@ def search_memories_vector(
         scope_window_end,
     ]
     params.extend(signature_params)
+    candidate_sql = ""
+    if lesson_candidate_ids is not None:
+        candidate_sql = " AND id = ANY(%s::uuid[])"
+        params.append(sorted(lesson_candidate_ids))
     candidate_limit = max(limit, min(limit * 4, 1000)) if signature_sql else limit
     base_params = [*params, include_expired, vector_param]
     # Enable iterative HNSW scan so the lifecycle/scope/signature filters
@@ -1136,6 +1145,7 @@ def search_memories_vector(
                     OR {_MEMORY_SCOPE_EVENT_TIME_SQL} <= %s::timestamptz
                   )
                   {signature_sql}
+                  {candidate_sql}
                   AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp())
                 ORDER BY embedding_vector <=> %s::vector
                 LIMIT %s

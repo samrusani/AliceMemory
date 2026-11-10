@@ -748,13 +748,28 @@ def test_vector_stage_searches_only_lessons(vault, monkeypatch):
     assert provider.embedded_texts == ["merge integration"]
 
 
-def test_hidden_path_prefix_does_not_hide_a_visible_lesson(vault, monkeypatch, tmp_path):
-    """Guard: unreadable path matches cannot consume the visible path result."""
+@pytest.mark.parametrize("mode", ["path", "text", "vector"])
+def test_hidden_path_prefix_does_not_hide_a_visible_lesson(vault, monkeypatch, tmp_path, mode):
+    """Guard: unreadable matches cannot consume the visible result."""
     import copy
+    import struct
 
     admin = vault.key("publisher", "admin_agent")
     reader = vault.key("reader", "project_scoped_agent", "alpha")
     visible = vault.commit(monkeypatch, admin, "publisher", project_scope=["alpha"])["memory"]["id"]
+    if mode == "vector":
+        import alicebot_api.vnext_retrieval as retrieval
+        from alicebot_api.vnext_embeddings import EMBEDDING_SIGNATURE_VERSION, memory_embedding_content_sha256
+        from tests.unit.test_vnext_retrieval import StubEmbeddingProvider
+
+        monkeypatch.setattr(retrieval, "get_embedding_provider", lambda: StubEmbeddingProvider())
+        with sqlite_user_connection(vault.path, vault.user) as conn:
+            store = SQLiteVNextStore(conn, vault.user)
+            memory = store.get_memory(visible)
+            store.update_memory_embedding(
+                memory_id=visible, vector=[1.0, 0.0], provider="stub", model="stub-embedding",
+                content_sha256=memory_embedding_content_sha256(memory), signature_version=EMBEDDING_SIGNATURE_VERSION,
+            )
     target = tmp_path / "hidden-prefix.db"
     with sqlite3.connect(vault.path) as src, sqlite3.connect(target) as dst:
         src.backup(dst)
@@ -769,6 +784,10 @@ def test_hidden_path_prefix_does_not_hide_a_visible_lesson(vault, monkeypatch, t
                 "metadata_json": {"project_scope": ["alpha"]},
             }
         )
+        public = SQLiteVNextStore(conn, vault.user).create_source(
+            {"source_type": "note", "title": "Public input", "domain": "project", "sensitivity": "internal",
+             "content_hash": "sha256:public-input", "metadata_json": {"project_scope": ["alpha"]}}
+        )
     with sqlite3.connect(target) as conn:
         conn.row_factory = sqlite3.Row
         memory = dict(conn.execute("select * from memories where id=?", (visible,)).fetchone())
@@ -782,8 +801,10 @@ def test_hidden_path_prefix_does_not_hide_a_visible_lesson(vault, monkeypatch, t
             row["id"] = str(uuid4())
             row["memory_key"] = f"hidden-prefix.{i}"
             row["created_at"] = "2099-01-01T00:00:00Z"
+            if mode == "vector":
+                row["embedding"] = struct.pack("<1536f", *([0.1] * 1536))
             metadata = json.loads(row["metadata_json"])
-            metadata["derived_from"] = {"sources": [str(source["id"])]}
+            metadata["derived_from"] = {"sources": [str(public["id"]), str(source["id"])]}
             row["metadata_json"] = json.dumps(metadata)
             rev = copy.copy(revision)
             rev["id"] = str(uuid4())
@@ -795,7 +816,9 @@ def test_hidden_path_prefix_does_not_hide_a_visible_lesson(vault, monkeypatch, t
     other = Vault.__new__(Vault)
     other.path = target
     other.user = vault.user
-    args = {"task": "unrelatedtoken", "paths": ["src/a.py"], "agent_id": "reader"}
+    args = {"task": "rebasing" if mode == "text" else "unrelatedtoken", "agent_id": "reader"}
+    if mode == "path":
+        args["paths"] = ["src/a.py"]
     before = vault.call(monkeypatch, reader, "alice_lessons", args)
     after = other.call(monkeypatch, reader, "alice_lessons", args)
     assert before == after
