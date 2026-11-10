@@ -65,6 +65,7 @@ CORE_TOOL_NAMES = [
     "alice_memory_manage",
     "alice_explain",
     "alice_what_changed",
+    "alice_lessons",
 ]
 DEFAULT_TOOL_NAMES = [
     "alice_memory_commit",
@@ -144,7 +145,7 @@ def no_embedding_provider(monkeypatch) -> None:
         monkeypatch.delenv(env_name, raising=False)
 
 
-def test_default_mcp_tool_surface_is_exactly_the_eleven_core_tools(core_surface) -> None:
+def test_default_mcp_tool_surface_is_exactly_the_thirteen_core_tools(core_surface) -> None:
     tools = list_mcp_tools()
     assert [tool["name"] for tool in tools] == CORE_TOOL_NAMES
 
@@ -190,7 +191,7 @@ def test_hidden_core_tool_is_rejected_without_the_full_tools_flag(
     assert payload["chunk_count"] >= 1
 
 
-def test_full_tools_flag_lists_the_eleven_core_tools_in_definition_order(monkeypatch, core_surface) -> None:
+def test_full_tools_flag_lists_the_thirteen_core_tools_in_definition_order(monkeypatch, core_surface) -> None:
     monkeypatch.setenv(mcp_tools_module.MCP_FULL_TOOLS_ENV, "1")
     assert [tool["name"] for tool in list_mcp_tools()] == CORE_TOOL_NAMES
 
@@ -199,11 +200,11 @@ def test_full_tools_flag_lists_the_eleven_core_tools_in_definition_order(monkeyp
     ("full_tools_value", "mcp_legacy_value", "legacy_surfaces_value", "expected_prefix", "expected_count"),
     [
         pytest.param(None, None, None, DEFAULT_TOOL_NAMES, 3, id="default-three"),
-        pytest.param("1", None, None, CORE_TOOL_NAMES, 12, id="full-core"),
+        pytest.param("1", None, None, CORE_TOOL_NAMES, 13, id="full-core"),
         pytest.param(None, "1", None, DEFAULT_TOOL_NAMES, 65, id="default-plus-long-tail"),
-        pytest.param("1", "1", None, CORE_TOOL_NAMES, 74, id="full-plus-long-tail"),
+        pytest.param("1", "1", None, CORE_TOOL_NAMES, 75, id="full-plus-long-tail"),
         pytest.param(None, "1", "1", DEFAULT_TOOL_NAMES, 68, id="default-plus-legacy-surfaces"),
-        pytest.param("1", "1", "1", CORE_TOOL_NAMES, 77, id="full-plus-legacy-surfaces"),
+        pytest.param("1", "1", "1", CORE_TOOL_NAMES, 78, id="full-plus-legacy-surfaces"),
     ],
 )
 def test_full_tools_and_legacy_gate_combinations_have_exact_tool_counts(
@@ -267,7 +268,7 @@ def test_legacy_flag_exposes_the_long_tail_after_the_core_tools(legacy_tools_ena
     names = [tool["name"] for tool in tools]
 
     assert names[: len(CORE_TOOL_NAMES)] == CORE_TOOL_NAMES
-    assert len(names) == len(set(names)) == 77
+    assert len(names) == len(set(names)) == 78
     for legacy_name in (
         "alice_brief",
         "alice_recall_debug",
@@ -285,10 +286,10 @@ def test_legacy_flag_exposes_the_long_tail_after_the_core_tools(legacy_tools_ena
 @pytest.mark.parametrize(
     ("mcp_legacy_value", "legacy_surfaces_value", "expected_count", "task_briefs_enabled"),
     [
-        pytest.param(None, None, 12, False, id="both-disabled"),
-        pytest.param("1", None, 74, False, id="mcp-long-tail-only"),
-        pytest.param(None, "1", 12, False, id="legacy-http-only"),
-        pytest.param("1", "1", 77, True, id="both-enabled"),
+        pytest.param(None, None, 13, False, id="both-disabled"),
+        pytest.param("1", None, 75, False, id="mcp-long-tail-only"),
+        pytest.param(None, "1", 13, False, id="legacy-http-only"),
+        pytest.param("1", "1", 78, True, id="both-enabled"),
     ],
 )
 def test_mcp_gate_combinations_have_exact_tool_counts(
@@ -321,7 +322,7 @@ def test_mcp_long_tail_preserves_preexisting_truthy_flag_values(monkeypatch, ena
     monkeypatch.delenv(mcp_tools_module.LEGACY_SURFACES_ENV, raising=False)
     monkeypatch.delenv(mcp_tools_module.AGENT_API_KEY_ENV, raising=False)
 
-    assert len(list_mcp_tools()) == 74
+    assert len(list_mcp_tools()) == 75
 
 
 def test_task_brief_mcp_tools_use_neutral_public_arguments(legacy_tools_enabled) -> None:
@@ -1722,6 +1723,9 @@ class FakeVNextMCPStore:
         order_by_created_at: bool = False,
         limit: int | None = None,
         include_expired: bool = True,
+        lessons_only: bool = False,
+        lesson_projection: bool = False,
+        lesson_lazy_metadata: bool = False,
     ) -> list[dict[str, object]]:
         if limit is not None and limit < 1:
             raise ValueError("limit must be positive")
@@ -1757,6 +1761,7 @@ class FakeVNextMCPStore:
             )
             and mcp_tools_module._memory_matches_query(memory, normalized_query)
             and (include_expired or memory_window_is_open(memory))
+            and (not lessons_only or isinstance(memory.get("value"), dict) and "lesson" in memory["value"])
         ]
         if order_by_created_at:
             rows.sort(key=mcp_tools_module._created_at_sort_key, reverse=True)
@@ -7615,7 +7620,7 @@ def test_key_bound_mcp_server_hides_and_rejects_the_legacy_surface(monkeypatch) 
 
     listed_tools = list_mcp_tools()
     listed = {str(tool["name"]) for tool in listed_tools}
-    assert len(listed_tools) == 12
+    assert len(listed_tools) == 13
     assert listed == set(CORE_TOOL_NAMES)
     assert "alice_recall_debug" not in listed
 

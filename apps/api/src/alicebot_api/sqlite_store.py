@@ -196,6 +196,7 @@ from alicebot_api.vnext_stores.sqlite.memory_access import (
     search_memories_fts as _memory_search_memories_fts,
     search_memories_vector as _memory_search_memories_vector,
 )
+from alicebot_api.vnext_stores.sqlite.lessons import stream_lesson_revisions as _lesson_stream_lesson_revisions
 from alicebot_api.vnext_stores.sqlite.primitives import (
     _iso_or_none as _iso_or_none,
     _iso_or_now as _iso_or_now,
@@ -496,6 +497,7 @@ class SQLiteVNextStore:
     fts_stage_source = "sqlite_fts"
     memory_fts_offset_paging = True
     label_count_input_prefilter = True
+    stream_lesson_revisions = _lesson_stream_lesson_revisions
 
     def __init__(self, conn: sqlite3.Connection, user_id: UUID | str):
         if str(user_id).strip() == "":

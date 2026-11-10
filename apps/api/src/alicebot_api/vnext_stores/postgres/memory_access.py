@@ -29,6 +29,7 @@ from alicebot_api.vnext_stores.postgres.query_predicates import (
     _postgres_ascii_literal_contains_sql,
     _tsquery_any_expression,
 )
+from alicebot_api.vnext_stores.postgres.lessons import LESSON_MEMORY_COLUMNS, LESSON_VECTOR_COLUMNS
 from alicebot_api.vnext_stores.retrieval_common import _search_patterns
 
 VNextRow = dict[str, object]
@@ -274,6 +275,9 @@ def list_memories(
     order_by_created_at: bool = False,
     limit: int | None = None,
     include_expired: bool = True,
+    lessons_only: bool = False,
+    lesson_projection: bool = False,
+    lesson_lazy_metadata: bool = False,
 ) -> list[VNextRow]:
     """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
 
@@ -337,8 +341,9 @@ def list_memories(
             escaped_query = _escape_like_literal(normalized_query)
             params.extend((escaped_query, escaped_query, escaped_query))
     expiry_sql = "" if include_expired else f" AND {POSTGRES_UNEXPIRED_SQL}"
+    lesson_sql = " AND jsonb_typeof(value -> 'lesson') = 'object'" if lessons_only else ""
     order_sql = (
-        "ORDER BY created_at DESC, id DESC"
+        ("ORDER BY created_at DESC, id ASC" if lesson_projection else "ORDER BY created_at DESC, id DESC")
         if order_by_created_at
         else "ORDER BY updated_at DESC, created_at DESC, id DESC"
     )
@@ -346,12 +351,15 @@ def list_memories(
     if limit is not None:
         limit_sql = " LIMIT %s"
         params.append(limit)
+    columns = LESSON_MEMORY_COLUMNS if lesson_projection else MEMORY_COLUMNS
+    if lesson_projection and lesson_lazy_metadata:
+        columns = columns.replace("metadata_json", "metadata_json AS lesson_metadata_raw")
     return self._fetch_all(
         f"""
-                SELECT {MEMORY_COLUMNS}
+                SELECT {columns}
                 FROM memories
                 WHERE deleted_at IS NULL{status_sql}{statuses_sql}{memory_types_sql}
-                  {domains_sql}{sensitivity_sql}{projects_sql}{created_at_sql}{query_sql}{expiry_sql}
+                  {domains_sql}{sensitivity_sql}{projects_sql}{created_at_sql}{query_sql}{expiry_sql}{lesson_sql}
                 {order_sql}
                 {limit_sql}
                 """,
@@ -872,6 +880,8 @@ def search_memories_fts(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    lessons_only: bool = False,
+    lesson_candidate_ids: frozenset[str] | None = None,
 ) -> list[VNextRow]:
     memory_type_list = list(memory_types) or None
     project_list = list(project_scope_identity(projects)) or None
@@ -892,13 +902,36 @@ def search_memories_fts(
         tsquery_text = query
     from alicebot_api.vnext_label_sql import hidden_memory_input_sql
     label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=False, alias="memories")
+    lesson_sql = " AND status = 'active' AND jsonb_typeof(value -> 'lesson') = 'object'" if lessons_only else ""
+    if lesson_candidate_ids is not None:
+        lesson_sql += " AND id = ANY(%s::uuid[])"
+    ordering = "fts_score DESC, created_at DESC, id ASC" if lessons_only else "fts_score DESC, updated_at DESC, created_at DESC, id DESC"
+    lesson_tsv = "(setweight(to_tsvector('english', coalesce(title, '')), 'A') || setweight(to_tsvector('english', coalesce(canonical_text, '')), 'B'))"
+    result_columns = "id" if lessons_only else MEMORY_COLUMNS
+    text_filter = f"AND {lesson_tsv} @@ {tsquery_sql}" if lessons_only else ""
+    score_params: tuple[str, ...]
+    if lessons_only:
+        rank_query = _tsquery_any_expression(query) or ""
+        score_sql = (
+            "2 * (SELECT COALESCE(sum(cardinality(term.positions)), 0) "
+            "FROM unnest(to_tsvector('english', coalesce(title, ''))) AS term "
+            "WHERE to_tsvector('simple', term.lexeme) @@ to_tsquery('english', %s)) + "
+            "(SELECT COALESCE(sum(cardinality(term.positions)), 0) "
+            "FROM unnest(to_tsvector('english', coalesce(canonical_text, ''))) AS term "
+            "WHERE to_tsvector('simple', term.lexeme) @@ to_tsquery('english', %s))"
+        )
+        score_params = (rank_query, rank_query)
+    else:
+        score_sql = f"ts_rank(search_tsv, {tsquery_sql})"
+        score_params = (tsquery_text,)
     return self._fetch_all(
         f"""
-                SELECT {MEMORY_COLUMNS},
-                  ts_rank(search_tsv, {tsquery_sql}) AS fts_score
+                SELECT {result_columns},
+                  {score_sql} AS fts_score
                 FROM memories
                 WHERE deleted_at IS NULL
                   AND {label_sql}
+                  {lesson_sql}
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))
@@ -929,11 +962,13 @@ def search_memories_fts(
                     OR {_MEMORY_SCOPE_EVENT_TIME_SQL} <= %s::timestamptz
                   )
                   AND search_tsv @@ {tsquery_sql}
-                ORDER BY fts_score DESC, updated_at DESC, created_at DESC, id DESC
+                  {text_filter}
+                ORDER BY {ordering}
                 LIMIT %s OFFSET %s
                 """,
         (
-            tsquery_text,
+            *score_params,
+            *((sorted(lesson_candidate_ids),) if lesson_candidate_ids is not None else ()),
             domains,
             domains,
             sensitivity_allowed,
@@ -959,6 +994,7 @@ def search_memories_fts(
             scope_window_end,
             scope_window_end,
             tsquery_text,
+            *((tsquery_text,) if lessons_only else ()),
             limit,
             offset,
         ),
@@ -987,6 +1023,8 @@ def search_memories_vector(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    lessons_only: bool = False,
+    lesson_candidate_ids: frozenset[str] | None = None,
 ) -> list[VNextRow]:
     vector_param = _vector_literal(query_vector)
     memory_type_list = list(memory_types) or None
@@ -1052,6 +1090,10 @@ def search_memories_vector(
         scope_window_end,
     ]
     params.extend(signature_params)
+    candidate_sql = ""
+    if lesson_candidate_ids is not None:
+        candidate_sql = " AND id = ANY(%s::uuid[])"
+        params.append(sorted(lesson_candidate_ids))
     candidate_limit = max(limit, min(limit * 4, 1000)) if signature_sql else limit
     base_params = [*params, include_expired, vector_param]
     # Enable iterative HNSW scan so the lifecycle/scope/signature filters
@@ -1062,8 +1104,9 @@ def search_memories_vector(
     # SET LOCAL scopes it to the current transaction.
     with self.conn.cursor() as cur:
         cur.execute("SET LOCAL hnsw.iterative_scan = 'strict_order'")
+    result_columns = LESSON_VECTOR_COLUMNS if lessons_only else MEMORY_COLUMNS
     vector_query = f"""
-                SELECT {MEMORY_COLUMNS},
+                SELECT {result_columns},
                   (embedding_vector <=> %s::vector) AS vector_distance
                 FROM memories
                 WHERE deleted_at IS NULL
@@ -1097,6 +1140,7 @@ def search_memories_vector(
                     OR {_MEMORY_SCOPE_EVENT_TIME_SQL} <= %s::timestamptz
                   )
                   {signature_sql}
+                  {candidate_sql}
                   AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp())
                 ORDER BY embedding_vector <=> %s::vector
                 LIMIT %s

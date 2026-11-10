@@ -25,6 +25,7 @@ from alicebot_api.vnext_project_scope import (
 )
 from alicebot_api.vnext_stores.retrieval_common import _search_patterns
 from alicebot_api.vnext_stores.sqlite.columns import MEMORY_COLUMNS
+from alicebot_api.vnext_stores.sqlite.lessons import LESSON_MEMORY_COLUMNS, LESSON_VECTOR_COLUMNS
 from alicebot_api.vnext_stores.sqlite.primitives import _iso_or_none
 from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _fts_match_any_expression,
@@ -495,6 +496,9 @@ def list_memories(
     limit: int | None = None,
     include_expired: bool = True,
     exclude_global_domains: Sequence[str] | None = None,
+    lessons_only: bool = False,
+    lesson_projection: bool = False,
+    lesson_lazy_metadata: bool = False,
 ) -> list[VNextRow]:
     """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
 
@@ -531,7 +535,7 @@ def list_memories(
     )
     params = [*head_params, *project_params, *tail_params]
     order_sql = (
-        "ORDER BY created_at DESC, id DESC"
+        ("ORDER BY created_at DESC, id ASC" if lesson_projection else "ORDER BY created_at DESC, id DESC")
         if order_by_created_at
         else "ORDER BY updated_at DESC, created_at DESC, id DESC"
     )
@@ -539,13 +543,18 @@ def list_memories(
     if limit is not None:
         limit_sql = " LIMIT ?"
         params.append(limit)
+    lesson_sql = " AND json_type(value, '$.lesson') = 'object'" if lessons_only else ""
+    columns = LESSON_MEMORY_COLUMNS if lesson_projection else ", ".join(MEMORY_COLUMNS)
+    if lesson_projection and lesson_lazy_metadata:
+        columns = columns.replace("metadata_json", "metadata_json AS lesson_metadata_raw")
     return self._fetch_all(
         f"""
-                SELECT {", ".join(MEMORY_COLUMNS)}
+                SELECT {columns}
                 FROM memories
                 {head_sql}
                   {project_sql}
                   {tail_sql}
+                  {lesson_sql}
                 {order_sql}
                 {limit_sql}
                 """,
@@ -1234,6 +1243,8 @@ def search_memories_fts(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    lessons_only: bool = False,
+    lesson_candidate_ids: frozenset[str] | None = None,
 ) -> list[VNextRow]:
     # Strict pass ANDs every non-stopword term (websearch parity);
     # match_any (the retrieval OR-fallback) ORs them instead so a
@@ -1242,6 +1253,8 @@ def search_memories_fts(
     match_expression = _fts_match_any_expression(query) if match_any else _fts_match_expression(query)
     if match_expression is None:
         return []
+    if lessons_only:
+        match_expression = "{title canonical_text}: (" + match_expression + ")"
     domain_sql, domain_params = self._domain_clause(domains, prefix="m.")
     sensitivity_sql, sensitivity_params = self._sensitivity_clause(sensitivity_allowed, prefix="m.")
     type_sql, type_params = self._memory_type_clause(memory_types, prefix="m.")
@@ -1258,10 +1271,22 @@ def search_memories_fts(
         scope_window_end=scope_window_end,
         prefix="m.",
     )
-    prefixed_columns = ", ".join(f"m.{column}" for column in MEMORY_COLUMNS)
+    lesson_columns = ("id",)
+    prefixed_columns = ", ".join(f"m.{column}" for column in (lesson_columns if lessons_only else MEMORY_COLUMNS))
     from alicebot_api.vnext_label_sql import hidden_memory_input_sql
     label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=True)
+    lesson_sql = " AND m.status = 'active' AND json_type(m.value, '$.lesson') = 'object'" if lessons_only else ""
+    if lesson_candidate_ids is not None:
+        lesson_sql += " AND m.id IN (SELECT value FROM json_each(?))"
+    ordering = "fts_score DESC, m.created_at DESC, m.id ASC" if lessons_only else "fts_score DESC, m.updated_at DESC, m.created_at DESC, m.id DESC"
+    score_sql = (
+        "2 * (coalesce(length(highlight(memories_fts, 0, char(1), '')), 0) - length(coalesce(m.title, ''))) + "
+        "(coalesce(length(highlight(memories_fts, 1, char(1), '')), 0) - length(coalesce(m.canonical_text, '')))"
+        if lessons_only else "-bm25(memories_fts, 1.0, 0.4, 0.2, 0.4, 0.1)"
+    )
     params: list[object] = [match_expression, self.user_id]
+    if lesson_candidate_ids is not None:
+        params.append(json.dumps(sorted(lesson_candidate_ids)))
     params.extend(domain_params)
     params.extend(sensitivity_params)
     params.extend(type_params)
@@ -1279,15 +1304,16 @@ def search_memories_fts(
         return self._fetch_all(
             f"""
                     SELECT {prefixed_columns},
-                      -bm25(memories_fts, 1.0, 0.4, 0.2, 0.4, 0.1) AS fts_score
+                      {score_sql} AS fts_score
                     FROM memories_fts
                     JOIN memories m ON m.rowid = memories_fts.rowid
                     WHERE memories_fts MATCH ?
                       AND m.user_id = ?
                       AND m.deleted_at IS NULL
                       AND {label_sql}
+                      {lesson_sql}
                       AND m.status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{scope_sql}
-                    ORDER BY fts_score DESC, m.updated_at DESC, m.created_at DESC, m.id DESC
+                    ORDER BY {ordering}
                     LIMIT ? OFFSET ?
                     """,
             tuple(params),
@@ -1320,6 +1346,8 @@ def search_memories_vector(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    lessons_only: bool = False,
+    lesson_candidate_ids: frozenset[str] | None = None,
 ) -> list[VNextRow]:
     if not query_vector:
         raise ContinuityStoreInvariantError("embedding vectors must not be empty")
@@ -1395,7 +1423,11 @@ def search_memories_vector(
                   AND deleted_at IS NULL
                   AND embedding IS NOT NULL
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{scope_sql}"""
-    predicate_sql = f"{base_predicate_sql}{signature_sql}"
+    lesson_sql = ""
+    if lesson_candidate_ids is not None:
+        lesson_sql += " AND id IN (SELECT value FROM json_each(?))"
+        params.append(json.dumps(sorted(lesson_candidate_ids)))
+    predicate_sql = f"{base_predicate_sql}{signature_sql}{lesson_sql}"
     # Step 1a -- resident vector cache (Stage 2). When enabled and within
     # its byte cap, the ranking comes from the process-local float32 matrix
     # validated against the one-row embedding_stamp token; the candidate SQL
@@ -1477,7 +1509,7 @@ def search_memories_vector(
     # beat the current k-th exact distance (epsilon-guarded refinement).
     # Hydration batch: max(4*limit, 32) ids per SELECT, capped under the most
     # conservative SQLITE_MAX_VARIABLE_NUMBER (999) for legacy builds.
-    batch_size = min(max(4 * limit, 32), 900)
+    batch_size = max(len(ranked), 1) if lessons_only else min(max(4 * limit, 32), 900)
     collected: list[tuple[float, str, str, VNextRow]] = []
     index = 0
     while index < len(ranked):
@@ -1492,14 +1524,17 @@ def search_memories_vector(
         # The hydrate re-applies ``predicate_sql`` (the scan's full WHERE
         # set), so ``embedding`` here is guaranteed non-NULL and the row still
         # satisfies every lifecycle/scope/signature gate at hydrate time.
+        projection = LESSON_VECTOR_COLUMNS if lessons_only else ", ".join(MEMORY_COLUMNS)
+        id_clause = "id IN (SELECT value FROM json_each(?))" if lessons_only else f"id IN ({self._placeholders(batch_ids)})"
+        id_params = (json.dumps(batch_ids),) if lessons_only else tuple(batch_ids)
         hydrated = self._fetch_all(
             f"""
-                    SELECT {", ".join(MEMORY_COLUMNS)}, embedding
+                    SELECT {projection}, embedding
                     FROM memories
                     WHERE {predicate_sql}
-                      AND id IN ({self._placeholders(batch_ids)})
+                      AND {id_clause}
                     """,
-            (*params, *batch_ids),
+            (*params, *id_params),
         )
         rows_by_id = {str(row.get("id")): row for row in hydrated}
         for _approx, _updated_key, candidate_id in batch:

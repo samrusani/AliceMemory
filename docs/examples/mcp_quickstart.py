@@ -9,8 +9,8 @@ the committed sentence comes back from recall. Standard library only --
 no MCP SDK, no HTTP server, no Postgres.
 
 The default advertised surface is remember, recall, continue:
-``alice_memory_commit``, ``alice_recall``, ``alice_resume``. Capture and
-the other nine core tools stay defined and become callable when
+``alice_memory_commit``, ``alice_recall``, ``alice_resume``. The other ten core
+tools, including capture, stay defined and become callable when
 ``ALICE_MCP_FULL_TOOLS=1``. Import is a source. Commit is a fact.
 
 The subprocess launched here::

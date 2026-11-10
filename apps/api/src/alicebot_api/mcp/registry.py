@@ -132,6 +132,7 @@ from .retrieval import (
     _handle_alice_timeline,
 )
 from .what_changed import _handle_alice_what_changed
+from .lessons import _handle_alice_lessons
 from .review import (
     _handle_alice_contradictions_detect,
     _handle_alice_contradictions_list,
@@ -193,6 +194,7 @@ _TOOL_HANDLERS = {
     "alice_memory_mutations_commit": _handle_alice_memory_mutations_commit,
     "alice_memory_mutations_list_operations": _handle_alice_memory_mutations_list_operations,
     "alice_recall": _handle_alice_recall,
+    "alice_lessons": _handle_alice_lessons,
     "alice_recall_debug": _handle_alice_recall_debug,
     "alice_state_at": _handle_alice_state_at,
     "alice_resume": _handle_alice_resume,

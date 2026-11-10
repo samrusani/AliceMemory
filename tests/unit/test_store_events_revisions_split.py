@@ -167,7 +167,7 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Previous receipt: 650e2e0ff088d67c... Proof: the class key list equals the list at origin/main 040a2a10
     # plus ``savepoint`` before ``__dict__``, with every other key in the same order.
     # Re-minted for ``get_edge`` (2026-10-08): one Postgres-only graph reader joins the class keys. Previous receipt cc43f69f...
-    "postgres": "a135045951dab378f865c4190901dbbebf00b32e2c3001901530d196e826c6db",
+    "postgres": "2549804d45d1abc0bdb460082bfc9e746193e7418b16fc1a6cfb78e4c34550cf",
     # Re-minted for the merge of #500 and #502: ``check_literal_match_query``.
     # Re-minted again for per-project memory S2 (2026-10-02): the two single-scan partition reads
     # ``list_memories_view_partitions`` and ``list_open_loops_view_partitions``, SQLite only on purpose
@@ -175,7 +175,7 @@ EXPECTED_CLASS_KEY_SHA256 = {
     # Re-minted again for the per-file importer savepoint (2026-10-02), the same appended method.
     # Previous receipt: 365b7a01acf7a8b5... Proof: as for postgres, one added key and no other change.
     # Re-minted for the derived-label lock: ``lock_label_writes`` and ``read_label_rows`` on both facades.
-    "sqlite": "82282bae5eeea904b50cb24ec8d2312d6173e1916f0d8db50228bcafd016bd43",
+    "sqlite": "e1951f39926e4f1ebd608c18bd3791faf5e8ed8e5af58646be39bb425c757afb",
 }
 EXPECTED_SUPPORT_AST_SHA256 = {
     "postgres_columns": {

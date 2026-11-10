@@ -45,7 +45,7 @@ SOURCE_RECEIPTS = {
     # Re-minted so the two roll-up lookups overlap scope united with floor.
     # Every other statement still uses the scope expression. Previous receipt 46946cc0...
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "ea1e4a4ce9f58968e4e10ac66830822798aa26118207a39fb465b4f26da74aea"
+        "f390669178ae5e16da04c6435c18dd8f443267196bcabe6eff9507110dbff67d"
     ),
     # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
     # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint
@@ -96,7 +96,7 @@ SOURCE_RECEIPTS = {
     # Re-minted so the memory partition read passes the floor identity.
     # Previous receipt 1580dca3...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "345262de6a46660a7156dbdc4c8ff41effcf5861e513bb8717365d53d880bd4f"
+        "03b86f862b04138bc03bec12dfa1938f8930c65ce97ae1ad9029a94fabd7f59c"
     ),
 }
 
@@ -232,7 +232,7 @@ EXPECTED_CLASS_ORDERS = {
     # those two names restores the previous receipt (172, 6f1a459f...).
     # One Postgres-only method more, ``get_edge``, after ``create_edge`` (2026-10-08): the edge review route reads one edge
     # by id before it judges its ends. Previous receipt (184, e5bb6fbb...). Every other member keeps its order.
-    "PostgresVNextStore": (185, "f3c9a2f37c8f697df1b30ae72d4bf40abd965b0844779eeffe0afc6514b0761c"),
+    "PostgresVNextStore": (186, "974e71a5c4c9748e51169bd5878c94ac354d404096b2f71d238cadbbed85cebe"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
@@ -249,7 +249,7 @@ EXPECTED_CLASS_ORDERS = {
     # prunable_sources here; every pre-existing class member keeps its order.
     # Label lock: lock_label_writes and read_label_rows follow __init__. Dropping
     # those two names restores the previous receipt (134, 13012720...).
-    "SQLiteVNextStore": (141, "fc474bf2faa707e5e837846b66ae208e8795c0e65659c3c9cb54b84704a42b73"),
+    "SQLiteVNextStore": (142, "46697d314affb5302994ae9b28cb29451ec506d9bd07d51e5fd215b890508297"),
 }
 
 

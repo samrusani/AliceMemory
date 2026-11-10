@@ -86,6 +86,7 @@ DOORS = {
     "mcp/memories.py:redact_memory_flow": None,
     "routers/vnext_projects.py:review_vnext_open_loop": None,
     "mcp/retrieval.py:_handle_alice_open_loops": None,
+    "mcp/lessons.py:_handle_alice_lessons": None,
     "vnext_memory_commit.py:VNextMemoryCommitService.authorize_memory_action": None,
     "vnext_memory_commit.py:VNextMemoryCommitService._write_policy_decision": None,
     "routers/_vnext_shared.py:_vnext_load_source_trace": None,
@@ -146,6 +147,7 @@ DOORS = {
 }
 
 NOT_A_DOOR = {
+    "mcp/lessons.py:_RevisionView.list_events": "private attribution delegate; memory_writer receives only a memory admitted by the lesson handler",
     "mcp/synthesis.py:_handle_alice_graph_edge_review": "existence pre-check answers not_found before the write path; the legacy tool settles the row it reviews",
     "mcp/synthesis.py:_handle_alice_belief_review": "existence pre-check answers not_found before the write path; the legacy tool settles the row it reviews",
     "vnext_artifact_review.py:lock_artifact_review_labels": "write lock classification only; the adapter authorizes before the dispatcher mutates",

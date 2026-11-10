@@ -23,7 +23,7 @@ Follow Setup and Start Alice in [docs/alpha/quickstart.md](quickstart.md#setup).
 ## Connect An Agent
 
 Start the MCP server. It lists three tools by default. Set
-`ALICE_MCP_FULL_TOOLS=1` to list all twelve core tools:
+`ALICE_MCP_FULL_TOOLS=1` to list all thirteen core tools:
 
 ```bash
 alicebot-mcp
