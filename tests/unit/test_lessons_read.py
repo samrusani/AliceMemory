@@ -316,6 +316,113 @@ def test_another_admin_key_may_confirm_a_lesson(vault: Vault, monkeypatch: pytes
     assert hidden["lessons"] == []
 
 
+def test_a_leading_dot_slash_does_not_change_a_path_match(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Guard: ``_lesson_path_key`` drops one leading ``./`` on the call path and on the lesson path.
+
+    A lesson stored as ``./src/*.py`` matches ``src/feature.py``, and a lesson stored as
+    ``src/feature.py`` matches ``./src/feature.py``. Returning the path unchanged makes both
+    misses and the two id assertions fail.
+    """
+
+    dotted = _commit(vault, monkeypatch, None, _lesson("dotted path lesson", paths=["./src/*.py"]))
+    plain = _commit(vault, monkeypatch, None, _lesson("plain path lesson", paths=["src/feature.py"]))
+    by_call = _lessons(vault, monkeypatch, None, task="zz-path-key-task", paths=["src/feature.py"])
+    by_dotted_call = _lessons(vault, monkeypatch, None, task="zz-path-key-task", paths=["./src/feature.py"])
+    assert {item["id"] for item in by_call["lessons"]} == {dotted["memory"]["id"], plain["memory"]["id"]}
+    assert {item["id"] for item in by_dotted_call["lessons"]} == {dotted["memory"]["id"], plain["memory"]["id"]}
+
+
+def test_plain_procedures_ahead_of_a_lesson_do_not_crowd_it_out(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Guard: the text stage asks for lessons (``require_lesson=True``).
+
+    Eleven plain procedures carry the task text and outrank one older lesson. The open
+    window is ten rows. Searching every procedure fills that window and the lesson is
+    missed, so dropping the lesson restriction fails the id assertion.
+    """
+
+    with sqlite_user_connection(vault.path, vault.user_id) as conn:
+        store = SQLiteVNextStore(conn, vault.user_id)
+        for index in range(11):
+            store.create_memory(
+                {
+                    "memory_key": f"procedure.{index}",
+                    "memory_type": "procedure",
+                    "title": TASK,
+                    "canonical_text": TASK,
+                    "value": {"text": TASK},
+                    "status": "active",
+                    "domain": "project",
+                    "sensitivity": "private",
+                }
+            )
+    lesson = _commit(vault, monkeypatch, None, _lesson("rebasing a feature branch"))
+    with sqlite_user_connection(vault.path, vault.user_id) as conn:
+        conn.execute(
+            "UPDATE memories SET created_at = ? WHERE id = ?",
+            ("2001-01-01T00:00:00Z", lesson["memory"]["id"]),
+        )
+    answer = vault.call(monkeypatch, None, "alice_lessons", {"task": TASK, "limit": 5})
+    assert [item["id"] for item in answer["lessons"]] == [lesson["memory"]["id"]]
+
+
+def test_a_path_row_from_a_domain_the_caller_cannot_read_stays_out(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Guard: ``admit_loaded`` on the path-only fetch.
+
+    The lesson is stored as project and private, so the path list's domain and sensitivity
+    clauses keep it, and its text does not match the task. Its ``source_id`` points at a
+    private source in the legal domain. Effective admission drops that derived row. A plain
+    lesson on the same path comes back. Replacing the ``admit_loaded`` loop with the fetched
+    rows returns the derived lesson and the empty assertion fails.
+
+    The hidden-input predicate does not hide a row this admission check would return. A
+    source above the caller's sensitivity ceiling is left out by that predicate and by
+    ``admit_loaded`` together.
+    """
+
+    keyed = Vault(vault.path.parent / "derived-domain")
+    admin = keyed.key("admin", "admin_agent", "alpha")
+    reader = keyed.key("reader", "project_scoped_agent", "alpha")
+    visible = _commit(
+        keyed, monkeypatch, admin,
+        _lesson("glazing a kiln shelf", paths=["src/*.py"]),
+        agent_id="admin", domain="project", project_scope=["alpha"],
+    )
+    hidden = _commit(
+        keyed, monkeypatch, admin,
+        _lesson("firing a bisque load", paths=["src/*.py"]),
+        agent_id="admin", domain="project", project_scope=["alpha"],
+    )
+    with sqlite_user_connection(keyed.path, keyed.user_id) as conn:
+        store = SQLiteVNextStore(conn, keyed.user_id)
+        source = store.create_source(
+            {
+                "source_type": "note",
+                "title": "Counsel note",
+                "content_hash": f"sha256:{uuid4().hex}",
+                "domain": "legal",
+                "sensitivity": "private",
+            }
+        )
+        row = conn.execute(
+            "SELECT metadata_json FROM memories WHERE id = ?", (hidden["memory"]["id"],),
+        ).fetchone()
+        metadata = json.loads(row["metadata_json"])
+        metadata["source_id"] = str(source["id"])
+        conn.execute(
+            "UPDATE memories SET metadata_json = ? WHERE id = ?",
+            (json.dumps(metadata), hidden["memory"]["id"]),
+        )
+    answer = keyed.call(
+        monkeypatch, reader, "alice_lessons",
+        {"task": "zz-path-fence-task", "paths": ["src/feature.py"], **_ident("reader")},
+    )
+    assert [item["id"] for item in answer["lessons"]] == [visible["memory"]["id"]]
+
+
 def test_a_lesson_block_with_no_publishing_act_is_not_returned(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
     """Guard: a publishing revision counts only when its new value holds a lesson.
 
