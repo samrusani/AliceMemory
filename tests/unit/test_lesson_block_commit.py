@@ -991,7 +991,7 @@ def test_the_other_lifecycle_doors_leave_a_lesson_s_block_and_text_alone(vault: 
     undone = vault.call(monkeypatch, admin, 
         "alice_memory_manage",
         {"action": "undo", "memory_id": memory_id,
-         "superseded_by_memory_id": memory_id_of(successor), **identity("admin")},
+         "superseded_by": memory_id_of(successor), **identity("admin")},
     )
     assert undone["memory"]["value"]["lesson"]["do_instead"] == LESSON["do_instead"]
     assert undone["memory"]["canonical_text"] == DERIVED_TEXT
