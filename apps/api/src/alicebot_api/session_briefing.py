@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Protocol, cast
 from uuid import UUID
 
+from alicebot_api.vnext_source_fence import SourceReadFence
 from alicebot_api.project_identity import ProjectContext
 from alicebot_api.project_view import (
     FOUND_FROM_WORDS,
@@ -288,6 +289,7 @@ def compile_session_brief(
     project_view: ProjectView,
     exclude_global_domains: frozenset[str],
     query: str | None,
+    caller_limited: bool = False,
     reserve: int = 0,
 ) -> str:
     """Render a labelled markdown brief under the caller's effective fence.
@@ -436,6 +438,7 @@ def compile_session_brief(
             # design, so it ranks sources by document whatever recall does.
             ranking=SourceRanking.document(),
             winning_memories=facts,
+            caller_limited=caller_limited,
         )
         sources = [row for row in sources if row.get("derived_memory_corrected") is not True]
 
@@ -529,6 +532,7 @@ def compile_local_session_brief(
             exclude_global_domains=exclude_global_domains,
             query=query,
             reserve=reserve,
+            caller_limited=SourceReadFence.for_identity(identity).entity_read_fenced,
         )
 
 

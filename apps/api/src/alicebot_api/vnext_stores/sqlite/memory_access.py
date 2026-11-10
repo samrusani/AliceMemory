@@ -31,6 +31,7 @@ from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _fts_match_any_expression,
     _fts_match_expression,
     CTE_MATERIALIZED_HINT,
+    fts_row_score,
     _project_view_partition_sql,
     _split_view_request,
     _stated_exclusion,
@@ -1244,6 +1245,7 @@ def search_memories_fts(
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
     lessons_only: bool = False,
+    row_local_rank: bool = False,
     lesson_candidate_ids: frozenset[str] | None = None,
 ) -> list[VNextRow]:
     # Strict pass ANDs every non-stopword term (websearch parity);
@@ -1279,10 +1281,16 @@ def search_memories_fts(
     if lesson_candidate_ids is not None:
         lesson_sql += " AND m.id IN (SELECT value FROM json_each(?))"
     ordering = "fts_score DESC, m.created_at DESC, m.id ASC" if lessons_only else "fts_score DESC, m.updated_at DESC, m.created_at DESC, m.id DESC"
+    # Fenced reads count matches in this row alone. Keep the lesson title/body
+    # weights (2:1), and the existing relative weights of the other columns.
+    # Unrestricted reads retain bm25, including its corpus statistics.
     score_sql = (
         "2 * (coalesce(length(highlight(memories_fts, 0, char(1), '')), 0) - length(coalesce(m.title, ''))) + "
         "(coalesce(length(highlight(memories_fts, 1, char(1), '')), 0) - length(coalesce(m.canonical_text, '')))"
-        if lessons_only else "-bm25(memories_fts, 1.0, 0.4, 0.2, 0.4, 0.1)"
+        if lessons_only else (
+            fts_row_score("memories_fts", (("title", 2.0), ("canonical_text", 1.0), ("summary", 0.5), ("memory_key", 1.0), ("fact_keys", 0.25)))
+            if row_local_rank else "-bm25(memories_fts, 1.0, 0.4, 0.2, 0.4, 0.1)"
+        )
     )
     params: list[object] = [match_expression, self.user_id]
     if lesson_candidate_ids is not None:

@@ -214,6 +214,7 @@ from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _escape_like_literal as _escape_like_literal,
     _expiry_clause as _query_expiry_clause,
     _fts_match_any_expression as _fts_match_any_expression,
+    fts_row_score,
     _fts_match_expression as _fts_match_expression,
     _like_any as _query_like_any,
     _memory_type_clause as _query_memory_type_clause,
@@ -1318,6 +1319,7 @@ class SQLiteVNextStore:
         sensitivity_allowed: list[str] | None = None,
         limit: int = 50,
         match_any: bool = False,
+        row_local_rank: bool = False,
         scope_projects: tuple[str, ...] = (),
         scope_people: tuple[str, ...] = (),
         scope_window_start: datetime | None = None,
@@ -1348,6 +1350,10 @@ class SQLiteVNextStore:
             scope_window_start=scope_window_start,
             scope_window_end=scope_window_end,
         )
+        score_sql = (
+            fts_row_score("source_chunks_fts", (("text", 1.0),))
+            if row_local_rank else "-bm25(source_chunks_fts)"
+        )
         prefixed_columns = ", ".join(f"c.{column}" for column in SOURCE_CHUNK_COLUMNS)
         params: list[object] = [match_expression, self.user_id]
         params.extend(readable_params)
@@ -1356,7 +1362,7 @@ class SQLiteVNextStore:
             return self._fetch_all(
                 f"""
                     SELECT {prefixed_columns},
-                      -bm25(source_chunks_fts) AS fts_score
+                      {score_sql} AS fts_score
                     FROM source_chunks_fts
                     JOIN source_chunks c ON c.rowid = source_chunks_fts.rowid
                     JOIN sources s ON s.id = c.source_id AND s.user_id = c.user_id

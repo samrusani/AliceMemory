@@ -3176,6 +3176,7 @@ class VNextRetrievalService:
         scope_window_end: datetime | None = None,
         read_fence: SourceReadFence,
         lessons_only: bool = False,
+        include_expired: bool = False,
         lesson_admitted_ids: frozenset[str] | None = None,
     ) -> tuple[list[JsonObject], str]:
         """Ranked memory rows of the full-text stage and the label of the pass that found them.
@@ -3217,6 +3218,10 @@ class VNextRetrievalService:
             }
         options = {"query": query, "domains": domains or None,
                    "sensitivity_allowed": sensitivity_allowed, **filters, **scope_filters}
+        if _supports_explicit_parameters(active_search, ("row_local_rank",)):
+            options["row_local_rank"] = read_fence.entity_read_fenced
+        if include_expired:
+            options["include_expired"] = True
         if lessons_only:
             options["lessons_only"] = True
             options["lesson_candidate_ids"] = lesson_admitted_ids
@@ -3668,6 +3673,7 @@ class VNextRetrievalService:
         ranking: SourceRanking,
         scope: _ResolvedRetrievalScope | None = None,
         anchor: TemporalAnchor | None = None,
+        caller_limited: bool = False,
     ) -> tuple[dict[str, Sequence[JsonObject]], JsonObject]:
         """Ranked source lists for RRF fusion plus the honest stage record.
 
@@ -3714,6 +3720,7 @@ class VNextRetrievalService:
                 limit=limit,
                 winning_memories=winning_memories,
                 ranking=checked,
+                caller_limited=caller_limited,
                 scope=scope,
                 anchor=anchor,
             )
@@ -3764,6 +3771,8 @@ class VNextRetrievalService:
         if callable(search_source_chunks) and has_source_resolver:
             chunk_fts_source = str(getattr(self.store, "fts_stage_source", "postgres_fts"))
             chunk_scope_filters = _resource_scope_filters(search_source_chunks)
+            if _supports_explicit_parameters(search_source_chunks, ("row_local_rank",)):
+                chunk_scope_filters["row_local_rank"] = caller_limited
 
             def _chunk_sources_for(rows: Sequence[JsonObject]) -> list[JsonObject]:
                 ordered_source_ids: list[str] = []
@@ -4149,6 +4158,7 @@ class VNextRetrievalService:
         ranking: SourceRanking,
         scope: _ResolvedRetrievalScope | None,
         anchor: TemporalAnchor | None = None,
+        caller_limited: bool = False,
     ) -> tuple[list[JsonObject], JsonObject]:
         """Passage mode: several chunks of one document, ranked across documents.
 
@@ -4225,6 +4235,8 @@ class VNextRetrievalService:
         if callable(search_source_chunks) and has_source_resolver:
             chunk_fts_source = str(getattr(self.store, "fts_stage_source", "postgres_fts"))
             chunk_scope_filters = _resource_scope_filters(search_source_chunks)
+            if _supports_explicit_parameters(search_source_chunks, ("row_local_rank",)):
+                chunk_scope_filters["row_local_rank"] = caller_limited
 
             def _fetch(n: int, *, match_any: bool) -> tuple[list[JsonObject], str]:
                 return list(
@@ -4590,6 +4602,7 @@ class VNextRetrievalService:
         scope: _ResolvedRetrievalScope | None,
         ranking: SourceRanking,
         winning_memories: Sequence[JsonObject] = (),
+        caller_limited: bool = False,
     ) -> tuple[list[JsonObject], JsonObject]:
         """Ranked imported source material for a query, with readable excerpts.
 
@@ -4611,6 +4624,10 @@ class VNextRetrievalService:
         moment someone adds a caller and forgets. ``None`` is still accepted,
         because an unscoped owner query is legitimate, but it has to be written
         down at the call site.
+
+        ``caller_limited`` is derived from ``SourceReadFence.entity_read_fenced``
+        at each authenticated edge. Request scope is not a substitute: an owner
+        selecting one project must retain the unrestricted ranking.
 
         ``ranking`` is required for the same reason and is passed on to
         ``_source_stage_lists`` in document mode. ``SourceRanking.document()``
@@ -4644,6 +4661,7 @@ class VNextRetrievalService:
                 limit=limit,
                 winning_memories=winning_memories,
                 ranking=checked,
+                caller_limited=caller_limited,
                 scope=scope,
             )
         source_lists, stage_record = self._source_stage_lists(
@@ -4653,6 +4671,7 @@ class VNextRetrievalService:
             limit=limit,
             winning_memories=winning_memories,
             ranking=ranking,
+            caller_limited=caller_limited,
             scope=scope,
         )
         candidates = _fused_candidates(
@@ -5087,6 +5106,7 @@ class VNextRetrievalService:
                 ranking=SourceRanking.document(),
                 scope=scope,
                 anchor=anchor,
+                caller_limited=source_fence.entity_read_fenced,
             )
         else:
             source_lists = {}
