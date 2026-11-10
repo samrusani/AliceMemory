@@ -615,6 +615,9 @@ counted, which is how it is stored.
 
 Instead of free text, a write can carry a shaped lesson: an optional `lesson`
 object on `alice_memory_commit`, and on `POST /v0/vnext/memories/commit`.
+The published request schema of the HTTP route still lists `title` and
+`canonical_text` as required; a body that carries a `lesson` may leave both
+out, and `canonical_text` must be left out.
 Both doors run the one commit service, so the block behaves the same on
 SQLite and PostgreSQL. A team shares one vault, and when one agent's work
 fails a check or is corrected, the others should not repeat it; the lesson
