@@ -40,6 +40,7 @@ def _normalize(value, key=""):
 @pytest.mark.parametrize("tool", ("alice_recall", "alice_context_pack", "alice_explain"))
 @pytest.mark.parametrize("filtered", (False, True))
 def test_unrestricted_derived_read_contract(tmp_path, monkeypatch, profile, tool, filtered):
+    """Guard: label repair preserves the answer and the compiler's excluded-envelope estimate."""
     if filtered and tool == "alice_explain":
         pytest.skip("explain is by ID and has no domains request filter")
     path = tmp_path / "derived.sqlite3"
@@ -126,11 +127,17 @@ def test_unrestricted_derived_read_contract(tmp_path, monkeypatch, profile, tool
         return value
 
     if tool == "alice_context_pack":
-        # Additive input metadata has an intentional serialization cost.
-        for field in ("full_pack_serialized_token_estimate", "full_pack_excluded_token_estimate", "token_estimate"):
-            if field in before["token_report"]:
-                assert after["token_report"][field] >= before["token_report"][field]
-                after["token_report"][field] = before["token_report"][field]
+        # Metadata adds content cost. The excluded envelope is the difference
+        # of two rounded estimates, so its rounding can move by one token.
+        excluded = "full_pack_excluded_token_estimate"
+        for answer in (before, after):
+            report = answer["token_report"]
+            assert report[excluded] == report["full_pack_serialized_token_estimate"] - report["token_estimate"]
+        assert abs(after["token_report"][excluded] - before["token_report"][excluded]) <= 1
+        for field in ("full_pack_serialized_token_estimate", "token_estimate"):
+            assert after["token_report"][field] >= before["token_report"][field]
+            after["token_report"][field] = before["token_report"][field]
+        after["token_report"][excluded] = before["token_report"][excluded]
     if tool == "alice_explain" and profile:
         for old_event, new_event in zip(before["events"], after["events"], strict=True):
             if new_event["event_type"] == "policy.decision":

@@ -25923,6 +25923,22 @@
         "tests/unit/test_ranked_read_hidden_rows.py::test_what_changed_is_equal_when_hidden_rows_are_added"
       ],
       "expected_failure": "test_what_changed_is_equal_when_hidden_rows_are_added"
+    },
+    {
+      "name": "recall-row-rank-excluded-envelope-contract",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/context.py",
+          "line": 332,
+          "before": "report[\"full_pack_excluded_token_estimate\"] = full_pack_excluded_estimate",
+          "after": "report[\"full_pack_excluded_token_estimate\"] = full_pack_estimate",
+          "sha256": "e1938e86b1d87b83e1bf939fb4daade2fa311d931a7ee8d1265cd88e3f24d7b7"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_derived_read_parity.py::test_unrestricted_derived_read_contract"
+      ],
+      "expected_failure": "test_unrestricted_derived_read_contract"
     }
   ]
 }
