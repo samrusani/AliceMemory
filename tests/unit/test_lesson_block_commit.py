@@ -323,6 +323,8 @@ def test_the_promotion_policy_never_lifts_a_lesson(vault: Vault, monkeypatch: py
     waiting = commit_lesson(vault, monkeypatch, identity, agent_id="trusted", domain="project", confidence=0.7)
     assert waiting["status"] == "review_required"
     assert waiting["policy_decision"]["reason"] == "lesson_requires_approval"
+    # The promotion layer never even evaluated the lesson: no promotion record on the decision.
+    assert "promotion" not in waiting["policy_decision"]
 
 
 def test_evaluate_memory_commit_policy_itself_never_lifts_a_lesson() -> None:
@@ -483,11 +485,13 @@ def test_a_lesson_field_one_over_its_limit_is_refused(vault: Vault, monkeypatch:
     """Guard: the per-field size checks in ``_bounded_lesson_text``.
 
     Mutation: raise a limit by one in ``write_bounds`` or drop the comparison; the refusal disappears.
+    The probe lengths are literals, not the constants: a test that reads the limit it probes would
+    pass on a loosened limit.
     """
 
-    _assert_shape_refusal(vault, monkeypatch, {**LESSON, "applies_when": "a" * (MAX_COMMIT_LESSON_APPLIES_WHEN_CHARS + 1)}, "lesson.applies_when")
-    _assert_shape_refusal(vault, monkeypatch, {**LESSON, "what_happened": "a" * (MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS + 1)}, "lesson.what_happened")
-    _assert_shape_refusal(vault, monkeypatch, {**LESSON, "do_instead": "a" * (MAX_COMMIT_LESSON_DO_INSTEAD_CHARS + 1)}, "lesson.do_instead")
+    _assert_shape_refusal(vault, monkeypatch, {**LESSON, "applies_when": "a" * 301}, "lesson.applies_when")
+    _assert_shape_refusal(vault, monkeypatch, {**LESSON, "what_happened": "a" * 601}, "lesson.what_happened")
+    _assert_shape_refusal(vault, monkeypatch, {**LESSON, "do_instead": "a" * 601}, "lesson.do_instead")
 
 
 @pytest.mark.parametrize(
@@ -517,7 +521,7 @@ def test_more_than_sixteen_paths_are_refused(vault: Vault, monkeypatch: pytest.M
     Mutation: raise ``MAX_COMMIT_LESSON_PATHS`` or drop the comparison; the refusal disappears.
     """
 
-    _assert_shape_refusal(vault, monkeypatch, {**LESSON, "paths": ["p"] * (MAX_COMMIT_LESSON_PATHS + 1)}, "lesson.paths")
+    _assert_shape_refusal(vault, monkeypatch, {**LESSON, "paths": ["p"] * 17}, "lesson.paths")
 
 
 def test_canonical_text_with_a_lesson_is_refused(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
