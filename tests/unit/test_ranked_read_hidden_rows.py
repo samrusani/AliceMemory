@@ -485,3 +485,38 @@ def test_rank_helpers_allow_repeated_reads_with_an_active_cursor(vault, monkeypa
             assert call(vault, monkeypatch, key, "alice_recall", args) == before
         finally:
             cursor.close()
+
+
+@pytest.mark.parametrize("shape", ("repeated", "phrases", "long_phrase"))
+def test_long_supported_queries_keep_native_bm25(vault, monkeypatch, shape):
+    """Guard: repeated contributions and large phrase lists avoid SQL compound limits."""
+    if shape == "repeated":
+        query = "luminousmigration " * 600
+        text = "luminousmigration luminousmigration"
+    elif shape == "long_phrase":
+        text = " ".join(f"t{i:02}" for i in range(65))
+        query = '"' + text + '"'
+    else:
+        phrases = [f"t{i:02} t{j:02}" for i in range(25) for j in range(25)][:600]
+        query = " ".join('"' + phrase + '"' for phrase in phrases)
+        text = " ".join(phrases)
+    with sqlite_user_connection(vault, USER) as conn:
+        SQLiteVNextStore(conn, USER).create_memory({"memory_key": "long.query", "canonical_text": text,
+            "value": {"text": text}, "memory_type": "procedure", "status": "active", "domain": "project",
+            "sensitivity": "public", "project_id": "alpha", "metadata_json": {"project_scope": ["alpha"]}})
+    scores = {}
+    original = SQLiteVNextStore.search_memories_fts
+    @wraps(original)
+    def capture(self, **kwargs):
+        rows = original(self, **kwargs)
+        scores.update({str(r["id"]): r["fts_score"] for r in rows})
+        return rows
+    monkeypatch.setattr(SQLiteVNextStore, "search_memories_fts", capture)
+    args = {"query": query, "limit": 1, "include_sources": False}
+    owner = call(vault, monkeypatch, None, "alice_recall", args)
+    expected = dict(scores)
+    key = mint(vault, "project_scoped_agent")
+    scores.clear()
+    bounded = call(vault, monkeypatch, key, "alice_recall", args)
+    assert owner["count"] == bounded["count"] == 1
+    assert scores == pytest.approx(expected, rel=1e-12, abs=1e-15)
