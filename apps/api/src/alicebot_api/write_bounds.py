@@ -42,6 +42,16 @@ MAX_COMMIT_SOURCE_REF_CHARS = 4_000
 # collapse it before they store it), so it is the length of what a memory holds.
 MAX_COMMIT_CANONICAL_TEXT_CHARS = 20_000
 
+# One lesson block on a memory commit: the three text fields and the optional
+# path list. Each text field is counted after runs of whitespace are collapsed
+# to one space, the way it is stored. Paths are repo-relative paths or globs,
+# at most 16 entries of at most 200 characters.
+MAX_COMMIT_LESSON_APPLIES_WHEN_CHARS = 300
+MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS = 600
+MAX_COMMIT_LESSON_DO_INSTEAD_CHARS = 600
+MAX_COMMIT_LESSON_PATHS = 16
+MAX_COMMIT_LESSON_PATH_CHARS = 200
+
 MAX_CORRECTION_FIELD_CHARS = 20_000
 # A title on a correction. Continuity objects already refuse longer titles.
 MAX_CORRECTION_TITLE_CHARS = 280
@@ -69,6 +79,11 @@ __all__ = [
     "MAX_CAPTURE_CANDIDATE_CHARS",
     "MAX_CAPTURE_COMMIT_CANDIDATES",
     "MAX_COMMIT_CANONICAL_TEXT_CHARS",
+    "MAX_COMMIT_LESSON_APPLIES_WHEN_CHARS",
+    "MAX_COMMIT_LESSON_DO_INSTEAD_CHARS",
+    "MAX_COMMIT_LESSON_PATHS",
+    "MAX_COMMIT_LESSON_PATH_CHARS",
+    "MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS",
     "MAX_CORRECTION_FIELD_CHARS",
     "MAX_CORRECTION_TITLE_CHARS",
     "first_oversized",

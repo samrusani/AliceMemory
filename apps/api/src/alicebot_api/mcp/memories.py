@@ -14,6 +14,7 @@ from alicebot_api.vnext_agent_control import (
 )
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_memory_commit import (
+    LESSON_MUTATION_REFUSED_MESSAGE,
     IdempotencyKeyConflictError,
     MemoryNotFoundError,
     MemoryStateError,
@@ -53,7 +54,7 @@ from .shared import (
     _vnext_store_context,
 )
 from .arguments import _canonical_optional_row_id_argument, _canonical_row_id_argument, _parse_source_refs
-from .types import MCPArgumentError
+from .types import MCPArgumentError, MCPInvalidRequestError
 
 
 def _handle_alice_vnext_propose_memory(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -133,8 +134,31 @@ def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Map
     conflict: IdempotencyKeyConflictError | None = None
     deferred_embedding_inputs: tuple[DeferredMemoryEmbedding, ...] = ()
     confidence = _parse_optional_float(arguments, "confidence")
-    request = memory_commit_request_from_payload(
-        {
+    if arguments.get("lesson") is not None:
+        # A lesson names the text: canonical_text is refused, the title and
+        # the domain have lesson defaults, and memory_type is procedure.
+        if arguments.get("canonical_text") is not None:
+            raise MCPInvalidRequestError("canonical_text must be left out when the commit carries a lesson")
+        commit_payload: dict[str, object] = {
+            "title": _parse_optional_text(arguments, "title"),
+            "canonical_text": None,
+            "memory_type": _parse_optional_text(arguments, "memory_type"),
+            "domain": _parse_optional_text(arguments, "domain"),
+            "sensitivity": _parse_optional_text(arguments, "sensitivity") or "unknown",
+            "confidence": 0.9 if confidence is None else confidence,
+            "intent": _parse_optional_text(arguments, "intent") or "explicit_remember",
+            "source_type": _parse_optional_text(arguments, "source_type") or "direct_user_instruction",
+            "source_refs": list(_parse_source_refs(arguments)),
+            "conversation_excerpt": _parse_optional_text(arguments, "conversation_excerpt"),
+            "rationale": _parse_optional_text(arguments, "rationale"),
+            "idempotency_key": _parse_optional_text(arguments, "idempotency_key"),
+            "project_scope": list(_parse_string_list(arguments, "project_scope")),
+            "contradiction_refs": list(_parse_string_list(arguments, "contradiction_refs")),
+            "trace_id": _parse_optional_text(arguments, "trace_id"),
+            "lesson": arguments.get("lesson"),
+        }
+    else:
+        commit_payload = {
             "title": _parse_required_text(arguments, "title"),
             "canonical_text": _parse_required_text(arguments, "canonical_text"),
             "memory_type": _parse_optional_text(arguments, "memory_type") or "semantic",
@@ -150,9 +174,16 @@ def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Map
             "project_scope": list(_parse_string_list(arguments, "project_scope")),
             "contradiction_refs": list(_parse_string_list(arguments, "contradiction_refs")),
             "trace_id": _parse_optional_text(arguments, "trace_id"),
-        },
-        user_id=context.user_id,
-    )
+        }
+    if arguments.get("lesson") is not None:
+        try:
+            request = memory_commit_request_from_payload(commit_payload, user_id=context.user_id)
+        except VNextMemoryCommitValidationError as exc:
+            # A refused lesson shape answers invalid_request with the field
+            # name and the rule, never request text, and writes nothing.
+            raise MCPInvalidRequestError(str(exc)) from None
+    else:
+        request = memory_commit_request_from_payload(commit_payload, user_id=context.user_id)
     with _vnext_store_context(context) as store:
         try:
             service = VNextMemoryCommitService(store, defer_embeddings=True)
@@ -198,6 +229,7 @@ _COMMIT_CONFIRMATION_ACTIONS = ("confirm", "reject")
 _COMMIT_WRITE_FIELDS = (
     "title",
     "canonical_text",
+    "lesson",
     "memory_type",
     "domain",
     "sensitivity",
@@ -292,6 +324,13 @@ def _confirm_pending_memory(
             deferred_embedding_inputs = service.deferred_embedding_inputs
         except AgentPolicyBlockedError as exc:
             blocked_decision = exc.decision
+        except VNextMemoryCommitValidationError as exc:
+            if str(exc) == LESSON_MUTATION_REFUSED_MESSAGE:
+                # A confirm that would rewrite a lesson's text answers
+                # invalid_request with the fixed words, which the caller
+                # reads. Every other confirmation shape keeps today's answer.
+                raise MCPInvalidRequestError(str(exc)) from None
+            raise
     if blocked_decision is not None:
         _raise_mcp_policy_blocked(blocked_decision)
     if payload is None:
