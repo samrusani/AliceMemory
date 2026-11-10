@@ -161,6 +161,9 @@ def test_what_changed_is_equal_when_hidden_rows_are_added(vault, monkeypatch, ex
             with sqlite_user_connection(vault, USER) as conn:
                 conn.execute("UPDATE memories SET valid_to='2000-01-01T00:00:00+00:00' WHERE id=?", (result["memory"]["id"],))
     key = mint(vault, "project_scoped_agent")
+    # Expired decisions belong to history, never to ordinary recall.
+    recall = call(vault, monkeypatch, key, "alice_recall", {"query": QUERY, "include_sources": False})
+    assert recall["count"] == (0 if expired else 2)
     args = {"topic": QUERY}
     before = call(vault, monkeypatch, key, "alice_what_changed", args)
     assert len(before["chains"]) == 2

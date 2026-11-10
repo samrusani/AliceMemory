@@ -25891,6 +25891,38 @@
         "tests/unit/test_sqlite_legacy_citations.py::test_a_redacted_memory_takes_the_rows_that_cite_it_out_of_every_key_but_the_owner_and_the_admin_key"
       ],
       "expected_failure": "test_a_redacted_memory_takes_the_rows_that_cite_it_out_of_every_key_but_the_owner_and_the_admin_key"
+    },
+    {
+      "name": "recall-row-rank-recall-expiry-contract",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 349,
+          "before": "            read_fence=source_fence,\n            **retrieval_filters,",
+          "after": "            read_fence=source_fence,\n            include_expired=True,\n            **retrieval_filters,",
+          "sha256": "5e2cf06d07ffd2552c61dd045d3759e5e3bafad2d7da1621e1c939f9eef7db1e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_embed_only_recall_visible_memories.py::test_reindex_recall_and_the_stores_share_one_expiry_test"
+      ],
+      "expected_failure": "test_reindex_recall_and_the_stores_share_one_expiry_test"
+    },
+    {
+      "name": "recall-row-rank-recall-expiry-door",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 349,
+          "before": "            read_fence=source_fence,\n            **retrieval_filters,",
+          "after": "            read_fence=source_fence,\n            include_expired=True,\n            **retrieval_filters,",
+          "sha256": "5e2cf06d07ffd2552c61dd045d3759e5e3bafad2d7da1621e1c939f9eef7db1e"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ranked_read_hidden_rows.py::test_what_changed_is_equal_when_hidden_rows_are_added"
+      ],
+      "expected_failure": "test_what_changed_is_equal_when_hidden_rows_are_added"
     }
   ]
 }
