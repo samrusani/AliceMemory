@@ -260,6 +260,61 @@ def test_only_a_published_lesson_is_returned(vault: Vault, monkeypatch: pytest.M
     assert rejected["memory"]["id"] not in by_id
 
 
+def test_another_admin_key_may_confirm_a_lesson(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Guard: a commit or a confirm publishes when the writer on record is an admin_agent, not when the actor is that writer.
+
+    One admin key writes the lesson at confidence 0.7. A second admin key confirms it.
+    The reader gets that lesson, ``how`` confirmed, ``by`` the confirming key. Requiring the
+    confirming actor to be the stored writer leaves the lesson out and the count assertion fails.
+    Rewriting the writer to a project-scoped identity drops the same lesson: deleting the writer
+    check puts it back and the empty-answer assertion fails.
+    """
+
+    keyed = Vault(vault.path.parent / "two-admins")
+    admin_a = keyed.key("adminA", "admin_agent", "alpha")
+    admin_b = keyed.key("adminB", "admin_agent", "alpha")
+    reader = keyed.key("reader", "project_scoped_agent", "alpha")
+    pending = _commit(
+        keyed, monkeypatch, admin_a,
+        _lesson("rebasing a feature branch onto main", paths=["src/*.py"]),
+        agent_id="adminA", domain="project", project_scope=["alpha"], confidence=0.7,
+    )
+    assert pending["status"] == "confirmation_required"
+    memory_id = pending["memory"]["id"]
+    confirmed = keyed.call(monkeypatch, admin_b, "alice_memory_commit", {
+        "confirmation_id": pending["confirmation_id"],
+        "confirmation_action": "confirm",
+        **_ident("adminB"),
+    })
+    assert confirmed["status"] == "committed"
+    confirm_revision = _revision(keyed, memory_id, "agentic_memory_confirm_confirm")
+    assert confirm_revision["actor_id"] == "adminB"
+    recalled = keyed.call(
+        monkeypatch, reader, "alice_recall",
+        {"query": "rebase feature branch", "limit": 5, "include_sources": False, **_ident("reader")},
+    )
+    assert [item["id"] for item in recalled["results"]] == [memory_id]
+    answer = _lessons(keyed, monkeypatch, reader, **_ident("reader"))
+    assert answer["count"] == 1
+    assert answer["lessons"][0]["id"] == memory_id
+    assert answer["lessons"][0]["published"] == {
+        "by": "adminB",
+        "at": confirm_revision["created_at"],
+        "how": "confirmed",
+    }
+    with sqlite_user_connection(keyed.path, keyed.user_id) as conn:
+        row = conn.execute("SELECT metadata_json FROM memories WHERE id = ?", (memory_id,)).fetchone()
+        metadata = json.loads(row["metadata_json"]) if isinstance(row["metadata_json"], str) else dict(row["metadata_json"])
+        metadata["agentic_memory"]["agent_identity"]["permission_profile"] = "project_scoped_agent"
+        conn.execute(
+            "UPDATE memories SET metadata_json = ? WHERE id = ?",
+            (json.dumps(metadata), memory_id),
+        )
+    hidden = _lessons(keyed, monkeypatch, reader, **_ident("reader"))
+    assert hidden["count"] == 0
+    assert hidden["lessons"] == []
+
+
 def test_a_lesson_block_with_no_publishing_act_is_not_returned(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
     """Guard: a publishing revision counts only when its new value holds a lesson.
 

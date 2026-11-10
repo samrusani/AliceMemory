@@ -340,8 +340,11 @@ is a CLI verb, not a fourth always-on agent tool.
   `how`). `how` is `committed`, `confirmed` or `approved`. A lesson is returned
   only when this caller could read it from `alice_recall`, the stored block
   passes the lesson shape check, and a publishing revision is on its record.
-  Waiting, rejected, superseded, expired, forgotten and redacted rows are left
-  out, and so is an active row whose history has no publishing act. A lesson
+  A commit or a confirm counts when the writer on record is the owner or an
+  `admin_agent`. `published.by` is the actor of that revision, so a second
+  admin key may confirm a lesson the first admin key wrote. Waiting, rejected,
+  superseded, expired, forgotten and redacted rows are left out, and so is an
+  active row whose history has no publishing act. A lesson
   matches when its text matches `task` the way `alice_recall` matches a query,
   or one of its paths matches one of `paths` (`fnmatch` on the call path
   against the lesson path, after a leading `./` is dropped). Order: path and

@@ -1667,7 +1667,8 @@ _LESSON_TASK_LIMIT = 1000
 _LESSONS_DEFAULT_LIMIT = 5
 _LESSONS_MAX_LIMIT = 10
 # Revisions that publish a lesson, and the word the answer uses for each.
-# A commit or a confirm counts only when its actor is the owner or an admin_agent.
+# A commit or a confirm counts only when the writer on record is the owner or an admin_agent.
+# The actor of that revision is who published.by names, and it may be a different admin key.
 # approved covers the review door and the other acts that turn a waiting lesson active.
 _LESSON_PUBLISHING_ACTS = {
     "agentic_memory_commit": "committed",
@@ -1729,15 +1730,21 @@ def _revision_holds_lesson(revision: Mapping[str, object]) -> bool:
 
 
 def _commit_actor_may_publish(memory: Mapping[str, object], revision: Mapping[str, object]) -> bool:
-    actor_type = str(revision.get("actor_type") or "")
-    actor_id = revision.get("actor_id")
-    actor_text = actor_id.strip() if isinstance(actor_id, str) else ""
-    if actor_type == "user" and not actor_text:
-        return True
+    """True when the writer stored on the memory is the owner or an admin_agent.
+
+    The revision's actor is not the rule. An admin key may confirm a lesson another
+    admin key wrote, and published.by names the confirming actor.
+    """
+
+    del revision
     identity = _agentic_metadata(memory).get("agent_identity")
     if not isinstance(identity, Mapping):
-        return False
-    return identity.get("permission_profile") == "admin_agent" and identity.get("agent_id") == actor_text
+        return True
+    agent_id = identity.get("agent_id")
+    agent_text = agent_id.strip() if isinstance(agent_id, str) else ""
+    if not agent_text:
+        return True
+    return identity.get("permission_profile") == "admin_agent"
 
 
 def _published_lesson(memory: Mapping[str, object], revisions: Sequence[object]) -> dict[str, str] | None:
