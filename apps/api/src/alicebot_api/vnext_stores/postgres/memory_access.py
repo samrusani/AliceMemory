@@ -1330,7 +1330,7 @@ def _lesson_memory_where(
         "AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown') "
         "AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[])) "
         f"AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[]) "
-        "AND (valid_to IS NULL OR valid_to >= clock_timestamp())"
+        f"AND {POSTGRES_UNEXPIRED_SQL}"
     )
     params = (
         domains,

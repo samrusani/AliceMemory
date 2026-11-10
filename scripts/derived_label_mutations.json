@@ -5038,7 +5038,7 @@
           "line": 826,
           "before": "                WHERE deleted_at IS NULL\n                  AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}\n                  AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')\n                  AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR memory_type = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])\n                  AND (%s::text[] IS NULL OR created_by_agent_id = ANY(%s::text[]))\n                  AND (%s::text IS NULL OR run_id = %s)\n                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp()){lesson_sql}\n                  AND (\n                    memory_key ILIKE ANY(%s::text[])",
           "after": "                WHERE TRUE\n                  AND TRUE\n                  AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')\n                  AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR memory_type = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])\n                  AND (%s::text[] IS NULL OR created_by_agent_id = ANY(%s::text[]))\n                  AND (%s::text IS NULL OR run_id = %s)\n                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp()){lesson_sql}\n                  AND (\n                    memory_key ILIKE ANY(%s::text[])",
-          "sha256": "46370909dbf175b50387e870cc22d9e9315040e2c88a442d3b26a0d1beb712bd"
+          "sha256": "a296f1ae1642814ef51f9267ba23ecc7b3714a8637b5e57b7a5fdf15b2f1a1ae"
         }
       ],
       "pytest": [
@@ -23262,7 +23262,7 @@
           "line": 1279,
           "before": "                WHERE confirmation_id = %s\n",
           "after": "                WHERE confirmation_id = %s::uuid\n",
-          "sha256": "46370909dbf175b50387e870cc22d9e9315040e2c88a442d3b26a0d1beb712bd"
+          "sha256": "a296f1ae1642814ef51f9267ba23ecc7b3714a8637b5e57b7a5fdf15b2f1a1ae"
         }
       ],
       "pytest": [

@@ -46,8 +46,10 @@ SOURCE_RECEIPTS = {
     # Every other statement still uses the scope expression. Previous receipt 46946cc0...
     # Re-minted for the optional lesson predicate on the three search reads and for list_lesson_memories.
     # The predicate is empty unless a caller asks for lessons, so an ordinary search keeps its statement.
+    # Re-minted once more so the lesson where interpolates POSTGRES_UNEXPIRED_SQL, the same expiry test
+    # the other reads use. Previous receipt 46370909...
     "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py": (
-        "46370909dbf175b50387e870cc22d9e9315040e2c88a442d3b26a0d1beb712bd"
+        "a296f1ae1642814ef51f9267ba23ecc7b3714a8637b5e57b7a5fdf15b2f1a1ae"
     ),
     # Re-minted for per-project memory S2 (2026-10-02): the project fence builders read the reserved global
     # marker and take the domains to leave out, and the single-scan partition SQL and the materialized-CTE hint

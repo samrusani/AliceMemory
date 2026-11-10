@@ -44,8 +44,8 @@ def postgres_unexpired_sql(prefix: str = "") -> str:
 
 # The Postgres test for "the validity window has not closed". Recall writes the
 # same text next to a flag that lifts it; reindex, the backfill, the resume
-# reads, the roll-up reads and consolidation use it as it is. A test fails if
-# recall's statements stop containing it.
+# reads, the roll-up reads, the lesson reads and consolidation use it as it is.
+# A test fails if recall's statements stop containing it.
 POSTGRES_UNEXPIRED_SQL = postgres_unexpired_sql()
 
 
