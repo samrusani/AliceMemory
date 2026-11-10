@@ -577,6 +577,9 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                     ),
                 },
                 "paths": {
+                    "type": "array",
+                    "maxItems": MAX_COMMIT_LESSON_PATHS,
+                    "items": {"type": "string", "maxLength": MAX_COMMIT_LESSON_PATH_CHARS},
                     "description": (
                         "Files the agent is about to touch. Optional. At most 16 entries, "
                         "each 1 to 200 characters, using the same repo-relative path or glob "

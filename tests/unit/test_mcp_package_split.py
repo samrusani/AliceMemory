@@ -189,7 +189,10 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # annotation, or default changed. Legacy definitions are unchanged.
     # Re-minted for alice_lessons, one core read tool. The other twelve definitions
     # are unchanged: their digest is still efe16c0ef2d36397c47ac2a3ba1951e257af5c7a9ae5fd735fcc01b276c6456e.
-    assert _digest(core_definitions) == "a46ab833abea0e950a95f7fe6da40b4a88246a7501542271aa3f713b62eb48d0"
+    # Re-minted when alice_lessons paths gained the lesson-block array schema:
+    # type array, at most 16 strings, each at most 200 characters. A null paths
+    # value is refused by that schema.
+    assert _digest(core_definitions) == "ef84886d6c130d9617d3c6dffa857693ec2c2bdf56cc939441313c51e2a1e919"
     assert _digest(legacy_definitions) == "6b302f61e48d4f6196af8a7d2c8882130d565d84134f51bba38648f84c09089e"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "2117da5aa3661022f8b012185bafb97a2600768b2b6c3a0eee073ff4b5999952"

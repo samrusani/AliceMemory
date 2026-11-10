@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -540,13 +541,9 @@ def test_a_malformed_published_block_is_skipped(vault: Vault, monkeypatch: pytes
     ["src/../.."],
     ["C:/temp"],
     ["a\x00file"],
-    ["x" * 201],
     ["..\\windows"],
     ["\\\\server\\share\\notes"],
-    ["ok"] * 17,
     [""],
-    [1],
-    "src/feature.py",
 ])
 def test_bad_paths_are_refused_the_way_a_lesson_refuses_them(
     vault: Vault, monkeypatch: pytest.MonkeyPatch, paths: object,
@@ -558,6 +555,27 @@ def test_bad_paths_are_refused_the_way_a_lesson_refuses_them(
     """
 
     with pytest.raises(MCPArgumentError, match="lesson.paths"):
+        vault.call(monkeypatch, None, "alice_lessons", {"task": TASK, "paths": paths})
+
+
+@pytest.mark.parametrize("paths,detail", [
+    (None, "arguments.paths: paths must have type array"),
+    ("src/feature.py", "arguments.paths: paths must have type array"),
+    ([1], "arguments.paths[0]: paths[0] must have type string"),
+    (["ok"] * 17, "arguments.paths: must contain at most 16 items"),
+    (["x" * 201], "arguments.paths[0]: must be at most 200 characters"),
+])
+def test_paths_schema_matches_a_lesson_block(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch, paths: object, detail: str,
+) -> None:
+    """Guard: ``paths`` is an array of at most 16 strings, each at most 200 characters.
+
+    A null value is refused by the schema, the same way a lesson block refuses one.
+    Dropping the type, the item type, maxItems or maxLength lets that value through
+    and this fails.
+    """
+
+    with pytest.raises(MCPArgumentError, match=re.escape(detail)):
         vault.call(monkeypatch, None, "alice_lessons", {"task": TASK, "paths": paths})
 
 

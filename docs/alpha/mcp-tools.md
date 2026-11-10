@@ -330,8 +330,9 @@ is a CLI verb, not a fourth always-on agent tool.
 
 - `alice_lessons`: the published lessons that apply to what the agent is about
   to do. Arguments: `task` (required, 1 to 1,000 characters after runs of
-  whitespace are collapsed), `paths` (optional, at most 16 repo-relative paths
-  or globs, the same rules as a lesson's `paths`), and `limit` (optional, 1 to
+  whitespace are collapsed), `paths` (optional array of at most 16 strings, each
+  at most 200 characters, the same repo-relative paths or globs as a lesson's
+  `paths`; a null value is refused by the schema), and `limit` (optional, 1 to
   10, default 5), plus the identity fields every core tool takes. The answer
   states the same framing sentence `alice_recall` states, then `count` (the
   number returned, with no total) and `lessons`. Each lesson has `id`,
