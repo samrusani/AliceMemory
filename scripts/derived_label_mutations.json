@@ -24187,6 +24187,13 @@
           "after": "        pass",
           "line": 1915,
           "sha256": "24fda63a7f1d59325582f25d85d74a5208a84324d3b9dbd3e5ddcedb982ce183"
+        },
+        {
+          "file": "apps/api/src/alicebot_api/mcp/review.py",
+          "before": "        if resolved_action in {\"edit\", \"supersede\"}:\n            # The shared service check, not a copy: a memory that carries a\n            # lesson is never edited or superseded in place, so the block and\n            # the derived text can never disagree. The refusal carries the\n            # fixed words, which the caller reads.\n            try:\n                refuse_lesson_mutation(target, with_text=True)\n            except VNextMemoryCommitValidationError as exc:\n                raise MCPInvalidRequestError(str(exc)) from None",
+          "after": "        if False:\n            pass",
+          "line": 535,
+          "sha256": "51cfeb1ee4b1ecba3f39baf4f29052a9d33a5a28bd3c8a00e27ca7bad14b4551"
         }
       ],
       "pytest": [
@@ -24219,12 +24226,19 @@
           "after": "    scanned_refs: tuple[object, ...] = request.source_refs",
           "line": 646,
           "sha256": "24fda63a7f1d59325582f25d85d74a5208a84324d3b9dbd3e5ddcedb982ce183"
+        },
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
+          "before": "        if request.lesson.paths:\n            lesson_floor_candidate = replace(\n                lesson_floor_candidate,\n                conversation_excerpt=\" \".join(\n                    (*((lesson_floor_candidate.conversation_excerpt or \"\").split()), *request.lesson.paths)\n                ).strip(),\n            )",
+          "after": "        pass",
+          "line": 926,
+          "sha256": "24fda63a7f1d59325582f25d85d74a5208a84324d3b9dbd3e5ddcedb982ce183"
         }
       ],
       "pytest": [
         "tests/unit/test_lesson_block_commit.py::test_a_credential_in_any_lesson_field_rejects_the_write"
       ],
-      "expected_failure": "the paths cases store the credential instead of rejecting"
+      "expected_failure": "test_a_credential_in_any_lesson_field_rejects_the_write"
     },
     {
       "name": "mutation-lesson-paths-floor",
@@ -24256,7 +24270,7 @@
       "pytest": [
         "tests/unit/test_lesson_block_commit.py::test_a_bad_paths_form_is_refused"
       ],
-      "expected_failure": "the backslash parametrized cases store instead of refusing"
+      "expected_failure": "test_a_bad_paths_form_is_refused"
     },
     {
       "name": "mutation-lesson-agent-output-path",
