@@ -281,8 +281,8 @@ the answer verifier (`render_pack_context_block`) does the same.
 
 ## The full core surface
 
-`ALICE_MCP_FULL_TOOLS=1` advertises the core tools, in the current
-definition order. The full surface has thirteen core tools on main, with
+`ALICE_MCP_FULL_TOOLS=1` advertises the core tools. The grouped list below
+describes the ten tools added to the default three. The full surface has thirteen core tools on main, with
 `alice_lessons` last. `alice_what_changed` was added in v0.21.0 and is absent
 from v0.20.2. Capture and the pack are on this surface. Vault import
 is a CLI verb, not a fourth always-on agent tool.

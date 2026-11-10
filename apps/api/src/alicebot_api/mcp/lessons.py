@@ -29,17 +29,22 @@ from .types import MCPArgumentError, MCPRuntimeContext
 
 def _revisions_for_candidates(store):
     """Read the acts for all potential lessons in one query."""
-    columns = "r.memory_id, r.revision_number, r.sequence_no, r.id, r.action, r.revision_type, r.actor_type, r.actor_id, r.created_at, r.text_before, r.text_after"
     if isinstance(store, SQLiteVNextStore):
         return store._fetch_all(
-            f"SELECT {columns}, json_extract(r.new_value, '$.lesson') AS publication_lesson FROM memory_revisions r JOIN memories m ON m.id = r.memory_id AND m.user_id = r.user_id "
+            "SELECT r.memory_id, r.revision_number, r.sequence_no, r.id, r.action, r.revision_type, "
+            "r.actor_type, r.actor_id, r.created_at, r.text_before, r.text_after, "
+            "json_extract(r.new_value, '$.lesson') AS publication_lesson FROM memory_revisions r "
+            "JOIN memories m ON m.id = r.memory_id AND m.user_id = r.user_id "
             "WHERE r.user_id = ? AND m.status = 'active' AND m.memory_type = 'procedure' "
             "AND m.deleted_at IS NULL AND json_type(m.value, '$.lesson') = 'object' "
             "ORDER BY r.memory_id, r.revision_number, r.sequence_no, r.id",
             (store.user_id,),
         )
     return store._fetch_all(
-        f"SELECT {columns}, r.new_value -> 'lesson' AS publication_lesson FROM memory_revisions r JOIN memories m ON m.id = r.memory_id AND m.user_id = r.user_id "
+        "SELECT r.memory_id, r.revision_number, r.sequence_no, r.id, r.action, r.revision_type, "
+        "r.actor_type, r.actor_id, r.created_at, r.text_before, r.text_after, "
+        "r.new_value -> 'lesson' AS publication_lesson FROM memory_revisions r "
+        "JOIN memories m ON m.id = r.memory_id AND m.user_id = r.user_id "
         "WHERE r.user_id = app.current_user_id() AND m.status = 'active' AND m.memory_type = 'procedure' "
         "AND m.deleted_at IS NULL AND jsonb_typeof(m.value -> 'lesson') = 'object' "
         "ORDER BY r.memory_id, r.revision_number, r.sequence_no, r.id",
@@ -50,17 +55,23 @@ def _revisions_for_candidates(store):
 def _candidate_memories(store, ids):
     """Hydrate a candidate set in one query without a variable-count limit."""
     if isinstance(store, SQLiteVNextStore):
-        from alicebot_api.vnext_stores.sqlite.columns import MEMORY_COLUMNS
-
         return store._fetch_all(
-            f"SELECT {', '.join(MEMORY_COLUMNS)} FROM memories "
+            "SELECT id, user_id, agent_profile_id, memory_key, value, status, source_event_ids, memory_type, "
+            "confidence, salience, confirmation_status, trust_class, promotion_eligibility, evidence_count, "
+            "independent_source_count, extracted_by_model, trust_reason, valid_from, valid_to, last_confirmed_at, "
+            "title, canonical_text, summary, domain, sensitivity, first_seen_at, last_seen_at, last_reviewed_at, "
+            "metadata_json, commit_digest, confirmation_id, project_id, created_by_agent_id, run_id, superseded_by, "
+            "supersedes, created_at, updated_at, deleted_at FROM memories "
             "WHERE user_id = ? AND deleted_at IS NULL AND id IN (SELECT value FROM json_each(?))",
             (store.user_id, json.dumps(ids)),
         )
-    from alicebot_api.vnext_stores.postgres.columns import MEMORY_COLUMNS
-
     return store._fetch_all(
-        f"SELECT {MEMORY_COLUMNS} FROM memories WHERE user_id = app.current_user_id() "
+        "SELECT id, user_id, agent_profile_id, memory_key, value, status, source_event_ids, memory_type, "
+        "confidence, salience, confirmation_status, trust_class, promotion_eligibility, evidence_count, "
+        "independent_source_count, extracted_by_model, trust_reason, valid_from, valid_to, last_confirmed_at, "
+        "title, canonical_text, summary, domain, sensitivity, first_seen_at, last_seen_at, last_reviewed_at, "
+        "metadata_json, commit_digest, confirmation_id, project_id, created_by_agent_id, run_id, superseded_by, "
+        "supersedes, created_at, updated_at, deleted_at FROM memories WHERE user_id = app.current_user_id() "
         "AND deleted_at IS NULL AND id = ANY(%s::uuid[])",
         (ids,),
     )

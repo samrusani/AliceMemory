@@ -60,8 +60,8 @@ PostgreSQL + pgvector  |  SQLite
   `alice_recall`, and `alice_resume`. Set `ALICE_MCP_FULL_TOOLS=1` to expose
   all thirteen core tools. The other ten are `alice_capture`,
   `alice_context_pack`, `alice_open_loops`, `alice_recent_decisions`,
-  `alice_memory_review`, `alice_memory_correct`, `alice_explain`,
-  `alice_memory_manage`, `alice_what_changed`, and `alice_lessons`.
+  `alice_memory_review`, `alice_memory_correct`, `alice_memory_manage`,
+  `alice_explain`, `alice_what_changed`, and `alice_lessons`.
 - `alice-memory` is the SQLite on-ramp. It serves MCP, and
   `alice-memory install` writes the host MCP config and a session-start hook
   for Claude Code and Cursor, and for Codex when `--host codex` is passed.
