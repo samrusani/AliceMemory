@@ -1741,7 +1741,7 @@
           "line": 915,
           "before": "        if target is None or outside_caller_limits(store, identity, \"open_loop\", target):",
           "after": "        if target is None:",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -5038,7 +5038,7 @@
           "line": 826,
           "before": "                WHERE deleted_at IS NULL\n                  AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}\n                  AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')\n                  AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR memory_type = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])\n                  AND (%s::text[] IS NULL OR created_by_agent_id = ANY(%s::text[]))\n                  AND (%s::text IS NULL OR run_id = %s)\n                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp()){lesson_sql}\n                  AND (\n                    memory_key ILIKE ANY(%s::text[])",
           "after": "                WHERE TRUE\n                  AND TRUE\n                  AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')\n                  AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR memory_type = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])\n                  AND (%s::text[] IS NULL OR created_by_agent_id = ANY(%s::text[]))\n                  AND (%s::text IS NULL OR run_id = %s)\n                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp()){lesson_sql}\n                  AND (\n                    memory_key ILIKE ANY(%s::text[])",
-          "sha256": "a296f1ae1642814ef51f9267ba23ecc7b3714a8637b5e57b7a5fdf15b2f1a1ae"
+          "sha256": "9dcccb7d91eda614311e42a7957e3f20e993945b671e14c31ee2e4de609b068a"
         }
       ],
       "pytest": [
@@ -8539,10 +8539,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/events_revisions.py",
-          "line": 210,
+          "line": 211,
           "before": "        target_sql = \" AND target_id IN (SELECT value FROM json_each(?))\"",
           "after": "        target_sql = \" AND (? IS NOT NULL)\"",
-          "sha256": "1ba30773ac032925043c174cabdf6364a13f8c08e263838ca511bd1412f29b18"
+          "sha256": "ccee58050801a50900ab3a2ac7cf973936f9471863b1dbf0cb4878b1bc9ab991"
         }
       ],
       "pytest": [
@@ -15987,7 +15987,7 @@
           "line": 364,
           "before": "            read_fence=source_fence,\n",
           "after": "            read_fence=SourceReadFence.unfenced(),\n",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16003,7 +16003,7 @@
           "line": 364,
           "before": "            read_fence=source_fence,\n",
           "after": "            read_fence=SourceReadFence.unfenced(),\n",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16131,7 +16131,7 @@
           "line": 1216,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = False",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16147,7 +16147,7 @@
           "line": 1216,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = False",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16163,7 +16163,7 @@
           "line": 1216,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = False",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16179,7 +16179,7 @@
           "line": 1216,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = False",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16195,7 +16195,7 @@
           "line": 1216,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = True",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16211,7 +16211,7 @@
           "line": 1216,
           "before": "limited = SourceReadFence.for_identity(_agent_identity_from_arguments(context, arguments)).entity_read_fenced",
           "after": "limited = True",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16227,7 +16227,7 @@
           "line": 1280,
           "before": "                    keep=admit_memories,\n                )\n            return readable_prefix(",
           "after": "                    keep=list,\n                )\n            return readable_prefix(",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16243,7 +16243,7 @@
           "line": 1285,
           "before": "                keep=admit_memories,\n            )\n\n        decisions = newest_readable",
           "after": "                keep=list,\n            )\n\n        decisions = newest_readable",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16259,7 +16259,7 @@
           "line": 1471,
           "before": "                if limited:\n                    # Cut after the drop",
           "after": "                if False:\n                    # Cut after the drop",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16275,7 +16275,7 @@
           "line": 1518,
           "before": "                if limited:\n                    memory_events = readable_prefix(",
           "after": "                if False:\n                    memory_events = readable_prefix(",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16406,7 +16406,7 @@
           "line": 1347,
           "before": "            elif limited:\n                loop_rows = readable_prefix(",
           "after": "            elif False:\n                loop_rows = readable_prefix(",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16423,7 +16423,7 @@
           "line": 1337,
           "before": "            elif limited and project_view.mode == \"project\":",
           "after": "            elif False and project_view.mode == \"project\":",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16538,7 +16538,7 @@
           "line": 1055,
           "before": "            honoured = target_id in admitted",
           "after": "            honoured = True",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16555,7 +16555,7 @@
           "line": 1264,
           "before": "                kind=\"memory\",\n                rows=rows,\n                domains=domain_filter,\n                sensitivity_allowed=sensitivity_filter,\n                projects=effective_project_scope,\n            )\n\n        def newest_readable",
           "after": "                kind=\"memory\",\n                rows=rows,\n                domains=None,\n                sensitivity_allowed=sensitivity_filter,\n                projects=effective_project_scope,\n            )\n\n        def newest_readable",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16572,7 +16572,7 @@
           "line": 1328,
           "before": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=sensitivity_filter,\n                    projects=effective_project_scope,\n                )",
           "after": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=('public', 'internal', 'private', 'unknown'),\n                    projects=effective_project_scope,\n                )",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -16589,7 +16589,7 @@
           "line": 1328,
           "before": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=sensitivity_filter,\n                    projects=effective_project_scope,\n                )",
           "after": "                    kind=\"open_loop\",\n                    rows=rows,\n                    domains=domain_filter,\n                    sensitivity_allowed=sensitivity_filter,\n                    projects=(),\n                )",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -19144,7 +19144,7 @@
           "line": 381,
           "before": "                label_refill=source_fence.entity_read_fenced,\n",
           "after": "",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -20247,7 +20247,7 @@
           "line": 216,
           "before": "PASSAGE_BY_DEFAULT_STORES: Final[frozenset[str]] = frozenset({\"SQLiteVNextStore\"})",
           "after": "PASSAGE_BY_DEFAULT_STORES: Final[frozenset[str]] = frozenset()",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -20263,7 +20263,7 @@
           "line": 246,
           "before": "unset = SourceRanking.passage() if store_name in PASSAGE_BY_DEFAULT_STORES else SourceRanking.document()",
           "after": "unset = SourceRanking.passage()",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -21403,7 +21403,7 @@
           "line": 248,
           "before": "    if ranking.mode == \"vectors\" and (store_name not in VECTORS_STORES or context_depth == CONTEXT_DEPTH_MINIMAL):",
           "after": "    if ranking.mode == \"vectors\" and (store_name not in VECTORS_STORES):",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -21420,7 +21420,7 @@
           "line": 248,
           "before": "    if ranking.mode == \"vectors\" and (store_name not in VECTORS_STORES or context_depth == CONTEXT_DEPTH_MINIMAL):",
           "after": "    if ranking.mode == \"vectors\" and (context_depth == CONTEXT_DEPTH_MINIMAL):",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -21541,7 +21541,7 @@
           "line": 581,
           "before": "                limited=source_fence.entity_read_fenced,",
           "after": "                limited=False,",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -21557,7 +21557,7 @@
           "line": 581,
           "before": "                limited=source_fence.entity_read_fenced,",
           "after": "                limited=True,",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -21696,7 +21696,7 @@
           "line": 252,
           "before": "        return replace(ranking, scoped_vectors=True)",
           "after": "        return ranking",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -23262,7 +23262,7 @@
           "line": 1279,
           "before": "                WHERE confirmation_id = %s\n",
           "after": "                WHERE confirmation_id = %s::uuid\n",
-          "sha256": "a296f1ae1642814ef51f9267ba23ecc7b3714a8637b5e57b7a5fdf15b2f1a1ae"
+          "sha256": "9dcccb7d91eda614311e42a7957e3f20e993945b671e14c31ee2e4de609b068a"
         }
       ],
       "pytest": [
@@ -23687,7 +23687,7 @@
           "line": 309,
           "before": "    caller_set_limit = arguments.get(\"limit\") is not None",
           "after": "    caller_set_limit = False",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -23720,7 +23720,7 @@
           "line": 423,
           "before": "        source_limit = (\n            _RECALL_DEFAULT_NOTE_PASSAGE_BUDGET\n            if not caller_set_limit\n            and ranking.mode in {\"passage\", \"vectors\"}\n            and context_depth != CONTEXT_DEPTH_MINIMAL\n            else limit\n        )",
           "after": "        source_limit = (\n            _RECALL_DEFAULT_NOTE_PASSAGE_BUDGET\n            if not caller_set_limit\n            and context_depth != CONTEXT_DEPTH_MINIMAL\n            else limit\n        )",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24356,7 +24356,7 @@
           "line": 1753,
           "before": "    if str(memory.get(\"status\") or \"\") != \"active\":\n        return None\n    chosen: Mapping[str, object] | None = None\n    chosen_how = \"\"\n    chosen_key: tuple[str, int, str] | None = None\n    for revision in revisions:\n        if not isinstance(revision, Mapping):\n            continue\n        how = _LESSON_PUBLISHING_ACTS.get(str(revision.get(\"action\") or \"\"))\n        if how is None:\n            continue\n",
           "after": "    if False:\n        return None\n    chosen: Mapping[str, object] | None = None\n    chosen_how = \"\"\n    chosen_key: tuple[str, int, str] | None = None\n    for revision in revisions:\n        if not isinstance(revision, Mapping):\n            continue\n        how = _LESSON_PUBLISHING_ACTS.get(str(revision.get(\"action\") or \"\")) or \"approved\"\n        if False:\n            continue\n",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24372,7 +24372,7 @@
           "line": 1753,
           "before": "    if str(memory.get(\"status\") or \"\") != \"active\":\n        return None\n",
           "after": "    if False:\n        return None\n",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24385,10 +24385,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py",
-          "line": 1677,
+          "line": 1679,
           "before": "    params: list[object] = [self.user_id, *domain_params, *sensitivity_params, *project_params, *expiry_params]\n    where = (\n        \"m.user_id = ? \"\n        \"AND m.deleted_at IS NULL \"\n        f\"AND {label_sql} \"\n        \"AND m.memory_type = 'procedure' \"\n        f\"AND json_type(m.value, '$.lesson') = 'object'{domain_sql}{sensitivity_sql}{project_sql}{expiry_sql}\"\n    )",
           "after": "    params: list[object] = [self.user_id, *domain_params, *sensitivity_params, *project_params]\n    where = (\n        \"m.user_id = ? \"\n        \"AND m.deleted_at IS NULL \"\n        f\"AND {label_sql} \"\n        \"AND m.memory_type = 'procedure' \"\n        f\"AND json_type(m.value, '$.lesson') = 'object'{domain_sql}{sensitivity_sql}{project_sql}\"\n    )",
-          "sha256": "a68a3e62298c819ad4089325e9f7a9702c175acb928cba6b5011b9f42d81fa64"
+          "sha256": "fab8e9cf2bf97166d57a6acdb52336847cd16b1cc8f970b0391c6222bf437102"
         }
       ],
       "pytest": [
@@ -24404,7 +24404,7 @@
           "line": 1764,
           "before": "        if not _revision_holds_lesson(revision):\n            continue\n",
           "after": "        if False:\n            continue\n",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24417,10 +24417,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1972,
+          "line": 1988,
           "before": "        for row_id, row in by_id.items():\n            block = _current_lesson(row)\n            if block is None:\n                continue\n",
           "after": "        for row_id, row in by_id.items():\n            block = _current_lesson(row)\n            if False:\n                continue\n",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24433,10 +24433,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1927,
+          "line": 1931,
           "before": "            missing = tuple(row_id for row_id in path_ids if row_id not in head_ids)\n            if missing:\n",
           "after": "            missing = tuple(row_id for row_id in path_ids if row_id not in head_ids)\n            if False:\n",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24449,10 +24449,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 2035,
+          "line": 2051,
           "before": "payload={\"returned\": len(lessons), \"limit\": limit, \"paths_given\": len(call_paths)},",
           "after": "payload={\"returned\": len(lessons), \"limit\": limit, \"paths_given\": len(call_paths), \"task\": task},",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24465,10 +24465,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 2029,
+          "line": 2045,
           "before": "        if not is_remembered(replay_durable(marker)):\n            append_event(\n",
           "after": "        if False and not is_remembered(replay_durable(marker)):\n            append_event(\n",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24516,7 +24516,7 @@
           "line": 1874,
           "before": "            call_paths = _lesson_paths(arguments.get(\"paths\"))",
           "after": "            call_paths = tuple(arguments.get(\"paths\"))",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24532,7 +24532,7 @@
           "line": 1869,
           "before": "    task = _parse_required_text(arguments, \"task\")",
           "after": "    task = \" \".join(str(arguments.get(\"task\") or \"\").split()).strip() or \"x\"",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24548,7 +24548,7 @@
           "line": 1870,
           "before": "    if len(task) > _LESSON_TASK_LIMIT:\n        raise MCPArgumentError(f\"task must be at most {_LESSON_TASK_LIMIT} characters\")\n",
           "after": "    if False:\n        raise MCPArgumentError(f\"task must be at most {_LESSON_TASK_LIMIT} characters\")\n",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24564,7 +24564,7 @@
           "line": 1880,
           "before": "        arguments, key=\"limit\", default=_LESSONS_DEFAULT_LIMIT, minimum=1, maximum=_LESSONS_MAX_LIMIT,",
           "after": "        arguments, key=\"limit\", default=_LESSONS_DEFAULT_LIMIT, minimum=0, maximum=11,",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24593,10 +24593,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1915,
-          "before": "            for slim in store.list_lesson_path_rows(\n                domains=domains or None,\n                sensitivity_allowed=sensitivity_allowed,\n                projects=projects,\n            ):\n                if not isinstance(slim, Mapping):\n                    continue\n                row_id = str(slim.get(\"id\") or \"\")\n                if row_id and _lesson_paths_hit(call_paths, _lesson_path_entries(slim.get(\"lesson_paths\"))):\n                    path_ids.add(row_id)\n            head_ids = {str(row.get(\"id\") or \"\") for row in fts_rows}\n            head_ids.update(str(row.get(\"id\") or \"\") for row in vector_rows)\n            missing = tuple(row_id for row_id in path_ids if row_id not in head_ids)\n            if missing:\n                extra_fts, extra_vector = _lesson_stage_rows(\n                    service,\n                    query=task,\n                    domains=domains,\n                    sensitivity_allowed=sensitivity_allowed,\n                    projects=projects,\n                    read_fence=read_fence,\n                    limit=limit,\n                    only_ids=missing,\n                )\n                fts_rows = _append_unseen(fts_rows, extra_fts)\n                vector_rows = _append_unseen(vector_rows, extra_vector)\n            have = {str(row.get(\"id\") or \"\") for row in fts_rows}\n            have.update(str(row.get(\"id\") or \"\") for row in vector_rows)\n            needed = tuple(row_id for row_id in path_ids if row_id not in have)\n            fetched = store.get_memories_by_ids(needed) if needed else []\n            for row in admit_loaded(\n                store,\n                kind=\"memory\",\n                rows=fetched,\n                domains=domains,\n                sensitivity_allowed=sensitivity_allowed,\n                projects=projects,\n            ):\n",
-          "after": "            for slim in store.list_lesson_path_rows(\n                domains=None,\n                sensitivity_allowed=list(ALL_SENSITIVITY),\n                projects=(),\n            ):\n                if not isinstance(slim, Mapping):\n                    continue\n                row_id = str(slim.get(\"id\") or \"\")\n                if row_id and _lesson_paths_hit(call_paths, _lesson_path_entries(slim.get(\"lesson_paths\"))):\n                    path_ids.add(row_id)\n            head_ids = {str(row.get(\"id\") or \"\") for row in fts_rows}\n            head_ids.update(str(row.get(\"id\") or \"\") for row in vector_rows)\n            missing = tuple(row_id for row_id in path_ids if row_id not in head_ids)\n            if missing:\n                extra_fts, extra_vector = _lesson_stage_rows(\n                    service,\n                    query=task,\n                    domains=domains,\n                    sensitivity_allowed=sensitivity_allowed,\n                    projects=projects,\n                    read_fence=read_fence,\n                    limit=limit,\n                    only_ids=missing,\n                )\n                fts_rows = _append_unseen(fts_rows, extra_fts)\n                vector_rows = _append_unseen(vector_rows, extra_vector)\n            have = {str(row.get(\"id\") or \"\") for row in fts_rows}\n            have.update(str(row.get(\"id\") or \"\") for row in vector_rows)\n            needed = tuple(row_id for row_id in path_ids if row_id not in have)\n            fetched = store.get_memories_by_ids(needed) if needed else []\n            for row in admit_loaded(\n                store,\n                kind=\"memory\",\n                rows=fetched,\n                domains=None,\n                sensitivity_allowed=list(ALL_SENSITIVITY),\n                projects=(),\n            ):\n",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "line": 1916,
+          "before": "            for slim in store.list_lesson_path_rows(\n                domains=domains or None,\n                sensitivity_allowed=sensitivity_allowed,\n                projects=projects,\n            ):\n                if not isinstance(slim, Mapping):\n                    continue\n                row_id = str(slim.get(\"id\") or \"\")\n                if row_id and _lesson_paths_hit(call_paths, _lesson_path_entries(slim.get(\"lesson_paths\"))):\n                    path_ids.add(row_id)\n                    path_created[row_id] = slim.get(\"created_at\")\n                    path_status[row_id] = str(slim.get(\"status\") or \"\")\n            head_ids = {str(row.get(\"id\") or \"\") for row in fts_rows}\n            head_ids.update(str(row.get(\"id\") or \"\") for row in vector_rows)\n            text_path_ids = path_ids & head_ids\n            missing = tuple(row_id for row_id in path_ids if row_id not in head_ids)\n            if missing:\n                # The open text head already holds enough path-and-text matches, or it\n                # held no text matches at all. Either way a second pass over every path\n                # id would load work the answer does not use.\n                if len(text_path_ids) < limit and (fts_rows or vector_rows):\n                    extra_fts, extra_vector = _lesson_stage_rows(\n                        service,\n                        query=task,\n                        domains=domains,\n                        sensitivity_allowed=sensitivity_allowed,\n                        projects=projects,\n                        read_fence=read_fence,\n                        limit=limit,\n                        only_ids=missing,\n                    )\n                    fts_rows = _append_unseen(fts_rows, extra_fts)\n                    vector_rows = _append_unseen(vector_rows, extra_vector)\n        ranked: dict[str, list[VNextJsonObject]] = {\"fts\": fts_rows}\n        if vector_rows:\n            ranked[\"vector\"] = vector_rows\n        by_id: dict[str, VNextJsonObject] = {}\n        scores: dict[str, float] = {}\n        for item, score, _ranks in reciprocal_rank_fusion(ranked):\n            row_id = str(item.get(\"id\") or \"\")\n            if row_id and row_id not in by_id:\n                by_id[row_id] = item\n                scores[row_id] = score\n        path_only_ids = [\n            row_id\n            for row_id in path_ids\n            if row_id not in scores and path_status.get(row_id) == \"active\"\n        ]\n        path_only_ids.sort(key=lambda row_id: (-_lesson_instant(path_created.get(row_id)), row_id))\n        path_only_ids = path_only_ids[:limit]\n        needed = tuple(row_id for row_id in path_only_ids if row_id not in by_id)\n        fetched = store.get_memories_by_ids(needed) if needed else []\n        path_rows: dict[str, VNextJsonObject] = {}\n        for row in admit_loaded(\n            store,\n            kind=\"memory\",\n            rows=fetched,\n            domains=domains,\n            sensitivity_allowed=sensitivity_allowed,\n            projects=projects,\n        ):\n",
+          "after": "            for slim in store.list_lesson_path_rows(\n                domains=None,\n                sensitivity_allowed=list(ALL_SENSITIVITY),\n                projects=(),\n            ):\n                if not isinstance(slim, Mapping):\n                    continue\n                row_id = str(slim.get(\"id\") or \"\")\n                if row_id and _lesson_paths_hit(call_paths, _lesson_path_entries(slim.get(\"lesson_paths\"))):\n                    path_ids.add(row_id)\n                    path_created[row_id] = slim.get(\"created_at\")\n                    path_status[row_id] = str(slim.get(\"status\") or \"\")\n            head_ids = {str(row.get(\"id\") or \"\") for row in fts_rows}\n            head_ids.update(str(row.get(\"id\") or \"\") for row in vector_rows)\n            text_path_ids = path_ids & head_ids\n            missing = tuple(row_id for row_id in path_ids if row_id not in head_ids)\n            if missing:\n                # The open text head already holds enough path-and-text matches, or it\n                # held no text matches at all. Either way a second pass over every path\n                # id would load work the answer does not use.\n                if len(text_path_ids) < limit and (fts_rows or vector_rows):\n                    extra_fts, extra_vector = _lesson_stage_rows(\n                        service,\n                        query=task,\n                        domains=domains,\n                        sensitivity_allowed=sensitivity_allowed,\n                        projects=projects,\n                        read_fence=read_fence,\n                        limit=limit,\n                        only_ids=missing,\n                    )\n                    fts_rows = _append_unseen(fts_rows, extra_fts)\n                    vector_rows = _append_unseen(vector_rows, extra_vector)\n        ranked: dict[str, list[VNextJsonObject]] = {\"fts\": fts_rows}\n        if vector_rows:\n            ranked[\"vector\"] = vector_rows\n        by_id: dict[str, VNextJsonObject] = {}\n        scores: dict[str, float] = {}\n        for item, score, _ranks in reciprocal_rank_fusion(ranked):\n            row_id = str(item.get(\"id\") or \"\")\n            if row_id and row_id not in by_id:\n                by_id[row_id] = item\n                scores[row_id] = score\n        path_only_ids = [\n            row_id\n            for row_id in path_ids\n            if row_id not in scores and path_status.get(row_id) == \"active\"\n        ]\n        path_only_ids.sort(key=lambda row_id: (-_lesson_instant(path_created.get(row_id)), row_id))\n        path_only_ids = path_only_ids[:limit]\n        needed = tuple(row_id for row_id in path_only_ids if row_id not in by_id)\n        fetched = store.get_memories_by_ids(needed) if needed else []\n        path_rows: dict[str, VNextJsonObject] = {}\n        for row in admit_loaded(\n            store,\n            kind=\"memory\",\n            rows=fetched,\n            domains=None,\n            sensitivity_allowed=list(ALL_SENSITIVITY),\n            projects=(),\n        ):\n",
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24609,10 +24609,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1981,
+          "line": 1997,
           "before": "            loaded = store.list_revisions_for_memories([row_id for row_id, _row, _block in shaped])",
           "after": "            loaded = []\n            for row_id, _row, _block in shaped:\n                loaded.extend(store.list_revisions(row_id))\n",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [
@@ -24641,10 +24641,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
-          "line": 1915,
-          "before": "            for slim in store.list_lesson_path_rows(\n                domains=domains or None,\n                sensitivity_allowed=sensitivity_allowed,\n                projects=projects,\n            ):\n                if not isinstance(slim, Mapping):\n                    continue\n                row_id = str(slim.get(\"id\") or \"\")\n                if row_id and _lesson_paths_hit(call_paths, _lesson_path_entries(slim.get(\"lesson_paths\"))):\n                    path_ids.add(row_id)\n            head_ids = {str(row.get(\"id\") or \"\") for row in fts_rows}\n            head_ids.update(str(row.get(\"id\") or \"\") for row in vector_rows)\n            missing = tuple(row_id for row_id in path_ids if row_id not in head_ids)\n            if missing:\n                extra_fts, extra_vector = _lesson_stage_rows(\n                    service,\n                    query=task,\n                    domains=domains,\n                    sensitivity_allowed=sensitivity_allowed,\n                    projects=projects,\n                    read_fence=read_fence,\n                    limit=limit,\n                    only_ids=missing,\n                )\n                fts_rows = _append_unseen(fts_rows, extra_fts)\n                vector_rows = _append_unseen(vector_rows, extra_vector)\n            have = {str(row.get(\"id\") or \"\") for row in fts_rows}\n            have.update(str(row.get(\"id\") or \"\") for row in vector_rows)\n            needed = tuple(row_id for row_id in path_ids if row_id not in have)\n            fetched = store.get_memories_by_ids(needed) if needed else []\n            for row in admit_loaded(\n                store,\n                kind=\"memory\",\n                rows=fetched,\n                domains=domains,\n                sensitivity_allowed=sensitivity_allowed,\n                projects=projects,\n            ):\n",
-          "after": "            for slim in store.list_lesson_path_rows(\n                domains=None,\n                sensitivity_allowed=list(ALL_SENSITIVITY),\n                projects=(),\n            ):\n                if not isinstance(slim, Mapping):\n                    continue\n                row_id = str(slim.get(\"id\") or \"\")\n                if row_id and _lesson_paths_hit(call_paths, _lesson_path_entries(slim.get(\"lesson_paths\"))):\n                    path_ids.add(row_id)\n            head_ids = {str(row.get(\"id\") or \"\") for row in fts_rows}\n            head_ids.update(str(row.get(\"id\") or \"\") for row in vector_rows)\n            missing = tuple(row_id for row_id in path_ids if row_id not in head_ids)\n            if missing:\n                extra_fts, extra_vector = _lesson_stage_rows(\n                    service,\n                    query=task,\n                    domains=domains,\n                    sensitivity_allowed=sensitivity_allowed,\n                    projects=projects,\n                    read_fence=read_fence,\n                    limit=limit,\n                    only_ids=missing,\n                )\n                fts_rows = _append_unseen(fts_rows, extra_fts)\n                vector_rows = _append_unseen(vector_rows, extra_vector)\n            have = {str(row.get(\"id\") or \"\") for row in fts_rows}\n            have.update(str(row.get(\"id\") or \"\") for row in vector_rows)\n            needed = tuple(row_id for row_id in path_ids if row_id not in have)\n            fetched = store.get_memories_by_ids(needed) if needed else []\n            for row in admit_loaded(\n                store,\n                kind=\"memory\",\n                rows=fetched,\n                domains=None,\n                sensitivity_allowed=list(ALL_SENSITIVITY),\n                projects=(),\n            ):\n",
-          "sha256": "5dd761cd82566bec757e4a1d07198adce2c6ad4348090aef236cf354ac4bda89"
+          "line": 1916,
+          "before": "            for slim in store.list_lesson_path_rows(\n                domains=domains or None,\n                sensitivity_allowed=sensitivity_allowed,\n                projects=projects,\n            ):\n                if not isinstance(slim, Mapping):\n                    continue\n                row_id = str(slim.get(\"id\") or \"\")\n                if row_id and _lesson_paths_hit(call_paths, _lesson_path_entries(slim.get(\"lesson_paths\"))):\n                    path_ids.add(row_id)\n                    path_created[row_id] = slim.get(\"created_at\")\n                    path_status[row_id] = str(slim.get(\"status\") or \"\")\n            head_ids = {str(row.get(\"id\") or \"\") for row in fts_rows}\n            head_ids.update(str(row.get(\"id\") or \"\") for row in vector_rows)\n            text_path_ids = path_ids & head_ids\n            missing = tuple(row_id for row_id in path_ids if row_id not in head_ids)\n            if missing:\n                # The open text head already holds enough path-and-text matches, or it\n                # held no text matches at all. Either way a second pass over every path\n                # id would load work the answer does not use.\n                if len(text_path_ids) < limit and (fts_rows or vector_rows):\n                    extra_fts, extra_vector = _lesson_stage_rows(\n                        service,\n                        query=task,\n                        domains=domains,\n                        sensitivity_allowed=sensitivity_allowed,\n                        projects=projects,\n                        read_fence=read_fence,\n                        limit=limit,\n                        only_ids=missing,\n                    )\n                    fts_rows = _append_unseen(fts_rows, extra_fts)\n                    vector_rows = _append_unseen(vector_rows, extra_vector)\n        ranked: dict[str, list[VNextJsonObject]] = {\"fts\": fts_rows}\n        if vector_rows:\n            ranked[\"vector\"] = vector_rows\n        by_id: dict[str, VNextJsonObject] = {}\n        scores: dict[str, float] = {}\n        for item, score, _ranks in reciprocal_rank_fusion(ranked):\n            row_id = str(item.get(\"id\") or \"\")\n            if row_id and row_id not in by_id:\n                by_id[row_id] = item\n                scores[row_id] = score\n        path_only_ids = [\n            row_id\n            for row_id in path_ids\n            if row_id not in scores and path_status.get(row_id) == \"active\"\n        ]\n        path_only_ids.sort(key=lambda row_id: (-_lesson_instant(path_created.get(row_id)), row_id))\n        path_only_ids = path_only_ids[:limit]\n        needed = tuple(row_id for row_id in path_only_ids if row_id not in by_id)\n        fetched = store.get_memories_by_ids(needed) if needed else []\n        path_rows: dict[str, VNextJsonObject] = {}\n        for row in admit_loaded(\n            store,\n            kind=\"memory\",\n            rows=fetched,\n            domains=domains,\n            sensitivity_allowed=sensitivity_allowed,\n            projects=projects,\n        ):\n",
+          "after": "            for slim in store.list_lesson_path_rows(\n                domains=None,\n                sensitivity_allowed=list(ALL_SENSITIVITY),\n                projects=(),\n            ):\n                if not isinstance(slim, Mapping):\n                    continue\n                row_id = str(slim.get(\"id\") or \"\")\n                if row_id and _lesson_paths_hit(call_paths, _lesson_path_entries(slim.get(\"lesson_paths\"))):\n                    path_ids.add(row_id)\n                    path_created[row_id] = slim.get(\"created_at\")\n                    path_status[row_id] = str(slim.get(\"status\") or \"\")\n            head_ids = {str(row.get(\"id\") or \"\") for row in fts_rows}\n            head_ids.update(str(row.get(\"id\") or \"\") for row in vector_rows)\n            text_path_ids = path_ids & head_ids\n            missing = tuple(row_id for row_id in path_ids if row_id not in head_ids)\n            if missing:\n                # The open text head already holds enough path-and-text matches, or it\n                # held no text matches at all. Either way a second pass over every path\n                # id would load work the answer does not use.\n                if len(text_path_ids) < limit and (fts_rows or vector_rows):\n                    extra_fts, extra_vector = _lesson_stage_rows(\n                        service,\n                        query=task,\n                        domains=domains,\n                        sensitivity_allowed=sensitivity_allowed,\n                        projects=projects,\n                        read_fence=read_fence,\n                        limit=limit,\n                        only_ids=missing,\n                    )\n                    fts_rows = _append_unseen(fts_rows, extra_fts)\n                    vector_rows = _append_unseen(vector_rows, extra_vector)\n        ranked: dict[str, list[VNextJsonObject]] = {\"fts\": fts_rows}\n        if vector_rows:\n            ranked[\"vector\"] = vector_rows\n        by_id: dict[str, VNextJsonObject] = {}\n        scores: dict[str, float] = {}\n        for item, score, _ranks in reciprocal_rank_fusion(ranked):\n            row_id = str(item.get(\"id\") or \"\")\n            if row_id and row_id not in by_id:\n                by_id[row_id] = item\n                scores[row_id] = score\n        path_only_ids = [\n            row_id\n            for row_id in path_ids\n            if row_id not in scores and path_status.get(row_id) == \"active\"\n        ]\n        path_only_ids.sort(key=lambda row_id: (-_lesson_instant(path_created.get(row_id)), row_id))\n        path_only_ids = path_only_ids[:limit]\n        needed = tuple(row_id for row_id in path_only_ids if row_id not in by_id)\n        fetched = store.get_memories_by_ids(needed) if needed else []\n        path_rows: dict[str, VNextJsonObject] = {}\n        for row in admit_loaded(\n            store,\n            kind=\"memory\",\n            rows=fetched,\n            domains=None,\n            sensitivity_allowed=list(ALL_SENSITIVITY),\n            projects=(),\n        ):\n",
+          "sha256": "ae1408402b29994241a01ecdab1e4ff09e8b0d28027470eb084c65a61926b33d"
         }
       ],
       "pytest": [

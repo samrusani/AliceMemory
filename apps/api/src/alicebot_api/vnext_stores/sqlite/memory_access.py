@@ -1167,8 +1167,10 @@ def _lesson_read_clause(
     if require_lesson:
         clause += f" AND json_type({value_sql}, '$.lesson') = 'object'"
     if only_ids:
-        clause += f" AND {id_sql} IN ({', '.join('?' for _ in only_ids)})"
-        params.extend(str(item) for item in only_ids)
+        # One bound value for the whole id list. A placeholder per id stops the
+        # call once the list passes the host's variable cap.
+        clause += f" AND {id_sql} IN (SELECT value FROM json_each(?))"
+        params.append(json.dumps([str(item) for item in only_ids]))
     return clause, params
 
 
@@ -1724,7 +1726,8 @@ def list_lesson_path_rows(
         self, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=projects,
     )
     return self._fetch_all(
-        "SELECT m.id AS id, json_extract(m.value, '$.lesson.paths') AS lesson_paths "
+        "SELECT m.id AS id, json_extract(m.value, '$.lesson.paths') AS lesson_paths, "
+        "m.created_at AS created_at, m.status AS status "
         f"FROM memories m WHERE {where}",
         params,
     )

@@ -700,11 +700,13 @@ def test_one_call_runs_the_same_number_of_statements_at_two_vault_sizes(
 
     seeded = _commit(vault, monkeypatch, None, _lesson("budgetlesson", paths=["budget/*.py"]))
     _clone_published_lessons(vault, seeded["memory"]["id"], 99)
-    small = _statement_count(vault, monkeypatch)
+    small, small_revisions = _statement_count(vault, monkeypatch)
     _clone_published_lessons(vault, seeded["memory"]["id"], 1900)
-    large = _statement_count(vault, monkeypatch)
+    large, large_revisions = _statement_count(vault, monkeypatch)
     assert small == large
     assert small > 0
+    assert small_revisions == 1
+    assert large_revisions == 1
 
 
 def _clone_published_lessons(vault: Vault, template_id: str, count: int) -> None:
@@ -748,7 +750,7 @@ def _clone_published_lessons(vault: Vault, template_id: str, count: int) -> None
             )
 
 
-def _statement_count(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> int:
+def _statement_count(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> tuple[int, int]:
     import alicebot_api.mcp.runtime as runtime
 
     statements: list[str] = []
@@ -768,4 +770,8 @@ def _statement_count(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> int:
     assert answer["count"] == 5
     # SQLite reports its own index reads with a leading comment. Those grow with the
     # index. The store statements the call sends do not.
-    return sum(1 for sql in statements if not sql.lstrip().startswith("--"))
+    sent = [sql for sql in statements if not sql.lstrip().startswith("--")]
+    # One revision read for the candidates. A query per memory uses memory_id = ? and
+    # does not use json_each, so this count stays 1 only while the read is one statement.
+    revisions = sum(1 for sql in sent if "FROM memory_revisions" in sql and "json_each" in sql)
+    return len(sent), revisions

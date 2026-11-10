@@ -1824,7 +1824,7 @@ def _lesson_stage_rows(
     answer alice_recall gives that stage. The graph stage is not called.
     """
 
-    candidate_limit = max(len(only_ids), 1) if only_ids else max(limit * 2, limit)
+    candidate_limit = max(limit * 2, limit)
     fts_rows, _source = service._memory_fts_rows(
         query=query,
         domains=domains,
@@ -1910,7 +1910,8 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
             limit=limit,
         )
         path_ids: set[str] = set()
-        path_rows: dict[str, VNextJsonObject] = {}
+        path_created: dict[str, object] = {}
+        path_status: dict[str, str] = {}
         if call_paths:
             for slim in store.list_lesson_path_rows(
                 domains=domains or None,
@@ -1922,40 +1923,29 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
                 row_id = str(slim.get("id") or "")
                 if row_id and _lesson_paths_hit(call_paths, _lesson_path_entries(slim.get("lesson_paths"))):
                     path_ids.add(row_id)
+                    path_created[row_id] = slim.get("created_at")
+                    path_status[row_id] = str(slim.get("status") or "")
             head_ids = {str(row.get("id") or "") for row in fts_rows}
             head_ids.update(str(row.get("id") or "") for row in vector_rows)
+            text_path_ids = path_ids & head_ids
             missing = tuple(row_id for row_id in path_ids if row_id not in head_ids)
             if missing:
-                extra_fts, extra_vector = _lesson_stage_rows(
-                    service,
-                    query=task,
-                    domains=domains,
-                    sensitivity_allowed=sensitivity_allowed,
-                    projects=projects,
-                    read_fence=read_fence,
-                    limit=limit,
-                    only_ids=missing,
-                )
-                fts_rows = _append_unseen(fts_rows, extra_fts)
-                vector_rows = _append_unseen(vector_rows, extra_vector)
-            have = {str(row.get("id") or "") for row in fts_rows}
-            have.update(str(row.get("id") or "") for row in vector_rows)
-            needed = tuple(row_id for row_id in path_ids if row_id not in have)
-            fetched = store.get_memories_by_ids(needed) if needed else []
-            for row in admit_loaded(
-                store,
-                kind="memory",
-                rows=fetched,
-                domains=domains,
-                sensitivity_allowed=sensitivity_allowed,
-                projects=projects,
-            ):
-                if isinstance(row, Mapping):
-                    path_rows[str(row.get("id") or "")] = cast(VNextJsonObject, row)
-            for row in (*fts_rows, *vector_rows):
-                row_id = str(row.get("id") or "")
-                if row_id in path_ids:
-                    path_rows.setdefault(row_id, row)
+                # The open text head already holds enough path-and-text matches, or it
+                # held no text matches at all. Either way a second pass over every path
+                # id would load work the answer does not use.
+                if len(text_path_ids) < limit and (fts_rows or vector_rows):
+                    extra_fts, extra_vector = _lesson_stage_rows(
+                        service,
+                        query=task,
+                        domains=domains,
+                        sensitivity_allowed=sensitivity_allowed,
+                        projects=projects,
+                        read_fence=read_fence,
+                        limit=limit,
+                        only_ids=missing,
+                    )
+                    fts_rows = _append_unseen(fts_rows, extra_fts)
+                    vector_rows = _append_unseen(vector_rows, extra_vector)
         ranked: dict[str, list[VNextJsonObject]] = {"fts": fts_rows}
         if vector_rows:
             ranked["vector"] = vector_rows
@@ -1966,8 +1956,34 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
             if row_id and row_id not in by_id:
                 by_id[row_id] = item
                 scores[row_id] = score
-        for row_id, row in path_rows.items():
-            by_id.setdefault(row_id, row)
+        path_only_ids = [
+            row_id
+            for row_id in path_ids
+            if row_id not in scores and path_status.get(row_id) == "active"
+        ]
+        path_only_ids.sort(key=lambda row_id: (-_lesson_instant(path_created.get(row_id)), row_id))
+        path_only_ids = path_only_ids[:limit]
+        needed = tuple(row_id for row_id in path_only_ids if row_id not in by_id)
+        fetched = store.get_memories_by_ids(needed) if needed else []
+        path_rows: dict[str, VNextJsonObject] = {}
+        for row in admit_loaded(
+            store,
+            kind="memory",
+            rows=fetched,
+            domains=domains,
+            sensitivity_allowed=sensitivity_allowed,
+            projects=projects,
+        ):
+            if isinstance(row, Mapping):
+                path_rows[str(row.get("id") or "")] = cast(VNextJsonObject, row)
+        for row in (*fts_rows, *vector_rows):
+            row_id = str(row.get("id") or "")
+            if row_id in path_ids:
+                path_rows.setdefault(row_id, row)
+        for row_id in path_only_ids:
+            row = path_rows.get(row_id)
+            if row is not None:
+                by_id.setdefault(row_id, row)
         shaped: list[tuple[str, VNextJsonObject, LessonBlock]] = []
         for row_id, row in by_id.items():
             block = _current_lesson(row)

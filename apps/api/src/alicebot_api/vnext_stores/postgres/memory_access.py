@@ -1378,7 +1378,8 @@ def list_lesson_path_rows(
         self, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=projects,
     )
     return self._fetch_all(
-        "SELECT id, value -> 'lesson' -> 'paths' AS lesson_paths FROM memories WHERE " + where,
+        "SELECT id, value -> 'lesson' -> 'paths' AS lesson_paths, created_at, status "
+        "FROM memories WHERE " + where,
         params,
     )
 

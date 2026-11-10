@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from datetime import datetime
 from typing import cast
@@ -367,16 +368,16 @@ def list_revisions_for_memories(self, memory_ids: Sequence[str]) -> list[VNextRo
     ids = [str(item) for item in memory_ids if str(item)]
     if not ids:
         return []
-    placeholders = ", ".join("?" for _ in ids)
+    placeholders_param = json.dumps(ids)
     return self._fetch_all(
         f"""
                 SELECT {", ".join(REVISION_COLUMNS)}
                 FROM memory_revisions
                 WHERE user_id = ?
-                  AND memory_id IN ({placeholders})
+                  AND memory_id IN (SELECT value FROM json_each(?))
                 ORDER BY memory_id ASC, revision_number ASC, sequence_no ASC, id ASC
                 """,
-        (self.user_id, *ids),
+        (self.user_id, placeholders_param),
     )
 
 
