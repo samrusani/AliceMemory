@@ -1203,3 +1203,24 @@ def test_a_bound_key_s_lesson_keeps_the_arm_s_reason_in_its_reasons(vault: Vault
     reasons = lesson["policy_decision"]["reasons"]
     assert arm_reason in reasons, (arm, reasons)
     assert "lesson_requires_approval" in reasons, (arm, reasons)
+
+
+def test_a_proposal_only_key_s_lesson_keeps_the_proposal_reason_too(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Guard: the proposal-only arm runs for a lesson, and its reason stays in the reasons.
+
+    Mutation: the chain mutation; the arm is skipped for the lesson, the reason never appears,
+    and the assertion fails.
+    """
+
+    key = _first_key_with_agent(vault, "proposer", "memory_proposal_agent")
+    plain = vault.call(
+        monkeypatch, key, "alice_memory_commit",
+        {"title": "Plain note", "canonical_text": "Repin the mutation manifest before committing.",
+         "memory_type": "procedure", "domain": "project", "agent_id": "proposer", "agent_type": "coding_agent"},
+    )
+    assert plain["status"] == "review_required"
+    assert plain["policy_decision"]["reason"] == "memory_proposal_agent_review_only"
+    lesson = commit_lesson(vault, monkeypatch, key, agent_id="proposer", domain="project")
+    assert lesson["status"] == "review_required"
+    assert lesson["policy_decision"]["reason"] == "lesson_requires_approval"
+    assert "memory_proposal_agent_review_only" in lesson["policy_decision"]["reasons"]

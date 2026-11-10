@@ -24328,8 +24328,23 @@
         "tests/unit/test_lesson_block_commit.py::test_a_lesson_takes_every_arm_a_plain_write_takes",
         "tests/unit/test_lesson_block_commit.py::test_the_keyless_owner_s_lesson_takes_every_arm_a_plain_write_takes",
         "tests/unit/test_lesson_block_commit.py::test_a_bound_key_s_lesson_keeps_the_arm_s_reason_in_its_reasons",
-        "tests/unit/test_lesson_block_commit.py::test_an_agent_output_lesson_takes_the_plain_write_s_path",
-        "tests/unit/test_lesson_block_commit.py::test_a_proposal_only_key_s_lesson_waits_like_its_plain_write"
+        "tests/unit/test_lesson_block_commit.py::test_a_proposal_only_key_s_lesson_keeps_the_proposal_reason_too"
+      ],
+      "expected_failure": "tests/unit/test_lesson_block_commit.py::test_a_lesson_takes_every_arm_a_plain_write_takes"
+    },
+    {
+      "name": "mutation-lesson-commit-block",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
+          "before": "    if mode == \"commit\":",
+          "after": "    if mode == \"commit\" and request.lesson is None:",
+          "line": 954,
+          "sha256": "440332c3188dd403515651814981417fc31494069b040f7740fe07282e0f8e13"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lesson_block_commit.py::test_a_lesson_takes_every_arm_a_plain_write_takes"
       ],
       "expected_failure": "tests/unit/test_lesson_block_commit.py::test_a_lesson_takes_every_arm_a_plain_write_takes"
     }
