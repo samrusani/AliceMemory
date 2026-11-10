@@ -1003,3 +1003,128 @@ def test_the_other_lifecycle_doors_leave_a_lesson_s_block_and_text_alone(vault: 
         {"action": "forget", "memory_id": memory_id_of(successor), "reason": "superseded by the successor", **identity("admin")},
     )
     assert forgotten["memory"]["id"] == memory_id_of(successor)
+
+
+# ---------------------------------------------------------------------------
+# A lesson takes every arm a plain write takes, then the publisher rule on top.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "arm,extra",
+    [
+        ("external_source", {"source_type": "email"}),
+        ("bulk_source_refs", {"source_refs": [f"note:{i}" for i in range(9)]}),
+        ("low_confidence", {"confidence": 0.4}),
+        ("wrong_domain", {"domain": "personal"}),
+    ],
+)
+def test_a_lesson_takes_every_arm_a_plain_write_takes(vault: Vault, monkeypatch: pytest.MonkeyPatch, arm: str, extra: dict) -> None:
+    """Guard: the lesson floor runs AFTER the plain arms, never inside the chain.
+
+    Mutation: put the lesson arm back into the elif chain where it ends the
+    chain for every lesson (``mutation-lesson-chain-arm``); the wrong-domain
+    lesson waits and is STORED where the plain write is rejected, and the
+    assertions fail.
+    """
+
+    writer = _first_key_with_agent(vault, "writer", "project_scoped_agent", "alpha")
+    plain_body: dict[str, object] = {
+        "title": "Plain note", "canonical_text": "Repin the mutation manifest before committing.",
+        "memory_type": "procedure", "domain": "project", "agent_id": "writer", "agent_type": "coding_agent",
+        **extra,
+    }
+    lesson_body: dict[str, object] = {"lesson": LESSON, "agent_id": "writer", "agent_type": "coding_agent"}
+    if "domain" in extra:
+        lesson_body["domain"] = extra["domain"]
+    plain = vault.call(monkeypatch, writer, "alice_memory_commit", plain_body)
+    lesson = vault.call(monkeypatch, writer, "alice_memory_commit", lesson_body)
+    if plain["status"] == "rejected":
+        assert lesson["status"] == "rejected", arm
+        assert lesson["reason"] == plain["reason"], arm
+        assert vault.memory_count() == 0, arm  # neither write stored
+    else:
+        assert lesson["status"] == "review_required", arm
+        assert lesson["policy_decision"]["reason"] == "lesson_requires_approval", arm
+
+
+def test_a_proposal_only_key_s_lesson_waits_like_its_plain_write(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Guard: the proposal-only profile arm runs for a lesson too.
+
+    Mutation: the same chain mutation as above; on the mutant the lesson skips this arm and
+    waits with a different reason while the plain write's reason is pinned here.
+    """
+
+    key = _first_key_with_agent(vault, "proposer", "memory_proposal_agent")
+    plain = vault.call(
+        monkeypatch, key, "alice_memory_commit",
+        {"title": "Plain note", "canonical_text": "Repin the mutation manifest before committing.",
+         "memory_type": "procedure", "domain": "project", "agent_id": "proposer", "agent_type": "coding_agent"},
+    )
+    assert plain["status"] == "review_required"
+    assert plain["policy_decision"]["reason"] == "memory_proposal_agent_review_only"
+    lesson = commit_lesson(vault, monkeypatch, key, agent_id="proposer", domain="project")
+    assert lesson["status"] == "review_required"
+    assert lesson["policy_decision"]["reason"] == "lesson_requires_approval"
+
+
+def test_the_service_correct_refusal_on_a_sqlite_vault(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Guard: the shared ``refuse_lesson_mutation`` call in ``service.correct`` itself, reached the
+    way the HTTP route reaches it: the caller's key resolved to its identity, then the service.
+
+    Mutation: remove only the service call (``mutation-correct-refusal-service``); the writer's
+    own correct on its waiting lesson rewrites the text and this fails, while the handler guard
+    still refuses through the MCP tool.
+    """
+
+    from alicebot_api.vnext_agent_keys import AgentIdentity
+    from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
+    from alicebot_api.vnext_memory_commit import VNextMemoryCommitValidationError
+
+    writer = _first_key_with_agent(vault, "writer", "project_scoped_agent", "alpha")
+    teammate = _first_key_with_agent(vault, "teammate", "project_scoped_agent", "alpha")
+    admin = _first_key_with_agent(vault, "admin", "admin_agent")
+    waiting = commit_lesson(vault, monkeypatch, writer, agent_id="writer", domain="project")
+    memory_id = memory_id_of(waiting)
+
+    def identity(agent_id: str, profile: str, project: str | None) -> AgentIdentity:
+        return AgentIdentity(agent_id=agent_id, agent_type="coding_agent", permission_profile=profile,
+                             project_scope=(project,) if project else (), auth="agent_api_key")
+
+    def row():
+        from alicebot_api.sqlite_store import sqlite_user_connection
+        from alicebot_api.sqlite_store import SQLiteVNextStore
+        with sqlite_user_connection(vault.path, vault.user_id) as conn:
+            return SQLiteVNextStore(conn, vault.user_id).get_memory(memory_id)
+
+    before = row()
+    # The writer on its own waiting lesson: refused by the service, row unchanged.
+    with pytest.raises(VNextMemoryCommitValidationError) as caught:
+        with sqlite_user_connection(vault.path, vault.user_id) as conn:
+            VNextMemoryCommitService(SQLiteVNextStore(conn, vault.user_id)).correct(
+                identity=identity("writer", "project_scoped_agent", "alpha"),
+                memory_id=memory_id, canonical_text=REFUSED_SENTENCES[0],
+            )
+    assert "reject it and record a new one" in str(caught.value)
+    assert row() == before
+    # A teammate on it: refused, row unchanged, and recall returns nothing new.
+    with pytest.raises((VNextMemoryCommitValidationError, MCPNotPermittedError)):
+        with sqlite_user_connection(vault.path, vault.user_id) as conn:
+            VNextMemoryCommitService(SQLiteVNextStore(conn, vault.user_id)).correct(
+                identity=identity("teammate", "project_scoped_agent", "alpha"),
+                memory_id=memory_id, canonical_text=REFUSED_SENTENCES[0],
+            )
+    assert row() == before
+    # Approve the waiting lesson, then an admin key still cannot correct it.
+    vault.call(
+        monkeypatch, admin, "alice_memory_correct",
+        {"action": "approve", "review_item_id": memory_id, "agent_id": "admin", "agent_type": "coding_agent"},
+    )
+    approved_row = row()
+    with pytest.raises(VNextMemoryCommitValidationError):
+        with sqlite_user_connection(vault.path, vault.user_id) as conn:
+            VNextMemoryCommitService(SQLiteVNextStore(conn, vault.user_id)).correct(
+                identity=identity("admin", "admin_agent", None),
+                memory_id=memory_id, canonical_text=REFUSED_SENTENCES[0],
+            )
+    assert row() == approved_row

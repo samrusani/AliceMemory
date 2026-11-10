@@ -912,33 +912,6 @@ def evaluate_memory_commit_policy(
         )
         mode = "reject"
         status = "rejected"
-    elif request.lesson is not None:
-        # The promotion policy's own floor, never a copy of it, over the
-        # derived text, the title and every paths entry. It runs for every
-        # writer, the owner included, whether or not a persona is configured.
-        # Only the hit that is about the text refuses here: an
-        # instruction-shaped lesson is refused as
-        # lesson_instruction_shaped, a credential the two commit-door checks
-        # did not already catch is refused as unsafe_secret_storage, and an
-        # agent_output_reingestion hit is not a refusal at this door: the
-        # write takes the path a plain write takes today.
-        lesson_floor_candidate = promotion_candidate_for_request(identity=identity, request=request)
-        if request.lesson.paths:
-            lesson_floor_candidate = replace(
-                lesson_floor_candidate,
-                conversation_excerpt=" ".join(
-                    (*((lesson_floor_candidate.conversation_excerpt or "").split()), *request.lesson.paths)
-                ).strip(),
-            )
-        lesson_floor_hits = hard_floor_hits(lesson_floor_candidate)
-        if "instruction_shaped_content" in lesson_floor_hits:
-            reasons.append("lesson_instruction_shaped")
-            mode = "reject"
-            status = "rejected"
-        elif "credential_material" in lesson_floor_hits:
-            reasons.append("unsafe_secret_storage")
-            mode = "reject"
-            status = "rejected"
     elif request.intent.casefold() not in EXPLICIT_MEMORY_INTENTS:
         reasons.append("explicit_memory_intent_required")
         mode = "propose_review"
@@ -1032,6 +1005,34 @@ def evaluate_memory_commit_policy(
             promoted_from = mode
             mode = "commit"
             status = "committed"
+
+    if request.lesson is not None:
+        # A lesson that took the plain write's arms above now runs the
+        # promotion policy's own floor, never a copy of it, over the derived
+        # text, the title and every paths entry. It runs for every writer,
+        # the owner included, whether or not a persona is configured. Only
+        # the hit that is about the text refuses here: an instruction-shaped
+        # lesson is refused as lesson_instruction_shaped, a credential the
+        # two commit-door checks did not already catch is refused as
+        # unsafe_secret_storage, and an agent_output_reingestion hit is not
+        # a refusal at this door: the write keeps the plain write's answer.
+        lesson_floor_candidate = promotion_candidate_for_request(identity=identity, request=request)
+        if request.lesson.paths:
+            lesson_floor_candidate = replace(
+                lesson_floor_candidate,
+                conversation_excerpt=" ".join(
+                    (*((lesson_floor_candidate.conversation_excerpt or "").split()), *request.lesson.paths)
+                ).strip(),
+            )
+        lesson_floor_hits = hard_floor_hits(lesson_floor_candidate)
+        if "instruction_shaped_content" in lesson_floor_hits:
+            reasons.append("lesson_instruction_shaped")
+            mode = "reject"
+            status = "rejected"
+        elif "credential_material" in lesson_floor_hits:
+            reasons.append("unsafe_secret_storage")
+            mode = "reject"
+            status = "rejected"
 
     reason = reasons[-1] if reasons else "explicit_trusted_memory_commit"
     if (

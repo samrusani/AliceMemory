@@ -182,9 +182,9 @@ def _correct(app_url: str, user_id, key: str, agent_id: str, memory_id: str, tex
 def test_the_correct_route_refuses_a_lesson_for_every_identity(migrated_database_urls, monkeypatch) -> None:
     """Guard: the shared ``refuse_lesson_mutation`` call in ``service.correct``.
 
-    Mutation: remove that call (``mutation-correct-refusal``); the writer's own correct on its
-    waiting lesson commits the first refused sentence as the text with the block still attached,
-    and the first two assertions fail; an admin key's correct on an approved lesson does too.
+    Mutation: remove only that call (``mutation-correct-refusal-service``); the writer's own
+    correct on its waiting lesson commits the first refused sentence as the text with the block
+    still attached, and the row-unchanged assertions fail.
     """
 
     app_url = migrated_database_urls["app"]
@@ -201,37 +201,48 @@ def test_the_correct_route_refuses_a_lesson_for_every_identity(migrated_database
     )
     assert payload["status"] == "review_required"
     memory_id = payload["memory"]["id"]
+
+    from alicebot_api.db import user_connection
+    from alicebot_api.vnext_store import PostgresVNextStore
+
+    def row() -> dict[str, Any]:
+        with user_connection(app_url, user_id) as conn:
+            fetched = PostgresVNextStore(conn).get_memory(memory_id)
+        assert fetched is not None
+        return dict(fetched)
+
+    before = row()
     for name, key, agent_id in (("a1 own", a1, "a1"), ("a2 other", a2, "a2")):
         status, refusal = _correct(app_url, user_id, key, agent_id, memory_id, REFUSED_SENTENCE)
         assert status == 400, (name, refusal)
         assert refusal["detail"]["code"] == "invalid_request", (name, refusal)
-    # Approve, then an admin key still cannot correct the active lesson.
-    status, _ = invoke_request(
+        assert row() == before, (name, refusal)
+    # Approve the waiting lesson through the dashboard review door (an admin
+    # key may accept), then an admin key still cannot correct the approved
+    # lesson, and the row is unchanged after the refusal.
+    status, _accepted = invoke_request(
         "POST",
-        "/v0/vnext/memories/commit/correct",
-        payload={"user_id": str(user_id)},
-        authorization=f"Bearer {admin}",
-    ) if False else (0, None)
-    status, approved = invoke_request(
-        "POST",
-        "/v0/vnext/memories/commit",
-        payload={"user_id": str(user_id), "agent": _agent("admin_agent", agent_id="admin"), "lesson": LESSON},
+        f"/v0/vnext/memories/{memory_id}/review",
+        payload={"user_id": str(user_id), "agent": _agent("admin_agent", agent_id="admin"), "action": "accept"},
         authorization=f"Bearer {admin}",
     )
-    assert approved["status"] == "committed"
+    assert status in (200, 201)
+    approved_row = row()
+    assert approved_row["status"] == "active"
     status, refusal = invoke_request(
         "POST",
         "/v0/vnext/memories/correct",
         payload={
             "user_id": str(user_id),
             "agent": _agent("admin_agent", agent_id="admin"),
-            "memory_id": approved["memory"]["id"],
+            "memory_id": memory_id,
             "canonical_text": REFUSED_SENTENCE,
         },
         authorization=f"Bearer {admin}",
     )
     assert status == 400
     assert refusal["detail"]["code"] == "invalid_request"
+    assert row() == approved_row
 
 
 def test_the_confirm_route_refuses_text_and_keeps_the_block_without_it(migrated_database_urls, monkeypatch) -> None:
@@ -366,3 +377,68 @@ def test_a_body_without_a_lesson_that_omits_every_optional_field_stores_what_mai
     assert memory["confidence"] == 0.9
     assert memory["value"] == {"text": "Repin the mutation manifest before committing.", "intent": "explicit_remember", "source_refs": []}
     assert "lesson" not in memory["value"]
+
+
+def test_only_the_owner_or_an_admin_key_can_accept_or_promote_a_waiting_lesson(migrated_database_urls, monkeypatch) -> None:
+    """Guard: the review route's action check (HUMAN_OR_ADMIN_ACTIONS) for a memory that carries a
+    lesson: the dashboard surface that can activate a waiting lesson is the owner's and an admin
+    key's, and a1 or a2 cannot move their own or each other's waiting lesson.
+
+    Mutation: let a project key accept or promote (drop the action check or widen it); the
+    waiting lesson becomes active through a1 and the assertions fail.
+    """
+
+    app_url = migrated_database_urls["app"]
+    _route_patches(monkeypatch, app_url)
+    user_id = seed_user(app_url, email="lesson-review-activate-http@example.invalid")
+    a1 = _bound_key(app_url, user_id, "a1", "alpha")
+    a2 = _bound_key(app_url, user_id, "a2", "alpha")
+    status, payload = invoke_request(
+        "POST",
+        "/v0/vnext/memories/commit",
+        payload={"user_id": str(user_id), "agent": _agent("project_scoped_agent", agent_id="a1", scope=["alpha"]), "lesson": LESSON},
+        authorization=f"Bearer {a1}",
+    )
+    assert payload["status"] == "review_required"
+    memory_id = payload["memory"]["id"]
+
+    from alicebot_api.db import user_connection
+    from alicebot_api.vnext_store import PostgresVNextStore
+
+    def row() -> dict[str, Any]:
+        with user_connection(app_url, user_id) as conn:
+            fetched = PostgresVNextStore(conn).get_memory(memory_id)
+        assert fetched is not None
+        return dict(fetched)
+
+    before = row()
+    for name, key, agent_id in (("a1", a1, "a1"), ("a2", a2, "a2")):
+        for action in ("accept", "promote"):
+            status, refusal = invoke_request(
+                "POST",
+                f"/v0/vnext/memories/{memory_id}/review",
+                payload={"user_id": str(user_id), "agent": _agent("project_scoped_agent", agent_id=agent_id, scope=["alpha"]), "action": action},
+                authorization=f"Bearer {key}",
+            )
+            assert status == 403, (name, action, refusal)
+            assert row() == before, (name, action, refusal)
+
+
+def test_an_intent_outside_the_explicit_set_waits_for_a_lesson_as_for_a_plain_write(migrated_database_urls, monkeypatch) -> None:
+    """Guard: the explicit-intent arm runs for a lesson (the floor runs after the plain arms).
+
+    Mutation: the chain mutation (``mutation-lesson-chain-arm``); the lesson here would skip the
+    arm and the paired assertion fails.
+    """
+
+    app_url = migrated_database_urls["app"]
+    _route_patches(monkeypatch, app_url)
+    user_id = seed_user(app_url, email="lesson-intent-http@example.invalid")
+    for name, body, auth in (
+        ("plain", {"user_id": str(user_id), "title": "Plain note", "intent": "background_chatter",
+                   "canonical_text": "Repin the mutation manifest before committing."}, None),
+        ("lesson", {"user_id": str(user_id), "intent": "background_chatter", "lesson": LESSON}, None),
+    ):
+        status, payload = invoke_request("POST", "/v0/vnext/memories/commit", payload=body, authorization=auth)
+        assert payload["status"] == "review_required", (name, payload)
+        assert payload["policy_decision"]["reason"] == "explicit_memory_intent_required", (name, payload)

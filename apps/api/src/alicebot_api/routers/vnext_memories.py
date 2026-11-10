@@ -296,14 +296,12 @@ class VNextMemoryCommitRequest(VNextAgentRequest):
         except PydanticValidationError as exc:
             if not (isinstance(value, Mapping) and value.get("lesson") is not None):
                 raise
-            error_locations = {error["loc"] for error in exc.errors()}
-            if not error_locations <= {("title",), ("canonical_text",)}:
-                raise
-            # Only the text the lesson replaces was missing: validate the rest
-            # of the body, then hand the service a model whose text the lesson
-            # names (None in both, which the service reads as absent) and whose
-            # title is the one the client sent, if any.
-            filled = {**value, "title": value.get("title") or "lesson", "canonical_text": "lesson"}
+            # Only the text the lesson names is filled; a field the client
+            # sent is validated as sent, so the real errors alone surface.
+            filled = dict(value)
+            for text_field in ("title", "canonical_text"):
+                if filled.get(text_field) is None:
+                    filled[text_field] = "lesson"
             model = handler(filled).model_copy(
                 update={"title": value.get("title"), "canonical_text": value.get("canonical_text")}
             )
