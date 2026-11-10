@@ -430,7 +430,7 @@ def _handle_alice_recall(context: MCPRuntimeContext, arguments: Mapping[str, obj
             # not inside the service.
             ranking=ranking,
             winning_memories=ordered_rows,
-            caller_limited=source_fence.entity_read_fenced,
+            caller_limited=source_fence.keyed_read_fenced,
         )
         window_start = retrieval_filters.get("scope_window_start")
         window_end = retrieval_filters.get("scope_window_end")

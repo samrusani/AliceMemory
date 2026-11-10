@@ -194,7 +194,7 @@ def _search_starts(store: Any, identity: Any, topic: str) -> list[dict[str, obje
     from alicebot_api.vnext_retrieval import VNextRetrievalService, _supports_explicit_parameters
 
     fence = SourceReadFence.for_identity(identity)
-    if fence.entity_read_fenced and _supports_explicit_parameters(search, ("row_local_rank",)):
+    if fence.keyed_read_fenced and _supports_explicit_parameters(search, ("row_local_rank",)):
         rows, _stage = VNextRetrievalService(store)._memory_fts_rows(
             query=text,
             domains=list(permitted_domains(identity.permission_profile) or ()),

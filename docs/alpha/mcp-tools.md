@@ -102,11 +102,14 @@ Remember, recall, continue. These are the only tools in a default
   `low` is the default hybrid behavior) and `budget_strategy`
   (`facts_first` / `recent_first` reorder results; `balanced` is the
   default).
-  On SQLite, a key with read limits ranks full-text matches from each row alone:
-  title matches count twice, body and memory-key matches once, summary matches
-  half and derived fact-key matches one quarter; source passages count matching
-  terms in their own text, so hidden rows change neither these scores nor the order.
-  The owner and an unbound admin key retain the existing bm25 order and tie rules.
+  On SQLite, identities authenticated by an agent API key with read limits use
+  bm25 statistics from ordinary readable memories or chunks of readable sources,
+  so unreadable rows do not affect their full-text scores or order. For a keyed
+  caller, word rarity is counted over rows that carry their own labels; readable
+  derived memories are still ranked and returned but contribute no statistics.
+  If the ordinary readable population is empty, the stage falls back to weighted
+  matches in each row alone. The owner, an unbound admin key and a declared
+  identity on a keyless vault retain native bm25 and its existing tie rules.
   From v0.19.0, a result whose `superseded_by`
   is set stays after the current row and carries `validity.superseded:
   true`. A source excerpt whose `quoted_from` memory was corrected or

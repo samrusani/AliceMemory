@@ -3219,7 +3219,7 @@ class VNextRetrievalService:
         options = {"query": query, "domains": domains or None,
                    "sensitivity_allowed": sensitivity_allowed, **filters, **scope_filters}
         if _supports_explicit_parameters(active_search, ("row_local_rank",)):
-            options["row_local_rank"] = read_fence.entity_read_fenced
+            options["row_local_rank"] = read_fence.keyed_read_fenced
         if include_expired:
             options["include_expired"] = True
         if lessons_only:
@@ -4625,7 +4625,7 @@ class VNextRetrievalService:
         because an unscoped owner query is legitimate, but it has to be written
         down at the call site.
 
-        ``caller_limited`` is derived from ``SourceReadFence.entity_read_fenced``
+        ``caller_limited`` is derived from ``SourceReadFence.keyed_read_fenced``
         at each authenticated edge. Request scope is not a substitute: an owner
         selecting one project must retain the unrestricted ranking.
 
@@ -5106,7 +5106,7 @@ class VNextRetrievalService:
                 ranking=SourceRanking.document(),
                 scope=scope,
                 anchor=anchor,
-                caller_limited=source_fence.entity_read_fenced,
+                caller_limited=source_fence.keyed_read_fenced,
             )
         else:
             source_lists = {}

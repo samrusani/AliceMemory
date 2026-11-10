@@ -1358,14 +1358,27 @@ class SQLiteVNextStore:
         params: list[object] = [match_expression, self.user_id]
         params.extend(readable_params)
         params.append(limit)
+        rank_cte = rank_join = ""
+        if row_local_rank:
+            from alicebot_api.vnext_stores.sqlite.readable_rank import rank_sql
+            ranked = rank_sql(self, expression=match_expression, memory=False,
+                              population_from="source_chunks c JOIN sources s ON s.id=c.source_id AND s.user_id=c.user_id",
+                              population_where="c.user_id=?" + readable_sql,
+                              population_params=(self.user_id, *readable_params), ordinary="TRUE")
+            if ranked is not None:
+                rank_cte, rank_join, rank_params = ranked
+                score_sql = "CASE WHEN rank_statistics.n=0 THEN (" + score_sql + ") ELSE readable_scores.score END"
+                params = [*rank_params, *params]
         try:
             return self._fetch_all(
                 f"""
+                    {rank_cte}
                     SELECT {prefixed_columns},
                       {score_sql} AS fts_score
                     FROM source_chunks_fts
                     JOIN source_chunks c ON c.rowid = source_chunks_fts.rowid
                     JOIN sources s ON s.id = c.source_id AND s.user_id = c.user_id
+                    {rank_join}
                     WHERE source_chunks_fts MATCH ?
                       AND c.user_id = ?{readable_sql}
                     ORDER BY fts_score DESC, c.created_at DESC, c.id DESC

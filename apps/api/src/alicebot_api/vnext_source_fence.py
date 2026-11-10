@@ -260,6 +260,11 @@ class SourceReadFence:
         return self.identity is not None
 
     @property
+    def keyed_read_fenced(self) -> bool:
+        """Rank isolation applies only to limits established by an API key."""
+        return self.identity is not None and self.identity.auth == "agent_api_key" and self.entity_read_fenced
+
+    @property
     def entity_read_fenced(self) -> bool:
         """Whether policy limits this identity's view of vault-wide entity metadata.
 

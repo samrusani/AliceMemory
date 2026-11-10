@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Unreleased (on main, not in v0.23.1): SQLite ranked reads for keys with limits use matches in each row alone, so rows they cannot read do not change their results' scores or order; v0.23.1 and earlier use table-wide counts. The owner's and an unbound admin key's order is unchanged (`python -m pytest tests/unit/test_ranked_read_hidden_rows.py tests/integration/test_ranked_read_hidden_rows_postgres.py`).
+- Unreleased (on main, not in v0.23.1): SQLite ranked reads for identities authenticated by an agent key with read limits use bm25 statistics from ordinary readable memories or readable source chunks, leaving derived memories eligible without counting them and falling back to row-only matches when the ordinary population is empty; v0.23.1 and earlier use table-wide counts, while the owner, an unbound admin key and a declared identity on a keyless vault keep their existing order (`python -m pytest tests/unit/test_ranked_read_hidden_rows.py tests/integration/test_ranked_read_hidden_rows_postgres.py`).
 
 - Unreleased (on main, not in v0.23.1): `alice_lessons` returns published, readable lessons matching a task or file paths, with the writer and publishing act, while the default MCP tool list remains unchanged; `python -m pytest tests/unit/test_lessons_read.py tests/integration/test_lessons_read_postgres.py` checks publication, matching, caller fences, imports and the request event on SQLite and the PostgreSQL tool path.
 

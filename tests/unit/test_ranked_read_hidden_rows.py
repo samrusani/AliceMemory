@@ -6,6 +6,8 @@ import json
 import os
 import subprocess
 import sys
+import sqlite3
+from functools import wraps
 from uuid import uuid4
 
 import pytest
@@ -84,7 +86,7 @@ def normalized(answer):
 @pytest.mark.parametrize("hiding", ("project", "sensitivity"))
 @pytest.mark.parametrize("stage", ("memory", "source"))
 def test_recall_is_equal_when_hidden_rows_are_added(vault, monkeypatch, profile, hiding, stage):
-    """Guard: the fenced memory and passage stages request row-only full-text ranks."""
+    """Guard: keyed memory and passage stages use only readable corpus statistics."""
     ids = visible(vault, monkeypatch, stage)
     key = mint(vault, profile)
     args = {"query": QUERY, "limit": 5, "include_sources": stage == "source"}
@@ -138,15 +140,16 @@ def test_brief_is_equal_when_hidden_rows_are_added(vault, monkeypatch):
     assert subprocess.check_output(command, text=True, env=os.environ) == before
 
 
-@pytest.mark.parametrize("profile", (None, "admin_agent"))
+@pytest.mark.parametrize("profile", (None, "admin_agent", "trusted_local_agent", "read_only_agent"))
 @pytest.mark.parametrize("stage", ("memory", "source"))
 def test_unrestricted_recall_keeps_bm25_order(vault, monkeypatch, profile, stage):
     """Guard: row-only rank is selected only for an identity with read limits."""
     ids = visible(vault, monkeypatch, stage)
-    key = mint(vault, profile, project=None) if profile else None
+    key = mint(vault, profile, project=None) if profile == "admin_agent" else None
+    declared = {"agent_id": "reader", "permission_profile": profile} if profile in {"trusted_local_agent", "read_only_agent"} else {}
     with sqlite_user_connection(vault, USER) as conn:
         add_hidden(SQLiteVNextStore(conn, USER), stage, "project")
-    result = call(vault, monkeypatch, key, "alice_recall", {"query": QUERY, "include_sources": stage == "source", "projects": ["alpha"], "limit": 5})
+    result = call(vault, monkeypatch, key, "alice_recall", {"query": QUERY, "include_sources": stage == "source", "projects": ["alpha"], "limit": 5, **declared})
     section = "results" if stage == "memory" else "sources"
     assert [row["id"] for row in result[section]] == ids[::-1], "bm25 reverses these rows; row-only counts do not"
 
@@ -184,8 +187,9 @@ def test_what_changed_is_equal_when_hidden_rows_are_added(vault, monkeypatch, ex
         ("fact_keys", 5, {"canonical_text": "luminousmigration"}),
     ],
 )
-def test_fenced_rank_weights_each_searchable_column(vault, monkeypatch, column, repeats, competitor):
-    """Guard: title/body weights are 2:1, then summary .5, key 1 and fact keys .25."""
+@pytest.mark.parametrize("ordinary", (False, True))
+def test_fenced_rank_weights_each_searchable_column(vault, monkeypatch, column, repeats, competitor, ordinary):
+    """Guard: each native BM25 column weight and each zero-population fallback weight."""
     ids = visible(vault, monkeypatch, "memory")
     with sqlite_user_connection(vault, USER) as conn:
         for mid in ids:
@@ -194,20 +198,25 @@ def test_fenced_rank_weights_each_searchable_column(vault, monkeypatch, column, 
         conn.execute(f"UPDATE memories SET {column}=? WHERE id=?", ("luminousmigration " * repeats, ids[0]))
         for name, text in competitor.items():
             conn.execute(f"UPDATE memories SET {name}=? WHERE id=?", (text, ids[1]))
+        if not ordinary:
+            _derive(SQLiteVNextStore(conn, USER), ids)
+        elif column == "fact_keys":
+            conn.execute("UPDATE memories SET fact_keys=? WHERE id=?", ("luminousmigration " * 20, ids[0]))
     key = mint(vault, "project_scoped_agent")
     result = call(vault, monkeypatch, key, "alice_recall", {"query": QUERY, "include_sources": False})
     assert [row["id"] for row in result["results"]] == ids
 
 
-@pytest.mark.parametrize("profile", (None, "admin_agent"))
+@pytest.mark.parametrize("profile", (None, "admin_agent", "trusted_local_agent", "read_only_agent"))
 @pytest.mark.parametrize("stage", ("memory", "source"))
 def test_unrestricted_context_pack_keeps_bm25_order(vault, monkeypatch, profile, stage):
     """Guard: a pack's request scope does not activate the limited-caller score."""
     ids = visible(vault, monkeypatch, stage)
-    key = mint(vault, profile, project=None) if profile else None
+    key = mint(vault, profile, project=None) if profile == "admin_agent" else None
+    declared = {"agent_id": "reader", "permission_profile": profile} if profile in {"trusted_local_agent", "read_only_agent"} else {}
     with sqlite_user_connection(vault, USER) as conn:
         add_hidden(SQLiteVNextStore(conn, USER), stage, "project")
-    result = call(vault, monkeypatch, key, "alice_context_pack", {"query": QUERY, "include_sources": True, "projects": ["alpha"]})
+    result = call(vault, monkeypatch, key, "alice_context_pack", {"query": QUERY, "include_sources": True, "projects": ["alpha"], **declared})
     section = "memories" if stage == "memory" else "sources"
     assert [row["id"] for row in result[section]] == ids[::-1]
 
@@ -228,10 +237,11 @@ def test_session_start_brief_is_equal_when_hidden_rows_are_added(vault, monkeypa
 
 
 def test_fenced_rank_ignores_unmatched_text_length(vault, monkeypatch):
-    """Guard: subtract the original column length from its highlighted length."""
+    """Guard: a vault with no ordinary memory uses the row-alone fallback."""
     ids = visible(vault, monkeypatch, "memory")
     with sqlite_user_connection(vault, USER) as conn:
         conn.execute("UPDATE memories SET canonical_text=canonical_text || ? WHERE id=?", (" irrelevant" * 100, ids[1]))
+        _derive(SQLiteVNextStore(conn, USER), ids)
     key = mint(vault, "project_scoped_agent")
     result = call(vault, monkeypatch, key, "alice_recall", {"query": QUERY, "include_sources": False})
     assert [row["id"] for row in result["results"]] == ids
@@ -258,3 +268,193 @@ def test_what_changed_fences_a_hidden_predecessor(vault, monkeypatch, hidden_kin
     dumped = json.dumps(answer)
     assert ids[1] in dumped and len(answer["chains"]) == 1
     assert ids[0] not in dumped and "Private predecessor marker" not in dumped
+
+
+def _derive(store, ids, *, hidden=False):
+    source = store.create_source({"source_type": "note", "title": "Recorded input", "content_hash": str(uuid4()),
+                                  "domain": "project", "sensitivity": "public", "metadata_json": {"project_scope": ["alpha"]}})
+    refs = [str(source["id"])]
+    if hidden:
+        private = store.create_source({"source_type": "note", "title": "Restricted input", "content_hash": str(uuid4()),
+                                       "domain": "project", "sensitivity": "confidential", "metadata_json": {"project_scope": ["alpha"]}})
+        refs.append(str(private["id"]))
+    for mid in ids:
+        store.conn.execute("UPDATE memories SET metadata_json=? WHERE id=?", (json.dumps({
+            "project_scope": ["alpha"], "derived_from": {"sources": refs, "counts": {"sources": len(refs)}}}), str(mid)))
+
+
+@pytest.mark.parametrize("stage", ("memory", "source"))
+@pytest.mark.parametrize("query", (
+    "luminousmigration amberrebase copperdeploy",
+    "How should luminousmigration amberrebase copperdeploy proceed when planning changes across unfamiliar modules",
+    '"amberrebase amberrebase" copperdeploy',
+    '"luminousmigration amberrebase"',
+    'luminousmigrations amberrebases copperdeploy',
+))
+def test_readable_corpus_preserves_owner_order(vault, monkeypatch, stage, query):
+    """Guard: exact BM25 rarity, length normalization and overlapping phrase occurrences."""
+    texts = ["luminousmigration " * 8 + "amberrebase amberrebase copperdeploy " + "padding " * 130,
+             "luminousmigration amberrebase amberrebase amberrebase copperdeploy"]
+    with sqlite_user_connection(vault, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        for i, text in enumerate(texts + ["luminousmigration filler " + str(i) for i in range(35)] + ["filler amberrebase"]):
+            labels = {"domain": "project", "sensitivity": "public", "metadata_json": {"project_scope": ["alpha"]}}
+            if stage == "memory":
+                store.create_memory({"memory_key": f"quality.{i}", "title": "amberrebase" if text == "filler amberrebase" else "Migration record", "canonical_text": text,
+                                     "value": {"text": text}, "memory_type": "procedure", "status": "active", "confidence": 1,
+                                     "project_id": "alpha", **labels})
+            else:
+                source = store.create_source({"source_type": "note", "title": "Captured record", "content_hash": str(uuid4()), **labels})
+                store.create_source_chunk({"source_id": str(source["id"]), "chunk_index": 0, "text": text})
+    args = {"query": query, "include_sources": stage == "source", "limit": 10}
+    method = "search_memories_fts" if stage == "memory" else "search_source_chunks"
+    original = getattr(SQLiteVNextStore, method)
+    observed = {}
+    @wraps(original)
+    def capture(self, **kwargs):
+        rows = original(self, **kwargs)
+        observed.update({str(r["id"]): r["fts_score"] for r in rows})
+        return rows
+    monkeypatch.setattr(SQLiteVNextStore, method, capture)
+    owner = call(vault, monkeypatch, None, "alice_recall", args)
+    owner_scores = dict(observed)
+    observed.clear()
+    key = mint(vault, "project_scoped_agent")
+    bounded = call(vault, monkeypatch, key, "alice_recall", args)
+    assert observed == pytest.approx(owner_scores, rel=1e-12, abs=1e-15)
+    field = "results" if stage == "memory" else "sources"
+    assert len(owner[field]) >= 2
+    assert [r["id"] for r in bounded[field]] == [r["id"] for r in owner[field]]
+
+
+@pytest.mark.parametrize("tool", ("alice_recall", "alice_context_pack", "alice_what_changed"))
+def test_derived_hidden_rows_do_not_change_ranked_doors(vault, monkeypatch, tool):
+    """Guard: derived rows cannot contribute to ordinary population counts or phrase rarity."""
+    ids = visible(vault, monkeypatch, "memory")
+    with sqlite_user_connection(vault, USER) as conn:
+        conn.execute("UPDATE memories SET memory_type='decision' WHERE id IN (?,?)", ids)
+    key = mint(vault, "project_scoped_agent")
+    def read():
+        args = {"topic": QUERY} if tool == "alice_what_changed" else {"query": QUERY}
+        return normalized(call(vault, monkeypatch, key, tool, args))
+    seen = set()
+    original = SQLiteVNextStore.search_memories_fts
+    @wraps(original)
+    def capture(self, **kwargs):
+        rows = original(self, **kwargs)
+        seen.update(str(r["id"]) for r in rows)
+        return rows
+    monkeypatch.setattr(SQLiteVNextStore, "search_memories_fts", capture)
+    before = read()
+    assert all(mid in json.dumps(before) for mid in ids)
+    with sqlite_user_connection(vault, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        hidden_ids = []
+        for i in range(100):
+            row = store.create_memory({"memory_key": f"derived.hidden.{i}", "memory_type": "decision", "title": "Input copy",
+                                       "canonical_text": "luminousmigration " * 3, "value": {"text": "luminousmigration"},
+                                       "status": "active", "domain": "project", "sensitivity": "public", "confidence": 1,
+                                       "project_id": "alpha", "metadata_json": {"project_scope": ["alpha"]}})
+            hidden_ids.append(row["id"])
+        _derive(store, hidden_ids, hidden=True)
+    assert read() == before
+    assert not seen.intersection(str(mid) for mid in hidden_ids)
+
+
+@pytest.mark.parametrize("caller", ("key", "owner", "admin_agent", "trusted_local_agent", "read_only_agent"))
+def test_rank_helpers_are_temporary_and_only_for_keyed_limits(vault, monkeypatch, caller):
+    """Guard: helpers belong only to temp on the product read connection and only to keyed limits."""
+    visible(vault, monkeypatch, "memory")
+    visible(vault, monkeypatch, "source")
+    key = mint(vault, "project_scoped_agent") if caller == "key" else mint(vault, "admin_agent", None) if caller == "admin_agent" else None
+    declared = {"agent_id": "reader", "permission_profile": caller} if caller in {"trusted_local_agent", "read_only_agent"} else {}
+    def schema():
+        with sqlite3.connect(vault) as conn:
+            return conn.execute("SELECT * FROM sqlite_master ORDER BY type,name").fetchall(), conn.execute("PRAGMA user_version").fetchone()
+    before = schema()
+    seen = []
+    original = SQLiteVNextStore.search_memories_fts
+    @wraps(original)
+    def capture(self, **kwargs):
+        result = original(self, **kwargs)
+        seen.extend(row["name"] for row in self.conn.execute("SELECT name FROM temp.sqlite_master WHERE name LIKE 'alice_%'").fetchall())
+        return result
+    monkeypatch.setattr(SQLiteVNextStore, "search_memories_fts", capture)
+    result = call(vault, monkeypatch, key, "alice_recall", {"query": QUERY, "include_sources": True, **declared})
+    assert result["count"] == 2 and result["source_count"] == 2
+    assert schema() == before
+    helpers = {"alice_memory_terms", "alice_chunk_terms", "alice_query_text", "alice_query_terms"}
+    assert helpers <= set(seen) if caller == "key" else not seen
+    with sqlite3.connect(vault) as conn:
+        assert conn.execute("SELECT name FROM temp.sqlite_master").fetchall() == []
+
+
+def test_readable_derived_rows_leave_other_bm25_scores_unchanged(vault, monkeypatch):
+    """Guard: readable derived rows are ranked but excluded from N, average length and document frequency."""
+    ids = visible(vault, monkeypatch, "memory")
+    key = mint(vault, "project_scoped_agent")
+    original = SQLiteVNextStore.search_memories_fts
+    observed = {}
+    @wraps(original)
+    def capture(self, **kwargs):
+        rows = original(self, **kwargs)
+        observed.update({str(r["id"]): r["fts_score"] for r in rows})
+        return rows
+    monkeypatch.setattr(SQLiteVNextStore, "search_memories_fts", capture)
+    args = {"query": QUERY, "include_sources": False, "limit": 20}
+    before = call(vault, monkeypatch, key, "alice_recall", args)
+    before_scores = {mid: observed[mid] for mid in ids}
+    with sqlite_user_connection(vault, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        added = store.create_memory({"memory_key": "derived.readable", "title": "Input copy", "canonical_text": "luminousmigration " * 200,
+                                     "value": {"text": "luminousmigration"}, "memory_type": "procedure", "status": "active",
+                                     "domain": "project", "sensitivity": "public", "confidence": 1, "project_id": "alpha",
+                                     "metadata_json": {"project_scope": ["alpha"]}})
+        _derive(store, [added["id"]])
+    after = call(vault, monkeypatch, key, "alice_recall", args)
+    assert str(added["id"]) in [r["id"] for r in after["results"]]
+    assert {mid: observed[mid] for mid in ids} == before_scores
+    assert [r["id"] for r in after["results"] if r["id"] in ids] == [r["id"] for r in before["results"]]
+
+
+def test_rank_ignores_empty_tokenizer_phrases(vault, monkeypatch):
+    """Guard: a syntactically present phrase with no native tokens produces no hits."""
+    visible(vault, monkeypatch, "memory")
+    key = mint(vault, "project_scoped_agent")
+    statements = []
+    original = SQLiteVNextStore._execute
+    @wraps(original)
+    def capture(self, query, params=()):
+        statements.append(query)
+        return original(self, query, params)
+    monkeypatch.setattr(SQLiteVNextStore, "_execute", capture)
+    assert call(vault, monkeypatch, key, "alice_recall", {"query": '"___"', "include_sources": True})["count"] == 0
+    assert not any("rank_hits" in query for query in statements)
+
+
+def test_store_refill_keeps_its_limit_after_derived_admission(vault, monkeypatch):
+    """Guard: a refilled store page returns at most its requested readable limit."""
+    with sqlite_user_connection(vault, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        hidden = []
+        for i in range(43):
+            text = "luminousmigration " * 20 if i < 3 else "luminousmigration ordinary"
+            row = store.create_memory({"memory_key": f"refill.{i}", "memory_type": "procedure", "title": "Record",
+                                       "canonical_text": text, "value": {"text": text}, "status": "active", "confidence": 1,
+                                       "domain": "project", "sensitivity": "public", "project_id": "alpha",
+                                       "metadata_json": {"project_scope": ["alpha"]}})
+            if i < 3:
+                hidden.append(row["id"])
+        _derive(store, hidden, hidden=True)
+    key = mint(vault, "project_scoped_agent")
+    original = SQLiteVNextStore.search_memories_fts
+    sizes = []
+    @wraps(original)
+    def capture(self, **kwargs):
+        rows = original(self, **kwargs)
+        sizes.append((len(rows), kwargs["limit"]))
+        return rows
+    monkeypatch.setattr(SQLiteVNextStore, "search_memories_fts", capture)
+    result = call(vault, monkeypatch, key, "alice_recall", {"query": "luminousmigration", "limit": 1, "include_sources": False})
+    assert result["count"] == 1
+    assert sizes and all(size <= requested for size, requested in sizes)

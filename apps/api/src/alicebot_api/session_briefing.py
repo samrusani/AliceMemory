@@ -532,7 +532,7 @@ def compile_local_session_brief(
             exclude_global_domains=exclude_global_domains,
             query=query,
             reserve=reserve,
-            caller_limited=SourceReadFence.for_identity(identity).entity_read_fenced,
+            caller_limited=SourceReadFence.for_identity(identity).keyed_read_fenced,
         )
 
 
