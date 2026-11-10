@@ -648,9 +648,10 @@ def test_a_credential_in_any_lesson_field_rejects_the_write(vault: Vault, monkey
 def test_a_different_lesson_under_the_same_idempotency_key_is_not_a_replay(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
     """Guard: the lesson in ``_request_fingerprint``.
 
-    Mutation: remove the lesson from the fingerprint; the different block replays the first
-    answer and the ``raises`` below never fires, while the same-block replay still returns
-    ``idempotent_replay``.
+    The derived text is in the fingerprint either way, so the probe changes only the lesson's
+    paths: the derived text is identical, the block is not. Mutation: remove the lesson from
+    the fingerprint; the different block replays the first answer and the ``raises`` below
+    never fires, while the same-block replay still returns ``idempotent_replay``.
     """
 
     admin = _first_key_with_agent(vault, "admin", "admin_agent")
@@ -661,7 +662,7 @@ def test_a_different_lesson_under_the_same_idempotency_key_is_not_a_replay(vault
     with pytest.raises(MCPToolError):
         commit_lesson(
             vault, monkeypatch, admin, agent_id="admin", domain="project", idempotency_key="lesson-1",
-            lesson={**LESSON, "do_instead": "Repin the mutation manifest, then run the shards."},
+            lesson={**LESSON, "paths": ["CHANGELOG.md", "docs/alpha/mcp-tools.md"]},
         )
 
 
@@ -721,7 +722,7 @@ def test_a_plain_write_answers_exactly_as_it_always_did(vault: Vault, monkeypatc
         arguments["agent_id"] = agent_id
         arguments["agent_type"] = "coding_agent"
     if profile == "read_only_agent":
-        with pytest.raises((MCPNotPermittedError, AgentKeyAuthenticationError)):
+        with pytest.raises(MCPNotPermittedError):
             vault.call(monkeypatch, key, "alice_memory_commit", arguments)
         return
     result = vault.call(monkeypatch, key, "alice_memory_commit", arguments)
