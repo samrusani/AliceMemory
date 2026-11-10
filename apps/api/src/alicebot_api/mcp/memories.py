@@ -14,6 +14,7 @@ from alicebot_api.vnext_agent_control import (
 )
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_memory_commit import (
+    LESSON_MUTATION_REFUSED_MESSAGE,
     IdempotencyKeyConflictError,
     MemoryNotFoundError,
     MemoryStateError,
@@ -137,7 +138,7 @@ def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Map
         # A lesson names the text: canonical_text is refused, the title and
         # the domain have lesson defaults, and memory_type is procedure.
         if arguments.get("canonical_text") is not None:
-            raise MCPArgumentError("canonical_text must be left out when the commit carries a lesson")
+            raise MCPInvalidRequestError("canonical_text must be left out when the commit carries a lesson")
         commit_payload: dict[str, object] = {
             "title": _parse_optional_text(arguments, "title"),
             "canonical_text": None,
@@ -323,6 +324,13 @@ def _confirm_pending_memory(
             deferred_embedding_inputs = service.deferred_embedding_inputs
         except AgentPolicyBlockedError as exc:
             blocked_decision = exc.decision
+        except VNextMemoryCommitValidationError as exc:
+            if str(exc) == LESSON_MUTATION_REFUSED_MESSAGE:
+                # A confirm that would rewrite a lesson's text answers
+                # invalid_request with the fixed words, which the caller
+                # reads. Every other confirmation shape keeps today's answer.
+                raise MCPInvalidRequestError(str(exc)) from None
+            raise
     if blocked_decision is not None:
         _raise_mcp_policy_blocked(blocked_decision)
     if payload is None:

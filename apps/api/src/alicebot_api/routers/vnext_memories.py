@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Header, Path, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
-from pydantic import Field, model_validator
+from pydantic import Field, ValidationError as PydanticValidationError, model_validator
 
 from alicebot_api.browser_clip_capabilities import (
     BrowserClipCapabilityValidationError,
@@ -89,6 +89,7 @@ from alicebot_api.vnext_dogfooding import VNextDogfoodingService
 from alicebot_api.vnext_doctor import VNextDoctorService
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_memory_commit import (
+    LESSON_MUTATION_REFUSED_MESSAGE,
     IdempotencyKeyConflictError,
     MemoryNotFoundError,
     VNextMemoryCommitService,
@@ -97,6 +98,7 @@ from alicebot_api.vnext_memory_commit import (
     agent_api_keys_provisioned,
     is_pending_consolidation_candidate,
     load_promotion_settings,
+    memory_carries_lesson,
     memory_commit_request_from_payload,
 )
 from alicebot_api.vnext_source_fence import (
@@ -264,8 +266,8 @@ class VNextMemoryCommitLessonRequest(BaseModel):
 class VNextMemoryCommitRequest(VNextAgentRequest):
     user_id: UUID
     intent: str = Field(default="explicit_remember", min_length=1, max_length=120)
-    title: str | None = Field(default=None, min_length=1, max_length=280)
-    canonical_text: str | None = Field(default=None, min_length=1, max_length=20_000)
+    title: str = Field(min_length=1, max_length=280)
+    canonical_text: str = Field(min_length=1, max_length=20_000)
     memory_type: str = Field(default="semantic", min_length=1, max_length=80)
     domain: VNextDomain = "unknown"
     sensitivity: VNextSensitivity = "unknown"
@@ -282,19 +284,36 @@ class VNextMemoryCommitRequest(VNextAgentRequest):
     contradiction_refs: list[str] = Field(default_factory=list)
     lesson: VNextMemoryCommitLessonRequest | None = None
 
-    @model_validator(mode="after")
-    def _check_lesson_text_shape(self) -> VNextMemoryCommitRequest:
-        if self.lesson is None:
-            if self.title is None or self.canonical_text is None:
-                raise ValueError("title and canonical_text are required when the commit carries no lesson")
-            return self
-        if self.canonical_text is not None:
+    @model_validator(mode="wrap")
+    @classmethod
+    def _accept_lesson_without_text(cls, value: object, handler):
+        # A body with a lesson names the text: title and canonical_text may be
+        # left out, and canonical_text must be left out. Without a lesson the
+        # field validation answers exactly what it always answered: the
+        # missing and wrong-type errors pass through untouched.
+        try:
+            model = handler(value)
+        except PydanticValidationError as exc:
+            if not (isinstance(value, Mapping) and value.get("lesson") is not None):
+                raise
+            error_locations = {error["loc"] for error in exc.errors()}
+            if not error_locations <= {("title",), ("canonical_text",)}:
+                raise
+            # Only the text the lesson replaces was missing: validate the rest
+            # of the body, then hand the service a model whose text the lesson
+            # names (None in both, which the service reads as absent) and whose
+            # title is the one the client sent, if any.
+            filled = {**value, "title": value.get("title") or "lesson", "canonical_text": "lesson"}
+            model = handler(filled).model_copy(
+                update={"title": value.get("title"), "canonical_text": value.get("canonical_text")}
+            )
+        if model.lesson is not None and model.canonical_text is not None:
             raise ValueError("canonical_text must be left out when the commit carries a lesson")
-        if "memory_type" in self.model_fields_set and self.memory_type != "procedure":
+        if model.lesson is not None and "memory_type" in model.model_fields_set and model.memory_type != "procedure":
             # A memory_type the client sent must be procedure; the default it
             # did not send is replaced by procedure in the service.
             raise ValueError("a commit with a lesson has memory_type procedure")
-        return self
+        return model
 
 
 class VNextMemoryConfirmRequest(VNextAgentRequest):
@@ -1453,6 +1472,16 @@ def review_vnext_memory(
                     status_code=409,
                     detail=PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
                 )
+            if memory_carries_lesson(existing) and (
+                action == "edit"
+                or request.title is not None
+                or request.canonical_text is not None
+                or request.summary is not None
+            ):
+                # The shared lesson rule: a memory that carries a lesson is
+                # never edited in place, so the block and the derived text
+                # can never disagree. Reject it and record a new one.
+                return _vnext_public_error_response(status_code=400, detail=LESSON_MUTATION_REFUSED_MESSAGE)
 
             existing_metadata_value = existing.get("metadata_json")
             existing_metadata: dict[str, object] = (

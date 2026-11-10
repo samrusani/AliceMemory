@@ -621,16 +621,21 @@ fails a check or is corrected, the others should not repeat it; the lesson
 is the shape that note takes.
 
 Fields, each counted after runs of whitespace are collapsed the way commit
-text is, each refused with a validation error that names the field, writing
-nothing:
+text is. The shape refusals the service's own parser reads name the field:
+a missing or empty field, a field one over its limit, and a bad `paths`
+form (a leading `/` or `~`, a `..` segment, a drive letter, a backslash, a
+control character, a path over 200 characters). A missing or unknown field,
+a non-object `lesson`, a value of the wrong type, more than 16 paths and a
+path over 200 characters are refused before the service runs and answer the
+door's fixed `invalid_request` sentence:
 
 - `applies_when` (required, at most 300 characters): when the lesson applies.
 - `what_happened` (required, at most 600 characters): what happened that
   taught it.
 - `do_instead` (required, at most 600 characters): what to do instead.
 - `paths` (optional): at most 16 repo-relative paths or globs, each at most
-  200 characters, with no leading `/` or `~`, no `..` segment, and no drive
-  letter. Control characters are refused everywhere.
+  200 characters, with no leading `/` or `~`, no `..` segment, no drive
+  letter and no backslash. Control characters are refused everywhere.
 
 The block changes the rest of the write:
 
@@ -643,37 +648,45 @@ The block changes the rest of the write:
   `applies_when`.
 - A missing `domain` means `project`. A domain that is sent is checked as
   today, so a bound key sending another domain is still refused.
-- Every other argument means what it means today. The credential check runs
-  over each lesson field and over `paths`: a credential in any of them
-  rejects the write as it does in the body text.
+- Every other argument means what it means today. The commit gate and the
+  promotion policy's credential rule read the derived text and every `paths`
+  entry: a credential in any of them rejects the write as it does in the
+  body text.
 - The block is stored with the memory, inside its stored value next to
-  `text` and `intent`; the commit result returns it; it is part of the
-  request fingerprint, so the same `idempotency_key` with a different block
-  is refused, not replayed; and `alice-memory export` then `import` keeps
-  it.
+  `text` and `intent`; the commit result returns it, and so do the
+  `confirmation_required` answer, the confirm answer and an idempotent
+  replay; it is part of the request fingerprint, so the same
+  `idempotency_key` with a different block is refused, not replayed; and
+  `alice-memory export` then `import` keeps it.
 
 Who publishes: the owner (a keyless call with no declared identity on a
-vault with no keys, and the owner over HTTP) and a key of profile
-`admin_agent` publish a lesson at once, as their writes commit today. Every
-other identity, whatever its profile, and a declared identity on a keyless
-vault, never publishes at once: a write that would commit today answers
-`review_required` with reason `lesson_requires_approval`, stored the way a
-`memory_proposal_agent` write is stored. The promotion policy never lifts a
-lesson, whatever the persona and settings say. Approval is today's review
-door: `alice_memory_correct` with `action: approve` (or `reject`). After an
-approve, the other keys of the project read the lesson through
-`alice_recall`, and its writer is still the key that wrote it.
+vault with no keys, and the owner over HTTP), a key of profile
+`admin_agent`, and a keyless call that declares
+`permission_profile: admin_agent` on a vault with no keys (a keyless vault
+cannot tell callers apart, so a declared `admin_agent` profile publishes as
+the owner does) publish a lesson at once, as their writes commit today.
+Every other identity, whatever its profile, never publishes at once: a
+write that would commit today answers `review_required` with reason
+`lesson_requires_approval`, stored the way a `memory_proposal_agent` write
+is stored. The promotion policy never lifts a lesson, whatever the persona
+and settings say. Approval is today's review door: `alice_memory_correct`
+with `action: approve` (or `reject`). After an approve, the other keys of
+the project read the lesson through `alice_recall`, and its writer is still
+the key that wrote it.
 
-Two extra refusals:
-
-- A lesson whose derived text or title the promotion policy's hard floor
-  flags as instruction-shaped is refused for every writer, the owner
-  included, whether or not a persona is configured: status `rejected`,
-  reason `lesson_instruction_shaped`, nothing stored. The floor's rules
-  themselves are unchanged.
-- `alice_memory_correct` refuses `edit-and-approve` and
-  `supersede-existing` on a memory that carries a lesson: reject it and
-  record a new one, so the block and the text can never disagree.
+Doors that rewrite a stored memory in place refuse a memory that carries a
+lesson, for every identity: `alice_memory_correct` with
+`edit-and-approve` or `supersede-existing`, `POST /v0/vnext/memories/correct`,
+a confirm that carries `canonical_text` (`alice_memory_manage`
+`action: confirm` with the text, `POST /v0/vnext/memories/confirm`), and
+`POST /v0/vnext/memories/{memory_id}/review` with `action: edit` or edited
+text. Each answers the same plain message: reject it and record a new one,
+so the block and the derived text can never disagree. A confirm that
+carries no new text works and keeps the block. The lifecycle actions that
+never rewrite text behave as for any memory: expire and unexpire keep the
+block, undo supersedes the row with its block intact, forget deletes it,
+and redact scrubs the whole retired row to `[REDACTED]` as it does for any
+memory it is pointed at.
 
 A lesson a bound key can copy:
 
@@ -687,6 +700,17 @@ A lesson a bound key can copy:
   }
 }
 ```
+
+Two refusals that are only about the text of a lesson:
+
+- A lesson whose derived text, title or a `paths` entry the promotion
+  policy's hard floor flags as instruction-shaped is refused for every
+  writer, the owner included, whether or not a persona is configured:
+  status `rejected`, reason `lesson_instruction_shaped`, nothing stored.
+  A credential the two commit-door checks did not already catch is refused
+  as `unsafe_secret_storage`. An `agent_output_reingestion` hit of the
+  floor is not a refusal at this door: the write takes the path a plain
+  write takes today. The floor's own rules are unchanged.
 
 Without `lesson`, every answer of the commit door is what it was before, for
 the owner, an unbound `admin_agent` key, a bound `admin_agent` key and a

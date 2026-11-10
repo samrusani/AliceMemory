@@ -73,8 +73,10 @@ from alicebot_api.vnext_lifecycle import (
 )
 from alicebot_api.vnext_memory_commit import (
     VNextMemoryCommitService,
+    VNextMemoryCommitValidationError,
     VNEXT_DOMAINS,
     is_pending_consolidation_candidate,
+    refuse_lesson_mutation,
 )
 from alicebot_api.vnext_project_update_guard import (
     PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
@@ -121,7 +123,7 @@ from .shared import (
     _store_context,
     _vnext_store_context,
 )
-from .types import MCPArgumentError, MCPPreconditionFailedError, MCPReferenceNotFoundError
+from .types import MCPArgumentError, MCPInvalidRequestError, MCPPreconditionFailedError, MCPReferenceNotFoundError
 
 
 def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
@@ -530,19 +532,15 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
         # built from its labels (that decision would repeat them) and before anything is recorded.
         if target is None or outside_caller_limits(store, identity, "memory", target):
             raise MCPReferenceNotFoundError(f"memory {memory_id} was not found")
-        target_value = target.get("value")
-        if (
-            resolved_action in {"edit", "supersede"}
-            and isinstance(target_value, Mapping)
-            and "lesson" in target_value
-        ):
-            # The block and the derived text must never disagree, so a lesson
-            # is never edited or superseded in place: reject it and record a
-            # new one.
-            raise MCPArgumentError(
-                "this memory carries a lesson, which cannot be edited or superseded; "
-                "reject it and record a new one"
-            )
+        if resolved_action in {"edit", "supersede"}:
+            # The shared service check, not a copy: a memory that carries a
+            # lesson is never edited or superseded in place, so the block and
+            # the derived text can never disagree. The refusal carries the
+            # fixed words, which the caller reads.
+            try:
+                refuse_lesson_mutation(target, with_text=True)
+            except VNextMemoryCommitValidationError as exc:
+                raise MCPInvalidRequestError(str(exc)) from None
         judged = effective_row_for_fence(store, identity, "memory", target)
         domains, sensitivity_allowed, project_scope, project_floor = policy_labels(judged)
         _checked_actor_type, _checked_actor_id, decision = _policy_checked(

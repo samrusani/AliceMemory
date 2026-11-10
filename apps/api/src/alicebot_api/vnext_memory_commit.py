@@ -639,25 +639,23 @@ def _request_contains_secret_marker(request: MemoryCommitRequest) -> str | None:
     something no carve-out excuses (see legacy_credential_check).
     """
 
-    lesson_surfaces: tuple[object, ...] = ()
+    # The lesson's text fields are inside the derived canonical_text, so both
+    # checks read them there. Every paths entry is scanned by BOTH checks like
+    # body text: it is appended to the scanned source refs, never passed as a
+    # persisted identifier, which only the floor's detector reads.
+    scanned_refs: tuple[object, ...] = request.source_refs
     if request.lesson is not None:
-        lesson_surfaces = (
-            request.lesson.applies_when,
-            request.lesson.what_happened,
-            request.lesson.do_instead,
-            *request.lesson.paths,
-        )
+        scanned_refs = (*request.source_refs, *request.lesson.paths)
 
     return commit_door_secret_verdict(
         request.title,
         request.canonical_text,
         request.conversation_excerpt,
         request.rationale,
-        request.source_refs,
+        scanned_refs,
         request.idempotency_key,
         request.trace_id,
         list(request.project_scope),
-        *lesson_surfaces,
     )
 
 
@@ -914,15 +912,33 @@ def evaluate_memory_commit_policy(
         )
         mode = "reject"
         status = "rejected"
-    elif request.lesson is not None and hard_floor_hits(
-        promotion_candidate_for_request(identity=identity, request=request)
-    ):
-        # Instruction-shaped lesson text is refused for every writer, the
-        # owner included, whether or not a persona is configured. The check
-        # is the promotion policy's own floor, never a copy of it.
-        reasons.append("lesson_instruction_shaped")
-        mode = "reject"
-        status = "rejected"
+    elif request.lesson is not None:
+        # The promotion policy's own floor, never a copy of it, over the
+        # derived text, the title and every paths entry. It runs for every
+        # writer, the owner included, whether or not a persona is configured.
+        # Only the hit that is about the text refuses here: an
+        # instruction-shaped lesson is refused as
+        # lesson_instruction_shaped, a credential the two commit-door checks
+        # did not already catch is refused as unsafe_secret_storage, and an
+        # agent_output_reingestion hit is not a refusal at this door: the
+        # write takes the path a plain write takes today.
+        lesson_floor_candidate = promotion_candidate_for_request(identity=identity, request=request)
+        if request.lesson.paths:
+            lesson_floor_candidate = replace(
+                lesson_floor_candidate,
+                conversation_excerpt=" ".join(
+                    (*((lesson_floor_candidate.conversation_excerpt or "").split()), *request.lesson.paths)
+                ).strip(),
+            )
+        lesson_floor_hits = hard_floor_hits(lesson_floor_candidate)
+        if "instruction_shaped_content" in lesson_floor_hits:
+            reasons.append("lesson_instruction_shaped")
+            mode = "reject"
+            status = "rejected"
+        elif "credential_material" in lesson_floor_hits:
+            reasons.append("unsafe_secret_storage")
+            mode = "reject"
+            status = "rejected"
     elif request.intent.casefold() not in EXPLICIT_MEMORY_INTENTS:
         reasons.append("explicit_memory_intent_required")
         mode = "propose_review"
@@ -1610,6 +1626,10 @@ class VNextMemoryCommitService:
         )
 
         previous_text = str(memory.get("canonical_text") or "")
+        # A memory that carries a lesson is never confirmed with new text: the
+        # block and the derived text would disagree. A confirm without new
+        # text works and keeps the block.
+        refuse_lesson_mutation(memory, with_text=canonical_text is not None)
         next_text = (
             _normalized_text(canonical_text, field_name="canonical_text")
             if canonical_text is not None
@@ -1722,6 +1742,7 @@ class VNextMemoryCommitService:
             "write_mode": "confirm_inline",
             "confirmation_id": confirmation_id,
             "memory": updated,
+            **({"lesson": stored_lesson} if (stored_lesson := lesson_from_memory(updated)) is not None else {}),
         }
         if next_status != "active":
             response["rationale_withheld"] = rationale_withheld
@@ -1891,6 +1912,10 @@ class VNextMemoryCommitService:
         if memory is None:
             raise MemoryNotFoundError("memory was not found")
         self.refuse_unauthorized_write(identity=identity, action="memory.correct", memory=memory)
+        # A memory that carries a lesson is never corrected: the block and the
+        # derived text would disagree. Every identity is refused; the lesson
+        # changes by rejecting the memory and recording a new one.
+        refuse_lesson_mutation(memory, with_text=True)
         _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.correct", memory=memory)
         # Retirement is terminal: correcting a superseded/rejected/archived row
@@ -3165,12 +3190,14 @@ class VNextMemoryCommitService:
         self._assert_idempotent_request_matches(memory=memory, request=request)
         agentic = _agentic_metadata(memory)
         decision_record = agentic.get("policy_decision")
+        stored_lesson = lesson_from_memory(memory)
         return {
             "status": agentic.get("status") or "committed",
             "write_mode": agentic.get("write_mode") or "commit",
             "memory": memory,
             "idempotent_replay": True,
             "policy_decision": decision_record if isinstance(decision_record, dict) else {},
+            **({"lesson": stored_lesson} if stored_lesson is not None else {}),
         }
 
     def _assert_idempotent_request_matches(
@@ -3495,6 +3522,7 @@ class VNextMemoryCommitService:
             "confirmation": confirmation,
             "memory": memory,
             "policy_decision": decision.to_record(),
+            **({"lesson": request.lesson.to_value_record()} if request.lesson is not None else {}),
         }
 
     def _create_review_candidate(
@@ -4112,6 +4140,10 @@ def _lesson_paths(value: object) -> tuple[str, ...]:
                 "lesson.paths entries must be repo-relative paths or globs: no leading / or ~, "
                 "no .. segment, and no drive letter"
             )
+        if "\\" in path:
+            raise VNextMemoryCommitValidationError(
+                "lesson.paths entries must be repo-relative paths or globs: a backslash is not a path separator"
+            )
         if any(unicodedata.category(character).startswith("C") for character in path):
             raise VNextMemoryCommitValidationError("lesson.paths entries must not contain control characters")
         paths.append(path)
@@ -4154,6 +4186,44 @@ def lesson_derived_title(lesson: LessonBlock) -> str:
     """The stored title of a lesson commit: the first 80 characters of applies_when."""
 
     return lesson.applies_when[:80]
+
+
+LESSON_MUTATION_REFUSED_MESSAGE = (
+    "this memory carries a lesson, which cannot be edited, superseded, corrected or "
+    "confirmed with new text; reject it and record a new one"
+)
+
+
+def memory_carries_lesson(memory: Mapping[str, object]) -> bool:
+    """Whether a stored memory's value holds a lesson block."""
+
+    value = memory.get("value")
+    return isinstance(value, Mapping) and "lesson" in value
+
+
+def lesson_from_memory(memory: Mapping[str, object]) -> JsonObject | None:
+    """The lesson block a stored memory's value holds, or None."""
+
+    value = memory.get("value")
+    if isinstance(value, Mapping):
+        lesson = value.get("lesson")
+        if isinstance(lesson, Mapping):
+            return dict(lesson)
+    return None
+
+
+def refuse_lesson_mutation(memory: Mapping[str, object], *, with_text: bool) -> None:
+    """One check every door that rewrites a stored memory's text, title or value calls.
+
+    A memory that carries a lesson can never have its text, title or value
+    rewritten, and a waiting lesson becomes active only through approve by
+    the owner or an admin key: the block and the derived text would otherwise
+    disagree. A confirm that carries no new text works and keeps the block.
+    The block changes only by rejecting the memory and recording a new one.
+    """
+
+    if with_text and memory_carries_lesson(memory):
+        raise VNextMemoryCommitValidationError(LESSON_MUTATION_REFUSED_MESSAGE)
 
 
 def memory_commit_request_from_payload(payload: Mapping[str, object], *, user_id: object) -> MemoryCommitRequest:
