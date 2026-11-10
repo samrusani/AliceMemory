@@ -182,7 +182,12 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # reproduces the previous core digest. No tool added, removed, or renamed,
     # and no schema, annotation, or default changed. Legacy definitions are
     # unchanged.
-    assert _digest(core_definitions) == "ecea565098e9cec0331dd748075f9ebf8fb4e2cbd524ce7d2f52f1bbabb156b2"
+    # Re-minted 2026-11-10. alice_memory_commit gained an optional lesson
+    # object (and its canonical_text description says a lesson names the
+    # text). Restoring the previous schema reproduces the previous core
+    # digest. No tool added, removed, or renamed, and no other schema,
+    # annotation, or default changed. Legacy definitions are unchanged.
+    assert _digest(core_definitions) == "efe16c0ef2d36397c47ac2a3ba1951e257af5c7a9ae5fd735fcc01b276c6456e"
     assert _digest(legacy_definitions) == "6b302f61e48d4f6196af8a7d2c8882130d565d84134f51bba38648f84c09089e"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
     assert _digest(ordered_handler_map) == "fb200cfbecef6249b7cf80b17b0737d3b44cfdd04cda8c701d491ed4ac401798"

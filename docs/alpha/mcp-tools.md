@@ -611,6 +611,87 @@ the MCP tool had no limit on SQLite, and a 2,000,000-character memory was
 stored whole. Runs of whitespace are collapsed to one space before the text is
 counted, which is how it is stored.
 
+### Lesson blocks
+
+Instead of free text, a write can carry a shaped lesson: an optional `lesson`
+object on `alice_memory_commit`, and on `POST /v0/vnext/memories/commit`.
+Both doors run the one commit service, so the block behaves the same on
+SQLite and PostgreSQL. A team shares one vault, and when one agent's work
+fails a check or is corrected, the others should not repeat it; the lesson
+is the shape that note takes.
+
+Fields, each counted after runs of whitespace are collapsed the way commit
+text is, each refused with a validation error that names the field, writing
+nothing:
+
+- `applies_when` (required, at most 300 characters): when the lesson applies.
+- `what_happened` (required, at most 600 characters): what happened that
+  taught it.
+- `do_instead` (required, at most 600 characters): what to do instead.
+- `paths` (optional): at most 16 repo-relative paths or globs, each at most
+  200 characters, with no leading `/` or `~`, no `..` segment, and no drive
+  letter. Control characters are refused everywhere.
+
+The block changes the rest of the write:
+
+- `memory_type` is `procedure`. Leaving it out means procedure; any other
+  value is refused.
+- `canonical_text` must be left out. The stored text is derived from the
+  lesson: `Applies when: <applies_when> Do instead: <do_instead> What
+  happened: <what_happened>`, so the block and the text can never disagree.
+- The `title` may be left out; it is then the first 80 characters of
+  `applies_when`.
+- A missing `domain` means `project`. A domain that is sent is checked as
+  today, so a bound key sending another domain is still refused.
+- Every other argument means what it means today. The credential check runs
+  over each lesson field and over `paths`: a credential in any of them
+  rejects the write as it does in the body text.
+- The block is stored with the memory, inside its stored value next to
+  `text` and `intent`; the commit result returns it; it is part of the
+  request fingerprint, so the same `idempotency_key` with a different block
+  is refused, not replayed; and `alice-memory export` then `import` keeps
+  it.
+
+Who publishes: the owner (a keyless call with no declared identity on a
+vault with no keys, and the owner over HTTP) and a key of profile
+`admin_agent` publish a lesson at once, as their writes commit today. Every
+other identity, whatever its profile, and a declared identity on a keyless
+vault, never publishes at once: a write that would commit today answers
+`review_required` with reason `lesson_requires_approval`, stored the way a
+`memory_proposal_agent` write is stored. The promotion policy never lifts a
+lesson, whatever the persona and settings say. Approval is today's review
+door: `alice_memory_correct` with `action: approve` (or `reject`). After an
+approve, the other keys of the project read the lesson through
+`alice_recall`, and its writer is still the key that wrote it.
+
+Two extra refusals:
+
+- A lesson whose derived text or title the promotion policy's hard floor
+  flags as instruction-shaped is refused for every writer, the owner
+  included, whether or not a persona is configured: status `rejected`,
+  reason `lesson_instruction_shaped`, nothing stored. The floor's rules
+  themselves are unchanged.
+- `alice_memory_correct` refuses `edit-and-approve` and
+  `supersede-existing` on a memory that carries a lesson: reject it and
+  record a new one, so the block and the text can never disagree.
+
+A lesson a bound key can copy:
+
+```
+{
+  "lesson": {
+    "applies_when": "editing CHANGELOG.md",
+    "what_happened": "A check failed on the pull request.",
+    "do_instead": "Repin the mutation manifest before committing.",
+    "paths": ["CHANGELOG.md"]
+  }
+}
+```
+
+Without `lesson`, every answer of the commit door is what it was before, for
+the owner, an unbound `admin_agent` key, a bound `admin_agent` key and a
+bound `project_scoped_agent` key alike.
+
 Alice decides the outcome, never the caller:
 
 - `committed`: direct active memory with provenance, event log, revision.
