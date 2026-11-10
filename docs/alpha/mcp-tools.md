@@ -404,6 +404,9 @@ Text matching uses the fenced recall stages, including vectors when configured;
 paths match lesson globs case-sensitively after removing a leading `./`.
 Results matching both paths and text come first, then path-only results, then
 text-only results. Text rank, creation time, and id break ties in that order.
+Lesson text rank counts matched terms, with title matches counted twice; it is
+not the score used by `alice_recall` and does not depend on rows the caller
+cannot read. When vectors are enabled, the text and vector rankings are fused.
 The call records one `agent.lessons_requested` event with `returned`, `limit`,
 and `paths_given`; it does not store the task in that event.
 

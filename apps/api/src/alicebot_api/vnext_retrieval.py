@@ -3176,6 +3176,7 @@ class VNextRetrievalService:
         scope_window_end: datetime | None = None,
         read_fence: SourceReadFence,
         lessons_only: bool = False,
+        lesson_admitted_ids: frozenset[str] | None = None,
     ) -> tuple[list[JsonObject], str]:
         """Ranked memory rows of the full-text stage and the label of the pass that found them.
 
@@ -3246,6 +3247,8 @@ class VNextRetrievalService:
                 return raw, pass_source
 
             def select_rows(raw):
+                if lesson_admitted_ids is not None:
+                    return [row for row in raw if str(row.get("id")) in lesson_admitted_ids]
                 return admit_loaded(
                     self.store, kind="memory", rows=raw, domains=domains,
                     sensitivity_allowed=sensitivity_allowed, projects=projects,
@@ -3324,6 +3327,7 @@ class VNextRetrievalService:
         scope_window_start: datetime | None = None,
         scope_window_end: datetime | None = None,
         lessons_only: bool = False,
+        lesson_admitted_ids: frozenset[str] | None = None,
     ) -> tuple[list[JsonObject], str]:
         search_memories_vector = getattr(self.store, "search_memories_vector", None)
         if query_embedding_status is None:
@@ -3390,13 +3394,17 @@ class VNextRetrievalService:
             rows = page_after_label_drop(
                 want=limit,
                 fetch=fetch_vectors,
-                keep=lambda page: admit_loaded(
-                    self.store,
-                    kind="memory",
-                    rows=page,
-                    domains=domains,
-                    sensitivity_allowed=sensitivity_allowed,
-                    projects=projects,
+                keep=lambda page: (
+                    [row for row in page if str(row.get("id")) in lesson_admitted_ids]
+                    if lesson_admitted_ids is not None
+                    else admit_loaded(
+                        self.store,
+                        kind="memory",
+                        rows=page,
+                        domains=domains,
+                        sensitivity_allowed=sensitivity_allowed,
+                        projects=projects,
+                    )
                 ),
                 refill=label_refill,
             )

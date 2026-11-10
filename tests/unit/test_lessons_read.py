@@ -157,6 +157,30 @@ def test_confirmation_by_matching_nonadmin_identity(vault, monkeypatch):
     assert answer["lessons"][0]["published"]["how"] == "confirmed"
 
 
+def test_confidential_lesson_follows_the_key_ceiling(vault, monkeypatch):
+    """Guard: the policy is asked for all levels before it applies the key ceiling."""
+    admin = vault.key("admin", "admin_agent", "alpha")
+    limited = vault.key("reader", "project_scoped_agent", "alpha")
+    held = vault.commit(monkeypatch, admin, "admin", sensitivity="confidential")
+    assert held["status"] == "confirmation_required"
+    vault.call(
+        monkeypatch,
+        admin,
+        "alice_memory_manage",
+        {
+            "action": "confirm",
+            "memory_id": held["memory"]["id"],
+            "confirmation_id": held["confirmation_id"],
+            "agent_id": "admin",
+        },
+    )
+    for args in ({"task": "rebasing"}, {"task": "unrelatedtoken", "paths": ["src/a.py"]}):
+        allowed = vault.call(monkeypatch, admin, "alice_lessons", {**args, "agent_id": "admin"})
+        denied = vault.call(monkeypatch, limited, "alice_lessons", {**args, "agent_id": "reader"})
+        assert [item["id"] for item in allowed["lessons"]] == [held["memory"]["id"]]
+        assert denied["count"] == 0
+
+
 def test_owner_and_malformed_block(vault, monkeypatch):
     """Guard: malformed lesson blocks are skipped without losing valid owner lessons."""
     good = vault.commit(monkeypatch, None)
@@ -362,6 +386,48 @@ def test_a_plain_row_with_a_planted_block_has_no_publisher(vault, monkeypatch):
     assert vault.call(monkeypatch, None, "alice_lessons", {"task": "rebasing"})["count"] == 0
 
 
+def test_commit_publication_requires_created_revision(vault, monkeypatch):
+    """Guard: a commit action with a different revision type is not a publishing act."""
+    admin = vault.key("admin", "admin_agent", "alpha")
+    row = vault.call(
+        monkeypatch,
+        admin,
+        "alice_memory_commit",
+        {"memory_type": "procedure", "title": "rebasing", "canonical_text": "rebasing", "agent_id": "admin"},
+    )["memory"]
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        store = SQLiteVNextStore(conn, vault.user)
+        current = store.get_memory(row["id"])
+        value = dict(current["value"])
+        value["lesson"] = LESON()
+        store.update_memory(memory_id=row["id"], patch={"value": value})
+        store.append_revision(
+            {"memory_id": row["id"], "memory_key": row["memory_key"], "new_value": value,
+             "action": "agentic_memory_commit", "revision_type": "edited", "actor_type": "agent", "actor_id": "admin"}
+        )
+    result = vault.call(monkeypatch, admin, "alice_lessons", {"task": "rebasing", "agent_id": "admin"})
+    assert result["count"] == 0
+
+
+def test_path_only_results_respect_limit(vault, monkeypatch):
+    """Guard: path-only matches stop after the caller's requested limit."""
+    for index in range(4):
+        vault.commit(monkeypatch, None, lesson={**LESSON, "applies_when": f"rebasing {index}"})
+    answer = vault.call(monkeypatch, None, "alice_lessons", {"task": "unrelatedtoken", "paths": ["src/a.py"], "limit": 1})
+    assert answer["count"] == len(answer["lessons"]) == 1
+
+
+def test_path_only_ties_use_creation_time_before_id(vault, monkeypatch):
+    """Guard: newer path-only lessons precede older lessons regardless of id."""
+    ids = sorted(vault.commit(monkeypatch, None)["memory"]["id"] for _ in range(2))
+    with sqlite3.connect(vault.path) as conn:
+        conn.execute("update memories set created_at = '2020-01-01T00:00:00Z' where id = ?", (ids[0],))
+        conn.execute("update memories set created_at = '2021-01-01T00:00:00Z' where id = ?", (ids[1],))
+        conn.commit()
+    answer = vault.call(monkeypatch, None, "alice_lessons", {"task": "unrelatedtoken", "paths": ["src/a.py"]})
+    assert [item["id"] for item in answer["lessons"]] == ids[::-1]
+
+
 def test_retired_and_unexpired_lessons(vault, monkeypatch):
     """Guard: only active, unexpired and unredacted rows enter the result."""
     ids = [
@@ -393,7 +459,7 @@ def test_hidden_rows_do_not_change_the_answer_or_event(vault, monkeypatch, tmp_p
     other.user = vault.user
     hidden = [
         {"project_scope": ["beta"]},
-        {"project_scope": ["alpha"], "sensitivity": "confidential"},
+        {"project_scope": ["beta"] if profile == "admin_agent" else ["alpha"], "sensitivity": "confidential"},
         {"project_scope": ["beta"] if profile == "admin_agent" else ["alpha"], "domain": "family"},
     ]
     for i, fields in enumerate(hidden):
@@ -531,7 +597,7 @@ def test_statement_count_does_not_grow_with_lesson_count(vault, monkeypatch):
             monkeypatch, admin, "alice_lessons", {"task": "rebasing", "paths": ["src/a.py"], "agent_id": "admin"}
         )
         assert answer["count"] == 5
-        assert sum("FROM memory_revisions r JOIN memories m" in q for q in statements) == 1
+        assert sum("JOIN memory_revisions" in q for q in statements) == 1
         return len(statements)
 
     at_100 = measured()
@@ -553,6 +619,56 @@ def test_statement_count_does_not_grow_with_lesson_count(vault, monkeypatch):
         add_more()
     at_2000 = measured()
     assert at_100 == at_2000
+
+
+def test_revision_reads_exclude_other_projects(vault, monkeypatch):
+    """Guard: a bound reader fetches publication acts only for its candidates."""
+    publisher = vault.key("publisher", "admin_agent")
+    reader = vault.key("reader", "project_scoped_agent", "alpha")
+    visible = vault.commit(monkeypatch, publisher, "publisher", project_scope=["alpha"])["memory"]["id"]
+    hidden = vault.commit(monkeypatch, publisher, "publisher", project_scope=["beta"])["memory"]["id"]
+    original = SQLiteVNextStore.stream_lesson_revisions
+    revision_ids = []
+
+    def observed(self, memory_id):
+        rows = original(self, memory_id)
+        if not isinstance(memory_id, list):
+            return rows
+
+        def capture():
+            for row in rows:
+                revision_ids.append(str(row.get("memory_id")))
+                yield row
+
+        return capture()
+
+    monkeypatch.setattr(SQLiteVNextStore, "stream_lesson_revisions", observed)
+    answer = vault.call(monkeypatch, reader, "alice_lessons", {"task": "rebasing", "agent_id": "reader"})
+    assert [item["id"] for item in answer["lessons"]] == [visible]
+    assert visible in revision_ids and hidden not in revision_ids
+
+
+def test_mixed_path_results_do_not_load_every_full_row(vault, monkeypatch):
+    """Guard: mixed path matches do not force an unbounded full-memory read."""
+    for index in range(12):
+        vault.commit(
+            monkeypatch,
+            None,
+            lesson={**LESSON, "paths": ["src/*.py"] if index % 2 else ["other/*.py"]},
+        )
+    original = SQLiteVNextStore.list_memories
+    unbounded = []
+
+    def observed(self, **kwargs):
+        rows = original(self, **kwargs)
+        if kwargs.get("lessons_only") and not kwargs.get("lesson_projection") and kwargs.get("limit") is None:
+            unbounded.extend(rows)
+        return rows
+
+    monkeypatch.setattr(SQLiteVNextStore, "list_memories", observed)
+    answer = vault.call(monkeypatch, None, "alice_lessons", {"task": "rebasing", "paths": ["src/a.py"]})
+    assert answer["count"] == 5
+    assert unbounded == []
 
 
 def test_default_limit_and_stable_ties(vault, monkeypatch):

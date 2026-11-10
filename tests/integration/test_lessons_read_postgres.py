@@ -124,6 +124,28 @@ def test_postgres_skips_planted_blocks_and_returns_path_matches(migrated_databas
     assert [row["id"] for row in result["lessons"]] == [str(committed["memory"]["id"])]
 
 
+def test_postgres_lesson_rank_counts_title_twice(migrated_database_urls, monkeypatch):
+    """Guard: equal matched-term counts tie before creation time and id."""
+    url = migrated_database_urls["app"]
+    user = seed_user(url, email="lessons-rank-postgres@example.invalid")
+    with user_connection(url, user) as conn:
+        _, admin = create_agent_key(
+            PostgresVNextStore(conn), user_id=user, agent_id="publisher", permission_profile="admin_agent", project_scope="alpha"
+        )
+    context = MCPRuntimeContext(database_url=url, user_id=user)
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", admin)
+    block = {"applies_when": "rebasing", "what_happened": "Conflict.", "do_instead": "Inspect both."}
+    older = call_mcp_tool(context, name="alice_memory_commit", arguments={"lesson": block, "agent_id": "publisher"})
+    newer = call_mcp_tool(context, name="alice_memory_commit", arguments={"lesson": block, "agent_id": "publisher"})
+    with user_connection(url, user) as conn:
+        store = PostgresVNextStore(conn)
+        store.update_memory(memory_id=str(older["memory"]["id"]), patch={"title": "rebasing", "canonical_text": "rebasing"})
+        store.update_memory(memory_id=str(newer["memory"]["id"]), patch={"title": "other", "canonical_text": "rebasing rebasing rebasing"})
+    result = call_mcp_tool(context, name="alice_lessons", arguments={"task": "rebasing", "agent_id": "publisher"})
+    assert [row["id"] for row in result["lessons"]] == [str(newer["memory"]["id"]), str(older["memory"]["id"])]
+
+
 def test_postgres_http_review_publishing_acts(migrated_database_urls, monkeypatch):
     """Guard: both HTTP review promotions count as publishing acts."""
     from tests.integration.test_lesson_block_http_postgres import _route_patches

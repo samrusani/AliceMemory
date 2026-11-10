@@ -349,7 +349,10 @@ def list_memories(
     if limit is not None:
         limit_sql = " LIMIT %s"
         params.append(limit)
-    columns = "id, value, metadata_json, created_by_agent_id, created_at" if lesson_projection else MEMORY_COLUMNS
+    columns = (
+        "id, user_id, value, metadata_json, created_by_agent_id, created_at, domain, sensitivity, project_id"
+        if lesson_projection else MEMORY_COLUMNS
+    )
     return self._fetch_all(
         f"""
                 SELECT {columns}
@@ -900,12 +903,27 @@ def search_memories_fts(
     lesson_sql = " AND status = 'active' AND jsonb_typeof(value -> 'lesson') = 'object'" if lessons_only else ""
     ordering = "fts_score DESC, created_at DESC, id ASC" if lessons_only else "fts_score DESC, updated_at DESC, created_at DESC, id DESC"
     lesson_tsv = "(setweight(to_tsvector('english', coalesce(title, '')), 'A') || setweight(to_tsvector('english', coalesce(canonical_text, '')), 'B'))"
-    score_tsv = lesson_tsv if lessons_only else "search_tsv"
+    result_columns = "id" if lessons_only else MEMORY_COLUMNS
     text_filter = f"AND {lesson_tsv} @@ {tsquery_sql}" if lessons_only else ""
+    score_params: tuple[str, ...]
+    if lessons_only:
+        rank_query = _tsquery_any_expression(query) or ""
+        score_sql = (
+            "2 * (SELECT COALESCE(sum(cardinality(term.positions)), 0) "
+            "FROM unnest(to_tsvector('english', coalesce(title, ''))) AS term "
+            "WHERE to_tsvector('simple', term.lexeme) @@ to_tsquery('english', %s)) + "
+            "(SELECT COALESCE(sum(cardinality(term.positions)), 0) "
+            "FROM unnest(to_tsvector('english', coalesce(canonical_text, ''))) AS term "
+            "WHERE to_tsvector('simple', term.lexeme) @@ to_tsquery('english', %s))"
+        )
+        score_params = (rank_query, rank_query)
+    else:
+        score_sql = f"ts_rank(search_tsv, {tsquery_sql})"
+        score_params = (tsquery_text,)
     return self._fetch_all(
         f"""
-                SELECT {MEMORY_COLUMNS},
-                  ts_rank({score_tsv}, {tsquery_sql}) AS fts_score
+                SELECT {result_columns},
+                  {score_sql} AS fts_score
                 FROM memories
                 WHERE deleted_at IS NULL
                   AND {label_sql}
@@ -945,7 +963,7 @@ def search_memories_fts(
                 LIMIT %s OFFSET %s
                 """,
         (
-            tsquery_text,
+            *score_params,
             domains,
             domains,
             sensitivity_allowed,
@@ -1077,8 +1095,13 @@ def search_memories_vector(
     with self.conn.cursor() as cur:
         cur.execute("SET LOCAL hnsw.iterative_scan = 'strict_order'")
     lesson_sql = " AND status = 'active' AND jsonb_typeof(value -> 'lesson') = 'object'" if lessons_only else ""
+    result_columns = (
+        "id, user_id, metadata_json, domain, sensitivity, project_id, created_at, updated_at, "
+        "valid_from, canonical_text, title, summary"
+        if lessons_only else MEMORY_COLUMNS
+    )
     vector_query = f"""
-                SELECT {MEMORY_COLUMNS},
+                SELECT {result_columns},
                   (embedding_vector <=> %s::vector) AS vector_distance
                 FROM memories
                 WHERE deleted_at IS NULL

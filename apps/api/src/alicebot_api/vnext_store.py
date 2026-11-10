@@ -165,11 +165,10 @@ from alicebot_api.vnext_stores.postgres.memory_access import (
     search_memories_fts as _memory_search_memories_fts,
     search_memories_vector as _memory_search_memories_vector,
 )
+from alicebot_api.vnext_stores.postgres.lessons import stream_lesson_revisions as _lesson_stream_lesson_revisions
 from alicebot_api.vnext_stores.postgres.primitives import (
-    _json_list as _json_list,
-    _json_object as _json_object,
-    _json_safe as _json_safe,
-    _sorted_field_names as _sorted_field_names,
+    _json_list as _json_list, _json_object as _json_object,
+    _json_safe as _json_safe, _sorted_field_names as _sorted_field_names,
 )
 from alicebot_api.vnext_stores.postgres.project_slug import project_slug_conflicts
 from alicebot_api.vnext_stores.postgres.query_predicates import (
@@ -487,6 +486,7 @@ class PostgresVNextStore:
     memory_fts_offset_paging = True
     label_count_input_prefilter = True
     label_count_canonical_unique_ids = True
+    stream_lesson_revisions = _lesson_stream_lesson_revisions
 
     def __init__(self, conn: UserConnection):
         self.conn = conn

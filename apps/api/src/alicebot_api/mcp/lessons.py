@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import fnmatch
+from itertools import groupby
 import json
 from collections.abc import Mapping
 
 from alicebot_api.project_view import ProjectView
 from alicebot_api.recall_framing import memory_writer, with_result_framing
-from alicebot_api.sqlite_store import SQLiteVNextStore
+from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_label_guard import admit_loaded
@@ -19,62 +20,11 @@ from alicebot_api.vnext_memory_commit import (
 )
 from alicebot_api.vnext_retrieval import VNextRetrievalService, reciprocal_rank_fusion
 from alicebot_api.vnext_source_fence import SourceReadFence
-from alicebot_api.vnext_stores.memory_lifecycle_common import is_redacted_memory
 
 from .arguments import _parse_int, _parse_required_text
 from .policy import _agent_identity_from_arguments, _mcp_agent_policy_preflight
 from .runtime import _vnext_store_context
 from .types import MCPArgumentError, MCPRuntimeContext
-
-
-def _revisions_for_candidates(store):
-    """Read the acts for all potential lessons in one query."""
-    if isinstance(store, SQLiteVNextStore):
-        return store._fetch_all(
-            "SELECT r.memory_id, r.revision_number, r.sequence_no, r.id, r.action, r.revision_type, "
-            "r.actor_type, r.actor_id, r.created_at, r.text_before, r.text_after, "
-            "json_extract(r.new_value, '$.lesson') AS publication_lesson FROM memory_revisions r "
-            "JOIN memories m ON m.id = r.memory_id AND m.user_id = r.user_id "
-            "WHERE r.user_id = ? AND m.status = 'active' AND m.memory_type = 'procedure' "
-            "AND m.deleted_at IS NULL AND json_type(m.value, '$.lesson') = 'object' "
-            "ORDER BY r.memory_id, r.revision_number, r.sequence_no, r.id",
-            (store.user_id,),
-        )
-    return store._fetch_all(
-        "SELECT r.memory_id, r.revision_number, r.sequence_no, r.id, r.action, r.revision_type, "
-        "r.actor_type, r.actor_id, r.created_at, r.text_before, r.text_after, "
-        "r.new_value -> 'lesson' AS publication_lesson FROM memory_revisions r "
-        "JOIN memories m ON m.id = r.memory_id AND m.user_id = r.user_id "
-        "WHERE r.user_id = app.current_user_id() AND m.status = 'active' AND m.memory_type = 'procedure' "
-        "AND m.deleted_at IS NULL AND jsonb_typeof(m.value -> 'lesson') = 'object' "
-        "ORDER BY r.memory_id, r.revision_number, r.sequence_no, r.id",
-        (),
-    )
-
-
-def _candidate_memories(store, ids):
-    """Hydrate a candidate set in one query without a variable-count limit."""
-    if isinstance(store, SQLiteVNextStore):
-        return store._fetch_all(
-            "SELECT id, user_id, agent_profile_id, memory_key, value, status, source_event_ids, memory_type, "
-            "confidence, salience, confirmation_status, trust_class, promotion_eligibility, evidence_count, "
-            "independent_source_count, extracted_by_model, trust_reason, valid_from, valid_to, last_confirmed_at, "
-            "title, canonical_text, summary, domain, sensitivity, first_seen_at, last_seen_at, last_reviewed_at, "
-            "metadata_json, commit_digest, confirmation_id, project_id, created_by_agent_id, run_id, superseded_by, "
-            "supersedes, created_at, updated_at, deleted_at FROM memories "
-            "WHERE user_id = ? AND deleted_at IS NULL AND id IN (SELECT value FROM json_each(?))",
-            (store.user_id, json.dumps(ids)),
-        )
-    return store._fetch_all(
-        "SELECT id, user_id, agent_profile_id, memory_key, value, status, source_event_ids, memory_type, "
-        "confidence, salience, confirmation_status, trust_class, promotion_eligibility, evidence_count, "
-        "independent_source_count, extracted_by_model, trust_reason, valid_from, valid_to, last_confirmed_at, "
-        "title, canonical_text, summary, domain, sensitivity, first_seen_at, last_seen_at, last_reviewed_at, "
-        "metadata_json, commit_digest, confirmation_id, project_id, created_by_agent_id, run_id, superseded_by, "
-        "supersedes, created_at, updated_at, deleted_at FROM memories WHERE user_id = app.current_user_id() "
-        "AND deleted_at IS NULL AND id = ANY(%s::uuid[])",
-        (ids,),
-    )
 
 
 class _RevisionView:
@@ -153,6 +103,7 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
         arguments,
         action="memory.recall",
         project_view=ProjectView.unscoped(),
+        sensitivity_allowed=ALL_SENSITIVITY,
     )
     domains = list(decision.effective_domains)
     sensitivity = list(decision.effective_sensitivity_allowed)
@@ -162,130 +113,6 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
         lock = getattr(store, "lock_label_writes", None)
         if callable(lock):
             lock()
-        revisions = _revisions_for_candidates(store)
-        grouped: dict[str, list[dict[str, object]]] = {}
-        for rev in revisions:
-            grouped.setdefault(str(rev.get("memory_id")), []).append(rev)
-        service = VNextRetrievalService(store)
-        # When the lexical stage is exhausted, no later text hit can outrank
-        # its results. A full page of path hits is also the complete first group.
-        if service.embedding_provider is None:
-            first, _ = service._memory_fts_rows(
-                query=task,
-                domains=domains,
-                sensitivity_allowed=sensitivity,
-                limit=limit,
-                memory_types=("procedure",),
-                projects=projects,
-                lessons_only=True,
-                read_fence=fence,
-            )
-            first_items = []
-            for row in first:
-                try:
-                    value = row.get("value")
-                    lesson = _lesson_block_from_payload(value.get("lesson") if isinstance(value, Mapping) else None)
-                except VNextMemoryCommitValidationError:
-                    continue
-                publication = _publication(row, grouped.get(str(row.get("id")), []))
-                if is_redacted_memory(row) or publication is None:
-                    continue
-                match = _path_matches(paths, lesson.paths)
-                first_items.append((row, lesson, publication, match))
-            complete_first_group = len(first_items) == limit and (not paths or all(item[3] for item in first_items))
-            exhausted = len(first) < limit
-            if complete_first_group or exhausted:
-                both = [item[:3] for item in first_items if item[3]]
-                text_only = [item[:3] for item in first_items if not item[3]]
-                path_only = []
-                if exhausted and paths and len(both) < limit:
-                    projected = store.list_memories(
-                        status="active",
-                        memory_types=("procedure",),
-                        domains=domains,
-                        sensitivity_allowed=sensitivity,
-                        projects=projects,
-                        include_expired=False,
-                        lessons_only=True,
-                        lesson_projection=True,
-                        order_by_created_at=True,
-                    )
-                    first_ids = {str(row.get("id")) for row in first}
-
-                    def select_candidates(items, max_count=None):
-                        selected = []
-                        position = 0
-                        for position, row in enumerate(items, start=1):
-                            if str(row.get("id")) in first_ids:
-                                continue
-                            value = row.get("value")
-                            block = value.get("lesson") if isinstance(value, Mapping) else None
-                            entries = block.get("paths") if isinstance(block, Mapping) else None
-                            if not isinstance(entries, list) or not _path_matches(
-                                paths, [" ".join(entry.split()) for entry in entries if isinstance(entry, str)]
-                            ):
-                                continue
-                            try:
-                                lesson = _lesson_block_from_payload(block)
-                            except VNextMemoryCommitValidationError:
-                                continue
-                            if not _path_matches(paths, lesson.paths):
-                                continue
-                            publication = _publication(row, grouped.get(str(row.get("id")), []))
-                            if publication is not None:
-                                selected.append((row, lesson, publication))
-                            if max_count is not None and len(selected) == max_count:
-                                break
-                        return selected, position
-
-                    def admit_candidates(candidates):
-                        hydrated = _candidate_memories(store, [str(row["id"]) for row, _, _ in candidates])
-                        readable = admit_loaded(
-                            store,
-                            kind="memory",
-                            rows=hydrated,
-                            domains=domains,
-                            sensitivity_allowed=sensitivity,
-                            projects=projects,
-                        )
-                        indexed = {str(row["id"]): row for row in readable if not is_redacted_memory(row)}
-                        return [
-                            (indexed[str(row["id"])], lesson, publication)
-                            for row, lesson, publication in candidates
-                            if str(row["id"]) in indexed
-                        ]
-
-                    candidates, position = select_candidates(projected, 128)
-                    path_only = admit_candidates(candidates)
-                    # A bounded prefix is enough in the usual case. If its
-                    # readable rows do not fill the answer, read the remaining
-                    # candidates as one complete batch, rather than paging.
-                    remaining = []
-                    if len(both) + len(path_only) < limit:
-                        remaining, _ = select_candidates(projected[position:])
-                    path_only.extend(admit_candidates(remaining))
-                chosen = (both + path_only + text_only)[:limit]
-                view = _RevisionView(store, grouped)
-                result = [
-                    {
-                        "id": str(row["id"]),
-                        "applies_when": lesson.applies_when,
-                        "what_happened": lesson.what_happened,
-                        "do_instead": lesson.do_instead,
-                        "paths": list(lesson.paths),
-                        "writer": memory_writer(view, row),
-                        "published": publication,
-                    }
-                    for row, lesson, publication in chosen
-                ]
-                append_event(
-                    store,
-                    event_type="agent.lessons_requested",
-                    actor_type="agent" if identity is not None else "user",
-                    actor_id=identity.agent_id if identity is not None else None,
-                    payload={"returned": len(result), "limit": limit, "paths_given": len(paths)},
-                )
-                return with_result_framing({"count": len(result), "lessons": result})
         rows = store.list_memories(
             status="active",
             memory_types=("procedure",),
@@ -294,21 +121,12 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
             projects=projects,
             include_expired=False,
             lessons_only=True,
+            lesson_projection=True,
         )
         rows = admit_loaded(
             store, kind="memory", rows=rows, domains=domains, sensitivity_allowed=sensitivity, projects=projects
         )
-        valid = []
-        for row in rows:
-            if is_redacted_memory(row):
-                continue
-            value = row.get("value")
-            block = value.get("lesson") if isinstance(value, Mapping) else None
-            try:
-                lesson = _lesson_block_from_payload(block)
-            except VNextMemoryCommitValidationError:
-                continue
-            valid.append((row, lesson))
+        service = VNextRetrievalService(store)
         amount = max(1, len(rows))
         fts, _ = service._memory_fts_rows(
             query=task,
@@ -319,6 +137,7 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
             projects=projects,
             lessons_only=True,
             read_fence=fence,
+            lesson_admitted_ids=frozenset(str(row["id"]) for row in rows),
         )
         vector, status = service._memory_vector_rows(
             query=task,
@@ -329,34 +148,65 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
             projects=projects,
             lessons_only=True,
             label_refill=fence.entity_read_fenced,
+            lesson_admitted_ids=frozenset(str(row["id"]) for row in rows),
         )
-        lists = {"fts": fts}
         if status == "enabled":
-            lists["vector"] = vector
-        if status == "enabled":
-            ranks = {str(row.get("id")): score for row, score, _ in reciprocal_rank_fusion(lists)}
+            ranks = {
+                str(row.get("id")): score
+                for row, score, _ in reciprocal_rank_fusion({"fts": fts, "vector": vector})
+            }
         else:
             ranks = {
                 str(row.get("id")): float(score) if isinstance(score, (int, float)) else 0.0
                 for row in fts
                 for score in (row.get("fts_score"),)
             }
-        choices = []
-        for row, lesson in valid:
+        candidates = []
+        for row in rows:
+            value = row.get("value")
+            block = value.get("lesson") if isinstance(value, Mapping) else None
+            if not isinstance(block, Mapping):
+                continue
             mid = str(row["id"])
-            pub = _publication(row, grouped.get(mid, []))
-            if pub is None:
-                continue
-            matched_path = _path_matches(paths, lesson.paths)
+            entries = block.get("paths")
+            path_entries = [" ".join(entry.split()) for entry in entries if isinstance(entry, str)] if isinstance(entries, list) else []
+            matched_path = _path_matches(paths, path_entries)
             matched_text = mid in ranks
-            if not matched_path and not matched_text:
-                continue
-            choices.append((row, lesson, pub, matched_path, matched_text, ranks.get(mid, 0.0)))
-        choices.sort(key=lambda item: str(item[0]["id"]))
-        choices.sort(key=lambda item: str(item[0].get("created_at") or ""), reverse=True)
-        choices.sort(key=lambda item: item[5], reverse=True)
-        choices.sort(key=lambda item: (not item[3], not item[4]))
-        revision_view = _RevisionView(store, grouped)
+            if matched_path or matched_text:
+                candidates.append((row, block, matched_path, matched_text, ranks.get(mid, 0.0)))
+        candidates.sort(key=lambda item: str(item[0]["id"]))
+        candidates.sort(key=lambda item: str(item[0].get("created_at") or ""), reverse=True)
+        candidates.sort(key=lambda item: item[4], reverse=True)
+        candidates.sort(key=lambda item: (not item[2], not item[3]))
+        indexed = {str(row["id"]): (row, block, matched_path, matched_text, score)
+                   for row, block, matched_path, matched_text, score in candidates}
+        revisions = store.stream_lesson_revisions(list(indexed))
+        grouped: dict[str, list[dict[str, object]]] = {}
+        choices = []
+        try:
+            for mid, group in groupby(revisions, key=lambda rev: str(rev.get("memory_id"))):
+                records = list(group)
+                row, block, matched_path, matched_text, score = indexed[mid]
+                try:
+                    lesson = _lesson_block_from_payload(block)
+                except VNextMemoryCommitValidationError:
+                    continue
+                publication = _publication(row, records)
+                if publication is not None:
+                    grouped[mid] = records
+                    choices.append((row, lesson, publication, matched_path, matched_text, score))
+                    if len(choices) == limit:
+                        break
+        finally:
+            close = getattr(revisions, "close", None)
+            if callable(close):
+                close()
+        full_rows = store.get_memories_by_ids([str(row["id"]) for row, *_ in choices])
+        full_rows = admit_loaded(
+            store, kind="memory", rows=full_rows, domains=domains, sensitivity_allowed=sensitivity, projects=projects
+        )
+        full_by_id = {str(row["id"]): row for row in full_rows}
+        view = _RevisionView(store, grouped)
         result = [
             {
                 "id": str(row["id"]),
@@ -364,10 +214,11 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
                 "what_happened": lesson.what_happened,
                 "do_instead": lesson.do_instead,
                 "paths": list(lesson.paths),
-                "writer": memory_writer(revision_view, row),
+                "writer": memory_writer(view, full_by_id[str(row["id"])]),
                 "published": publication,
             }
-            for row, lesson, publication, _path, _text, _score in choices[:limit]
+            for row, lesson, publication, _path, _text, _score in choices
+            if str(row["id"]) in full_by_id
         ]
         append_event(
             store,

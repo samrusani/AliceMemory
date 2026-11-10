@@ -542,7 +542,10 @@ def list_memories(
         limit_sql = " LIMIT ?"
         params.append(limit)
     lesson_sql = " AND json_type(value, '$.lesson') = 'object'" if lessons_only else ""
-    columns = "id, value, metadata_json, created_by_agent_id, created_at" if lesson_projection else ", ".join(MEMORY_COLUMNS)
+    columns = (
+        "id, user_id, value, metadata_json, created_by_agent_id, created_at, domain, sensitivity, project_id"
+        if lesson_projection else ", ".join(MEMORY_COLUMNS)
+    )
     return self._fetch_all(
         f"""
                 SELECT {columns}
@@ -1266,7 +1269,8 @@ def search_memories_fts(
         scope_window_end=scope_window_end,
         prefix="m.",
     )
-    prefixed_columns = ", ".join(f"m.{column}" for column in MEMORY_COLUMNS)
+    lesson_columns = ("id",)
+    prefixed_columns = ", ".join(f"m.{column}" for column in (lesson_columns if lessons_only else MEMORY_COLUMNS))
     from alicebot_api.vnext_label_sql import hidden_memory_input_sql
     label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=True)
     lesson_sql = " AND m.status = 'active' AND json_type(m.value, '$.lesson') = 'object'" if lessons_only else ""
@@ -1495,7 +1499,7 @@ def search_memories_vector(
     # beat the current k-th exact distance (epsilon-guarded refinement).
     # Hydration batch: max(4*limit, 32) ids per SELECT, capped under the most
     # conservative SQLITE_MAX_VARIABLE_NUMBER (999) for legacy builds.
-    batch_size = min(max(4 * limit, 32), 900)
+    batch_size = max(len(ranked), 1) if lessons_only else min(max(4 * limit, 32), 900)
     collected: list[tuple[float, str, str, VNextRow]] = []
     index = 0
     while index < len(ranked):
@@ -1510,14 +1514,21 @@ def search_memories_vector(
         # The hydrate re-applies ``predicate_sql`` (the scan's full WHERE
         # set), so ``embedding`` here is guaranteed non-NULL and the row still
         # satisfies every lifecycle/scope/signature gate at hydrate time.
+        projection = (
+            "id, user_id, metadata_json, domain, sensitivity, project_id, created_at, updated_at, "
+            "valid_from, canonical_text, title, summary"
+            if lessons_only else ", ".join(MEMORY_COLUMNS)
+        )
+        id_clause = "id IN (SELECT value FROM json_each(?))" if lessons_only else f"id IN ({self._placeholders(batch_ids)})"
+        id_params = (json.dumps(batch_ids),) if lessons_only else tuple(batch_ids)
         hydrated = self._fetch_all(
             f"""
-                    SELECT {", ".join(MEMORY_COLUMNS)}, embedding
+                    SELECT {projection}, embedding
                     FROM memories
                     WHERE {predicate_sql}
-                      AND id IN ({self._placeholders(batch_ids)})
+                      AND {id_clause}
                     """,
-            (*params, *batch_ids),
+            (*params, *id_params),
         )
         rows_by_id = {str(row.get("id")): row for row in hydrated}
         for _approx, _updated_key, candidate_id in batch:
