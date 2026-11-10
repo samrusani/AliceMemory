@@ -287,6 +287,8 @@ def test_matching_groups_and_limit(vault, monkeypatch):
 )
 def test_invalid_inputs_are_refused(vault, monkeypatch, bad):
     """Guard: the argument schema and shared lesson path validator reject invalid calls."""
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    assert "alice_lessons" in {item["name"] for item in list_mcp_tools()}
     with pytest.raises(MCPToolError):
         vault.call(monkeypatch, None, "alice_lessons", bad)
 
