@@ -24385,9 +24385,9 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py",
-          "line": 1683,
-          "before": "AND json_type(m.value, '$.lesson') = 'object'{domain_sql}{sensitivity_sql}{project_sql}{expiry_sql}",
-          "after": "AND json_type(m.value, '$.lesson') = 'object'{domain_sql}{sensitivity_sql}{project_sql}",
+          "line": 1677,
+          "before": "    params: list[object] = [self.user_id, *domain_params, *sensitivity_params, *project_params, *expiry_params]\n    where = (\n        \"m.user_id = ? \"\n        \"AND m.deleted_at IS NULL \"\n        f\"AND {label_sql} \"\n        \"AND m.memory_type = 'procedure' \"\n        f\"AND json_type(m.value, '$.lesson') = 'object'{domain_sql}{sensitivity_sql}{project_sql}{expiry_sql}\"\n    )",
+          "after": "    params: list[object] = [self.user_id, *domain_params, *sensitivity_params, *project_params]\n    where = (\n        \"m.user_id = ? \"\n        \"AND m.deleted_at IS NULL \"\n        f\"AND {label_sql} \"\n        \"AND m.memory_type = 'procedure' \"\n        f\"AND json_type(m.value, '$.lesson') = 'object'{domain_sql}{sensitivity_sql}{project_sql}\"\n    )",
           "sha256": "a68a3e62298c819ad4089325e9f7a9702c175acb928cba6b5011b9f42d81fa64"
         }
       ],
