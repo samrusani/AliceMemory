@@ -479,6 +479,76 @@ def test_the_vector_stage_returns_the_nearest_lesson_with_no_floor(
     assert without["lessons"] == []
 
 
+def test_accepting_a_consolidation_candidate_publishes_its_lesson(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Guard: ``agentic_memory_consolidation_accept`` is a publishing act.
+
+    The candidate holds a lesson and is not active until the owner accepts it. The read then
+    returns that lesson with ``how`` approved and ``by`` the owner. Dropping the act from the
+    publishing set leaves the answer empty and this fails.
+    """
+
+    from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
+    from alicebot_api.vnext_memory_version import memory_version_snapshot
+
+    with sqlite_user_connection(vault.path, vault.user_id) as conn:
+        store = SQLiteVNextStore(conn, vault.user_id)
+        members = []
+        for index in range(2):
+            members.append(
+                str(
+                    store.create_memory(
+                        {
+                            "memory_key": f"member.{index}",
+                            "value": {"text": f"member note {index}"},
+                            "status": "active",
+                            "memory_type": "semantic",
+                            "title": f"Member {index}",
+                            "canonical_text": f"member note {index} about pottery",
+                            "domain": "project",
+                            "sensitivity": "internal",
+                        }
+                    )["id"]
+                )
+            )
+        candidate = store.create_memory(
+            {
+                "memory_key": "consolidation.lesson",
+                "value": {"text": TASK, "lesson": _lesson("rebasing a feature branch onto main")},
+                "status": "candidate",
+                "memory_type": "procedure",
+                "title": "Rebasing a feature branch onto main",
+                "canonical_text": "rebasing a feature branch onto main",
+                "domain": "project",
+                "sensitivity": "internal",
+                "metadata_json": {
+                    "candidate_kind": "memory_consolidation",
+                    "consolidation_digest": "digest-lesson",
+                    "review_required": True,
+                    "consolidation": {
+                        "cluster_member_ids": members,
+                        "member_snapshots": [
+                            memory_version_snapshot(store.get_memory(member)) for member in members
+                        ],
+                        "proposal_kind": "merge",
+                        "survivor_memory_id": None,
+                        "proposed_supersede": list(members),
+                        "reviewer_instructions": ["Review the merged lesson."],
+                    },
+                },
+            }
+        )
+        result = VNextMemoryCommitService(store).accept_consolidation_candidate(
+            str(candidate["id"]), reason="The merged lesson is the one to keep."
+        )
+    assert result["status"] == "accepted"
+    answer = vault.call(monkeypatch, None, "alice_lessons", {"task": TASK})
+    assert [item["id"] for item in answer["lessons"]] == [str(candidate["id"])]
+    assert answer["lessons"][0]["published"]["how"] == "approved"
+    assert answer["lessons"][0]["published"]["by"] == "owner"
+
+
 def test_a_lesson_block_with_no_publishing_act_is_not_returned(vault: Vault, monkeypatch: pytest.MonkeyPatch) -> None:
     """Guard: a publishing revision counts only when its new value holds a lesson.
 

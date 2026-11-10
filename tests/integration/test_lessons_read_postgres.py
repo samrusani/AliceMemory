@@ -169,3 +169,86 @@ def test_a_bound_key_does_not_read_another_projects_lesson_on_postgres(migrated_
     assert [item["id"] for item in seen["lessons"]] == [committed["memory"]["id"]]
     assert seen["lessons"][0]["published"]["by"] == "publisher"
     assert seen["lessons"][0]["published"]["how"] == "committed"
+
+
+def _waiting_lesson(monkeypatch, app_url: str, user_id, writer_key: str) -> str:
+    from tests.integration.test_lesson_block_http_postgres import _agent, _route_patches, invoke_request
+
+    _route_patches(monkeypatch, app_url)
+    status, payload = invoke_request(
+        "POST",
+        "/v0/vnext/memories/commit",
+        payload={
+            "user_id": str(user_id),
+            "agent": _agent("project_scoped_agent", agent_id="writer", scope=["alpha"]),
+            "lesson": LESSON,
+            "domain": "project",
+            "project_scope": ["alpha"],
+        },
+        authorization=f"Bearer {writer_key}",
+    )
+    assert status in (200, 201), payload
+    assert payload["status"] == "review_required", payload
+    return str(payload["memory"]["id"])
+
+
+def _review(monkeypatch, app_url: str, user_id, admin_key: str, memory_id: str, action: str) -> None:
+    from tests.integration.test_lesson_block_http_postgres import _agent, invoke_request
+
+    status, payload = invoke_request(
+        "POST",
+        f"/v0/vnext/memories/{memory_id}/review",
+        payload={
+            "user_id": str(user_id),
+            "agent": _agent("admin_agent", agent_id="reviewer", scope=["alpha"]),
+            "action": action,
+        },
+        authorization=f"Bearer {admin_key}",
+    )
+    assert status in (200, 201), payload
+
+
+def test_accepting_a_waiting_lesson_publishes_it(migrated_database_urls, monkeypatch) -> None:
+    """Guard: ``memory_review_accept`` is a publishing act, through the HTTP review route.
+
+    A project key writes the lesson and an admin key accepts it. The reader gets it with
+    ``how`` approved and ``by`` the accepting key. Dropping the act from the publishing set
+    leaves the answer empty and this fails.
+    """
+
+    app_url = migrated_database_urls["app"]
+    user_id = seed_user(app_url, email="lessons-accept@example.invalid")
+    writer = _key(app_url, user_id, "writer", "project_scoped_agent", "alpha")
+    reviewer = _key(app_url, user_id, "reviewer", "admin_agent", "alpha")
+    reader = _key(app_url, user_id, "reader", "project_scoped_agent", "alpha")
+    memory_id = _waiting_lesson(monkeypatch, app_url, user_id, writer)
+    _review(monkeypatch, app_url, user_id, reviewer, memory_id, "accept")
+    answer = _call(
+        monkeypatch, app_url, user_id, reader, "alice_lessons",
+        {**CALL, "agent_id": "reader", "agent_type": "coding_agent"},
+    )
+    assert [item["id"] for item in answer["lessons"]] == [memory_id]
+    assert answer["lessons"][0]["published"]["how"] == "approved"
+    assert answer["lessons"][0]["published"]["by"] == "reviewer"
+
+
+def test_promoting_a_waiting_lesson_publishes_it(migrated_database_urls, monkeypatch) -> None:
+    """Guard: ``memory_review_promote`` is a publishing act, through the HTTP review route.
+
+    Dropping the act from the publishing set leaves the answer empty and this fails.
+    """
+
+    app_url = migrated_database_urls["app"]
+    user_id = seed_user(app_url, email="lessons-promote@example.invalid")
+    writer = _key(app_url, user_id, "writer", "project_scoped_agent", "alpha")
+    reviewer = _key(app_url, user_id, "reviewer", "admin_agent", "alpha")
+    reader = _key(app_url, user_id, "reader", "project_scoped_agent", "alpha")
+    memory_id = _waiting_lesson(monkeypatch, app_url, user_id, writer)
+    _review(monkeypatch, app_url, user_id, reviewer, memory_id, "promote")
+    answer = _call(
+        monkeypatch, app_url, user_id, reader, "alice_lessons",
+        {**CALL, "agent_id": "reader", "agent_type": "coding_agent"},
+    )
+    assert [item["id"] for item in answer["lessons"]] == [memory_id]
+    assert answer["lessons"][0]["published"]["how"] == "approved"
+    assert answer["lessons"][0]["published"]["by"] == "reviewer"
