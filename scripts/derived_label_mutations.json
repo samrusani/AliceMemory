@@ -25811,6 +25811,86 @@
         "tests/unit/test_store_memory_access_split.py::test_memory_access_methods_are_direct_grafts_in_native_backend_order"
       ],
       "expected_failure": "test_memory_access_methods_are_direct_grafts_in_native_backend_order"
+    },
+    {
+      "name": "recall-row-rank-source-surface",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_retrieval.py",
+          "line": 4604,
+          "before": "        winning_memories: Sequence[JsonObject] = (),\n        caller_limited: bool = False,",
+          "after": "        winning_memories: Sequence[JsonObject] = (),",
+          "sha256": "76fa797ff178c4b9d8173099147cf66393e83a164fcfe9752b92a61c1538eeec"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_recall_sources_respect_the_scope_fence.py::test_search_source_excerpts_exposes_no_untested_surface"
+      ],
+      "expected_failure": "test_search_source_excerpts_exposes_no_untested_surface"
+    },
+    {
+      "name": "recall-row-rank-cap",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 197,
+          "before": "if fence.entity_read_fenced and _supports_explicit_parameters(search, (\"row_local_rank\",)):",
+          "after": "if False:",
+          "sha256": "fc80b2d21956f6aaf4ddf820af4101caf326eea3540844dd4c177a520ef89009"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed.py::test_an_answer_at_the_128_cap_gives_no_count_and_no_gap_marker"
+      ],
+      "expected_failure": "test_an_answer_at_the_128_cap_gives_no_count_and_no_gap_marker"
+    },
+    {
+      "name": "recall-row-rank-cap-budget",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_what_changed.py",
+          "line": 197,
+          "before": "if fence.entity_read_fenced and _supports_explicit_parameters(search, (\"row_local_rank\",)):",
+          "after": "if False:",
+          "sha256": "fc80b2d21956f6aaf4ddf820af4101caf326eea3540844dd4c177a520ef89009"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_what_changed.py::test_the_budget_of_10000_hidden_candidates_stops_at_128"
+      ],
+      "expected_failure": "test_the_budget_of_10000_hidden_candidates_stops_at_128"
+    },
+    {
+      "name": "recall-row-rank-legacy-citation-input",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "line": 1038,
+          "before": "citations = record_scan(row)",
+          "after": "citations = record_scan({})",
+          "sha256": "25720251143ee88c1ea4bb061d440bd050c16449a209f22298c5e72b3bec780a"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_sqlite_legacy_citations.py::test_a_row_that_was_never_repaired_is_read_at_the_label_of_its_inputs"
+      ],
+      "expected_failure": "test_a_row_that_was_never_repaired_is_read_at_the_label_of_its_inputs"
+    },
+    {
+      "name": "recall-row-rank-legacy-citation-redacted",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_derived_labels.py",
+          "line": 1597,
+          "before": "redacted_input = redacted_input or labels[ref].redacted",
+          "after": "redacted_input = False",
+          "sha256": "25720251143ee88c1ea4bb061d440bd050c16449a209f22298c5e72b3bec780a"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_sqlite_legacy_citations.py::test_a_redacted_memory_takes_the_rows_that_cite_it_out_of_every_key_but_the_owner_and_the_admin_key"
+      ],
+      "expected_failure": "test_a_redacted_memory_takes_the_rows_that_cite_it_out_of_every_key_but_the_owner_and_the_admin_key"
     }
   ]
 }
