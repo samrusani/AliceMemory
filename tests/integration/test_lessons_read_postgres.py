@@ -17,7 +17,7 @@ def test_published_lessons_use_postgres_fence_and_revision(migrated_database_url
     with user_connection(url, user) as conn:
         store = PostgresVNextStore(conn)
         _, admin = create_agent_key(
-            store, user_id=user, agent_id="publisher", permission_profile="admin_agent", project_scope="alpha"
+            store, user_id=user, agent_id="publisher", permission_profile="admin_agent"
         )
         _, reader = create_agent_key(
             store, user_id=user, agent_id="reader", permission_profile="project_scoped_agent", project_scope="alpha"
@@ -31,7 +31,11 @@ def test_published_lessons_use_postgres_fence_and_revision(migrated_database_url
         "do_instead": "Inspect both sides.",
         "paths": ["src/*.py"],
     }
-    committed = call_mcp_tool(context, name="alice_memory_commit", arguments={"lesson": block, "agent_id": "publisher"})
+    committed = call_mcp_tool(
+        context,
+        name="alice_memory_commit",
+        arguments={"lesson": block, "agent_id": "publisher", "project_scope": ["alpha"]},
+    )
     monkeypatch.setenv("ALICE_AGENT_API_KEY", reader)
     result = call_mcp_tool(
         context,
@@ -44,6 +48,37 @@ def test_published_lessons_use_postgres_fence_and_revision(migrated_database_url
     assert result["lessons"][0]["published"]["by"] == "publisher"
     assert result["lessons"][0]["paths"] == block["paths"]
     assert "rebasing a branch" not in json.dumps(result["lessons"][0]["published"])
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", admin)
+    for fields in (
+        {"project_scope": ["beta"]},
+        {"project_scope": ["alpha"], "domain": "family"},
+        {"project_scope": ["alpha"], "sensitivity": "confidential"},
+    ):
+        hidden = call_mcp_tool(
+            context, name="alice_memory_commit", arguments={"lesson": block, "agent_id": "publisher", **fields}
+        )
+        if hidden["status"] == "confirmation_required":
+            call_mcp_tool(
+                context,
+                name="alice_memory_manage",
+                arguments={
+                    "action": "confirm",
+                    "memory_id": hidden["memory"]["id"],
+                    "confirmation_id": hidden["confirmation_id"],
+                    "agent_id": "publisher",
+                },
+            )
+        else:
+            assert hidden["status"] == "committed"
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", reader)
+    assert (
+        call_mcp_tool(
+            context,
+            name="alice_lessons",
+            arguments={"task": "rebasing a branch", "paths": ["src/a.py"], "agent_id": "reader"},
+        )
+        == result
+    )
 
 
 def test_postgres_skips_planted_blocks_and_returns_path_matches(migrated_database_urls, monkeypatch):

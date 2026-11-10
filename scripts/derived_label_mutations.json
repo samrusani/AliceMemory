@@ -24717,6 +24717,22 @@
       "expected_failure": "test_postgres_skips_planted_blocks_and_returns_path_matches"
     },
     {
+      "name": "lessons-postgres-fence",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "line": 148,
+          "before": "projects = tuple(decision.effective_project_scope)",
+          "after": "projects = ()",
+          "sha256": "be27c1603dec03ab43f8d81705eb4679852fe0cb4a5dd6951bb8c50911582bf7"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_lessons_read_postgres.py::test_published_lessons_use_postgres_fence_and_revision"
+      ],
+      "expected_failure": "test_published_lessons_use_postgres_fence_and_revision"
+    },
+    {
       "name": "lessons-postgres-review",
       "edits": [
         {
@@ -24770,7 +24786,7 @@
         {
           "file": "apps/api/src/alicebot_api/mcp/definitions.py",
           "line": 1085,
-          "before": "    {\n        \"name\": \"alice_lessons\",\n        \"description\": \"Find published lessons relevant to a task or the files about to be touched.\",\n        \"inputSchema\": {\n            \"type\": \"object\",\n            \"additionalProperties\": False,\n            \"required\": [\"task\"],\n            \"properties\": {\n                **_AGENT_IDENTITY_SCHEMA_PROPERTIES,\n                \"task\": {\"type\": \"string\", \"description\": \"What the agent is about to do.\"},\n                \"paths\": {\"type\": \"array\", \"maxItems\": 16, \"items\": {\"type\": \"string\"}, \"description\": \"Files the agent is about to touch.\"},\n                \"limit\": {\"type\": \"integer\", \"minimum\": 1, \"maximum\": 10, \"description\": \"Maximum lessons to return, default five.\"},\n            },\n        },\n    },\n]\n\n\n_LEGACY_TOOL_DEFINITIONS: list[dict[str, object]] = [\n",
+          "before": "    {\n        \"name\": \"alice_lessons\",\n        \"description\": \"Find published lessons relevant to a task or the files about to be touched.\",\n        \"inputSchema\": {\n            \"type\": \"object\",\n            \"additionalProperties\": False,\n            \"required\": [\"task\"],\n            \"properties\": {\n                **_AGENT_IDENTITY_SCHEMA_PROPERTIES,\n                \"task\": {\"type\": \"string\", \"description\": \"What the agent is about to do.\"},\n                \"paths\": {\"type\": \"array\", \"maxItems\": 16, \"items\": {\"type\": \"string\"}, \"description\": \"Files the agent is about to touch.\"},\n                \"limit\": {\"type\": \"integer\", \"minimum\": 1, \"maximum\": 10, \"description\": \"Maximum lessons to return, default five.\"},\n            },\n        },\n    },\n",
           "after": "",
           "sha256": "629987a3ebf0a490da17d4e18dfbfa6040b14cd921ba9451cec8f93cf63ff7d3"
         }

@@ -11,6 +11,7 @@ import sqlite3
 import statistics
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 from uuid import uuid4
@@ -26,9 +27,12 @@ def client_class():
     return module.MCPClient
 
 
-def launch(db, env):
+def launch(db, env, user_id=None):
+    command = [sys.executable, "-m", "alicebot_api.onramp", "mcp", "--db", str(db)]
+    if user_id is not None:
+        command.extend(("--user-id", str(user_id)))
     process = subprocess.Popen(
-        [sys.executable, "-m", "alicebot_api.onramp", "mcp", "--db", str(db)],
+        command,
         cwd=ROOT,
         env=env,
         stdin=subprocess.PIPE,
@@ -187,6 +191,36 @@ def main():
             )
         )
         assert p95["lessons"] <= p95["recall"] + 0.2
+        if "--compare-main" in sys.argv:
+            source_dir = Path(folder) / "main"
+            source_dir.mkdir()
+            archive = Path(folder) / "main.tar"
+            with archive.open("wb") as output:
+                subprocess.run(["git", "archive", "origin/main"], cwd=ROOT, stdout=output, check=True)
+            with tarfile.open(archive) as source:
+                source.extractall(source_dir, filter="data")
+            main_env = dict(env, PYTHONPATH=str(source_dir / "apps/api/src"))
+            main_process, main_client = launch(db, main_env)
+            head_process, head_client = launch(db, env)
+            clients = {"main": main_client, "head": head_client}
+            recall_samples: dict[str, list[float]] = {"main": [], "head": []}
+            try:
+                for i in range(41):
+                    for name in ("main", "head") if i % 2 == 0 else ("head", "main"):
+                        start = time.perf_counter()
+                        result = clients[name].call_tool(*calls["recall"])
+                        elapsed = time.perf_counter() - start
+                        assert result["count"] == 5
+                        if i:
+                            recall_samples[name].append(elapsed)
+            finally:
+                for current_process in (main_process, head_process):
+                    assert current_process.stdin is not None
+                    current_process.stdin.close()
+                    current_process.wait(timeout=20)
+            medians = {name: statistics.median(values) for name, values in recall_samples.items()}
+            print(json.dumps({"recall_samples": 40, "recall_median_seconds": medians}, sort_keys=True))
+            assert medians["head"] <= medians["main"] * 1.05
 
 
 if __name__ == "__main__":
