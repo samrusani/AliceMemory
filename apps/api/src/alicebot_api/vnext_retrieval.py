@@ -3175,6 +3175,8 @@ class VNextRetrievalService:
         scope_window_start: datetime | None = None,
         scope_window_end: datetime | None = None,
         read_fence: SourceReadFence,
+        require_lesson: bool = False,
+        only_ids: tuple[str, ...] | None = None,
     ) -> tuple[list[JsonObject], str]:
         """Ranked memory rows of the full-text stage and the label of the pass that found them.
 
@@ -3215,6 +3217,10 @@ class VNextRetrievalService:
             }
         options = {"query": query, "domains": domains or None,
                    "sensitivity_allowed": sensitivity_allowed, **filters, **scope_filters}
+        if require_lesson:
+            options["require_lesson"] = True
+        if only_ids:
+            options["only_ids"] = tuple(only_ids)
         fts = callable(search_memories_fts)
         source = str(getattr(self.store, "fts_stage_source", "postgres_fts")) if fts else "store_lexical"
         rows = active_search(limit=limit, **options)
@@ -3320,6 +3326,8 @@ class VNextRetrievalService:
         scope_person_memory_ids: tuple[str, ...] = (),
         scope_window_start: datetime | None = None,
         scope_window_end: datetime | None = None,
+        require_lesson: bool = False,
+        only_ids: tuple[str, ...] | None = None,
     ) -> tuple[list[JsonObject], str]:
         search_memories_vector = getattr(self.store, "search_memories_vector", None)
         if query_embedding_status is None:
@@ -3337,6 +3345,10 @@ class VNextRetrievalService:
                 "limit": limit,
                 **_optional_search_filters(memory_types, projects, created_by_agent_ids, run_id),
             }
+            if require_lesson:
+                search_kwargs["require_lesson"] = True
+            if only_ids:
+                search_kwargs["only_ids"] = tuple(only_ids)
             effective_people = tuple(sorted(scope.people)) if scope is not None else scope_people
             effective_window_start = scope.window_start if scope is not None else scope_window_start
             effective_window_end = scope.window_end if scope is not None else scope_window_end

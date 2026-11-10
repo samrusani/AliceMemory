@@ -1149,6 +1149,31 @@ def list_accepted_rollup_cards(
     )
 
 
+def _lesson_read_clause(
+    *,
+    require_lesson: bool = False,
+    only_ids: tuple[str, ...] | None = None,
+    value_sql: str,
+    id_sql: str,
+) -> tuple[str, list[object]]:
+    """An optional lesson-object predicate and an optional id list.
+
+    Both pieces are empty when the caller does not ask for them, so a search
+    that never passes them keeps the statement it had.
+    """
+
+    clause = ""
+    params: list[object] = []
+    if require_lesson:
+        clause += f" AND json_type({value_sql}, '$.lesson') = 'object'"
+    if only_ids:
+        # One bound value for the whole id list. A placeholder per id stops the
+        # call once the list passes the host's variable cap.
+        clause += f" AND {id_sql} IN (SELECT value FROM json_each(?))"
+        params.append(json.dumps([str(item) for item in only_ids]))
+    return clause, params
+
+
 def search_memories(
     self,
     *,
@@ -1161,6 +1186,8 @@ def search_memories(
     created_by_agent_ids: tuple[str, ...] = (),
     run_id: str | None = None,
     include_expired: bool = False,
+    require_lesson: bool = False,
+    only_ids: tuple[str, ...] | None = None,
 ) -> list[VNextRow]:
     patterns = [pattern.casefold() for pattern in _search_patterns(query)]
     exact_pattern = patterns[0]
@@ -1171,6 +1198,9 @@ def search_memories(
     created_by_sql, created_by_params = self._created_by_clause(created_by_agent_ids)
     run_sql, run_params = self._run_clause(run_id)
     expiry_sql, expiry_params = self._expiry_clause(include_expired)
+    lesson_sql, lesson_params = _lesson_read_clause(
+        require_lesson=require_lesson, only_ids=only_ids, value_sql="value", id_sql="id",
+    )
     count = len(patterns)
     match_columns = ("memory_key", "title", "canonical_text", "summary", "value")
     match_sql = " OR ".join(self._like_any(column, count) for column in match_columns)
@@ -1182,6 +1212,7 @@ def search_memories(
     params.extend(created_by_params)
     params.extend(run_params)
     params.extend(expiry_params)
+    params.extend(lesson_params)
     for _column in match_columns:
         params.extend(patterns)
     params.append(exact_pattern)
@@ -1195,7 +1226,7 @@ def search_memories(
                 FROM memories
                 WHERE user_id = ?
                   AND deleted_at IS NULL
-                  AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}
+                  AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{lesson_sql}
                   AND ({match_sql})
                 ORDER BY
                   CASE
@@ -1234,6 +1265,8 @@ def search_memories_fts(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    require_lesson: bool = False,
+    only_ids: tuple[str, ...] | None = None,
 ) -> list[VNextRow]:
     # Strict pass ANDs every non-stopword term (websearch parity);
     # match_any (the retrieval OR-fallback) ORs them instead so a
@@ -1258,6 +1291,9 @@ def search_memories_fts(
         scope_window_end=scope_window_end,
         prefix="m.",
     )
+    lesson_sql, lesson_params = _lesson_read_clause(
+        require_lesson=require_lesson, only_ids=only_ids, value_sql="m.value", id_sql="m.id",
+    )
     prefixed_columns = ", ".join(f"m.{column}" for column in MEMORY_COLUMNS)
     from alicebot_api.vnext_label_sql import hidden_memory_input_sql
     label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=True)
@@ -1270,6 +1306,7 @@ def search_memories_fts(
     params.extend(run_params)
     params.extend(expiry_params)
     params.extend(scope_params)
+    params.extend(lesson_params)
     params.extend((limit, offset))
     try:
         # Column weights follow the Postgres search_tsv setweights:
@@ -1286,7 +1323,7 @@ def search_memories_fts(
                       AND m.user_id = ?
                       AND m.deleted_at IS NULL
                       AND {label_sql}
-                      AND m.status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{scope_sql}
+                      AND m.status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{scope_sql}{lesson_sql}
                     ORDER BY fts_score DESC, m.updated_at DESC, m.created_at DESC, m.id DESC
                     LIMIT ? OFFSET ?
                     """,
@@ -1320,6 +1357,8 @@ def search_memories_vector(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    require_lesson: bool = False,
+    only_ids: tuple[str, ...] | None = None,
 ) -> list[VNextRow]:
     if not query_vector:
         raise ContinuityStoreInvariantError("embedding vectors must not be empty")
@@ -1374,6 +1413,9 @@ def search_memories_vector(
                     embedding_signature_version,
                 )
             )
+    lesson_sql, lesson_params = _lesson_read_clause(
+        require_lesson=require_lesson, only_ids=only_ids, value_sql="value", id_sql="id",
+    )
     base_params: list[object] = [self.user_id]
     base_params.extend(domain_params)
     base_params.extend(sensitivity_params)
@@ -1383,6 +1425,7 @@ def search_memories_vector(
     base_params.extend(run_params)
     base_params.extend(expiry_params)
     base_params.extend(scope_params)
+    base_params.extend(lesson_params)
     params: list[object] = [*base_params, *signature_params]
     # Full predicate set shared by BOTH phases. No transaction spans the scan
     # and the hydrate (autocommit; per-statement snapshots), so a concurrent
@@ -1394,7 +1437,7 @@ def search_memories_vector(
     base_predicate_sql = f"""user_id = ?
                   AND deleted_at IS NULL
                   AND embedding IS NOT NULL
-                  AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{scope_sql}"""
+                  AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{scope_sql}{lesson_sql}"""
     predicate_sql = f"{base_predicate_sql}{signature_sql}"
     # Step 1a -- resident vector cache (Stage 2). When enabled and within
     # its byte cap, the ranking comes from the process-local float32 matrix
@@ -1613,6 +1656,60 @@ def search_memories_by_time(
     )
 
 
+def _lesson_memory_where(
+    self,
+    *,
+    domains: list[str] | None,
+    sensitivity_allowed: list[str] | None,
+    projects: tuple[str, ...],
+) -> tuple[str, tuple[object, ...]]:
+    """The fence memory search uses, for procedure rows whose value holds a lesson object.
+
+    Status is not applied here. Expiry, domain, sensitivity, project and the hidden-input predicate
+    are the ones memory search uses.
+    """
+
+    domain_sql, domain_params = self._domain_clause(domains, prefix="m.")
+    sensitivity_sql, sensitivity_params = self._sensitivity_clause(sensitivity_allowed, prefix="m.")
+    project_sql, project_params = self._project_clause(projects, prefix="m.")
+    expiry_sql, expiry_params = self._expiry_clause(False, prefix="m.")
+    from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+
+    label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=True)
+    params: list[object] = [self.user_id, *domain_params, *sensitivity_params, *project_params, *expiry_params]
+    where = (
+        "m.user_id = ? "
+        "AND m.deleted_at IS NULL "
+        f"AND {label_sql} "
+        "AND m.memory_type = 'procedure' "
+        f"AND json_type(m.value, '$.lesson') = 'object'{domain_sql}{sensitivity_sql}{project_sql}{expiry_sql}"
+    )
+    return where, tuple(params)
+
+
+def list_lesson_path_rows(
+    self,
+    *,
+    domains: list[str] | None = None,
+    sensitivity_allowed: list[str] | None = None,
+    projects: tuple[str, ...] = (),
+) -> list[VNextRow]:
+    """Id, stored lesson paths, created time and status for procedure rows that hold a lesson.
+
+    One statement. The caller matches paths, then loads a full row only for an answer it still needs.
+    """
+
+    where, params = _lesson_memory_where(
+        self, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=projects,
+    )
+    return self._fetch_all(
+        "SELECT m.id AS id, json_extract(m.value, '$.lesson.paths') AS lesson_paths, "
+        "m.created_at AS created_at, m.status AS status "
+        f"FROM memories m WHERE {where}",
+        params,
+    )
+
+
 for _memory_method in (
     get_memory_by_key,
     get_memory,
@@ -1640,6 +1737,7 @@ for _memory_method in (
     search_memories_fts,
     search_memories_vector,
     search_memories_by_time,
+    list_lesson_path_rows,
 ):
     _memory_method.__module__ = "alicebot_api.sqlite_store"
     _memory_method.__qualname__ = f"SQLiteVNextStore.{_memory_method.__name__}"

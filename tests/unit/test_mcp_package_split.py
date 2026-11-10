@@ -126,7 +126,7 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     legacy_definitions = mcp_registry._LEGACY_TOOL_DEFINITIONS
     handlers = mcp_registry._TOOL_HANDLERS
 
-    assert (len(core_definitions), len(legacy_definitions), len(handlers)) == (12, 65, 77)
+    assert (len(core_definitions), len(legacy_definitions), len(handlers)) == (13, 65, 78)
     # Moved 2026-08-17 (D7). The tool COUNT is unchanged and asserted above.
     # What moved is two optional properties, domains and sensitivity_allowed,
     # on alice_resume and alice_recent_decisions. Those arguments already
@@ -187,10 +187,15 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # text). Restoring the previous schema reproduces the previous core
     # digest. No tool added, removed, or renamed, and no other schema,
     # annotation, or default changed. Legacy definitions are unchanged.
-    assert _digest(core_definitions) == "efe16c0ef2d36397c47ac2a3ba1951e257af5c7a9ae5fd735fcc01b276c6456e"
+    # Re-minted for alice_lessons, one core read tool. The other twelve definitions
+    # are unchanged: their digest is still efe16c0ef2d36397c47ac2a3ba1951e257af5c7a9ae5fd735fcc01b276c6456e.
+    # Re-minted when alice_lessons paths gained the lesson-block array schema:
+    # type array, at most 16 strings, each at most 200 characters. A null paths
+    # value is refused by that schema.
+    assert _digest(core_definitions) == "ef84886d6c130d9617d3c6dffa857693ec2c2bdf56cc939441313c51e2a1e919"
     assert _digest(legacy_definitions) == "6b302f61e48d4f6196af8a7d2c8882130d565d84134f51bba38648f84c09089e"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items()]
-    assert _digest(ordered_handler_map) == "fb200cfbecef6249b7cf80b17b0737d3b44cfdd04cda8c701d491ed4ac401798"
+    assert _digest(ordered_handler_map) == "2117da5aa3661022f8b012185bafb97a2600768b2b6c3a0eee073ff4b5999952"
     for first, second in EXPECTED_ALIAS_PAIRS:
         assert handlers[first] is handlers[second]
         assert (
@@ -210,17 +215,17 @@ def test_mcp_gates_remain_dynamic_and_agent_keys_suppress_legacy(monkeypatch) ->
     assert _tool_names() == ["alice_memory_commit", "alice_recall", "alice_resume"]
 
     monkeypatch.setenv(mcp_tools.MCP_FULL_TOOLS_ENV, "1")
-    assert len(_tool_names()) == 12
+    assert len(_tool_names()) == 13
 
     monkeypatch.setenv(mcp_tools.MCP_LEGACY_TOOLS_ENV, "1")
-    assert len(_tool_names()) == 74
+    assert len(_tool_names()) == 75
     monkeypatch.setenv(mcp_tools.LEGACY_SURFACES_ENV, "1")
-    assert len(_tool_names()) == 77
+    assert len(_tool_names()) == 78
     monkeypatch.delenv(mcp_tools.MCP_LEGACY_TOOLS_ENV)
-    assert len(_tool_names()) == 12
+    assert len(_tool_names()) == 13
     monkeypatch.setenv(mcp_tools.MCP_LEGACY_TOOLS_ENV, "1")
     monkeypatch.setenv(mcp_tools.AGENT_API_KEY_ENV, " configured ")
-    assert len(_tool_names()) == 12
+    assert len(_tool_names()) == 13
 
     monkeypatch.delenv(mcp_tools.MCP_FULL_TOOLS_ENV)
     assert _tool_names() == ["alice_memory_commit", "alice_recall", "alice_resume"]

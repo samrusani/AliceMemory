@@ -46,7 +46,7 @@ def test_the_readme_keeps_no_version_history_and_one_from_v0210_line() -> None:
     marked = [line for line in overview.splitlines() if "From v0.21.0" in line]
     assert len(marked) == 1
     assert marked[0].count("From v0.21.0") == 1
-    assert "From v0.21.0, `alice_what_changed` is one of the other nine core tools" in marked[0]
+    assert "From v0.21.0, `alice_what_changed` is one of the other ten core tools" in marked[0]
 
 
 def test_the_readme_security_wording_is_unchanged() -> None:

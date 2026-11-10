@@ -9,7 +9,7 @@ from alicebot_api.surface_flags import MCP_FULL_TOOLS_ENV
 
 @pytest.fixture(autouse=True)
 def enable_full_mcp_tools(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep existing full-surface tests on the eleven core tools.
+    """Keep existing full-surface tests on the thirteen core tools.
 
     Tests that assert the default handshake must delete this env.
     """

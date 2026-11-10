@@ -773,6 +773,29 @@ def list_accepted_rollup_cards(
     )
 
 
+def _lesson_read_clause(
+    *,
+    require_lesson: bool = False,
+    only_ids: tuple[str, ...] | None = None,
+    value_sql: str,
+    id_sql: str,
+) -> tuple[str, list[object]]:
+    """An optional lesson-object predicate and an optional id list.
+
+    Both pieces are empty when the caller does not ask for them, so a search
+    that never passes them keeps the statement it had.
+    """
+
+    clause = ""
+    params: list[object] = []
+    if require_lesson:
+        clause += f" AND jsonb_typeof({value_sql} -> 'lesson') = 'object'"
+    if only_ids:
+        clause += f" AND {id_sql}::text = ANY(%s::text[])"
+        params.append([str(item) for item in only_ids])
+    return clause, params
+
+
 def search_memories(
     self,
     *,
@@ -785,12 +808,17 @@ def search_memories(
     created_by_agent_ids: tuple[str, ...] = (),
     run_id: str | None = None,
     include_expired: bool = False,
+    require_lesson: bool = False,
+    only_ids: tuple[str, ...] | None = None,
 ) -> list[VNextRow]:
     patterns = _search_patterns(query)
     exact_pattern = patterns[0]
     memory_type_list = list(memory_types) or None
     project_list = list(project_scope_identity(projects)) or None
     created_by_list = list(created_by_agent_ids) or None
+    lesson_sql, lesson_params = _lesson_read_clause(
+        require_lesson=require_lesson, only_ids=only_ids, value_sql="value", id_sql="id",
+    )
     return self._fetch_all(
         f"""
                 SELECT {MEMORY_COLUMNS}
@@ -803,7 +831,7 @@ def search_memories(
                   AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])
                   AND (%s::text[] IS NULL OR created_by_agent_id = ANY(%s::text[]))
                   AND (%s::text IS NULL OR run_id = %s)
-                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp())
+                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp()){lesson_sql}
                   AND (
                     memory_key ILIKE ANY(%s::text[])
                     OR title ILIKE ANY(%s::text[])
@@ -838,6 +866,7 @@ def search_memories(
             run_id,
             run_id,
             include_expired,
+            *lesson_params,
             patterns,
             patterns,
             patterns,
@@ -872,6 +901,8 @@ def search_memories_fts(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    require_lesson: bool = False,
+    only_ids: tuple[str, ...] | None = None,
 ) -> list[VNextRow]:
     memory_type_list = list(memory_types) or None
     project_list = list(project_scope_identity(projects)) or None
@@ -892,6 +923,9 @@ def search_memories_fts(
         tsquery_text = query
     from alicebot_api.vnext_label_sql import hidden_memory_input_sql
     label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=False, alias="memories")
+    lesson_sql, lesson_params = _lesson_read_clause(
+        require_lesson=require_lesson, only_ids=only_ids, value_sql="value", id_sql="id",
+    )
     return self._fetch_all(
         f"""
                 SELECT {MEMORY_COLUMNS},
@@ -928,7 +962,7 @@ def search_memories_fts(
                     %s::timestamptz IS NULL
                     OR {_MEMORY_SCOPE_EVENT_TIME_SQL} <= %s::timestamptz
                   )
-                  AND search_tsv @@ {tsquery_sql}
+                  AND search_tsv @@ {tsquery_sql}{lesson_sql}
                 ORDER BY fts_score DESC, updated_at DESC, created_at DESC, id DESC
                 LIMIT %s OFFSET %s
                 """,
@@ -959,6 +993,7 @@ def search_memories_fts(
             scope_window_end,
             scope_window_end,
             tsquery_text,
+            *lesson_params,
             limit,
             offset,
         ),
@@ -987,6 +1022,8 @@ def search_memories_vector(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    require_lesson: bool = False,
+    only_ids: tuple[str, ...] | None = None,
 ) -> list[VNextRow]:
     vector_param = _vector_literal(query_vector)
     memory_type_list = list(memory_types) or None
@@ -1052,8 +1089,11 @@ def search_memories_vector(
         scope_window_end,
     ]
     params.extend(signature_params)
+    lesson_sql, lesson_params = _lesson_read_clause(
+        require_lesson=require_lesson, only_ids=only_ids, value_sql="value", id_sql="id",
+    )
     candidate_limit = max(limit, min(limit * 4, 1000)) if signature_sql else limit
-    base_params = [*params, include_expired, vector_param]
+    base_params = [*params, include_expired, *lesson_params, vector_param]
     # Enable iterative HNSW scan so the lifecycle/scope/signature filters
     # applied alongside the approximate ORDER BY do not silently underfill
     # the result set (a plain filtered HNSW scan can return far fewer than
@@ -1097,7 +1137,7 @@ def search_memories_vector(
                     OR {_MEMORY_SCOPE_EVENT_TIME_SQL} <= %s::timestamptz
                   )
                   {signature_sql}
-                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp())
+                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp()){lesson_sql}
                 ORDER BY embedding_vector <=> %s::vector
                 LIMIT %s
                 """
@@ -1265,6 +1305,66 @@ def latest_agentic_commit_memory(self, *, agent_id: str | None = None) -> VNextR
     )
 
 
+def _lesson_memory_where(
+    self,
+    *,
+    domains: list[str] | None,
+    sensitivity_allowed: list[str] | None,
+    projects: tuple[str, ...],
+) -> tuple[str, tuple[object, ...]]:
+    """The fence memory search uses, for procedure rows whose value holds a lesson object.
+
+    Status is not applied here. Expiry, domain, sensitivity, project and the hidden-input predicate
+    are the ones memory search uses.
+    """
+
+    project_list = list(project_scope_identity(projects)) or None
+    from alicebot_api.vnext_label_sql import hidden_memory_input_sql
+
+    label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=False, alias="memories")
+    where = (
+        "deleted_at IS NULL "
+        f"AND {label_sql} "
+        "AND memory_type = 'procedure' "
+        "AND jsonb_typeof(value -> 'lesson') = 'object' "
+        "AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown') "
+        "AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[])) "
+        f"AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[]) "
+        f"AND {POSTGRES_UNEXPIRED_SQL}"
+    )
+    params = (
+        domains,
+        domains,
+        sensitivity_allowed,
+        sensitivity_allowed,
+        project_list,
+        project_list,
+    )
+    return where, params
+
+
+def list_lesson_path_rows(
+    self,
+    *,
+    domains: list[str] | None = None,
+    sensitivity_allowed: list[str] | None = None,
+    projects: tuple[str, ...] = (),
+) -> list[VNextRow]:
+    """Id, stored lesson paths, created time and status for procedure rows that hold a lesson.
+
+    One statement. The caller matches paths, then loads a full row only for an answer it still needs.
+    """
+
+    where, params = _lesson_memory_where(
+        self, domains=domains, sensitivity_allowed=sensitivity_allowed, projects=projects,
+    )
+    return self._fetch_all(
+        "SELECT id, value -> 'lesson' -> 'paths' AS lesson_paths, created_at, status "
+        "FROM memories WHERE " + where,
+        params,
+    )
+
+
 for _memory_method in (
     get_memory_by_key,
     get_memory,
@@ -1288,6 +1388,7 @@ for _memory_method in (
     search_memories_fts,
     search_memories_vector,
     search_memories_by_time,
+    list_lesson_path_rows,
     get_memory_by_commit_digest,
     get_memory_by_confirmation_id,
     latest_agentic_commit_memory,

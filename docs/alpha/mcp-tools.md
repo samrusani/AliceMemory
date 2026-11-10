@@ -3,7 +3,7 @@
 Alice advertises three MCP tools by default: `alice_memory_commit`,
 `alice_recall`, and `alice_resume`. The other core tools stay defined
 and become callable when `ALICE_MCP_FULL_TOOLS=1`. From v0.21.0,
-`alice_what_changed` is one of the other nine core tools, and v0.20.2 does not
+`alice_what_changed` is one of the other ten core tools, and v0.20.2 does not
 have it. Every parameter carries a
 description, so MCP-capable agents can use the surface without reading this
 page. This page exists for humans wiring things up. For the full verb
@@ -282,9 +282,9 @@ the answer verifier (`render_pack_context_block`) does the same.
 ## The full core surface
 
 `ALICE_MCP_FULL_TOOLS=1` advertises the core tools, in the current
-definition order. From v0.21.0, the full surface is all twelve core
-tools, because `alice_what_changed` is the last of them and v0.20.2 does not have
-it. Capture and the pack are on this surface. Vault import
+definition order. The full surface is all thirteen core
+tools. From v0.21.0 it includes `alice_what_changed`, which v0.20.2 does not have.
+`alice_lessons` is on this surface and is not in v0.23.1. Capture and the pack are on this surface. Vault import
 is a CLI verb, not a fourth always-on agent tool.
 
 **Write and review**
@@ -328,6 +328,33 @@ is a CLI verb, not a fourth always-on agent tool.
 
 **Read**
 
+- `alice_lessons`: the published lessons that apply to what the agent is about
+  to do. Arguments: `task` (required, 1 to 1,000 characters after runs of
+  whitespace are collapsed), `paths` (optional array of at most 16 strings, each
+  at most 200 characters, the same repo-relative paths or globs as a lesson's
+  `paths`; a null value is refused by the schema), and `limit` (optional, 1 to
+  10, default 5), plus the identity fields every core tool takes. The answer
+  states the same framing sentence `alice_recall` states, then `count` (the
+  number returned, with no total) and `lessons`. Each lesson has `id`,
+  `applies_when`, `what_happened`, `do_instead`, `paths`, `writer` (the same
+  object `alice_recall` returns for that row) and `published` (`by`, `at`,
+  `how`). `how` is `committed`, `confirmed` or `approved`. A lesson is returned
+  only when this caller could read it from `alice_recall`, the stored block
+  passes the lesson shape check, and a publishing revision is on its record.
+  A commit or a confirm counts when the writer on record is the owner or an
+  `admin_agent`. `published.by` is the actor of that revision, so a second
+  admin key may confirm a lesson the first admin key wrote. Waiting, rejected,
+  superseded, expired, forgotten and redacted rows are left out, and so is an
+  active row whose history has no publishing act. A lesson
+  matches when its text matches `task` the way `alice_recall` matches a query,
+  or one of its paths matches one of `paths` (`fnmatch` on the call path
+  against the lesson path, after a leading `./` is dropped). When an embedding
+  endpoint is configured, the vector stage ranks by distance with no floor, so
+  an unrelated task can still return the nearest lesson. Order: path and
+  text, then path only, then text only; inside a group, by text rank, then
+  newer first, then by id. Each answer writes one `agent.lessons_requested`
+  event whose payload is `returned`, `limit` and `paths_given`. The event does
+  not store the task. The call changes no memory row.
 - `alice_context_pack` — a scoped context bundle for a task: relevant
   memories, open loops, and sources with supporting evidence. `projects`,
   `people`, and `time_window` are hard filters across every content section;
@@ -887,7 +914,7 @@ From v0.21.0, each count below that has the full core set in it includes
 ALICE_MCP_LEGACY_TOOLS=1
 # default three plus the long tail (65), or 68 with ALICE_LEGACY_SURFACES=1
 ALICE_MCP_FULL_TOOLS=1 ALICE_MCP_LEGACY_TOOLS=1
-# 12 plus the long tail (74), or 77 with ALICE_LEGACY_SURFACES=1
+# 13 plus the long tail (75), or 78 with ALICE_LEGACY_SURFACES=1
 ```
 
 Exactly three task-brief tools are added only when the separate mount-time

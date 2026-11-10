@@ -119,6 +119,7 @@ from alicebot_api.vnext_stores.sqlite.events_revisions import (
     list_events_for_source_trace as _events_list_events_for_source_trace,
     list_project_update_events as _events_list_project_update_events,
     list_revisions as _events_list_revisions,
+    list_revisions_for_memories as _events_list_revisions_for_memories,
 )
 from alicebot_api.vnext_stores.sqlite.graph_open_loops import (
     create_graph_edge as _graph_create_graph_edge,
@@ -195,6 +196,7 @@ from alicebot_api.vnext_stores.sqlite.memory_access import (
     search_memories_by_time as _memory_search_memories_by_time,
     search_memories_fts as _memory_search_memories_fts,
     search_memories_vector as _memory_search_memories_vector,
+    list_lesson_path_rows as _memory_list_lesson_path_rows,
 )
 from alicebot_api.vnext_stores.sqlite.primitives import (
     _iso_or_none as _iso_or_none,
@@ -1957,6 +1959,9 @@ class SQLiteVNextStore:
             raise
         else:
             conn.execute(f"RELEASE SAVEPOINT {name}")
+
+    list_lesson_path_rows = _memory_list_lesson_path_rows
+    list_revisions_for_memories = _events_list_revisions_for_memories
 
 
 __all__ = [

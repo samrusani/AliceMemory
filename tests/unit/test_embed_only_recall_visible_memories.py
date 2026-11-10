@@ -1019,15 +1019,16 @@ def test_reindex_recall_and_the_stores_share_one_expiry_test() -> None:
 
     The same two forms are now used by the reads that are not recall: SQLite's
     ``list_memories`` and ``count_memories`` call ``_expiry_clause`` with the flag
-    they are given (6 calls with recall's four), the roll-up input list and count
-    and the accepted-card lookup call ``_expiry_clause(False)`` (3 calls), and
-    Postgres interpolates ``POSTGRES_UNEXPIRED_SQL`` in the same five reads, with
-    the alias form (``postgres_unexpired_sql("m.")``) for the resume events join.
+    they are given (6 calls with recall's four), the roll-up input list and count,
+    the accepted-card lookup, and the lesson where call ``_expiry_clause(False)``
+    (4 calls), and Postgres interpolates ``POSTGRES_UNEXPIRED_SQL`` in the same
+    six reads, with the alias form (``postgres_unexpired_sql("m.")``) for the
+    resume events join.
 
     Mutations: change the comparison in ``POSTGRES_UNEXPIRED_SQL`` (``>`` for
     ``>=``) or in one of Postgres recall's four statements; change the clause in
     ``_expiry_clause``; stop either SQLite embedding function calling it; stop one
-    of the five SQLite or five Postgres reads above using it; add a call that
+    of the five SQLite or six Postgres reads above using it; add a call that
     passes ``include_expired=True`` anywhere in the package (the last check then
     lists it).
     """
@@ -1044,8 +1045,8 @@ def test_reindex_recall_and_the_stores_share_one_expiry_test() -> None:
     assert _expiry_clause(True) == ("", [])  # type: ignore[operator]
     sqlite_recall = inspect.getsource(sqlite_memory_access)
     assert sqlite_recall.count("self._expiry_clause(include_expired") == 6
-    assert sqlite_recall.count("self._expiry_clause(False") == 3
-    assert postgres_recall.count("{POSTGRES_UNEXPIRED_SQL}") == 5
+    assert sqlite_recall.count("self._expiry_clause(False") == 4
+    assert postgres_recall.count("{POSTGRES_UNEXPIRED_SQL}") == 6
     from alicebot_api import sqlite_store as sqlite_facade
     from alicebot_api import vnext_store as postgres_facade
 
