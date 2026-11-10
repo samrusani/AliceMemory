@@ -436,7 +436,7 @@ def test_retired_and_unexpired_lessons(vault, monkeypatch):
     ]
     for mid, action in zip(ids, ("expire", "forget", "undo", "redact"), strict=True):
         vault.call(monkeypatch, None, "alice_memory_manage", {"action": action, "memory_id": mid, "reason": "retired"})
-    assert vault.call(monkeypatch, None, "alice_lessons", {"task": "rebasing", "limit": 10})["count"] == 0
+    assert vault.call(monkeypatch, None, "alice_lessons", {"task": "rebasing", "paths": ["src/a.py"], "limit": 10})["count"] == 0
     vault.call(
         monkeypatch, None, "alice_memory_manage", {"action": "unexpire", "memory_id": ids[0], "reason": "reopen"}
     )

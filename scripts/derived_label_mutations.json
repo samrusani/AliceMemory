@@ -24408,9 +24408,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_lessons_read.py::test_legacy_import_and_full_restore"
+        "tests/unit/test_lessons_read.py::test_a_plain_row_with_a_planted_block_has_no_publisher"
       ],
-      "expected_failure": "test_legacy_import_and_full_restore"
+      "expected_failure": "test_a_plain_row_with_a_planted_block_has_no_publisher"
     },
     {
       "name": "lessons-path-match",
@@ -24528,11 +24528,11 @@
       "name": "lessons-expiry",
       "edits": [
         {
-          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py",
-          "line": 1263,
-          "before": "expiry_sql, expiry_params = self._expiry_clause(include_expired, prefix=\"m.\")",
-          "after": "expiry_sql, expiry_params = self._expiry_clause(True, prefix=\"m.\")",
-          "sha256": "3b57b6f0c0127394b3526aa57c3e5f80e5e9e9b7a4810ef2ef9f57b73dd8eb0d"
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "line": 122,
+          "before": "            include_expired=False,",
+          "after": "            include_expired=True,",
+          "sha256": "363d9d057eb25b276c8e27e23b833f4ddb27db5c0e51f49dbf2f901729b3fc60"
         }
       ],
       "pytest": [
@@ -25217,6 +25217,22 @@
         "tests/unit/test_lessons_read.py::test_default_limit_and_stable_ties"
       ],
       "expected_failure": "test_default_limit_and_stable_ties"
+    },
+    {
+      "name": "lessons-legacy-revision-stream",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "line": 183,
+          "before": "        revisions = store.stream_lesson_revisions(list(indexed))",
+          "after": "        revisions = iter({\"memory_id\": mid, \"publication_lesson\": block, \"action\": \"memory_correct_approve\", \"revision_type\": \"promoted\", \"actor_type\": \"user\", \"created_at\": \"2020-01-01T00:00:00Z\"} for mid, (_row, block, *_rest) in indexed.items())",
+          "sha256": "363d9d057eb25b276c8e27e23b833f4ddb27db5c0e51f49dbf2f901729b3fc60"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_read.py::test_legacy_import_and_full_restore"
+      ],
+      "expected_failure": "test_legacy_import_and_full_restore"
     }
   ]
 }
