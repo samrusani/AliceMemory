@@ -8,6 +8,7 @@ import subprocess
 import sys
 import sqlite3
 from functools import wraps
+from contextlib import contextmanager
 from uuid import uuid4
 
 import pytest
@@ -392,6 +393,13 @@ def test_rank_helpers_are_temporary_and_only_for_keyed_limits(vault, monkeypatch
 def test_readable_derived_rows_leave_other_bm25_scores_unchanged(vault, monkeypatch):
     """Guard: readable derived rows are ranked but excluded from N, average length and document frequency."""
     ids = visible(vault, monkeypatch, "memory")
+    with sqlite_user_connection(vault, USER) as conn:
+        store = SQLiteVNextStore(conn, USER)
+        for i in range(10):
+            store.create_memory({"memory_key": f"ordinary.filler.{i}", "canonical_text": "Unrelated ordinary text",
+                                 "value": {"text": "Unrelated ordinary text"}, "memory_type": "procedure", "status": "active",
+                                 "domain": "project", "sensitivity": "public", "project_id": "alpha",
+                                 "metadata_json": {"project_scope": ["alpha"]}})
     key = mint(vault, "project_scoped_agent")
     original = SQLiteVNextStore.search_memories_fts
     observed = {}
@@ -458,3 +466,22 @@ def test_store_refill_keeps_its_limit_after_derived_admission(vault, monkeypatch
     result = call(vault, monkeypatch, key, "alice_recall", {"query": "luminousmigration", "limit": 1, "include_sources": False})
     assert result["count"] == 1
     assert sizes and all(size <= requested for size, requested in sizes)
+
+
+def test_rank_helpers_allow_repeated_reads_with_an_active_cursor(vault, monkeypatch):
+    """Guard: already registered functions are kept on a reused product connection."""
+    visible(vault, monkeypatch, "memory")
+    key = mint(vault, "project_scoped_agent")
+    with sqlite_user_connection(vault, USER) as conn:
+        @contextmanager
+        def shared_connection(_path, _user):
+            yield conn
+        monkeypatch.setattr("alicebot_api.mcp.runtime.sqlite_user_connection", shared_connection)
+        args = {"query": QUERY, "include_sources": True}
+        before = call(vault, monkeypatch, key, "alice_recall", args)
+        cursor = conn.execute("SELECT id FROM memories ORDER BY id")
+        assert cursor.fetchone() is not None
+        try:
+            assert call(vault, monkeypatch, key, "alice_recall", args) == before
+        finally:
+            cursor.close()

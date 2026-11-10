@@ -20,8 +20,14 @@ def _tokens(blob: bytes) -> int:
 
 def _prepare(store: Any, expression: str) -> list[list[str]]:
     conn = store.conn
-    conn.create_function("alice_fts_tokens", 1, _tokens, deterministic=True)
-    conn.create_function("alice_fts_log", 1, math.log, deterministic=True)
+    for name, function in (("alice_fts_tokens", _tokens), ("alice_fts_log", math.log)):
+        cursor = conn.execute("SELECT 1 FROM pragma_function_list WHERE name=? AND narg=1 LIMIT 1", (name,))
+        try:
+            installed = cursor.fetchone() is not None
+        finally:
+            cursor.close()
+        if not installed:
+            conn.create_function(name, 1, function, deterministic=True)
     conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp.alice_memory_terms USING fts5vocab(main, memories_fts, instance)")
     conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp.alice_chunk_terms USING fts5vocab(main, source_chunks_fts, instance)")
     conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp.alice_query_text USING fts5(text, tokenize='porter unicode61')")
