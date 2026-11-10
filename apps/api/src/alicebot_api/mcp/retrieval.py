@@ -1911,7 +1911,6 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
         )
         path_ids: set[str] = set()
         path_created: dict[str, object] = {}
-        path_status: dict[str, str] = {}
         if call_paths:
             for slim in store.list_lesson_path_rows(
                 domains=domains or None,
@@ -1924,7 +1923,6 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
                 if row_id and _lesson_paths_hit(call_paths, _lesson_path_entries(slim.get("lesson_paths"))):
                     path_ids.add(row_id)
                     path_created[row_id] = slim.get("created_at")
-                    path_status[row_id] = str(slim.get("status") or "")
             head_ids = {str(row.get("id") or "") for row in fts_rows}
             head_ids.update(str(row.get("id") or "") for row in vector_rows)
             text_path_ids = path_ids & head_ids
@@ -1959,7 +1957,7 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
         path_only_ids = [
             row_id
             for row_id in path_ids
-            if row_id not in scores and path_status.get(row_id) == "active"
+            if row_id not in scores
         ]
         path_only_ids.sort(key=lambda row_id: (-_lesson_instant(path_created.get(row_id)), row_id))
         path_only_ids = path_only_ids[:limit]
