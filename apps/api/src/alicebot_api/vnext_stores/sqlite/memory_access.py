@@ -498,6 +498,7 @@ def list_memories(
     exclude_global_domains: Sequence[str] | None = None,
     lessons_only: bool = False,
     lesson_projection: bool = False,
+    lesson_lazy_metadata: bool = False,
 ) -> list[VNextRow]:
     """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
 
@@ -544,6 +545,8 @@ def list_memories(
         params.append(limit)
     lesson_sql = " AND json_type(value, '$.lesson') = 'object'" if lessons_only else ""
     columns = LESSON_MEMORY_COLUMNS if lesson_projection else ", ".join(MEMORY_COLUMNS)
+    if lesson_projection and lesson_lazy_metadata:
+        columns = columns.replace("metadata_json", "metadata_json AS lesson_metadata_raw")
     return self._fetch_all(
         f"""
                 SELECT {columns}

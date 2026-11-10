@@ -870,3 +870,12 @@ def test_vector_fusion_keeps_text_ties_stable(vault, monkeypatch):
     monkeypatch.setattr(retrieval, "get_embedding_provider", lambda: StubEmbeddingProvider())
     answer = vault.call(monkeypatch, None, "alice_lessons", {"task": "rebasing", "limit": 10})
     assert [row["id"] for row in answer["lessons"]] == sorted(ids)
+
+
+def test_unbound_admin_writer_is_read_from_lazy_metadata(vault, monkeypatch):
+    """Guard: an unbound admin's stored writer profile is read before publication is accepted."""
+    admin = vault.key("publisher", "admin_agent")
+    lesson = vault.commit(monkeypatch, admin, "publisher")
+    answer = vault.call(monkeypatch, admin, "alice_lessons", {"task": "rebasing", "agent_id": "publisher"})
+    assert [item["id"] for item in answer["lessons"]] == [lesson["memory"]["id"]]
+    assert answer["lessons"][0]["published"]["by"] == "publisher"

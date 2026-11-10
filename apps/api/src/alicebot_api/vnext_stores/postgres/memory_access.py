@@ -277,6 +277,7 @@ def list_memories(
     include_expired: bool = True,
     lessons_only: bool = False,
     lesson_projection: bool = False,
+    lesson_lazy_metadata: bool = False,
 ) -> list[VNextRow]:
     """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
 
@@ -351,6 +352,8 @@ def list_memories(
         limit_sql = " LIMIT %s"
         params.append(limit)
     columns = LESSON_MEMORY_COLUMNS if lesson_projection else MEMORY_COLUMNS
+    if lesson_projection and lesson_lazy_metadata:
+        columns = columns.replace("metadata_json", "metadata_json AS lesson_metadata_raw")
     return self._fetch_all(
         f"""
                 SELECT {columns}

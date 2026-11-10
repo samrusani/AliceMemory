@@ -8,11 +8,12 @@ import json
 from collections.abc import Mapping
 
 from alicebot_api.project_view import ProjectView
+from alicebot_api.json_bounds import loads_stored
 from alicebot_api.recall_framing import memory_writer, with_result_framing
 from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_json import json_safe
-from alicebot_api.vnext_label_guard import admit_loaded
+from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded
 from alicebot_api.vnext_memory_commit import (
     VNextMemoryCommitValidationError,
     _lesson_block_from_payload,
@@ -45,7 +46,9 @@ def _path_matches(paths, entries):
 
 
 def _writer_can_publish(row):
-    metadata = row.get("metadata_json")
+    metadata = row.get("metadata_json", row.get("lesson_metadata_raw"))
+    if isinstance(metadata, str):
+        metadata = loads_stored(metadata)
     agentic = metadata.get("agentic_memory") if isinstance(metadata, Mapping) else None
     identity = agentic.get("agent_identity") if isinstance(agentic, Mapping) else None
     if identity is None:
@@ -113,6 +116,7 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
         lock = getattr(store, "lock_label_writes", None)
         if callable(lock):
             lock()
+        lazy_metadata = not LabelGuard.for_filters(store, domains, sensitivity, projects).active
         rows = store.list_memories(
             status="active",
             memory_types=("procedure",),
@@ -122,6 +126,7 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
             include_expired=False,
             lessons_only=True,
             lesson_projection=True,
+            lesson_lazy_metadata=lazy_metadata,
         )
         rows = admit_loaded(
             store, kind="memory", rows=rows, domains=domains, sensitivity_allowed=sensitivity, projects=projects
