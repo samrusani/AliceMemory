@@ -5,7 +5,16 @@ from __future__ import annotations
 from collections.abc import Iterator, Sequence
 from typing import Any
 
-from alicebot_api.vnext_stores.postgres.columns import REVISION_COLUMNS
+from alicebot_api.vnext_stores.postgres.columns import MEMORY_COLUMNS, REVISION_COLUMNS
+
+_MEMORY_FIELDS = frozenset(
+    {"id", "user_id", "value", "metadata_json", "created_by_agent_id", "created_at", "domain", "sensitivity", "project_id"}
+)
+_VECTOR_FIELDS = frozenset(
+    {"id", "user_id", "metadata_json", "domain", "sensitivity", "project_id", "created_at", "updated_at", "valid_from", "canonical_text", "title", "summary"}
+)
+LESSON_MEMORY_COLUMNS = ", ".join(name.strip() for name in MEMORY_COLUMNS.split(",") if name.strip() in _MEMORY_FIELDS)
+LESSON_VECTOR_COLUMNS = ", ".join(name.strip() for name in MEMORY_COLUMNS.split(",") if name.strip() in _VECTOR_FIELDS)
 
 _REVISION_FIELDS = frozenset(
     {"memory_id", "revision_number", "sequence_no", "id", "action", "revision_type", "actor_type", "actor_id", "created_at", "text_before", "text_after"}

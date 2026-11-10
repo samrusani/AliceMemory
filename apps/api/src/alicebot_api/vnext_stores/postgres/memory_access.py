@@ -29,6 +29,7 @@ from alicebot_api.vnext_stores.postgres.query_predicates import (
     _postgres_ascii_literal_contains_sql,
     _tsquery_any_expression,
 )
+from alicebot_api.vnext_stores.postgres.lessons import LESSON_MEMORY_COLUMNS, LESSON_VECTOR_COLUMNS
 from alicebot_api.vnext_stores.retrieval_common import _search_patterns
 
 VNextRow = dict[str, object]
@@ -349,10 +350,7 @@ def list_memories(
     if limit is not None:
         limit_sql = " LIMIT %s"
         params.append(limit)
-    columns = (
-        "id, user_id, value, metadata_json, created_by_agent_id, created_at, domain, sensitivity, project_id"
-        if lesson_projection else MEMORY_COLUMNS
-    )
+    columns = LESSON_MEMORY_COLUMNS if lesson_projection else MEMORY_COLUMNS
     return self._fetch_all(
         f"""
                 SELECT {columns}
@@ -1103,11 +1101,7 @@ def search_memories_vector(
     # SET LOCAL scopes it to the current transaction.
     with self.conn.cursor() as cur:
         cur.execute("SET LOCAL hnsw.iterative_scan = 'strict_order'")
-    result_columns = (
-        "id, user_id, metadata_json, domain, sensitivity, project_id, created_at, updated_at, "
-        "valid_from, canonical_text, title, summary"
-        if lessons_only else MEMORY_COLUMNS
-    )
+    result_columns = LESSON_VECTOR_COLUMNS if lessons_only else MEMORY_COLUMNS
     vector_query = f"""
                 SELECT {result_columns},
                   (embedding_vector <=> %s::vector) AS vector_distance

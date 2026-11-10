@@ -25,6 +25,7 @@ from alicebot_api.vnext_project_scope import (
 )
 from alicebot_api.vnext_stores.retrieval_common import _search_patterns
 from alicebot_api.vnext_stores.sqlite.columns import MEMORY_COLUMNS
+from alicebot_api.vnext_stores.sqlite.lessons import LESSON_MEMORY_COLUMNS, LESSON_VECTOR_COLUMNS
 from alicebot_api.vnext_stores.sqlite.primitives import _iso_or_none
 from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _fts_match_any_expression,
@@ -542,10 +543,7 @@ def list_memories(
         limit_sql = " LIMIT ?"
         params.append(limit)
     lesson_sql = " AND json_type(value, '$.lesson') = 'object'" if lessons_only else ""
-    columns = (
-        "id, user_id, value, metadata_json, created_by_agent_id, created_at, domain, sensitivity, project_id"
-        if lesson_projection else ", ".join(MEMORY_COLUMNS)
-    )
+    columns = LESSON_MEMORY_COLUMNS if lesson_projection else ", ".join(MEMORY_COLUMNS)
     return self._fetch_all(
         f"""
                 SELECT {columns}
@@ -1523,11 +1521,7 @@ def search_memories_vector(
         # The hydrate re-applies ``predicate_sql`` (the scan's full WHERE
         # set), so ``embedding`` here is guaranteed non-NULL and the row still
         # satisfies every lifecycle/scope/signature gate at hydrate time.
-        projection = (
-            "id, user_id, metadata_json, domain, sensitivity, project_id, created_at, updated_at, "
-            "valid_from, canonical_text, title, summary"
-            if lessons_only else ", ".join(MEMORY_COLUMNS)
-        )
+        projection = LESSON_VECTOR_COLUMNS if lessons_only else ", ".join(MEMORY_COLUMNS)
         id_clause = "id IN (SELECT value FROM json_each(?))" if lessons_only else f"id IN ({self._placeholders(batch_ids)})"
         id_params = (json.dumps(batch_ids),) if lessons_only else tuple(batch_ids)
         hydrated = self._fetch_all(
