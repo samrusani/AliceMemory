@@ -1725,6 +1725,7 @@ class FakeVNextMCPStore:
         include_expired: bool = True,
         lessons_only: bool = False,
         lesson_projection: bool = False,
+        lesson_lazy_metadata: bool = False,
     ) -> list[dict[str, object]]:
         if limit is not None and limit < 1:
             raise ValueError("limit must be positive")

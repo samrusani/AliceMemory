@@ -25315,6 +25315,22 @@
         "tests/unit/test_lessons_read.py::test_unbound_admin_writer_is_read_from_lazy_metadata"
       ],
       "expected_failure": "test_unbound_admin_writer_is_read_from_lazy_metadata"
+    },
+    {
+      "name": "lessons-fake-list-signature",
+      "edits": [
+        {
+          "file": "tests/unit/test_mcp.py",
+          "before": "        lesson_lazy_metadata: bool = False,\n",
+          "after": "",
+          "line": 1728,
+          "sha256": "5b75c56bc7055692fc6123fde5b202fb158d2459325e3bc028db6db57051e886"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_mcp.py::test_fake_vnext_mcp_store_list_signatures_match_production_and_reject_unknown_keywords"
+      ],
+      "expected_failure": "test_fake_vnext_mcp_store_list_signatures_match_production_and_reject_unknown_keywords"
     }
   ]
 }
