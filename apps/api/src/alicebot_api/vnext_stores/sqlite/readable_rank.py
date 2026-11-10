@@ -47,7 +47,7 @@ def _prepare(store: Any, expression: str) -> list[list[str]]:
 def _phrase(table: str, terms: list[str]) -> tuple[str, str, tuple[str, ...]]:
     if len(terms) > 32:
         # Keep long quoted phrases below SQLite's join-table limit.
-        where = (f"v0.term=? AND NOT EXISTS (SELECT 1 FROM json_each(?) q WHERE NOT EXISTS "
+        where = (f"v0.term=? AND NOT EXISTS (SELECT 1 FROM json_each(?) q WHERE NOT EXISTS "  # nosec B608 - fixed vocabulary name; terms are bound
                  f"(SELECT 1 FROM temp.{table} token WHERE token.term=q.value AND token.doc=v0.doc "
                  "AND token.col=v0.col AND token.offset=v0.offset+CAST(q.key AS INTEGER)))")
         return f"temp.{table} v0", where, (terms[0], json.dumps(terms))
@@ -75,7 +75,7 @@ def rank_sql(
     docsize = "memories_fts_docsize" if memory else "source_chunks_fts_docsize"
     alias = "m" if memory else "c"
     population_sql = (
-        f"SELECT {alias}.rowid AS rid,alice_fts_tokens(d.sz) AS length,({ordinary}) AS ordinary "
+        f"SELECT {alias}.rowid AS rid,alice_fts_tokens(d.sz) AS length,({ordinary}) AS ordinary "  # nosec B608 - closed store clauses; values are bound
         f"FROM {population_from} JOIN {docsize} d ON d.id={alias}.rowid WHERE {population_where}"
     )
     parameters: list[object] = list(population_params)
@@ -85,16 +85,16 @@ def rank_sql(
     for i, (phrase, repetitions) in enumerate(Counter(tuple(p) for p in phrases).items()):
         table, where, values = _phrase(vocab, list(phrase))
         hits.append(
-            f"SELECT v0.doc, {i} AS phrase, sum({weights}) AS frequency, p.length, p.ordinary, {repetitions} AS repetitions "
+            f"SELECT v0.doc, {i} AS phrase, sum({weights}) AS frequency, p.length, p.ordinary, {repetitions} AS repetitions "  # nosec B608 - generated integers and fixed weights
             f"FROM {table} CROSS JOIN rank_population p WHERE p.rid=v0.doc AND {where} GROUP BY v0.doc"
         )
         parameters.extend(values)
     # Source-query byte and distinct-term limits still apply. Batch the SQL
     # compounds too: many distinct quoted phrases can use few distinct words.
     batches = [" UNION ALL ".join(hits[start:start + 128]) for start in range(0, len(hits), 128)]
-    hit_sql = batches[0] if len(batches) == 1 else " UNION ALL ".join("SELECT * FROM (" + batch + ")" for batch in batches)
-    cte = ("WITH rank_population AS MATERIALIZED (" + population_sql + "), "
-           "rank_hits AS MATERIALIZED (" + hit_sql + "), "
+    hit_sql = batches[0] if len(batches) == 1 else " UNION ALL ".join("SELECT * FROM (" + batch + ")" for batch in batches)  # nosec B608 - closed queries above
+    cte = ("WITH rank_population AS MATERIALIZED (" + population_sql + "), "  # nosec B608 - closed queries above
+           "rank_hits AS MATERIALIZED (" + hit_sql + "), "  # nosec B608 - closed queries above
            "phrase_statistics AS MATERIALIZED (SELECT phrase, count(CASE WHEN ordinary THEN 1 END) AS df "
            "FROM rank_hits GROUP BY phrase), "
            "rank_statistics AS MATERIALIZED (SELECT count(*) AS n, avg(length) AS average "

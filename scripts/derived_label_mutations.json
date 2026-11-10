@@ -26028,7 +26028,7 @@
           "line": 101,
           "before": "FROM rank_population WHERE ordinary), ",
           "after": "FROM rank_population), ",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26044,7 +26044,7 @@
           "line": 98,
           "before": "count(CASE WHEN ordinary THEN 1 END)",
           "after": "count(*)",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26060,7 +26060,7 @@
           "line": 79,
           "before": "WHERE {population_where}",
           "after": "WHERE TRUE",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26076,7 +26076,7 @@
           "line": 89,
           "before": "WHERE p.rid=v0.doc AND {where}",
           "after": "WHERE {where}",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26092,7 +26092,7 @@
           "line": 82,
           "before": "WHEN 'title' THEN 1.0",
           "after": "WHEN 'title' THEN 0.0",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26108,7 +26108,7 @@
           "line": 82,
           "before": "WHEN 'canonical_text' THEN 0.4",
           "after": "WHEN 'canonical_text' THEN 0.0",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26124,7 +26124,7 @@
           "line": 83,
           "before": "WHEN 'summary' THEN 0.2",
           "after": "WHEN 'summary' THEN 0.0",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26140,7 +26140,7 @@
           "line": 83,
           "before": "WHEN 'memory_key' THEN 0.4",
           "after": "WHEN 'memory_key' THEN 0.0",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26156,7 +26156,7 @@
           "line": 83,
           "before": "WHEN 'fact_keys' THEN 0.1",
           "after": "WHEN 'fact_keys' THEN 0.0",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26172,7 +26172,7 @@
           "line": 16,
           "before": "value = (value << 7) | (byte & 127)",
           "after": "value = byte & 127",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26188,7 +26188,7 @@
           "line": 17,
           "before": "if byte < 128:",
           "after": "if True:",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26204,7 +26204,7 @@
           "line": 18,
           "before": "total += value",
           "after": "total += 1",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26220,7 +26220,7 @@
           "line": 102,
           "before": ",0.000001)",
           "after": ",1.0)",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26236,7 +26236,7 @@
           "line": 102,
           "before": "(n-df+0.5)/(df+0.5)",
           "after": "1.0",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26252,7 +26252,7 @@
           "line": 102,
           "before": "(n-df+0.5)/(df+0.5)",
           "after": "(n-df+1.5)/(df+1.5)",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26268,7 +26268,7 @@
           "line": 103,
           "before": "frequency * 2.2",
           "after": "frequency * 2.0",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26284,7 +26284,7 @@
           "line": 103,
           "before": "frequency + 1.2 *",
           "after": "frequency + 1.0 *",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26300,7 +26300,7 @@
           "line": 103,
           "before": "0.25 + 0.75 * length / average",
           "after": "0.25 + 0.75 * 1.0",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26316,7 +26316,7 @@
           "line": 55,
           "before": "AND v{i}.col=v0.col ",
           "after": " ",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26332,7 +26332,7 @@
           "line": 55,
           "before": "v{i}.offset=v0.offset+{i}",
           "after": "v{i}.offset=v0.offset",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26348,7 +26348,7 @@
           "line": 40,
           "before": "ORDER BY doc,offset",
           "after": "ORDER BY doc,term",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26364,7 +26364,7 @@
           "line": 35,
           "before": "tokenize='porter unicode61'",
           "after": "tokenize='unicode61'",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26380,7 +26380,7 @@
           "line": 72,
           "before": "if not phrases:",
           "after": "if False:",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26396,7 +26396,7 @@
           "line": 44,
           "before": "[phrase for phrase in result if phrase]",
           "after": "result",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26412,7 +26412,7 @@
           "line": 33,
           "before": "EXISTS temp.alice_memory_terms",
           "after": "EXISTS main.alice_memory_terms",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26428,7 +26428,7 @@
           "line": 34,
           "before": "EXISTS temp.alice_chunk_terms",
           "after": "EXISTS main.alice_chunk_terms",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26444,7 +26444,7 @@
           "line": 35,
           "before": "EXISTS temp.alice_query_text",
           "after": "EXISTS main.alice_query_text",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26460,7 +26460,7 @@
           "line": 36,
           "before": "EXISTS temp.alice_query_terms",
           "after": "EXISTS main.alice_query_terms",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26476,7 +26476,7 @@
           "line": 36,
           "before": "    conn.execute(\"CREATE VIRTUAL TABLE IF NOT EXISTS temp.alice_query_terms USING fts5vocab(temp, alice_query_text, instance)\")",
           "after": "    conn.execute(\"CREATE VIRTUAL TABLE IF NOT EXISTS temp.alice_query_terms USING fts5vocab(temp, alice_query_text, instance)\")\n    conn.execute(\"CREATE TABLE IF NOT EXISTS main.rank_persistent_probe(value)\")",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26492,7 +26492,7 @@
           "line": 125,
           "before": "admitted.extend(admit_loaded(store, kind=\"memory\", rows=rows, domains=domains,\n                                         sensitivity_allowed=sensitivity_allowed, projects=projects))",
           "after": "admitted.extend(rows)",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26508,7 +26508,7 @@
           "line": 127,
           "before": "if len(admitted) >= limit or len(rows) < page_limit:",
           "after": "if True:",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26524,7 +26524,7 @@
           "line": 128,
           "before": "return admitted[:limit]",
           "after": "return admitted",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26556,7 +26556,7 @@
           "line": 31,
           "before": "if not installed:",
           "after": "if True:",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26572,7 +26572,7 @@
           "line": 103,
           "before": "* repetitions) AS score",
           "after": "* 1) AS score",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26588,7 +26588,7 @@
           "line": 95,
           "before": "hit_sql = batches[0] if len(batches) == 1 else \" UNION ALL \".join(\"SELECT * FROM (\" + batch + \")\" for batch in batches)",
           "after": "hit_sql = \" UNION ALL \".join(hits)",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
@@ -26604,7 +26604,7 @@
           "line": 48,
           "before": "if len(terms) > 32:",
           "after": "if False:",
-          "sha256": "746fc44b70d3542c8f8bb08e8937ee02787e5a44f2659b9f4d920867be72b533"
+          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
         }
       ],
       "pytest": [
