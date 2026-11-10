@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Header, Path, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from alicebot_api.browser_clip_capabilities import (
     BrowserClipCapabilityValidationError,
@@ -17,7 +17,13 @@ from alicebot_api.browser_clip_capabilities import (
 )
 from alicebot_api.config import get_settings
 from alicebot_api.vnext_memory_propose import MemoryProposal, MemoryProposalInvalid, MemoryProposalRefused, propose_memory
-from alicebot_api.write_bounds import MAX_COMMIT_SOURCE_REFS
+from alicebot_api.write_bounds import (
+    MAX_COMMIT_LESSON_APPLIES_WHEN_CHARS,
+    MAX_COMMIT_LESSON_DO_INSTEAD_CHARS,
+    MAX_COMMIT_LESSON_PATHS,
+    MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS,
+    MAX_COMMIT_SOURCE_REFS,
+)
 from alicebot_api.credential_floor import (
     SEARCHABLE_STATUSES,
     TEXT_WITHHELD_PLACEHOLDER,
@@ -248,11 +254,18 @@ class VNextMemoryProposalRequest(VNextAgentRequest):
     review_required: bool = True
 
 
+class VNextMemoryCommitLessonRequest(BaseModel):
+    applies_when: str = Field(min_length=1, max_length=MAX_COMMIT_LESSON_APPLIES_WHEN_CHARS)
+    what_happened: str = Field(min_length=1, max_length=MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS)
+    do_instead: str = Field(min_length=1, max_length=MAX_COMMIT_LESSON_DO_INSTEAD_CHARS)
+    paths: list[str] | None = Field(default=None, max_length=MAX_COMMIT_LESSON_PATHS)
+
+
 class VNextMemoryCommitRequest(VNextAgentRequest):
     user_id: UUID
     intent: str = Field(default="explicit_remember", min_length=1, max_length=120)
-    title: str = Field(min_length=1, max_length=280)
-    canonical_text: str = Field(min_length=1, max_length=20_000)
+    title: str | None = Field(default=None, min_length=1, max_length=280)
+    canonical_text: str | None = Field(default=None, min_length=1, max_length=20_000)
     memory_type: str = Field(default="semantic", min_length=1, max_length=80)
     domain: VNextDomain = "unknown"
     sensitivity: VNextSensitivity = "unknown"
@@ -267,6 +280,21 @@ class VNextMemoryCommitRequest(VNextAgentRequest):
     rationale: str | None = Field(default=None, min_length=1, max_length=4000)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
     contradiction_refs: list[str] = Field(default_factory=list)
+    lesson: VNextMemoryCommitLessonRequest | None = None
+
+    @model_validator(mode="after")
+    def _check_lesson_text_shape(self) -> VNextMemoryCommitRequest:
+        if self.lesson is None:
+            if self.title is None or self.canonical_text is None:
+                raise ValueError("title and canonical_text are required when the commit carries no lesson")
+            return self
+        if self.canonical_text is not None:
+            raise ValueError("canonical_text must be left out when the commit carries a lesson")
+        if "memory_type" in self.model_fields_set and self.memory_type != "procedure":
+            # A memory_type the client sent must be procedure; the default it
+            # did not send is replaced by procedure in the service.
+            raise ValueError("a commit with a lesson has memory_type procedure")
+        return self
 
 
 class VNextMemoryConfirmRequest(VNextAgentRequest):
@@ -1769,7 +1797,7 @@ def commit_vnext_memory(
     try:
         identity = _vnext_agent_identity(request)
         commit_request = memory_commit_request_from_payload(
-            request.model_dump(mode="json", exclude={"agent", "agent_identity"}),
+            request.model_dump(mode="json", exclude={"agent", "agent_identity"}, exclude_unset=True),
             user_id=request.user_id,
         )
     except (AgentIdentityValidationError, VNextMemoryCommitValidationError) as exc:

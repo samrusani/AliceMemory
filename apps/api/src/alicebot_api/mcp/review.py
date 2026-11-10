@@ -530,6 +530,19 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
         # built from its labels (that decision would repeat them) and before anything is recorded.
         if target is None or outside_caller_limits(store, identity, "memory", target):
             raise MCPReferenceNotFoundError(f"memory {memory_id} was not found")
+        target_value = target.get("value")
+        if (
+            resolved_action in {"edit", "supersede"}
+            and isinstance(target_value, Mapping)
+            and "lesson" in target_value
+        ):
+            # The block and the derived text must never disagree, so a lesson
+            # is never edited or superseded in place: reject it and record a
+            # new one.
+            raise MCPArgumentError(
+                "this memory carries a lesson, which cannot be edited or superseded; "
+                "reject it and record a new one"
+            )
         judged = effective_row_for_fence(store, identity, "memory", target)
         domains, sensitivity_allowed, project_scope, project_floor = policy_labels(judged)
         _checked_actor_type, _checked_actor_id, decision = _policy_checked(

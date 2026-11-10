@@ -6,6 +6,8 @@ from functools import wraps
 from hashlib import sha256
 import json
 import logging
+import re
+import unicodedata
 from typing import Any, Callable, Mapping, TypeVar, cast
 from uuid import UUID, uuid4
 
@@ -64,6 +66,11 @@ from alicebot_api.vnext_source_fence import (
 )
 from alicebot_api.write_bounds import (
     MAX_COMMIT_CANONICAL_TEXT_CHARS as _MAX_COMMIT_CANONICAL_TEXT_CHARS,
+    MAX_COMMIT_LESSON_APPLIES_WHEN_CHARS as _MAX_COMMIT_LESSON_APPLIES_WHEN_CHARS,
+    MAX_COMMIT_LESSON_DO_INSTEAD_CHARS as _MAX_COMMIT_LESSON_DO_INSTEAD_CHARS,
+    MAX_COMMIT_LESSON_PATHS as _MAX_COMMIT_LESSON_PATHS,
+    MAX_COMMIT_LESSON_PATH_CHARS as _MAX_COMMIT_LESSON_PATH_CHARS,
+    MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS as _MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS,
     MAX_COMMIT_SOURCE_REF_CHARS as _MAX_COMMIT_SOURCE_REF_CHARS,
     MAX_COMMIT_SOURCE_REFS as _MAX_COMMIT_SOURCE_REFS,
 )
@@ -86,6 +93,7 @@ from alicebot_api.vnext_promotion_policy import (
     PromotionSettings,
     PromotionSettingsValidationError,
     evaluate_promotion,
+    hard_floor_hits,
     resolve_promotion_settings,
     writer_trust_for,
 )
@@ -384,6 +392,31 @@ class MemoryCommitPolicyDecision:
 
 
 @dataclass(frozen=True, slots=True)
+class LessonBlock:
+    """A shaped correction note riding a memory commit.
+
+    Stored verbatim inside the memory's value, next to text and intent. The
+    memory's text and title are derived from it, so the block and the text
+    can never disagree.
+    """
+
+    applies_when: str
+    what_happened: str
+    do_instead: str
+    paths: tuple[str, ...] = ()
+
+    def to_value_record(self) -> JsonObject:
+        record: JsonObject = {
+            "applies_when": self.applies_when,
+            "what_happened": self.what_happened,
+            "do_instead": self.do_instead,
+        }
+        if self.paths:
+            record["paths"] = list(self.paths)
+        return record
+
+
+@dataclass(frozen=True, slots=True)
 class MemoryCommitRequest:
     user_id: str
     title: str
@@ -401,11 +434,12 @@ class MemoryCommitRequest:
     project_scope: tuple[str, ...] = ()
     contradiction_refs: tuple[str, ...] = ()
     trace_id: str | None = None
+    lesson: LessonBlock | None = None
 
 
 def _request_fingerprint(request: MemoryCommitRequest) -> str:
     """Content-bound digest for detecting unsafe idempotency-key reuse."""
-    payload = {
+    payload: dict[str, object] = {
         "user_id": request.user_id,
         "title": request.title,
         "canonical_text": request.canonical_text,
@@ -421,6 +455,10 @@ def _request_fingerprint(request: MemoryCommitRequest) -> str:
         "project_scope": list(request.project_scope),
         "contradiction_refs": list(request.contradiction_refs),
     }
+    if request.lesson is not None:
+        # Part of the fingerprint only when present, so every fingerprint a
+        # request without a lesson produces is the digest main produces.
+        payload["lesson"] = request.lesson.to_value_record()
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return sha256(encoded).hexdigest()
 
@@ -601,6 +639,15 @@ def _request_contains_secret_marker(request: MemoryCommitRequest) -> str | None:
     something no carve-out excuses (see legacy_credential_check).
     """
 
+    lesson_surfaces: tuple[object, ...] = ()
+    if request.lesson is not None:
+        lesson_surfaces = (
+            request.lesson.applies_when,
+            request.lesson.what_happened,
+            request.lesson.do_instead,
+            *request.lesson.paths,
+        )
+
     return commit_door_secret_verdict(
         request.title,
         request.canonical_text,
@@ -610,6 +657,7 @@ def _request_contains_secret_marker(request: MemoryCommitRequest) -> str | None:
         request.idempotency_key,
         request.trace_id,
         list(request.project_scope),
+        *lesson_surfaces,
     )
 
 
@@ -866,6 +914,15 @@ def evaluate_memory_commit_policy(
         )
         mode = "reject"
         status = "rejected"
+    elif request.lesson is not None and hard_floor_hits(
+        promotion_candidate_for_request(identity=identity, request=request)
+    ):
+        # Instruction-shaped lesson text is refused for every writer, the
+        # owner included, whether or not a persona is configured. The check
+        # is the promotion policy's own floor, never a copy of it.
+        reasons.append("lesson_instruction_shaped")
+        mode = "reject"
+        status = "rejected"
     elif request.intent.casefold() not in EXPLICIT_MEMORY_INTENTS:
         reasons.append("explicit_memory_intent_required")
         mode = "propose_review"
@@ -945,7 +1002,9 @@ def evaluate_memory_commit_policy(
     # rejection above still stands exactly as it did.
     promotion: PromotionDecision | None = None
     promoted_from: str | None = None
-    if promotion_settings is not None:
+    if promotion_settings is not None and request.lesson is None:
+        # A lesson is never lifted: whatever the persona and the settings
+        # say, a lesson that is not published at once stays waiting.
         promotion = evaluate_promotion(
             settings=promotion_settings,
             candidate=promotion_candidate_for_request(identity=identity, request=request),
@@ -959,6 +1018,19 @@ def evaluate_memory_commit_policy(
             status = "committed"
 
     reason = reasons[-1] if reasons else "explicit_trusted_memory_commit"
+    if (
+        request.lesson is not None
+        and mode != "reject"
+        and identity is not None
+        and identity.permission_profile != "admin_agent"
+    ):
+        # Publishing a lesson at once is the owner's and an admin_agent
+        # key's standing alone. Every other identity, whatever its profile,
+        # waits for review, and the promotion policy never lifts it.
+        reasons.append("lesson_requires_approval")
+        mode = "propose_review"
+        status = "review_required"
+        reason = "lesson_requires_approval"
     return MemoryCommitPolicyDecision(
         write_mode=mode,
         status=status,
@@ -3219,6 +3291,7 @@ class VNextMemoryCommitService:
                     "text": request.canonical_text,
                     "intent": request.intent,
                     "source_refs": json_safe(list(request.source_refs)),
+                    **({"lesson": request.lesson.to_value_record()} if request.lesson is not None else {}),
                 },
                 "status": "active",
                 "confirmation_status": "confirmed",
@@ -3332,6 +3405,7 @@ class VNextMemoryCommitService:
             "write_mode": "confirm_inline" if confirmed_inline else "commit",
             "memory": memory,
             "policy_decision": decision.to_record(),
+            **({"lesson": request.lesson.to_value_record()} if request.lesson is not None else {}),
         }
 
     def _create_confirmation(
@@ -3373,6 +3447,7 @@ class VNextMemoryCommitService:
                     "text": request.canonical_text,
                     "intent": request.intent,
                     "source_refs": json_safe(list(request.source_refs)),
+                    **({"lesson": request.lesson.to_value_record()} if request.lesson is not None else {}),
                 },
                 "status": "needs_review",
                 "confirmation_status": "unconfirmed",
@@ -3459,6 +3534,7 @@ class VNextMemoryCommitService:
                     "text": request.canonical_text,
                     "source_refs": json_safe(list(request.source_refs)),
                     "rationale": request.rationale,
+                    **({"lesson": request.lesson.to_value_record()} if request.lesson is not None else {}),
                 },
                 "status": "candidate",
                 "confirmation_status": "unconfirmed",
@@ -3516,6 +3592,7 @@ class VNextMemoryCommitService:
             "proposal_id": proposal_id,
             "memory": memory,
             "policy_decision": decision.to_record(),
+            **({"lesson": request.lesson.to_value_record()} if request.lesson is not None else {}),
         }
 
     def _append_decision_event(
@@ -3999,28 +4076,133 @@ class VNextMemoryCommitService:
         }
 
 
+def _bounded_lesson_text(value: object, *, field: str, limit: int) -> str:
+    """One lesson text field: the same collapse, size and character rules as the commit text."""
+    text = _normalized_text(value, field_name=field)
+    if len(text) > limit:
+        raise VNextMemoryCommitValidationError(f"{field} must be at most {limit:,} characters, got {len(text):,}")
+    if any(unicodedata.category(character).startswith("C") for character in text):
+        raise VNextMemoryCommitValidationError(f"{field} must not contain control characters")
+    return text
+
+
+_LESSON_FIELDS = ("applies_when", "what_happened", "do_instead")
+
+
+def _lesson_paths(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, (list, tuple)):
+        raise VNextMemoryCommitValidationError("lesson.paths must be an array of strings")
+    if len(value) > _MAX_COMMIT_LESSON_PATHS:
+        raise VNextMemoryCommitValidationError(f"lesson.paths must hold at most {_MAX_COMMIT_LESSON_PATHS} entries")
+    paths: list[str] = []
+    for entry in value:
+        if not isinstance(entry, str):
+            raise VNextMemoryCommitValidationError("lesson.paths must be an array of strings")
+        path = " ".join(entry.split()).strip()
+        if not path:
+            raise VNextMemoryCommitValidationError("lesson.paths entries must not be empty")
+        if len(path) > _MAX_COMMIT_LESSON_PATH_CHARS:
+            raise VNextMemoryCommitValidationError(
+                f"lesson.paths entries must be at most {_MAX_COMMIT_LESSON_PATH_CHARS} characters"
+            )
+        if path.startswith(("/", "~")) or ".." in path.split("/") or re.search(r"^[A-Za-z]:", path) or ":" in path:
+            raise VNextMemoryCommitValidationError(
+                "lesson.paths entries must be repo-relative paths or globs: no leading / or ~, "
+                "no .. segment, and no drive letter"
+            )
+        if any(unicodedata.category(character).startswith("C") for character in path):
+            raise VNextMemoryCommitValidationError("lesson.paths entries must not contain control characters")
+        paths.append(path)
+    return tuple(paths)
+
+
+def _lesson_block_from_payload(value: object) -> LessonBlock:
+    if not isinstance(value, Mapping):
+        raise VNextMemoryCommitValidationError("lesson must be an object")
+    unknown = sorted(str(key) for key in value if key not in (*_LESSON_FIELDS, "paths"))
+    if unknown:
+        raise VNextMemoryCommitValidationError(f"lesson has unknown fields: {', '.join(unknown)}")
+    missing = [name for name in _LESSON_FIELDS if value.get(name) is None]
+    if missing:
+        raise VNextMemoryCommitValidationError(f"lesson is missing {', '.join(missing)}")
+    return LessonBlock(
+        applies_when=_bounded_lesson_text(
+            value["applies_when"], field="lesson.applies_when", limit=_MAX_COMMIT_LESSON_APPLIES_WHEN_CHARS
+        ),
+        what_happened=_bounded_lesson_text(
+            value["what_happened"], field="lesson.what_happened", limit=_MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS
+        ),
+        do_instead=_bounded_lesson_text(
+            value["do_instead"], field="lesson.do_instead", limit=_MAX_COMMIT_LESSON_DO_INSTEAD_CHARS
+        ),
+        paths=_lesson_paths(value.get("paths")),
+    )
+
+
+def lesson_derived_text(lesson: LessonBlock) -> str:
+    """The stored text of a lesson commit, derived so the block and the text cannot disagree."""
+
+    return (
+        f"Applies when: {lesson.applies_when} Do instead: {lesson.do_instead} "
+        f"What happened: {lesson.what_happened}"
+    )
+
+
+def lesson_derived_title(lesson: LessonBlock) -> str:
+    """The stored title of a lesson commit: the first 80 characters of applies_when."""
+
+    return lesson.applies_when[:80]
+
+
 def memory_commit_request_from_payload(payload: Mapping[str, object], *, user_id: object) -> MemoryCommitRequest:
     confidence = payload.get("confidence", 0.9)
     if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
         raise VNextMemoryCommitValidationError("confidence must be a number")
     if confidence < 0.0 or confidence > 1.0:
         raise VNextMemoryCommitValidationError("confidence must be between 0.0 and 1.0")
-    return MemoryCommitRequest(
-        user_id=str(user_id),
-        title=_normalized_text(payload.get("title"), field_name="title"),
-        canonical_text=_commit_canonical_text(payload.get("canonical_text")),
-        memory_type=_enum_value(
+    raw_lesson = payload.get("lesson")
+    lesson: LessonBlock | None = None
+    if raw_lesson is not None:
+        lesson = _lesson_block_from_payload(raw_lesson)
+        if payload.get("canonical_text") is not None:
+            raise VNextMemoryCommitValidationError("canonical_text must be left out when the commit carries a lesson")
+        raw_memory_type = payload.get("memory_type")
+        if raw_memory_type is not None and _enum_value(
+            raw_memory_type, field_name="memory_type", allowed_values=VNEXT_MEMORY_TYPES, aliases=_MEMORY_TYPE_ALIASES
+        ) != "procedure":
+            raise VNextMemoryCommitValidationError("a commit with a lesson has memory_type procedure")
+        memory_type = "procedure"
+        domain_raw = payload.get("domain")
+        domain = (
+            "project"
+            if domain_raw is None
+            else _enum_value(domain_raw, field_name="domain", allowed_values=VNEXT_DOMAINS, aliases=_DOMAIN_ALIASES)
+        )
+        title = _optional_text(payload.get("title")) or lesson_derived_title(lesson)
+        canonical_text = lesson_derived_text(lesson)
+    else:
+        memory_type = _enum_value(
             payload.get("memory_type", "semantic"),
             field_name="memory_type",
             allowed_values=VNEXT_MEMORY_TYPES,
             aliases=_MEMORY_TYPE_ALIASES,
-        ),
-        domain=_enum_value(
+        )
+        domain = _enum_value(
             payload.get("domain", "unknown"),
             field_name="domain",
             allowed_values=VNEXT_DOMAINS,
             aliases=_DOMAIN_ALIASES,
-        ),
+        )
+        title = _normalized_text(payload.get("title"), field_name="title")
+        canonical_text = _commit_canonical_text(payload.get("canonical_text"))
+    return MemoryCommitRequest(
+        user_id=str(user_id),
+        title=title,
+        canonical_text=canonical_text,
+        memory_type=memory_type,
+        domain=domain,
         sensitivity=_enum_value(
             payload.get("sensitivity", "unknown"),
             field_name="sensitivity",
@@ -4037,6 +4219,7 @@ def memory_commit_request_from_payload(payload: Mapping[str, object], *, user_id
         project_scope=_string_tuple(payload.get("project_scope")),
         contradiction_refs=_string_tuple(payload.get("contradiction_refs")),
         trace_id=_optional_text(payload.get("trace_id")),
+        lesson=lesson,
     )
 
 

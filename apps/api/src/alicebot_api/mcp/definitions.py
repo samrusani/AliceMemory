@@ -30,6 +30,11 @@ from alicebot_api.write_bounds import (
     MAX_CAPTURE_CANDIDATE_CHARS,
     MAX_CAPTURE_COMMIT_CANDIDATES,
     MAX_COMMIT_CANONICAL_TEXT_CHARS,
+    MAX_COMMIT_LESSON_APPLIES_WHEN_CHARS,
+    MAX_COMMIT_LESSON_DO_INSTEAD_CHARS,
+    MAX_COMMIT_LESSON_PATHS,
+    MAX_COMMIT_LESSON_PATH_CHARS,
+    MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS,
     MAX_COMMIT_SOURCE_REF_CHARS,
     MAX_COMMIT_SOURCE_REFS,
     MAX_CORRECTION_FIELD_CHARS,
@@ -326,8 +331,37 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                         "The memory content, phrased as a standalone statement. At most "
                         f"{MAX_COMMIT_CANONICAL_TEXT_CHARS:,} characters, counted after runs of whitespace "
                         "are collapsed to one space; a longer one is refused and nothing is saved. Required "
-                        "for a new write; leave it out when sending confirmation_id."
+                        "for a new write; leave it out when sending confirmation_id. Must be left out when "
+                        "sending lesson: the text is derived from the lesson."
                     ),
+                },
+                "lesson": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "description": (
+                        "Publish a shaped lesson instead of free text. Fields: applies_when (required, "
+                        f"at most {MAX_COMMIT_LESSON_APPLIES_WHEN_CHARS:,} characters), what_happened "
+                        f"(required, at most {MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS:,}) and do_instead "
+                        f"(required, at most {MAX_COMMIT_LESSON_DO_INSTEAD_CHARS:,}), plus an optional paths "
+                        f"list of at most {MAX_COMMIT_LESSON_PATHS} repo-relative paths or globs, each at "
+                        f"most {MAX_COMMIT_LESSON_PATH_CHARS:,} characters, with no leading / or ~, no .. "
+                        "segment and no drive letter. The memory is a procedure; its text and title are "
+                        "derived from the lesson. The owner and an admin_agent key publish a lesson at "
+                        "once; every other identity's lesson waits for review "
+                        "(lesson_requires_approval) and is never auto-promoted."
+                    ),
+                    "properties": {
+                        "applies_when": {"type": "string", "description": "When this lesson applies, as a condition."},
+                        "what_happened": {"type": "string", "description": "What happened that taught the lesson."},
+                        "do_instead": {"type": "string", "description": "What to do instead."},
+                        "paths": {
+                            "type": "array",
+                            "maxItems": MAX_COMMIT_LESSON_PATHS,
+                            "items": {"type": "string", "maxLength": MAX_COMMIT_LESSON_PATH_CHARS},
+                            "description": "Repo-relative paths or globs the lesson applies to. At most 16.",
+                        },
+                    },
+                    "required": ["applies_when", "what_happened", "do_instead"],
                 },
                 "memory_type": {
                     "type": "string",
