@@ -274,6 +274,8 @@ def list_memories(
     order_by_created_at: bool = False,
     limit: int | None = None,
     include_expired: bool = True,
+    lessons_only: bool = False,
+    lesson_projection: bool = False,
 ) -> list[VNextRow]:
     """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
 
@@ -337,8 +339,9 @@ def list_memories(
             escaped_query = _escape_like_literal(normalized_query)
             params.extend((escaped_query, escaped_query, escaped_query))
     expiry_sql = "" if include_expired else f" AND {POSTGRES_UNEXPIRED_SQL}"
+    lesson_sql = " AND jsonb_typeof(value -> 'lesson') = 'object'" if lessons_only else ""
     order_sql = (
-        "ORDER BY created_at DESC, id DESC"
+        ("ORDER BY created_at DESC, id ASC" if lesson_projection else "ORDER BY created_at DESC, id DESC")
         if order_by_created_at
         else "ORDER BY updated_at DESC, created_at DESC, id DESC"
     )
@@ -346,12 +349,13 @@ def list_memories(
     if limit is not None:
         limit_sql = " LIMIT %s"
         params.append(limit)
+    columns = "id, value, metadata_json, created_by_agent_id, created_at" if lesson_projection else MEMORY_COLUMNS
     return self._fetch_all(
         f"""
-                SELECT {MEMORY_COLUMNS}
+                SELECT {columns}
                 FROM memories
                 WHERE deleted_at IS NULL{status_sql}{statuses_sql}{memory_types_sql}
-                  {domains_sql}{sensitivity_sql}{projects_sql}{created_at_sql}{query_sql}{expiry_sql}
+                  {domains_sql}{sensitivity_sql}{projects_sql}{created_at_sql}{query_sql}{expiry_sql}{lesson_sql}
                 {order_sql}
                 {limit_sql}
                 """,
@@ -872,6 +876,7 @@ def search_memories_fts(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    lessons_only: bool = False,
 ) -> list[VNextRow]:
     memory_type_list = list(memory_types) or None
     project_list = list(project_scope_identity(projects)) or None
@@ -892,13 +897,19 @@ def search_memories_fts(
         tsquery_text = query
     from alicebot_api.vnext_label_sql import hidden_memory_input_sql
     label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=False, alias="memories")
+    lesson_sql = " AND status = 'active' AND jsonb_typeof(value -> 'lesson') = 'object'" if lessons_only else ""
+    ordering = "fts_score DESC, created_at DESC, id ASC" if lessons_only else "fts_score DESC, updated_at DESC, created_at DESC, id DESC"
+    lesson_tsv = "(setweight(to_tsvector('english', coalesce(title, '')), 'A') || setweight(to_tsvector('english', coalesce(canonical_text, '')), 'B'))"
+    score_tsv = lesson_tsv if lessons_only else "search_tsv"
+    text_filter = f"AND {lesson_tsv} @@ {tsquery_sql}" if lessons_only else ""
     return self._fetch_all(
         f"""
                 SELECT {MEMORY_COLUMNS},
-                  ts_rank(search_tsv, {tsquery_sql}) AS fts_score
+                  ts_rank({score_tsv}, {tsquery_sql}) AS fts_score
                 FROM memories
                 WHERE deleted_at IS NULL
                   AND {label_sql}
+                  {lesson_sql}
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))
@@ -929,7 +940,8 @@ def search_memories_fts(
                     OR {_MEMORY_SCOPE_EVENT_TIME_SQL} <= %s::timestamptz
                   )
                   AND search_tsv @@ {tsquery_sql}
-                ORDER BY fts_score DESC, updated_at DESC, created_at DESC, id DESC
+                  {text_filter}
+                ORDER BY {ordering}
                 LIMIT %s OFFSET %s
                 """,
         (
@@ -959,6 +971,7 @@ def search_memories_fts(
             scope_window_end,
             scope_window_end,
             tsquery_text,
+            *((tsquery_text,) if lessons_only else ()),
             limit,
             offset,
         ),
@@ -987,6 +1000,7 @@ def search_memories_vector(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    lessons_only: bool = False,
 ) -> list[VNextRow]:
     vector_param = _vector_literal(query_vector)
     memory_type_list = list(memory_types) or None
@@ -1062,12 +1076,14 @@ def search_memories_vector(
     # SET LOCAL scopes it to the current transaction.
     with self.conn.cursor() as cur:
         cur.execute("SET LOCAL hnsw.iterative_scan = 'strict_order'")
+    lesson_sql = " AND status = 'active' AND jsonb_typeof(value -> 'lesson') = 'object'" if lessons_only else ""
     vector_query = f"""
                 SELECT {MEMORY_COLUMNS},
                   (embedding_vector <=> %s::vector) AS vector_distance
                 FROM memories
                 WHERE deleted_at IS NULL
                   AND embedding_vector IS NOT NULL
+                  {lesson_sql}
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}
                   AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')
                   AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))

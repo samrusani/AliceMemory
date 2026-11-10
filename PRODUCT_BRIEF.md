@@ -43,8 +43,8 @@ Agent developers — people building or operating AI agents who need durable, ex
   and internal review passed.
 - Alice is public-alpha, pre-1.0, single-user, and self-hosted. `alice-memory`
   is published on PyPI; `uvx alice-memory mcp` serves three MCP tools on a
-  local SQLite file, or all twelve with `ALICE_MCP_FULL_TOOLS=1`, with no
-  Docker or Postgres.
+  local SQLite file, with no Docker or Postgres. On main,
+  `ALICE_MCP_FULL_TOOLS=1` exposes all thirteen core tools.
 - `v0.12.0` shipped the Phase 3 structural refactor with **Structure only.
   Zero behavior change.** It relocates oversized HTTP, store, contract, MCP,
   and CLI modules behind stable facades and entrypoints without changing the

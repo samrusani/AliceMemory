@@ -495,6 +495,8 @@ def list_memories(
     limit: int | None = None,
     include_expired: bool = True,
     exclude_global_domains: Sequence[str] | None = None,
+    lessons_only: bool = False,
+    lesson_projection: bool = False,
 ) -> list[VNextRow]:
     """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
 
@@ -531,7 +533,7 @@ def list_memories(
     )
     params = [*head_params, *project_params, *tail_params]
     order_sql = (
-        "ORDER BY created_at DESC, id DESC"
+        ("ORDER BY created_at DESC, id ASC" if lesson_projection else "ORDER BY created_at DESC, id DESC")
         if order_by_created_at
         else "ORDER BY updated_at DESC, created_at DESC, id DESC"
     )
@@ -539,13 +541,16 @@ def list_memories(
     if limit is not None:
         limit_sql = " LIMIT ?"
         params.append(limit)
+    lesson_sql = " AND json_type(value, '$.lesson') = 'object'" if lessons_only else ""
+    columns = "id, value, metadata_json, created_by_agent_id, created_at" if lesson_projection else ", ".join(MEMORY_COLUMNS)
     return self._fetch_all(
         f"""
-                SELECT {", ".join(MEMORY_COLUMNS)}
+                SELECT {columns}
                 FROM memories
                 {head_sql}
                   {project_sql}
                   {tail_sql}
+                  {lesson_sql}
                 {order_sql}
                 {limit_sql}
                 """,
@@ -1234,6 +1239,7 @@ def search_memories_fts(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    lessons_only: bool = False,
 ) -> list[VNextRow]:
     # Strict pass ANDs every non-stopword term (websearch parity);
     # match_any (the retrieval OR-fallback) ORs them instead so a
@@ -1242,6 +1248,8 @@ def search_memories_fts(
     match_expression = _fts_match_any_expression(query) if match_any else _fts_match_expression(query)
     if match_expression is None:
         return []
+    if lessons_only:
+        match_expression = "{title canonical_text}: (" + match_expression + ")"
     domain_sql, domain_params = self._domain_clause(domains, prefix="m.")
     sensitivity_sql, sensitivity_params = self._sensitivity_clause(sensitivity_allowed, prefix="m.")
     type_sql, type_params = self._memory_type_clause(memory_types, prefix="m.")
@@ -1261,6 +1269,13 @@ def search_memories_fts(
     prefixed_columns = ", ".join(f"m.{column}" for column in MEMORY_COLUMNS)
     from alicebot_api.vnext_label_sql import hidden_memory_input_sql
     label_sql = hidden_memory_input_sql(sensitivity_allowed, sqlite=True)
+    lesson_sql = " AND m.status = 'active' AND json_type(m.value, '$.lesson') = 'object'" if lessons_only else ""
+    ordering = "fts_score DESC, m.created_at DESC, m.id ASC" if lessons_only else "fts_score DESC, m.updated_at DESC, m.created_at DESC, m.id DESC"
+    score_sql = (
+        "2 * (coalesce(length(highlight(memories_fts, 0, char(1), '')), 0) - length(coalesce(m.title, ''))) + "
+        "(coalesce(length(highlight(memories_fts, 1, char(1), '')), 0) - length(coalesce(m.canonical_text, '')))"
+        if lessons_only else "-bm25(memories_fts, 1.0, 0.4, 0.2, 0.4, 0.1)"
+    )
     params: list[object] = [match_expression, self.user_id]
     params.extend(domain_params)
     params.extend(sensitivity_params)
@@ -1279,15 +1294,16 @@ def search_memories_fts(
         return self._fetch_all(
             f"""
                     SELECT {prefixed_columns},
-                      -bm25(memories_fts, 1.0, 0.4, 0.2, 0.4, 0.1) AS fts_score
+                      {score_sql} AS fts_score
                     FROM memories_fts
                     JOIN memories m ON m.rowid = memories_fts.rowid
                     WHERE memories_fts MATCH ?
                       AND m.user_id = ?
                       AND m.deleted_at IS NULL
                       AND {label_sql}
+                      {lesson_sql}
                       AND m.status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{scope_sql}
-                    ORDER BY fts_score DESC, m.updated_at DESC, m.created_at DESC, m.id DESC
+                    ORDER BY {ordering}
                     LIMIT ? OFFSET ?
                     """,
             tuple(params),
@@ -1320,6 +1336,7 @@ def search_memories_vector(
     scope_person_memory_ids: tuple[str, ...] = (),
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
+    lessons_only: bool = False,
 ) -> list[VNextRow]:
     if not query_vector:
         raise ContinuityStoreInvariantError("embedding vectors must not be empty")
@@ -1395,7 +1412,8 @@ def search_memories_vector(
                   AND deleted_at IS NULL
                   AND embedding IS NOT NULL
                   AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{scope_sql}"""
-    predicate_sql = f"{base_predicate_sql}{signature_sql}"
+    lesson_sql = " AND status = 'active' AND json_type(value, '$.lesson') = 'object'" if lessons_only else ""
+    predicate_sql = f"{base_predicate_sql}{signature_sql}{lesson_sql}"
     # Step 1a -- resident vector cache (Stage 2). When enabled and within
     # its byte cap, the ranking comes from the process-local float32 matrix
     # validated against the one-row embedding_stamp token; the candidate SQL

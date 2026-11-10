@@ -1082,6 +1082,21 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
             "required": ["topic"],
         },
     },
+    {
+        "name": "alice_lessons",
+        "description": "Find published lessons relevant to a task or the files about to be touched.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["task"],
+            "properties": {
+                **_AGENT_IDENTITY_SCHEMA_PROPERTIES,
+                "task": {"type": "string", "description": "What the agent is about to do."},
+                "paths": {"type": "array", "maxItems": 16, "items": {"type": "string"}, "description": "Files the agent is about to touch."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum lessons to return, default five."},
+            },
+        },
+    },
 ]
 
 
@@ -2128,6 +2143,7 @@ _LEGACY_TOOL_DEFINITIONS: list[dict[str, object]] = [
 _READ_ONLY_HINT_TOOLS = frozenset(
     {
         "alice_recall",
+        "alice_lessons",
         "alice_resume",
         "alice_context_pack",
         "alice_recent_decisions",

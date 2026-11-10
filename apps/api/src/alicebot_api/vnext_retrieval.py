@@ -3175,6 +3175,7 @@ class VNextRetrievalService:
         scope_window_start: datetime | None = None,
         scope_window_end: datetime | None = None,
         read_fence: SourceReadFence,
+        lessons_only: bool = False,
     ) -> tuple[list[JsonObject], str]:
         """Ranked memory rows of the full-text stage and the label of the pass that found them.
 
@@ -3215,6 +3216,8 @@ class VNextRetrievalService:
             }
         options = {"query": query, "domains": domains or None,
                    "sensitivity_allowed": sensitivity_allowed, **filters, **scope_filters}
+        if lessons_only:
+            options["lessons_only"] = True
         fts = callable(search_memories_fts)
         source = str(getattr(self.store, "fts_stage_source", "postgres_fts")) if fts else "store_lexical"
         rows = active_search(limit=limit, **options)
@@ -3281,7 +3284,7 @@ class VNextRetrievalService:
             source += "_or_fallback"
             selected, source = select_pass(relaxed, source)
         selected = selected[:limit]
-        return (_stabilize_scored_rows(selected) if fts else selected), source
+        return (_stabilize_scored_rows(selected) if fts and not lessons_only else selected), source
 
     def _query_embedding(self, query: str) -> tuple[list[float] | None, str]:
         if self.embedding_provider is None:
@@ -3320,6 +3323,7 @@ class VNextRetrievalService:
         scope_person_memory_ids: tuple[str, ...] = (),
         scope_window_start: datetime | None = None,
         scope_window_end: datetime | None = None,
+        lessons_only: bool = False,
     ) -> tuple[list[JsonObject], str]:
         search_memories_vector = getattr(self.store, "search_memories_vector", None)
         if query_embedding_status is None:
@@ -3337,6 +3341,8 @@ class VNextRetrievalService:
                 "limit": limit,
                 **_optional_search_filters(memory_types, projects, created_by_agent_ids, run_id),
             }
+            if lessons_only:
+                search_kwargs["lessons_only"] = True
             effective_people = tuple(sorted(scope.people)) if scope is not None else scope_people
             effective_window_start = scope.window_start if scope is not None else scope_window_start
             effective_window_end = scope.window_end if scope is not None else scope_window_end
