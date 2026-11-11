@@ -23863,10 +23863,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/session_start_hook.py",
-          "line": 317,
+          "line": 320,
           "before": "    identity, quiet = session_brief_identity(db_path, UUID(str(args.user_id)))\n    if quiet:\n        return 0\n",
           "after": "    identity, quiet = None, False\n",
-          "sha256": "767e4513537fcfd0b22e5ccfae922147f9316d1e264d7dad9628593df6af6277"
+          "sha256": "fa5dd53fbc043b533bd26ff6a295a788813458f238a79eeda9efc711fe06c63f"
         }
       ],
       "pytest": [
@@ -27460,6 +27460,38 @@
         "tests/integration/test_mcp_quickstart.py::test_mcp_quickstart_runs_against_packaged_sqlite_server"
       ],
       "expected_failure": "test_mcp_quickstart_runs_against_packaged_sqlite_server"
+    },
+    {
+      "name": "lessons-notice-count-follows-the-lessons-ceiling",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 459,
+          "before": "            sensitivity=list(lesson_sensitivity_allowed or effective_sensitivity_allowed),",
+          "after": "            sensitivity=list(effective_sensitivity_allowed),",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_brief.py::test_the_notice_count_follows_the_caller_s_lessons_ceiling"
+      ],
+      "expected_failure": "test_the_notice_count_follows_the_caller_s_lessons_ceiling"
+    },
+    {
+      "name": "lessons-notice-line-respects-the-brief-budget",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 1170,
+          "before": "        if brief_char_len(_brief_rendered((*lines, lesson_line))) <= budget:",
+          "after": "        if True:",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_brief.py::test_the_notice_line_respects_the_brief_budget"
+      ],
+      "expected_failure": "test_the_notice_line_respects_the_brief_budget"
     }
   ]
 }

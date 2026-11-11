@@ -15,8 +15,11 @@ is known, fail-open is a single blank line and exit 0. If argparse
 fails before format is known, ``{}`` is still correct for the default
 JSON host. Never failClosed. Never print MCP protocol on stdout.
 
-The hook never inspects the content of a stored note. The brief always
-opens with ``SESSION_BRIEF_FRAME``, and every stored string is flattened
+The hook never inspects the content of a stored note. The brief opens
+with ``SESSION_BRIEF_FRAME``, except that with per-project scoping the
+lessons notice may come first; the notice is written by Alice and holds
+a number and fixed words, so a stored note still cannot be protocol
+framing. Every stored string is flattened
 onto one line and JSON-quoted behind a label, so a note cannot be protocol
 framing whatever it says. A note about ``jsonrpc`` or ``Content-Length:``
 is an ordinary note. Through v0.19.0 this module dropped the whole brief

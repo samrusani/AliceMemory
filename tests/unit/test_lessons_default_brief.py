@@ -206,3 +206,100 @@ def test_lesson_count_query_statements_stop_growing_at_twenty_one(tmp_path, monk
             assert len(choices) == 21
             totals.append(len(statements))
     assert totals[0] == totals[1]
+
+
+@pytest.mark.parametrize("profile", ["owner", "admin_agent", "read_only_agent", "project_scoped_agent"])
+def test_the_notice_count_follows_the_caller_s_lessons_ceiling(tmp_path, monkeypatch, profile):
+    """Guard: brief on the caller's own ceiling for lessons.
+
+    The single edit that must fail this test: in compile_session_brief,
+    sensitivity=list(lesson_sensitivity_allowed or effective_sensitivity_allowed)
+    becomes sensitivity=list(effective_sensitivity_allowed). The confidential
+    lessons then drop out of the notice for a caller whose lessons ceiling is
+    wider than the brief's own, while alice_lessons still returns them, so the
+    printed count stops matching the tool.
+    """
+    vault = Vault(tmp_path / "vault.db")
+    if profile == "owner":
+        reader = None
+        publisher = None
+    else:
+        reader = vault.key("admin", "admin_agent", "alpha") if profile == "admin_agent" else vault.key("reader", profile, "alpha")
+        publisher = vault.key("admin", "admin_agent", "alpha") if profile != "admin_agent" else reader
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ALICE")}
+    env["PYTHONPATH"] = os.pathsep.join((str(Path.cwd() / "apps/api/src"), str(Path.cwd())))
+    if reader:
+        env["ALICE_AGENT_API_KEY"] = reader
+    command = [sys.executable, "-m", "alicebot_api.onramp", "brief", "--db", str(vault.path), "--user-id", str(vault.user)]
+    ids = []
+    confidential = set()
+    for number in range(5):
+        lesson = {
+            "applies_when": f"editing module {number}",
+            "what_happened": "A check failed.",
+            "do_instead": "Review the check result.",
+            "paths": [f"src/module-{number}.py"],
+        }
+        sensitivity = "confidential" if number >= 3 else "internal"
+        result = vault.commit(
+            monkeypatch, publisher, "admin" if publisher else None,
+            sensitivity=sensitivity, lesson=lesson,
+        )
+        if result["status"] == "confirmation_required":
+            confirmed = vault.call(
+                monkeypatch, publisher, "alice_memory_manage",
+                {"action": "confirm", "memory_id": result["memory"]["id"], "confirmation_id": result["confirmation_id"]},
+            )
+            assert confirmed["memory"]["status"] == "active"
+        else:
+            assert result["status"] == "committed"
+        ids.append(result["memory"]["id"])
+        if sensitivity == "confidential":
+            confidential.add(result["memory"]["id"])
+    brief = subprocess.run(command, env=env, text=True, capture_output=True, check=True).stdout
+    line = next(line for line in brief.splitlines() if line.startswith("Shared lessons:"))
+    returned = set()
+    for number in range(5):
+        result = vault.call(monkeypatch, reader, "alice_lessons", {
+            "task": "unrelated token", "paths": [f"src/module-{number}.py"],
+        })
+        returned.update(row["id"] for row in result["lessons"])
+    assert line == f"Shared lessons: {len(returned)}. Call alice_lessons with your task before you start."
+    if profile in {"owner", "admin_agent"}:
+        assert returned == set(ids)
+    else:
+        assert returned == set(ids) - confidential
+
+
+def test_the_notice_line_respects_the_brief_budget(tmp_path, monkeypatch):
+    """Guard: the single edit that must fail this test replaces the line's fit
+    check in _render_brief (if brief_char_len(_brief_rendered((*lines,
+    lesson_line))) <= budget:) with an unconditional append, so a reserve that
+    leaves less room than the notice needs still emits it and the caller's
+    prefix plus the brief overflows the host cap.
+    """
+    vault = Vault(tmp_path / "vault.db")
+    assert vault.commit(monkeypatch, None)["status"] == "committed"
+    filler = "Meeting note about the rollout plan. " * 30
+    for number in range(14):
+        result = vault.call(monkeypatch, None, "alice_memory_commit", {
+            "memory_type": "procedure", "title": f"Rollout entry {number}",
+            "canonical_text": f"{filler} Entry {number}.",
+        })
+        assert result["status"] == "committed"
+    full = compile_local_session_brief(
+        vault.path, user_id=vault.user, query=None, project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(),
+    )
+    assert "Shared lessons: 1." in full
+    from alicebot_api.session_briefing import SESSION_BRIEF_CHAR_CAP, brief_char_len, fit_emitted_session_brief
+
+    assert brief_char_len(full) <= SESSION_BRIEF_CHAR_CAP - 1
+    assert fit_emitted_session_brief(full) == full.rstrip("\n")
+    notice = "Shared lessons: 1. Call alice_lessons with your task before you start."
+    tight = compile_local_session_brief(
+        vault.path, user_id=vault.user, query=None, project_view=ProjectView.unscoped(),
+        exclude_global_domains=frozenset(), reserve=SESSION_BRIEF_CHAR_CAP - 60,
+    )
+    assert "Shared lessons:" not in tight
+    assert brief_char_len(tight) <= SESSION_BRIEF_CHAR_CAP - 1 - (SESSION_BRIEF_CHAR_CAP - 60)
