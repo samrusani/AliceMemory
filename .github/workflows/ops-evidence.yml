@@ -46,7 +46,12 @@ jobs:
           cache: pip
 
       - name: Select PostgreSQL 16 client tools
-        timeout-minutes: 10
+        # The apt step's worst case is 930 s: three attempts of 90 s update
+        # and 120 s install plus a 5 s kill grace each, and three 90 s
+        # dpkg-lock waits (the initial wait and one between attempts; the
+        # loop skips the wait after the last attempt). 16 minutes holds
+        # that with room to spare; the script's header derives the number.
+        timeout-minutes: 16
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |

@@ -27492,6 +27492,70 @@
         "tests/unit/test_lessons_default_brief.py::test_the_notice_line_respects_the_brief_budget"
       ],
       "expected_failure": "test_the_notice_line_respects_the_brief_budget"
+    },
+    {
+      "name": "apt-mirror-fallback-restores-the-sources",
+      "edits": [
+        {
+          "file": "scripts/ci_apt_get.sh",
+          "line": 133,
+          "before": "  fallback_to_default_archive\n",
+          "after": "",
+          "sha256": "001d36936c4142b159b1e4c2492c29c1dd74774d9417e0771d29eeb90f304197"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ci_apt_mirror_fallback.py::test_dead_first_mirror_costs_one_attempt_then_the_default_archive_serves"
+      ],
+      "expected_failure": "test_dead_first_mirror_costs_one_attempt_then_the_default_archive_serves"
+    },
+    {
+      "name": "apt-mirror-fallback-caps-fit-the-step",
+      "edits": [
+        {
+          "file": "scripts/ci_apt_get.sh",
+          "line": 37,
+          "before": "UPDATE_TIMEOUT_SECONDS=\"${CI_APT_GET_UPDATE_TIMEOUT:-90}\"\nINSTALL_TIMEOUT_SECONDS=\"${CI_APT_GET_INSTALL_TIMEOUT:-120}\"",
+          "after": "UPDATE_TIMEOUT_SECONDS=\"${CI_APT_GET_UPDATE_TIMEOUT:-120}\"\nINSTALL_TIMEOUT_SECONDS=\"${CI_APT_GET_INSTALL_TIMEOUT:-180}\"",
+          "sha256": "001d36936c4142b159b1e4c2492c29c1dd74774d9417e0771d29eeb90f304197"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ci_apt_mirror_fallback.py::test_apt_step_worst_case_stays_inside_the_step_cap"
+      ],
+      "expected_failure": "test_apt_step_worst_case_stays_inside_the_step_cap"
+    },
+    {
+      "name": "apt-mirror-fallback-step-cap-covers-the-worst-case",
+      "edits": [
+        {
+          "file": ".github/workflows/ops-evidence.yml",
+          "line": 54,
+          "before": "        timeout-minutes: 16",
+          "after": "        timeout-minutes: 10",
+          "sha256": "5eeccbbea96b4f600a91380dd0995a81a53adcd382c1be5a6d14b98835031d84"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ci_apt_mirror_fallback.py::test_apt_step_worst_case_stays_inside_the_step_cap"
+      ],
+      "expected_failure": "test_apt_step_worst_case_stays_inside_the_step_cap"
+    },
+    {
+      "name": "apt-mirror-fallback-waits-between-attempts-only",
+      "edits": [
+        {
+          "file": "scripts/ci_apt_get.sh",
+          "line": 134,
+          "before": "  if [[ \"${attempt}\" -lt 3 ]]; then\n    clear_orphans\n  fi\n",
+          "after": "  clear_orphans\n",
+          "sha256": "001d36936c4142b159b1e4c2492c29c1dd74774d9417e0771d29eeb90f304197"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ci_apt_mirror_fallback.py::test_the_worst_case_arithmetic_uses_the_waits_a_run_performs"
+      ],
+      "expected_failure": "test_the_worst_case_arithmetic_uses_the_waits_a_run_performs"
     }
   ]
 }

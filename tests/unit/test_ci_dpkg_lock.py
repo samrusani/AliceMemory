@@ -35,7 +35,10 @@ def test_apt_script_times_out_and_retries() -> None:
     assert APT_SCRIPT.stat().st_mode & 0o111
     assert "ci_wait_for_dpkg_lock.sh" in text
     assert "setsid --wait timeout" in text
-    assert "--kill-after=15s" in text
+    # The grace dropped from 15 s to 5 s with the mirror fallback (2026-11-12):
+    # three attempts with a 5 s grace keep the script's worst case inside the
+    # step's 16 minutes (see tests/unit/test_ci_apt_mirror_fallback.py).
+    assert "--kill-after=5s" in text
     assert "Acquire::http::Timeout=15" in text
     assert "all attempts failed" in text
     assert "exit 1" in text
@@ -55,5 +58,7 @@ def test_ops_job_uses_timed_apt_before_postgresql_client() -> None:
     assert "scripts/ci_apt_get.sh postgresql-client-16" in text
     assert text.index("ci_apt_get.sh") < text.index("postgresql-client-16")
     select = text.split("- name: Select PostgreSQL 16 client tools", 1)[1]
-    assert "timeout-minutes: 10" in select.split("- name:", 1)[0]
+    # 16 minutes: the script's worst case with the mirror fallback is 930 s
+    # (tests/unit/test_ci_apt_mirror_fallback.py derives it from the caps).
+    assert "timeout-minutes: 16" in select.split("- name:", 1)[0]
     assert "sudo apt-get update" not in text
