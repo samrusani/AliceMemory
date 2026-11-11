@@ -1,8 +1,7 @@
 """Compare fresh-process keyed briefs on two committed revisions.
 
-Run from a clean, dedicated worktree. The five Python source files used by the
-brief are switched between the named commits and restored in a finally block.
-All fixture databases and sample files stay under this worktree's .venv.
+Compare committed trees in a temporary directory outside the checkout.
+Uncommitted changes are not measured.
 """
 
 from __future__ import annotations
@@ -13,28 +12,25 @@ import math
 import os
 from pathlib import Path
 import signal
+import shutil
 import sqlite3
 import statistics
 import subprocess
 import sys
 import tempfile
+import tarfile
 import time
 from uuid import uuid4
 
-from tests.unit.test_lessons_read import LESSON, Vault
+sys.dont_write_bytecode = True
+
+from tests.unit.test_lessons_read import LESSON, Vault  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-FILES = (
-    "apps/api/src/alicebot_api/session_briefing.py",
-    "apps/api/src/alicebot_api/mcp/lessons.py",
-    "apps/api/src/alicebot_api/mcp/registry.py",
-    "apps/api/src/alicebot_api/vnext_stores/sqlite/lessons.py",
-    "apps/api/src/alicebot_api/vnext_stores/postgres/lessons.py",
-)
 SHAPES = ("none", "published", "waiting", "planted", "mismatch")
 
 
-def seed(path: Path, shape: str) -> tuple[str, str]:
+def seed(path: Path, shape: str, rows_count: int = 20_000) -> tuple[str, str]:
     vault = Vault(path)
     reader = vault.key("reader", "read_only_agent", "alpha")
     lesson = {
@@ -43,9 +39,9 @@ def seed(path: Path, shape: str) -> tuple[str, str]:
         "lesson": LESSON,
     }
     rows, revisions = [], []
-    for number in range(20_000):
-        project = "alpha" if number < 10_000 else "beta"
-        kind = shape if project == "alpha" and number < 5_000 else "none"
+    for number in range(rows_count):
+        project = "alpha" if number < rows_count // 2 else "beta"
+        kind = shape if project == "alpha" and number < rows_count // 4 else "none"
         mid, key = str(uuid4()), f"bench.{number}"
         value = json.dumps(lesson if kind != "none" else {"text": f"Ordinary note {number}"})
         rows.append((mid, str(vault.user), key, value, "candidate" if kind == "waiting" else "active", "[]",
@@ -71,49 +67,134 @@ def seed(path: Path, shape: str) -> tuple[str, str]:
     return str(vault.user), reader
 
 
+def extract_tree(revision: str, destination: Path) -> None:
+    """Extract a complete commit without registering a worktree or changing the index."""
+    destination.mkdir()
+    archive = destination.parent / (destination.name + ".tar")
+    with archive.open("wb") as output:
+        subprocess.run(["git", "archive", revision], cwd=ROOT, stdout=output, check=True)
+    try:
+        with tarfile.open(archive) as source:
+            source.extractall(destination, filter="data")
+    finally:
+        archive.unlink()
+
+
+class SideError(Exception):
+    def __init__(self, side: str, error: str):
+        self.side = side
+        super().__init__(error)
+
+
+def run_sample(tree: Path, path: Path, user: str, reader: str) -> tuple[float, str, str]:
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ALICE")}
+    env.update(PYTHONPATH=os.pathsep.join((str(tree / "apps/api/src"), str(tree))),
+               ALICE_AGENT_API_KEY=reader, ALICE_PROJECT_DIR=str(path.parent), PYTHONDONTWRITEBYTECODE="1")
+    probe = (
+        "import json,runpy,sys,alicebot_api; "
+        "print(json.dumps({'package':alicebot_api.__file__}),flush=True); "
+        "sys.argv=['alicebot_api.onramp','brief','--db',sys.argv[1],'--user-id',sys.argv[2]]; "
+        "runpy.run_module('alicebot_api.onramp',run_name='__main__')"
+    )
+    started = time.perf_counter()
+    process = subprocess.run([sys.executable, "-c", probe, str(path), user], cwd=tree,
+                             env=env, capture_output=True, text=True)
+    elapsed = time.perf_counter() - started
+    if process.returncode:
+        raise RuntimeError(process.stderr or process.stdout or f"exit {process.returncode}")
+    first, _, output = process.stdout.partition("\n")
+    try:
+        package = Path(json.loads(first)["package"]).resolve()
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("measured process did not report its package path: " + first) from exc
+    if not package.is_relative_to(tree.resolve()):
+        raise RuntimeError(f"package imported outside measured tree: {package}")
+    return elapsed, str(package.parent), output
+
+
+def run_benchmark(trees: dict[str, Path], root: Path, samples: int = 40,
+                  rows_count: int = 20_000, shapes: tuple[str, ...] = SHAPES) -> list[dict]:
+    results = []
+    for shape in shapes:
+        path = root / f"{shape}.db"
+        user, reader = seed(path, shape, rows_count)
+        measurements: dict[str, list[float]] = {"base": [], "head": []}
+        imports: dict[str, str] = {}
+        for sample in range(samples + 1):
+            for side in (("base", "head") if sample % 2 == 0 else ("head", "base")):
+                try:
+                    elapsed, package, _ = run_sample(trees[side], path, user, reader)
+                except Exception as exc:
+                    raise SideError(side, str(exc)) from exc
+                if side in imports and imports[side] != package:
+                    raise SideError(side, "package import path changed between samples")
+                imports[side] = package
+                if sample:
+                    measurements[side].append(elapsed)
+        summary = {}
+        for side, values in measurements.items():
+            ordered = sorted(values)
+            summary[side] = {"median": statistics.median(values),
+                             "p95": ordered[math.ceil(len(values) * .95) - 1]}
+        results.append({"shape": shape, "samples": samples, "imports": imports,
+                        "measurements": measurements, "results": summary})
+    return results
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="origin/main")
+    parser.add_argument("--head", default="HEAD")
     parser.add_argument("--samples", type=int, default=40)
+    parser.add_argument("--work-dir", type=Path)
+    parser.add_argument("--keep", action="store_true")
     args = parser.parse_args()
     if args.samples < 40:
         parser.error("at least 40 samples are required")
-    if subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip():
-        parser.error("the worktree must be clean")
-    root = Path(tempfile.mkdtemp(prefix="lessons-brief-bench-", dir=ROOT / ".venv"))
-    versions = {
-        side: {name: subprocess.check_output(["git", "show", f"{revision}:{name}"], cwd=ROOT) for name in FILES}
-        for side, revision in (("base", args.base), ("head", "HEAD"))
-    }
-    original = {name: (ROOT / name).read_bytes() for name in FILES}
-    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+    work_dir = (args.work_dir or Path(tempfile.gettempdir())).resolve()
+    if work_dir.is_relative_to(ROOT):
+        parser.error("work directory must be outside the checkout")
+    revisions = {}
+    for side, ref in (("base", args.base), ("head", args.head)):
+        try:
+            revisions[side] = subprocess.check_output(
+                ["git", "rev-parse", "--verify", ref + "^{commit}"], cwd=ROOT, text=True,
+                stderr=subprocess.PIPE).strip()
+        except subprocess.CalledProcessError as exc:
+            print(json.dumps({"side": side, "error": exc.stderr.strip()}), file=sys.stderr)
+            return 1
+    root = Path(tempfile.mkdtemp(prefix="lessons-brief-bench-", dir=work_dir)).resolve()
+    trees = {side: root / side for side in ("base", "head")}
+    context = {"revisions": revisions, "imports": {side: str(tree / "apps/api/src/alicebot_api")
+                                                   for side, tree in trees.items()}}
+    previous = signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     try:
-        for shape in SHAPES:
-            path = root / f"{shape}.db"
-            user, reader = seed(path, shape)
-            env = {key: value for key, value in os.environ.items() if not key.startswith("ALICE")}
-            env.update(PYTHONPATH=os.pathsep.join((str(ROOT / "apps/api/src"), str(ROOT))),
-                       ALICE_AGENT_API_KEY=reader, PYTHONDONTWRITEBYTECODE="1")
-            command = [sys.executable, "-m", "alicebot_api.onramp", "brief", "--db", str(path), "--user-id", user]
-            measurements: dict[str, list[float]] = {"base": [], "head": []}
-            for sample in range(args.samples + 1):
-                for side in (("base", "head") if sample % 2 == 0 else ("head", "base")):
-                    for name in FILES:
-                        (ROOT / name).write_bytes(versions[side][name])
-                    started = time.perf_counter()
-                    subprocess.run(command, cwd=ROOT, env=env, stdout=subprocess.DEVNULL, check=True)
-                    if sample:
-                        measurements[side].append(time.perf_counter() - started)
-            results = {}
-            for side, values in measurements.items():
-                ordered = sorted(values)
-                results[side] = {"median": statistics.median(values), "p95": ordered[math.ceil(len(values) * .95) - 1]}
-            (root / f"{shape}.json").write_text(json.dumps({"samples": measurements, "results": results}, indent=2) + "\n")
-            print(json.dumps({"shape": shape, "samples": args.samples, **results}), flush=True)
+        if subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip():
+            print(json.dumps({**context, "notice": "Uncommitted changes are not measured."}), flush=True)
+        for side in ("base", "head"):
+            try:
+                extract_tree(revisions[side], trees[side])
+            except Exception as exc:
+                raise SideError(side, str(exc)) from exc
+        results = run_benchmark(trees, root, args.samples)
+        for result in results:
+            record = {**result, "revisions": revisions}
+            (root / (result["shape"] + ".json")).write_text(json.dumps(record, indent=2) + "\n")
+            print(json.dumps({key: value for key, value in record.items() if key != "measurements"}), flush=True)
+        return 0
+    except SideError as exc:
+        print(json.dumps({**context, "side": exc.side, "error": str(exc)}), file=sys.stderr, flush=True)
+        return 1
+    except KeyboardInterrupt:
+        print(json.dumps({**context, "error": "interrupted"}), file=sys.stderr, flush=True)
+        return 130
+    except Exception as exc:
+        print(json.dumps({**context, "error": str(exc)}), file=sys.stderr, flush=True)
+        return 1
     finally:
-        for name, data in original.items():
-            (ROOT / name).write_bytes(data)
-    return 0
+        signal.signal(signal.SIGTERM, previous)
+        if not args.keep:
+            shutil.rmtree(root)
 
 
 if __name__ == "__main__":
