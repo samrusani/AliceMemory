@@ -27364,6 +27364,70 @@
         "tests/unit/test_mcp_surface_counts_in_docs.py::test_the_pages_that_list_the_core_tools_name_every_tool_the_default_four_leave_out"
       ],
       "expected_failure": "test_the_pages_that_list_the_core_tools_name_every_tool_the_default_four_leave_out"
+    },
+    {
+      "name": "brief-quickstart-default-order",
+      "edits": [
+        {
+          "file": "docs/examples/mcp_quickstart.py",
+          "line": 56,
+          "before": "    \"alice_resume\",\n    \"alice_lessons\",",
+          "after": "    \"alice_resume\",",
+          "sha256": "1700cd43ebf20fa6e950a5b1805516704f4fc24a1228b6c3689753d6c3cd2c7b"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_compact_commit_result.py::test_the_mcp_quickstart_example_runs_against_the_compact_result"
+      ],
+      "expected_failure": "test_the_mcp_quickstart_example_runs_against_the_compact_result"
+    },
+    {
+      "name": "brief-readme-default-order",
+      "edits": [
+        {
+          "file": "README.md",
+          "line": 27,
+          "before": "- `alice_lessons`: find published lessons relevant to the task or files ahead.\n",
+          "after": "",
+          "sha256": "438ed73e3a1a7d0743e1528414e5f7dce0d91ec5424a165f30282ab2db44c970"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_readme_facts_live_in_the_docs.py::test_the_readme_names_the_default_tools_and_the_package_runtime"
+      ],
+      "expected_failure": "test_the_readme_names_the_default_tools_and_the_package_runtime"
+    },
+    {
+      "name": "brief-openclaw-default-order",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/registry.py",
+          "line": 274,
+          "before": "    \"alice_resume\",\n    \"alice_lessons\",",
+          "after": "    \"alice_resume\",",
+          "sha256": "e5e7eeaf56eabf8100bce1ee55c390b86fd98c8b8565416d0c5effca3ec10ee9"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_openclaw_mcp_integration.py::test_openclaw_imported_data_is_usable_from_shipped_mcp_recall_and_resume_tools"
+      ],
+      "expected_failure": "test_openclaw_imported_data_is_usable_from_shipped_mcp_recall_and_resume_tools"
+    },
+    {
+      "name": "brief-postgres-smoke-default-order",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/registry.py",
+          "line": 274,
+          "before": "    \"alice_resume\",\n    \"alice_lessons\",",
+          "after": "    \"alice_resume\",",
+          "sha256": "e5e7eeaf56eabf8100bce1ee55c390b86fd98c8b8565416d0c5effca3ec10ee9"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_default_surface_integration.py::test_default_http_and_mcp_surfaces_complete_core_round_trip"
+      ],
+      "expected_failure": "test_default_http_and_mcp_surfaces_complete_core_round_trip"
     }
   ]
 }

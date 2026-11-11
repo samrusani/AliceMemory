@@ -54,6 +54,7 @@ DEFAULT_TOOL_NAMES = [
     "alice_memory_commit",
     "alice_recall",
     "alice_resume",
+    "alice_lessons",
 ]
 
 COMMIT_SENTENCE = (

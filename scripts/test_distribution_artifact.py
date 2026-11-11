@@ -203,6 +203,7 @@ def smoke_artifact(artifact: Path, *, expected_version: str) -> None:
             "alice_memory_commit",
             "alice_recall",
             "alice_resume",
+            "alice_lessons",
         ]
 
         sqlite_mcp = _run(
@@ -217,6 +218,7 @@ def smoke_artifact(artifact: Path, *, expected_version: str) -> None:
             "alice_memory_commit",
             "alice_recall",
             "alice_resume",
+            "alice_lessons",
         ]
         commit_payload = json.loads(sqlite_responses[2]["result"]["content"][0]["text"])
         recall_payload = json.loads(sqlite_responses[3]["result"]["content"][0]["text"])

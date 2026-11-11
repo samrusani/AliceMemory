@@ -25,6 +25,7 @@ DEFAULT_MCP_TOOL_NAMES = [
     "alice_memory_commit",
     "alice_recall",
     "alice_resume",
+    "alice_lessons",
 ]
 
 # The ordinary PostgreSQL integration runner intentionally enables the legacy
@@ -197,6 +198,7 @@ def test_default_http_and_mcp_surfaces_complete_core_round_trip(
     migrated_database_urls: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Mutation: remove alice_lessons from the default order."""
     for name in (
         "ALICE_LEGACY_SURFACES",
         "ALICE_MCP_LEGACY_TOOLS",
