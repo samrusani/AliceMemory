@@ -448,9 +448,11 @@ def compile_session_brief(
         pack_view = classify_pack_view(query)
 
     lesson_count = 0
+    lesson_scan_incomplete = False
     if effective_sensitivity_allowed and hasattr(store, "stream_lesson_revisions"):
         from alicebot_api.mcp.lessons import _select_published_lessons
 
+        scan_state: dict[str, bool] = {}
         choices, _ = _select_published_lessons(
             store,
             domains=list(effective_domains),
@@ -458,8 +460,10 @@ def compile_session_brief(
             projects=effective_project_scope,
             limit=21,
             order=None,
+            scan_state=scan_state,
         )
         lesson_count = len(choices)
+        lesson_scan_incomplete = scan_state["limit_reached"]
 
     return _render_brief(
         facts=facts,
@@ -470,6 +474,7 @@ def compile_session_brief(
         head_line=brief_head_line(project_view),
         mark_global=in_project_view,
         lesson_count=lesson_count,
+        lesson_scan_incomplete=lesson_scan_incomplete,
     )
 
 
@@ -1135,6 +1140,7 @@ def _render_brief(
     head_line: str | None = None,
     mark_global: bool = False,
     lesson_count: int = 0,
+    lesson_scan_incomplete: bool = False,
 ) -> str:
     """Lay out the brief.
 
@@ -1151,9 +1157,16 @@ def _render_brief(
     if head_line:
         lines.append(head_line)
     lesson_line = None
-    if lesson_count:
-        count_text = "more than 20" if lesson_count > 20 else str(lesson_count)
-        lesson_line = f"Shared lessons: {count_text}. Call alice_lessons with your task before you start."
+    if lesson_count or lesson_scan_incomplete:
+        if lesson_count > 20:
+            opening = "Shared lessons: more than 20."
+        elif lesson_scan_incomplete and lesson_count:
+            opening = f"Shared lessons: at least {lesson_count}."
+        elif lesson_scan_incomplete:
+            opening = "Shared lessons may apply."
+        else:
+            opening = f"Shared lessons: {lesson_count}."
+        lesson_line = f"{opening} Call alice_lessons with your task before you start."
         if brief_char_len(_brief_rendered((*lines, lesson_line))) <= budget:
             lines.append(lesson_line)
         else:

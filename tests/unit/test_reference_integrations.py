@@ -25,7 +25,7 @@ def test_hermes_reference_doc_centers_provider_plus_mcp_and_one_call_continuity(
     hermes_doc = (REPO_ROOT / "docs" / "integrations" / "hermes.md").read_text(encoding="utf-8")
 
     assert "provider_plus_mcp" in hermes_doc
-    assert "default four tools" in hermes_doc
+    assert "MCP gives Hermes the default four tools" in hermes_doc
     assert "alice_recall" in hermes_doc
     assert "alice_resume" in hermes_doc
     assert "ALICEBOT_AUTH_USER_ID" in hermes_doc

@@ -2,9 +2,17 @@
 
 A lesson is a structured procedure memory recording when something applies,
 what happened and what to do instead. The owner and an `admin_agent` key can
-publish a lesson when a commit succeeds. Other agents' lessons wait for review.
-Published lessons are returned only when the caller may read them. A write can
-also require confirmation or be rejected by the existing commit checks.
+publish a lesson when a commit succeeds. On a keyless vault, a caller declaring
+`permission_profile: admin_agent` can also publish because the vault cannot
+distinguish its identity. Other identities' lessons wait for review. A reviewer
+can publish a waiting lesson through `alice_memory_correct` or the memory review
+HTTP route. Published lessons are returned only when the caller may read them.
+A write can also require confirmation or be rejected by the existing checks.
+
+The session brief can name how many published lessons are readable. It counts
+up to 20 and says `more than 20` when it finds 21. If it reaches the scan limit
+first, it says `at least` the number found, or `Shared lessons may apply` when
+none were found in that scan. Call the tool to search for a task either way.
 
 ## Standing notes
 

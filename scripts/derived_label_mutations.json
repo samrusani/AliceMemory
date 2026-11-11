@@ -5035,10 +5035,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py",
-          "line": 806,
+          "line": 817,
           "before": "                WHERE deleted_at IS NULL\n                  AND status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}\n                  AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')\n                  AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR memory_type = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])\n                  AND (%s::text[] IS NULL OR created_by_agent_id = ANY(%s::text[]))\n                  AND (%s::text IS NULL OR run_id = %s)\n                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp())\n                  AND (\n                    memory_key ILIKE ANY(%s::text[])",
           "after": "                WHERE TRUE\n                  AND TRUE\n                  AND (%s::text[] IS NULL OR domain = ANY(%s::text[]) OR domain = 'unknown')\n                  AND (%s::text[] IS NULL OR sensitivity = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR memory_type = ANY(%s::text[]))\n                  AND (%s::text[] IS NULL OR ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[])\n                  AND (%s::text[] IS NULL OR created_by_agent_id = ANY(%s::text[]))\n                  AND (%s::text IS NULL OR run_id = %s)\n                  AND (%s::boolean OR valid_to IS NULL OR valid_to >= clock_timestamp())\n                  AND (\n                    memory_key ILIKE ANY(%s::text[])",
-          "sha256": "f390669178ae5e16da04c6435c18dd8f443267196bcabe6eff9507110dbff67d"
+          "sha256": "489d0ee356c7b45d17feaea2b9a18849ab8ac102fc58d74095c18543b1339cf4"
         }
       ],
       "pytest": [
@@ -13962,7 +13962,7 @@
           "line": 424,
           "before": "standard text), which does not name the reason. The reason and the commands\nthat find and revoke the key are written to the server log at warning level;\nthe line names no key, which `alicebot agent keys list` shows with its\n`project_scope`.",
           "after": "standard text).",
-          "sha256": "4f6b0519f30c128fcac6713228f773051b8cfc19e0f7d46f69f83a8f4ed1769a"
+          "sha256": "3b9a9731f29b4005cb8a10e60a75cfb56674b66ac1db34f68e694a6c6468a39d"
         }
       ],
       "pytest": [
@@ -20328,7 +20328,7 @@
           "line": 440,
           "before": "ranking=SourceRanking.document(),",
           "after": "ranking=SourceRanking.passage(),",
-          "sha256": "5d4926a012eec8d90dcc37247eca22ea04b19ec0d84e46847aa5f48895c7724c"
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
         }
       ],
       "pytest": [
@@ -23259,10 +23259,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py",
-          "line": 1283,
+          "line": 1294,
           "before": "                WHERE confirmation_id = %s\n",
           "after": "                WHERE confirmation_id = %s::uuid\n",
-          "sha256": "f390669178ae5e16da04c6435c18dd8f443267196bcabe6eff9507110dbff67d"
+          "sha256": "489d0ee356c7b45d17feaea2b9a18849ab8ac102fc58d74095c18543b1339cf4"
         }
       ],
       "pytest": [
@@ -24356,7 +24356,7 @@
           "line": 79,
           "before": "action in {\"memory_correct_approve\", \"memory_review_accept\", \"memory_review_promote\"}",
           "after": "action in {\"memory_review_accept\", \"memory_review_promote\"}",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24372,7 +24372,7 @@
           "line": 76,
           "before": "and kind == \"promoted\" and _writer_can_publish(row):",
           "after": "and kind == \"promoted\" and False:",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24388,7 +24388,7 @@
           "line": 55,
           "before": "return row.get(\"created_by_agent_id\") is None and not (",
           "after": "return False and row.get(\"created_by_agent_id\") is None and not (",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24404,7 +24404,7 @@
           "line": 91,
           "before": "    return None\n\n\ndef _select_published_lessons",
           "after": "    return {\"by\": \"owner\", \"at\": \"missing\", \"how\": \"committed\"}\n\n\ndef _select_published_lessons",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24420,7 +24420,7 @@
           "line": 43,
           "before": "    return any(\n        fnmatch.fnmatchcase(path.removeprefix(\"./\"), entry.removeprefix(\"./\")) for path in paths for entry in entries\n    )",
           "after": "    return False",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24433,10 +24433,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "line": 166,
+          "line": 185,
           "before": "if len(task) > 1000:",
           "after": "if False:",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24481,10 +24481,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "line": 271,
+          "line": 290,
           "before": "payload={\"returned\": len(result), \"limit\": limit, \"paths_given\": len(paths)},",
           "after": "payload={\"returned\": len(result), \"limit\": limit, \"paths_given\": len(paths), \"task\": task},",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24504,7 +24504,12 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_lessons_read.py::test_surface"
+        "tests/unit/test_lessons_read.py::test_surface",
+        "tests/unit/test_lessons_default_brief.py::test_keyed_sqlite_default_server_lists_and_calls_lessons",
+        "tests/integration/test_lessons_default_postgres.py::test_keyed_default_server_lists_and_reads_lessons",
+        "tests/unit/test_mcp.py::test_default_mcp_handshake_is_exactly_commit_recall_resume",
+        "tests/unit/test_mcp_package_split.py::test_mcp_gates_remain_dynamic_and_agent_keys_suppress_legacy",
+        "tests/unit/test_audit_followup_docs.py::test_the_hermes_captures_stay_unchanged_and_carry_a_dated_notice"
       ],
       "expected_failure": "test_surface"
     },
@@ -24532,7 +24537,7 @@
           "line": 71,
           "before": "if not isinstance(lesson, Mapping) or published_lesson != lesson:",
           "after": "if not isinstance(lesson, Mapping):",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24545,10 +24550,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "line": 110,
-          "before": "projects=projects, include_expired=False,",
-          "after": "projects=projects, include_expired=True,",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "line": 118,
+          "before": "            sensitivity_allowed=sensitivity, projects=projects, include_expired=False,\n            lessons_only=True, lesson_projection=True, lesson_lazy_metadata=lazy_metadata,\n            **global_option,",
+          "after": "            sensitivity_allowed=sensitivity, projects=projects, include_expired=True,\n            lessons_only=True, lesson_projection=True, lesson_lazy_metadata=lazy_metadata,\n            **global_option,",
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24561,10 +24566,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "line": 183,
+          "line": 202,
           "before": "projects = tuple(decision.effective_project_scope)",
           "after": "projects = ()",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24593,10 +24598,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "line": 136,
+          "line": 155,
           "before": "        revisions = store.stream_lesson_revisions(list(indexed))",
           "after": "        for memory_id in indexed:\n            store.list_revisions(memory_id)\n        revisions = store.stream_lesson_revisions(list(indexed))",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24628,7 +24633,7 @@
           "line": 87,
           "before": "actor = revision.get(\"actor_id\") if actor_type == \"agent\" else \"owner\"",
           "after": "actor = \"owner\"",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24641,10 +24646,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "line": 165,
+          "line": 184,
           "before": "task = _parse_required_text(arguments, \"task\")",
           "after": "task = str(arguments.get(\"task\") or \"\")",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24673,10 +24678,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "line": 122,
+          "line": 134,
           "before": "            batch = admit_loaded(\n                store, kind=\"memory\", rows=batch, domains=domains, sensitivity_allowed=sensitivity, projects=projects\n            )",
           "after": "            batch = batch",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24692,7 +24697,7 @@
           "line": 58,
           "before": "return isinstance(identity, Mapping) and identity.get(\"permission_profile\") == \"admin_agent\"",
           "after": "return True",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24708,7 +24713,7 @@
           "line": 74,
           "before": "if action == \"agentic_memory_commit\" and kind == \"created\" and _writer_can_publish(row):",
           "after": "if False:",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24724,7 +24729,7 @@
           "line": 71,
           "before": "if not isinstance(lesson, Mapping) or published_lesson != lesson:",
           "after": "if not isinstance(lesson, Mapping):",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24737,10 +24742,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "line": 183,
+          "line": 202,
           "before": "projects = tuple(decision.effective_project_scope)",
           "after": "projects = ()",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24756,7 +24761,7 @@
           "line": 79,
           "before": "action in {\"memory_correct_approve\", \"memory_review_accept\", \"memory_review_promote\"}",
           "after": "action in {\"memory_correct_approve\"}",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24769,10 +24774,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "line": 143,
+          "line": 162,
           "before": "                    except VNextMemoryCommitValidationError:\n                        continue",
           "after": "                    except VNextMemoryCommitValidationError:\n                        lesson = _lesson_block_from_payload({\"applies_when\": \"broken\", \"what_happened\": \"broken\", \"do_instead\": \"fix\"})",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24849,10 +24854,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "line": 178,
+          "line": 197,
           "before": "        project_view=ProjectView.unscoped(),",
           "after": "        project_view=None,",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24865,10 +24870,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py",
-          "line": 344,
+          "line": 345,
           "before": "lesson_sql = \" AND jsonb_typeof(value -> 'lesson') = 'object'\" if lessons_only else \"\"",
           "after": "lesson_sql = \"\"",
-          "sha256": "f390669178ae5e16da04c6435c18dd8f443267196bcabe6eff9507110dbff67d"
+          "sha256": "489d0ee356c7b45d17feaea2b9a18849ab8ac102fc58d74095c18543b1339cf4"
         }
       ],
       "pytest": [
@@ -24973,8 +24978,8 @@
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
           "before": "sensitivity_allowed=sensitivity_ceiling(identity) or ALL_SENSITIVITY,",
           "after": "sensitivity_allowed=(\"public\", \"internal\", \"private\", \"unknown\"),",
-          "line": 179,
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "line": 198,
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -24990,7 +24995,7 @@
           "before": "action == \"agentic_memory_commit\" and kind == \"created\" and _writer_can_publish(row)",
           "after": "action == \"agentic_memory_commit\" and _writer_can_publish(row)",
           "line": 74,
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -25005,8 +25010,8 @@
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
           "before": "if len(choices) == limit:",
           "after": "if False:",
-          "line": 149,
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "line": 168,
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -25021,8 +25026,8 @@
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
           "before": "        candidates.sort(key=lambda item: str(item[0].get(\"created_at\") or \"\"), reverse=True)",
           "after": "        pass",
-          "line": 239,
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "line": 258,
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -25035,10 +25040,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "before": "lessons_only=True, lesson_projection=True,",
-          "after": "lessons_only=True, lesson_projection=False,",
-          "line": 111,
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "before": "            sensitivity_allowed=sensitivity, projects=projects, include_expired=False,\n            lessons_only=True, lesson_projection=True, lesson_lazy_metadata=lazy_metadata,\n            **global_option,",
+          "after": "            sensitivity_allowed=sensitivity, projects=projects, include_expired=False,\n            lessons_only=True, lesson_projection=False, lesson_lazy_metadata=lazy_metadata,\n            **global_option,",
+          "line": 118,
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -25053,8 +25058,8 @@
           "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py",
           "before": "\"2 * (SELECT COALESCE(sum(cardinality(term.positions)), 0) \"",
           "after": "\"3 * (SELECT COALESCE(sum(cardinality(term.positions)), 0) \"",
-          "line": 916,
-          "sha256": "f390669178ae5e16da04c6435c18dd8f443267196bcabe6eff9507110dbff67d"
+          "line": 927,
+          "sha256": "489d0ee356c7b45d17feaea2b9a18849ab8ac102fc58d74095c18543b1339cf4"
         }
       ],
       "pytest": [
@@ -25099,10 +25104,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "line": 183,
+          "line": 202,
           "before": "projects = tuple(decision.effective_project_scope)",
           "after": "projects = ()",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -25171,8 +25176,8 @@
           "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py",
           "before": "candidate_sql = \" AND id = ANY(%s::uuid[])\"",
           "after": "candidate_sql = \" AND %s::uuid[] IS NOT NULL\"",
-          "line": 1095,
-          "sha256": "f390669178ae5e16da04c6435c18dd8f443267196bcabe6eff9507110dbff67d"
+          "line": 1106,
+          "sha256": "489d0ee356c7b45d17feaea2b9a18849ab8ac102fc58d74095c18543b1339cf4"
         }
       ],
       "pytest": [
@@ -25189,8 +25194,8 @@
           "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py",
           "before": "lesson_sql += \" AND id = ANY(%s::uuid[])\"",
           "after": "lesson_sql += \" AND %s::uuid[] IS NOT NULL\"",
-          "line": 907,
-          "sha256": "f390669178ae5e16da04c6435c18dd8f443267196bcabe6eff9507110dbff67d"
+          "line": 918,
+          "sha256": "489d0ee356c7b45d17feaea2b9a18849ab8ac102fc58d74095c18543b1339cf4"
         }
       ],
       "pytest": [
@@ -25225,8 +25230,8 @@
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
           "before": "        candidates.sort(key=lambda item: str(item[0][\"id\"]))",
           "after": "        pass",
-          "line": 238,
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "line": 257,
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -25239,10 +25244,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "line": 136,
+          "line": 155,
           "before": "        revisions = store.stream_lesson_revisions(list(indexed))",
           "after": "        revisions = iter({\"memory_id\": mid, \"publication_lesson\": block, \"action\": \"memory_correct_approve\", \"revision_type\": \"promoted\", \"actor_type\": \"user\", \"created_at\": \"2020-01-01T00:00:00Z\"} for mid, (_row, block, *_rest) in indexed.items())",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -25258,7 +25263,7 @@
           "before": "{\"id\", \"user_id\", \"value\", \"metadata_json\", \"created_by_agent_id\", \"created_at\", \"domain\", \"sensitivity\", \"project_id\"}",
           "after": "{\"id\", \"user_id\", \"metadata_json\", \"created_by_agent_id\", \"created_at\", \"domain\", \"sensitivity\", \"project_id\"}",
           "line": 12,
-          "sha256": "e1720249756ec0ea4008b37ca47da8f8e373bcf3f7f7cd95af66768bccdea59e"
+          "sha256": "a76a02e6ec833a54b6fd7d353b3052157acb54336d41f241e0a1c3a1a1302f93"
         }
       ],
       "pytest": [
@@ -25274,7 +25279,7 @@
           "before": "{\"id\", \"user_id\", \"metadata_json\", \"domain\", \"sensitivity\", \"project_id\", \"created_at\", \"updated_at\", \"valid_from\", \"canonical_text\", \"title\", \"summary\"}",
           "after": "{\"id\", \"user_id\", \"domain\", \"sensitivity\", \"project_id\", \"created_at\", \"updated_at\", \"valid_from\", \"canonical_text\", \"title\", \"summary\"}",
           "line": 15,
-          "sha256": "e1720249756ec0ea4008b37ca47da8f8e373bcf3f7f7cd95af66768bccdea59e"
+          "sha256": "a76a02e6ec833a54b6fd7d353b3052157acb54336d41f241e0a1c3a1a1302f93"
         }
       ],
       "pytest": [
@@ -25324,7 +25329,7 @@
           "before": "    metadata = row.get(\"metadata_json\", row.get(\"lesson_metadata_raw\"))",
           "after": "    metadata = row.get(\"metadata_json\")",
           "line": 49,
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -25355,8 +25360,8 @@
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
           "before": "sensitivity_allowed=sensitivity_ceiling(identity) or ALL_SENSITIVITY,",
           "after": "sensitivity_allowed=ALL_SENSITIVITY,",
-          "line": 179,
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "line": 198,
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -25371,8 +25376,8 @@
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
           "before": "        candidates.sort(key=lambda item: item[4], reverse=True)",
           "after": "        pass",
-          "line": 240,
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "line": 259,
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -25385,10 +25390,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/lessons.py",
-          "line": 179,
+          "line": 198,
           "before": "sensitivity_allowed=sensitivity_ceiling(identity) or ALL_SENSITIVITY,",
           "after": "sensitivity_allowed=ALL_SENSITIVITY,",
-          "sha256": "46bd00084f4887a5a42791132d2c9298fbf8a7cf496227c4a537bcd03f8083b9"
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
         }
       ],
       "pytest": [
@@ -25561,10 +25566,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/session_briefing.py",
-          "line": 561,
+          "line": 566,
           "before": "caller_limited=SourceReadFence.for_identity(identity).keyed_read_fenced,",
           "after": "caller_limited=False,",
-          "sha256": "5d4926a012eec8d90dcc37247eca22ea04b19ec0d84e46847aa5f48895c7724c"
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
         }
       ],
       "pytest": [
@@ -25580,7 +25585,7 @@
           "line": 442,
           "before": "caller_limited=caller_limited,",
           "after": "caller_limited=False,",
-          "sha256": "5d4926a012eec8d90dcc37247eca22ea04b19ec0d84e46847aa5f48895c7724c"
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
         }
       ],
       "pytest": [
@@ -25737,10 +25742,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py",
-          "line": 925,
+          "line": 936,
           "before": "score_sql = f\"ts_rank(search_tsv, {tsquery_sql})\"",
           "after": "score_sql = f\"ts_rank(search_tsv, {tsquery_sql}) * CASE WHEN (SELECT count(*) FROM memories) > 500 THEN -1 ELSE 1 END\"",
-          "sha256": "f390669178ae5e16da04c6435c18dd8f443267196bcabe6eff9507110dbff67d"
+          "sha256": "489d0ee356c7b45d17feaea2b9a18849ab8ac102fc58d74095c18543b1339cf4"
         }
       ],
       "pytest": [
@@ -26819,6 +26824,447 @@
         "tests/unit/test_ranked_read_phrase_cost.py::test_phrase_vm_work_grows_below_quadratically"
       ],
       "expected_failure": "test_phrase_vm_work_grows_below_quadratically"
+    },
+    {
+      "name": "brief-lesson-sql-prefilter",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/lessons.py",
+          "line": 48,
+          "before": "        \"AND EXISTS (SELECT 1 FROM memory_revisions AS r \"\n        \"WHERE r.memory_id = memories.id AND r.user_id = memories.user_id \"\n        \"AND json_type(r.new_value, '$.lesson') IS NOT NULL AND (\"\n        \"(r.action = 'agentic_memory_commit' AND r.revision_type = 'created') OR \"\n        \"(r.action = 'agentic_memory_confirm_confirm' AND r.revision_type = 'promoted') OR \"\n        \"(r.action IN ('memory_correct_approve', 'memory_review_accept', 'memory_review_promote') \"\n        \"AND r.revision_type = 'promoted'))) \"\n",
+          "after": "",
+          "sha256": "a76a02e6ec833a54b6fd7d353b3052157acb54336d41f241e0a1c3a1a1302f93"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_limits.py::test_sql_prefilter_avoids_revision_reads_for_planted_blocks"
+      ],
+      "expected_failure": "test_sql_prefilter_avoids_revision_reads_for_planted_blocks"
+    },
+    {
+      "name": "brief-lesson-cap",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "line": 138,
+          "before": "remaining = 256 - examined",
+          "after": "remaining = 100000 - examined",
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_limits.py::test_one_brief_reads_at_most_256_candidates"
+      ],
+      "expected_failure": "test_one_brief_reads_at_most_256_candidates"
+    },
+    {
+      "name": "brief-lesson-cap-after-fence",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "line": 134,
+          "before": "            batch = admit_loaded(\n                store, kind=\"memory\", rows=batch, domains=domains, sensitivity_allowed=sensitivity, projects=projects\n            )\n            if order is None:\n                remaining = 256 - examined",
+          "after": "            raw_count = len(batch)\n            batch = admit_loaded(\n                store, kind=\"memory\", rows=batch, domains=domains, sensitivity_allowed=sensitivity, projects=projects\n            )\n            if order is None:\n                examined += raw_count - len(batch)\n                remaining = 256 - examined",
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_limits.py::test_unreadable_derived_candidates_do_not_use_the_limit"
+      ],
+      "expected_failure": "test_unreadable_derived_candidates_do_not_use_the_limit"
+    },
+    {
+      "name": "brief-lesson-may-apply",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 1166,
+          "before": "opening = \"Shared lessons may apply.\"",
+          "after": "opening = \"\"",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_limits.py::test_limited_scan_reports_only_what_it_established"
+      ],
+      "expected_failure": "test_limited_scan_reports_only_what_it_established"
+    },
+    {
+      "name": "brief-lesson-exhausted-256",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "line": 139,
+          "before": "if len(batch) > remaining:",
+          "after": "if len(batch) >= remaining:",
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_limits.py::test_exactly_256_exhausted_candidates_do_not_imply_a_lesson"
+      ],
+      "expected_failure": "test_exactly_256_exhausted_candidates_do_not_imply_a_lesson"
+    },
+    {
+      "name": "brief-lesson-sqlite-promotion-shape",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/lessons.py",
+          "line": 53,
+          "before": ", 'memory_review_promote'",
+          "after": "",
+          "sha256": "a76a02e6ec833a54b6fd7d353b3052157acb54336d41f241e0a1c3a1a1302f93"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_limits.py::test_sql_prefilter_keeps_every_publishing_shape_and_ignores_key_order"
+      ],
+      "expected_failure": "test_sql_prefilter_keeps_every_publishing_shape_and_ignores_key_order"
+    },
+    {
+      "name": "brief-lesson-postgres-promotion-shape",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py",
+          "line": 353,
+          "before": ", 'memory_review_promote'",
+          "after": "",
+          "sha256": "489d0ee356c7b45d17feaea2b9a18849ab8ac102fc58d74095c18543b1339cf4"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_lessons_default_postgres.py::test_postgres_prefilter_keeps_every_publishing_shape"
+      ],
+      "expected_failure": "test_postgres_prefilter_keeps_every_publishing_shape"
+    },
+    {
+      "name": "brief-lesson-shared-selection",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 453,
+          "before": "        from alicebot_api.mcp.lessons import _select_published_lessons",
+          "after": "        def _select_published_lessons(*args, **kwargs):\n            kwargs[\"scan_state\"][\"limit_reached\"] = False\n            return [], {}",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_brief.py::test_tool_and_brief_use_the_same_selector"
+      ],
+      "expected_failure": "test_tool_and_brief_use_the_same_selector"
+    },
+    {
+      "name": "brief-lesson-no-readable-line",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 1160,
+          "before": "if lesson_count or lesson_scan_incomplete:",
+          "after": "if lesson_count >= 0 or lesson_scan_incomplete:",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_brief.py::test_brief_counts_only_tool_readable_lessons"
+      ],
+      "expected_failure": "test_brief_counts_only_tool_readable_lessons"
+    },
+    {
+      "name": "brief-lesson-count-target",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 461,
+          "before": "            limit=21,",
+          "after": "            limit=1,",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_brief.py::test_brief_counts_only_tool_readable_lessons"
+      ],
+      "expected_failure": "test_brief_counts_only_tool_readable_lessons"
+    },
+    {
+      "name": "brief-lesson-stop-at-21",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "line": 168,
+          "before": "                        if len(choices) == limit:\n                            break",
+          "after": "                        if len(choices) == 100000:\n                            break",
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_brief.py::test_lesson_count_query_statements_stop_growing_at_twenty_one"
+      ],
+      "expected_failure": "test_lesson_count_query_statements_stop_growing_at_twenty_one"
+    },
+    {
+      "name": "brief-lesson-publisher-answer",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/lessons.py",
+          "line": 87,
+          "before": "actor = revision.get(\"actor_id\") if actor_type == \"agent\" else \"owner\"",
+          "after": "actor = revision.get(\"actor_id\") if actor_type == \"agent\" else \"other\"",
+          "sha256": "677e2ef60b6cc6d7fbf8213f2a2192cf8398f86972b56a6e681ef888bcb56918"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_brief.py::test_whole_tool_answer_matches_main_on_the_same_vault",
+        "tests/unit/test_lessons_default_brief.py::test_owner_and_unbound_admin_receive_the_same_tool_answer"
+      ],
+      "expected_failure": "test_whole_tool_answer_matches_main_on_the_same_vault"
+    },
+    {
+      "name": "brief-lesson-example-field",
+      "edits": [
+        {
+          "file": "docs/alpha/shared-lessons.md",
+          "line": 35,
+          "before": "\"do_instead\":\"Review the release checks after editing the notes.\"",
+          "after": "\"instead\":\"Review the release checks after editing the notes.\"",
+          "sha256": "7fd1b52c25949546c5e506c405b6d0c1a38fc843c383778f1538c9b5ff693b51"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_brief.py::test_shared_lesson_examples_run_with_review_and_retirement"
+      ],
+      "expected_failure": "test_shared_lesson_examples_run_with_review_and_retirement"
+    },
+    {
+      "name": "brief-lesson-hidden-other_project",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 465,
+          "before": "        lesson_count = len(choices)",
+          "after": "        lesson_count = len(choices) + int(store._execute(\"SELECT 1 FROM memories WHERE user_id = ? AND project_id='beta' LIMIT 1\", (store.user_id,)).fetchone() is not None)",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_hidden.py::test_hidden_rows_leave_the_whole_keyed_brief_unchanged[False-other_project]",
+        "tests/unit/test_lessons_default_limits.py::test_hidden_rows_do_not_change_the_notice_at_the_limit[0-other_project]"
+      ],
+      "expected_failure": "test_hidden_rows_leave_the_whole_keyed_brief_unchanged"
+    },
+    {
+      "name": "brief-lesson-hidden-ceiling",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 465,
+          "before": "        lesson_count = len(choices)",
+          "after": "        lesson_count = len(choices) + int(store._execute(\"SELECT 1 FROM memories WHERE user_id = ? AND sensitivity='confidential' LIMIT 1\", (store.user_id,)).fetchone() is not None)",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_hidden.py::test_hidden_rows_leave_the_whole_keyed_brief_unchanged[False-ceiling]",
+        "tests/unit/test_lessons_default_limits.py::test_hidden_rows_do_not_change_the_notice_at_the_limit[0-ceiling]"
+      ],
+      "expected_failure": "test_hidden_rows_leave_the_whole_keyed_brief_unchanged"
+    },
+    {
+      "name": "brief-lesson-hidden-waiting",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 465,
+          "before": "        lesson_count = len(choices)",
+          "after": "        lesson_count = len(choices) + int(store._execute(\"SELECT 1 FROM memories WHERE user_id = ? AND status='candidate' LIMIT 1\", (store.user_id,)).fetchone() is not None)",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_hidden.py::test_hidden_rows_leave_the_whole_keyed_brief_unchanged[False-waiting]",
+        "tests/unit/test_lessons_default_limits.py::test_hidden_rows_do_not_change_the_notice_at_the_limit[0-waiting]"
+      ],
+      "expected_failure": "test_hidden_rows_leave_the_whole_keyed_brief_unchanged"
+    },
+    {
+      "name": "brief-lesson-hidden-rejected",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 465,
+          "before": "        lesson_count = len(choices)",
+          "after": "        lesson_count = len(choices) + int(store._execute(\"SELECT 1 FROM memories WHERE user_id = ? AND status='rejected' LIMIT 1\", (store.user_id,)).fetchone() is not None)",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_hidden.py::test_hidden_rows_leave_the_whole_keyed_brief_unchanged[False-rejected]",
+        "tests/unit/test_lessons_default_limits.py::test_hidden_rows_do_not_change_the_notice_at_the_limit[0-rejected]"
+      ],
+      "expected_failure": "test_hidden_rows_leave_the_whole_keyed_brief_unchanged"
+    },
+    {
+      "name": "brief-lesson-hidden-superseded",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 465,
+          "before": "        lesson_count = len(choices)",
+          "after": "        lesson_count = len(choices) + int(store._execute(\"SELECT 1 FROM memories WHERE user_id = ? AND status='superseded' LIMIT 1\", (store.user_id,)).fetchone() is not None)",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_hidden.py::test_hidden_rows_leave_the_whole_keyed_brief_unchanged[False-superseded]",
+        "tests/unit/test_lessons_default_limits.py::test_hidden_rows_do_not_change_the_notice_at_the_limit[0-superseded]"
+      ],
+      "expected_failure": "test_hidden_rows_leave_the_whole_keyed_brief_unchanged"
+    },
+    {
+      "name": "brief-lesson-hidden-expired",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 465,
+          "before": "        lesson_count = len(choices)",
+          "after": "        lesson_count = len(choices) + int(store._execute(\"SELECT 1 FROM memories WHERE user_id = ? AND valid_to IS NOT NULL LIMIT 1\", (store.user_id,)).fetchone() is not None)",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_hidden.py::test_hidden_rows_leave_the_whole_keyed_brief_unchanged[False-expired]",
+        "tests/unit/test_lessons_default_limits.py::test_hidden_rows_do_not_change_the_notice_at_the_limit[0-expired]"
+      ],
+      "expected_failure": "test_hidden_rows_leave_the_whole_keyed_brief_unchanged"
+    },
+    {
+      "name": "brief-lesson-hidden-forgotten",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 465,
+          "before": "        lesson_count = len(choices)",
+          "after": "        lesson_count = len(choices) + int(store._execute(\"SELECT 1 FROM memories WHERE user_id = ? AND status='archived' AND canonical_text <> '[REDACTED]' LIMIT 1\", (store.user_id,)).fetchone() is not None)",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_hidden.py::test_hidden_rows_leave_the_whole_keyed_brief_unchanged[False-forgotten]",
+        "tests/unit/test_lessons_default_limits.py::test_hidden_rows_do_not_change_the_notice_at_the_limit[0-forgotten]"
+      ],
+      "expected_failure": "test_hidden_rows_leave_the_whole_keyed_brief_unchanged"
+    },
+    {
+      "name": "brief-lesson-hidden-redacted",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 465,
+          "before": "        lesson_count = len(choices)",
+          "after": "        lesson_count = len(choices) + int(store._execute(\"SELECT 1 FROM memories WHERE user_id = ? AND status='archived' AND canonical_text='[REDACTED]' LIMIT 1\", (store.user_id,)).fetchone() is not None)",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_hidden.py::test_hidden_rows_leave_the_whole_keyed_brief_unchanged[False-redacted]",
+        "tests/unit/test_lessons_default_limits.py::test_hidden_rows_do_not_change_the_notice_at_the_limit[0-redacted]"
+      ],
+      "expected_failure": "test_hidden_rows_leave_the_whole_keyed_brief_unchanged"
+    },
+    {
+      "name": "brief-lesson-planted-block",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 465,
+          "before": "        lesson_count = len(choices)",
+          "after": "        lesson_count = len(choices) + int(store._execute(\"SELECT 1 FROM memories WHERE user_id = ? AND json_type(value, '$.lesson') = 'object' LIMIT 1\", (store.user_id,)).fetchone() is not None)",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_hidden.py::test_planted_blocks_do_not_change_facts_or_the_lesson_line[False]"
+      ],
+      "expected_failure": "test_planted_blocks_do_not_change_facts_or_the_lesson_line"
+    },
+    {
+      "name": "brief-default-reference-doc",
+      "edits": [
+        {
+          "file": "docs/integrations/hermes.md",
+          "line": 8,
+          "before": "MCP gives Hermes the default four tools",
+          "after": "MCP gives Hermes four tools",
+          "sha256": "970216fb989d68afa9dbc20a844c4678c0799cc2e8597e11b83c29bcfbb3e5d1"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_reference_integrations.py::test_hermes_reference_doc_centers_provider_plus_mcp_and_one_call_continuity"
+      ],
+      "expected_failure": "test_hermes_reference_doc_centers_provider_plus_mcp_and_one_call_continuity"
+    },
+    {
+      "name": "brief-shared-page-classification",
+      "edits": [
+        {
+          "file": "tests/unit/test_agent_facing_payloads_are_callable.py",
+          "line": 72,
+          "before": "    (\"docs/alpha/shared-lessons.md\", 0): \"alice_lessons\",\n",
+          "after": "",
+          "sha256": "63d995ad05641580fc6706de566be97ab80843fbe45679fce98631b42f4621cd"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_agent_facing_payloads_are_callable.py::test_every_documented_payload_is_classified"
+      ],
+      "expected_failure": "test_every_documented_payload_is_classified"
+    },
+    {
+      "name": "brief-default-count-word",
+      "edits": [
+        {
+          "file": "tests/unit/test_mcp_surface_counts_in_docs.py",
+          "line": 50,
+          "before": "_NUMBER_WORDS = {3: \"three\", 4: \"four\", 11: \"eleven\"}",
+          "after": "_NUMBER_WORDS = {3: \"three\", 11: \"eleven\"}",
+          "sha256": "da4e5ca6388d43a8122ae55445c03dd059050e5770c0a74aff6b0d1710963ab0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_mcp_surface_counts_in_docs.py::test_the_counts_in_the_guide_are_the_counts_the_registry_lists"
+      ],
+      "expected_failure": "test_the_counts_in_the_guide_are_the_counts_the_registry_lists"
+    },
+    {
+      "name": "brief-historical-surface-count",
+      "edits": [
+        {
+          "file": "tests/unit/test_mcp_surface_counts_in_docs.py",
+          "line": 341,
+          "before": "            content = re.sub(r\"(?ms)^## What `v0\\.16\\.0` Shipped\\n.*?(?=^## |\\Z)\", \"\", content)",
+          "after": "            content = content",
+          "sha256": "da4e5ca6388d43a8122ae55445c03dd059050e5770c0a74aff6b0d1710963ab0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_mcp_surface_counts_in_docs.py::test_every_default_and_full_surface_count_in_the_living_docs_is_the_registry_count"
+      ],
+      "expected_failure": "test_every_default_and_full_surface_count_in_the_living_docs_is_the_registry_count"
+    },
+    {
+      "name": "brief-lesson-hook-count",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/session_briefing.py",
+          "line": 476,
+          "before": "        lesson_count=lesson_count,\n        lesson_scan_incomplete=lesson_scan_incomplete,",
+          "after": "        lesson_count=0,\n        lesson_scan_incomplete=lesson_scan_incomplete,",
+          "sha256": "b7e7b36256f7587d82b988df2b78e50f39d4366de71cfe3b732bd1fd3bde4758"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_default_brief.py::test_keyed_session_start_hook_includes_the_notice"
+      ],
+      "expected_failure": "test_keyed_session_start_hook_includes_the_notice"
     }
   ]
 }

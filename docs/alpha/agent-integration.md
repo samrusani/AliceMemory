@@ -51,7 +51,7 @@ Remember, recall, continue:
 2. **`alice_recall`** — search memory and imported sources.
 3. **`alice_resume`** — pick work back up: last decision, next action,
    open loops, recent changes.
-4. **`alice_lessons`** — find published lessons for the next task and files.
+4. **`alice_lessons`**: find published lessons for the next task and files.
 
 `alice_capture` and `alice_context_pack` are on the full surface
 (`ALICE_MCP_FULL_TOOLS=1`). Capture stores a source; its passages come

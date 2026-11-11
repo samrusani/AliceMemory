@@ -43,9 +43,17 @@ def stream_lesson_memories(store: Any, *, domains, sensitivity, projects, lazy_m
     if lazy_metadata:
         columns = columns.replace("metadata_json", "metadata_json AS lesson_metadata_raw")
     cursor = store._execute(
-        f"SELECT {columns} FROM memories {head} {project} {tail} "  # nosec B608
-        "AND json_type(value, '$.lesson') = 'object' ORDER BY updated_at DESC, created_at DESC, id DESC",
-        tuple([*head_params, *project_params, *tail_params]),
+        f"SELECT {columns} FROM memories {head} {tail} "  # nosec B608
+        "AND json_type(value, '$.lesson') = 'object' "
+        "AND EXISTS (SELECT 1 FROM memory_revisions AS r "
+        "WHERE r.memory_id = memories.id AND r.user_id = memories.user_id "
+        "AND json_type(r.new_value, '$.lesson') IS NOT NULL AND ("
+        "(r.action = 'agentic_memory_commit' AND r.revision_type = 'created') OR "
+        "(r.action = 'agentic_memory_confirm_confirm' AND r.revision_type = 'promoted') OR "
+        "(r.action IN ('memory_correct_approve', 'memory_review_accept', 'memory_review_promote') "
+        "AND r.revision_type = 'promoted'))) "
+        f"{project} ORDER BY updated_at DESC, id DESC",
+        tuple([*head_params, *tail_params, *project_params]),
     )
     try:
         for row in cursor:

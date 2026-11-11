@@ -23,10 +23,10 @@ def _brief(vault, key):
     ).stdout
 
 
-def _insert_rows(vault, kind):
+def _insert_rows(vault, kind, *, count=300):
     value = json.dumps({"text": "planted ordinary fact", "lesson": LESSON})
     rows, revisions = [], []
-    for number in range(300):
+    for number in range(count):
         mid, key = str(uuid4()), f"hidden.{kind}.{number}"
         project = "beta" if kind == "other_project" else "alpha"
         status = {"waiting": "candidate", "rejected": "rejected", "superseded": "superseded",
@@ -86,6 +86,10 @@ def test_planted_blocks_do_not_change_facts_or_the_lesson_line(tmp_path, monkeyp
         with sqlite3.connect(vault.path) as conn:
             conn.execute("UPDATE memories SET updated_at = '2000-01-01T00:00:00Z' WHERE id = ?", (result["memory"]["id"],))
     before = _brief(vault, reader)
+    if published:
+        assert "Shared lessons: 1. Call alice_lessons with your task before you start." in before
+    else:
+        assert "Shared lessons" not in before
     recalled_before = vault.call(monkeypatch, reader, "alice_recall", {"query": "planted ordinary fact"})
     before_ids = {row["id"] for row in recalled_before["results"]}
     assert before_ids

@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 from tests.unit.test_lessons_read import LESSON, Vault
-from alicebot_api.mcp.lessons import _select_published_lessons
 from alicebot_api.mcp.registry import call_mcp_tool, list_mcp_tools
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.onramp import sqlite_url_for_path
@@ -36,6 +35,23 @@ def test_keyed_sqlite_default_server_lists_and_calls_lessons(tmp_path, monkeypat
     assert [row["id"] for row in answer["lessons"]] == [str(committed["memory"]["id"])]
     monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
     assert call_mcp_tool(context, name="alice_lessons", arguments={"task": "rebasing"}) == answer
+
+
+def test_keyed_session_start_hook_includes_the_notice(tmp_path, monkeypatch):
+    """Guard: pass a zero count to the brief renderer and the hook loses its notice."""
+    vault = Vault(tmp_path / "memory.db")
+    admin = vault.key("admin", "admin_agent", "alpha")
+    reader = vault.key("reader", "read_only_agent", "alpha")
+    assert vault.commit(monkeypatch, admin, "admin")["status"] == "committed"
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ALICE")}
+    env["PYTHONPATH"] = os.pathsep.join((str(Path.cwd() / "apps/api/src"), str(Path.cwd())))
+    env["ALICE_AGENT_API_KEY"] = reader
+    result = subprocess.run(
+        [sys.executable, "-m", "alicebot_api.session_start_hook", "--data-dir", str(tmp_path), "--user-id", str(vault.user)],
+        input="{}", env=env, capture_output=True, text=True, check=True,
+    )
+    payload = json.loads(result.stdout)
+    assert "Shared lessons: 1. Call alice_lessons with your task before you start." in payload["additional_context"]
 
 
 def test_tool_and_brief_use_the_same_selector(tmp_path, monkeypatch):
@@ -65,6 +81,7 @@ def test_owner_and_unbound_admin_receive_the_same_tool_answer(tmp_path, monkeypa
     vault = Vault(tmp_path / "vault.db")
     assert vault.commit(monkeypatch, None)["status"] == "committed"
     owner = vault.call(monkeypatch, None, "alice_lessons", {"task": "rebasing"})
+    assert owner["lessons"][0]["published"]["by"] == "owner"
     admin = vault.key("admin", "admin_agent")
     assert vault.call(monkeypatch, admin, "alice_lessons", {"task": "rebasing"}) == owner
 
@@ -102,7 +119,7 @@ def test_whole_tool_answer_matches_main_on_the_same_vault(tmp_path, monkeypatch)
 
 
 def test_shared_lesson_examples_run_with_review_and_retirement(tmp_path, monkeypatch):
-    """Guard: changing any example field makes its documented call fail."""
+    """Guard: rename the example's do_instead field to instead and its call fails."""
     page = Path("docs/alpha/shared-lessons.md").read_text()
     blocks = [json.loads(raw) for raw in re.findall(r"```json\n(.*?)```", page, re.S)]
     vault = Vault(tmp_path / "vault.db")
@@ -124,7 +141,7 @@ def test_shared_lesson_examples_run_with_review_and_retirement(tmp_path, monkeyp
 
 @pytest.mark.parametrize("profile", ["owner", "project_scoped_agent", "read_only_agent", "admin_agent"])
 def test_brief_counts_only_tool_readable_lessons(tmp_path, monkeypatch, profile):
-    """Guard: remove the limit of 21 or count without the shared lesson selector."""
+    """Guard: change the brief's 21-lesson target to one and the count is wrong."""
     vault = Vault(tmp_path / "vault.db")
     admin = None if profile == "owner" else vault.key("admin", "admin_agent", "alpha")
     reader = None if profile == "owner" else vault.key("reader", profile, "alpha")
@@ -165,6 +182,8 @@ def test_brief_counts_only_tool_readable_lessons(tmp_path, monkeypatch, profile)
 
 def test_lesson_count_query_statements_stop_growing_at_twenty_one(tmp_path, monkeypatch):
     """Guard: remove the limit of 21 and the selector returns more than 21 rows."""
+    from alicebot_api.mcp.lessons import _select_published_lessons
+
     vault = Vault(tmp_path / "vault.db")
     statements = []
     totals = []

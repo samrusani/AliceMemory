@@ -91,17 +91,25 @@ def _publication(row, revisions):
     return None
 
 
-def _select_published_lessons(store, *, domains, sensitivity, projects, limit, order):
+def _select_published_lessons(store, *, domains, sensitivity, projects, limit, order, scan_state=None):
     """Select readable published lesson rows in the caller's requested order."""
     from itertools import islice
     from alicebot_api.sqlite_store import SQLiteVNextStore
     from alicebot_api.vnext_stores.sqlite.lessons import stream_lesson_memories
 
     lazy_metadata = not LabelGuard.for_filters(store, domains, sensitivity, projects).active
-    if order is None and isinstance(store, SQLiteVNextStore):
-        rows = stream_lesson_memories(
-            store, domains=domains, sensitivity=sensitivity, projects=projects, lazy_metadata=lazy_metadata
-        )
+    if order is None:
+        if isinstance(store, SQLiteVNextStore):
+            rows = stream_lesson_memories(
+                store, domains=domains, sensitivity=sensitivity, projects=projects, lazy_metadata=lazy_metadata
+            )
+        else:
+            rows = iter(store.list_memories(
+                status="active", memory_types=("procedure",), domains=domains,
+                sensitivity_allowed=sensitivity, projects=projects, include_expired=False,
+                lessons_only=True, lesson_projection=True, lesson_lazy_metadata=lazy_metadata,
+                lesson_publication_candidate=True,
+            ))
         batch_size = 64
     else:
         global_option = {"exclude_global_domains": ()} if "~global" in projects and isinstance(store, SQLiteVNextStore) else {}
@@ -114,6 +122,10 @@ def _select_published_lessons(store, *, domains, sensitivity, projects, limit, o
         batch_size = None
     grouped: dict[str, list[dict[str, object]]] = {}
     choices = []
+    examined = 0
+    limit_reached = False
+    if scan_state is not None:
+        scan_state["limit_reached"] = False
     try:
         while True:
             batch = list(islice(rows, batch_size)) if batch_size is not None else list(rows)
@@ -123,6 +135,13 @@ def _select_published_lessons(store, *, domains, sensitivity, projects, limit, o
                 store, kind="memory", rows=batch, domains=domains, sensitivity_allowed=sensitivity, projects=projects
             )
             if order is None:
+                remaining = 256 - examined
+                if len(batch) > remaining:
+                    limit_reached = True
+                    if scan_state is not None:
+                        scan_state["limit_reached"] = True
+                    batch = batch[:remaining]
+                examined += len(batch)
                 candidates = []
                 for row in batch:
                     value = row.get("value")
@@ -152,7 +171,7 @@ def _select_published_lessons(store, *, domains, sensitivity, projects, limit, o
                 close = getattr(revisions, "close", None)
                 if callable(close):
                     close()
-            if len(choices) == limit or batch_size is None:
+            if len(choices) == limit or batch_size is None or limit_reached:
                 break
     finally:
         close = getattr(rows, "close", None)
