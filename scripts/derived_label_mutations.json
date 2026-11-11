@@ -27684,6 +27684,22 @@
         "tests/unit/test_lessons_benchmark_trees.py::test_cli_requires_forty_samples"
       ],
       "expected_failure": "test_cli_requires_forty_samples"
+    },
+    {
+      "name": "benchmark-extract-side-revision",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 176,
+          "before": "                extract_tree(revisions[side], trees[side])",
+          "after": "                extract_tree(revisions[\"head\"], trees[side])",
+          "sha256": "a86f481b1aec72d9ba1730bb5bb915e62c8c80969f68df3b3e0d9787b0ea0e0f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_cli_extracts_the_named_revision_for_each_side"
+      ],
+      "expected_failure": "test_cli_extracts_the_named_revision_for_each_side"
     }
   ]
 }

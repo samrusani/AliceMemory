@@ -90,7 +90,7 @@ def test_sigkill_during_sample_leaves_checkout_bytes_unchanged(tmp_path):
             "b.run_benchmark({'base':r/'base','head':r/'head'},r,2,16,('none',))")
     env = {**os.environ, "PYTHONPATH": os.pathsep.join((str(SOURCE / "apps/api/src"), str(SOURCE))),
            "PYTHONDONTWRITEBYTECODE": "1"}
-    process = subprocess.Popen([sys.executable, "-c", code], cwd=bench.ROOT, env=env, start_new_session=True)
+    process = subprocess.Popen([sys.executable, "-c", code], cwd=SOURCE, env=env, start_new_session=True)
     try:
         deadline = time.monotonic() + 60
         while not started.exists() and process.poll() is None and time.monotonic() < deadline:
@@ -164,7 +164,7 @@ def test_interruption_removes_trees_and_fixtures(tmp_path, interruption):
             "sys.exit(b.main())")
     env = {**os.environ, "PYTHONPATH": os.pathsep.join((str(SOURCE / "apps/api/src"), str(SOURCE))),
            "PYTHONDONTWRITEBYTECODE": "1"}
-    process = subprocess.Popen([sys.executable, "-c", code], cwd=bench.ROOT, env=env,
+    process = subprocess.Popen([sys.executable, "-c", code], cwd=SOURCE, env=env,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         deadline = time.monotonic() + 60
@@ -211,3 +211,22 @@ def test_cli_requires_forty_samples(monkeypatch, capsys):
         bench.main()
     assert exc.value.code == 2
     assert "at least 40 samples" in capsys.readouterr().err
+
+
+def test_cli_extracts_the_named_revision_for_each_side(tmp_path, monkeypatch):
+    """Guard: extract the selected revision into its corresponding tree."""
+    if subprocess.run(["git", "cat-file", "-e", "7d70f5c7^{commit}"], cwd=bench.ROOT, capture_output=True).returncode:
+        pytest.skip("revision 7d70f5c7 is not available in this clone")
+    source_path = "tests/performance/lessons_brief_benchmark.py"
+    expected = {side: subprocess.check_output(["git", "show", f"{rev}:{source_path}"], cwd=bench.ROOT)
+                for side, rev in (("base", "7d70f5c7"), ("head", "HEAD"))}
+    assert expected["base"] != expected["head"]
+
+    def check_trees(trees, root, samples):
+        for side in ("base", "head"):
+            assert (trees[side] / source_path).read_bytes() == expected[side]
+        return []
+
+    monkeypatch.setattr(bench, "run_benchmark", check_trees)
+    monkeypatch.setattr(sys, "argv", ["bench", "--base", "7d70f5c7", "--head", "HEAD", "--work-dir", str(tmp_path)])
+    assert bench.main() == 0
