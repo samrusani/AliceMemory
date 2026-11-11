@@ -757,3 +757,17 @@ for _store_descriptor in (_placeholders, _run_clause, _expiry_clause, _like_any)
         f"SQLiteVNextStore.{_store_descriptor.__name__}"
     )
 del _store_descriptor
+
+
+def fts_row_score(table: str, columns: tuple[tuple[str, float], ...]) -> str:
+    """Count weighted term matches using only this row's FTS highlights.
+
+    Each match adds one marker character. Subtracting the original length
+    counts the matches without corpus frequencies or document-length averages.
+    Table and column names are fixed store expressions, never caller input.
+    """
+    return " + ".join(
+        f"{weight} * (coalesce(length(highlight({table}, {index}, char(1), '')), 0) "
+        f"- length(coalesce({table}.{column}, '')))"
+        for index, (column, weight) in enumerate(columns)
+    )

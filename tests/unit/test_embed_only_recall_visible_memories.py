@@ -1028,8 +1028,9 @@ def test_reindex_recall_and_the_stores_share_one_expiry_test() -> None:
     ``>=``) or in one of Postgres recall's four statements; change the clause in
     ``_expiry_clause``; stop either SQLite embedding function calling it; stop one
     of the five SQLite or five Postgres reads above using it; add a call that
-    passes ``include_expired=True`` anywhere in the package (the last check then
-    lists it).
+    passes ``include_expired=True`` outside the decision-history start search
+    (the last check then lists it). History already included expired decisions
+    through its store options; its fenced call now names that option directly.
     """
 
     from alicebot_api.vnext_stores.sqlite.query_predicates import _expiry_clause
@@ -1056,8 +1057,23 @@ def test_reindex_recall_and_the_stores_share_one_expiry_test() -> None:
     assert sqlite_embedding_cas._expiry_clause is _expiry_clause
     embedding_source = inspect.getsource(sqlite_embedding_cas)
     assert embedding_source.count("_expiry_clause(False)") == 2
-    # nothing asks recall for expired rows, so no search path returns one
-    assert _callers_passing_include_expired_true() == []
+    # Decision history includes expired decisions; recall still cannot opt in.
+    import ast
+
+    from alicebot_api import vnext_what_changed
+
+    history_source, history_start = inspect.getsourcelines(vnext_what_changed._search_starts)
+    history_calls = [
+        node.lineno + history_start - 1
+        for node in ast.walk(ast.parse("".join(history_source)))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_memory_fts_rows"
+        and any(keyword.arg == "include_expired" and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value is True for keyword in node.keywords)
+    ]
+    assert len(history_calls) == 1
+    assert _callers_passing_include_expired_true() == [f"vnext_what_changed.py:{history_calls[0]}"]
 
 
 def test_the_constant_is_defined_once_and_the_modules_that_name_it_hold_the_same_object() -> None:

@@ -31,6 +31,7 @@ from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _fts_match_any_expression,
     _fts_match_expression,
     CTE_MATERIALIZED_HINT,
+    fts_row_score,
     _project_view_partition_sql,
     _split_view_request,
     _stated_exclusion,
@@ -1244,6 +1245,7 @@ def search_memories_fts(
     scope_window_start: datetime | None = None,
     scope_window_end: datetime | None = None,
     lessons_only: bool = False,
+    row_local_rank: bool = False,
     lesson_candidate_ids: frozenset[str] | None = None,
 ) -> list[VNextRow]:
     # Strict pass ANDs every non-stopword term (websearch parity);
@@ -1279,10 +1281,16 @@ def search_memories_fts(
     if lesson_candidate_ids is not None:
         lesson_sql += " AND m.id IN (SELECT value FROM json_each(?))"
     ordering = "fts_score DESC, m.created_at DESC, m.id ASC" if lessons_only else "fts_score DESC, m.updated_at DESC, m.created_at DESC, m.id DESC"
+    # Lessons keep their row-only rank. Keyed limited reads use ordinary
+    # readable rows for BM25 statistics, with these row-only weights as the
+    # fallback when that population is empty. Other callers retain native BM25.
     score_sql = (
         "2 * (coalesce(length(highlight(memories_fts, 0, char(1), '')), 0) - length(coalesce(m.title, ''))) + "
         "(coalesce(length(highlight(memories_fts, 1, char(1), '')), 0) - length(coalesce(m.canonical_text, '')))"
-        if lessons_only else "-bm25(memories_fts, 1.0, 0.4, 0.2, 0.4, 0.1)"
+        if lessons_only else (
+            fts_row_score("memories_fts", (("title", 2.0), ("canonical_text", 1.0), ("summary", 0.5), ("memory_key", 1.0), ("fact_keys", 0.25)))
+            if row_local_rank else "-bm25(memories_fts, 1.0, 0.4, 0.2, 0.4, 0.1)"
+        )
     )
     params: list[object] = [match_expression, self.user_id]
     if lesson_candidate_ids is not None:
@@ -1296,18 +1304,38 @@ def search_memories_fts(
     params.extend(expiry_params)
     params.extend(scope_params)
     params.extend((limit, offset))
+    rank_cte = rank_join = ""
+    ranked_from = "memories_fts JOIN memories m ON m.rowid = memories_fts.rowid"
+    match_sql = "memories_fts MATCH ?"
+    if row_local_rank and not lessons_only:
+        from alicebot_api.vnext_stores.sqlite.readable_rank import rank_sql
+        from alicebot_api.vnext_label_sql import original_label_sql
+        population_where = ("m.user_id=? AND m.deleted_at IS NULL AND " + label_sql
+                            + " AND m.status IN " + _MEMORY_SEARCHABLE_STATUSES_SQL
+                            + domain_sql + sensitivity_sql + project_sql + expiry_sql)
+        population_params = (self.user_id, *domain_params, *sensitivity_params, *project_params, *expiry_params)
+        ranked = rank_sql(self, expression=match_expression, memory=True, population_from="memories m",
+                          population_where=population_where, population_params=population_params,
+                          ordinary=original_label_sql("memory", sqlite=True))
+        if ranked is not None:
+            rank_cte, rank_join, rank_params = ranked
+            score_sql = "readable_scores.score"
+            ranked_from = "readable_scores CROSS JOIN memories m ON m.rowid=readable_scores.doc"
+            match_sql = "m.rowid IN (SELECT rowid FROM memories_fts WHERE memories_fts MATCH ?)"
+            rank_join = ""
+            params = [*rank_params, *params]
     try:
         # Column weights follow the Postgres search_tsv setweights:
         # title 1.0 (A), canonical_text 0.4 (B), summary 0.2 (C),
         # memory_key 0.4, and derived fact_keys 0.1 (D) -- fact keys
         # make rows findable without outranking direct text matches.
-        return self._fetch_all(
-            f"""
+        statement = f"""
+                    {rank_cte}
                     SELECT {prefixed_columns},
                       {score_sql} AS fts_score
-                    FROM memories_fts
-                    JOIN memories m ON m.rowid = memories_fts.rowid
-                    WHERE memories_fts MATCH ?
+                    FROM {ranked_from}
+                    {rank_join}
+                    WHERE {match_sql}
                       AND m.user_id = ?
                       AND m.deleted_at IS NULL
                       AND {label_sql}
@@ -1315,9 +1343,12 @@ def search_memories_fts(
                       AND m.status IN {_MEMORY_SEARCHABLE_STATUSES_SQL}{domain_sql}{sensitivity_sql}{type_sql}{project_sql}{created_by_sql}{run_sql}{expiry_sql}{scope_sql}
                     ORDER BY {ordering}
                     LIMIT ? OFFSET ?
-                    """,
-            tuple(params),
-        )
+                    """
+        if row_local_rank and not lessons_only:
+            from alicebot_api.vnext_stores.sqlite.readable_rank import read_ranked_memories
+            return read_ranked_memories(self, statement, tuple(params), limit=limit, offset=offset,
+                                        domains=domains, sensitivity_allowed=sensitivity_allowed, projects=projects)
+        return self._fetch_all(statement, tuple(params))
     except sqlite3.OperationalError as exc:  # pragma: no cover - sanitizer backstop
         if "fts5" in str(exc).lower() or "syntax" in str(exc).lower():
             return []

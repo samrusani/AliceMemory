@@ -33,7 +33,8 @@ from typing import Any
 from alicebot_api.recall_framing import memory_writer, quote_session_brief_text, writer_attribution
 from alicebot_api.source_search_limits import require_source_search_query
 from alicebot_api.vnext_derived_labels import identifier
-from alicebot_api.vnext_label_guard import label_read_scope, outside_caller_limits
+from alicebot_api.vnext_label_guard import label_read_scope, outside_caller_limits, sensitivity_ceiling
+from alicebot_api.vnext_agent_control import ALL_SENSITIVITY, permitted_domains
 from alicebot_api.vnext_label_sql import READABLE_SCAN_CAP
 from alicebot_api.vnext_source_fence import (
     SavedProvenanceReader,
@@ -174,8 +175,8 @@ def _assemble(
 def _search_starts(store: Any, identity: Any, topic: str) -> list[dict[str, object]]:
     """The decision memories recall's full-text search would rank first.
 
-    Hidden rows are included, so they can use up the 128 places before a
-    readable start. An empty topic matches nothing. A topic recall cannot
+    SQLite callers with limits use the fenced, row-ranked memory stage.
+    Other callers keep the existing 128-start search. An empty topic matches nothing. A topic recall cannot
     search is refused by the same limit recall uses.
     """
 
@@ -190,6 +191,21 @@ def _search_starts(store: Any, identity: Any, topic: str) -> list[dict[str, obje
     search = getattr(store, "search_memories_fts", None)
     if not callable(search):
         search = store.search_memories
+    from alicebot_api.vnext_retrieval import VNextRetrievalService, _supports_explicit_parameters
+
+    fence = SourceReadFence.for_identity(identity)
+    if fence.keyed_read_fenced and _supports_explicit_parameters(search, ("row_local_rank",)):
+        rows, _stage = VNextRetrievalService(store)._memory_fts_rows(
+            query=text,
+            domains=list(permitted_domains(identity.permission_profile) or ()),
+            sensitivity_allowed=list(sensitivity_ceiling(identity) or ALL_SENSITIVITY),
+            projects=tuple(identity.project_scope),
+            memory_types=("decision",),
+            include_expired=True,
+            limit=READABLE_SCAN_CAP,
+            read_fence=fence,
+        )
+        return [_memory_row(row) for row in rows]
     options = {
         "query": text,
         "memory_types": ("decision",),

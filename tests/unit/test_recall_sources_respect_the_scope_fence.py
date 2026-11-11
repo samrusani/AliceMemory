@@ -212,6 +212,7 @@ def test_search_source_excerpts_exposes_no_untested_surface() -> None:
         "scope",
         "ranking",
         "winning_memories",
+        "caller_limited",
     }, f"unexpected surface on search_source_excerpts: {sorted(parameters)}"
 
 

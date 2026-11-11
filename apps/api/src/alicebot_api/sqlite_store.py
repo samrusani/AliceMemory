@@ -214,6 +214,7 @@ from alicebot_api.vnext_stores.sqlite.query_predicates import (
     _escape_like_literal as _escape_like_literal,
     _expiry_clause as _query_expiry_clause,
     _fts_match_any_expression as _fts_match_any_expression,
+    fts_row_score,
     _fts_match_expression as _fts_match_expression,
     _like_any as _query_like_any,
     _memory_type_clause as _query_memory_type_clause,
@@ -1318,6 +1319,7 @@ class SQLiteVNextStore:
         sensitivity_allowed: list[str] | None = None,
         limit: int = 50,
         match_any: bool = False,
+        row_local_rank: bool = False,
         scope_projects: tuple[str, ...] = (),
         scope_people: tuple[str, ...] = (),
         scope_window_start: datetime | None = None,
@@ -1348,19 +1350,40 @@ class SQLiteVNextStore:
             scope_window_start=scope_window_start,
             scope_window_end=scope_window_end,
         )
+        score_sql = (
+            fts_row_score("source_chunks_fts", (("text", 1.0),))
+            if row_local_rank else "-bm25(source_chunks_fts)"
+        )
         prefixed_columns = ", ".join(f"c.{column}" for column in SOURCE_CHUNK_COLUMNS)
         params: list[object] = [match_expression, self.user_id]
         params.extend(readable_params)
         params.append(limit)
+        rank_cte = rank_join = ""
+        ranked_from = "source_chunks_fts\n                    JOIN source_chunks c ON c.rowid = source_chunks_fts.rowid"
+        match_sql = "source_chunks_fts MATCH ?"
+        if row_local_rank:
+            from alicebot_api.vnext_stores.sqlite.readable_rank import rank_sql
+            ranked = rank_sql(self, expression=match_expression, memory=False,
+                              population_from="source_chunks c JOIN sources s ON s.id=c.source_id AND s.user_id=c.user_id",
+                              population_where="c.user_id=?" + readable_sql,
+                              population_params=(self.user_id, *readable_params), ordinary="TRUE")
+            if ranked is not None:
+                rank_cte, rank_join, rank_params = ranked
+                score_sql = "readable_scores.score"
+                ranked_from = "readable_scores CROSS JOIN source_chunks c ON c.rowid=readable_scores.doc"
+                match_sql = "c.rowid IN (SELECT rowid FROM source_chunks_fts WHERE source_chunks_fts MATCH ?)"
+                rank_join = ""
+                params = [*rank_params, *params]
         try:
             return self._fetch_all(
                 f"""
+                    {rank_cte}
                     SELECT {prefixed_columns},
-                      -bm25(source_chunks_fts) AS fts_score
-                    FROM source_chunks_fts
-                    JOIN source_chunks c ON c.rowid = source_chunks_fts.rowid
+                      {score_sql} AS fts_score
+                    FROM {ranked_from}
                     JOIN sources s ON s.id = c.source_id AND s.user_id = c.user_id
-                    WHERE source_chunks_fts MATCH ?
+                    {rank_join}
+                    WHERE {match_sql}
                       AND c.user_id = ?{readable_sql}
                     ORDER BY fts_score DESC, c.created_at DESC, c.id DESC
                     LIMIT ?

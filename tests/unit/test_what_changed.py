@@ -513,84 +513,67 @@ def test_plain_notes_and_a_hidden_topic_say_the_same_thing() -> None:
     assert "gap" not in json.dumps(hidden)
 
 
-def test_an_answer_at_the_128_cap_gives_no_count_and_no_gap_marker() -> None:
-    store = _store()
-    support = AgentIdentity(agent_id="showcase-support", permission_profile="memory_proposal_agent")
-    visible = _memory(
-        store,
-        title="lantern policy",
-        canonical_text="the readable lantern policy",
-        created_at="2020-01-01T00:00:00Z",
-    )
-    for index in range(128):
-        _memory(
-            store,
-            title="lantern policy",
-            canonical_text=f"hidden lantern {index}",
-            domain="legal",
-            sensitivity="confidential",
-            created_at=f"2024-01-01T00:00:{index:02d}Z" if index < 60 else f"2024-06-01T00:{index:02d}:00Z",
+def _hidden_decision_vault(tmp_path, monkeypatch, hidden_count):
+    from alicebot_api.onramp import bootstrap_database
+    from alicebot_api.sqlite_store import sqlite_user_connection
+    from tests.unit.test_ranked_read_hidden_rows import USER, call, mint
+
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    monkeypatch.setenv("ALICE_PROJECT_DIR", str(tmp_path))
+    db = tmp_path / "memory.db"
+    bootstrap_database(db, user_id=USER, user_email="fixture@example.invalid")
+    result = call(db, monkeypatch, None, "alice_memory_commit", {
+        "title": "lantern policy", "canonical_text": "the readable lantern policy",
+        "memory_type": "decision", "domain": "project", "sensitivity": "public",
+        "project_scope": ["alpha"],
+    })
+    visible = result["memory"]["id"]
+    key = mint(db, "project_scoped_agent")
+    before = call(db, monkeypatch, key, "alice_what_changed", {"topic": "lantern"})
+    assert _ids(before) == [visible]
+    with sqlite_user_connection(db, USER) as conn:
+        conn.executemany(
+            """
+            INSERT INTO memories (
+              id, user_id, memory_key, value, status, source_event_ids, memory_type,
+              title, canonical_text, domain, sensitivity, confirmation_status, project_id
+            ) VALUES (?, ?, ?, '{}', 'active', '[]', 'decision', ?, ?, 'legal', 'confidential', 'confirmed', 'alpha')
+            """,
+            [(str(uuid4()), USER, f"decision.hidden.{index}", "lantern policy", f"hidden lantern {index}")
+             for index in range(hidden_count)],
         )
-    answer = _ask(store, "lantern", support)
-    dumped = json.dumps(answer)
-    assert answer["chains"] == []
-    assert answer["message"] == NOT_FOUND
-    assert "count" not in dumped
-    assert "gap" not in dumped
-    assert str(visible["id"]) not in dumped
+        conn.commit()
+    return db, key, before
 
 
-def test_the_budget_of_10000_hidden_candidates_stops_at_128(capsys: pytest.CaptureFixture[str]) -> None:
+def test_an_answer_at_the_128_cap_gives_no_count_and_no_gap_marker(tmp_path, monkeypatch) -> None:
+    """Guard: unreadable candidates are fenced before the 128-start cap."""
+    from tests.unit.test_ranked_read_hidden_rows import call
+
+    db, key, before = _hidden_decision_vault(tmp_path, monkeypatch, 128)
+    answer = call(db, monkeypatch, key, "alice_what_changed", {"topic": "lantern"})
+    assert answer == before
+    assert "count" not in json.dumps(answer)
+    assert "gap" not in json.dumps(answer)
+
+
+def test_the_budget_of_10000_hidden_candidates_stops_at_128(tmp_path, monkeypatch, capsys) -> None:
+    """Guard: the fenced start search excludes hidden rows inside its SQL budget."""
     import time
 
-    conn = sqlite3.connect(":memory:")
-    bootstrap_sqlite_schema(conn)
-    user_id = str(uuid4())
-    ensure_sqlite_user(conn, user_id, f"{user_id}@example.com", "Test User")
-    store = SQLiteVNextStore(conn, user_id)
-    visible = str(uuid4())
-    conn.execute(
-        """
-        INSERT INTO memories (
-          id, user_id, memory_key, value, status, source_event_ids, memory_type,
-          title, canonical_text, domain, sensitivity, confirmation_status, created_at
-        ) VALUES (?, ?, ?, '{}', 'active', '[]', 'decision', ?, ?, 'project', 'public', 'confirmed', ?)
-        """,
-        (visible, user_id, f"decision.{visible}", "lantern policy", "the readable lantern policy", "2020-01-01T00:00:00Z"),
-    )
-    rows = [
-        (
-            str(uuid4()),
-            user_id,
-            f"decision.hidden.{index}",
-            "lantern policy",
-            f"hidden lantern {index}",
-            f"2024-01-01T00:00:{index % 60:02d}Z",
-        )
-        for index in range(10_000)
-    ]
-    conn.executemany(
-        """
-        INSERT INTO memories (
-          id, user_id, memory_key, value, status, source_event_ids, memory_type,
-          title, canonical_text, domain, sensitivity, confirmation_status, created_at
-        ) VALUES (?, ?, ?, '{}', 'active', '[]', 'decision', ?, ?, 'legal', 'confidential', 'confirmed', ?)
-        """,
-        rows,
-    )
-    conn.commit()
-    support = AgentIdentity(agent_id="showcase-support", permission_profile="memory_proposal_agent")
+    from tests.unit.test_ranked_read_hidden_rows import call
+
+    db, key, before = _hidden_decision_vault(tmp_path, monkeypatch, 10_000)
     started = time.perf_counter()
-    answer = what_changed(store, user_id=user_id, identity=support, topic="lantern", today=TODAY)
+    answer = call(db, monkeypatch, key, "alice_what_changed", {"topic": "lantern"})
     elapsed = time.perf_counter() - started
-    dumped = json.dumps(answer)
-    assert answer["chains"] == []
-    assert "count" not in dumped
-    assert "gap" not in dumped
-    assert visible not in dumped
+    assert answer == before
+    assert "count" not in json.dumps(answer)
+    assert "gap" not in json.dumps(answer)
     assert elapsed < 1.5
     recall_started = time.perf_counter()
-    store.search_memories_fts(query="lantern", memory_types=("decision",), limit=20)
+    call(db, monkeypatch, key, "alice_recall", {"query": "lantern", "include_sources": False, "limit": 20})
     recall_elapsed = time.perf_counter() - recall_started
     print(f"what_changed_10000_seconds={elapsed:.4f}")
     print(f"recall_10000_seconds={recall_elapsed:.4f}")

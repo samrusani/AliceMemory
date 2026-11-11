@@ -18,6 +18,7 @@ set ``REPAIR_STATE_KEY`` back to ``derived_labels_v3``; in ``_derived_dependency
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from contextlib import closing
@@ -95,6 +96,12 @@ def _cases(memory_id: str, source_id: str) -> dict[str, tuple[str, object]]:
     return cases
 
 
+def _query_token(name: str) -> str:
+    # One token per citation fixture keeps the requested row ahead of any
+    # ranking limit; these tests exercise label guards, not tokenized name ties.
+    return "citationfixture" + hashlib.sha256(name.encode()).hexdigest()[:16]
+
+
 def _derived_memory(name: str, entry: object, *, position: str = "metadata", words: str = SENTINEL) -> dict[str, object]:
     metadata: dict[str, object] = {"candidate_kind": "memory_rollup", "project_scope": []}
     value: dict[str, object] = {"kind": "rollup_card", "text": f"Roll-up {name}: {words}"}
@@ -105,7 +112,7 @@ def _derived_memory(name: str, entry: object, *, position: str = "metadata", wor
     else:
         value["source_refs"] = [entry]
     return {
-        "memory_key": f"rollup.{name}",
+        "memory_key": f"rollup.{name}.{_query_token(name)}",
         "memory_type": "semantic",
         "title": f"Roll-up {name}",
         "canonical_text": f"Roll-up {name}: {words}",
@@ -410,8 +417,8 @@ def _reads(vault, monkeypatch, key, name, *, quote_is_hidden: bool = True) -> li
     row_id = vault.rows[name][1]
     answers = []
     for tool, arguments in (
-        ("alice_recall", {"query": f"Roll-up {name}", "sensitivity_allowed": list(ALL_SENSITIVITY)}),
-        ("alice_context_pack", {"query": f"Roll-up {name}", "sensitivity_allowed": list(ALL_SENSITIVITY)}),
+        ("alice_recall", {"query": _query_token(name), "sensitivity_allowed": list(ALL_SENSITIVITY)}),
+        ("alice_context_pack", {"query": _query_token(name), "sensitivity_allowed": list(ALL_SENSITIVITY)}),
         ("alice_explain", {"memory_id": row_id}),
     ):
         rendered = _door(vault.path, monkeypatch, key, tool, arguments)

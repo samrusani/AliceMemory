@@ -61,7 +61,7 @@ SOURCE_RECEIPTS = {
     # only when the decoder itself overflows or when the call is running its second attempt after a reader overflowed
     # (reviewed change, not drift). Previous receipt 670fd096...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/query_predicates.py": (
-        "4a799586e99f06db3cf85ee26d638d2d12b155460e9394181199ca40117d8934"
+        "f3644bd84902a80baddf113bbb9602330f803392f0c514195c6b937ad7629345"
     ),
     # Re-minted for the Phase 4 Stage 2 resident vector cache (reviewed
     # carrier change; the receipt guards unreviewed drift): the vector scan
@@ -96,7 +96,7 @@ SOURCE_RECEIPTS = {
     # Re-minted so the memory partition read passes the floor identity.
     # Previous receipt 1580dca3...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "03b86f862b04138bc03bec12dfa1938f8930c65ce97ae1ad9029a94fabd7f59c"
+        "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
     ),
 }
 
@@ -257,7 +257,7 @@ EXPECTED_CLASS_ORDERS = {
 #: ``exclude_global_domains`` leaves out global rows in those domains before ``LIMIT`` when the request tuple holds
 #: the reserved global marker. The Postgres runtime resolves no project view, so its readers have no such argument,
 #: and every other parameter must still match.
-SQLITE_ONLY_PARAMETERS = frozenset({"exclude_global_domains"})
+SQLITE_ONLY_PARAMETERS = frozenset({"exclude_global_domains", "row_local_rank"})
 
 
 def _without_sqlite_only_parameters(signature: inspect.Signature) -> inspect.Signature:
