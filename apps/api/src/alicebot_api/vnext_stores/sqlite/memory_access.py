@@ -1305,6 +1305,8 @@ def search_memories_fts(
     params.extend(scope_params)
     params.extend((limit, offset))
     rank_cte = rank_join = ""
+    ranked_from = "memories_fts JOIN memories m ON m.rowid = memories_fts.rowid"
+    match_sql = "memories_fts MATCH ?"
     if row_local_rank and not lessons_only:
         from alicebot_api.vnext_stores.sqlite.readable_rank import rank_sql
         from alicebot_api.vnext_label_sql import original_label_sql
@@ -1317,7 +1319,10 @@ def search_memories_fts(
                           ordinary=original_label_sql("memory", sqlite=True))
         if ranked is not None:
             rank_cte, rank_join, rank_params = ranked
-            score_sql = "CASE WHEN rank_statistics.n=0 THEN (" + score_sql + ") ELSE readable_scores.score END"
+            score_sql = "readable_scores.score"
+            ranked_from = "readable_scores CROSS JOIN memories m ON m.rowid=readable_scores.doc"
+            match_sql = "m.rowid IN (SELECT rowid FROM memories_fts WHERE memories_fts MATCH ?)"
+            rank_join = ""
             params = [*rank_params, *params]
     try:
         # Column weights follow the Postgres search_tsv setweights:
@@ -1328,10 +1333,9 @@ def search_memories_fts(
                     {rank_cte}
                     SELECT {prefixed_columns},
                       {score_sql} AS fts_score
-                    FROM memories_fts
-                    JOIN memories m ON m.rowid = memories_fts.rowid
+                    FROM {ranked_from}
                     {rank_join}
-                    WHERE memories_fts MATCH ?
+                    WHERE {match_sql}
                       AND m.user_id = ?
                       AND m.deleted_at IS NULL
                       AND {label_sql}

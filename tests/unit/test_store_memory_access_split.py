@@ -96,7 +96,7 @@ SOURCE_RECEIPTS = {
     # Re-minted so the memory partition read passes the floor identity.
     # Previous receipt 1580dca3...
     "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py": (
-        "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+        "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
     ),
 }
 

@@ -24564,7 +24564,7 @@
           "line": 1287,
           "before": "    score_sql = (\n        \"2 * (coalesce(length(highlight(memories_fts, 0, char(1), '')), 0) - length(coalesce(m.title, ''))) + \"\n        \"(coalesce(length(highlight(memories_fts, 1, char(1), '')), 0) - length(coalesce(m.canonical_text, '')))\"\n        if lessons_only else (\n            fts_row_score(\"memories_fts\", ((\"title\", 2.0), (\"canonical_text\", 1.0), (\"summary\", 0.5), (\"memory_key\", 1.0), (\"fact_keys\", 0.25)))\n            if row_local_rank else \"-bm25(memories_fts, 1.0, 0.4, 0.2, 0.4, 0.1)\"\n        )\n    )\n",
           "after": "    score_sql = \"-bm25(memories_fts, 1.0, 0.4, 0.2, 0.4, 0.1)\"\n",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -24596,7 +24596,7 @@
           "line": 1283,
           "before": "\"fts_score DESC, m.created_at DESC, m.id ASC\" if lessons_only",
           "after": "\"fts_score DESC, m.created_at DESC, m.id DESC\" if lessons_only",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -24641,10 +24641,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py",
-          "line": 1455,
+          "line": 1459,
           "before": "lesson_sql += \" AND id IN (SELECT value FROM json_each(?))\"",
           "after": "lesson_sql += \" AND ? IS NOT NULL\"",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -24868,7 +24868,7 @@
           "line": 547,
           "before": "lesson_sql = \" AND json_type(value, '$.lesson') = 'object'\" if lessons_only else \"\"",
           "after": "lesson_sql = \"\"",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -25102,7 +25102,7 @@
           "before": "lesson_sql += \" AND m.id IN (SELECT value FROM json_each(?))\"",
           "after": "lesson_sql += \" AND ? IS NOT NULL\"",
           "line": 1282,
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -25137,8 +25137,8 @@
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py",
           "before": "lesson_sql += \" AND id IN (SELECT value FROM json_each(?))\"",
           "after": "lesson_sql += \" AND ? IS NOT NULL\"",
-          "line": 1455,
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "line": 1459,
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -25628,7 +25628,7 @@
           "line": 1291,
           "before": "(\"title\", 2.0)",
           "after": "(\"title\", 0.0)",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -25644,7 +25644,7 @@
           "line": 1291,
           "before": "(\"canonical_text\", 1.0)",
           "after": "(\"canonical_text\", 0.0)",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -25660,7 +25660,7 @@
           "line": 1291,
           "before": "(\"summary\", 0.5)",
           "after": "(\"summary\", 0.0)",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -25676,7 +25676,7 @@
           "line": 1291,
           "before": "(\"memory_key\", 1.0)",
           "after": "(\"memory_key\", 0.0)",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -25692,7 +25692,7 @@
           "line": 1291,
           "before": "(\"fact_keys\", 0.25)",
           "after": "(\"fact_keys\", 0.0)",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -25756,7 +25756,7 @@
           "line": 1291,
           "before": "(\"title\", 2.0)",
           "after": "(\"title\", 0.0)",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -25913,10 +25913,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py",
-          "line": 1308,
+          "line": 1310,
           "before": "if row_local_rank and not lessons_only:\n        from alicebot_api.vnext_stores.sqlite.readable_rank import rank_sql",
           "after": "if False:\n        from alicebot_api.vnext_stores.sqlite.readable_rank import rank_sql",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -25993,10 +25993,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py",
-          "line": 1317,
+          "line": 1319,
           "before": "ordinary=original_label_sql(\"memory\", sqlite=True)",
           "after": "ordinary=\"TRUE\"",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -26009,10 +26009,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py",
-          "line": 1317,
+          "line": 1319,
           "before": "ordinary=original_label_sql(\"memory\", sqlite=True)",
           "after": "ordinary=\"TRUE\"",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
         }
       ],
       "pytest": [
@@ -26025,10 +26025,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 101,
+          "line": 109,
           "before": "FROM rank_population WHERE ordinary), ",
           "after": "FROM rank_population), ",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26041,10 +26041,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 98,
+          "line": 106,
           "before": "count(CASE WHEN ordinary THEN 1 END)",
           "after": "count(*)",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26057,10 +26057,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 79,
+          "line": 84,
           "before": "WHERE {population_where}",
           "after": "WHERE TRUE",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26073,26 +26073,26 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 89,
-          "before": "WHERE p.rid=v0.doc AND {where}",
+          "line": 97,
+          "before": "WHERE v0.doc IN (SELECT rid FROM rank_population) AND {where}",
           "after": "WHERE {where}",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
-        "tests/unit/test_ranked_read_hidden_rows.py::test_readable_corpus_preserves_owner_order"
+        "tests/unit/test_ranked_read_hidden_rows.py::test_recall_is_equal_when_hidden_rows_are_added"
       ],
-      "expected_failure": "test_readable_corpus_preserves_owner_order"
+      "expected_failure": "test_recall_is_equal_when_hidden_rows_are_added"
     },
     {
       "name": "recall-row-rank-bm25-title",
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 82,
+          "line": 87,
           "before": "WHEN 'title' THEN 1.0",
           "after": "WHEN 'title' THEN 0.0",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26105,10 +26105,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 82,
+          "line": 87,
           "before": "WHEN 'canonical_text' THEN 0.4",
           "after": "WHEN 'canonical_text' THEN 0.0",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26121,10 +26121,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 83,
+          "line": 88,
           "before": "WHEN 'summary' THEN 0.2",
           "after": "WHEN 'summary' THEN 0.0",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26137,10 +26137,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 83,
+          "line": 88,
           "before": "WHEN 'memory_key' THEN 0.4",
           "after": "WHEN 'memory_key' THEN 0.0",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26153,10 +26153,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 83,
+          "line": 88,
           "before": "WHEN 'fact_keys' THEN 0.1",
           "after": "WHEN 'fact_keys' THEN 0.0",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26172,7 +26172,7 @@
           "line": 16,
           "before": "value = (value << 7) | (byte & 127)",
           "after": "value = byte & 127",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26188,7 +26188,7 @@
           "line": 17,
           "before": "if byte < 128:",
           "after": "if True:",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26204,7 +26204,7 @@
           "line": 18,
           "before": "total += value",
           "after": "total += 1",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26217,10 +26217,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 102,
+          "line": 110,
           "before": ",0.000001)",
           "after": ",1.0)",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26233,10 +26233,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 102,
+          "line": 110,
           "before": "(n-df+0.5)/(df+0.5)",
           "after": "1.0",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26249,10 +26249,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 102,
+          "line": 110,
           "before": "(n-df+0.5)/(df+0.5)",
           "after": "(n-df+1.5)/(df+1.5)",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26265,10 +26265,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 103,
+          "line": 111,
           "before": "frequency * 2.2",
           "after": "frequency * 2.0",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26281,10 +26281,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 103,
+          "line": 111,
           "before": "frequency + 1.2 *",
           "after": "frequency + 1.0 *",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26297,10 +26297,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 103,
+          "line": 111,
           "before": "0.25 + 0.75 * length / average",
           "after": "0.25 + 0.75 * 1.0",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26316,7 +26316,7 @@
           "line": 55,
           "before": "AND v{i}.col=v0.col ",
           "after": " ",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26332,7 +26332,7 @@
           "line": 55,
           "before": "v{i}.offset=v0.offset+{i}",
           "after": "v{i}.offset=v0.offset",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26348,7 +26348,7 @@
           "line": 40,
           "before": "ORDER BY doc,offset",
           "after": "ORDER BY doc,term",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26364,7 +26364,7 @@
           "line": 35,
           "before": "tokenize='porter unicode61'",
           "after": "tokenize='unicode61'",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26377,10 +26377,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 72,
+          "line": 77,
           "before": "if not phrases:",
           "after": "if False:",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26396,7 +26396,7 @@
           "line": 44,
           "before": "[phrase for phrase in result if phrase]",
           "after": "result",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26412,7 +26412,7 @@
           "line": 33,
           "before": "EXISTS temp.alice_memory_terms",
           "after": "EXISTS main.alice_memory_terms",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26428,7 +26428,7 @@
           "line": 34,
           "before": "EXISTS temp.alice_chunk_terms",
           "after": "EXISTS main.alice_chunk_terms",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26444,7 +26444,7 @@
           "line": 35,
           "before": "EXISTS temp.alice_query_text",
           "after": "EXISTS main.alice_query_text",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26460,7 +26460,7 @@
           "line": 36,
           "before": "EXISTS temp.alice_query_terms",
           "after": "EXISTS main.alice_query_terms",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26476,7 +26476,7 @@
           "line": 36,
           "before": "    conn.execute(\"CREATE VIRTUAL TABLE IF NOT EXISTS temp.alice_query_terms USING fts5vocab(temp, alice_query_text, instance)\")",
           "after": "    conn.execute(\"CREATE VIRTUAL TABLE IF NOT EXISTS temp.alice_query_terms USING fts5vocab(temp, alice_query_text, instance)\")\n    conn.execute(\"CREATE TABLE IF NOT EXISTS main.rank_persistent_probe(value)\")",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26489,10 +26489,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 125,
+          "line": 133,
           "before": "admitted.extend(admit_loaded(store, kind=\"memory\", rows=rows, domains=domains,\n                                         sensitivity_allowed=sensitivity_allowed, projects=projects))",
           "after": "admitted.extend(rows)",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26505,10 +26505,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 127,
+          "line": 135,
           "before": "if len(admitted) >= limit or len(rows) < page_limit:",
           "after": "if True:",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26521,10 +26521,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 128,
+          "line": 136,
           "before": "return admitted[:limit]",
           "after": "return admitted",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26536,11 +26536,11 @@
       "name": "recall-row-rank-empty-population",
       "edits": [
         {
-          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py",
-          "line": 1320,
-          "before": "\"CASE WHEN rank_statistics.n=0 THEN (\" + score_sql + \") ELSE readable_scores.score END\"",
-          "after": "\"readable_scores.score\"",
-          "sha256": "f9fcbe77e33b9a04afbf1bfd03b609d6ac81dd97f5fe64a84a0467dc3fc1f89d"
+          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
+          "line": 71,
+          "before": "if memory and not store._fetch_optional_one(",
+          "after": "if False and not store._fetch_optional_one(",
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26556,7 +26556,7 @@
           "line": 31,
           "before": "if not installed:",
           "after": "if True:",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26569,10 +26569,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 103,
+          "line": 111,
           "before": "* repetitions) AS score",
           "after": "* 1) AS score",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26585,10 +26585,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
-          "line": 95,
+          "line": 103,
           "before": "hit_sql = batches[0] if len(batches) == 1 else \" UNION ALL \".join(\"SELECT * FROM (\" + batch + \")\" for batch in batches)",
           "after": "hit_sql = \" UNION ALL \".join(hits)",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
@@ -26604,13 +26604,93 @@
           "line": 48,
           "before": "if len(terms) > 32:",
           "after": "if False:",
-          "sha256": "219c80c749545b634d2c0137a9bdfc9b59d0a6d9c1d4df982ac5d5bbb33ff068"
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
         }
       ],
       "pytest": [
         "tests/unit/test_ranked_read_hidden_rows.py::test_long_supported_queries_keep_native_bm25[long_phrase]"
       ],
       "expected_failure": "test_long_supported_queries_keep_native_bm25"
+    },
+    {
+      "name": "recall-row-rank-score-row-link",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py",
+          "line": 1323,
+          "before": "ON m.rowid=readable_scores.doc",
+          "after": "ON TRUE",
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ranked_read_hidden_rows.py::test_readable_corpus_preserves_owner_order"
+      ],
+      "expected_failure": "test_readable_corpus_preserves_owner_order"
+    },
+    {
+      "name": "recall-row-rank-ordinary-hit-membership",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
+          "line": 92,
+          "before": "v0.doc IN (SELECT rid FROM rank_population WHERE ordinary)",
+          "after": "1",
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ranked_read_hidden_rows.py::test_readable_derived_rows_leave_other_bm25_scores_unchanged"
+      ],
+      "expected_failure": "test_readable_derived_rows_leave_other_bm25_scores_unchanged"
+    },
+    {
+      "name": "recall-row-rank-posting-length-link",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
+          "line": 96,
+          "before": "ON d.id=v0.doc",
+          "after": "ON TRUE",
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ranked_read_hidden_rows.py::test_readable_corpus_preserves_owner_order"
+      ],
+      "expected_failure": "test_readable_corpus_preserves_owner_order"
+    },
+    {
+      "name": "recall-row-rank-population-length-link",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/readable_rank.py",
+          "line": 84,
+          "before": "d.id={alias}.rowid",
+          "after": "1=1",
+          "sha256": "26a317f563dd348502914e1d263eab32d05982ad157cf70df87b8fd53a92ea77"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ranked_read_hidden_rows.py::test_readable_corpus_preserves_owner_order"
+      ],
+      "expected_failure": "test_readable_corpus_preserves_owner_order"
+    },
+    {
+      "name": "recall-row-rank-score-lookup-plan",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/sqlite/memory_access.py",
+          "line": 1323,
+          "before": "            ranked_from = \"readable_scores CROSS JOIN memories m ON m.rowid=readable_scores.doc\"\n            match_sql = \"m.rowid IN (SELECT rowid FROM memories_fts WHERE memories_fts MATCH ?)\"\n            rank_join = \"\"",
+          "after": "            ranked_from = \"memories_fts JOIN memories m ON m.rowid=memories_fts.rowid\"\n            match_sql = \"memories_fts MATCH ?\"\n            rank_join = rank_join",
+          "sha256": "ca6c88a4409a221f24a74bd6d5033c1cf110032ad9b5fd26bc68bf40c9115123"
+        }
+      ],
+      "pytest": [
+        "tests/performance/test_label_round3_read_budget.py::test_sqlite_round3_random_read_budgets[False-300-deeper-ancestry]"
+      ],
+      "expected_failure": "test_sqlite_round3_random_read_budgets"
     }
   ]
 }

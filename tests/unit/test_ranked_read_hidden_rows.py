@@ -244,8 +244,16 @@ def test_fenced_rank_ignores_unmatched_text_length(vault, monkeypatch):
         conn.execute("UPDATE memories SET canonical_text=canonical_text || ? WHERE id=?", (" irrelevant" * 100, ids[1]))
         _derive(SQLiteVNextStore(conn, USER), ids)
     key = mint(vault, "project_scoped_agent")
+    statements = []
+    original = SQLiteVNextStore._execute
+    @wraps(original)
+    def capture(self, query, params=()):
+        statements.append(query)
+        return original(self, query, params)
+    monkeypatch.setattr(SQLiteVNextStore, "_execute", capture)
     result = call(vault, monkeypatch, key, "alice_recall", {"query": QUERY, "include_sources": False})
     assert [row["id"] for row in result["results"]] == ids
+    assert not any("rank_hits" in query and "FROM memories_fts" in query for query in statements)
 
 
 @pytest.mark.parametrize("hidden_kind", ("stored", "derived"))

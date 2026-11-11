@@ -68,6 +68,11 @@ def rank_sql(
     use that population's statistics, but never contribute to them. All SQL
     fragments are closed store expressions; caller values are bound.
     """
+    if memory and not store._fetch_optional_one(
+        f"SELECT 1 FROM {population_from} JOIN memories_fts_docsize d ON d.id=m.rowid WHERE ({ordinary}) AND {population_where} LIMIT 1",  # nosec B608 - closed clauses; values are bound
+        population_params,
+    ):
+        return None
     phrases = _prepare(store, expression)
     if not phrases:
         return None
@@ -84,9 +89,12 @@ def rank_sql(
     hits: list[str] = []
     for i, (phrase, repetitions) in enumerate(Counter(tuple(p) for p in phrases).items()):
         table, where, values = _phrase(vocab, list(phrase))
+        ordinary_hit = "v0.doc IN (SELECT rid FROM rank_population WHERE ordinary)" if memory else "1"
         hits.append(
-            f"SELECT v0.doc, {i} AS phrase, sum({weights}) AS frequency, p.length, p.ordinary, {repetitions} AS repetitions "  # nosec B608 - generated integers and fixed weights
-            f"FROM {table} CROSS JOIN rank_population p WHERE p.rid=v0.doc AND {where} GROUP BY v0.doc"
+            f"SELECT v0.doc, {i} AS phrase, sum({weights}) AS frequency, alice_fts_tokens(d.sz) AS length, "  # nosec B608 - generated integers and fixed weights
+            f"({ordinary_hit}) AS ordinary, {repetitions} AS repetitions "
+            f"FROM {table} CROSS JOIN {docsize} d ON d.id=v0.doc "
+            f"WHERE v0.doc IN (SELECT rid FROM rank_population) AND {where} GROUP BY v0.doc"
         )
         parameters.extend(values)
     # Source-query byte and distinct-term limits still apply. Batch the SQL
