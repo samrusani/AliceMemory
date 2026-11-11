@@ -27016,7 +27016,8 @@
       ],
       "pytest": [
         "tests/unit/test_lessons_default_brief.py::test_whole_tool_answer_matches_main_on_the_same_vault",
-        "tests/unit/test_lessons_default_brief.py::test_owner_and_unbound_admin_receive_the_same_tool_answer"
+        "tests/unit/test_lessons_default_brief.py::test_owner_and_unbound_admin_receive_the_same_tool_answer",
+        "tests/unit/test_lessons_default_comparison.py::test_whole_answer_matches_main_on_the_same_vault"
       ],
       "expected_failure": "test_whole_tool_answer_matches_main_on_the_same_vault"
     },
