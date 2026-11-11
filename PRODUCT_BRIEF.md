@@ -26,7 +26,7 @@ Agent developers — people building or operating AI agents who need durable, ex
   periphery so the default runtime matches the product described here. The
   low-level response job machinery remains internal to retained provider
   invocation.
-- The product baseline includes hybrid retrieval, the default three-tool MCP
+- The product baseline includes hybrid retrieval, the default four-tool MCP
   surface, the Memory Operations Protocol, per-agent API keys, Context API v2,
   temporal graph memory/entity resolution, and six live eval suites.
 - LongMemEval_s has a `v0.12.0` `store_chunks` receipt of 81.2% mean over
@@ -42,7 +42,7 @@ Agent developers — people building or operating AI agents who need durable, ex
 - The fourth-audit remediation shipped in `v0.10.3` after exact-SHA gates
   and internal review passed.
 - Alice is public-alpha, pre-1.0, single-user, and self-hosted. `alice-memory`
-  is published on PyPI; `uvx alice-memory mcp` serves three MCP tools on a
+  is published on PyPI; `uvx alice-memory mcp` serves four MCP tools on a
   local SQLite file, with no Docker or Postgres. On main,
   `ALICE_MCP_FULL_TOOLS=1` exposes all thirteen core tools.
 - `v0.12.0` shipped the Phase 3 structural refactor with **Structure only.

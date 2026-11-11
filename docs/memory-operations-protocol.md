@@ -21,7 +21,7 @@ Ten verbs cover the lifecycle of a memory:
 | [redact](#redact) | Scrub governed memory copies, keeping the audit skeleton and source evidence | Shipped |
 
 `remember` by explicit commit, `recall`, and `confirm` work on the default
-three MCP tools: `alice_memory_commit`, `alice_recall`, and `alice_resume`.
+four MCP tools: `alice_memory_commit`, `alice_recall`, `alice_resume`, and `alice_lessons`.
 Source-backed capture (`alice_capture`), `alice_context_pack`, and the other
 seven verbs need `ALICE_MCP_FULL_TOOLS=1` in the MCP server environment. No
 verb needs `ALICE_MCP_LEGACY_TOOLS`. All of them work in SQLite on-ramp mode
@@ -189,7 +189,7 @@ objects.
 Completes a write that policy held as `confirmation_required` (the pending
 memory is not searchable until confirmed).
 
-- MCP, default three tools: `alice_memory_commit` with only the
+- MCP, default four tools: `alice_memory_commit` with only the
   `confirmation_id` from the commit response and `confirmation_action`
   (`confirm` or `reject`), plus identity fields and an optional
   `rationale`. A memory field on that call is refused, and there is no

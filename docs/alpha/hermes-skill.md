@@ -2,7 +2,7 @@
 
 Use this instruction block in Hermes when Alice is available.
 
-Note: this page uses the default three tools in [mcp-tools.md](mcp-tools.md): `alice_memory_commit`, `alice_recall`, `alice_resume`. Capture and the pack are on the full surface (`ALICE_MCP_FULL_TOOLS=1`).
+Note: the default tools in [mcp-tools.md](mcp-tools.md) are `alice_memory_commit`, `alice_recall`, `alice_resume`, and `alice_lessons`. This page uses the first three. Capture and the pack are on the full surface (`ALICE_MCP_FULL_TOOLS=1`).
 
 ```text
 You are connected to Alice, the user's local-first memory and continuity layer.

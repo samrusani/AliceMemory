@@ -1,6 +1,6 @@
 # Alice docs
 
-Start with one command: `uvx alice-memory install`. It uses one local SQLite file and three MCP tools by default. The Postgres stack adds the `/vnext` review console, capture connectors and the scheduler. See the [quickstart](quickstart.md).
+Start with one command: `uvx alice-memory install`. It uses one local SQLite file and four MCP tools by default. The Postgres stack adds the `/vnext` review console, capture connectors and the scheduler. See the [quickstart](quickstart.md).
 
 This folder keeps the legacy `docs/alpha` path name. Alice is a local-first package for people who want agent memory and continuity without hosted storage or direct database writes by agents. Alice is the continuity layer for AI agents.
 

@@ -76,7 +76,7 @@ If you are running directly from the repository Python runtime:
 
 ## MCP
 
-The default MCP surface is three tools (see [docs/integrations/mcp.md](mcp.md)); `alice_resume` covers most continuity lookups there. `alice_context_pack` is full-surface. `alice_brief` requires a deliberately keyless local server with `ALICE_MCP_LEGACY_TOOLS=1`; a key-bound server hides and rejects it.
+The default MCP surface is four tools (see [docs/integrations/mcp.md](mcp.md)); `alice_resume` covers most continuity lookups there. `alice_context_pack` is full-surface. `alice_brief` requires a deliberately keyless local server with `ALICE_MCP_LEGACY_TOOLS=1`; a key-bound server hides and rejects it.
 
 Example:
 

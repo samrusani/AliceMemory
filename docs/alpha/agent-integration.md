@@ -23,7 +23,7 @@ Agents should use Alice as a durable, private, provenance-aware, reviewable memo
 ```
 
    No Postgres yet? `alice-memory mcp --data-dir ~/.alice` serves the same
-   default three tools against a local SQLite file. No `DATABASE_URL` needed.
+   default four tools against a local SQLite file. No `DATABASE_URL` needed.
 
 2. (Recommended) Bind the server to an agent identity: create a key and
    set `ALICE_AGENT_API_KEY` in the MCP server env (details under
@@ -39,7 +39,8 @@ Agents should use Alice as a durable, private, provenance-aware, reviewable memo
    [openclaw-skill.md](openclaw-skill.md) for coding agents.
 4. Ask the agent something it should need memory for. Its write verb is
    `alice_memory_commit`. Its read verbs are `alice_recall` and
-   `alice_resume`.
+   `alice_resume` and `alice_lessons`. See [Shared lessons](shared-lessons.md)
+   for instructions to add to an agent's standing notes.
 
 ## The default loop
 
@@ -50,6 +51,7 @@ Remember, recall, continue:
 2. **`alice_recall`** — search memory and imported sources.
 3. **`alice_resume`** — pick work back up: last decision, next action,
    open loops, recent changes.
+4. **`alice_lessons`** — find published lessons for the next task and files.
 
 `alice_capture` and `alice_context_pack` are on the full surface
 (`ALICE_MCP_FULL_TOOLS=1`). Capture stores a source; its passages come
@@ -250,7 +252,7 @@ Rules:
 - Fresh local installs keep working without keys: while a user has no active keys, keyless local human and agent calls remain available; self-asserted agents are audited with `auth: "unauthenticated_local"`.
 - The moment at least one active key exists, every protected `/v0/vnext` request requires `Authorization: Bearer alice_sk_...`, including requests that omit agent identity fields. Bare keys are rejected.
 - Manage keys with `alicebot agent keys list` (prefixes only, never hashes) and `alicebot agent keys revoke <key-prefix-or-id>`.
-- MCP servers bind a key by setting `ALICE_AGENT_API_KEY` in the server env. Key-bound MCP runs fail closed to the enabled core set (three by default, thirteen with `ALICE_MCP_FULL_TOOLS=1`): legacy tools are neither listed nor callable, even if `ALICE_MCP_LEGACY_TOOLS=1` is also set.
+- MCP servers bind a key by setting `ALICE_AGENT_API_KEY` in the server env. Key-bound MCP runs fail closed to the enabled core set (four by default, thirteen with `ALICE_MCP_FULL_TOOLS=1`): legacy tools are neither listed nor callable, even if `ALICE_MCP_LEGACY_TOOLS=1` is also set.
 
 ### HTTP error contract
 
@@ -447,7 +449,7 @@ and returns one of four outcomes: `committed`, `confirmation_required`,
 A `confirmation_required` write is not stored yet. The agent asks the user,
 then calls `alice_memory_commit` again with only the returned
 `confirmation_id` and `confirmation_action` (`confirm` or `reject`), plus its
-identity fields and an optional `rationale`. That works on the default three
+identity fields and an optional `rationale`. That works on the default four
 tools. It runs the same service call as `alice_memory_manage` action
 `confirm`, with the same policy check, project fence and audit trail. The
 rules for answering a pending write are written once, in

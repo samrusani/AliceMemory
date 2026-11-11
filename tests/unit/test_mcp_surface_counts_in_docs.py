@@ -47,11 +47,11 @@ from alicebot_api.mcp.registry import (
 ROOT = Path(__file__).resolve().parents[2]
 
 _FLAGS = ("ALICE_AGENT_API_KEY", "ALICE_MCP_FULL_TOOLS", "ALICE_MCP_LEGACY_TOOLS", "ALICE_LEGACY_SURFACES")
-_NUMBER_WORDS = {3: "three", 11: "eleven"}
+_NUMBER_WORDS = {3: "three", 4: "four", 11: "eleven"}
 
 
 def _word(number: int) -> str:
-    """The word the pages use for 3 and 11, else the digits, so a new count fails on the page text, not on a lookup."""
+    """The words the pages use for these counts, else digits, so a new count fails on the page text."""
 
     return _NUMBER_WORDS.get(number, str(number))
 
@@ -336,7 +336,10 @@ def _living_doc_claims() -> list[tuple[str, str, list[tuple[str, int, str]]]]:
         relative = path.relative_to(ROOT).as_posix()
         if path.suffix == ".py" and not relative.startswith("docs/"):
             continue
-        for sentence, paragraph in _sentences(path.read_text(encoding="utf-8")):
+        content = path.read_text(encoding="utf-8")
+        if relative == "CURRENT_STATE.md":
+            content = re.sub(r"(?ms)^## What `v0\.16\.0` Shipped\n.*?(?=^## |\Z)", "", content)
+        for sentence, paragraph in _sentences(content):
             claims = _claims(sentence, paragraph)
             if claims:
                 found.append((relative, sentence, claims))

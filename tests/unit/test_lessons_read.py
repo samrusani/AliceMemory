@@ -352,14 +352,14 @@ def test_event_and_no_query_retention(vault, monkeypatch, tmp_path):
 
 
 def test_surface(monkeypatch):
-    """Guard: lessons is full-only and all other definitions match main."""
+    """Guard: lessons is fourth by default and all other definitions match main."""
     import hashlib
 
     monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
     monkeypatch.delenv("ALICE_MCP_LEGACY_TOOLS", raising=False)
     monkeypatch.delenv("ALICE_LEGACY_SURFACES", raising=False)
     monkeypatch.delenv("ALICE_MCP_FULL_TOOLS", raising=False)
-    assert "alice_lessons" not in [item["name"] for item in list_mcp_tools()]
+    assert [item["name"] for item in list_mcp_tools()] == ["alice_memory_commit", "alice_recall", "alice_resume", "alice_lessons"]
     monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
     tools = {item["name"]: item for item in list_mcp_tools()}
     assert tools["alice_lessons"]["annotations"] == tools["alice_recall"]["annotations"]

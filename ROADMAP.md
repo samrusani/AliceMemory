@@ -48,7 +48,7 @@ restore, recorded security disposition) shipped in Phases 4 and 5.
 
 1. **Dogfood the agent interface daily.** Still open, no build phase can
    deliver it, and it now gates the counting decision below. Exercise the
-   default three-tool MCP core and equivalent HTTP/CLI flows against a live
+   default four-tool MCP core and equivalent HTTP/CLI flows against a live
    deployment; measure correction quality, review burden, project-scope
    usability, and end-to-end latency.
 2. **Counting substrate (Phase 6): attempted, and parked.** Multi-session
@@ -98,8 +98,8 @@ restore, recorded security disposition) shipped in Phases 4 and 5.
   invocation.
 - A consumer knowledge-management product.
 - OCR or transcription execution; Alice accepts text extracted elsewhere.
-- Growing the core MCP surface past thirteen tools. The default handshake stays
-  at three.
+- Growing the core MCP surface past thirteen tools. The default handshake has
+  four tools.
 
 `v0.23.1` is the latest published release and remains the install, checksum,
 and baseline reference.

@@ -272,6 +272,7 @@ _DEFAULT_CORE_TOOL_ORDER = (
     "alice_memory_commit",
     "alice_recall",
     "alice_resume",
+    "alice_lessons",
 )
 
 

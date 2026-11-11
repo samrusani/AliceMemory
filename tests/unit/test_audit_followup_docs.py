@@ -134,9 +134,9 @@ def test_the_hermes_captures_stay_unchanged_and_carry_a_dated_notice(
 
     # What the server advertises now, from the registry.
     default = registry._DEFAULT_CORE_TOOL_ORDER
-    assert len(default) == 3 and len(registry._CORE_TOOL_NAMES) == 13
+    assert len(default) == 4 and len(registry._CORE_TOOL_NAMES) == 13
     listed = ", ".join(f"`{name}`" for name in default)
-    assert f"advertises three tools by default ({listed})" in flat
+    assert f"advertises four tools by default ({listed})" in flat
     assert f"`{MCP_FULL_TOOLS_ENV}=1` advertises thirteen core tools" in flat
     # One of the nine is no longer a core tool.
     retired = [name for name in captured_tools if name not in registry._CORE_TOOL_NAMES]

@@ -19,11 +19,12 @@ uvx alice-memory demo --vault ~/Notes --data-dir ~/.alice-demo
 
 Install writes MCP config for Claude Desktop, Claude Code, Cursor and OpenClaw with SessionStart hooks; `--dry-run` writes nothing ([Install with alice-memory](docs/alpha/quickstart.md#install-with-alice-memory)). The PyPI package is [`alice-memory`](https://pypi.org/project/alice-memory/). The name `alice-core` on PyPI belongs to an unrelated project.
 
-The default MCP surface is three tools:
+The default MCP surface is four tools:
 
 - `alice_memory_commit`: record one fact as durable, immediately recallable memory; policy-checked into commit, confirmation, review, or rejection.
 - `alice_recall`: searches memory, fusing full-text, vector and entity-graph results; returns matching passages from captured documents.
 - `alice_resume`: resumption brief.
+- `alice_lessons`: find published lessons relevant to the task or files ahead.
 
 ## Measured
 

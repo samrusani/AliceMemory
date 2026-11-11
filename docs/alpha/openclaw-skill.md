@@ -2,7 +2,7 @@
 
 Use this instruction block in OpenClaw when Alice is available.
 
-Note: the payloads below use the default three tools in [mcp-tools.md](mcp-tools.md) (`alice_memory_commit`, `alice_recall`, `alice_resume`) and, for the context pack and capture, `alice_context_pack` and `alice_capture`, which are listed and callable only with `ALICE_MCP_FULL_TOOLS=1`. None of them needs the legacy surface or a keyless server.
+Note: the default tools in [mcp-tools.md](mcp-tools.md) are `alice_memory_commit`, `alice_recall`, `alice_resume`, and `alice_lessons`. The payloads below use the first three and, for the context pack and capture, `alice_context_pack` and `alice_capture`, which are listed and callable only with `ALICE_MCP_FULL_TOOLS=1`. None of them needs the legacy surface or a keyless server.
 
 ```text
 You are OpenClaw. Use Alice as the project-scoped memory and continuity layer.
