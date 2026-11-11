@@ -27444,6 +27444,22 @@
         "tests/unit/test_per_project_brief_layers.py::test_the_python_recheck_removes_held_back_facts_when_the_sql_read_returns_them"
       ],
       "expected_failure": "test_the_python_recheck_removes_held_back_facts_when_the_sql_read_returns_them"
+    },
+    {
+      "name": "brief-packaged-quickstart-default",
+      "edits": [
+        {
+          "file": "docs/examples/mcp_quickstart.py",
+          "line": 56,
+          "before": "    \"alice_resume\",\n    \"alice_lessons\",",
+          "after": "    \"alice_resume\",",
+          "sha256": "1700cd43ebf20fa6e950a5b1805516704f4fc24a1228b6c3689753d6c3cd2c7b"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_mcp_quickstart.py::test_mcp_quickstart_runs_against_packaged_sqlite_server"
+      ],
+      "expected_failure": "test_mcp_quickstart_runs_against_packaged_sqlite_server"
     }
   ]
 }
