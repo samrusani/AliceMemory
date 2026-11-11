@@ -156,7 +156,7 @@ def test_default_mcp_tool_surface_is_exactly_the_thirteen_core_tools(core_surfac
         assert tool["inputSchema"].get("additionalProperties") is False
 
 
-def test_default_mcp_handshake_is_exactly_commit_recall_resume(monkeypatch, core_surface) -> None:
+def test_default_mcp_handshake_is_exactly_commit_recall_resume_lessons(monkeypatch, core_surface) -> None:
     """Default list_mcp_tools is the four advertised names, in that order.
 
     If `_enabled_tool_definitions` ignores ALICE_MCP_FULL_TOOLS and always

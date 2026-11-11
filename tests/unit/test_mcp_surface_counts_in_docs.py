@@ -154,7 +154,8 @@ def _the_part_that_lists_the_tools(relative: str, names: list[str]) -> tuple[str
 
 
 @pytest.mark.parametrize("relative", _PAGES_THAT_NAME_THE_OTHER_CORE_TOOLS)
-def test_the_pages_that_list_the_core_tools_name_every_tool_the_default_three_leave_out(relative: str) -> None:
+def test_the_pages_that_list_the_core_tools_name_every_tool_the_default_four_leave_out(relative: str) -> None:
+    """Mutation: remove alice_context_pack from the core-tool list in docs/overview.md."""
     others = sorted(
         str(tool["name"]) for tool in _CORE_TOOL_DEFINITIONS if str(tool["name"]) not in _DEFAULT_CORE_TOOL_ORDER
     )
