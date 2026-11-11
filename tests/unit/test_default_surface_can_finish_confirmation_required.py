@@ -1,4 +1,4 @@
-"""A pending `alice_memory_commit` must be finishable on the default three tools.
+"""A pending `alice_memory_commit` must be finishable on the default four tools.
 
 Wiki D8, audit 2026-09-03 finding 13. Written 2026-09-22.
 
@@ -174,9 +174,12 @@ def _blocked_reasons(context, memory_id: str) -> list[list[str]]:
 # --- the surface itself ----------------------------------------------------
 
 
-def test_these_tests_run_on_the_default_three_tool_surface(tmp_path: Path, default_surface) -> None:
+def test_these_tests_run_on_the_default_four_tool_surface(tmp_path: Path, default_surface) -> None:
     """Guards the guard. If the conftest flag leaked back in, every test below
-    would be exercising the eleven-tool surface and prove nothing about D8."""
+    would be exercising the full surface and prove nothing about D8.
+
+    Mutation: remove alice_lessons from the default order.
+    """
 
     from alicebot_api.mcp.registry import list_mcp_tools
     from alicebot_api.mcp_tools import MCPToolNotFoundError
@@ -186,6 +189,7 @@ def test_these_tests_run_on_the_default_three_tool_surface(tmp_path: Path, defau
         "alice_memory_commit",
         "alice_recall",
         "alice_resume",
+        "alice_lessons",
     ]
     pending = _commit_pending(context, agent_id="hermes")
     with pytest.raises(MCPToolNotFoundError, match="ALICE_MCP_FULL_TOOLS"):

@@ -8,7 +8,7 @@ stdio, PostgreSQL or a local SQLite on-ramp, import/capture connectors, model
 providers, a scheduler, and local export/backup/log paths.
 
 This model covers the default local-first, single-user, self-hosted product:
-the HTTP API and `/vnext` operator UI, the core MCP tools over stdio (three by
+the HTTP API and `/vnext` operator UI, the core MCP tools over stdio (four by
 default, thirteen with `ALICE_MCP_FULL_TOOLS=1`), per-agent API keys, PostgreSQL
 with per-user RLS, the SQLite on-ramp, connectors/importers, model providers,
 the scheduler, exports/backups, and local logs.

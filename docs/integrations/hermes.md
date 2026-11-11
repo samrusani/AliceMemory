@@ -5,8 +5,8 @@ Hermes is the reference path when another agent runtime owns orchestration and A
 Recommended deployment shape: `provider_plus_mcp`.
 
 - Provider gives Hermes always-on prefetch plus post-turn capture hooks.
-- MCP gives Hermes the default three tools (`alice_memory_commit`,
-  `alice_recall`, `alice_resume`). The other ten core tools are behind
+- MCP gives Hermes the default four tools (`alice_memory_commit`,
+  `alice_recall`, `alice_resume`, `alice_lessons`). The other nine core tools are behind
   `ALICE_MCP_FULL_TOOLS=1`. The deeper legacy
   surface is limited to deliberately keyless, same-host operator compatibility;
   a server bound with `ALICE_AGENT_API_KEY` hides and rejects every legacy tool.
@@ -38,7 +38,7 @@ Use these docs when you need the underlying Alice runtime controls:
 
 ## Packaged install (pip or uvx)
 
-`alice-memory install --host hermes` writes one entry, `mcp_servers.alice`, into `~/.hermes/config.yaml`: the `uvx` launcher (or the installed script), args `alice-memory mcp --data-dir <dir>`, and `env: ALICE_MEMORY_DATA_DIR`. It runs on SQLite, gives Hermes the default three tools and writes no provider. Provider + MCP, `memory.provider: alice`, the provider installer script and the `alice_core` examples on this page need the full stack from a checkout (Postgres and the Alice API on port 8000, see the Full stack section of the README); the packaged install has no command that starts that API. `alice` and `alice_core` are two different entries: keep the one that matches your setup, not both.
+`alice-memory install --host hermes` writes one entry, `mcp_servers.alice`, into `~/.hermes/config.yaml`: the `uvx` launcher (or the installed script), args `alice-memory mcp --data-dir <dir>`, and `env: ALICE_MEMORY_DATA_DIR`. It runs on SQLite, gives Hermes the default four tools and writes no provider. Provider + MCP, `memory.provider: alice`, the provider installer script and the `alice_core` examples on this page need the full stack from a checkout (Postgres and the Alice API on port 8000, see the Full stack section of the README); the packaged install has no command that starts that API. `alice` and `alice_core` are two different entries: keep the one that matches your setup, not both.
 
 ## Recommended Setup
 

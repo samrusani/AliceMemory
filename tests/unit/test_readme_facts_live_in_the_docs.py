@@ -60,14 +60,14 @@ def test_the_readme_security_wording_is_unchanged() -> None:
 
 
 def test_the_readme_names_the_default_tools_and_the_package_runtime() -> None:
-    """Mutation: drop one of the three default tools, the OpenClaw prefix sentence, or the install note.
+    """Mutation: remove the alice_lessons bullet from the README.
 
-    The README keeps the three default tools and the install note; the OpenClaw prefix sentence moved with the
+    The README keeps the four default tools and the install note; the OpenClaw prefix sentence moved with the
     tool list to the product overview page, and the pin moved with it.
     """
 
     readme = _text("README.md")
-    for tool in ("alice_memory_commit", "alice_recall", "alice_resume"):
+    for tool in ("alice_memory_commit", "alice_recall", "alice_resume", "alice_lessons"):
         assert f"- `{tool}`:" in readme
     overview = _text("docs/overview.md")
     assert "OpenClaw prefixes MCP tool names with the server name, so `alice_recall` reaches the model as `alice__alice_recall`." in overview

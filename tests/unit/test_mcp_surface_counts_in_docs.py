@@ -1,11 +1,11 @@
 """The tool counts the living docs state are the counts the registry lists.
 
-The default three, the eleven core tools, the legacy long tail and the totals under each flag combination are written
+The default four, the thirteen core tools, the legacy long tail and the totals under each flag combination are written
 by hand into `docs/integrations/mcp.md` and into `CURRENT_STATE.md`. Nothing derived them from the
 registry, so a new tool definition or a moved tool would leave every page agreeing with itself and wrong.
 
 This guard lists the tools the way a server does, under each flag combination, and reads the figures out of the pages:
-those two, and the long-tail figures of `docs/alpha/mcp-tools.md`. The default three and the eleven are also stated
+those two, and the long-tail figures of `docs/alpha/mcp-tools.md`. The default four and the thirteen are also stated
 again, as a sentence, on many other living pages, so it reads the sentences of the living docs that give the default
 count, the full count, or the count of core tools the default leaves out. Each of those numbers must be the one the
 registry gives. A number it cannot place is a failure too when it sits beside a tool noun. A number that follows
@@ -47,16 +47,16 @@ from alicebot_api.mcp.registry import (
 ROOT = Path(__file__).resolve().parents[2]
 
 _FLAGS = ("ALICE_AGENT_API_KEY", "ALICE_MCP_FULL_TOOLS", "ALICE_MCP_LEGACY_TOOLS", "ALICE_LEGACY_SURFACES")
-_NUMBER_WORDS = {3: "three", 11: "eleven"}
+_NUMBER_WORDS = {3: "three", 4: "four", 11: "eleven"}
 
 
 def _word(number: int) -> str:
-    """The word the pages use for 3 and 11, else the digits, so a new count fails on the page text, not on a lookup."""
+    """The words the pages use for these counts, else digits, so a new count fails on the page text."""
 
     return _NUMBER_WORDS.get(number, str(number))
 
 
-# Pages that name every core tool the default three do not include.
+# Pages that name every core tool the default four do not include.
 _PAGES_THAT_NAME_THE_OTHER_CORE_TOOLS = (
     "docs/overview.md",
     "ARCHITECTURE.md",
@@ -154,7 +154,8 @@ def _the_part_that_lists_the_tools(relative: str, names: list[str]) -> tuple[str
 
 
 @pytest.mark.parametrize("relative", _PAGES_THAT_NAME_THE_OTHER_CORE_TOOLS)
-def test_the_pages_that_list_the_core_tools_name_every_tool_the_default_three_leave_out(relative: str) -> None:
+def test_the_pages_that_list_the_core_tools_name_every_tool_the_default_four_leave_out(relative: str) -> None:
+    """Mutation: remove alice_context_pack from the core-tool list in docs/overview.md."""
     others = sorted(
         str(tool["name"]) for tool in _CORE_TOOL_DEFINITIONS if str(tool["name"]) not in _DEFAULT_CORE_TOOL_ORDER
     )
@@ -336,7 +337,10 @@ def _living_doc_claims() -> list[tuple[str, str, list[tuple[str, int, str]]]]:
         relative = path.relative_to(ROOT).as_posix()
         if path.suffix == ".py" and not relative.startswith("docs/"):
             continue
-        for sentence, paragraph in _sentences(path.read_text(encoding="utf-8")):
+        content = path.read_text(encoding="utf-8")
+        if relative == "CURRENT_STATE.md":
+            content = re.sub(r"(?ms)^## What `v0\.16\.0` Shipped\n.*?(?=^## |\Z)", "", content)
+        for sentence, paragraph in _sentences(content):
             claims = _claims(sentence, paragraph)
             if claims:
                 found.append((relative, sentence, claims))

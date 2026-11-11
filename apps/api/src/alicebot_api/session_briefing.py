@@ -291,6 +291,7 @@ def compile_session_brief(
     query: str | None,
     caller_limited: bool = False,
     reserve: int = 0,
+    lesson_sensitivity_allowed: tuple[str, ...] | None = None,
 ) -> str:
     """Render a labelled markdown brief under the caller's effective fence.
 
@@ -446,6 +447,24 @@ def compile_session_brief(
     if query is not None and query.strip():
         pack_view = classify_pack_view(query)
 
+    lesson_count = 0
+    lesson_scan_incomplete = False
+    if effective_sensitivity_allowed and hasattr(store, "stream_lesson_revisions"):
+        from alicebot_api.mcp.lessons import _select_published_lessons
+
+        scan_state: dict[str, bool] = {}
+        choices, _ = _select_published_lessons(
+            store,
+            domains=list(effective_domains),
+            sensitivity=list(lesson_sensitivity_allowed or effective_sensitivity_allowed),
+            projects=effective_project_scope,
+            limit=21,
+            order=None,
+            scan_state=scan_state,
+        )
+        lesson_count = len(choices)
+        lesson_scan_incomplete = scan_state["limit_reached"]
+
     return _render_brief(
         facts=facts,
         open_loops=open_loops,
@@ -454,6 +473,8 @@ def compile_session_brief(
         reserve=reserve,
         head_line=brief_head_line(project_view),
         mark_global=in_project_view,
+        lesson_count=lesson_count,
+        lesson_scan_incomplete=lesson_scan_incomplete,
     )
 
 
@@ -514,6 +535,16 @@ def compile_local_session_brief(
         sensitivity_allowed=DEFAULT_AGENT_SENSITIVITY,
         project_scope=(),
     )
+    from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
+    from alicebot_api.vnext_label_guard import sensitivity_ceiling
+
+    lessons_decision = evaluate_agent_policy(
+        identity=identity,
+        action="memory.recall",
+        domains=(),
+        sensitivity_allowed=sensitivity_ceiling(identity) or ALL_SENSITIVITY,
+        project_scope=(),
+    )
     identity_scope = tuple(sorted(decision.effective_project_scope))
     with sqlite_user_connection(db_path, user_id) as connection:
         store = SQLiteVNextStore(connection, user_id)
@@ -533,6 +564,7 @@ def compile_local_session_brief(
             query=query,
             reserve=reserve,
             caller_limited=SourceReadFence.for_identity(identity).keyed_read_fenced,
+            lesson_sensitivity_allowed=lessons_decision.effective_sensitivity_allowed,
         )
 
 
@@ -1107,6 +1139,8 @@ def _render_brief(
     reserve: int = 0,
     head_line: str | None = None,
     mark_global: bool = False,
+    lesson_count: int = 0,
+    lesson_scan_incomplete: bool = False,
 ) -> str:
     """Lay out the brief.
 
@@ -1122,6 +1156,21 @@ def _render_brief(
     budget = _brief_body_limit(reserve)
     if head_line:
         lines.append(head_line)
+    lesson_line = None
+    if lesson_count or lesson_scan_incomplete:
+        if lesson_count > 20:
+            opening = "Shared lessons: more than 20."
+        elif lesson_scan_incomplete and lesson_count:
+            opening = f"Shared lessons: at least {lesson_count}."
+        elif lesson_scan_incomplete:
+            opening = "Shared lessons may apply."
+        else:
+            opening = f"Shared lessons: {lesson_count}."
+        lesson_line = f"{opening} Call alice_lessons with your task before you start."
+        if brief_char_len(_brief_rendered((*lines, lesson_line))) <= budget:
+            lines.append(lesson_line)
+        else:
+            lesson_line = None
     head_lines = len(lines)
 
     def admit(label: str, text: str, mark: str = "") -> None:
@@ -1172,7 +1221,7 @@ def _render_brief(
     for label, text, mark in ordered_items:
         admit(label, text, mark)
 
-    if len(lines) == head_lines:
+    if len(lines) == head_lines and lesson_line is None:
         # Nothing but the head line, if that. The empty line is true of the
         # brief and says nothing about the vault, and it never carries a count.
         if head_line:
@@ -1182,6 +1231,8 @@ def _render_brief(
         if brief_char_len(EMPTY_SESSION_BRIEF) <= budget:
             return EMPTY_SESSION_BRIEF
         return ""
+    if lesson_line is not None and not head_line:
+        return "\n".join((lesson_line, SESSION_BRIEF_FRAME, *lines[1:]))
     return "\n".join((SESSION_BRIEF_FRAME, *lines))
 
 

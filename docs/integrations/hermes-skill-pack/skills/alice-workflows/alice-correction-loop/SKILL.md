@@ -14,7 +14,7 @@ metadata:
 
 Legacy pack. The supported Hermes pack is `agent-skills/hermes/alice-memory`.
 This skill needs the full tool surface: set `ALICE_MCP_FULL_TOOLS=1` in the
-Alice MCP server env. On the default three tools, only the `alice_recall` and
+Alice MCP server env. On the default four tools, only the `alice_recall` and
 `alice_resume` verification steps work.
 
 ## Goal

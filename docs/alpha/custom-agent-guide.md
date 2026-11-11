@@ -41,7 +41,7 @@ This is the body of `POST /v0/vnext/context-packs`.
 
 ## MCP Example
 
-The default MCP surface is three tools (`alice_memory_commit`, `alice_recall`, `alice_resume`; see [mcp-tools.md](mcp-tools.md)). Capture and the pack are on the full surface (`ALICE_MCP_FULL_TOOLS=1`).
+The default MCP surface is four tools (`alice_memory_commit`, `alice_recall`, `alice_resume`, `alice_lessons`; see [mcp-tools.md](mcp-tools.md)). Capture and the pack are on the full surface (`ALICE_MCP_FULL_TOOLS=1`).
 
 Read with `alice_recall` and `alice_resume`. On the full surface, `alice_context_pack` takes flat scope fields (`domains`, `projects`, `sensitivity_allowed`, `max_items`) and `alice_capture` submits an output as a source (the field that carries the text is `raw_text`).
 

@@ -627,7 +627,7 @@ def test_a_confirmation_by_the_wrong_agent_and_a_missing_one_answer_differently(
     sqlite_context: MCPRuntimeContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """On the default three tools, finishing a pending write: unknown id, not the author, and already answered.
+    """On the default four tools, finishing a pending write: unknown id, not the author, and already answered.
 
     Mutations: in ``vnext_memory_commit.py`` raise the plain ``VNextMemoryCommitValidationError`` in place of
     ``MemoryNotFoundError`` for ``"confirmation was not found"`` (the first assertion fails) or in place of

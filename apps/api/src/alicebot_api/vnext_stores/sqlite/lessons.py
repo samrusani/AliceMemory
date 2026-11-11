@@ -22,6 +22,46 @@ _REVISION_FIELDS = frozenset(
 )
 
 
+def stream_lesson_memories(store: Any, *, domains, sensitivity, projects, lazy_metadata):
+    """Stream the same candidates as the lesson list, without collecting them."""
+    from alicebot_api.vnext_project_scope import normalize_project_scope
+    from alicebot_api.vnext_stores.sqlite.memory_access import _memory_list_clauses
+    from alicebot_api.vnext_stores.sqlite.query_predicates import _stated_exclusion
+
+    clauses = _memory_list_clauses(
+        store, status="active", statuses=None, memory_types=("procedure",), domains=domains,
+        sensitivity_allowed=sensitivity, created_at_start=None, created_at_end=None,
+        query=None, include_expired=False,
+    )
+    if clauses is None:
+        return
+    head, head_params, tail, tail_params = clauses
+    project, project_params = store._project_clause(
+        tuple(normalize_project_scope(projects or ())), global_excluded_domains=_stated_exclusion(())
+    )
+    columns = LESSON_MEMORY_COLUMNS
+    if lazy_metadata:
+        columns = columns.replace("metadata_json", "metadata_json AS lesson_metadata_raw")
+    cursor = store._execute(
+        f"SELECT {columns} FROM memories {head} {tail} "  # nosec B608
+        "AND json_type(value, '$.lesson') = 'object' "
+        "AND EXISTS (SELECT 1 FROM memory_revisions AS r "
+        "WHERE r.memory_id = memories.id AND r.user_id = memories.user_id "
+        "AND json_type(r.new_value, '$.lesson') IS NOT NULL AND ("
+        "(r.action = 'agentic_memory_commit' AND r.revision_type = 'created') OR "
+        "(r.action = 'agentic_memory_confirm_confirm' AND r.revision_type = 'promoted') OR "
+        "(r.action IN ('memory_correct_approve', 'memory_review_accept', 'memory_review_promote') "
+        "AND r.revision_type = 'promoted'))) "
+        f"{project} ORDER BY updated_at DESC, id DESC",
+        tuple([*head_params, *tail_params, *project_params]),
+    )
+    try:
+        for row in cursor:
+            yield store._decode_row(row)
+    finally:
+        cursor.close()
+
+
 def stream_lesson_revisions(self: Any, memory_ids: Sequence[str]) -> Iterator[dict[str, object]]:
     columns = ", ".join("r." + column for column in REVISION_COLUMNS if column in _REVISION_FIELDS)
     # Column names come from the shared constants; IDs are bound parameters.

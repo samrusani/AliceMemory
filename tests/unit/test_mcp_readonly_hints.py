@@ -104,7 +104,7 @@ def test_tools_list_annotations_for_default_and_full(monkeypatch: pytest.MonkeyP
         if full:
             assert set(_READ_ONLY | _ADD_ONLY | _DESTRUCTIVE) <= set(names)
         else:
-            assert names == ["alice_memory_commit", "alice_recall", "alice_resume"]
+            assert names == ["alice_memory_commit", "alice_recall", "alice_resume", "alice_lessons"]
         for tool in tools:
             name = str(tool["name"])
             assert tool["annotations"] == _expected_annotations(name), name

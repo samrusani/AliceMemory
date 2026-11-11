@@ -1,10 +1,10 @@
 # MCP Tools
 
-Alice advertises three MCP tools by default: `alice_memory_commit`,
-`alice_recall`, and `alice_resume`. The other core tools stay defined
+Alice advertises four MCP tools by default: `alice_memory_commit`,
+`alice_recall`, `alice_resume`, and `alice_lessons`. The other core tools stay defined
 and become callable when `ALICE_MCP_FULL_TOOLS=1`. From v0.21.0,
 `alice_what_changed` is a core tool, and v0.20.2 does not have it. On main,
-`alice_lessons` is also a core tool. The other ten core tools are enabled by that flag. Every parameter carries a
+`alice_lessons` is also a core tool. The other nine core tools are enabled by that flag. Every parameter carries a
 description, so MCP-capable agents can use the surface without reading this
 page. This page exists for humans wiring things up. For the full verb
 contract (outcomes, audit guarantees, and honest boundaries) see the
@@ -70,9 +70,9 @@ For the full Postgres stack from a checkout:
 > with `uvx alice-memory` or `pip install alice-memory`. SQLite-mode
 > boundaries are listed in [known limitations](known-limitations.md).
 
-## The default three tools
+## The default four tools
 
-Remember, recall, continue. These are the only tools in a default
+Remember, recall, continue, and find lessons. These are the only tools in a default
 `tools/list`.
 
 - `alice_memory_commit` — record one fact as durable, immediately
@@ -198,6 +198,8 @@ Remember, recall, continue. These are the only tools in a default
   caller may not see (outside the `domains` or `sensitivity_allowed` it asked
   for, or held back) are left out while the events are read, before any place
   is given, so they never use one up. See [Projects](projects.md).
+- `alice_lessons` finds published lessons relevant to a task or files. See
+  [Shared lessons](shared-lessons.md).
 
 ## Reading recalled text
 
@@ -290,10 +292,10 @@ the answer verifier (`render_pack_context_block`) does the same.
 ## The full core surface
 
 `ALICE_MCP_FULL_TOOLS=1` advertises the core tools. The grouped list below
-describes the other ten core tools. The full surface has thirteen core tools on main, with
+describes the other nine core tools. The full surface has thirteen core tools on main, with
 `alice_lessons` last. `alice_what_changed` was added in v0.21.0 and is absent
 from v0.20.2. Capture and the pack are on this surface. Vault import
-is a CLI verb, not a fourth always-on agent tool.
+is a CLI verb, not an always-on agent tool.
 
 **Write and review**
 
@@ -385,14 +387,15 @@ is a CLI verb, not a fourth always-on agent tool.
   decision history was found". From v0.22.0, the continuity page
   asks for the topic in a box and shows reasons, sources, upcoming and
   disputed from `POST /v0/vnext/changes`.
-- `alice_lessons`: find published lessons for a task or files about to be touched.
 
 Exact input schemas (types, enums, defaults) are in the `tools/list`
 response; they are the source of truth.
 
 ## alice_lessons
 
-With `ALICE_MCP_FULL_TOOLS=1`, call `alice_lessons` with `task`, a required
+See [Shared lessons](shared-lessons.md) for team instructions and examples.
+
+Call `alice_lessons` with `task`, a required
 description of what the agent is about to do. Whitespace is collapsed and the
 result must contain 1 to 1,000 characters. Optional `paths` contains at most
 16 repo-relative paths or globs, each 1 to 200 characters, using the same
@@ -429,7 +432,7 @@ environment carries a key. Keys tell Alice which agent is asking and limit
 what Alice returns to that agent; they do not stop a process that runs as
 your OS user from reading the vault file.
 
-A key-bound MCP server exposes only the enabled core set: the default three,
+A key-bound MCP server exposes only the enabled core set: the default four,
 or all the core tools when `ALICE_MCP_FULL_TOOLS=1`. The legacy flag is deliberately
 ignored while `ALICE_AGENT_API_KEY` is set, and direct legacy calls fail
 closed instead of attempting partial authorization. Hidden core tools are
@@ -922,7 +925,7 @@ v0.20.2 has neither tool, while v0.23.1 has `alice_what_changed`.
 
 ```bash
 ALICE_MCP_LEGACY_TOOLS=1
-# default three plus the long tail (65), or 68 with ALICE_LEGACY_SURFACES=1
+# default four plus the long tail (66), or 69 with ALICE_LEGACY_SURFACES=1
 ALICE_MCP_FULL_TOOLS=1 ALICE_MCP_LEGACY_TOOLS=1
 # 13 plus the long tail (75), or 78 with ALICE_LEGACY_SURFACES=1
 ```
@@ -993,7 +996,7 @@ From v0.20.2, three more codes, `not_permitted`,
 [Error codes](#error-codes) lists all seven.
 Permanently deleted hosted, channel, chat, chief-of-staff, and model-pack tools
 never list.
-New integrations should stay on the default three tools; the legacy surface
+New integrations should stay on the default four tools; the legacy surface
 is frozen and will not gain new capabilities. Set `ALICE_MCP_FULL_TOOLS=1`
 only when capture, the pack, or review must be in the handshake.
 

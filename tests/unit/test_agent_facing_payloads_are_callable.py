@@ -69,6 +69,11 @@ DOCUMENTED_PAYLOADS: dict[tuple[str, int], str] = {
     ("docs/alpha/agent-integration.md", 0): NOT_A_TOOL_PAYLOAD,
     ("docs/alpha/agent-integration.md", 1): "alice_memory_commit",
     ("docs/alpha/agent-integration.md", 2): NOT_A_TOOL_PAYLOAD,
+    ("docs/alpha/shared-lessons.md", 0): "alice_lessons",
+    ("docs/alpha/shared-lessons.md", 1): "alice_memory_commit",
+    ("docs/alpha/shared-lessons.md", 2): "alice_memory_correct",
+    ("docs/alpha/shared-lessons.md", 3): "alice_memory_manage",
+    ("docs/alpha/shared-lessons.md", 4): NOT_A_TOOL_PAYLOAD,
     ("docs/alpha/memory-proposal-recipes.md", 0): "alice_memory_commit",
     ("docs/alpha/memory-proposal-recipes.md", 1): "alice_memory_commit",
     ("docs/alpha/memory-proposal-recipes.md", 2): "alice_memory_commit",
@@ -216,6 +221,12 @@ def test_documented_commit_payload_is_a_whole_write_or_a_whole_confirmation(
             f"{relative_path} json block {index} mixes a confirmation with write fields "
             f"{sorted(mixed)}; the handler refuses it"
         )
+        return
+    if "lesson" in payload:
+        from alicebot_api.vnext_memory_commit import _lesson_block_from_payload
+
+        assert "canonical_text" not in payload
+        _lesson_block_from_payload(payload["lesson"])
         return
     missing = {"title", "canonical_text"} - set(payload)
     assert not missing, (

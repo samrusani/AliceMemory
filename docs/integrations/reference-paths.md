@@ -12,7 +12,7 @@ Start with the narrowest path that solves the integration need:
 | Need | Default path | Demo or example |
 |---|---|---|
 | Generic external agent needs continuity in one call | `POST /v1/continuity/brief`; key-bound MCP integrations use core `alice_recall` / `alice_resume` (`alice_brief` is keyless-local legacy compatibility only) | `docs/examples/reference-agent-examples.md` |
-| MCP client (Claude Desktop, Claude Code, any stdio MCP host) needs zero-setup local memory | `uvx alice-memory mcp` serving the default three tools over stdio | `docs/examples/mcp_quickstart.py` |
+| MCP client (Claude Desktop, Claude Code, any stdio MCP host) needs zero-setup local memory | `uvx alice-memory mcp` serving the default four tools over stdio | `docs/examples/mcp_quickstart.py` |
 | An agent host needs the Alice MCP entry written for it | `alice-memory install` (Claude Desktop, Claude Code, Cursor and OpenClaw by default; Hermes, OpenCode and Codex with `--host`) | `docs/alpha/quickstart.md` |
 | Agent-framework tooling (OpenAI Agents SDK style function tools) with per-agent API keys | HTTP function tools over `/v0/vnext` with `Authorization: Bearer alice_sk_...` | `docs/examples/openai_agents_sdk_tool.py` |
 | Hermes owns orchestration and Alice supplies continuity workflows | provider plus MCP | `./.venv/bin/python scripts/run_hermes_bridge_demo.py` |
@@ -42,7 +42,7 @@ a local SQLite file with no server to operate.
 
 - entrypoint: `uvx alice-memory mcp` (or `alice-memory mcp` from an install)
 - runnable example: `docs/examples/mcp_quickstart.py` spawns the packaged
-  server, checks the default three-tool surface over live `tools/list`, and
+  server, checks the default four-tool surface over live `tools/list`, and
   round-trips a commit and a recall over stdio
 - CI smoke: `tests/integration/test_mcp_quickstart.py`
 - client configuration snippets: `docs/alpha/mcp-tools.md` (Start the server: the packaged `uvx` entry and the Postgres entry); `alice-memory install --dry-run` prints the entry for each host

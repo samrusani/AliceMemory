@@ -209,7 +209,7 @@ def test_mcp_gates_remain_dynamic_and_agent_keys_suppress_legacy(monkeypatch) ->
         mcp_tools.AGENT_API_KEY_ENV,
     ):
         monkeypatch.delenv(name, raising=False)
-    assert _tool_names() == ["alice_memory_commit", "alice_recall", "alice_resume"]
+    assert _tool_names() == ["alice_memory_commit", "alice_recall", "alice_resume", "alice_lessons"]
 
     monkeypatch.setenv(mcp_tools.MCP_FULL_TOOLS_ENV, "1")
     assert len(_tool_names()) == 13
@@ -225,7 +225,7 @@ def test_mcp_gates_remain_dynamic_and_agent_keys_suppress_legacy(monkeypatch) ->
     assert len(_tool_names()) == 13
 
     monkeypatch.delenv(mcp_tools.MCP_FULL_TOOLS_ENV)
-    assert _tool_names() == ["alice_memory_commit", "alice_recall", "alice_resume"]
+    assert _tool_names() == ["alice_memory_commit", "alice_recall", "alice_resume", "alice_lessons"]
 
 
 def test_registry_import_does_not_pull_in_application_onramps() -> None:

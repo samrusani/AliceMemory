@@ -10,6 +10,7 @@ QUICKSTART_SCRIPT = REPO_ROOT / "docs" / "examples" / "mcp_quickstart.py"
 
 
 def test_mcp_quickstart_runs_against_packaged_sqlite_server() -> None:
+    """Mutation: remove alice_lessons from the quickstart default order."""
     completed = subprocess.run(
         [sys.executable, str(QUICKSTART_SCRIPT)],
         cwd=REPO_ROOT,
@@ -20,7 +21,7 @@ def test_mcp_quickstart_runs_against_packaged_sqlite_server() -> None:
     )
 
     assert "MCP QUICKSTART OK" in completed.stdout
-    assert "tools: 3 (default surface verified)" in completed.stdout
+    assert "tools: 4 (default surface verified)" in completed.stdout
     assert "results contain the canary phrase" in completed.stdout
 
 

@@ -4,7 +4,7 @@ Use this guide when Alice is installed correctly but a tester says, "I do not se
 
 Alice is not automatic chat-history memory. The current public preview has several memory paths, and they have different trust and review behavior.
 
-The default MCP surface is three tools (see [mcp-tools.md](mcp-tools.md)): `alice_memory_commit` to write, `alice_recall` to read back, and `alice_resume` to pick work up. `alice_explain` is on the full surface (`ALICE_MCP_FULL_TOOLS=1`).
+The default MCP surface is four tools (see [mcp-tools.md](mcp-tools.md)): `alice_memory_commit` to write, `alice_recall` to read back, `alice_resume` to pick work up, and `alice_lessons` to find lessons. `alice_explain` is on the full surface (`ALICE_MCP_FULL_TOOLS=1`).
 
 ## What To Expect
 

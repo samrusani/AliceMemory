@@ -894,7 +894,7 @@ def test_the_default_surface_confirmation_cases_pass_unchanged_against_the_compa
     """The 25 cases of ``test_default_surface_can_finish_confirmation_required.py`` pass with ``compact`` set.
 
     The file is not edited and not copied: it runs as it is, in its own process, with the variable
-    set, so it reads the compact result the way an agent on the default three tools would. It walks the
+    set, so it reads the compact result the way an agent on the default four tools would. It walks the
     whole flow: a held write, the confirmation id, the proposed text, confirm, reject and the refusals.
     Mutation: drop ``confirmation_id`` (or ``confirmation``) from the compact result.
     """

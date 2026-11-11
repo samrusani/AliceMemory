@@ -41,7 +41,7 @@ cp -R docs/integrations/hermes-skill-pack/skills/alice-workflows "$HERMES_HOME/s
 ```
 
 These skills need the full tool surface. Set `ALICE_MCP_FULL_TOOLS=1` in the
-Alice server env. On the default three tools, only the `alice_recall` and
+Alice server env. On the default four tools, only the `alice_recall` and
 `alice_resume` steps work.
 
 ## Verify Installation

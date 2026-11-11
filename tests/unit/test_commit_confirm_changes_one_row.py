@@ -17,7 +17,7 @@ tests pin the claim the docs make, so the claim cannot grow without a failing te
 - a different keyed agent cannot resolve someone else's pending write, and a refused
   attempt changes no memory row and no revision.
 
-Every test here goes through `alice_memory_commit`, which is one of the three default tools.
+Every test here goes through `alice_memory_commit`, which is one of the four default tools.
 """
 
 from __future__ import annotations

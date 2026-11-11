@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 from itertools import groupby
 import json
+import sqlite3
 from collections.abc import Mapping
 
 from alicebot_api.project_view import ProjectView
@@ -91,6 +92,93 @@ def _publication(row, revisions):
     return None
 
 
+def _select_published_lessons(store, *, domains, sensitivity, projects, limit, order, scan_state=None):
+    """Select readable published lesson rows in the caller's requested order."""
+    from itertools import islice
+    from alicebot_api.sqlite_store import SQLiteVNextStore
+    from alicebot_api.vnext_stores.postgres.lessons import stream_lesson_memories as stream_postgres_lessons
+    from alicebot_api.vnext_stores.sqlite.lessons import stream_lesson_memories
+
+    lazy_metadata = not LabelGuard.for_filters(store, domains, sensitivity, projects).active
+    if order is None:
+        if isinstance(store.conn, sqlite3.Connection):
+            rows = stream_lesson_memories(
+                store, domains=domains, sensitivity=sensitivity, projects=projects, lazy_metadata=lazy_metadata
+            )
+        else:
+            rows = stream_postgres_lessons(
+                store, domains=domains, sensitivity=sensitivity, projects=projects, lazy_metadata=lazy_metadata
+            )
+        batch_size = 64
+    else:
+        global_option = {"exclude_global_domains": ()} if "~global" in projects and isinstance(store, SQLiteVNextStore) else {}
+        rows = iter(store.list_memories(
+            status="active", memory_types=("procedure",), domains=domains,
+            sensitivity_allowed=sensitivity, projects=projects, include_expired=False,
+            lessons_only=True, lesson_projection=True, lesson_lazy_metadata=lazy_metadata,
+            **global_option,
+        ))
+        batch_size = None
+    grouped: dict[str, list[dict[str, object]]] = {}
+    choices = []
+    examined = 0
+    limit_reached = False
+    if scan_state is not None:
+        scan_state["limit_reached"] = False
+    try:
+        while True:
+            batch = list(islice(rows, batch_size)) if batch_size is not None else list(rows)
+            if not batch:
+                break
+            batch = admit_loaded(
+                store, kind="memory", rows=batch, domains=domains, sensitivity_allowed=sensitivity, projects=projects
+            )
+            if order is None:
+                remaining = 256 - examined
+                if len(batch) > remaining:
+                    limit_reached = True
+                    if scan_state is not None:
+                        scan_state["limit_reached"] = True
+                    batch = batch[:remaining]
+                examined += len(batch)
+                candidates = []
+                for row in batch:
+                    value = row.get("value")
+                    block = value.get("lesson") if isinstance(value, Mapping) else None
+                    if isinstance(block, Mapping):
+                        candidates.append((row, block, False, False, 0.0))
+            else:
+                candidates = order(batch)
+            indexed = {str(row["id"]): (row, block, matched_path, matched_text, score)
+                       for row, block, matched_path, matched_text, score in candidates}
+            revisions = store.stream_lesson_revisions(list(indexed))
+            try:
+                for mid, group in groupby(revisions, key=lambda rev: str(rev.get("memory_id"))):
+                    records = list(group)
+                    row, block, matched_path, matched_text, score = indexed[mid]
+                    try:
+                        lesson = _lesson_block_from_payload(block)
+                    except VNextMemoryCommitValidationError:
+                        continue
+                    publication = _publication(row, records)
+                    if publication is not None:
+                        grouped[mid] = records
+                        choices.append((row, lesson, publication, matched_path, matched_text, score))
+                        if len(choices) == limit:
+                            break
+            finally:
+                close = getattr(revisions, "close", None)
+                if callable(close):
+                    close()
+            if len(choices) == limit or batch_size is None or limit_reached:
+                break
+    finally:
+        close = getattr(rows, "close", None)
+        if callable(close):
+            close()
+    return choices, grouped
+
+
 def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, object]):
     task = _parse_required_text(arguments, "task")
     if len(task) > 1000:
@@ -116,96 +204,64 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
         lock = getattr(store, "lock_label_writes", None)
         if callable(lock):
             lock()
-        lazy_metadata = not LabelGuard.for_filters(store, domains, sensitivity, projects).active
-        rows = store.list_memories(
-            status="active",
-            memory_types=("procedure",),
-            domains=domains,
-            sensitivity_allowed=sensitivity,
-            projects=projects,
-            include_expired=False,
-            lessons_only=True,
-            lesson_projection=True,
-            lesson_lazy_metadata=lazy_metadata,
-        )
-        rows = admit_loaded(
-            store, kind="memory", rows=rows, domains=domains, sensitivity_allowed=sensitivity, projects=projects
-        )
-        service = VNextRetrievalService(store)
-        amount = max(1, len(rows))
-        fts, _ = service._memory_fts_rows(
-            query=task,
-            domains=domains,
-            sensitivity_allowed=sensitivity,
-            limit=amount,
-            memory_types=("procedure",),
-            projects=projects,
-            lessons_only=True,
-            read_fence=fence,
-            lesson_admitted_ids=frozenset(str(row["id"]) for row in rows),
-        )
-        vector, status = service._memory_vector_rows(
-            query=task,
-            domains=domains,
-            sensitivity_allowed=sensitivity,
-            limit=amount,
-            memory_types=("procedure",),
-            projects=projects,
-            lessons_only=True,
-            label_refill=fence.entity_read_fenced,
-            lesson_admitted_ids=frozenset(str(row["id"]) for row in rows),
-        )
-        if status == "enabled":
-            ranks = {
-                str(row.get("id")): score
-                for row, score, _ in reciprocal_rank_fusion({"fts": fts, "vector": vector})
-            }
-        else:
-            ranks = {
-                str(row.get("id")): float(score) if isinstance(score, (int, float)) else 0.0
-                for row in fts
-                for score in (row.get("fts_score"),)
-            }
-        candidates = []
-        for row in rows:
-            value = row.get("value")
-            block = value.get("lesson") if isinstance(value, Mapping) else None
-            if not isinstance(block, Mapping):
-                continue
-            mid = str(row["id"])
-            entries = block.get("paths")
-            path_entries = [" ".join(entry.split()) for entry in entries if isinstance(entry, str)] if isinstance(entries, list) else []
-            matched_path = _path_matches(paths, path_entries)
-            matched_text = mid in ranks
-            if matched_path or matched_text:
-                candidates.append((row, block, matched_path, matched_text, ranks.get(mid, 0.0)))
-        candidates.sort(key=lambda item: str(item[0]["id"]))
-        candidates.sort(key=lambda item: str(item[0].get("created_at") or ""), reverse=True)
-        candidates.sort(key=lambda item: item[4], reverse=True)
-        candidates.sort(key=lambda item: (not item[2], not item[3]))
-        indexed = {str(row["id"]): (row, block, matched_path, matched_text, score)
-                   for row, block, matched_path, matched_text, score in candidates}
-        revisions = store.stream_lesson_revisions(list(indexed))
-        grouped: dict[str, list[dict[str, object]]] = {}
-        choices = []
-        try:
-            for mid, group in groupby(revisions, key=lambda rev: str(rev.get("memory_id"))):
-                records = list(group)
-                row, block, matched_path, matched_text, score = indexed[mid]
-                try:
-                    lesson = _lesson_block_from_payload(block)
-                except VNextMemoryCommitValidationError:
+        def order(rows):
+            service = VNextRetrievalService(store)
+            amount = max(1, len(rows))
+            fts, _ = service._memory_fts_rows(
+                query=task,
+                domains=domains,
+                sensitivity_allowed=sensitivity,
+                limit=amount,
+                memory_types=("procedure",),
+                projects=projects,
+                lessons_only=True,
+                read_fence=fence,
+                lesson_admitted_ids=frozenset(str(row["id"]) for row in rows),
+            )
+            vector, status = service._memory_vector_rows(
+                query=task,
+                domains=domains,
+                sensitivity_allowed=sensitivity,
+                limit=amount,
+                memory_types=("procedure",),
+                projects=projects,
+                lessons_only=True,
+                label_refill=fence.entity_read_fenced,
+                lesson_admitted_ids=frozenset(str(row["id"]) for row in rows),
+            )
+            if status == "enabled":
+                ranks = {
+                    str(row.get("id")): score
+                    for row, score, _ in reciprocal_rank_fusion({"fts": fts, "vector": vector})
+                }
+            else:
+                ranks = {
+                    str(row.get("id")): float(score) if isinstance(score, (int, float)) else 0.0
+                    for row in fts
+                    for score in (row.get("fts_score"),)
+                }
+            candidates = []
+            for row in rows:
+                value = row.get("value")
+                block = value.get("lesson") if isinstance(value, Mapping) else None
+                if not isinstance(block, Mapping):
                     continue
-                publication = _publication(row, records)
-                if publication is not None:
-                    grouped[mid] = records
-                    choices.append((row, lesson, publication, matched_path, matched_text, score))
-                    if len(choices) == limit:
-                        break
-        finally:
-            close = getattr(revisions, "close", None)
-            if callable(close):
-                close()
+                mid = str(row["id"])
+                entries = block.get("paths")
+                path_entries = [" ".join(entry.split()) for entry in entries if isinstance(entry, str)] if isinstance(entries, list) else []
+                matched_path = _path_matches(paths, path_entries)
+                matched_text = mid in ranks
+                if matched_path or matched_text:
+                    candidates.append((row, block, matched_path, matched_text, ranks.get(mid, 0.0)))
+            candidates.sort(key=lambda item: str(item[0]["id"]))
+            candidates.sort(key=lambda item: str(item[0].get("created_at") or ""), reverse=True)
+            candidates.sort(key=lambda item: item[4], reverse=True)
+            candidates.sort(key=lambda item: (not item[2], not item[3]))
+            return candidates
+
+        choices, grouped = _select_published_lessons(
+            store, domains=domains, sensitivity=sensitivity, projects=projects, limit=limit, order=order
+        )
         full_rows = store.get_memories_by_ids([str(row["id"]) for row, *_ in choices])
         full_rows = admit_loaded(
             store, kind="memory", rows=full_rows, domains=domains, sensitivity_allowed=sensitivity, projects=projects

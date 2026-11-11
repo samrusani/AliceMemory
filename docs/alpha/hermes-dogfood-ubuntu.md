@@ -63,7 +63,7 @@ the recipes below call legacy `alice_vnext_*` tools. Do not add
 `ALICE_AGENT_API_KEY` to this server: key-bound MCP hides and rejects the
 legacy surface even when the flag is set. For the recommended authenticated
 deployment, follow the [Hermes bridge operator guide](../integrations/hermes-bridge-operator-guide.md)
-and use the default three tools in [mcp-tools.md](mcp-tools.md).
+and use the default four tools in [mcp-tools.md](mcp-tools.md).
 
 ## API Request Shape
 

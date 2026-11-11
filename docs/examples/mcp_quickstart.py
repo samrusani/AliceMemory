@@ -8,8 +8,8 @@ subprocess, speaks MCP JSON-RPC over stdio (initialize handshake,
 the committed sentence comes back from recall. Standard library only --
 no MCP SDK, no HTTP server, no Postgres.
 
-The default advertised surface is remember, recall, continue:
-``alice_memory_commit``, ``alice_recall``, ``alice_resume``. The other ten core
+The default advertised surface is remember, recall, continue, and find lessons:
+``alice_memory_commit``, ``alice_recall``, ``alice_resume``, ``alice_lessons``. The other nine core
 tools, including capture, stay defined and become callable when
 ``ALICE_MCP_FULL_TOOLS=1``. Import is a source. Commit is a fact.
 
@@ -54,6 +54,7 @@ DEFAULT_TOOL_NAMES = [
     "alice_memory_commit",
     "alice_recall",
     "alice_resume",
+    "alice_lessons",
 ]
 
 COMMIT_SENTENCE = (

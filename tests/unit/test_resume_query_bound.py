@@ -83,7 +83,7 @@ def _terms(count: int) -> str:
 def _bootstrap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MCPRuntimeContext:
     for name in (EMBEDDINGS_BASE_URL_ENV, EMBEDDINGS_MODEL_ENV, EMBEDDINGS_API_KEY_ENV, AGENT_API_KEY_ENV):
         monkeypatch.delenv(name, raising=False)
-    # alice_recent_decisions is a core tool outside the default three.
+    # alice_recent_decisions is a core tool outside the default four.
     monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
     database = resolve_db_path(data_dir=str(tmp_path), db=None)
     bootstrap_database(database, user_id=USER_ID, user_email="local@alice")

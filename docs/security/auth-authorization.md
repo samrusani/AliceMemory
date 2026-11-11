@@ -51,8 +51,8 @@ reproduced this split.
 
 ## MCP And Legacy Surfaces
 
-- The default registry exposes three core MCP tools: `alice_memory_commit`,
-  `alice_recall`, and `alice_resume`. `ALICE_MCP_FULL_TOOLS=1` exposes all
+- The default registry exposes four core MCP tools: `alice_memory_commit`,
+  `alice_recall`, `alice_resume`, and `alice_lessons`. `ALICE_MCP_FULL_TOOLS=1` exposes all
   thirteen.
 - A key-bound server uses `ALICE_AGENT_API_KEY`; payload identity cannot replace
   that key's actor or widen its profile/project scope.

@@ -87,6 +87,7 @@ DOORS = {
     "routers/vnext_projects.py:review_vnext_open_loop": None,
     "mcp/retrieval.py:_handle_alice_open_loops": None,
     "mcp/lessons.py:_handle_alice_lessons": None,
+    "mcp/lessons.py:_select_published_lessons": None,
     "vnext_memory_commit.py:VNextMemoryCommitService.authorize_memory_action": None,
     "vnext_memory_commit.py:VNextMemoryCommitService._write_policy_decision": None,
     "routers/_vnext_shared.py:_vnext_load_source_trace": None,

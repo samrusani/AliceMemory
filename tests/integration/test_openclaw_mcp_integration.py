@@ -19,6 +19,7 @@ DEFAULT_TOOL_NAMES = [
     "alice_memory_commit",
     "alice_recall",
     "alice_resume",
+    "alice_lessons",
 ]
 
 
@@ -143,6 +144,7 @@ def _call_tool(client: MCPClient, *, name: str, arguments: dict[str, object]) ->
 def test_openclaw_imported_data_is_usable_from_shipped_mcp_recall_and_resume_tools(
     migrated_database_urls,
 ) -> None:
+    """Mutation: remove alice_lessons from the default order."""
     user_id = seed_user(migrated_database_urls["app"], email="openclaw-mcp@example.com")
 
     with user_connection(migrated_database_urls["app"], user_id) as conn:

@@ -71,6 +71,7 @@ DEFAULT_TOOL_NAMES = [
     "alice_memory_commit",
     "alice_recall",
     "alice_resume",
+    "alice_lessons",
 ]
 TASK_BRIEF_TOOL_NAMES = {
     "alice_task_brief",
@@ -155,8 +156,8 @@ def test_default_mcp_tool_surface_is_exactly_the_thirteen_core_tools(core_surfac
         assert tool["inputSchema"].get("additionalProperties") is False
 
 
-def test_default_mcp_handshake_is_exactly_commit_recall_resume(monkeypatch, core_surface) -> None:
-    """Default list_mcp_tools is the three advertised names, in that order.
+def test_default_mcp_handshake_is_exactly_commit_recall_resume_lessons(monkeypatch, core_surface) -> None:
+    """Default list_mcp_tools is the four advertised names, in that order.
 
     If `_enabled_tool_definitions` ignores ALICE_MCP_FULL_TOOLS and always
     returns `_CORE_TOOL_DEFINITIONS`, this test fails.
@@ -199,11 +200,11 @@ def test_full_tools_flag_lists_the_thirteen_core_tools_in_definition_order(monke
 @pytest.mark.parametrize(
     ("full_tools_value", "mcp_legacy_value", "legacy_surfaces_value", "expected_prefix", "expected_count"),
     [
-        pytest.param(None, None, None, DEFAULT_TOOL_NAMES, 3, id="default-three"),
+        pytest.param(None, None, None, DEFAULT_TOOL_NAMES, 4, id="default-four"),
         pytest.param("1", None, None, CORE_TOOL_NAMES, 13, id="full-core"),
-        pytest.param(None, "1", None, DEFAULT_TOOL_NAMES, 65, id="default-plus-long-tail"),
+        pytest.param(None, "1", None, DEFAULT_TOOL_NAMES, 66, id="default-plus-long-tail"),
         pytest.param("1", "1", None, CORE_TOOL_NAMES, 75, id="full-plus-long-tail"),
-        pytest.param(None, "1", "1", DEFAULT_TOOL_NAMES, 68, id="default-plus-legacy-surfaces"),
+        pytest.param(None, "1", "1", DEFAULT_TOOL_NAMES, 69, id="default-plus-legacy-surfaces"),
         pytest.param("1", "1", "1", CORE_TOOL_NAMES, 78, id="full-plus-legacy-surfaces"),
     ],
 )

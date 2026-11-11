@@ -26,7 +26,7 @@
   `docs/benchmarks/longmemeval/README.md`.
 - Alice remains public-alpha, pre-1.0, local-first, single-user, and self-hosted.
 - The MCP registry on main is 13-core/65-legacy/78-total. The default handshake
-  stays at three tools. `ALICE_MCP_FULL_TOOLS=1` exposes all thirteen core tools.
+  stays at four tools. `ALICE_MCP_FULL_TOOLS=1` exposes all thirteen core tools.
 
 ## What `v0.11.1` Shipped
 

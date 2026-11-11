@@ -1,10 +1,10 @@
 # MCP Integration
 
-Alice's MCP server exposes three tools by default (`alice_memory_commit`,
-`alice_recall`, `alice_resume`). The other core tools become listed
+Alice's MCP server exposes four tools by default (`alice_memory_commit`,
+`alice_recall`, `alice_resume`, `alice_lessons`). The other core tools become listed
 and callable when `ALICE_MCP_FULL_TOOLS=1`. From v0.21.0,
 `alice_what_changed` is a core tool; v0.20.2 does not have it. On main, the
-full surface has thirteen core tools, including `alice_lessons`. The other ten core tools need the flag. The legacy long-tail surface
+full surface has thirteen core tools, including `alice_lessons`. The other nine core tools need the flag. The legacy long-tail surface
 is available behind a separate environment flag.
 
 ## Entrypoints
@@ -126,8 +126,8 @@ Details and examples: [docs/alpha/mcp-tools.md](../alpha/mcp-tools.md).
 ## Legacy Tool Surface
 
 With `ALICE_MCP_LEGACY_TOOLS=1`, 62 retained legacy memory tools are listed
-alongside whatever core set is enabled (65 with the default three, 75 with
-the full 13). With the task-brief flag as well, the counts are 68 and
+alongside whatever core set is enabled (66 with the default four, 75 with
+the full 13). With the task-brief flag as well, the counts are 69 and
 78. v0.20.2 has neither `alice_what_changed` nor `alice_lessons`;
 v0.23.1 has `alice_what_changed` but not `alice_lessons`. On the SQLite backend most legacy tools are listed but their calls fail:
 the ones that read the continuity store (for example `alice_brief`,
