@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 from itertools import groupby
 import json
+import sqlite3
 from collections.abc import Mapping
 
 from alicebot_api.project_view import ProjectView
@@ -100,7 +101,7 @@ def _select_published_lessons(store, *, domains, sensitivity, projects, limit, o
 
     lazy_metadata = not LabelGuard.for_filters(store, domains, sensitivity, projects).active
     if order is None:
-        if isinstance(store, SQLiteVNextStore):
+        if isinstance(store.conn, sqlite3.Connection):
             rows = stream_lesson_memories(
                 store, domains=domains, sensitivity=sensitivity, projects=projects, lazy_metadata=lazy_metadata
             )
