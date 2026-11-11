@@ -1,4 +1,4 @@
-"""A pending `alice_memory_commit` must be finishable on the default three tools.
+"""A pending `alice_memory_commit` must be finishable on the default four tools.
 
 Wiki D8, audit 2026-09-03 finding 13. Written 2026-09-22.
 

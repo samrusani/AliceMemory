@@ -27229,7 +27229,7 @@
           "line": 50,
           "before": "_NUMBER_WORDS = {3: \"three\", 4: \"four\", 11: \"eleven\"}",
           "after": "_NUMBER_WORDS = {3: \"three\", 11: \"eleven\"}",
-          "sha256": "da4e5ca6388d43a8122ae55445c03dd059050e5770c0a74aff6b0d1710963ab0"
+          "sha256": "7258c9d538b0d23df313ccfba149af3192fa3cfdb9ddb647378f7f5fe1be078d"
         }
       ],
       "pytest": [
@@ -27245,7 +27245,7 @@
           "line": 341,
           "before": "            content = re.sub(r\"(?ms)^## What `v0\\.16\\.0` Shipped\\n.*?(?=^## |\\Z)\", \"\", content)",
           "after": "            content = content",
-          "sha256": "da4e5ca6388d43a8122ae55445c03dd059050e5770c0a74aff6b0d1710963ab0"
+          "sha256": "7258c9d538b0d23df313ccfba149af3192fa3cfdb9ddb647378f7f5fe1be078d"
         }
       ],
       "pytest": [
@@ -27300,6 +27300,38 @@
         "tests/unit/test_lessons_default_limits.py::test_import_preserves_candidates_that_fail_the_exact_check"
       ],
       "expected_failure": "test_import_preserves_candidates_that_fail_the_exact_check"
+    },
+    {
+      "name": "brief-compact-confirmation",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/commit_result.py",
+          "line": 103,
+          "before": "        if key == \"policy_decision\":\n            continue",
+          "after": "        if key in {\"policy_decision\", \"confirmation_id\"}:\n            continue",
+          "sha256": "147cfde8e46b8543d3ccee7fe8f985ccba744e05205fd731048a7612cc20b0d0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_compact_commit_result.py::test_the_default_surface_confirmation_cases_pass_unchanged_against_the_compact_result"
+      ],
+      "expected_failure": "test_the_default_surface_confirmation_cases_pass_unchanged_against_the_compact_result"
+    },
+    {
+      "name": "brief-missing-confirmation-error",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
+          "line": 1491,
+          "before": "        if memory is None:\n            raise MemoryNotFoundError(\"confirmation was not found\")",
+          "after": "        if memory is None:\n            raise VNextMemoryCommitValidationError(\"confirmation was not found\")",
+          "sha256": "440332c3188dd403515651814981417fc31494069b040f7740fe07282e0f8e13"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_mcp_typed_error_codes.py::test_a_confirmation_by_the_wrong_agent_and_a_missing_one_answer_differently"
+      ],
+      "expected_failure": "test_a_confirmation_by_the_wrong_agent_and_a_missing_one_answer_differently"
     }
   ]
 }

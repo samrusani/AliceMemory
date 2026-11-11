@@ -1,11 +1,11 @@
 """The tool counts the living docs state are the counts the registry lists.
 
-The default three, the eleven core tools, the legacy long tail and the totals under each flag combination are written
+The default four, the thirteen core tools, the legacy long tail and the totals under each flag combination are written
 by hand into `docs/integrations/mcp.md` and into `CURRENT_STATE.md`. Nothing derived them from the
 registry, so a new tool definition or a moved tool would leave every page agreeing with itself and wrong.
 
 This guard lists the tools the way a server does, under each flag combination, and reads the figures out of the pages:
-those two, and the long-tail figures of `docs/alpha/mcp-tools.md`. The default three and the eleven are also stated
+those two, and the long-tail figures of `docs/alpha/mcp-tools.md`. The default four and the thirteen are also stated
 again, as a sentence, on many other living pages, so it reads the sentences of the living docs that give the default
 count, the full count, or the count of core tools the default leaves out. Each of those numbers must be the one the
 registry gives. A number it cannot place is a failure too when it sits beside a tool noun. A number that follows
@@ -56,7 +56,7 @@ def _word(number: int) -> str:
     return _NUMBER_WORDS.get(number, str(number))
 
 
-# Pages that name every core tool the default three do not include.
+# Pages that name every core tool the default four do not include.
 _PAGES_THAT_NAME_THE_OTHER_CORE_TOOLS = (
     "docs/overview.md",
     "ARCHITECTURE.md",
