@@ -8,6 +8,8 @@ import re
 from collections import Counter
 from typing import Any
 
+from alicebot_api.vnext_stores.sqlite.query_predicates import CTE_MATERIALIZED_HINT
+
 
 def _tokens(blob: bytes) -> int:
     """Decode the existing FTS5 column-size varints; never change the index."""
@@ -48,14 +50,14 @@ def _phrase(table: str, terms: list[str]) -> tuple[str, str, tuple[str, ...]]:
     if len(terms) > 32:
         # Keep long quoted phrases below SQLite's join-table limit.
         where = (f"v0.term=? AND NOT EXISTS (SELECT 1 FROM json_each(?) q WHERE NOT EXISTS "  # nosec B608 - fixed vocabulary name; terms are bound
-                 f"(SELECT 1 FROM temp.{table} token WHERE token.term=q.value AND token.doc=v0.doc "
+                 f"(SELECT 1 FROM {table} token WHERE token.term=q.value AND token.doc=v0.doc "
                  "AND token.col=v0.col AND token.offset=v0.offset+CAST(q.key AS INTEGER)))")
-        return f"temp.{table} v0", where, (terms[0], json.dumps(terms))
+        return f"{table} v0", where, (terms[0], json.dumps(terms))
     joins = " ".join(
-        f"JOIN temp.{table} v{i} ON v{i}.doc=v0.doc AND v{i}.col=v0.col AND v{i}.offset=v0.offset+{i} AND v{i}.term=?"
+        f"JOIN {table} v{i} ON v{i}.doc=v0.doc AND v{i}.col=v0.col AND v{i}.offset=v0.offset+{i} AND v{i}.term=?"
         for i in range(1, len(terms))
     )
-    return f"temp.{table} v0 {joins}", "v0.term=?", (*terms[1:], terms[0])
+    return f"{table} v0 {joins}", "v0.term=?", (*terms[1:], terms[0])
 
 
 def rank_sql(
@@ -86,11 +88,22 @@ def rank_sql(
         f"FROM {population_from} JOIN {docsize} d ON d.id={alias}.rowid WHERE {population_where}"
     )
     parameters: list[object] = list(population_params)
+    hint = CTE_MATERIALIZED_HINT
+    posting_cte = ""
+    phrase_table = f"temp.{vocab}"
+    if any(len(phrase) > 1 for phrase in phrases):
+        # A vocabulary virtual table cannot receive an automatic join index.
+        # Materialize each needed posting once, after the population fence.
+        posting_cte = (f"rank_postings AS{hint} (SELECT posting.term,posting.doc,posting.col,posting.offset "  # nosec B608 - fixed vocabulary; tokens are bound
+                       f"FROM json_each(?) term CROSS JOIN temp.{vocab} posting ON posting.term=term.value "
+                       "WHERE posting.doc IN (SELECT rid FROM rank_population)), ")
+        parameters.append(json.dumps(sorted({term for phrase in phrases for term in phrase})))
+        phrase_table = "rank_postings"
     weights = ("CASE v0.col WHEN 'title' THEN 1.0 WHEN 'canonical_text' THEN 0.4 "
                "WHEN 'summary' THEN 0.2 WHEN 'memory_key' THEN 0.4 WHEN 'fact_keys' THEN 0.1 ELSE 0 END") if memory else "1.0"
     hits: list[str] = []
     for i, (phrase, repetitions) in enumerate(Counter(tuple(p) for p in phrases).items()):
-        table, where, values = _phrase(vocab, list(phrase))
+        table, where, values = _phrase(phrase_table, list(phrase))
         ordinary_hit = "v0.doc IN (SELECT rid FROM rank_population WHERE ordinary)" if memory else "1"
         hits.append(
             f"SELECT v0.doc, {i} AS phrase, sum({weights}) AS frequency, alice_fts_tokens(d.sz) AS length, "  # nosec B608 - generated integers and fixed weights
@@ -103,13 +116,13 @@ def rank_sql(
     # compounds too: many distinct quoted phrases can use few distinct words.
     batches = [" UNION ALL ".join(hits[start:start + 128]) for start in range(0, len(hits), 128)]
     hit_sql = batches[0] if len(batches) == 1 else " UNION ALL ".join("SELECT * FROM (" + batch + ")" for batch in batches)  # nosec B608 - closed queries above
-    cte = ("WITH rank_population AS MATERIALIZED (" + population_sql + "), "  # nosec B608 - closed queries above
-           "rank_hits AS MATERIALIZED (" + hit_sql + "), "  # nosec B608 - closed queries above
-           "phrase_statistics AS MATERIALIZED (SELECT phrase, count(CASE WHEN ordinary THEN 1 END) AS df "
+    cte = (f"WITH rank_population AS{hint} (" + population_sql + "), " + posting_cte  # nosec B608 - closed queries above
+           + f"rank_hits AS{hint} (" + hit_sql + "), "  # nosec B608 - closed queries above
+           f"phrase_statistics AS{hint} (SELECT phrase, count(CASE WHEN ordinary THEN 1 END) AS df "
            "FROM rank_hits GROUP BY phrase), "
-           "rank_statistics AS MATERIALIZED (SELECT count(*) AS n, avg(length) AS average "
+           f"rank_statistics AS{hint} (SELECT count(*) AS n, avg(length) AS average "
            "FROM rank_population WHERE ordinary), "
-           "readable_scores AS MATERIALIZED (SELECT doc, sum(max(alice_fts_log((n-df+0.5)/(df+0.5)),0.000001) "
+           f"readable_scores AS{hint} (SELECT doc, sum(max(alice_fts_log((n-df+0.5)/(df+0.5)),0.000001) "
            "* (frequency * 2.2) / (frequency + 1.2 * (0.25 + 0.75 * length / average)) * repetitions) AS score "
            "FROM rank_hits JOIN phrase_statistics USING(phrase) CROSS JOIN rank_statistics GROUP BY doc) ")
     join = f" CROSS JOIN rank_statistics LEFT JOIN readable_scores ON readable_scores.doc={alias}.rowid "
