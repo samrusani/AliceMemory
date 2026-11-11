@@ -21,6 +21,31 @@ _REVISION_FIELDS = frozenset(
 )
 
 
+def stream_lesson_memories(store: Any, *, domains, sensitivity, projects, lazy_metadata):
+    """Intersect possible publication records with the store's ordinary read fence."""
+    with store.conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT m.id FROM memories AS m WHERE m.status = 'active' "
+            "AND m.memory_type = 'procedure' AND m.deleted_at IS NULL "
+            "AND EXISTS (SELECT 1 FROM memory_revisions AS r "
+            "WHERE r.memory_id = m.id AND r.user_id = m.user_id "
+            "AND r.new_value -> 'lesson' IS NOT NULL AND ("
+            "(r.action = 'agentic_memory_commit' AND r.revision_type = 'created') OR "
+            "(r.action = 'agentic_memory_confirm_confirm' AND r.revision_type = 'promoted') OR "
+            "(r.action IN ('memory_correct_approve', 'memory_review_accept', 'memory_review_promote') "
+            "AND r.revision_type = 'promoted')))"
+        )
+        possible = {str(row["id"]) for row in cursor}
+    if not possible:
+        return
+    rows = store.list_memories(
+        status="active", memory_types=("procedure",), domains=domains,
+        sensitivity_allowed=sensitivity, projects=projects, include_expired=False,
+        lessons_only=True, lesson_projection=True, lesson_lazy_metadata=lazy_metadata,
+    )
+    yield from (row for row in rows if str(row["id"]) in possible)
+
+
 def stream_lesson_revisions(self: Any, memory_ids: Sequence[str]) -> Iterator[dict[str, object]]:
     columns = ", ".join("r." + name.strip() for name in REVISION_COLUMNS.split(",") if name.strip() in _REVISION_FIELDS)
     with self.conn.cursor() as cursor:

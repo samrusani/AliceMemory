@@ -1,7 +1,11 @@
 """The brief's bounded lesson scan and conservative publication prefilter."""
 
 import json
+import os
 import sqlite3
+import subprocess
+import sys
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -108,6 +112,27 @@ def test_sql_prefilter_avoids_revision_reads_for_planted_blocks(tmp_path, monkey
     assert onramp_main(["brief", "--db", str(vault.path), "--user-id", str(vault.user)]) == 0
     assert "Shared lessons" not in capsys.readouterr().out
     assert seen == []
+
+
+def test_import_preserves_candidates_that_fail_the_exact_check(tmp_path, monkeypatch):
+    """Guard: ignore the revision's lesson value and imported mismatches become published."""
+    source = Vault(tmp_path / "source.db")
+    _insert_candidates(source, 2)
+    target, exported = tmp_path / "restored.db", tmp_path / "backup.jsonl"
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ALICE")}
+    env["PYTHONPATH"] = os.pathsep.join((str(Path.cwd() / "apps/api/src"), str(Path.cwd())))
+    command = [sys.executable, "-m", "alicebot_api.onramp"]
+    subprocess.run([*command, "export", "--db", str(source.path), "--user-id", str(source.user), "--out", str(exported)],
+                   env=env, check=True, capture_output=True, text=True)
+    subprocess.run([*command, "import", "--db", str(target), "--user-id", str(source.user), "--in", str(exported)],
+                   env=env, check=True, capture_output=True, text=True)
+    restored = Vault.__new__(Vault)
+    restored.path, restored.user = target, source.user
+    with sqlite_user_connection(target, source.user) as conn:
+        store = SQLiteVNextStore(conn, source.user)
+        candidates = list(stream_lesson_memories(store, domains=[], sensitivity=list(ALL_SENSITIVITY), projects=(), lazy_metadata=True))
+    assert len(candidates) == 2
+    assert restored.call(monkeypatch, None, "alice_lessons", {"task": "rebasing"})["count"] == 0
 
 
 def test_sql_prefilter_keeps_every_publishing_shape_and_ignores_key_order(tmp_path, monkeypatch):

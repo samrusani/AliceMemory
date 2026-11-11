@@ -634,7 +634,7 @@ def test_the_fingerprint_names_what_a_number_measured_and_not_the_version_string
     assert print_["tools_list_digest"] == hashlib.sha256(
         json.dumps(tools, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    assert [tool["name"] for tool in tools] == ["alice_memory_commit", "alice_recall", "alice_resume"]
+    assert [tool["name"] for tool in tools] == ["alice_memory_commit", "alice_recall", "alice_resume", "alice_lessons"]
     assert print_["search_quality"] == "passage"
     assert print_["import_order"] == "sorted"
     assert print_.get("prompt_hashes") == gates_data["hashes"]["prompts"]

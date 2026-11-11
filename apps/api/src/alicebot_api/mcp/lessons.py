@@ -95,6 +95,7 @@ def _select_published_lessons(store, *, domains, sensitivity, projects, limit, o
     """Select readable published lesson rows in the caller's requested order."""
     from itertools import islice
     from alicebot_api.sqlite_store import SQLiteVNextStore
+    from alicebot_api.vnext_stores.postgres.lessons import stream_lesson_memories as stream_postgres_lessons
     from alicebot_api.vnext_stores.sqlite.lessons import stream_lesson_memories
 
     lazy_metadata = not LabelGuard.for_filters(store, domains, sensitivity, projects).active
@@ -104,12 +105,9 @@ def _select_published_lessons(store, *, domains, sensitivity, projects, limit, o
                 store, domains=domains, sensitivity=sensitivity, projects=projects, lazy_metadata=lazy_metadata
             )
         else:
-            rows = iter(store.list_memories(
-                status="active", memory_types=("procedure",), domains=domains,
-                sensitivity_allowed=sensitivity, projects=projects, include_expired=False,
-                lessons_only=True, lesson_projection=True, lesson_lazy_metadata=lazy_metadata,
-                lesson_publication_candidate=True,
-            ))
+            rows = stream_postgres_lessons(
+                store, domains=domains, sensitivity=sensitivity, projects=projects, lazy_metadata=lazy_metadata
+            )
         batch_size = 64
     else:
         global_option = {"exclude_global_domains": ()} if "~global" in projects and isinstance(store, SQLiteVNextStore) else {}

@@ -278,7 +278,6 @@ def list_memories(
     lessons_only: bool = False,
     lesson_projection: bool = False,
     lesson_lazy_metadata: bool = False,
-    lesson_publication_candidate: bool = False,
 ) -> list[VNextRow]:
     """List memories. ``include_expired=False`` leaves out a memory whose ``valid_to`` has passed.
 
@@ -343,16 +342,6 @@ def list_memories(
             params.extend((escaped_query, escaped_query, escaped_query))
     expiry_sql = "" if include_expired else f" AND {POSTGRES_UNEXPIRED_SQL}"
     lesson_sql = " AND jsonb_typeof(value -> 'lesson') = 'object'" if lessons_only else ""
-    if lesson_publication_candidate:
-        lesson_sql += (
-            " AND EXISTS (SELECT 1 FROM memory_revisions AS r "
-            "WHERE r.memory_id = memories.id AND r.user_id = memories.user_id "
-            "AND r.new_value -> 'lesson' IS NOT NULL AND ("
-            "(r.action = 'agentic_memory_commit' AND r.revision_type = 'created') OR "
-            "(r.action = 'agentic_memory_confirm_confirm' AND r.revision_type = 'promoted') OR "
-            "(r.action IN ('memory_correct_approve', 'memory_review_accept', 'memory_review_promote') "
-            "AND r.revision_type = 'promoted')))"
-        )
     order_sql = (
         ("ORDER BY created_at DESC, id ASC" if lesson_projection else "ORDER BY created_at DESC, id DESC")
         if order_by_created_at

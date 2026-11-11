@@ -7,6 +7,7 @@ from alicebot_api.mcp.registry import call_mcp_tool, list_mcp_tools
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_store import PostgresVNextStore
+from alicebot_api.vnext_stores.postgres.lessons import stream_lesson_memories
 from tests.integration.test_mcp_server import seed_user
 
 
@@ -65,8 +66,6 @@ def test_postgres_prefilter_keeps_every_publishing_shape(migrated_database_urls,
                                    "action": action, "revision_type": revision_type, "actor_type": "user"})
     with user_connection(url, user) as conn:
         store = PostgresVNextStore(conn)
-        candidates = store.list_memories(status="active", memory_types=("procedure",), domains=[],
-                                         sensitivity_allowed=None, projects=("alpha",), include_expired=False,
-                                         lessons_only=True, lesson_projection=True, lesson_publication_candidate=True)
+        candidates = list(stream_lesson_memories(store, domains=[], sensitivity=None, projects=("alpha",), lazy_metadata=False))
     answer = call_mcp_tool(context, name="alice_lessons", arguments={"task": "rebasing", "limit": 10})
     assert {str(row["id"]) for row in candidates} == expected == {str(row["id"]) for row in answer["lessons"]}

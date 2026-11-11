@@ -29,7 +29,7 @@ FILES = (
     "apps/api/src/alicebot_api/mcp/lessons.py",
     "apps/api/src/alicebot_api/mcp/registry.py",
     "apps/api/src/alicebot_api/vnext_stores/sqlite/lessons.py",
-    "apps/api/src/alicebot_api/vnext_stores/postgres/memory_access.py",
+    "apps/api/src/alicebot_api/vnext_stores/postgres/lessons.py",
 )
 SHAPES = ("none", "published", "waiting", "planted", "mismatch")
 
