@@ -23866,7 +23866,7 @@
           "line": 320,
           "before": "    identity, quiet = session_brief_identity(db_path, UUID(str(args.user_id)))\n    if quiet:\n        return 0\n",
           "after": "    identity, quiet = None, False\n",
-          "sha256": "fa5dd53fbc043b533bd26ff6a295a788813458f238a79eeda9efc711fe06c63f"
+          "sha256": "807a7c77149427a6196100639240a5ad7eb8dd61fd6030c33314586b0e94cef2"
         }
       ],
       "pytest": [
