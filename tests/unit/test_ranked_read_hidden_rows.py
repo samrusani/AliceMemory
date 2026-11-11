@@ -528,3 +528,25 @@ def test_long_supported_queries_keep_native_bm25(vault, monkeypatch, shape):
     bounded = call(vault, monkeypatch, key, "alice_recall", args)
     assert owner["count"] == bounded["count"] == 1
     assert scores == pytest.approx(expected, rel=1e-12, abs=1e-15)
+
+
+def test_empty_strict_pass_skips_corpus_scoring(vault, monkeypatch):
+    """Guard: an empty native MATCH pass reaches fallback without computing corpus scores."""
+    from alicebot_api.vnext_stores.sqlite import readable_rank
+
+    ids = visible(vault, monkeypatch, "memory")
+    key = mint(vault, "project_scoped_agent")
+    original = readable_rank.rank_sql
+    scored = []
+    @wraps(original)
+    def capture(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if kwargs["memory"] and result is not None:
+            scored.append(kwargs["expression"])
+        return result
+    monkeypatch.setattr(readable_rank, "rank_sql", capture)
+    answer = call(vault, monkeypatch, key, "alice_recall", {
+        "query": QUERY + " unfamiliar", "include_sources": False, "limit": 5,
+    })
+    assert {row["id"] for row in answer["results"]} == set(ids)
+    assert scored and all(" OR " in expression for expression in scored)

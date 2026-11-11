@@ -69,8 +69,10 @@ def rank_sql(
     fragments are closed store expressions; caller values are bound.
     """
     if memory and not store._fetch_optional_one(
-        f"SELECT 1 FROM {population_from} JOIN memories_fts_docsize d ON d.id=m.rowid WHERE ({ordinary}) AND {population_where} LIMIT 1",  # nosec B608 - closed clauses; values are bound
-        population_params,
+        f"SELECT 1 FROM (SELECT 1 FROM memories_fts CROSS JOIN memories m ON m.rowid=memories_fts.rowid "  # nosec B608 - closed clauses; values are bound
+        f"WHERE memories_fts MATCH ? AND {population_where} LIMIT 1) candidate "
+        f"CROSS JOIN {population_from} JOIN memories_fts_docsize d ON d.id=m.rowid WHERE ({ordinary}) AND {population_where} LIMIT 1",
+        (expression, *population_params, *population_params),
     ):
         return None
     phrases = _prepare(store, expression)
