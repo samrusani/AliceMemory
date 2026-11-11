@@ -595,7 +595,7 @@ def test_the_fingerprint_names_what_a_number_measured_and_not_the_version_string
 
     Mutation: record ``alicebot_api.__version__`` (it reads installed metadata and can name another
     build), leave one hash out of the fingerprint (the source hash included), or leave out the Python and
-    SQLite versions the full-text ranking ran on.
+    SQLite versions the full-text ranking ran on, or remove `alice_lessons` from the default list.
     """
 
     gates_data = json.loads((REPO_ROOT / "gates.json").read_text())
@@ -623,8 +623,12 @@ def test_the_fingerprint_names_what_a_number_measured_and_not_the_version_string
             judge_model="judge-y",
         )
     git = bench.git_state(REPO_ROOT)
-    assert print_["git_sha"] == git["git_sha"] and len(str(print_["git_sha"])) == 40
-    assert print_["git"] == "present" and isinstance(print_["dirty"], bool)
+    assert print_["git_sha"] == git["git_sha"]
+    assert print_["git"] == git["git"] and print_["dirty"] == git["dirty"]
+    if git["git"] == "present":
+        assert len(str(print_["git_sha"])) == 40 and isinstance(print_["dirty"], bool)
+    else:
+        assert print_["git_sha"] is None and print_["dirty"] is None
     assert print_["checkout_source_sha256"] == bench.checkout_source_sha256(REPO_ROOT)
     assert print_["vault_build"]["checkout_source_sha256"] == print_["checkout_source_sha256"]
     real_file = Path(str(print_["alicebot_api_file"]))
