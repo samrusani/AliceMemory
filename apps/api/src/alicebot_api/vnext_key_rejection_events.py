@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+import hashlib
+import hmac
+import json
 import logging
 import sqlite3
 import unicodedata
@@ -43,6 +46,12 @@ def rejection_notice(record: Mapping[str, object], reason: str, claimed: JsonObj
         "reason": reason,
         "key_prefix": _clean(record.get("key_prefix") or ""),
         "granted_permission_profile": _clean(record.get("permission_profile") or ""),
+        # Distinct claims must not become retries merely because their stored text was truncated or withheld.
+        "claim_fingerprint": hmac.new(
+            str(record["key_hash"]).encode(),
+            json.dumps(claimed, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode(),
+            hashlib.sha256,
+        ).hexdigest(),
     }
     for key, value in claimed.items():
         if isinstance(value, (list, tuple)):

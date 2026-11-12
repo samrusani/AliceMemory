@@ -144,6 +144,22 @@ def test_identical_refusals_are_deduplicated_for_sixty_seconds(keyed, monkeypatc
     assert len(_rejections(vault)) == 2
 
 
+def test_distinct_truncated_claims_are_not_retries(keyed):
+    """Mutation: replace the claim fingerprint with an empty string."""
+    vault, context = keyed
+    for claim in ("x" * 128 + "a", "x" * 128 + "b", "x" * 128 + "a"):
+        _refuse(context, {"agent_id": claim})
+    events = _rejections(vault)
+    assert len(events) == 2
+    assert all(event["payload_json"]["claimed_agent_id"] == "x" * 128 for event in events)
+    assert len({event["payload_json"]["claim_fingerprint"] for event in events}) == 2
+    for tail in ("IOSFODNN7EXAMPLE", "IOSFODNN7EXAMPLF"):
+        _refuse(context, {"agent_id": "AKIA" + tail})
+    withheld = [event["payload_json"] for event in _rejections(vault)
+                if event["payload_json"]["claimed_agent_id"] == "[withheld]"]
+    assert len(withheld) == 2 and len({payload["claim_fingerprint"] for payload in withheld}) == 2
+
+
 def test_simultaneous_sqlite_refusals_are_deduplicated(keyed, monkeypatch, caplog):
     """Mutation: change ``BEGIN IMMEDIATE`` to ``BEGIN`` in ``persist_after_rollback``."""
     vault, context = keyed

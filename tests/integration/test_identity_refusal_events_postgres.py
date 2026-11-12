@@ -127,6 +127,23 @@ def test_postgres_claims_are_bounded_and_clean(label_harness, monkeypatch):
     assert scope == [f"other-{i}" for i in range(8)]
 
 
+def test_distinct_truncated_postgres_claims_are_not_retries(label_harness, monkeypatch):
+    """Mutation: replace the claim fingerprint with an empty string."""
+    h = label_harness
+    key = h.key("project_scoped_agent", project="alpha")
+    for claim in ("x" * 128 + "a", "x" * 128 + "b", "x" * 128 + "a"):
+        _call(h, monkeypatch, key, {"agent_id": claim})
+    events = _rejections(h)
+    assert len(events) == 2
+    assert all(event["payload_json"]["claimed_agent_id"] == "x" * 128 for event in events)
+    assert len({event["payload_json"]["claim_fingerprint"] for event in events}) == 2
+    for tail in ("IOSFODNN7EXAMPLE", "IOSFODNN7EXAMPLF"):
+        _call(h, monkeypatch, key, {"agent_id": "AKIA" + tail})
+    withheld = [event["payload_json"] for event in _rejections(h)
+                if event["payload_json"]["claimed_agent_id"] == "[withheld]"]
+    assert len(withheld) == 2 and len({payload["claim_fingerprint"] for payload in withheld}) == 2
+
+
 def test_postgres_refusal_rolls_back_an_earlier_write(label_harness, monkeypatch):
     """Mutation: remove ``persist_after_rollback(conn, user_id, exc)`` at the PostgreSQL transaction boundary."""
     h = label_harness
