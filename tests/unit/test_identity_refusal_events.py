@@ -207,7 +207,7 @@ def test_bad_keys_and_unrecorded_scope_claims_leave_no_event(keyed, monkeypatch)
         record = store.get_agent_api_key_by_hash(hash_agent_key(revoked))
         store.revoke_agent_api_key(key_id=str(record["id"]))
     other_user = uuid4()
-    onramp.bootstrap_database(vault.path, user_id=other_user, user_email="other@example.invalid")
+    onramp.bootstrap_database(vault.path, user_id=other_user, user_email="fixture-other-user")
     with sqlite_user_connection(vault.path, other_user) as conn:
         _record, foreign = create_agent_key(SQLiteVNextStore(conn, other_user), user_id=other_user,
                                              agent_id="foreign", permission_profile="read_only_agent")

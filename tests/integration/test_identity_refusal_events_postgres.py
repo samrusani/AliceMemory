@@ -100,7 +100,7 @@ def test_invalid_revoked_and_foreign_postgres_keys_write_nothing(label_harness, 
         store.revoke_agent_api_key(key_id=str(record["id"]))
     other_user = uuid4()
     with user_connection(h.urls["app"], other_user) as conn:
-        ContinuityStore(conn).create_user(other_user, f"other-{other_user}@example.invalid", "Synthetic")
+        ContinuityStore(conn).create_user(other_user, f"fixture-user-{other_user}", "Synthetic")
         _record, foreign = create_agent_key(PostgresVNextStore(conn), user_id=other_user,
                                              agent_id="foreign", permission_profile="read_only_agent")
     before = len(_events(h))
