@@ -4373,10 +4373,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 575,
+          "line": 576,
           "before": "                            found |= self._key_of(target)",
           "after": "                            pass",
-          "sha256": "10b393d9592d398941701f0644757d0d6b1255494fded0e1b3b71d929d6a33b7"
+          "sha256": "19196720031dd7ad24ca315e98a623d308670b7a20948978e1d175850367cd39"
         }
       ],
       "pytest": [
@@ -4390,10 +4390,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 577,
+          "line": 578,
           "before": "                    if part.func.attr == \"update\":",
           "after": "                    if False:",
-          "sha256": "10b393d9592d398941701f0644757d0d6b1255494fded0e1b3b71d929d6a33b7"
+          "sha256": "19196720031dd7ad24ca315e98a623d308670b7a20948978e1d175850367cd39"
         }
       ],
       "pytest": [
@@ -4406,10 +4406,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 547,
+          "line": 548,
           "before": "            elif len(self.functions.get(callee, ())) == 1:",
           "after": "            elif False:",
-          "sha256": "10b393d9592d398941701f0644757d0d6b1255494fded0e1b3b71d929d6a33b7"
+          "sha256": "19196720031dd7ad24ca315e98a623d308670b7a20948978e1d175850367cd39"
         }
       ],
       "pytest": [
@@ -4422,10 +4422,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 591,
+          "line": 592,
           "before": "        self.unfollowed.append(name)\n        return found\n",
           "after": "        return found\n",
-          "sha256": "10b393d9592d398941701f0644757d0d6b1255494fded0e1b3b71d929d6a33b7"
+          "sha256": "19196720031dd7ad24ca315e98a623d308670b7a20948978e1d175850367cd39"
         }
       ],
       "pytest": [
@@ -8042,10 +8042,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 672,
+          "line": 673,
           "before": "        if isinstance(expression, ast.Name) and expression.id in self._constants[path]:",
           "after": "        if False:",
-          "sha256": "10b393d9592d398941701f0644757d0d6b1255494fded0e1b3b71d929d6a33b7"
+          "sha256": "19196720031dd7ad24ca315e98a623d308670b7a20948978e1d175850367cd39"
         }
       ],
       "pytest": [
@@ -8058,10 +8058,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 678,
+          "line": 679,
           "before": "                    if (function, expression.id) not in self.forwarded:",
           "after": "                    if False:",
-          "sha256": "10b393d9592d398941701f0644757d0d6b1255494fded0e1b3b71d929d6a33b7"
+          "sha256": "19196720031dd7ad24ca315e98a623d308670b7a20948978e1d175850367cd39"
         }
       ],
       "pytest": [
@@ -8074,10 +8074,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 697,
+          "line": 698,
           "before": "                if value is None and parameter in positional:",
           "after": "                if False:",
-          "sha256": "10b393d9592d398941701f0644757d0d6b1255494fded0e1b3b71d929d6a33b7"
+          "sha256": "19196720031dd7ad24ca315e98a623d308670b7a20948978e1d175850367cd39"
         }
       ],
       "pytest": [
@@ -8090,10 +8090,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 699,
+          "line": 700,
           "before": "                    index = positional.index(parameter) - (1 if positional[0] in {\"self\", \"cls\"} and isinstance(call.func, ast.Attribute) else 0)",
           "after": "                    index = positional.index(parameter)",
-          "sha256": "10b393d9592d398941701f0644757d0d6b1255494fded0e1b3b71d929d6a33b7"
+          "sha256": "19196720031dd7ad24ca315e98a623d308670b7a20948978e1d175850367cd39"
         }
       ],
       "pytest": [
@@ -8106,10 +8106,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 702,
+          "line": 703,
           "before": "                    if any(keyword.arg is None for keyword in call.keywords):",
           "after": "                    if False:",
-          "sha256": "10b393d9592d398941701f0644757d0d6b1255494fded0e1b3b71d929d6a33b7"
+          "sha256": "19196720031dd7ad24ca315e98a623d308670b7a20948978e1d175850367cd39"
         }
       ],
       "pytest": [
@@ -8122,10 +8122,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 682,
+          "line": 683,
           "before": "        self.unfollowed.append((path, ast.unparse(expression)))",
           "after": "        pass",
-          "sha256": "10b393d9592d398941701f0644757d0d6b1255494fded0e1b3b71d929d6a33b7"
+          "sha256": "19196720031dd7ad24ca315e98a623d308670b7a20948978e1d175850367cd39"
         }
       ],
       "pytest": [
@@ -8139,10 +8139,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 690,
+          "line": 691,
           "before": "        while pending:",
           "after": "        while False:",
-          "sha256": "10b393d9592d398941701f0644757d0d6b1255494fded0e1b3b71d929d6a33b7"
+          "sha256": "19196720031dd7ad24ca315e98a623d308670b7a20948978e1d175850367cd39"
         }
       ],
       "pytest": [
@@ -8155,10 +8155,10 @@
       "edits": [
         {
           "file": "tests/unit/test_event_references.py",
-          "line": 721,
+          "line": 722,
           "before": "    known = set(EVENT_TARGET_KINDS) | {EVENT_EDGE_TARGET} | set(EVENT_CHILD_TARGETS) | set(EVENT_UNJUDGED_TARGETS) | set(TARGETS_WITHOUT_A_LABEL)",
           "after": "    known = set(EVENT_TARGET_KINDS) | {EVENT_EDGE_TARGET} | set(EVENT_CHILD_TARGETS) | set(TARGETS_WITHOUT_A_LABEL)",
-          "sha256": "10b393d9592d398941701f0644757d0d6b1255494fded0e1b3b71d929d6a33b7"
+          "sha256": "19196720031dd7ad24ca315e98a623d308670b7a20948978e1d175850367cd39"
         }
       ],
       "pytest": [
@@ -28596,6 +28596,22 @@
         "tests/integration/test_identity_refusal_events_postgres.py::test_distinct_truncated_postgres_claims_are_not_retries"
       ],
       "expected_failure": "test_distinct_truncated_postgres_claims_are_not_retries"
+    },
+    {
+      "name": "identity-refusal-hidden-id-comparison-keeps-other-events",
+      "edits": [
+        {
+          "file": "tests/integration/test_row_ids_grant_no_access_postgres.py",
+          "line": 70,
+          "before": "            if (isinstance(event, dict) and event.get(\"event_type\") == \"agent.key_escalation_rejected\"\n                    and event.get(\"actor_type\") == \"system\" and event.get(\"target_type\") == \"agent_api_key\"):\n",
+          "after": "            if isinstance(event, dict):\n",
+          "sha256": "6c442dcb8cbeae1412187a8b955514dd14a0eea272b243d8d444a49b743b1752"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_row_ids_grant_no_access_postgres.py::test_hidden_id_comparison_keeps_other_events"
+      ],
+      "expected_failure": "test_hidden_id_comparison_keeps_other_events"
     }
   ]
 }

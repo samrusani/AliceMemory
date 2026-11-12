@@ -476,7 +476,8 @@ _ID_FIELD = re.compile(r"(^id$|_id$|_ids$|_refs?$|_references$|_members$|^supers
 # A payload the scan cannot read to the end, with what it holds. Each is a helper that hands on a payload it was given (every
 # call of the helper is scanned as a write of its own) or a payload that is spread from an object the scan cannot resolve.
 UNFOLLOWED_PAYLOADS = {
-    ("vnext_agent_keys.py", "claimed"): "the claim of a rejected key: the name of an agent or of a permission profile",
+    ("vnext_agent_keys.py", "notice.payload"): "the bounded key-refusal reason, profile, claim and fingerprint",
+    ("vnext_key_rejection_events.py", "notice.payload"): "the bounded key-refusal reason, profile, claim and fingerprint",
     ("vnext_capture.py", "payload"): "a helper that adds the agent identity and the policy decision to the payload it is given",
     ("vnext_connectors.py", "payload"): "a helper that adds the connector name to the payload it is given",
     ("vnext_connectors.py", "sync_result.to_record()"): "the counts, cursors and errors of a sync, with source_ids (judged)"
@@ -764,7 +765,10 @@ def test_every_judged_id_field_is_written_by_some_event_writer():
 
 
 def test_every_payload_the_sweep_cannot_follow_is_listed():
-    """A helper that hands on a payload, or a spread of an object the scan cannot resolve, is named here with what it holds."""
+    """Mutation: remove ``self.unfollowed.append(name)`` from the payload reader.
+
+    A helper that hands on a payload, or a spread of an object the scan cannot resolve, is named here with what it holds.
+    """
     unfollowed = {(path, text) for path, _line, _keys, parts in _written_payloads(_package_trees()) for text in parts}
     assert unfollowed == set(UNFOLLOWED_PAYLOADS), (sorted(unfollowed - set(UNFOLLOWED_PAYLOADS)), sorted(set(UNFOLLOWED_PAYLOADS) - unfollowed))
 
