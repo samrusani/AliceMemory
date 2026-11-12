@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from io import StringIO
 import json
+import logging
 import time
 from uuid import uuid4
 
@@ -61,6 +63,8 @@ def test_each_refusal_reason_is_recorded_once_in_postgres(label_harness, monkeyp
     assert event["payload_json"]["reason"] == reason and event["actor_type"] == "system"
     payload = event["payload_json"]
     assert payload["key_prefix"] and payload["granted_permission_profile"] == "project_scoped_agent"
+    with h.store() as store:
+        assert payload["agent_id"] == store.get_agent_api_key_by_hash(hash_agent_key(key))["agent_id"]
     if "agent_id" in claim:
         assert payload["claimed_agent_id"] == claim["agent_id"]
     if "permission_profile" in claim:
@@ -127,21 +131,21 @@ def test_postgres_claims_are_bounded_and_clean(label_harness, monkeypatch):
     assert scope == [f"other-{i}" for i in range(8)]
 
 
-def test_distinct_truncated_postgres_claims_are_not_retries(label_harness, monkeypatch):
-    """Mutation: replace the claim fingerprint with an empty string."""
+def test_distinct_truncated_and_withheld_postgres_claims_share_an_event(label_harness, monkeypatch):
+    """Mutation: add the full claim to the payload as a fingerprint."""
     h = label_harness
     key = h.key("project_scoped_agent", project="alpha")
     for claim in ("x" * 128 + "a", "x" * 128 + "b", "x" * 128 + "a"):
         _call(h, monkeypatch, key, {"agent_id": claim})
     events = _rejections(h)
-    assert len(events) == 2
+    assert len(events) == 1
     assert all(event["payload_json"]["claimed_agent_id"] == "x" * 128 for event in events)
-    assert len({event["payload_json"]["claim_fingerprint"] for event in events}) == 2
+    assert "claim_fingerprint" not in events[0]["payload_json"]
     for tail in ("IOSFODNN7EXAMPLE", "IOSFODNN7EXAMPLF"):
         _call(h, monkeypatch, key, {"agent_id": "AKIA" + tail})
     withheld = [event["payload_json"] for event in _rejections(h)
                 if event["payload_json"]["claimed_agent_id"] == "[withheld]"]
-    assert len(withheld) == 2 and len({payload["claim_fingerprint"] for payload in withheld}) == 2
+    assert len(withheld) == 1 and "claim_fingerprint" not in withheld[0]
 
 
 def test_postgres_refusal_rolls_back_an_earlier_write(label_harness, monkeypatch):
@@ -207,7 +211,7 @@ def test_postgres_write_failure_preserves_the_http_refusal(label_harness, monkey
         raise RuntimeError("synthetic write failure")
 
     def warning(message, *args, **kwargs):
-        warnings.append(message)
+        warnings.append((message, args))
         original_warning(message, *args, **kwargs)
 
     monkeypatch.setattr(vnext_key_rejection_events, "_append_once", fail)
@@ -215,7 +219,52 @@ def test_postgres_write_failure_preserves_the_http_refusal(label_harness, monkey
     second = h.request("POST", path, key=key, payload={"query": "x", "agent_id": "different"})[:2]
     assert second == first and first[0] == 403
     assert calls and len(_rejections(h)) == 1
-    assert warnings == ["could not record an agent key identity refusal"]
+    assert warnings == [("could not record an agent key identity refusal: %s", ("RuntimeError",))]
+
+
+def test_named_refusal_logger_survives_migrations(label_harness, monkeypatch):
+    """Mutation: let migration logging disable existing named loggers."""
+    h = label_harness
+    key = h.key("project_scoped_agent", project="alpha")
+    logger = vnext_key_rejection_events.logger
+    assert logger.name == "alicebot_api.vnext_key_rejection_events" and not logger.disabled
+    stream = StringIO()
+    handler = logging.StreamHandler(stream)
+    logger.addHandler(handler)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("private failure detail")
+
+    monkeypatch.setattr(vnext_key_rejection_events, "_append_once", fail)
+    try:
+        status, body, _ = h.request("POST", "/v0/vnext/context-packs", key=key,
+                                    payload={"query": "review", "agent_id": "different"})
+    finally:
+        logger.removeHandler(handler)
+    assert status == 403 and body["detail"]["code"] == "forbidden"
+    assert "could not record an agent key identity refusal: RuntimeError" in stream.getvalue()
+    assert "private failure detail" not in stream.getvalue()
+
+
+def test_http_refusal_logs_no_raw_claims(label_harness):
+    """Mutation: put the raw claimed agent id back in the mismatch exception."""
+    h = label_harness
+    key = h.key("project_scoped_agent", project="alpha")
+    secret = "AK" + "IAIOSFODNN7EXAMPLE"
+    long_value = "x" * 200_000
+    stream = StringIO()
+    handler = logging.StreamHandler(stream)
+    logger = logging.getLogger("alicebot_api.public_errors")
+    logger.addHandler(handler)
+    try:
+        for claim in (secret, long_value):
+            status, body, _ = h.request("POST", "/v0/vnext/context-packs", key=key,
+                                        payload={"query": "review", "agent_id": claim})
+            assert status == 403 and body["detail"] == {"code": "forbidden", "message": "The requested action is not permitted"}
+    finally:
+        logger.removeHandler(handler)
+    rendered = stream.getvalue()
+    assert rendered and secret not in rendered and "x" * 129 not in rendered and len(rendered) < 20_000
 
 
 def test_restricted_http_and_mcp_readers_do_not_receive_the_event(label_harness, monkeypatch):

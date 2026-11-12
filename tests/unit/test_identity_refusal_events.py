@@ -144,20 +144,51 @@ def test_identical_refusals_are_deduplicated_for_sixty_seconds(keyed, monkeypatc
     assert len(_rejections(vault)) == 2
 
 
-def test_distinct_truncated_claims_are_not_retries(keyed):
-    """Mutation: replace the claim fingerprint with an empty string."""
+def test_distinct_truncated_and_withheld_claims_share_an_event(keyed):
+    """Mutation: add the full claim to the payload as a fingerprint."""
     vault, context = keyed
     for claim in ("x" * 128 + "a", "x" * 128 + "b", "x" * 128 + "a"):
         _refuse(context, {"agent_id": claim})
     events = _rejections(vault)
-    assert len(events) == 2
+    assert len(events) == 1
     assert all(event["payload_json"]["claimed_agent_id"] == "x" * 128 for event in events)
-    assert len({event["payload_json"]["claim_fingerprint"] for event in events}) == 2
+    assert "claim_fingerprint" not in events[0]["payload_json"]
     for tail in ("IOSFODNN7EXAMPLE", "IOSFODNN7EXAMPLF"):
         _refuse(context, {"agent_id": "AKIA" + tail})
     withheld = [event["payload_json"] for event in _rejections(vault)
                 if event["payload_json"]["claimed_agent_id"] == "[withheld]"]
-    assert len(withheld) == 2 and len({payload["claim_fingerprint"] for payload in withheld}) == 2
+    assert len(withheld) == 1 and "claim_fingerprint" not in withheld[0]
+
+
+@pytest.mark.parametrize(("agent", "expected"), [
+    ("owner-agent", "owner-agent"),
+    ("z" * 200, "z" * 128),
+    ("owner\u0001\u200dagent", "owneragent"),
+    ("AK" + "IAIOSFODNN7EXAMPLE", "[withheld]"),
+])
+def test_refusal_records_the_cleaned_key_agent_id(keyed, monkeypatch, agent, expected):
+    """Mutation: remove the key's ``agent_id`` from the rejection payload."""
+    vault, context = keyed
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", vault.key(agent, "read_only_agent", "alpha"))
+    _refuse(context, {"agent_id": "different-agent"})
+    [event] = _rejections(vault)
+    assert event["payload_json"]["agent_id"] == expected
+
+
+def test_mcp_refusal_logs_no_raw_claims(keyed, caplog):
+    """Mutation: put the raw claimed agent id back in the mismatch exception."""
+    _, context = keyed
+    secret = "AK" + "IAIOSFODNN7EXAMPLE"
+    long_value = "x" * 200_000
+    with caplog.at_level(logging.WARNING):
+        _refuse(context, {"agent_id": secret})
+        _refuse(context, {"agent_id": long_value})
+        _refuse(context, {"permission_profile": secret})
+        _refuse(context, {"project_scope": ["y" * 200_000]})
+    assert caplog.records
+    rendered = "\n".join(logging.Formatter().format(record) for record in caplog.records)
+    assert secret not in rendered and "x" * 129 not in rendered and "y" * 129 not in rendered
+    assert len(rendered) < 20_000
 
 
 def test_simultaneous_sqlite_refusals_are_deduplicated(keyed, monkeypatch, caplog):
@@ -192,6 +223,25 @@ def test_event_write_failure_logs_without_changing_the_refusal(keyed, monkeypatc
         answer = _refuse(context, {"agent_id": "second-different-agent"})
     assert answer == expected and len(_rejections(vault)) == before
     assert "could not record an agent key identity refusal" in caplog.text
+    assert "RuntimeError" in caplog.text and "synthetic write failure" not in caplog.text
+    assert any(record.name == "alicebot_api.vnext_key_rejection_events" for record in caplog.records)
+
+
+def test_notice_failure_logs_only_the_error_class(keyed, monkeypatch, caplog):
+    """Mutation: remove the notice-preparation warning."""
+    vault, context = keyed
+    secret = "AK" + "IAIOSFODNN7EXAMPLE"
+
+    def fail(*args, **kwargs):
+        raise ValueError("private preparation detail")
+
+    monkeypatch.setattr(vnext_key_rejection_events, "rejection_notice", fail)
+    with caplog.at_level(logging.WARNING):
+        answer = _refuse(context, {"agent_id": secret})
+    assert answer["error"]["code"] == "identity_claim_refused" and not _rejections(vault)
+    assert "could not prepare an agent key identity refusal: ValueError" in caplog.text
+    assert "private preparation detail" not in caplog.text and secret not in caplog.text
+    assert any(record.name == "alicebot_api.vnext_agent_keys" for record in caplog.records)
 
 
 def test_bad_keys_and_unrecorded_scope_claims_leave_no_event(keyed, monkeypatch):

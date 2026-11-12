@@ -476,8 +476,7 @@ _ID_FIELD = re.compile(r"(^id$|_id$|_ids$|_refs?$|_references$|_members$|^supers
 # A payload the scan cannot read to the end, with what it holds. Each is a helper that hands on a payload it was given (every
 # call of the helper is scanned as a write of its own) or a payload that is spread from an object the scan cannot resolve.
 UNFOLLOWED_PAYLOADS = {
-    ("vnext_agent_keys.py", "notice.payload"): "the bounded key-refusal reason, profile, claim and fingerprint",
-    ("vnext_key_rejection_events.py", "notice.payload"): "the bounded key-refusal reason, profile, claim and fingerprint",
+    ("vnext_key_rejection_events.py", "notice.payload"): "the bounded key-refusal reason, key agent, profile and claim",
     ("vnext_capture.py", "payload"): "a helper that adds the agent identity and the policy decision to the payload it is given",
     ("vnext_connectors.py", "payload"): "a helper that adds the connector name to the payload it is given",
     ("vnext_connectors.py", "sync_result.to_record()"): "the counts, cursors and errors of a sync, with source_ids (judged)"

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-import hashlib
-import json
 import logging
 import sqlite3
 import unicodedata
@@ -16,8 +14,7 @@ from alicebot_api.credential_floor import carries_credential_material
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_repositories import JsonObject
 
-# A migration can disable previously created named loggers; its configured root remains active.
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 CLAIM_VALUE_LIMIT = 128
 CLAIM_LIST_LIMIT = 8
 REJECTION_WINDOW_SECONDS = 60
@@ -44,12 +41,8 @@ def rejection_notice(record: Mapping[str, object], reason: str, claimed: JsonObj
     payload: JsonObject = {
         "reason": reason,
         "key_prefix": _clean(record.get("key_prefix") or ""),
+        "agent_id": _clean(record.get("agent_id") or ""),
         "granted_permission_profile": _clean(record.get("permission_profile") or ""),
-        # Distinct claims must not become retries merely because their stored text was truncated or withheld.
-        "claim_fingerprint": hashlib.scrypt(
-            json.dumps(claimed, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode(),
-            salt=str(record["key_hash"]).encode(), n=2**14, r=8, p=1, dklen=32,
-        ).hex(),
     }
     for key, value in claimed.items():
         if isinstance(value, (list, tuple)):
@@ -105,11 +98,11 @@ def persist_after_rollback(conn: object, user_id: UUID | str, error: BaseExcepti
                 # Serialize retries for this key even when two requests are refused together.
                 conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (str(user_id) + ":" + notice.key_id,))  # type: ignore[attr-defined]
                 _append_once(PostgresVNextStore(conn), notice)  # type: ignore[arg-type]
-    except Exception:
+    except Exception as exc:
         if isinstance(conn, sqlite3.Connection):
             try:
                 # label state: none, the refused request's store has ended; this rollback abandons only the audit write.
                 conn.rollback()
-            except Exception:
-                logger.warning("could not roll back the failed agent key refusal record")
-        logger.warning("could not record an agent key identity refusal")
+            except Exception as rollback_exc:
+                logger.warning("could not roll back the failed agent key refusal record: %s", type(rollback_exc).__name__)
+        logger.warning("could not record an agent key identity refusal: %s", type(exc).__name__)

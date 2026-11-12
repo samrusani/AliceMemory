@@ -170,6 +170,7 @@ def test_resolve_agent_identity_allows_profile_downgrade() -> None:
 def test_resolve_agent_identity_rejects_profile_escalation_and_audits(
     identity_namespace: str | None,
 ) -> None:
+    """Mutation: replace the returned rejection notice with ``None``."""
     store = FakeAgentKeyStore()
     user_id = uuid4()
     _record, raw_key = create_agent_key(
@@ -194,20 +195,18 @@ def test_resolve_agent_identity_rejects_profile_escalation_and_audits(
         )
 
     assert exc_info.value.status_code == 403
-    rejection_events = [
-        event for event in store.events if event["event_type"] == "agent.key_escalation_rejected"
-    ]
-    assert len(rejection_events) == 1
-    payload = rejection_events[0]["payload_json"]
+    assert store.events == []
+    payload = exc_info.value.key_rejection.payload
     assert payload["reason"] == "permission_profile_escalation"
     assert payload["granted_permission_profile"] == "project_scoped_agent"
     assert payload["claimed_permission_profile"] == "admin_agent"
-    serialized = str(store.events)
+    serialized = str(payload)
     assert raw_key not in serialized
     assert hash_agent_key(raw_key) not in serialized
 
 
 def test_resolve_agent_identity_rejects_agent_id_mismatch() -> None:
+    """Mutation: replace the returned rejection notice with ``None``."""
     store = FakeAgentKeyStore()
     user_id = uuid4()
     _record, raw_key = create_agent_key(
@@ -223,11 +222,8 @@ def test_resolve_agent_identity_rejects_agent_id_mismatch() -> None:
         )
 
     assert exc_info.value.status_code == 403
-    assert any(
-        event["event_type"] == "agent.key_escalation_rejected"
-        and event["payload_json"]["reason"] == "agent_id_mismatch"
-        for event in store.events
-    )
+    assert store.events == []
+    assert exc_info.value.key_rejection.payload["reason"] == "agent_id_mismatch"
 
 
 def test_resolve_agent_identity_rejects_invalid_revoked_and_foreign_keys() -> None:
@@ -443,6 +439,7 @@ def test_key_binding_rejects_blank_scope_instead_of_silently_unbinding() -> None
 
 
 def test_resolve_agent_identity_rejects_project_scope_widening_and_audits() -> None:
+    """Mutation: replace the returned rejection notice with ``None``."""
     store = FakeAgentKeyStore()
     user_id = uuid4()
     _record, raw_key = create_agent_key(
@@ -462,15 +459,12 @@ def test_resolve_agent_identity_rejects_project_scope_widening_and_audits() -> N
         )
 
     assert exc_info.value.status_code == 403
-    rejection_events = [
-        event for event in store.events if event["event_type"] == "agent.key_escalation_rejected"
-    ]
-    assert len(rejection_events) == 1
-    payload = rejection_events[0]["payload_json"]
+    assert store.events == []
+    payload = exc_info.value.key_rejection.payload
     assert payload["reason"] == "project_scope_escalation"
     assert payload["granted_project_scope"] == "alicebot"
     assert payload["claimed_project_scope"] == ["alicebot", "other-project"]
-    serialized = str(store.events)
+    serialized = str(payload)
     assert raw_key not in serialized
     assert hash_agent_key(raw_key) not in serialized
 

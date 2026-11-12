@@ -251,7 +251,7 @@ def stored_marker_key(store: FakeAgentKeyStore, *, profile: str = "project_scope
 def test_a_stored_key_bound_to_the_reserved_name_is_refused_whole(binding: str, payload: dict) -> None:
     """Mutation: remove the stored-binding check in ``resolve_agent_identity``.
 
-    The key is refused with status 403 before any claim is read. The in-memory store records an event naming the key by
+    The key is refused with status 403 before any claim is read. The exception carries the notice naming the key by
     its prefix and the reason. The real-store path is pinned by ``test_a_refused_key_persists_a_rejection_event_in_a_real_store``.
     """
 
@@ -265,10 +265,10 @@ def test_a_stored_key_bound_to_the_reserved_name_is_refused_whole(binding: str, 
         "refused at every door. Revoke it with 'alicebot agent keys revoke' and create a new key bound to the name "
         "or id of a project."
     )
-    [event] = store.events
-    assert event["event_type"] == "agent.key_escalation_rejected"
-    assert event["payload_json"]["reason"] == "reserved_project_scope_binding"
-    assert event["payload_json"]["key_prefix"] == raw[:12]
+    assert store.events == []
+    notice = caught.value.key_rejection
+    assert notice.payload["reason"] == "reserved_project_scope_binding"
+    assert notice.payload["key_prefix"] == raw[:12]
 
 
 def test_a_stored_key_bound_to_the_reserved_name_is_refused_whatever_its_profile() -> None:

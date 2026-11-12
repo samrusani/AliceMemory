@@ -3708,7 +3708,8 @@ def test_vnext_memory_commit_without_identity_commits_as_direct_user(monkeypatch
 
 
 def test_vnext_agent_endpoint_rejects_payload_profile_escalation(monkeypatch) -> None:
-    from alicebot_api.vnext_agent_keys import create_agent_key
+    """Mutation: replace the returned rejection notice with ``None``."""
+    from alicebot_api.vnext_agent_keys import AgentKeyAuthenticationError, create_agent_key, resolve_agent_identity
 
     store = FakeVNextStore(None)
     _install_fake_vnext_store(monkeypatch, store)
@@ -3716,6 +3717,10 @@ def test_vnext_agent_endpoint_rejects_payload_profile_escalation(monkeypatch) ->
     _record, raw_key = create_agent_key(
         store, user_id=user_id, agent_id="openclaw", permission_profile="project_scoped_agent"
     )
+    with pytest.raises(AgentKeyAuthenticationError) as caught:
+        resolve_agent_identity(store, user_id=user_id, raw_key=raw_key,
+                               payload={"agent_id": "openclaw", "permission_profile": "admin_agent"})
+    assert caught.value.key_rejection.payload["reason"] == "permission_profile_escalation"
 
     response = vnext_memories_router.create_vnext_source(
         vnext_memories_router.VNextSourceCaptureRequest(
@@ -3731,7 +3736,7 @@ def test_vnext_agent_endpoint_rejects_payload_profile_escalation(monkeypatch) ->
 
     assert response.status_code == 403
     assert store.sources == {}
-    assert any(event.get("event_type") == "agent.key_escalation_rejected" for event in store.events)
+    assert not any(event.get("event_type") == "agent.key_escalation_rejected" for event in store.events)
     assert raw_key not in json.dumps([event for event in store.events], default=str)
 
 

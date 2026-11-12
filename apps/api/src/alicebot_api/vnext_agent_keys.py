@@ -11,7 +11,6 @@ from alicebot_api.vnext_agent_control import (
     PERMISSION_PROFILES,
     AgentIdentity,
 )
-from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_project_scope import (
     normalize_project_identifier,
     normalize_project_scope,
@@ -257,7 +256,6 @@ def resolve_agent_identity(
             stored_reserved,
         )
         rejection = _append_key_rejection_event(
-            store,
             record=record,
             reason="reserved_project_scope_binding",
             claimed={},
@@ -277,14 +275,13 @@ def resolve_agent_identity(
 
     if claimed_agent_id is not None and claimed_agent_id != key_agent_id:
         rejection = _append_key_rejection_event(
-            store,
             record=record,
             reason="agent_id_mismatch",
             claimed={"claimed_agent_id": claimed_agent_id},
         )
         raise AgentKeyAuthenticationError(
-            f"agent API key was issued to agent '{key_agent_id}' but the payload "
-            f"claims agent '{claimed_agent_id}'",
+            f"agent API key was issued to agent '{_rejection_text(rejection, 'agent_id')}' "
+            "but the payload claims a different agent",
             status_code=403, reason="agent_id_mismatch", key_rejection=rejection,
         )
 
@@ -293,14 +290,12 @@ def resolve_agent_identity(
         claimed_rank = _PROFILE_RANKS.get(claimed_profile)
         if claimed_rank is None or claimed_rank > _PROFILE_RANKS[key_profile]:
             rejection = _append_key_rejection_event(
-                store,
                 record=record,
                 reason="permission_profile_escalation",
                 claimed={"claimed_permission_profile": claimed_profile},
             )
             raise AgentKeyAuthenticationError(
-                f"agent API key grants permission_profile '{key_profile}'; the "
-                f"payload claims '{claimed_profile}', which is higher. Remove the "
+                "agent API key grants a lower permission profile than the one claimed. Remove the "
                 "claim or request a new key with the required profile.",
                 status_code=403, reason="profile_escalation", key_rejection=rejection,
             )
@@ -319,7 +314,6 @@ def resolve_agent_identity(
     )
     if raw_key_project_scope is not None and not key_project_scope:
         rejection = _append_key_rejection_event(
-            store,
             record=record,
             reason="invalid_project_scope_binding",
             claimed={},
@@ -344,7 +338,6 @@ def resolve_agent_identity(
         )
         if widened:
             rejection = _append_key_rejection_event(
-                store,
                 record=record,
                 reason="project_scope_escalation",
                 claimed={
@@ -353,8 +346,8 @@ def resolve_agent_identity(
                 },
             )
             raise AgentKeyAuthenticationError(
-                f"agent API key is bound to project scope '{key_project_scope}'; the "
-                f"payload claims project(s) {', '.join(repr(value) for value in widened)} "
+                f"agent API key is bound to project scope '{_rejection_text(rejection, 'granted_project_scope')}'; "
+                "the payload claims projects "
                 "outside that scope. Narrow the claim or request a key bound to those "
                 "projects.",
                 status_code=403, reason="scope_escalation", key_rejection=rejection,
@@ -449,25 +442,24 @@ def _claimed_project_scope(source: Mapping[str, object]) -> tuple[str, ...]:
     return normalize_project_scope(values)
 
 
+def _rejection_text(notice: object, field: str) -> str:
+    payload = getattr(notice, "payload", None)
+    value = payload.get(field) if isinstance(payload, dict) else None
+    return value if isinstance(value, str) else "[withheld]"
+
+
 def _append_key_rejection_event(
-    store: AgentKeyStore,
     *,
     record: Mapping[str, object],
     reason: str,
     claimed: JsonObject,
 ) -> object:
-    from alicebot_api.vnext_key_rejection_events import EVENT_TYPE, rejection_notice
+    from alicebot_api.vnext_key_rejection_events import rejection_notice
 
     try:
-        notice = rejection_notice(record, reason, claimed)
-        # Real stores defer the write until their request transaction rolls back.
-        if getattr(store, "conn", None) is not None:
-            return notice
-        # In-memory stores used by direct callers have no transaction to roll back.
-        append_event(store, event_type=EVENT_TYPE, actor_type="system", target_type="agent_api_key",
-                     target_id=notice.key_id, payload=notice.payload)
-    except Exception:
-        logging.getLogger().warning("could not prepare an agent key identity refusal")
+        return rejection_notice(record, reason, claimed)
+    except Exception as exc:
+        logger.warning("could not prepare an agent key identity refusal: %s", type(exc).__name__)
     return None
 
 
