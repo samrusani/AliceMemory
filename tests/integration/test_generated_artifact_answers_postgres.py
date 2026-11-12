@@ -21,6 +21,7 @@ from alicebot_api.cli import main as cli_main
 from alicebot_api.mcp import synthesis
 from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPReferenceNotFoundError, MCPRuntimeContext
+from alicebot_api.routers import vnext_review
 from alicebot_api.vnext_agent_keys import create_agent_key, resolve_agent_identity
 from alicebot_api.vnext_queue import QueueTaskRequest, VNextQueueService
 from tests.integration.derived_labels_postgres_support import label_harness, today  # noqa: F401  (fixtures)
@@ -339,20 +340,59 @@ def _task_naming(h, memory_id, *, sensitivity="public"):
         )
 
 
-def test_the_queue_worker_does_not_name_a_result_report_the_caller_may_not_read(label_harness):
+def test_the_queue_worker_does_not_name_a_result_report_the_caller_may_not_read(label_harness, monkeypatch):
+    """Changing ``payload = {**payload, "artifact_id": None}`` to ``payload = {**payload}`` fails this test."""
     h = label_harness
     project = _project(h)
     secret = _quoting_cluster(h, project)
     task = _task_naming(h, str(secret["id"]))
     trusted = h.key("trusted_local_agent")
+    route_answers = []
+    original_response = vnext_review.JSONResponse
+
+    def capture_response(*args, **kwargs):
+        if kwargs.get("status_code") == 200 and "artifact_id" in kwargs.get("content", {}):
+            route_answers.append(dict(kwargs["content"]))
+        return original_response(*args, **kwargs)
+
+    monkeypatch.setattr(vnext_review, "JSONResponse", capture_response)
 
     status, body, _ = h.request("POST", "/v0/vnext/queue/process-next", payload={}, key=trusted)
 
     assert status == 200 and body["status"] == "completed" and body["task_id"] == str(task["id"]), body
+    assert len(route_answers) == 1 and route_answers[0]["artifact_id"] is None, route_answers
     [stored] = [row for row in _stored_artifacts(h) if row["artifact_type"] != "memory_consolidation"]
     assert _get_artifact(h, stored["id"], trusted)[0] == 404
     assert body["artifact_id"] is None, body
     assert _traces(body, stored["id"], QUOTE, str(secret["id"])) == []
+
+
+def test_the_response_filter_withholds_a_queue_report_the_caller_may_not_read(label_harness, monkeypatch):
+    """Changing ``filtered = withhold_with(open_store, identity, payload, echo=echo)`` to ``filtered = payload`` fails."""
+    h = label_harness
+    project = _project(h)
+    secret = _quoting_cluster(h, project)
+    task = _task_naming(h, str(secret["id"]))
+    trusted = h.key("trusted_local_agent")
+    route_answers = []
+    original_response = vnext_review.JSONResponse
+
+    def capture_response(*args, **kwargs):
+        if kwargs.get("status_code") == 200 and "artifact_id" in kwargs.get("content", {}):
+            route_answers.append(dict(kwargs["content"]))
+        return original_response(*args, **kwargs)
+
+    # Exercise the later response filter with an ID that escaped the route's own check.
+    with monkeypatch.context() as route_patch:
+        route_patch.setattr(vnext_review, "JSONResponse", capture_response)
+        route_patch.setattr(vnext_review, "readable_artifact", lambda store, identity, artifact: artifact)
+        status, body, _ = h.request("POST", "/v0/vnext/queue/process-next", payload={}, key=trusted)
+
+    [stored] = [row for row in _stored_artifacts(h) if row["artifact_type"] != "memory_consolidation"]
+    assert status == 200 and body["status"] == "completed" and body["task_id"] == str(task["id"]), body
+    assert len(route_answers) == 1 and route_answers[0]["artifact_id"] == stored["id"], route_answers
+    assert _get_artifact(h, stored["id"], trusted)[0] == 404
+    assert body["artifact_id"] is None, body
 
 
 def test_the_queue_worker_names_the_result_to_the_owner_and_an_unbound_admin_key(label_harness):

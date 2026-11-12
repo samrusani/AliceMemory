@@ -14307,6 +14307,22 @@
       "expected_failure": "test_the_queue_worker_does_not_name_a_result_report_the_caller_may_not_read"
     },
     {
+      "name": "queue-response-filter-names-a-report-the-caller-may-not-read",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
+          "line": 885,
+          "before": "    filtered = withhold_with(open_store, identity, payload, echo=echo)\n",
+          "after": "    filtered = payload\n",
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_generated_artifact_answers_postgres.py::test_the_response_filter_withholds_a_queue_report_the_caller_may_not_read"
+      ],
+      "expected_failure": "test_the_response_filter_withholds_a_queue_report_the_caller_may_not_read"
+    },
+    {
       "name": "generation-tool-answers-the-report-unjudged",
       "edits": [
         {
