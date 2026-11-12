@@ -493,19 +493,24 @@ def session_brief_identity(db_path: Path, user_id: UUID | str) -> tuple[AgentIde
 
     from alicebot_api.mcp_tools import AGENT_API_KEY_ENV
     from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
-    from alicebot_api.vnext_agent_keys import resolve_agent_identity
+    from alicebot_api.vnext_agent_keys import AgentKeyAuthenticationError, resolve_agent_identity
 
-    with sqlite_user_connection(db_path, user_id) as connection:
-        store = SQLiteVNextStore(connection, user_id)
-        if store.count_active_agent_api_keys() == 0:
-            return None, False
-        raw_key = (os.environ.get(AGENT_API_KEY_ENV) or "").strip() or None
-        if raw_key is None:
-            return None, True
-        try:
-            return resolve_agent_identity(store, user_id=user_id, raw_key=raw_key, payload={}), False
-        except Exception:
-            return None, True
+    try:
+        with sqlite_user_connection(db_path, user_id) as connection:
+            store = SQLiteVNextStore(connection, user_id)
+            if store.count_active_agent_api_keys() == 0:
+                return None, False
+            raw_key = (os.environ.get(AGENT_API_KEY_ENV) or "").strip() or None
+            if raw_key is None:
+                return None, True
+            try:
+                return resolve_agent_identity(store, user_id=user_id, raw_key=raw_key, payload={}), False
+            except AgentKeyAuthenticationError:
+                raise
+            except Exception:
+                return None, True
+    except AgentKeyAuthenticationError:
+        return None, True
 
 
 def compile_local_session_brief(

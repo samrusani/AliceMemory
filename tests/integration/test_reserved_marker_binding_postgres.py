@@ -249,15 +249,8 @@ def rejection_reasons(harness) -> list[str]:
         ]
 
 
-def test_a_refused_key_persists_no_rejection_event_over_http_or_mcp(label_harness, monkeypatch):
-    """Pins today's behaviour: a refusal of a key leaves no ``agent.key_escalation_rejected`` event in the store.
-
-    The event is appended inside the transaction of the request, and the refusal rolls that transaction back, so no event
-    is stored for the reserved binding or for the older reasons (a claim wider than the binding), over the mounted
-    application and over the tool registry alike. Persisting refusals is a separate change that has to decide how a
-    refused request keeps a write; when it lands, this test changes with it. Until then the reason of the reserved
-    binding is written to the server log.
-    """
+def test_a_refused_key_persists_a_rejection_event_over_http_or_mcp(label_harness, monkeypatch):
+    """Mutation: remove ``persist_after_rollback(conn, user_id, exc)`` from the PostgreSQL transaction boundary."""
 
     build_world(label_harness)
     marker = stored_key(label_harness, "project_scoped_agent", "~global")
@@ -278,7 +271,7 @@ def test_a_refused_key_persists_no_rejection_event_over_http_or_mcp(label_harnes
             "alice_memory_review",
             {"status": "all", "agent_identity": {"project_scope": [LIGHTHOUSE]}},
         )
-    assert rejection_reasons(label_harness) == []
+    assert sorted(rejection_reasons(label_harness)) == ["project_scope_escalation", "reserved_project_scope_binding"]
 
 
 def test_the_cli_prints_why_a_key_command_was_refused_on_stderr(label_harness, tmp_path):

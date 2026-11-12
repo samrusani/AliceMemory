@@ -391,9 +391,12 @@ def sqlite_user_connection(path: str | Path, user_id: UUID | str, *, repair_labe
         conn.commit()
         yield conn
         conn.commit()
-    except BaseException:
+    except BaseException as exc:
         # label state: none, a request's label state ends with its store, inside this block, and the connection closes next.
         conn.rollback()
+        from alicebot_api.vnext_key_rejection_events import persist_after_rollback
+
+        persist_after_rollback(conn, user_id, exc)
         raise
     finally:
         conn.close()

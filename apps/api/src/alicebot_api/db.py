@@ -72,10 +72,22 @@ def set_current_user_account(conn: psycopg.Connection[Row], user_account_id: UUI
 def direct_user_connection(database_url: str, user_id: UUID) -> Iterator[UserConnection]:
     """Unpooled path retained for health checks, migrations, and test tools."""
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        with _user_transaction(conn, user_id):
+            yield conn
+
+
+@contextmanager
+def _user_transaction(conn: UserConnection, user_id: UUID) -> Iterator[None]:
+    try:
         # label state: none, a store and its request label state end inside this transaction, before it can roll back.
         with conn.transaction():
             set_current_user(conn, user_id)
-            yield conn
+            yield
+    except BaseException as exc:
+        from alicebot_api.vnext_key_rejection_events import persist_after_rollback
+
+        persist_after_rollback(conn, user_id, exc)
+        raise
 
 
 @contextmanager
@@ -154,9 +166,7 @@ def pooled_user_connection(pool: ConnectionPoolLike, user_id: UUID) -> Iterator[
         # Outside the transaction, so a result is remembered only after the transaction commits. A request that is run
         # again after a reader overflowed replays those results and does not write them twice.
         with durable_unit():
-            # label state: none, a store and its request label state end inside this transaction, before it can roll back.
-            with conn.transaction():
-                set_current_user(conn, user_id)
+            with _user_transaction(conn, user_id):
                 yield conn
 
 
