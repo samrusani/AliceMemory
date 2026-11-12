@@ -25,12 +25,34 @@ def repository_for_archive_replay(tmp_path_factory, monkeypatch):
         monkeypatch.setattr(bench, "ROOT", clone)
 
 
+@pytest.fixture
+def small_checkout(tmp_path, monkeypatch):
+    checkout = tmp_path / "checkout"
+    subprocess.run(["git", "clone", "--quiet", "--single-branch", "--no-local",
+                    bench.ROOT.as_uri(), str(checkout)], check=True)
+    ignored = checkout / ".venv"
+    ignored.mkdir()
+    (ignored / "existing-fixture.db").write_bytes(b"fixture sentinel")
+    monkeypatch.setattr(bench, "ROOT", checkout)
+    return checkout
+
+
 def snapshot():
-    names = subprocess.check_output(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=bench.ROOT
-    ).split(b"\0")
-    return {name: hashlib.sha256((bench.ROOT / os.fsdecode(name)).read_bytes()).hexdigest()
-            for name in names if name and (bench.ROOT / os.fsdecode(name)).is_file()}
+    result = {}
+    for current, directories, files in os.walk(bench.ROOT, followlinks=False):
+        folder = Path(current)
+        if folder == bench.ROOT:
+            directories.remove(".git")
+        for name in directories + files:
+            path = folder / name
+            relative = str(path.relative_to(bench.ROOT))
+            if path.is_symlink():
+                result[relative] = ("symlink", os.readlink(path))
+            elif path.is_file():
+                result[relative] = ("file", hashlib.sha256(path.read_bytes()).hexdigest())
+            else:
+                result[relative] = ("directory", "")
+    return result
 
 
 def trees_at(root, base="HEAD"):
@@ -71,7 +93,7 @@ def test_each_side_imports_its_own_tree_and_marker(tmp_path, monkeypatch):
         assert result["imports"][tree.name] == imported
 
 
-def test_run_leaves_checkout_bytes_unchanged(tmp_path):
+def test_run_leaves_checkout_bytes_unchanged(tmp_path, small_checkout):
     """Guard: measure snapshots without writing the checkout."""
     trees = trees_at(tmp_path)
     before = snapshot()
@@ -79,7 +101,7 @@ def test_run_leaves_checkout_bytes_unchanged(tmp_path):
     assert snapshot() == before
 
 
-def test_sigkill_during_sample_leaves_checkout_bytes_unchanged(tmp_path):
+def test_sigkill_during_sample_leaves_checkout_bytes_unchanged(tmp_path, small_checkout):
     """Guard: never write a revision into the checkout even during a sample."""
     trees = trees_at(tmp_path)
     started = tmp_path / "sample-started"

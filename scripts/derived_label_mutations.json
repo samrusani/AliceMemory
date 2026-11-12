@@ -27700,6 +27700,22 @@
         "tests/unit/test_lessons_benchmark_trees.py::test_cli_extracts_the_named_revision_for_each_side"
       ],
       "expected_failure": "test_cli_extracts_the_named_revision_for_each_side"
+    },
+    {
+      "name": "benchmark-no-ignored-fixture",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 90,
+          "before": "    env = {key: value for key, value in os.environ.items() if not key.startswith(\"ALICE\")}",
+          "after": "    (ROOT / \".venv\" / \"new-fixture.db\").write_bytes(b\"fixture\")\n    env = {key: value for key, value in os.environ.items() if not key.startswith(\"ALICE\")}",
+          "sha256": "a86f481b1aec72d9ba1730bb5bb915e62c8c80969f68df3b3e0d9787b0ea0e0f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_run_leaves_checkout_bytes_unchanged"
+      ],
+      "expected_failure": "test_run_leaves_checkout_bytes_unchanged"
     }
   ]
 }
