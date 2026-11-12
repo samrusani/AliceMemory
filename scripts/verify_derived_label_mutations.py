@@ -3,6 +3,11 @@
 Run with the normal development Python and role-separated synthetic test DB
 environment. The JSON manifest lists exact source spans, replacement text,
 one-based lines, file digests and expected failing tests. No checkout is edited.
+
+The PostgreSQL case ``readable-budget-reads-past-the-cap-postgres`` also needs
+``ALICE_READ_MERGE_BASE_CHECKOUT`` set to the source tree at the merge base.
+When replaying on a clean base itself, set it to ``$PWD``. On a later head,
+point it at the actual merge-base source, as the read-budget jobs do.
 """
 from __future__ import annotations
 

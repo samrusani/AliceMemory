@@ -1443,9 +1443,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_hidden_ids_in_report_metadata_postgres.py::test_a_hidden_id_stands_only_under_the_fields_that_list_ids"
+        "tests/integration/test_hidden_ids_in_report_metadata_postgres.py::test_a_limited_key_is_shown_no_id_of_a_row_it_may_not_read"
       ],
-      "expected_failure": "test_a_hidden_id_stands_only_under_the_fields_that_list_ids"
+      "expected_failure": "test_a_limited_key_is_shown_no_id_of_a_row_it_may_not_read"
     },
     {
       "name": "hidden-ids-note-says-exception",
@@ -3851,9 +3851,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_hidden_ids_in_report_metadata_postgres.py::test_a_hidden_id_stands_only_under_the_fields_that_list_ids"
+        "tests/integration/test_hidden_ids_in_report_metadata_postgres.py::test_a_limited_key_is_shown_no_id_of_a_row_it_may_not_read"
       ],
-      "expected_failure": "test_a_hidden_id_stands_only_under_the_fields_that_list_ids"
+      "expected_failure": "test_a_limited_key_is_shown_no_id_of_a_row_it_may_not_read"
     },
     {
       "name": "audit-revisions-dropped",
@@ -3867,9 +3867,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_hidden_ids_in_report_metadata_postgres.py::test_a_hidden_id_stands_only_under_the_fields_that_list_ids"
+        "tests/integration/test_hidden_ids_in_report_metadata_postgres.py::test_a_limited_key_is_shown_no_id_of_a_row_it_may_not_read"
       ],
-      "expected_failure": "test_a_hidden_id_stands_only_under_the_fields_that_list_ids"
+      "expected_failure": "test_a_limited_key_is_shown_no_id_of_a_row_it_may_not_read"
     },
     {
       "name": "capture-hash-not-kept",
@@ -8891,10 +8891,10 @@
       "edits": [
         {
           "file": "scripts/verify_derived_label_mutations.py",
-          "line": 34,
+          "line": 39,
           "before": "    if hashlib.sha256(raw).hexdigest() != edit[\"sha256\"]:",
           "after": "    if False:",
-          "sha256": "038b0405e08dd66d36dd6b5522e067ce11c16480e8484144ed96c4e85c2b0297"
+          "sha256": "f2f3b8f0014c60ec75a647da8bc72fd7bfa258a9422ea0bba4150a3d396dce49"
         }
       ],
       "pytest": [
@@ -8907,10 +8907,10 @@
       "edits": [
         {
           "file": "scripts/verify_derived_label_mutations.py",
-          "line": 36,
+          "line": 41,
           "before": "    if text.count(edit[\"before\"]) != 1 or text[:text.index(edit[\"before\"])].count(\"\\n\") + 1 != edit[\"line\"]:",
           "after": "    if False:",
-          "sha256": "038b0405e08dd66d36dd6b5522e067ce11c16480e8484144ed96c4e85c2b0297"
+          "sha256": "f2f3b8f0014c60ec75a647da8bc72fd7bfa258a9422ea0bba4150a3d396dce49"
         }
       ],
       "pytest": [
@@ -8923,10 +8923,10 @@
       "edits": [
         {
           "file": "scripts/verify_derived_label_mutations.py",
-          "line": 36,
+          "line": 41,
           "before": "    if text.count(edit[\"before\"]) != 1 or text[:text.index(edit[\"before\"])].count(\"\\n\") + 1 != edit[\"line\"]:",
           "after": "    if edit[\"before\"].split(\"\\n\")[0] not in text.split(\"\\n\")[edit[\"line\"] - 1]:",
-          "sha256": "038b0405e08dd66d36dd6b5522e067ce11c16480e8484144ed96c4e85c2b0297"
+          "sha256": "f2f3b8f0014c60ec75a647da8bc72fd7bfa258a9422ea0bba4150a3d396dce49"
         }
       ],
       "pytest": [
@@ -10362,9 +10362,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_saved_quote_memory_refs_postgres.py::test_every_spelling_of_a_memory_ref_is_withheld_at_the_audit_the_recent_commits_and_explain"
+        "tests/integration/test_guard_manifest_postgres.py::test_the_audit_removes_a_refused_memory_fragment_before_the_response_filter"
       ],
-      "expected_failure": "test_every_spelling_of_a_memory_ref_is_withheld_at_the_audit_the_recent_commits_and_explain[redacted]"
+      "expected_failure": "test_the_audit_removes_a_refused_memory_fragment_before_the_response_filter"
     },
     {
       "name": "memory-quote-revision-memory-not-withholding",
@@ -12770,9 +12770,9 @@
         }
       ],
       "pytest": [
-        "tests/integration/test_project_update_candidate_admission_postgres.py::test_a_bound_key_is_given_its_project_when_it_names_none[mcp]"
+        "tests/integration/test_guard_manifest_postgres.py::test_the_project_tool_supplies_the_key_binding_to_the_service"
       ],
-      "expected_failure": "test_a_bound_key_is_given_its_project_when_it_names_none"
+      "expected_failure": "test_the_project_tool_supplies_the_key_binding_to_the_service"
     },
     {
       "name": "open-loop-create-skips-the-project-readability-test",
@@ -28148,6 +28148,54 @@
         "tests/unit/test_lessons_read.py::test_surface"
       ],
       "expected_failure": "test_surface"
+    },
+    {
+      "name": "project-update-fallback-ignores-the-key-binding",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_projects.py",
+          "line": 1747,
+          "before": "            return [project for project in admitted if project_readable(self.store, project, caller)]\n",
+          "after": "            return admitted\n",
+          "sha256": "7f0ce51e22cee832ebc4b019016c26ebbb7d0ad09897ac435c3a21b242e643f4"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_guard_manifest_postgres.py::test_the_project_service_filters_the_fallback_by_the_key_binding"
+      ],
+      "expected_failure": "test_the_project_service_filters_the_fallback_by_the_key_binding"
+    },
+    {
+      "name": "memory-fragment-response-filter-is-bypassed",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_hidden_ids.py",
+          "line": 885,
+          "before": "    filtered = withhold_with(open_store, identity, payload, echo=echo)\n",
+          "after": "    filtered = payload\n",
+          "sha256": "b62ec8ded891f905c0b9115b8ee8fe6f381d348a505ab76196834380eae1f08f"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_guard_manifest_postgres.py::test_the_http_filter_withholds_a_fragment_that_passes_the_reference_guard"
+      ],
+      "expected_failure": "test_the_http_filter_withholds_a_fragment_that_passes_the_reference_guard"
+    },
+    {
+      "name": "manifest-test-selector-problems-ignored",
+      "edits": [
+        {
+          "file": "tests/unit/test_derived_label_mutation_test_selectors.py",
+          "line": 42,
+          "before": "    return problems\n",
+          "after": "    return []\n",
+          "sha256": "c1518f8338899048353213c02f6b80cbf40dc23249ce3e3724f3557872f06828"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_derived_label_mutation_test_selectors.py::test_every_manifest_case_names_existing_test_files_and_functions"
+      ],
+      "expected_failure": "test_every_manifest_case_names_existing_test_files_and_functions"
     }
   ]
 }
