@@ -1519,7 +1519,7 @@
           "line": 37,
           "before": "the count of a list that lost an id is recomputed or dropped",
           "after": "the count of a list that lost an id is kept",
-          "sha256": "1ec72af0662b40d8735220769782fc18f950eab9e1efa1bef8f9954f17c3ee38"
+          "sha256": "990a7784a0f8257692a30b1e44794ffad01428434ff9e23802f2f61535c97e44"
         }
       ],
       "pytest": [
@@ -1535,7 +1535,7 @@
           "line": 42,
           "before": "judged at most 128 rows of each list",
           "after": "listed",
-          "sha256": "1ec72af0662b40d8735220769782fc18f950eab9e1efa1bef8f9954f17c3ee38"
+          "sha256": "990a7784a0f8257692a30b1e44794ffad01428434ff9e23802f2f61535c97e44"
         }
       ],
       "pytest": [
@@ -2229,7 +2229,7 @@
           "line": 467,
           "before": "redacted row records nothing, as a redact of an id the vault never held records",
           "after": "redacted row is recorded, as a redact of an id the vault never held records",
-          "sha256": "3466fc40f99e1e20f7b0c5fdc5b68999e0112306b071120643e80b71d2d7660b"
+          "sha256": "d3b6acd74ff3a6386ae610b59a6656f2828a4c57bc765bb56aa13d8ee031dd85"
         }
       ],
       "pytest": [
@@ -3991,7 +3991,7 @@
           "line": 38,
           "before": "; from v0.21.0, a key with limits is not shown those",
           "after": "",
-          "sha256": "1ec72af0662b40d8735220769782fc18f950eab9e1efa1bef8f9954f17c3ee38"
+          "sha256": "990a7784a0f8257692a30b1e44794ffad01428434ff9e23802f2f61535c97e44"
         }
       ],
       "pytest": [
@@ -4685,7 +4685,7 @@
           "line": 476,
           "before": "it holds no text, and the append-only log lets a redaction rewrite an event aimed",
           "after": "it holds text, and the append-only log lets a redaction rewrite an event aimed",
-          "sha256": "3466fc40f99e1e20f7b0c5fdc5b68999e0112306b071120643e80b71d2d7660b"
+          "sha256": "d3b6acd74ff3a6386ae610b59a6656f2828a4c57bc765bb56aa13d8ee031dd85"
         }
       ],
       "pytest": [
@@ -4733,7 +4733,7 @@
           "line": 37,
           "before": "the owner and an unbound admin key keep every id",
           "after": "every key keeps every id",
-          "sha256": "1ec72af0662b40d8735220769782fc18f950eab9e1efa1bef8f9954f17c3ee38"
+          "sha256": "990a7784a0f8257692a30b1e44794ffad01428434ff9e23802f2f61535c97e44"
         }
       ],
       "pytest": [
@@ -5212,7 +5212,7 @@
           "line": 40,
           "before": "the reports and derived rows built from a redacted memory are readable by the owner and an unbound admin key only until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "1ec72af0662b40d8735220769782fc18f950eab9e1efa1bef8f9954f17c3ee38"
+          "sha256": "990a7784a0f8257692a30b1e44794ffad01428434ff9e23802f2f61535c97e44"
         }
       ],
       "pytest": [
@@ -5244,7 +5244,7 @@
           "line": 40,
           "before": "removing it is planned, with no release set",
           "after": "removing it is done",
-          "sha256": "1ec72af0662b40d8735220769782fc18f950eab9e1efa1bef8f9954f17c3ee38"
+          "sha256": "990a7784a0f8257692a30b1e44794ffad01428434ff9e23802f2f61535c97e44"
         }
       ],
       "pytest": [
@@ -5716,7 +5716,7 @@
           "line": 449,
           "before": "Redact does not rewrite the reports and derived rows\nmade from the memory before.",
           "after": "Redact rewrites the reports and derived rows\nmade from the memory before.",
-          "sha256": "3466fc40f99e1e20f7b0c5fdc5b68999e0112306b071120643e80b71d2d7660b"
+          "sha256": "d3b6acd74ff3a6386ae610b59a6656f2828a4c57bc765bb56aa13d8ee031dd85"
         }
       ],
       "pytest": [
@@ -6054,7 +6054,7 @@
           "line": 40,
           "before": "are readable by the owner and an unbound admin key only",
           "after": "are readable by every key that reads the report",
-          "sha256": "1ec72af0662b40d8735220769782fc18f950eab9e1efa1bef8f9954f17c3ee38"
+          "sha256": "990a7784a0f8257692a30b1e44794ffad01428434ff9e23802f2f61535c97e44"
         }
       ],
       "pytest": [
@@ -6070,7 +6070,7 @@
           "line": 39,
           "before": ", and a key that can read the report reads it",
           "after": "",
-          "sha256": "1ec72af0662b40d8735220769782fc18f950eab9e1efa1bef8f9954f17c3ee38"
+          "sha256": "990a7784a0f8257692a30b1e44794ffad01428434ff9e23802f2f61535c97e44"
         }
       ],
       "pytest": [
@@ -6246,7 +6246,7 @@
           "line": 33,
           "before": "Open in v0.23.0, with the detail in the [security note]",
           "after": "Open in v0.23.0, but graph edge explanations remain outside that ceiling, with the detail in the [security note]",
-          "sha256": "1ec72af0662b40d8735220769782fc18f950eab9e1efa1bef8f9954f17c3ee38"
+          "sha256": "990a7784a0f8257692a30b1e44794ffad01428434ff9e23802f2f61535c97e44"
         }
       ],
       "pytest": [
@@ -6662,7 +6662,7 @@
           "line": 763,
           "before": "        (\"GET\", \"/v0/vnext/memories/recent-commits\"),\n",
           "after": "",
-          "sha256": "85139272ee9a083a03c01d6688f403555d2a224631ccfa2446e85e95aa5417a7"
+          "sha256": "906b80239bffb7e373421b780d6b617b532d69cdfb79ae1f694a92997dc70a72"
         }
       ],
       "pytest": [
@@ -6678,7 +6678,7 @@
           "line": 1352,
           "before": "    if settings.app_env not in {\"development\", \"test\"} and not is_vnext_path:",
           "after": "    if False and not is_vnext_path:",
-          "sha256": "85139272ee9a083a03c01d6688f403555d2a224631ccfa2446e85e95aa5417a7"
+          "sha256": "906b80239bffb7e373421b780d6b617b532d69cdfb79ae1f694a92997dc70a72"
         }
       ],
       "pytest": [
@@ -9459,7 +9459,7 @@
           "line": 41,
           "before": "keeps the title and description its caller typed, so words of the memory stay readable to every key that reads the loop",
           "after": "keeps the title and description its caller typed, so words of the memory are withheld from every key that reads the loop",
-          "sha256": "1ec72af0662b40d8735220769782fc18f950eab9e1efa1bef8f9954f17c3ee38"
+          "sha256": "990a7784a0f8257692a30b1e44794ffad01428434ff9e23802f2f61535c97e44"
         }
       ],
       "pytest": [
@@ -15274,7 +15274,7 @@
           "line": 1440,
           "before": "app.add_middleware(RetryDeepRowMiddleware)\n",
           "after": "pass\n",
-          "sha256": "85139272ee9a083a03c01d6688f403555d2a224631ccfa2446e85e95aa5417a7"
+          "sha256": "906b80239bffb7e373421b780d6b617b532d69cdfb79ae1f694a92997dc70a72"
         }
       ],
       "pytest": [
@@ -19682,7 +19682,7 @@
           "line": 1432,
           "before": "        *[(name, value) for name, value in response.raw_headers if name.lower() != b\"content-length\"],",
           "after": "        *list({name.lower(): (name, value) for name, value in response.raw_headers if name.lower() != b\"content-length\"}.values()),",
-          "sha256": "85139272ee9a083a03c01d6688f403555d2a224631ccfa2446e85e95aa5417a7"
+          "sha256": "906b80239bffb7e373421b780d6b617b532d69cdfb79ae1f694a92997dc70a72"
         }
       ],
       "pytest": [
@@ -19698,7 +19698,7 @@
           "line": 1422,
           "before": "named_body=bytes(named_body))",
           "after": "named_body=b\"\")",
-          "sha256": "85139272ee9a083a03c01d6688f403555d2a224631ccfa2446e85e95aa5417a7"
+          "sha256": "906b80239bffb7e373421b780d6b617b532d69cdfb79ae1f694a92997dc70a72"
         }
       ],
       "pytest": [
@@ -19794,7 +19794,7 @@
           "line": 1433,
           "before": "        *[(name, value) for name, value in rebuilt.raw_headers if name == b\"content-length\"],",
           "after": "        (b\"content-length\", str(len(content)).encode(\"latin-1\")),",
-          "sha256": "85139272ee9a083a03c01d6688f403555d2a224631ccfa2446e85e95aa5417a7"
+          "sha256": "906b80239bffb7e373421b780d6b617b532d69cdfb79ae1f694a92997dc70a72"
         }
       ],
       "pytest": [
@@ -20041,7 +20041,7 @@
           "line": 1422,
           "before": "    updated = withhold_json_body(request, raw, database_url=get_settings().database_url, named_body=bytes(named_body))\n",
           "after": "    if response.status_code == 422:\n        request.state.request_validation_echo = True\n    updated = withhold_json_body(request, raw, database_url=get_settings().database_url, named_body=bytes(named_body))\n",
-          "sha256": "85139272ee9a083a03c01d6688f403555d2a224631ccfa2446e85e95aa5417a7"
+          "sha256": "906b80239bffb7e373421b780d6b617b532d69cdfb79ae1f694a92997dc70a72"
         }
       ],
       "pytest": [
@@ -20057,7 +20057,7 @@
           "line": 1422,
           "before": "named_body=bytes(named_body))",
           "after": "named_body=b\"\")",
-          "sha256": "85139272ee9a083a03c01d6688f403555d2a224631ccfa2446e85e95aa5417a7"
+          "sha256": "906b80239bffb7e373421b780d6b617b532d69cdfb79ae1f694a92997dc70a72"
         }
       ],
       "pytest": [
@@ -20231,7 +20231,7 @@
           "line": 39,
           "before": "; hiding these words is planned, with no release set",
           "after": "",
-          "sha256": "1ec72af0662b40d8735220769782fc18f950eab9e1efa1bef8f9954f17c3ee38"
+          "sha256": "990a7784a0f8257692a30b1e44794ffad01428434ff9e23802f2f61535c97e44"
         }
       ],
       "pytest": [
@@ -28093,7 +28093,7 @@
           "line": 17,
           "before": "`identity_claim_refused`, `not_permitted`, `not_found` and `precondition_failed`",
           "after": "`not_permitted`, `not_found` and `precondition_failed`",
-          "sha256": "1ec72af0662b40d8735220769782fc18f950eab9e1efa1bef8f9954f17c3ee38"
+          "sha256": "990a7784a0f8257692a30b1e44794ffad01428434ff9e23802f2f61535c97e44"
         }
       ],
       "pytest": [

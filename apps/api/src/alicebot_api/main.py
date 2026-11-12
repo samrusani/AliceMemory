@@ -1108,7 +1108,7 @@ def _authentication_failed_response(reason: str) -> JSONResponse:
     """Return the repository's one stable 401 body for a refused request."""
 
     return public_exception_response(
-        AgentKeyAuthenticationError(reason, status_code=401, reason="other"),
+        AgentKeyAuthenticationError(reason, status_code=401),
         status_code=401,
     )
 

@@ -1,6 +1,6 @@
 # Public Alpha Known Limitations
 
-This alpha is intentionally limited. This page lists what is limited now in v0.23.0. What an earlier release did, and what a later release fixed, is in the [CHANGELOG](../../CHANGELOG.md) and the [release notes](../release/v0.23.0-release-notes.md). Behaviour that is new in v0.23.0 is marked `From v0.23.0`, and what v0.22.0 and v0.21.0 changed is marked `From v0.22.0` and `From v0.21.0`.
+This page lists what is limited now in v0.23.0. What an earlier release did, and what a later release fixed, is in the [CHANGELOG](../../CHANGELOG.md) and the [release notes](../release/v0.23.0-release-notes.md). Behaviour that is new in v0.23.0 is marked `From v0.23.0`, and what v0.22.0 and v0.21.0 changed is marked `From v0.22.0` and `From v0.21.0`.
 
 Not built in this alpha: no hosted cloud, no production SLA, and no team accounts, billing, cloud sync, mobile app or hosted deployment (out of scope); no managed Gmail or Calendar OAuth consent or account-linking flow (manual operator-token storage exists); no live email or calendar polling; no Telegram polling, delivery or channel transport.
 OCR, PDF OCR and voice transcription execution are not packaged. The scheduler is local, model providers need your configuration, and the Postgres setup is technical (the SQLite install is one command).

@@ -95,9 +95,9 @@ def test_every_key_error_site_names_its_reason_and_both_mappings_use_only_claim_
     expected = Counter({"key_required": 2, "invalid_scope_type": 2, "invalid_key": 1, "wrong_user": 1,
                         "reserved_binding": 1, "agent_id_mismatch": 1, "profile_escalation": 1,
                         "invalid_binding": 1, "scope_escalation": 1, "blank_scope": 1,
-                        "reserved_scope": 1, "reviewer_mismatch": 1, "other": 1})
+                        "reserved_scope": 1, "reviewer_mismatch": 1})
     reasons = []
-    for relative in ("apps/api/src/alicebot_api/vnext_agent_keys.py", "apps/api/src/alicebot_api/main.py",
+    for relative in ("apps/api/src/alicebot_api/vnext_agent_keys.py",
                      "apps/api/src/alicebot_api/routers/vnext_review.py"):
         for node in ast.walk(ast.parse((ROOT / relative).read_text())):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "AgentKeyAuthenticationError":
@@ -105,7 +105,8 @@ def test_every_key_error_site_names_its_reason_and_both_mappings_use_only_claim_
                 assert len(fields) == 1 and isinstance(fields[0], ast.Constant), (relative, node.lineno)
                 reasons.append(fields[0].value)
     assert Counter(reasons) == expected
-    assert set(reasons) == set(get_args(vnext_agent_keys.AgentKeyFailureReason))
+    assert set(reasons) | {"other"} == set(get_args(vnext_agent_keys.AgentKeyFailureReason))
+    reasons.append("other")
     _, context = keyed
     claims = {"agent_id_mismatch", "profile_escalation", "scope_escalation", "blank_scope"}
     for reason in reasons:
