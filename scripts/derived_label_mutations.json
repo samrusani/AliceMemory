@@ -28602,10 +28602,10 @@
       "edits": [
         {
           "file": "tests/integration/test_row_ids_grant_no_access_postgres.py",
-          "line": 70,
+          "line": 76,
           "before": "            if (isinstance(event, dict) and event.get(\"event_type\") == \"agent.key_escalation_rejected\"\n                    and event.get(\"actor_type\") == \"system\" and event.get(\"target_type\") == \"agent_api_key\"):\n",
           "after": "            if isinstance(event, dict):\n",
-          "sha256": "6c442dcb8cbeae1412187a8b955514dd14a0eea272b243d8d444a49b743b1752"
+          "sha256": "9669f3298db89792c05375c9ba0943535b8073fe597715114f030f6de13b5676"
         }
       ],
       "pytest": [

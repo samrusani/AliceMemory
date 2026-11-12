@@ -64,9 +64,15 @@ def _without_refusal_audit(delta):
     result = dict(delta)
     kept = []
     for row in result.get("event_log", []):
+        if row == "+agent.key_escalation_rejected|system|agent_api_key":
+            continue
         if row.startswith("+"):
-            value = json.loads(row[1:])
-            event = json.loads(value) if isinstance(value, str) else value
+            try:
+                value = json.loads(row[1:])
+                event = json.loads(value) if isinstance(value, str) else value
+            except (TypeError, ValueError):
+                kept.append(row)
+                continue
             if (isinstance(event, dict) and event.get("event_type") == "agent.key_escalation_rejected"
                     and event.get("actor_type") == "system" and event.get("target_type") == "agent_api_key"):
                 continue
@@ -86,14 +92,19 @@ def test_hidden_id_comparison_keeps_other_events(label_harness):
     status, _, _ = h.request("POST", "/v0/vnext/context-packs", key=key,
                               payload={"query": "review", "agent_id": "other-agent"})
     assert status == 403
-    refusal = changes(before, snapshot(h))
+    after = snapshot(h)
+    refusal = changes(before, after)
     assert refusal.get("event_log") and not _without_refusal_audit(refusal).get("event_log")
+    assert not _without_refusal_audit(changes(before, after, search=True)).get("event_log")
 
     before = snapshot(h)
     status, _, _ = h.request("POST", "/v0/vnext/context-packs", key=key, payload={"query": "review"})
     assert status == 201
-    accepted = changes(before, snapshot(h))
+    after = snapshot(h)
+    accepted = changes(before, after)
     assert accepted.get("event_log") and _without_refusal_audit(accepted)["event_log"] == accepted["event_log"]
+    search = changes(before, after, search=True)
+    assert search.get("event_log") and _without_refusal_audit(search)["event_log"] == search["event_log"]
 
 
 @pytest.mark.parametrize("group", list(DOOR_GROUPS))
