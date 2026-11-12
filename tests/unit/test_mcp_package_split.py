@@ -96,6 +96,7 @@ def test_mcp_monolith_is_a_thin_identity_preserving_facade() -> None:
     assert mcp_tools.redact_memory_flow is mcp_memories.redact_memory_flow
     assert mcp_tools._TOOL_HANDLERS is mcp_registry._TOOL_HANDLERS
     assert mcp_tools._TOOL_DEFINITIONS_BY_NAME is mcp_registry._TOOL_DEFINITIONS_BY_NAME
+    # The identity claim error lives in the carrier; the facade adds no export.
     assert len(vars(mcp_tools)) == 439
     assert mcp_tools.__annotations__ == EXPECTED_FACADE_ANNOTATIONS
 
@@ -189,7 +190,7 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # digest. No tool added, removed, or renamed, and no other schema,
     # annotation, or default changed. Legacy definitions are unchanged.
     assert core_definitions[-1]["name"] == "alice_lessons"
-    assert _digest(core_definitions[:-1]) == "efe16c0ef2d36397c47ac2a3ba1951e257af5c7a9ae5fd735fcc01b276c6456e"
+    assert _digest(core_definitions[:-1]) == "a31b23b8a416b55c860a842e63af455184599a2569c1f149da9a945c261e9a5a"
     assert _digest(legacy_definitions) == "6b302f61e48d4f6196af8a7d2c8882130d565d84134f51bba38648f84c09089e"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items() if name != "alice_lessons"]
     assert _digest(ordered_handler_map) == "fb200cfbecef6249b7cf80b17b0737d3b44cfdd04cda8c701d491ed4ac401798"

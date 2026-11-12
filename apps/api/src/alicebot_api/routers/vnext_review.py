@@ -818,7 +818,7 @@ def rate_vnext_artifact_quality(
             if request.reviewer_id is not None and request.reviewer_id != reviewer_id:
                 raise AgentKeyAuthenticationError(
                     "reviewer_id must match the authenticated reviewer identity",
-                    status_code=403,
+                    status_code=403, reason="reviewer_mismatch",
                 )
             existing_metadata = existing.get("metadata_json")
             payload = store.create_artifact_quality_rating(

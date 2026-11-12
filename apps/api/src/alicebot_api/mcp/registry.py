@@ -54,7 +54,7 @@ from alicebot_api.task_briefing import (
 )
 from alicebot_api.source_search_limits import SourceSearchQueryTooLarge
 from alicebot_api.vnext_agent_control import AgentPolicyBlockedError
-from alicebot_api.vnext_agent_keys import AgentKeyAuthenticationError
+from alicebot_api.vnext_agent_keys import IDENTITY_CLAIM_FAILURE_REASONS, AgentKeyAuthenticationError
 from alicebot_api.vnext_lifecycle import LifecycleTransitionError
 from alicebot_api.vnext_memory_commit import (
     MemoryCommitTextTooLarge,
@@ -175,6 +175,7 @@ from .policy import _vault_has_active_key, _is_sqlite_backend
 from .runtime import _sqlite_path_from_url
 from .types import (
     MCPArgumentError,
+    MCPIdentityClaimRefusedError,
     MCPNotPermittedError,
     MCPPreconditionFailedError,
     MCPReferenceNotFoundError,
@@ -599,10 +600,11 @@ def call_mcp_tool(
         # the generic ValueError clause at the end of the chain would flatten
         # it to tool_request_failed before the server could read its class.
         raise
-    except (AgentPolicyBlockedError, AgentKeyAuthenticationError) as exc:
-        # A policy or key refusal that no handler turned into an MCP error.
-        # Only these two classes: a plain PermissionError is a file or socket
-        # failure and stays tool_execution_failed.
+    except AgentKeyAuthenticationError as exc:
+        if exc.reason in IDENTITY_CLAIM_FAILURE_REASONS:
+            raise MCPIdentityClaimRefusedError(str(exc)) from exc
+        raise MCPNotPermittedError(str(exc)) from exc
+    except AgentPolicyBlockedError as exc:
         raise MCPNotPermittedError(str(exc)) from exc
     except (MemoryStateError, LifecycleTransitionError, ContinuityReviewStateError) as exc:
         # Before the argument clause below: ContinuityReviewStateError is a

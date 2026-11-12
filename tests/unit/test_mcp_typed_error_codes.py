@@ -51,6 +51,7 @@ from alicebot_api.mcp.types import (
     MCPArgumentError,
     MCPCodedToolError,
     MCPInvalidRequestError,
+    MCPIdentityClaimRefusedError,
     MCPNotPermittedError,
     MCPPreconditionFailedError,
     MCPReferenceNotFoundError,
@@ -156,6 +157,7 @@ def _commit(context: MCPRuntimeContext, **overrides: object) -> dict[str, object
 _CODED_CLASSES = {
     MCPArgumentError: "invalid_request",
     MCPNotPermittedError: "not_permitted",
+    MCPIdentityClaimRefusedError: "identity_claim_refused",
     MCPReferenceNotFoundError: "not_found",
     MCPPreconditionFailedError: "precondition_failed",
 }
@@ -178,17 +180,17 @@ def test_every_coded_error_is_an_mcp_tool_error_and_none_is_the_public_message_e
         assert cls.code == code
 
 
-def test_the_closed_set_is_four_codes_and_the_old_codes_are_unchanged() -> None:
-    """The set the server may send for a coded error is exactly four, and every code clients already read stays.
+def test_the_closed_set_is_five_codes_and_the_old_codes_are_unchanged() -> None:
+    """The set the server may send for a coded error is exactly five, and every code clients already read stays.
 
     ``invalid_request`` is reused for argument errors, so the set holds it; ``tool_request_failed`` is the fallback
     and is not in the set.
 
-    Mutations: add a fifth code to ``MCP_CODED_ERROR_CODES``; put ``tool_request_failed`` in it; rename any of the
+    Mutations: add a sixth code to ``MCP_CODED_ERROR_CODES``; put ``tool_request_failed`` in it; rename any of the
     five old constants in ``mcp_server.py``. Each fails this test.
     """
 
-    assert MCP_CODED_ERROR_CODES == frozenset({"invalid_request", "not_permitted", "not_found", "precondition_failed"})
+    assert MCP_CODED_ERROR_CODES == frozenset({"invalid_request", "not_permitted", "not_found", "precondition_failed", "identity_claim_refused"})
     assert MCPCodedToolError.code == "tool_request_failed"
     assert mcp_server._TOOL_NOT_FOUND_CODE == "tool_not_found"
     assert mcp_server._TOOL_INVALID_REQUEST_CODE == "invalid_request"
@@ -477,7 +479,7 @@ def test_the_hermes_bridge_demo_sends_the_same_codes_as_the_stdio_server(
     subclass whose code is outside the closed set answer ``tool_request_failed``. The sentinel test of
     ``test_mcp_error_contracts.py`` is untouched and covers the bare case.
 
-    Mutations: delete the ``except MCPCodedToolError`` clause of the script (the four coded rows fail with
+    Mutations: delete the ``except MCPCodedToolError`` clause of the script (the five coded rows fail with
     ``tool_request_failed``); drop the ``in MCP_CODED_ERROR_CODES`` check (the outside-the-set row fails).
     """
 

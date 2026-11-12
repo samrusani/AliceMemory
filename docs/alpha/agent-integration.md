@@ -248,7 +248,7 @@ The body field is `canonical_text` — the same field name as the
 
 Rules:
 
-- With a valid key, `agent_id` and `permission_profile` come from the key record, not the payload. A payload may claim a lower profile (downgrade), but claiming a different `agent_id` or a higher profile is rejected with `403` and logged as `agent.key_escalation_rejected`.
+- With a valid key, `agent_id` and `permission_profile` come from the key record, not the payload. A payload may claim a lower profile (downgrade), but claiming a different `agent_id`, a higher or unknown profile, a scope outside the key binding or a blank scope item is rejected with HTTP `403`; on MCP, main answers `identity_claim_refused`. The refusal is not stored as an event.
 - Fresh local installs keep working without keys: while a user has no active keys, keyless local human and agent calls remain available; self-asserted agents are audited with `auth: "unauthenticated_local"`.
 - The moment at least one active key exists, every protected `/v0/vnext` request requires `Authorization: Bearer alice_sk_...`, including requests that omit agent identity fields. Bare keys are rejected.
 - Manage keys with `alicebot agent keys list` (prefixes only, never hashes) and `alicebot agent keys revoke <key-prefix-or-id>`.

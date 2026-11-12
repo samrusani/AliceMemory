@@ -98,11 +98,11 @@ _AGENT_IDENTITY_SCHEMA_PROPERTIES: dict[str, object] = {
             "permission_profile": {"type": "string"},
             "trace_id": {"type": "string"},
         },
-        "description": "Optional nested caller identity; flat identity fields remain supported for compatibility.",
+        "description": "Optional nested identity; flat fields also work. With an agent key, omit it: the key sets identity; profiles and scopes can only narrow.",
     },
     "agent_id": {
         "type": "string",
-        "description": "Stable identifier of the calling agent, for example 'hermes'. Omit when a human calls directly.",
+        "description": "Calling agent identifier. With an agent key, omit it: the key sets it. A keyless caller may declare one.",
     },
     "agent_type": {
         "type": "string",
@@ -119,14 +119,13 @@ _AGENT_IDENTITY_SCHEMA_PROPERTIES: dict[str, object] = {
     "project_scope": {
         "type": "array",
         "items": {"type": "string"},
-        "description": "Project names the agent may access; requests outside this scope are filtered or blocked.",
+        "description": "Project names the agent may access. With an agent key, omit this: the key sets it; a claim can only narrow its scope.",
     },
     "permission_profile": {
         "type": "string",
         "description": (
-            "Named permission level for the agent, such as 'trusted_local_agent' or "
-            "'project_scoped_agent'. Unknown agents default to 'read_only_agent', which "
-            "cannot write memories."
+            "Permission level. With an agent key, omit it: the key sets it; a claim can only narrow it. "
+            "For keyless callers, unknown agents default to 'read_only_agent', which cannot write memories."
         ),
     },
     "trace_id": {

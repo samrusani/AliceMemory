@@ -151,11 +151,11 @@ def test_the_query_bullet_gives_the_bounds_the_search_enforces_and_size_bounds_h
     assert "3.7 seconds at 499 distinct terms, against 0.30 seconds for two words" in tools
 
 
-def test_the_error_bullet_names_the_generic_codes_and_the_three_that_tell_a_refusal_apart() -> None:
-    """Three codes tell a refusal from a failure, they are the coded errors the server can send besides ``invalid_request``,
+def test_the_error_bullet_names_the_generic_codes_and_the_four_that_tell_a_refusal_apart() -> None:
+    """Four codes tell a refusal from a failure, they are the coded errors the server can send besides ``invalid_request``,
     and the three generic codes come before them.
 
-    The three are read from ``MCP_CODED_ERROR_CODES``: the four coded errors less ``invalid_request``, which a query over a
+    The four are read from ``MCP_CODED_ERROR_CODES``: the five coded errors less ``invalid_request``, which a query over a
     size limit already got in v0.20.0. The page is written for v0.23.0 and this bullet carries no marker.
 
     Mutations, each one alone: on the page, delete ``precondition_failed`` from the list, delete ``except
@@ -171,8 +171,8 @@ def test_the_error_bullet_names_the_generic_codes_and_the_three_that_tell_a_refu
     assert "return a generic code and no detail" in generic
     assert "for a rejected argument or an oversized query" in refusals
     new_codes = sorted(MCP_CODED_ERROR_CODES - {"invalid_request"})
-    assert new_codes == ["not_found", "not_permitted", "precondition_failed"], new_codes
-    assert "`not_permitted`, `not_found` and `precondition_failed`, which tell a refusal from a failure" in refusals
+    assert new_codes == ["identity_claim_refused", "not_found", "not_permitted", "precondition_failed"], new_codes
+    assert "`identity_claim_refused`, `not_permitted`, `not_found` and `precondition_failed`, which tell a refusal from a failure" in refusals
     for code in new_codes:
         assert f"`{code}`" not in generic, code
     assert "From v0.20.2" not in bullet

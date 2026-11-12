@@ -322,8 +322,8 @@ class MCPServer:
                 )
             except MCPCodedToolError as exc:
                 # A refusal whose kind is known: a fixed code from a closed set
-                # (not_permitted, not_found, precondition_failed, or
-                # invalid_request for a rejected argument) and the same fixed
+                # (identity_claim_refused, not_permitted, not_found,
+                # precondition_failed, or invalid_request for a rejected argument) and the same fixed
                 # words as tool_request_failed. The exception text goes to the
                 # log and never to the client. A subclass whose code is not in
                 # the closed set answers the generic code. Caught before
