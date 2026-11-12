@@ -1,5 +1,7 @@
 # Shared lessons
 
+The `alice_lessons` tool and the `lesson` block of `alice_memory_commit` are on main and not in v0.23.1.
+
 A lesson is a structured procedure memory recording when something applies,
 what happened and what to do instead. The owner and an `admin_agent` key can
 publish a lesson when a commit succeeds. On a keyless vault, a caller declaring

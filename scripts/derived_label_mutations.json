@@ -27026,10 +27026,10 @@
       "edits": [
         {
           "file": "docs/alpha/shared-lessons.md",
-          "line": 35,
+          "line": 37,
           "before": "\"do_instead\":\"Review the release checks after editing the notes.\"",
           "after": "\"instead\":\"Review the release checks after editing the notes.\"",
-          "sha256": "7fd1b52c25949546c5e506c405b6d0c1a38fc843c383778f1538c9b5ff693b51"
+          "sha256": "56fa12f85ee233fbf1b378b21d666d5720a1909e636fb39de9479c7a51c02981"
         }
       ],
       "pytest": [
@@ -27389,7 +27389,7 @@
           "line": 27,
           "before": "- `alice_lessons`: find published lessons relevant to the task or files ahead.\n",
           "after": "",
-          "sha256": "438ed73e3a1a7d0743e1528414e5f7dce0d91ec5424a165f30282ab2db44c970"
+          "sha256": "67624b0b005e660664dd9283ebf44312e5bdf3991606752fa7e9b84be73e4ff5"
         }
       ],
       "pytest": [
@@ -27764,6 +27764,22 @@
         "tests/unit/test_lessons_benchmark_trees.py::test_seed_uses_the_requested_small_vault_row_count"
       ],
       "expected_failure": "test_seed_uses_the_requested_small_vault_row_count"
+    },
+    {
+      "name": "readme-unreleased-lesson-status",
+      "edits": [
+        {
+          "file": "README.md",
+          "line": 41,
+          "before": "The README and documentation describe main, where `alice_lessons` and the `lesson` block of `alice_memory_commit` are available but are not in v0.23.1. ",
+          "after": "",
+          "sha256": "67624b0b005e660664dd9283ebf44312e5bdf3991606752fa7e9b84be73e4ff5"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_readme_unreleased_lessons.py::test_readme_status_explains_unreleased_lessons"
+      ],
+      "expected_failure": "test_readme_status_explains_unreleased_lessons"
     }
   ]
 }

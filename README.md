@@ -38,6 +38,8 @@ The default MCP surface is four tools:
 
 `v0.23.1` is the latest published release and remains the install, checksum, and release-note baseline. `v0.23.0` is the immediately prior published release. Pre-1.0; [Current state](CURRENT_STATE.md) lists the tags that were never published. To run v0.23.1, run `git checkout v0.23.1` before `make setup`.
 
+The README and documentation describe main, where `alice_lessons` and the `lesson` block of `alice_memory_commit` are available but are not in v0.23.1. The [Unreleased section of the changelog](CHANGELOG.md#unreleased) lists all changes on main since v0.23.1.
+
 ## Benchmark
 
 The published LongMemEval figures carry a known issue: the model answering each question could see which sessions held the evidence. [Alice on LongMemEval](docs/benchmarks/longmemeval/README.md) gives the figures and the method.
