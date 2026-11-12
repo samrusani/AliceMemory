@@ -251,9 +251,8 @@ def stored_marker_key(store: FakeAgentKeyStore, *, profile: str = "project_scope
 def test_a_stored_key_bound_to_the_reserved_name_is_refused_whole(binding: str, payload: dict) -> None:
     """Mutation: remove the stored-binding check in ``resolve_agent_identity``.
 
-    The key is refused with status 403 before any claim is read. The function appends an event that names the key by
-    its prefix and the reason, which a store that keeps its writes shows here. A request rolls its transaction back on
-    the refusal, so no event is stored in a real flow (see ``test_a_refused_key_persists_no_rejection_event_in_a_real_store``).
+    The key is refused with status 403 before any claim is read. The exception carries the notice naming the key by
+    its prefix and the reason. The real-store path is pinned by ``test_a_refused_key_persists_a_rejection_event_in_a_real_store``.
     """
 
     store = FakeAgentKeyStore()
@@ -266,10 +265,10 @@ def test_a_stored_key_bound_to_the_reserved_name_is_refused_whole(binding: str, 
         "refused at every door. Revoke it with 'alicebot agent keys revoke' and create a new key bound to the name "
         "or id of a project."
     )
-    [event] = store.events
-    assert event["event_type"] == "agent.key_escalation_rejected"
-    assert event["payload_json"]["reason"] == "reserved_project_scope_binding"
-    assert event["payload_json"]["key_prefix"] == raw[:12]
+    assert store.events == []
+    notice = caught.value.key_rejection
+    assert notice.payload["reason"] == "reserved_project_scope_binding"
+    assert notice.payload["key_prefix"] == raw[:12]
 
 
 def test_a_stored_key_bound_to_the_reserved_name_is_refused_whatever_its_profile() -> None:
@@ -629,15 +628,8 @@ def test_a_declared_scope_with_the_reserved_name_on_a_keyless_vault_is_refused_a
             )
 
 
-def test_a_refused_key_persists_no_rejection_event_in_a_real_store(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pins today's behaviour: a refusal of a key leaves no ``agent.key_escalation_rejected`` event in the store.
-
-    ``resolve_agent_identity`` appends the event inside the transaction of the request, and the refusal that follows rolls
-    that transaction back, so no event is stored, for the older reasons (a claim wider than the binding) as for the
-    reserved binding. ``FakeAgentKeyStore`` never rolls back, which is why the tests above see an event. Persisting
-    refusals is a separate change that has to decide how a refused request keeps a write; when it lands, this test
-    changes with it. Until then the reason of the reserved binding is in the server log (see the log test above).
-    """
+def test_a_refused_key_persists_a_rejection_event_in_a_real_store(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation: remove ``persist_after_rollback(conn, user_id, exc)`` from the SQLite transaction boundary."""
 
     marker = store_key(world, profile="project_scoped_agent", binding="~global")
     bound = store_key(world, profile="project_scoped_agent", binding=ORCHARD)
@@ -657,7 +649,7 @@ def test_a_refused_key_persists_no_rejection_event_in_a_real_store(world: World,
             "alice_memory_review",
             {"status": "all", "agent_identity": {"project_scope": [LIGHTHOUSE]}},
         )
-    assert rejections() == []
+    assert sorted(rejections()) == ["project_scope_escalation", "reserved_project_scope_binding"]
 
 
 # -- the guard ------------------------------------------------------------------------------------------------------

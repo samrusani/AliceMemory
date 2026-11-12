@@ -11,7 +11,6 @@ from alicebot_api.vnext_agent_control import (
     PERMISSION_PROFILES,
     AgentIdentity,
 )
-from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_project_scope import (
     normalize_project_identifier,
     normalize_project_scope,
@@ -69,10 +68,12 @@ IDENTITY_CLAIM_FAILURE_REASONS: frozenset[AgentKeyFailureReason] = frozenset(
 class AgentKeyAuthenticationError(PermissionError):
     """Raised when agent API key authentication or authorization fails."""
 
-    def __init__(self, message: str, *, status_code: int = 401, reason: AgentKeyFailureReason = "other") -> None:
+    def __init__(self, message: str, *, status_code: int = 401, reason: AgentKeyFailureReason = "other",
+                 key_rejection: object = None) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.reason = reason
+        self.key_rejection = key_rejection
 
 
 class AgentKeyStore(Protocol):
@@ -254,8 +255,7 @@ def resolve_agent_identity(
             stored_reserved,
             stored_reserved,
         )
-        _append_key_rejection_event(
-            store,
+        rejection = _append_key_rejection_event(
             record=record,
             reason="reserved_project_scope_binding",
             claimed={},
@@ -264,7 +264,7 @@ def resolve_agent_identity(
             f"agent API key is bound to the project name {stored_reserved}, which Alice reserves for its "
             "own use, so the key is refused at every door. Revoke it with 'alicebot agent keys revoke' "
             "and create a new key bound to the name or id of a project.",
-            status_code=403, reason="reserved_binding",
+            status_code=403, reason="reserved_binding", key_rejection=rejection,
         )
 
     key_agent_id = str(record["agent_id"])
@@ -274,33 +274,30 @@ def resolve_agent_identity(
     claimed_profile = _claimed_text(source.get("permission_profile"))
 
     if claimed_agent_id is not None and claimed_agent_id != key_agent_id:
-        _append_key_rejection_event(
-            store,
+        rejection = _append_key_rejection_event(
             record=record,
             reason="agent_id_mismatch",
             claimed={"claimed_agent_id": claimed_agent_id},
         )
         raise AgentKeyAuthenticationError(
-            f"agent API key was issued to agent '{key_agent_id}' but the payload "
-            f"claims agent '{claimed_agent_id}'",
-            status_code=403, reason="agent_id_mismatch",
+            f"agent API key was issued to agent '{_rejection_text(rejection, 'agent_id')}' "
+            "but the payload claims a different agent",
+            status_code=403, reason="agent_id_mismatch", key_rejection=rejection,
         )
 
     effective_profile = key_profile
     if claimed_profile is not None:
         claimed_rank = _PROFILE_RANKS.get(claimed_profile)
         if claimed_rank is None or claimed_rank > _PROFILE_RANKS[key_profile]:
-            _append_key_rejection_event(
-                store,
+            rejection = _append_key_rejection_event(
                 record=record,
                 reason="permission_profile_escalation",
                 claimed={"claimed_permission_profile": claimed_profile},
             )
             raise AgentKeyAuthenticationError(
-                f"agent API key grants permission_profile '{key_profile}'; the "
-                f"payload claims '{claimed_profile}', which is higher. Remove the "
+                "agent API key grants a lower permission profile than the one claimed, which is higher or unknown. Remove the "
                 "claim or request a new key with the required profile.",
-                status_code=403, reason="profile_escalation",
+                status_code=403, reason="profile_escalation", key_rejection=rejection,
             )
         effective_profile = claimed_profile
 
@@ -316,15 +313,14 @@ def resolve_agent_identity(
         else None
     )
     if raw_key_project_scope is not None and not key_project_scope:
-        _append_key_rejection_event(
-            store,
+        rejection = _append_key_rejection_event(
             record=record,
             reason="invalid_project_scope_binding",
             claimed={},
         )
         raise AgentKeyAuthenticationError(
             "agent API key has an invalid blank project scope binding",
-            status_code=403, reason="invalid_binding",
+            status_code=403, reason="invalid_binding", key_rejection=rejection,
         )
     # Read the scope claim from the payload source directly (like the
     # profile claim): key-only calls without an agent_id still must not be
@@ -341,8 +337,7 @@ def resolve_agent_identity(
             if not set(project_scope_identity((value,))).issubset(bound_identity)
         )
         if widened:
-            _append_key_rejection_event(
-                store,
+            rejection = _append_key_rejection_event(
                 record=record,
                 reason="project_scope_escalation",
                 claimed={
@@ -351,11 +346,11 @@ def resolve_agent_identity(
                 },
             )
             raise AgentKeyAuthenticationError(
-                f"agent API key is bound to project scope '{key_project_scope}'; the "
-                f"payload claims project(s) {', '.join(repr(value) for value in widened)} "
+                f"agent API key is bound to project scope '{_rejection_text(rejection, 'granted_project_scope')}'; "
+                "the payload claims projects "
                 "outside that scope. Narrow the claim or request a key bound to those "
                 "projects.",
-                status_code=403, reason="scope_escalation",
+                status_code=403, reason="scope_escalation", key_rejection=rejection,
             )
         # A subset claim narrows; an empty claim inherits the key binding.
         effective_project_scope = claimed_scope or bound_scope
@@ -447,27 +442,25 @@ def _claimed_project_scope(source: Mapping[str, object]) -> tuple[str, ...]:
     return normalize_project_scope(values)
 
 
+def _rejection_text(notice: object, field: str) -> str:
+    payload = getattr(notice, "payload", None)
+    value = payload.get(field) if isinstance(payload, dict) else None
+    return value if isinstance(value, str) else "[withheld]"
+
+
 def _append_key_rejection_event(
-    store: AgentKeyStore,
     *,
     record: Mapping[str, object],
     reason: str,
     claimed: JsonObject,
-) -> None:
-    append_event(
-        store,
-        event_type="agent.key_escalation_rejected",
-        actor_type="agent",
-        actor_id=str(record["agent_id"]),
-        target_type="agent_api_key",
-        target_id=str(record["id"]),
-        payload={
-            "reason": reason,
-            "key_prefix": str(record.get("key_prefix") or ""),
-            "granted_permission_profile": str(record["permission_profile"]),
-            **claimed,
-        },
-    )
+) -> object:
+    from alicebot_api.vnext_key_rejection_events import rejection_notice
+
+    try:
+        return rejection_notice(record, reason, claimed)
+    except Exception as exc:
+        logger.warning("could not prepare an agent key identity refusal: %s", type(exc).__name__)
+    return None
 
 
 __all__ = [

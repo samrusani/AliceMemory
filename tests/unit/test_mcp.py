@@ -7634,12 +7634,14 @@ def test_key_bound_mcp_server_hides_and_rejects_the_legacy_surface(monkeypatch) 
 
 
 def test_agent_identity_with_key_env_rejects_profile_escalation(monkeypatch) -> None:
+    """Mutation: replace the returned rejection notice with ``None``."""
     context, store = _key_bound_context_and_store(monkeypatch, profile="project_scoped_agent")
-    with pytest.raises(MCPToolError, match="which is higher"):
+    with pytest.raises(MCPToolError, match="which is higher") as caught:
         mcp_tools_module._agent_identity_from_arguments(
             context, {"agent_id": "hermes", "permission_profile": "admin_agent"}
         )
-    assert any("escalation" in str(event) for event in store.events)
+    assert caught.value.__cause__.key_rejection.payload["reason"] == "permission_profile_escalation"
+    assert not any("escalation" in str(event) for event in store.events)
 
 
 def test_agent_identity_with_key_env_rejects_agent_id_mismatch(monkeypatch) -> None:

@@ -73,7 +73,7 @@ def load_env_module(
     else:
         monkeypatch.setenv("DATABASE_URL", app_url)
 
-    monkeypatch.setattr("logging.config.fileConfig", records["file_config_calls"].append)
+    monkeypatch.setattr("logging.config.fileConfig", lambda name, **kwargs: records["file_config_calls"].append((name, kwargs)))
     monkeypatch.setattr("alembic.context.config", fake_config, raising=False)
     monkeypatch.setattr("alembic.context.is_offline_mode", lambda: offline_mode, raising=False)
     monkeypatch.setattr(
@@ -154,13 +154,14 @@ def test_get_url_prefers_admin_env_then_database_env_then_config(monkeypatch) ->
 
 
 def test_run_migrations_offline_configures_context_with_normalized_url(monkeypatch) -> None:
+    """Mutation: let migration logging disable existing named loggers."""
     _module, records = load_env_module(
         monkeypatch,
         offline_mode=True,
         admin_url="postgresql://admin-user:secret@localhost:5432/admin_db",
     )
 
-    assert records["file_config_calls"] == ["alembic.ini"]
+    assert records["file_config_calls"] == [("alembic.ini", {"disable_existing_loggers": False})]
     assert records["begin_calls"] == 1
     assert records["run_migrations_calls"] == 1
     assert records["configure_calls"] == [
@@ -175,6 +176,7 @@ def test_run_migrations_offline_configures_context_with_normalized_url(monkeypat
 
 
 def test_run_migrations_online_builds_engine_configuration(monkeypatch) -> None:
+    """Mutation: let migration logging disable existing named loggers."""
     _module, records = load_env_module(
         monkeypatch,
         offline_mode=False,
@@ -184,7 +186,7 @@ def test_run_migrations_online_builds_engine_configuration(monkeypatch) -> None:
 
     configuration, engine_kwargs = records["engine_calls"][0]
 
-    assert records["file_config_calls"] == ["alembic.ini"]
+    assert records["file_config_calls"] == [("alembic.ini", {"disable_existing_loggers": False})]
     assert configuration == {
         "sqlalchemy.echo": "false",
         "sqlalchemy.url": "postgresql+psycopg://app-user:secret@localhost:5432/app_db",

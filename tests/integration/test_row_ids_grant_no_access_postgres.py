@@ -8,8 +8,9 @@ reason, gives a real key of each profile, and calls every door with every id tha
 For each call:
 
 * the call adds and removes exactly the rows a missing id does, in every stored table and with generated ids and instants
-  replaced. The event log and the agent records are tables of their own here, because a key reads them back in its own
-  telemetry. For a door that acts on a row that is nothing, and for a door that only cites a row it is the new row;
+  replaced. The deduplicated system key-refusal audit event is excluded from that comparison: it is not agent telemetry
+  and its first occurrence can precede an otherwise identical retry. Other events and agent records remain included.
+  For a door that acts on a row that is nothing, and for a door that only cites a row it is the new row;
 * nothing of the row (its title, text, summary, raw text, chunk or claim) comes back;
 * the answer is the one a missing id gets: the same status and the same body, or for a tool the same error. A door
   that names the row to act on does not answer a row above the caller's limits with the policy refusal (HTTP 403, or
@@ -58,9 +59,58 @@ def _key(h, vault, profile):
     return h.key(permission, project=vault.alpha if bound else None)
 
 
+def _without_refusal_audit(delta):
+    """Keep every row change except the added system key-refusal audit event."""
+    result = dict(delta)
+    kept = []
+    for row in result.get("event_log", []):
+        if row == "+agent.key_escalation_rejected|system|agent_api_key":
+            continue
+        if row.startswith("+"):
+            try:
+                value = json.loads(row[1:])
+                event = json.loads(value) if isinstance(value, str) else value
+            except (TypeError, ValueError):
+                kept.append(row)
+                continue
+            if (isinstance(event, dict) and event.get("event_type") == "agent.key_escalation_rejected"
+                    and event.get("actor_type") == "system" and event.get("target_type") == "agent_api_key"):
+                continue
+        kept.append(row)
+    if kept:
+        result["event_log"] = kept
+    else:
+        result.pop("event_log", None)
+    return result
+
+
+def test_hidden_id_comparison_keeps_other_events(label_harness):
+    """Mutation: make the audit filter discard every event object."""
+    h = label_harness
+    key = h.key("read_only_agent", project="alpha")
+    before = snapshot(h)
+    status, _, _ = h.request("POST", "/v0/vnext/context-packs", key=key,
+                              payload={"query": "review", "agent_id": "other-agent"})
+    assert status == 403
+    after = snapshot(h)
+    refusal = changes(before, after)
+    assert refusal.get("event_log") and not _without_refusal_audit(refusal).get("event_log")
+    assert not _without_refusal_audit(changes(before, after, search=True)).get("event_log")
+
+    before = snapshot(h)
+    status, _, _ = h.request("POST", "/v0/vnext/context-packs", key=key, payload={"query": "review"})
+    assert status == 201
+    after = snapshot(h)
+    accepted = changes(before, after)
+    assert accepted.get("event_log") and _without_refusal_audit(accepted)["event_log"] == accepted["event_log"]
+    search = changes(before, after, search=True)
+    assert search.get("event_log") and _without_refusal_audit(search)["event_log"] == search["event_log"]
+
+
 @pytest.mark.parametrize("group", list(DOOR_GROUPS))
 @pytest.mark.parametrize("profile", list(PROFILES))
 def test_a_hidden_id_gives_no_access_through_any_door(label_harness, monkeypatch, tmp_path, profile, group):
+    """Mutation: remove the successor's caller-limit check in the memory undo path."""
     h = label_harness
     vault = build_vault(h)
     key = _key(h, vault, profile)
@@ -90,7 +140,7 @@ def test_a_hidden_id_gives_no_access_through_any_door(label_harness, monkeypatch
                 wrote = [word for word in vault.secrets.get((kind, reason), []) if word in written]
                 if wrote:
                     failures.append(f"{label}: wrote {wrote}")
-            if changed != missing_changed:
+            if _without_refusal_audit(changed) != _without_refusal_audit(missing_changed):
                 failures.append(
                     f"{label}: changed {json.dumps(changed)[:300]} where a missing id changes {json.dumps(missing_changed)[:300]}"
                 )
