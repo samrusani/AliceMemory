@@ -257,16 +257,15 @@ def test_cli_extracts_the_named_revision_for_each_side(tmp_path, monkeypatch):
 def test_cli_refuses_a_work_directory_inside_checkout(tmp_path, small_checkout):
     """Guard: removing the work directory refusal permits a path inside the checkout."""
     work_dir = small_checkout / ".venv"
+    script = small_checkout / "tests/performance/lessons_brief_benchmark.py"
+    source = (SOURCE / "tests/performance/lessons_brief_benchmark.py").read_text()
+    script.write_text(source.replace('if __name__ == "__main__":',
+                                     'run_benchmark = lambda *args: []\n\nif __name__ == "__main__":', 1))
     before = snapshot()
-    code = ("import sys; from pathlib import Path; "
-            "from tests.performance import lessons_brief_benchmark as b; "
-            f"b.ROOT=Path({str(small_checkout)!r}); "
-            "b.run_benchmark=lambda *args: []; "
-            f"sys.argv=['bench','--base','HEAD','--work-dir',{str(work_dir)!r},'--keep']; "
-            "sys.exit(b.main())")
-    env = {**os.environ, "PYTHONPATH": os.pathsep.join((str(SOURCE / "apps/api/src"), str(SOURCE))),
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join((str(small_checkout / "apps/api/src"), str(small_checkout))),
            "PYTHONDONTWRITEBYTECODE": "1"}
-    result = subprocess.run([sys.executable, "-c", code], cwd=SOURCE, env=env, capture_output=True, text=True)
+    result = subprocess.run([sys.executable, str(script), "--base", "HEAD", "--work-dir", str(work_dir), "--keep"],
+                            cwd=small_checkout, env=env, capture_output=True, text=True)
     assert result.returncode == 2
     assert "work directory must be outside the checkout" in result.stderr
     assert snapshot() == before
