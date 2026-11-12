@@ -27556,6 +27556,214 @@
         "tests/unit/test_ci_apt_mirror_fallback.py::test_the_worst_case_arithmetic_uses_the_waits_a_run_performs"
       ],
       "expected_failure": "test_the_worst_case_arithmetic_uses_the_waits_a_run_performs"
+    },
+    {
+      "name": "benchmark-select-side-tree",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 127,
+          "before": "run_sample(trees[side], path, user, reader)",
+          "after": "run_sample(trees[\"head\"], path, user, reader)",
+          "sha256": "fd9d355d35f5bba873613025f5591bbcadfe826a61e7372f28ab3c8f3a33dcf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_each_side_imports_its_own_tree_and_marker"
+      ],
+      "expected_failure": "test_each_side_imports_its_own_tree_and_marker"
+    },
+    {
+      "name": "benchmark-no-checkout-write",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 90,
+          "before": "    env = {key: value for key, value in os.environ.items() if not key.startswith(\"ALICE\")}",
+          "after": "    target = ROOT / \"tests/performance/lessons_brief_benchmark.py\"\n    target.write_bytes(target.read_bytes() + b\"\\n\")\n    env = {key: value for key, value in os.environ.items() if not key.startswith(\"ALICE\")}",
+          "sha256": "fd9d355d35f5bba873613025f5591bbcadfe826a61e7372f28ab3c8f3a33dcf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_run_leaves_checkout_bytes_unchanged"
+      ],
+      "expected_failure": "test_run_leaves_checkout_bytes_unchanged"
+    },
+    {
+      "name": "benchmark-no-checkout-write-on-kill",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 90,
+          "before": "    env = {key: value for key, value in os.environ.items() if not key.startswith(\"ALICE\")}",
+          "after": "    target = ROOT / \"tests/performance/lessons_brief_benchmark.py\"\n    target.write_bytes(target.read_bytes() + b\"\\n\")\n    env = {key: value for key, value in os.environ.items() if not key.startswith(\"ALICE\")}",
+          "sha256": "fd9d355d35f5bba873613025f5591bbcadfe826a61e7372f28ab3c8f3a33dcf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_sigkill_during_sample_leaves_checkout_bytes_unchanged"
+      ],
+      "expected_failure": "test_sigkill_during_sample_leaves_checkout_bytes_unchanged"
+    },
+    {
+      "name": "benchmark-archive-old-tree",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 72,
+          "before": "    destination.mkdir()",
+          "after": "    subprocess.run([\"git\", \"show\", f\"{revision}:apps/api/src/alicebot_api/mcp/lessons.py\"], cwd=ROOT, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)\n    destination.mkdir()",
+          "sha256": "fd9d355d35f5bba873613025f5591bbcadfe826a61e7372f28ab3c8f3a33dcf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_old_base_without_lessons_file_is_measured_or_names_the_side"
+      ],
+      "expected_failure": "test_old_base_without_lessons_file_is_measured_or_names_the_side"
+    },
+    {
+      "name": "benchmark-output-revisions",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 182,
+          "before": "            record = {**result, \"revisions\": revisions}",
+          "after": "            record = {**result, \"revisions\": {\"base\": revisions[\"head\"], \"head\": revisions[\"head\"]}}",
+          "sha256": "fd9d355d35f5bba873613025f5591bbcadfe826a61e7372f28ab3c8f3a33dcf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_cli_keeps_named_revisions_and_import_paths"
+      ],
+      "expected_failure": "test_cli_keeps_named_revisions_and_import_paths"
+    },
+    {
+      "name": "benchmark-clean-on-interrupt",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 197,
+          "before": "        if not args.keep:\n            shutil.rmtree(root)",
+          "after": "        if False and not args.keep:\n            shutil.rmtree(root)",
+          "sha256": "fd9d355d35f5bba873613025f5591bbcadfe826a61e7372f28ab3c8f3a33dcf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_interruption_removes_trees_and_fixtures"
+      ],
+      "expected_failure": "test_interruption_removes_trees_and_fixtures"
+    },
+    {
+      "name": "benchmark-side-error",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 129,
+          "before": "                    raise SideError(side, str(exc)) from exc",
+          "after": "                    raise SideError(\"head\", str(exc)) from exc",
+          "sha256": "fd9d355d35f5bba873613025f5591bbcadfe826a61e7372f28ab3c8f3a33dcf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_failed_side_produces_no_result_for_the_pair"
+      ],
+      "expected_failure": "test_failed_side_produces_no_result_for_the_pair"
+    },
+    {
+      "name": "benchmark-forty-samples",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 153,
+          "before": "    if args.samples < 40:",
+          "after": "    if args.samples < 1:",
+          "sha256": "fd9d355d35f5bba873613025f5591bbcadfe826a61e7372f28ab3c8f3a33dcf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_cli_requires_forty_samples"
+      ],
+      "expected_failure": "test_cli_requires_forty_samples"
+    },
+    {
+      "name": "benchmark-extract-side-revision",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 177,
+          "before": "                extract_tree(revisions[side], trees[side])",
+          "after": "                extract_tree(revisions[\"head\"], trees[side])",
+          "sha256": "fd9d355d35f5bba873613025f5591bbcadfe826a61e7372f28ab3c8f3a33dcf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_cli_extracts_the_named_revision_for_each_side"
+      ],
+      "expected_failure": "test_cli_extracts_the_named_revision_for_each_side"
+    },
+    {
+      "name": "benchmark-no-ignored-fixture",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 90,
+          "before": "    env = {key: value for key, value in os.environ.items() if not key.startswith(\"ALICE\")}",
+          "after": "    (ROOT / \".venv\" / \"new-fixture.db\").write_bytes(b\"fixture\")\n    env = {key: value for key, value in os.environ.items() if not key.startswith(\"ALICE\")}",
+          "sha256": "fd9d355d35f5bba873613025f5591bbcadfe826a61e7372f28ab3c8f3a33dcf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_run_leaves_checkout_bytes_unchanged"
+      ],
+      "expected_failure": "test_run_leaves_checkout_bytes_unchanged"
+    },
+    {
+      "name": "benchmark-refuses-checkout-work-dir",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 156,
+          "before": "    if work_dir.is_relative_to(ROOT):\n        parser.error(\"work directory must be outside the checkout\")\n",
+          "after": "",
+          "sha256": "fd9d355d35f5bba873613025f5591bbcadfe826a61e7372f28ab3c8f3a33dcf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_cli_refuses_a_work_directory_inside_checkout"
+      ],
+      "expected_failure": "test_cli_refuses_a_work_directory_inside_checkout"
+    },
+    {
+      "name": "benchmark-rejects-foreign-import",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 111,
+          "before": "    if not package.is_relative_to(tree.resolve()):\n        raise RuntimeError(f\"package imported outside measured tree: {package}\")\n",
+          "after": "",
+          "sha256": "fd9d355d35f5bba873613025f5591bbcadfe826a61e7372f28ab3c8f3a33dcf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_foreign_package_import_is_reported_as_the_failing_side"
+      ],
+      "expected_failure": "test_foreign_package_import_is_reported_as_the_failing_side"
+    },
+    {
+      "name": "benchmark-respects-vault-row-count",
+      "edits": [
+        {
+          "file": "tests/performance/lessons_brief_benchmark.py",
+          "line": 42,
+          "before": "    for number in range(rows_count):",
+          "after": "    for number in range(20_000):",
+          "sha256": "fd9d355d35f5bba873613025f5591bbcadfe826a61e7372f28ab3c8f3a33dcf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_benchmark_trees.py::test_seed_uses_the_requested_small_vault_row_count"
+      ],
+      "expected_failure": "test_seed_uses_the_requested_small_vault_row_count"
     }
   ]
 }
