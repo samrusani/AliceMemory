@@ -13130,7 +13130,7 @@
           "line": 162,
           "before": "    reserved = reserved_project_marker(project_scope) if project_scope is not None else None\n",
           "after": "    reserved = None\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -13146,7 +13146,7 @@
           "line": 162,
           "before": "    reserved = reserved_project_marker(project_scope) if project_scope is not None else None\n",
           "after": "    reserved = reserved_project_marker(normalized_project_values[:1]) if normalized_project_values else None\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -13162,7 +13162,7 @@
           "line": 162,
           "before": "    reserved = reserved_project_marker(project_scope) if project_scope is not None else None\n",
           "after": "    reserved = None\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -13194,7 +13194,7 @@
           "line": 247,
           "before": "    if stored_reserved is not None:\n",
           "after": "    if False:\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -13210,7 +13210,7 @@
           "line": 246,
           "before": "    stored_reserved = reserved_project_marker(stored_binding) if isinstance(stored_binding, str) else None\n",
           "after": "    stored_reserved = stored_binding if stored_binding == \"~global\" else None\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -13226,7 +13226,7 @@
           "line": 246,
           "before": "    stored_reserved = reserved_project_marker(stored_binding) if isinstance(stored_binding, str) else None\n",
           "after": "    stored_reserved = reserved_project_marker(stored_binding) if isinstance(stored_binding, str) and record.get(\"permission_profile\") != \"admin_agent\" else None\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -13242,7 +13242,7 @@
           "line": 247,
           "before": "    if stored_reserved is not None:\n",
           "after": "    if isinstance(stored_binding, str):\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -13258,7 +13258,7 @@
           "line": 247,
           "before": "    if stored_reserved is not None:\n",
           "after": "    if False:\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -13274,7 +13274,7 @@
           "line": 247,
           "before": "    if stored_reserved is not None:\n",
           "after": "    if False:\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -13290,7 +13290,7 @@
           "line": 247,
           "before": "    if stored_reserved is not None:\n",
           "after": "    if False:\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -13306,7 +13306,7 @@
           "line": 437,
           "before": "    reserved = reserved_project_marker(values)\n",
           "after": "    reserved = None\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -13322,7 +13322,7 @@
           "line": 437,
           "before": "    reserved = reserved_project_marker(values)\n",
           "after": "    reserved = None\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -13882,7 +13882,7 @@
           "line": 251,
           "before": "        logger.warning(\n            \"an agent API key bound to the project name %s is refused,",
           "after": "        logger.debug(\n            \"an agent API key bound to the project name %s is refused,",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -23785,7 +23785,7 @@
           "line": 192,
           "before": "    if record.get(\"revoked_at\") is not None:\n        return None",
           "after": "",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -25363,7 +25363,7 @@
           "before": "        lesson_lazy_metadata: bool = False,\n",
           "after": "",
           "line": 1729,
-          "sha256": "0d1ba07b015f832228ab8d7aca0cd67d1d67c689c62c6f41ffe220f5600b5e37"
+          "sha256": "bfc06628a9a674b86fdbad326c45fdeed84fd3ca1636c75292baa65813988ef7"
         }
       ],
       "pytest": [
@@ -27805,7 +27805,7 @@
           "line": 285,
           "before": "status_code=403, reason=\"agent_id_mismatch\"",
           "after": "status_code=403, reason=\"other\"",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -27821,7 +27821,7 @@
           "line": 300,
           "before": "status_code=403, reason=\"profile_escalation\"",
           "after": "status_code=403, reason=\"other\"",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -27837,7 +27837,7 @@
           "line": 353,
           "before": "status_code=403, reason=\"scope_escalation\"",
           "after": "status_code=403, reason=\"other\"",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -27853,7 +27853,7 @@
           "line": 434,
           "before": "status_code=403, reason=\"blank_scope\"",
           "after": "status_code=403, reason=\"other\"",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -27869,7 +27869,7 @@
           "line": 64,
           "before": "{\"agent_id_mismatch\", \"profile_escalation\", \"scope_escalation\", \"blank_scope\"}",
           "after": "{\"agent_id_mismatch\", \"profile_escalation\", \"scope_escalation\", \"blank_scope\", \"invalid_key\"}",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -27917,7 +27917,7 @@
           "line": 239,
           "before": "status_code=401, reason=\"wrong_user\"",
           "after": "status_code=401",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28349,7 +28349,7 @@
           "line": 192,
           "before": "    if record.get(\"revoked_at\") is not None:\n        return None",
           "after": "    if False:\n        return None",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28461,7 +28461,7 @@
           "line": 192,
           "before": "    if record.get(\"revoked_at\") is not None:\n        return None",
           "after": "    if False:\n        return None",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28669,7 +28669,7 @@
           "line": 284,
           "before": "            \"but the payload claims a different agent\",\n",
           "after": "            f\"but the payload claims agent {claimed_agent_id}\",\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28683,9 +28683,9 @@
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
           "line": 298,
-          "before": "                \"agent API key grants a lower permission profile than the one claimed. Remove the \"\n",
+          "before": "                \"agent API key grants a lower permission profile than the one claimed, which is higher or unknown. Remove the \"\n",
           "after": "                f\"agent API key claims profile {claimed_profile}. Remove the \"\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28701,7 +28701,7 @@
           "line": 350,
           "before": "                \"the payload claims projects \"\n",
           "after": "                f\"the payload claims projects {widened} \"\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28717,7 +28717,7 @@
           "line": 284,
           "before": "            \"but the payload claims a different agent\",\n",
           "after": "            f\"but the payload claims agent {claimed_agent_id}\",\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28733,7 +28733,7 @@
           "line": 462,
           "before": "        logger.warning(\"could not prepare an agent key identity refusal: %s\", type(exc).__name__)\n",
           "after": "        pass\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28749,7 +28749,7 @@
           "line": 27,
           "before": "logger = logging.getLogger(__name__)\n",
           "after": "logger = logging.getLogger()\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28813,7 +28813,7 @@
           "line": 460,
           "before": "        return rejection_notice(record, reason, claimed)\n",
           "after": "        return None\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28829,7 +28829,7 @@
           "line": 460,
           "before": "        return rejection_notice(record, reason, claimed)\n",
           "after": "        return None\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28845,7 +28845,7 @@
           "line": 460,
           "before": "        return rejection_notice(record, reason, claimed)\n",
           "after": "        return None\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28861,7 +28861,7 @@
           "line": 460,
           "before": "        return rejection_notice(record, reason, claimed)\n",
           "after": "        return None\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28877,7 +28877,7 @@
           "line": 460,
           "before": "        return rejection_notice(record, reason, claimed)\n",
           "after": "        return None\n",
-          "sha256": "c53ea525b879c17df22171c3daeff8c3bf2008af1f2c60c5d34aba9597caaaf2"
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
         }
       ],
       "pytest": [
@@ -28916,6 +28916,22 @@
         "tests/unit/test_env.py::test_run_migrations_online_builds_engine_configuration"
       ],
       "expected_failure": "test_run_migrations_online_builds_engine_configuration"
+    },
+    {
+      "name": "identity-refusal-round1-fake-mcp-notice",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
+          "line": 460,
+          "before": "        return rejection_notice(record, reason, claimed)\n",
+          "after": "        return None\n",
+          "sha256": "6f833efb2f8d62daef2abc2e64da13869b95ddae0ee7f36c339305f1505049df"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_mcp.py::test_agent_identity_with_key_env_rejects_profile_escalation"
+      ],
+      "expected_failure": "test_agent_identity_with_key_env_rejects_profile_escalation"
     }
   ]
 }

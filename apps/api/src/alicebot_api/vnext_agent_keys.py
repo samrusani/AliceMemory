@@ -295,7 +295,7 @@ def resolve_agent_identity(
                 claimed={"claimed_permission_profile": claimed_profile},
             )
             raise AgentKeyAuthenticationError(
-                "agent API key grants a lower permission profile than the one claimed. Remove the "
+                "agent API key grants a lower permission profile than the one claimed, which is higher or unknown. Remove the "
                 "claim or request a new key with the required profile.",
                 status_code=403, reason="profile_escalation", key_rejection=rejection,
             )
