@@ -22,7 +22,9 @@ from alicebot_api.vnext_agent_control import (
     append_policy_events,
     evaluate_agent_policy,
 )
-from alicebot_api.vnext_agent_keys import AgentKeyAuthenticationError, resolve_agent_identity
+from alicebot_api.vnext_agent_keys import (
+    IDENTITY_CLAIM_FAILURE_REASONS, AgentKeyAuthenticationError, resolve_agent_identity,
+)
 from alicebot_api.vnext_promotion_policy import PromotionCandidate, PromotionSettings
 from alicebot_api.vnext_store import PostgresVNextStore
 
@@ -30,6 +32,7 @@ from .runtime import _is_sqlite_backend, _sqlite_path_from_url, _vnext_store_con
 from .types import (
     MCPArgumentError,
     MCPInvalidRequestError,
+    MCPIdentityClaimRefusedError,
     MCPNotPermittedError,
     MCPRuntimeContext,
     MCPToolError,
@@ -90,9 +93,8 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
                 payload=arguments,
             )
     except AgentKeyAuthenticationError as exc:
-        # An invalid or revoked key, a key of another user, or a claim of
-        # another agent, a higher profile or a wider project scope than the key
-        # grants. The agent cannot fix any of these by retrying.
+        if exc.reason in IDENTITY_CLAIM_FAILURE_REASONS:
+            raise MCPIdentityClaimRefusedError(str(exc)) from exc
         raise MCPNotPermittedError(str(exc)) from exc
     except AgentIdentityValidationError as exc:
         raise MCPArgumentError(str(exc)) from exc

@@ -358,3 +358,59 @@ def test_alice_explain_of_a_missing_entity_is_not_found_without_a_key_and_opaque
         )
     monkeypatch.setenv("ALICE_AGENT_API_KEY", raw_key)
     assert _code(context, "alice_explain", {"entity_id": entity_id}) == "tool_request_failed"
+
+
+def test_identity_claim_code_is_independent_of_other_agents_and_projects_postgres(migrated_database_urls, monkeypatch):
+    """Guard: mapping an agent-key claim refusal to not_permitted loses the claim code."""
+    app_url = migrated_database_urls["app"]
+    user_id = seed_user(app_url, email="identity-claim-fixture@example.invalid")
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    context = MCPRuntimeContext(database_url=app_url, user_id=user_id)
+    owner_failed, owner = _wire(context, "alice_lessons", {"task": "reviewing a change"})
+    assert not owner_failed
+    with user_connection(app_url, user_id) as conn:
+        store = PostgresVNextStore(conn)
+        store.create_project({"name": "Other project", "slug": _OTHER_PROJECT})
+        _, reader = create_agent_key(store, user_id=user_id, agent_id="fixture-reader",
+                                     permission_profile="read_only_agent", project_scope=_OWN_PROJECT)
+        create_agent_key(store, user_id=user_id, agent_id="fixture-other",
+                         permission_profile="read_only_agent", project_scope=_OTHER_PROJECT)
+        _, admin = create_agent_key(store, user_id=user_id, agent_id="fixture-admin",
+                                    permission_profile="admin_agent", project_scope=_OWN_PROJECT)
+        _, unbound = create_agent_key(store, user_id=user_id, agent_id="fixture-unbound",
+                                      permission_profile="admin_agent")
+    for key, claim in ((unbound, {}), (admin, {"project_scope": [_OWN_PROJECT]})):
+        monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
+        failed, answer = _wire(context, "alice_lessons", {"task": "reviewing a change", **claim})
+        assert not failed and answer == owner
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", reader)
+    for tool, args in (("alice_lessons", {"task": "reviewing a change"}), ("alice_memory_review", {})):
+        answers = [_code(context, tool, {**args, **claim}) for claim in (
+            {"agent_id": "fixture-other"}, {"agent_id": "fixture-absent"},
+            {"project_scope": [_OTHER_PROJECT]}, {"project_scope": ["fixture-absent-project"]},
+        )]
+        assert answers == ["identity_claim_refused"] * 4
+    _bind_http(monkeypatch, app_url)
+    for claim in ({"agent_id": "fixture-other"}, {"project_scope": [_OTHER_PROJECT]}):
+        status, body = invoke_request("POST", "/v0/vnext/memories/commit",
+                                      payload={"user_id": str(user_id), "canonical_text": "fixture", **claim},
+                                      authorization=f"Bearer {reader}")
+        assert status == 403
+        assert body == {"detail": {"code": "forbidden", "message": "The requested action is not permitted"}}
+
+
+def test_keyed_legacy_tool_stays_unavailable_with_or_without_an_identity_claim_postgres(migrated_database_urls, monkeypatch):
+    """Guard: changing the keyed legacy gate refusal loses the uniform tool_not_found answer."""
+    app_url = migrated_database_urls["app"]
+    user_id = seed_user(app_url, email="legacy-claim-fixture@example.invalid")
+    with user_connection(app_url, user_id) as conn:
+        _, key = create_agent_key(PostgresVNextStore(conn), user_id=user_id, agent_id="fixture-reader",
+                                  permission_profile="read_only_agent", project_scope=_OWN_PROJECT)
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
+    monkeypatch.setenv("ALICE_MCP_LEGACY_TOOLS", "1")
+    context = MCPRuntimeContext(database_url=app_url, user_id=user_id)
+    arguments = {"memory_id": "00000000-0000-0000-0000-000000000099", "canonical_text": "fixture"}
+    for claim in ({}, {"agent_id": "fixture-other"}):
+        failed, answer = _wire(context, "alice_vnext_correct_memory", {**arguments, **claim})
+        assert failed and answer["error"]["code"] == "tool_not_found"

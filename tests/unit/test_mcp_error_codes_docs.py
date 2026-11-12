@@ -32,7 +32,7 @@ def _error_codes_section() -> str:
 def test_the_table_lists_exactly_the_codes_the_server_can_send() -> None:
     """Every row is a code the server sends, and every code the server sends has a row.
 
-    Mutations: rename a code in the table; delete a row; add a row for a code the server does not send; add a fifth
+    Mutations: rename a code in the table; delete a row; add a row for a code the server does not send; add a sixth
     code to ``MCP_CODED_ERROR_CODES`` in ``mcp/types.py``. Each fails this test.
     """
 
@@ -75,6 +75,7 @@ def test_the_table_says_what_an_agent_should_do_for_each_new_code() -> None:
 
     assert rows["invalid_request"][-1].startswith("Fix the call and retry")
     assert rows["not_permitted"][-1].startswith("Do not retry")
+    assert all(field in rows["identity_claim_refused"][-1] for field in ("agent_id", "agent_identity", "permission_profile", "project_scope", "retry"))
     assert rows["not_found"][-1].startswith("Check the id")
     assert rows["precondition_failed"][-1].startswith("Change the state first")
     for code in MCP_CODED_ERROR_CODES:

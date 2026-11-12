@@ -993,7 +993,7 @@ From v0.20.0, it also answers an `alice_resume` or
 From v0.20.2, three more codes, `not_permitted`,
 `not_found` and `precondition_failed`, tell a refusal from a failure, and
 `invalid_request` also answers a rejected argument. The table under
-[Error codes](#error-codes) lists all seven.
+[Error codes](#error-codes) lists the codes, including the identity-claim code on main.
 Permanently deleted hosted, channel, chat, chief-of-staff, and model-pack tools
 never list.
 New integrations should stay on the default four tools; the legacy surface
@@ -1006,12 +1006,13 @@ From v0.20.2, a failed `tools/call` answers one of
 seven codes. `not_permitted`, `not_found` and `precondition_failed` are new,
 and `invalid_request` now also answers a rejected argument. v0.20.0 answered
 `tool_request_failed` for every case these four cover, apart from the query
-size limits that v0.19.2 and v0.20.0 already answered with `invalid_request`.
+size limits that v0.19.2 and v0.20.0 already answered with `invalid_request`. On main, `identity_claim_refused` is an eighth code; v0.23.1 answered `not_permitted` for those claims.
 
 | Code | It means | What an agent should do |
 | --- | --- | --- |
 | `invalid_request` | The arguments were rejected: a property the tool does not take, a missing or mistyped value, a value out of range, an action the tool does not know, text over a size limit, or the reserved project name `~global`. | Fix the call and retry. |
 | `not_permitted` | A policy, the agent's permission profile, its key or its project scope refused the call, or the call asked for something the server forbids, such as raw content outside development. | Do not retry. Ask the owner. |
+| `identity_claim_refused` | An identity field claims an agent, profile or project scope the caller's key does not grant, or contains a blank project scope item. | Leave out `agent_id`, `agent_identity`, `permission_profile` and `project_scope`, or narrow them to what the key grants, then retry. |
 | `not_found` | An id the call names does not exist for this caller: a memory, a pending confirmation, an open loop, an artifact, a review item, an entity (for a caller with no agent key) or a provenance source. A review item outside the caller's own filters answers the same, and so do a memory that has been archived or redacted and a cited source that is deleted or outside the caller's read fence (see [Cited sources](#cited-sources)). | Check the id, or stop. |
 | `precondition_failed` | The call is well formed and allowed, but the state forbids it: a confirmation that was already answered, a memory or review item whose status does not allow the action, a tool the SQLite backend does not serve, or a write that refers to a row the vault does not hold (a foreign key failure, the same answer on SQLite and on PostgreSQL). | Change the state first, or use another route. The same call will not work until the state changes. |
 | `tool_request_failed` | Any other refusal. | Treat it as opaque. |

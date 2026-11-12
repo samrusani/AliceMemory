@@ -99,7 +99,7 @@ class MCPCodedToolError(MCPToolError):
     allowed" from "broken". The message the client sees is not the exception
     text: the server sends the same fixed words as ``tool_request_failed``, so
     nothing a caller or a store put into the exception can reach the wire. The
-    four subclasses below are the only coded errors; the server sends a code
+    five subclasses below are the only coded errors; the server sends a code
     only when it is in ``MCP_CODED_ERROR_CODES``.
 
     Raise a subclass where the class of the failure is known (a policy refusal,
@@ -126,6 +126,12 @@ class MCPNotPermittedError(MCPCodedToolError):
     """A policy, permission profile, key or project scope refused the call. Answers ``not_permitted``."""
 
     code = "not_permitted"
+
+
+class MCPIdentityClaimRefusedError(MCPNotPermittedError):
+    """An identity claim exceeds what the caller's key grants."""
+
+    code = "identity_claim_refused"
 
 
 class MCPReferenceNotFoundError(MCPCodedToolError):
@@ -155,6 +161,7 @@ MCP_CODED_ERROR_CODES = frozenset(
     {
         MCPArgumentError.code,
         MCPNotPermittedError.code,
+        MCPIdentityClaimRefusedError.code,
         MCPReferenceNotFoundError.code,
         MCPPreconditionFailedError.code,
     }

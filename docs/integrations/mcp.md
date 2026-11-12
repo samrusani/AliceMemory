@@ -218,7 +218,7 @@ One-command bridge demo:
   argument, with the same fixed message except for the reserved project name
   `~global`, which says the name is reserved. The table in
   [`docs/alpha/mcp-tools.md`](../alpha/mcp-tools.md#error-codes) says what each
-  code means.
+  code means. On main, `identity_claim_refused` tells a keyed caller to omit `agent_id`, `agent_identity`, `permission_profile` and `project_scope`, or narrow the profile or scope to the key and retry.
 - JSON-RPC framing errors use the standard static messages `Parse error`,
   `Invalid Request`, `Invalid params`, and `Method not found`; request data and
   parser exception text are never copied into the wire response

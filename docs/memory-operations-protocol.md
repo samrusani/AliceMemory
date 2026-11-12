@@ -290,7 +290,7 @@ refusal and a ceiling refusal record the reason on the policy events
 (`policy.decision` and `agent.policy_blocked`). HTTP returns 403 with
 that policy decision for those two refusals. A credential refusal on
 confirm leaves the row pending and does not keep a policy event for that
-refusal. From v0.20.2, over stdio an author refusal
+refusal. On main, a keyed caller whose identity fields claim more than its key grants gets `identity_claim_refused`; omit `agent_id`, `agent_identity`, `permission_profile` and `project_scope`, or narrow the profile or scope to the key and retry. From v0.20.2, over stdio an author refusal
 and a ceiling refusal come back as `not_permitted`, an unknown confirmation
 id as `not_found` and a confirmation that is not pending as
 `precondition_failed`; a credential refusal stays `tool_request_failed`.

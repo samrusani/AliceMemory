@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import logging
 import secrets
-from typing import Mapping, Protocol
+from typing import Literal, Mapping, Protocol
 
 from alicebot_api.vnext_agent_control import (
     PERMISSION_PROFILES,
@@ -55,12 +55,24 @@ def _reserved_name_message(marker: str, *, subject: str) -> str:
     )
 
 
+AgentKeyFailureReason = Literal[
+    "other", "key_required", "invalid_key", "wrong_user", "reserved_binding", "agent_id_mismatch",
+    "profile_escalation", "invalid_binding", "scope_escalation", "invalid_scope_type", "blank_scope",
+    "reserved_scope", "reviewer_mismatch",
+]
+
+IDENTITY_CLAIM_FAILURE_REASONS: frozenset[AgentKeyFailureReason] = frozenset(
+    {"agent_id_mismatch", "profile_escalation", "scope_escalation", "blank_scope"}
+)
+
+
 class AgentKeyAuthenticationError(PermissionError):
     """Raised when agent API key authentication or authorization fails."""
 
-    def __init__(self, message: str, *, status_code: int = 401) -> None:
+    def __init__(self, message: str, *, status_code: int = 401, reason: AgentKeyFailureReason = "other") -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.reason = reason
 
 
 class AgentKeyStore(Protocol):
@@ -212,18 +224,18 @@ def resolve_agent_identity(
                 "agent API keys are configured for this user; agent calls must "
                 "authenticate with 'Authorization: Bearer alice_sk_...' "
                 "(create a key with 'alicebot agent keys create')",
-                status_code=401,
+                status_code=401, reason="key_required",
             )
         return replace(claimed, auth=UNAUTHENTICATED_LOCAL_AUTH)
 
     record = verify_agent_key(store, raw_key)
     if record is None:
         raise AgentKeyAuthenticationError(
-            "agent API key is invalid or has been revoked", status_code=401
+            "agent API key is invalid or has been revoked", status_code=401, reason="invalid_key"
         )
     if str(record.get("user_id")) != str(user_id):
         raise AgentKeyAuthenticationError(
-            "agent API key does not belong to this user", status_code=401
+            "agent API key does not belong to this user", status_code=401, reason="wrong_user"
         )
 
     # A key stored with a reserved name as its binding (an older version let one be created) is
@@ -252,7 +264,7 @@ def resolve_agent_identity(
             f"agent API key is bound to the project name {stored_reserved}, which Alice reserves for its "
             "own use, so the key is refused at every door. Revoke it with 'alicebot agent keys revoke' "
             "and create a new key bound to the name or id of a project.",
-            status_code=403,
+            status_code=403, reason="reserved_binding",
         )
 
     key_agent_id = str(record["agent_id"])
@@ -271,7 +283,7 @@ def resolve_agent_identity(
         raise AgentKeyAuthenticationError(
             f"agent API key was issued to agent '{key_agent_id}' but the payload "
             f"claims agent '{claimed_agent_id}'",
-            status_code=403,
+            status_code=403, reason="agent_id_mismatch",
         )
 
     effective_profile = key_profile
@@ -288,7 +300,7 @@ def resolve_agent_identity(
                 f"agent API key grants permission_profile '{key_profile}'; the "
                 f"payload claims '{claimed_profile}', which is higher. Remove the "
                 "claim or request a new key with the required profile.",
-                status_code=403,
+                status_code=403, reason="profile_escalation",
             )
         effective_profile = claimed_profile
 
@@ -312,7 +324,7 @@ def resolve_agent_identity(
         )
         raise AgentKeyAuthenticationError(
             "agent API key has an invalid blank project scope binding",
-            status_code=403,
+            status_code=403, reason="invalid_binding",
         )
     # Read the scope claim from the payload source directly (like the
     # profile claim): key-only calls without an agent_id still must not be
@@ -343,7 +355,7 @@ def resolve_agent_identity(
                 f"payload claims project(s) {', '.join(repr(value) for value in widened)} "
                 "outside that scope. Narrow the claim or request a key bound to those "
                 "projects.",
-                status_code=403,
+                status_code=403, reason="scope_escalation",
             )
         # A subset claim narrows; an empty claim inherits the key binding.
         effective_project_scope = claimed_scope or bound_scope
@@ -377,7 +389,7 @@ def resolve_protected_agent_identity(
         raise AgentKeyAuthenticationError(
             "agent API keys are configured for this user; protected vNext requests must "
             "authenticate with 'Authorization: Bearer alice_sk_...'",
-            status_code=401,
+            status_code=401, reason="key_required",
         )
     return resolve_agent_identity(
         store,
@@ -411,26 +423,26 @@ def _claimed_project_scope(source: Mapping[str, object]) -> tuple[str, ...]:
     if not isinstance(value, (list, tuple)):
         raise AgentKeyAuthenticationError(
             "project_scope claim must be a list of non-blank strings",
-            status_code=403,
+            status_code=403, reason="invalid_scope_type",
         )
     values: list[str] = []
     for item in value:
         if not isinstance(item, str):
             raise AgentKeyAuthenticationError(
                 "project_scope claim must be a list of non-blank strings",
-                status_code=403,
+                status_code=403, reason="invalid_scope_type",
             )
         normalized = normalize_project_identifier(item)
         if not normalized:
             raise AgentKeyAuthenticationError(
                 "project_scope claim must be a list of non-blank strings",
-                status_code=403,
+                status_code=403, reason="blank_scope",
             )
         values.append(normalized)
     reserved = reserved_project_marker(values)
     if reserved is not None:
         raise AgentKeyAuthenticationError(
-            _reserved_name_message(reserved, subject="part of a project_scope claim"), status_code=403
+            _reserved_name_message(reserved, subject="part of a project_scope claim"), status_code=403, reason="reserved_scope"
         )
     return normalize_project_scope(values)
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.23.1): MCP answers `identity_claim_refused` when a keyed caller claims another agent, a higher or unknown profile, a scope outside the key binding or a blank scope item. Leave out the identity fields or narrow the profile or scope to the key and retry; v0.23.1 answered `not_permitted` for these claims (`python -m pytest tests/unit/test_identity_claim_codes.py`).
+
 - Unreleased (on main, not in v0.23.1): `alice_lessons` is on the default MCP surface, and the session brief can name the number of readable published lessons (`python -m pytest tests/unit/test_lessons_default_brief.py`).
 
 - Unreleased (on main, not in v0.23.1): SQLite ranked reads for identities authenticated by an agent key with read limits use bm25 statistics from ordinary readable memories or readable source chunks, leaving derived memories eligible without counting them and falling back to row-only matches when the ordinary population is empty; v0.23.1 and earlier use table-wide counts, while the owner, an unbound admin key and a declared identity on a keyless vault keep their existing order (`python -m pytest tests/unit/test_ranked_read_hidden_rows.py tests/integration/test_ranked_read_hidden_rows_postgres.py`).

@@ -1157,3 +1157,36 @@ def test_a_replay_of_a_redaction_is_refused_by_its_own_policy_check_if_the_pre_c
     outcome, before, after = _store_do(context, replay)  # type: ignore[misc]
     assert outcome == "refused"
     assert after == before
+
+
+def test_identity_claim_code_is_independent_of_other_agents_and_projects(context, monkeypatch):
+    """Guard: mapping an agent-key claim refusal to not_permitted loses the claim code."""
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    owner_error, owner = _wire(context, "alice_lessons", {"task": "reviewing a change"})
+    assert not owner_error
+    _active(context, _OTHER_PROJECT, "internal")
+    reader = _mint_key(context, profile="read_only_agent", project=_OWN_PROJECT, agent_id="fixture-reader")
+    _mint_key(context, profile="read_only_agent", project=_OTHER_PROJECT, agent_id="fixture-other")
+    bound_admin = _mint_key(context, profile="admin_agent", project=_OWN_PROJECT, agent_id="fixture-admin")
+    for key, claim in ((_OWNER_KEY[0], {}), (bound_admin, {"project_scope": [_OWN_PROJECT]})):
+        monkeypatch.setenv(_KEY_ENV, key)
+        failed, answer = _wire(context, "alice_lessons", {"task": "reviewing a change", **claim})
+        assert not failed and answer == owner
+    monkeypatch.setenv(_KEY_ENV, reader)
+    for tool, args in (("alice_lessons", {"task": "reviewing a change"}), ("alice_memory_review", {})):
+        answers = [_answer(context, tool, {**args, **claim}) for claim in (
+            {"agent_id": "fixture-other"}, {"agent_id": "fixture-absent"},
+            {"project_scope": [_OTHER_PROJECT]}, {"project_scope": ["fixture-absent-project"]},
+        )]
+        assert answers == ["identity_claim_refused"] * 4
+
+
+def test_keyed_legacy_tool_stays_unavailable_with_or_without_an_identity_claim(context, monkeypatch):
+    """Guard: changing the keyed legacy gate refusal loses the uniform tool_not_found answer."""
+    monkeypatch.setenv("ALICE_MCP_LEGACY_TOOLS", "1")
+    key = _mint_key(context, profile="read_only_agent", project=_OWN_PROJECT, agent_id="fixture-reader")
+    monkeypatch.setenv(_KEY_ENV, key)
+    arguments = {"memory_id": "00000000-0000-0000-0000-000000000099", "canonical_text": "fixture"}
+    for claim in ({}, {"agent_id": "fixture-other"}):
+        failed, answer = _wire(context, "alice_vnext_correct_memory", {**arguments, **claim})
+        assert failed and answer["error"]["code"] == "tool_not_found"
