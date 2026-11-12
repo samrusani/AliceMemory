@@ -252,3 +252,54 @@ def test_cli_extracts_the_named_revision_for_each_side(tmp_path, monkeypatch):
     monkeypatch.setattr(bench, "run_benchmark", check_trees)
     monkeypatch.setattr(sys, "argv", ["bench", "--base", "7d70f5c7", "--head", "HEAD", "--work-dir", str(tmp_path)])
     assert bench.main() == 0
+
+
+def test_cli_refuses_a_work_directory_inside_checkout(tmp_path, small_checkout):
+    """Guard: removing the work directory refusal permits a path inside the checkout."""
+    work_dir = small_checkout / ".venv"
+    before = snapshot()
+    code = ("import sys; from pathlib import Path; "
+            "from tests.performance import lessons_brief_benchmark as b; "
+            f"b.ROOT=Path({str(small_checkout)!r}); "
+            "b.run_benchmark=lambda *args: []; "
+            f"sys.argv=['bench','--base','HEAD','--work-dir',{str(work_dir)!r},'--keep']; "
+            "sys.exit(b.main())")
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join((str(SOURCE / "apps/api/src"), str(SOURCE))),
+           "PYTHONDONTWRITEBYTECODE": "1"}
+    result = subprocess.run([sys.executable, "-c", code], cwd=SOURCE, env=env, capture_output=True, text=True)
+    assert result.returncode == 2
+    assert "work directory must be outside the checkout" in result.stderr
+    assert snapshot() == before
+
+
+def test_foreign_package_import_is_reported_as_the_failing_side(tmp_path, monkeypatch, capsys):
+    """Guard: removing the package path check permits an import from another tree."""
+    import json
+
+    real = bench.run_benchmark
+
+    def run_with_foreign_import(trees, root, samples):
+        site = trees["base"] / "apps/api/src/sitecustomize.py"
+        site.write_text(f"import sys\nsys.path.insert(0, {str(trees['head'] / 'apps/api/src')!r})\n")
+        return real(trees, root, samples=2, rows_count=16, shapes=("none",))
+
+    monkeypatch.setattr(bench, "run_benchmark", run_with_foreign_import)
+    monkeypatch.setattr(sys, "argv", ["bench", "--base", "HEAD", "--work-dir", str(tmp_path)])
+    assert bench.main() == 1
+    output = capsys.readouterr()
+    assert all("shape" not in json.loads(line) for line in output.out.splitlines())
+    error = json.loads(output.err)
+    assert error["side"] == "base"
+    assert "package imported outside measured tree" in error["error"]
+    assert "/head/apps/api/src/alicebot_api/" in error["error"]
+    assert not list(tmp_path.iterdir())
+
+
+def test_seed_uses_the_requested_small_vault_row_count(tmp_path):
+    """Guard: replacing range(rows_count) with range(20_000) changes the small vault."""
+    import sqlite3
+
+    path = tmp_path / "small.db"
+    bench.seed(path, "published", rows_count=16)
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM memories").fetchone()[0] == 16

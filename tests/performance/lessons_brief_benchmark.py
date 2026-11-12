@@ -88,6 +88,7 @@ class SideError(Exception):
 
 def run_sample(tree: Path, path: Path, user: str, reader: str) -> tuple[float, str, str]:
     env = {key: value for key, value in os.environ.items() if not key.startswith("ALICE")}
+    # Use the same fixture folder for project detection on both sides when scoping is on.
     env.update(PYTHONPATH=os.pathsep.join((str(tree / "apps/api/src"), str(tree))),
                ALICE_AGENT_API_KEY=reader, ALICE_PROJECT_DIR=str(path.parent), PYTHONDONTWRITEBYTECODE="1")
     probe = (
