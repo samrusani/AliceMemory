@@ -104,5 +104,5 @@ def persist_after_rollback(conn: object, user_id: UUID | str, error: BaseExcepti
                 # label state: none, the refused request's store has ended; this rollback abandons only the audit write.
                 conn.rollback()
             except Exception:
-                pass
+                logger.warning("could not roll back the failed agent key refusal record")
         logger.warning("could not record an agent key identity refusal")

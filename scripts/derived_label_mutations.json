@@ -28237,7 +28237,7 @@
           "line": 38,
           "before": "    return clean[:CLAIM_VALUE_LIMIT]\n",
           "after": "    return clean\n",
-          "sha256": "446bbc5560e99a0771f6e83c77e1f032fc2782779cb43e6db21c7018655eea29"
+          "sha256": "48aa27b367b4b446b3af35c6bdee526cc4abf5cec394312ddb169c9b880a2011"
         }
       ],
       "pytest": [
@@ -28253,7 +28253,7 @@
           "line": 36,
           "before": "    if carries_credential_material(text) or carries_credential_material(clean):\n",
           "after": "    if False:\n",
-          "sha256": "446bbc5560e99a0771f6e83c77e1f032fc2782779cb43e6db21c7018655eea29"
+          "sha256": "48aa27b367b4b446b3af35c6bdee526cc4abf5cec394312ddb169c9b880a2011"
         }
       ],
       "pytest": [
@@ -28269,7 +28269,7 @@
           "line": 35,
           "before": "    clean = \"\".join(ch for ch in text if unicodedata.category(ch) not in {\"Cc\", \"Cf\", \"Cs\"})\n",
           "after": "    clean = text\n",
-          "sha256": "446bbc5560e99a0771f6e83c77e1f032fc2782779cb43e6db21c7018655eea29"
+          "sha256": "48aa27b367b4b446b3af35c6bdee526cc4abf5cec394312ddb169c9b880a2011"
         }
       ],
       "pytest": [
@@ -28285,7 +28285,7 @@
           "line": 49,
           "before": "            payload[key] = [_clean(item) for item in value[:CLAIM_LIST_LIMIT]]\n",
           "after": "            payload[key] = [_clean(item) for item in value]\n",
-          "sha256": "446bbc5560e99a0771f6e83c77e1f032fc2782779cb43e6db21c7018655eea29"
+          "sha256": "48aa27b367b4b446b3af35c6bdee526cc4abf5cec394312ddb169c9b880a2011"
         }
       ],
       "pytest": [
@@ -28301,7 +28301,7 @@
           "line": 72,
           "before": "    if any(event.get(\"event_type\") == EVENT_TYPE and event.get(\"payload_json\") == notice.payload for event in recent):\n",
           "after": "    if False:\n",
-          "sha256": "446bbc5560e99a0771f6e83c77e1f032fc2782779cb43e6db21c7018655eea29"
+          "sha256": "48aa27b367b4b446b3af35c6bdee526cc4abf5cec394312ddb169c9b880a2011"
         }
       ],
       "pytest": [
@@ -28317,7 +28317,7 @@
           "line": 88,
           "before": "            conn.execute(\"BEGIN IMMEDIATE\")\n",
           "after": "            conn.execute(\"BEGIN\")\n",
-          "sha256": "446bbc5560e99a0771f6e83c77e1f032fc2782779cb43e6db21c7018655eea29"
+          "sha256": "48aa27b367b4b446b3af35c6bdee526cc4abf5cec394312ddb169c9b880a2011"
         }
       ],
       "pytest": [
@@ -28333,7 +28333,7 @@
           "line": 108,
           "before": "        logger.warning(\"could not record an agent key identity refusal\")\n",
           "after": "        raise\n",
-          "sha256": "446bbc5560e99a0771f6e83c77e1f032fc2782779cb43e6db21c7018655eea29"
+          "sha256": "48aa27b367b4b446b3af35c6bdee526cc4abf5cec394312ddb169c9b880a2011"
         }
       ],
       "pytest": [
@@ -28381,7 +28381,7 @@
           "line": 75,
           "before": "append_event(store, event_type=EVENT_TYPE, actor_type=\"system\"",
           "after": "append_event(store, event_type=EVENT_TYPE, actor_type=\"agent\"",
-          "sha256": "446bbc5560e99a0771f6e83c77e1f032fc2782779cb43e6db21c7018655eea29"
+          "sha256": "48aa27b367b4b446b3af35c6bdee526cc4abf5cec394312ddb169c9b880a2011"
         }
       ],
       "pytest": [
@@ -28477,7 +28477,7 @@
           "line": 38,
           "before": "    return clean[:CLAIM_VALUE_LIMIT]\n",
           "after": "    return clean\n",
-          "sha256": "446bbc5560e99a0771f6e83c77e1f032fc2782779cb43e6db21c7018655eea29"
+          "sha256": "48aa27b367b4b446b3af35c6bdee526cc4abf5cec394312ddb169c9b880a2011"
         }
       ],
       "pytest": [
@@ -28509,7 +28509,7 @@
           "line": 99,
           "before": "                conn.execute(\"SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))\", (str(user_id) + \":\" + notice.key_id,))  # type: ignore[attr-defined]\n",
           "after": "                pass\n",
-          "sha256": "446bbc5560e99a0771f6e83c77e1f032fc2782779cb43e6db21c7018655eea29"
+          "sha256": "48aa27b367b4b446b3af35c6bdee526cc4abf5cec394312ddb169c9b880a2011"
         }
       ],
       "pytest": [
@@ -28525,7 +28525,7 @@
           "line": 108,
           "before": "        logger.warning(\"could not record an agent key identity refusal\")\n",
           "after": "        raise\n",
-          "sha256": "446bbc5560e99a0771f6e83c77e1f032fc2782779cb43e6db21c7018655eea29"
+          "sha256": "48aa27b367b4b446b3af35c6bdee526cc4abf5cec394312ddb169c9b880a2011"
         }
       ],
       "pytest": [
@@ -28541,7 +28541,7 @@
           "line": 75,
           "before": "append_event(store, event_type=EVENT_TYPE, actor_type=\"system\"",
           "after": "append_event(store, event_type=EVENT_TYPE, actor_type=\"agent\"",
-          "sha256": "446bbc5560e99a0771f6e83c77e1f032fc2782779cb43e6db21c7018655eea29"
+          "sha256": "48aa27b367b4b446b3af35c6bdee526cc4abf5cec394312ddb169c9b880a2011"
         }
       ],
       "pytest": [
