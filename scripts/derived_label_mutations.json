@@ -27978,9 +27978,9 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/registry.py",
-          "line": 533,
-          "before": "    if name in _LEGACY_TOOL_NAMES and (os.environ.get(AGENT_API_KEY_ENV) or \"\").strip():",
-          "after": "    if False and name in _LEGACY_TOOL_NAMES and (os.environ.get(AGENT_API_KEY_ENV) or \"\").strip():",
+          "line": 534,
+          "before": "        raise MCPToolNotFoundError(\n            f\"tool '{name}' is part of the legacy MCP surface, which is disabled whenever \"",
+          "after": "        raise MCPNotPermittedError(\n            f\"tool '{name}' is part of the legacy MCP surface, which is disabled whenever \"",
           "sha256": "402e40b0a00de17a5f7e082040878d69c7e35b59ceefe81b6619924b5e03ea57"
         }
       ],
@@ -27994,9 +27994,9 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/registry.py",
-          "line": 533,
-          "before": "    if name in _LEGACY_TOOL_NAMES and (os.environ.get(AGENT_API_KEY_ENV) or \"\").strip():",
-          "after": "    if False and name in _LEGACY_TOOL_NAMES and (os.environ.get(AGENT_API_KEY_ENV) or \"\").strip():",
+          "line": 534,
+          "before": "        raise MCPToolNotFoundError(\n            f\"tool '{name}' is part of the legacy MCP surface, which is disabled whenever \"",
+          "after": "        raise MCPNotPermittedError(\n            f\"tool '{name}' is part of the legacy MCP surface, which is disabled whenever \"",
           "sha256": "402e40b0a00de17a5f7e082040878d69c7e35b59ceefe81b6619924b5e03ea57"
         }
       ],
@@ -28116,6 +28116,22 @@
         "tests/unit/test_mcp_package_split.py::test_mcp_registry_order_definitions_and_alias_identity_are_frozen"
       ],
       "expected_failure": "test_mcp_registry_order_definitions_and_alias_identity_are_frozen"
+    },
+    {
+      "name": "claim-lessons-surface-schema-digest",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/definitions.py",
+          "line": 105,
+          "before": "Calling agent identifier. With an agent key, omit it: the key sets it. A keyless caller may declare one.",
+          "after": "Calling agent identifier. With an agent key, omit it: the key sets it. A keyless caller may declare one. Extra.",
+          "sha256": "6d624a1836c707eb2ea64e731a83675fcc35b9813ca332ff9f7e0837a4694622"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_read.py::test_surface"
+      ],
+      "expected_failure": "test_surface"
     }
   ]
 }

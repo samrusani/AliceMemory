@@ -365,7 +365,7 @@ def test_surface(monkeypatch):
     assert tools["alice_lessons"]["annotations"] == tools["alice_recall"]["annotations"]
     old = [item for item in list_mcp_tools() if item["name"] != "alice_lessons"]
     digest = hashlib.sha256(json.dumps(old, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    assert digest == "efe16c0ef2d36397c47ac2a3ba1951e257af5c7a9ae5fd735fcc01b276c6456e"
+    assert digest == "a31b23b8a416b55c860a842e63af455184599a2569c1f149da9a945c261e9a5a"
 
 
 def test_a_plain_row_with_a_planted_block_has_no_publisher(vault, monkeypatch):

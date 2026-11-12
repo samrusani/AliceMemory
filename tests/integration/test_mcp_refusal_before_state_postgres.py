@@ -401,7 +401,7 @@ def test_identity_claim_code_is_independent_of_other_agents_and_projects_postgre
 
 
 def test_keyed_legacy_tool_stays_unavailable_with_or_without_an_identity_claim_postgres(migrated_database_urls, monkeypatch):
-    """Guard: removing the keyed legacy gate changes its uniform tool_not_found answer."""
+    """Guard: changing the keyed legacy gate refusal loses the uniform tool_not_found answer."""
     app_url = migrated_database_urls["app"]
     user_id = seed_user(app_url, email="legacy-claim-fixture@example.invalid")
     with user_connection(app_url, user_id) as conn:

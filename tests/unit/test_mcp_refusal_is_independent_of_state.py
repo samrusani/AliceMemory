@@ -1182,7 +1182,7 @@ def test_identity_claim_code_is_independent_of_other_agents_and_projects(context
 
 
 def test_keyed_legacy_tool_stays_unavailable_with_or_without_an_identity_claim(context, monkeypatch):
-    """Guard: removing the keyed legacy gate changes its uniform tool_not_found answer."""
+    """Guard: changing the keyed legacy gate refusal loses the uniform tool_not_found answer."""
     monkeypatch.setenv("ALICE_MCP_LEGACY_TOOLS", "1")
     key = _mint_key(context, profile="read_only_agent", project=_OWN_PROJECT, agent_id="fixture-reader")
     monkeypatch.setenv(_KEY_ENV, key)
