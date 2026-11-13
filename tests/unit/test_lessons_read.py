@@ -352,7 +352,7 @@ def test_event_and_no_query_retention(vault, monkeypatch, tmp_path):
 
 
 def test_surface(monkeypatch):
-    """Guard: lessons is fourth by default and all other definitions match main."""
+    """Guard: remove retirement standing from the manage tool description."""
     import hashlib
 
     monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
@@ -365,7 +365,7 @@ def test_surface(monkeypatch):
     assert tools["alice_lessons"]["annotations"] == tools["alice_recall"]["annotations"]
     old = [item for item in list_mcp_tools() if item["name"] != "alice_lessons"]
     digest = hashlib.sha256(json.dumps(old, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    assert digest == "a31b23b8a416b55c860a842e63af455184599a2569c1f149da9a945c261e9a5a"
+    assert digest == "6ed1e621cff2ea24b1ffba5b48d5ea5c7c752157cdc5ba3e5cfbaaf958b4c484"
 
 
 def test_a_plain_row_with_a_planted_block_has_no_publisher(vault, monkeypatch):
