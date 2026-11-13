@@ -24923,7 +24923,7 @@
           "line": 28,
           "before": "    \"lessons.py\",\n",
           "after": "",
-          "sha256": "005fba8ec88baedd1aa6ce3b73caca97951e5a90b4b667fa47fc1e12edd4b177"
+          "sha256": "251279aa3a185bf5e24af6d5f4d1f9f1a513b932bf7f81eb017658231a85bff0"
         }
       ],
       "pytest": [
@@ -29012,6 +29012,38 @@
         "tests/unit/test_retire_standing.py::test_undo_does_not_apply_retirement_standing_to_the_successor"
       ],
       "expected_failure": "test_undo_does_not_apply_retirement_standing_to_the_successor"
+    },
+    {
+      "name": "manage-description-package-pin",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/definitions.py",
+          "line": 960,
+          "before": "\"the standing to decide it; retiring or unexpiring a lesson needs publishing standing. \"",
+          "after": "\"\"",
+          "sha256": "b6daa6ecc3608abf3cf062e74e5a824ea04ec6690a82012badecdd75faae27d0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_mcp_package_split.py::test_mcp_registry_order_definitions_and_alias_identity_are_frozen"
+      ],
+      "expected_failure": "test_mcp_registry_order_definitions_and_alias_identity_are_frozen"
+    },
+    {
+      "name": "manage-description-lessons-pin",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/definitions.py",
+          "line": 960,
+          "before": "\"the standing to decide it; retiring or unexpiring a lesson needs publishing standing. \"",
+          "after": "\"\"",
+          "sha256": "b6daa6ecc3608abf3cf062e74e5a824ea04ec6690a82012badecdd75faae27d0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lessons_read.py::test_surface"
+      ],
+      "expected_failure": "test_surface"
     }
   ]
 }

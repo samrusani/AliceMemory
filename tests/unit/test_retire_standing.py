@@ -98,6 +98,7 @@ def test_pending_retirement_requires_the_existing_decision_maker(vault, monkeypa
             row_before = store.get_memory(mid)
             revisions_before = store.list_revisions(mid)
             events_before = store.list_events(target_type="memory", target_id=mid)
+            queue_before = store.list_pending_inline_confirmations(limit=200)
         failed, answer = _call(vault, monkeypatch, stranger, "alice_memory_manage", {
             "action": action, "memory_id": mid, "reason": "Retire it",
         })
@@ -107,6 +108,7 @@ def test_pending_retirement_requires_the_existing_decision_maker(vault, monkeypa
             assert store.get_memory(mid) == row_before
             assert store.list_revisions(mid) == revisions_before
             events_after = store.list_events(target_type="memory", target_id=mid)
+            assert store.list_pending_inline_confirmations(limit=200) == queue_before
         assert {event["event_type"] for event in events_after} - {event["event_type"] for event in events_before} == {
             "policy.decision", "agent.policy_blocked",
         }
@@ -145,6 +147,28 @@ def test_lesson_retirement_requires_the_existing_publisher(vault, monkeypatch):
             "action": action, "memory_id": mid, "reason": "Retire it",
         })
         assert failed and answer["error"]["code"] == "not_permitted"
+
+    for action in ("forget", "expire", "undo", "unexpire"):
+        term = "lessonretire" + action + "example"
+        lesson = _commit(vault, monkeypatch, admin, lesson={**LESSON, "applies_when": term})
+        mid = str(lesson["memory"]["id"])
+        if action == "unexpire":
+            failed, result = _call(vault, monkeypatch, admin, "alice_memory_manage", {
+                "action": "expire", "memory_id": mid, "reason": "Retire it",
+            })
+            assert not failed, result
+        failed, result = _call(vault, monkeypatch, stranger, "alice_memory_manage", {
+            "action": action, "memory_id": mid, "reason": "Retire it",
+        })
+        assert failed and result["error"]["code"] == "not_permitted"
+        failed, result = _call(vault, monkeypatch, stranger, "alice_lessons", {"task": term})
+        assert not failed and (mid in {str(row["id"]) for row in result["lessons"]}) == (action != "unexpire")
+        failed, result = _call(vault, monkeypatch, admin, "alice_memory_manage", {
+            "action": action, "memory_id": mid, "reason": "Retire it",
+        })
+        assert not failed, result
+        failed, result = _call(vault, monkeypatch, stranger, "alice_lessons", {"task": term})
+        assert not failed and (mid in {str(row["id"]) for row in result["lessons"]}) == (action == "unexpire")
 
     for action in ("redact", "accept_consolidation"):
         ordinary = _commit(vault, monkeypatch, admin, title="An ordinary row", canonical_text="An ordinary procedure.")
