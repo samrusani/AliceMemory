@@ -114,13 +114,15 @@ def _exercise(vault, monkeypatch, kind, action, profile, door):
 
 
 def _cli(vault, action, memory_id):
-    user, _, context, _ = vault
+    user, keys, context, _ = vault
     arguments = [sys.executable, "-c", "from alicebot_api.cli import main; raise SystemExit(main())",
                  "--database-url", context.database_url, "--user-id", str(user), "vnext", "memories", action]
     arguments += ["--memory-id", memory_id] if action == "undo" else [memory_id]
-    arguments += ["--agent-id", "stranger", "--permission-profile", "project_scoped_agent",
+    arguments += ["--agent-id", "project_scoped_agent", "--permission-profile", "project_scoped_agent",
                   "--project-scope", "alpha", "--reason", "Retire it"]
-    return subprocess.run(arguments, capture_output=True, text=True, env=os.environ.copy(), check=False).returncode
+    env = os.environ.copy()
+    env["ALICE_AGENT_API_KEY"] = keys["project_scoped_agent"]
+    return subprocess.run(arguments, capture_output=True, text=True, env=env, check=False).returncode
 
 
 def _cli_target(vault, monkeypatch, kind, action):
@@ -179,7 +181,7 @@ def test_pending_retirement_uses_decision_standing_through_each_door(vault, monk
         if _cli_target(vault, monkeypatch, "pending", action) == 0:
             failures.append(("cli", action, "pending"))
     failures.extend(_legacy(vault, monkeypatch, "pending"))
-    assert not failures, failures
+    assert not failures, "\n".join(map(str, failures))
 
 
 def test_lesson_retirement_uses_publisher_standing_through_each_door(vault, monkeypatch):
@@ -213,4 +215,4 @@ def test_lesson_retirement_uses_publisher_standing_through_each_door(vault, monk
                 absent = _tool(vault, monkeypatch, "hidden", "alice_memory_manage", {"action": action, "memory_id": missing, "reason": "Retire it"})
                 assert hidden == absent and hidden[0] and hidden[1]["error"]["code"] == "not_found"
 
-    assert not failures, failures
+    assert not failures, "\n".join(map(str, failures))
