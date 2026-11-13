@@ -122,20 +122,28 @@ def _owner(vault, monkeypatch, lesson):
     monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
     actions = ("forget", "expire", "undo", "unexpire") if lesson else ("forget", "expire", "undo")
     for action in actions:
-        fields = {"lesson": LESSON} if lesson else {
-            "title": "A procedure", "canonical_text": "An ordinary procedure.", "confidence": 0.7,
-            "agent_id": "author", "permission_profile": "project_scoped_agent",
-        }
-        failed, created = wire(context, "alice_memory_commit", {
-            "domain": "project", "sensitivity": "internal", "project_scope": ["alpha"], **fields,
-        })
-        assert not failed, created
-        mid = str(created["memory"]["id"])
-        if action == "unexpire":
-            failed, result = wire(context, "alice_memory_manage", {"action": "expire", "memory_id": mid, "reason": "Retire it"})
+        kinds = (("lesson",) if action == "unexpire" else ("lesson", "waiting_lesson")) if lesson else ("pending", "proposal")
+        for kind in kinds:
+            if lesson:
+                fields = {"lesson": LESSON}
+                if kind == "waiting_lesson":
+                    fields.update(agent_id="proposal", permission_profile="memory_proposal_agent")
+            else:
+                fields = {"title": "A procedure", "canonical_text": "An ordinary procedure.", "confidence": 0.7,
+                          "agent_id": "author", "permission_profile": "project_scoped_agent"}
+                if kind == "proposal":
+                    fields.update(agent_id="proposal", permission_profile="memory_proposal_agent")
+            failed, created = wire(context, "alice_memory_commit", {
+                "domain": "project", "sensitivity": "internal", "project_scope": ["alpha"], **fields,
+            })
+            assert not failed, created
+            mid = str(created["memory"]["id"])
+            if action == "unexpire":
+                failed, result = wire(context, "alice_memory_manage", {"action": "expire", "memory_id": mid, "reason": "Retire it"})
+                assert not failed, result
+            failed, result = wire(context, "alice_memory_manage", {"action": action, "memory_id": mid, "reason": "Retire it"})
             assert not failed, result
-        failed, result = wire(context, "alice_memory_manage", {"action": action, "memory_id": mid, "reason": "Retire it"})
-        assert not failed, result
+
 
 def test_pending_retirement_requires_the_existing_decision_maker(vault, monkeypatch):
     """Guard: remove the pending retirement decision in _write_policy_decision."""
