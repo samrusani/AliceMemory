@@ -1,6 +1,13 @@
 """Standing for lifecycle changes to waiting writes and lessons."""
 
+import asyncio
+import json
+
 import pytest
+from fastapi import FastAPI
+
+from alicebot_api.config import Settings
+from alicebot_api.routers import vnext_memories
 
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.onramp import sqlite_url_for_path
@@ -31,6 +38,39 @@ def _commit(vault, monkeypatch, token, **fields):
 
 
 
+def _http(vault, monkeypatch, token, action, memory_id):
+    monkeypatch.setattr(vnext_memories, "get_settings", lambda: Settings(database_url=sqlite_url_for_path(vault.path)))
+    monkeypatch.setattr(vnext_memories, "user_connection", lambda _url, user: sqlite_user_connection(vault.path, user))
+    monkeypatch.setattr(vnext_memories, "PostgresVNextStore", lambda conn: SQLiteVNextStore(conn, vault.user))
+    app = FastAPI()
+    app.include_router(vnext_memories.memory_router)
+
+    async def request():
+        messages = []
+        sent = False
+        body = json.dumps({"user_id": str(vault.user), "memory_id": memory_id, "reason": "Retire it"}).encode()
+
+        async def receive():
+            nonlocal sent
+            if not sent:
+                sent = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            await asyncio.Event().wait()
+
+        async def send(message):
+            messages.append(message)
+
+        path = "/v0/vnext/memories/" + action
+        scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST",
+                 "scheme": "http", "path": path, "raw_path": path.encode(), "root_path": "", "query_string": b"",
+                 "headers": [(b"authorization", ("Bearer " + token).encode()), (b"content-type", b"application/json")],
+                 "client": ("127.0.0.1", 1), "server": ("127.0.0.1", 80)}
+        await app(scope, receive, send)
+        return next(item["status"] for item in messages if item["type"] == "http.response.start")
+
+    return asyncio.run(request())
+
+
 def _matrix(vault, monkeypatch, lesson):
     profiles = ("read_only_agent", "memory_proposal_agent", "project_scoped_agent", "trusted_local_agent", "admin_agent")
     keys = {profile: vault.key("matrix_" + profile, profile, None if profile == "admin_agent" else "alpha")
@@ -54,10 +94,25 @@ def _matrix(vault, monkeypatch, lesson):
                         "action": "expire", "memory_id": mid, "reason": "Retire it",
                     })
                     assert not failed, answer
+                allowed = profile == "admin_agent" or (kind == "active" and profile in profiles[2:4])
+                status = _http(vault, monkeypatch, keys[profile], action, mid)
+                assert status == (200 if allowed else 403)
+                # HTTP succeeded on allowed cases, so use a fresh row for MCP.
+                if allowed:
+                    if lesson:
+                        created = _commit(vault, monkeypatch, writer, lesson=LESSON)
+                    else:
+                        created = _commit(vault, monkeypatch, writer, title="A procedure", canonical_text="An ordinary procedure.",
+                                          confidence=0.7 if kind == "pending" else 0.95)
+                    mid = str(created["memory"]["id"])
+                    if action == "unexpire":
+                        failed, answer = _call(vault, monkeypatch, keys["admin_agent"], "alice_memory_manage", {
+                            "action": "expire", "memory_id": mid, "reason": "Retire it",
+                        })
+                        assert not failed, answer
                 failed, answer = _call(vault, monkeypatch, keys[profile], "alice_memory_manage", {
                     "action": action, "memory_id": mid, "reason": "Retire it",
                 })
-                allowed = profile == "admin_agent" or (kind == "active" and profile in profiles[2:4])
                 assert not failed if allowed else failed and answer["error"]["code"] == "not_permitted"
 
 
