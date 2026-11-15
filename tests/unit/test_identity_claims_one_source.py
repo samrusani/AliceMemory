@@ -130,7 +130,15 @@ def test_sqlite_mcp_claim_table_uses_the_combined_source(vault, monkeypatch):
 
 def test_keyless_calls_keep_the_existing_source(vault, monkeypatch):
     """Guard: combine keyed sources for a keyless call too."""
+    from alicebot_api.vnext_agent_keys import resolve_agent_identity
+
     monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        identity = resolve_agent_identity(
+            SQLiteVNextStore(conn, vault.user), user_id=vault.user, raw_key=None,
+            payload={"agent_id": "declared", "agent_identity": {}},
+        )
+    assert identity is None
     context = MCPRuntimeContext(database_url=sqlite_url_for_path(vault.path), user_id=vault.user)
     failed, result = wire(context, "alice_memory_commit", {
         "title": "A note", "canonical_text": "An ordinary procedure.", "domain": "project",

@@ -1,16 +1,38 @@
 """Print synthetic keyed claim results on SQLite MCP, PostgreSQL MCP, or HTTP."""
 import argparse
+import json
 import logging
 import os
 import tempfile
+from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
 from alicebot_api.mcp.types import MCPRuntimeContext
-from alicebot_api.onramp import sqlite_url_for_path
+from alicebot_api import mcp_server
+from alicebot_api.onramp import bootstrap_database, sqlite_url_for_path
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
-from tests.unit.test_identity_claim_codes import wire
-from tests.unit.test_lessons_read import Vault
+from alicebot_api.vnext_agent_keys import create_agent_key
+
+
+class Vault:
+    def __init__(self, path):
+        self.path = path
+        self.user = uuid4()
+        bootstrap_database(path, user_id=self.user, user_email="fixture@example.invalid")
+
+    def key(self, name, profile, project=None):
+        with sqlite_user_connection(self.path, self.user) as conn:
+            _, raw = create_agent_key(SQLiteVNextStore(conn, self.user), user_id=self.user,
+                                      agent_id=name, permission_profile=profile, project_scope=project)
+        return raw
+
+
+def wire(context, name, arguments):
+    server = mcp_server.MCPServer(context=context, input_stream=BytesIO(), output_stream=BytesIO())
+    result = server._handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                     "params": {"name": name, "arguments": arguments}})["result"]
+    return result["isError"], json.loads(result["content"][0]["text"])
 
 
 def cases():
@@ -59,7 +81,6 @@ def main():
         else:
             from alicebot_api.db import user_connection
             from alicebot_api.store import ContinuityStore
-            from alicebot_api.vnext_agent_keys import create_agent_key
             from alicebot_api.vnext_store import PostgresVNextStore
             from alicebot_api import main as main_module
             from alicebot_api.config import Settings
