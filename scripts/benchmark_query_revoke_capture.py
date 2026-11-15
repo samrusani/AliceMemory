@@ -64,7 +64,10 @@ def main() -> None:
         for side, source in (("base", args.base.resolve()), ("head", root)):
             work = Path(directory) / side
             work.mkdir()
-            env = {**os.environ, "PYTHONPATH": os.pathsep.join((str(source / "apps/api/src"), str(source)))}
+            env = {name: value for name, value in os.environ.items()
+                   if not name.startswith(("ALICE_", "ALICEBOT_"))
+                   and not name.endswith(("_API_KEY", "_BASE_URL"))}
+            env["PYTHONPATH"] = os.pathsep.join((str(source / "apps/api/src"), str(source)))
             process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--worker", str(work)],
                                        cwd=source, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
             processes.append((side, process))

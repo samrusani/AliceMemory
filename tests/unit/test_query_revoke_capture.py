@@ -17,6 +17,10 @@ from tests.unit.test_lessons_read import Vault
 
 @pytest.fixture
 def vault(tmp_path, monkeypatch):
+    for name in ("ALICE_EMBEDDINGS_BASE_URL", "ALICE_EMBEDDINGS_MODEL", "ALICE_EMBEDDINGS_API_KEY",
+                 "ALICE_RERANKER_BASE_URL", "ALICE_RERANKER_MODEL", "ALICE_RERANKER_API_KEY",
+                 "ALICE_SOURCE_EMBEDDINGS", "ALICE_SEARCH_QUALITY"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ALICE_PROJECT_DIR", str(tmp_path))
     monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
     monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)

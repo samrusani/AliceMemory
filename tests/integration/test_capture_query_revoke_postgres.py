@@ -13,6 +13,14 @@ from tests.integration.derived_labels_postgres_support import label_harness  # n
 from tests.unit.test_identity_claim_codes import wire
 
 
+@pytest.fixture(autouse=True)
+def no_retrieval_providers(monkeypatch):
+    for name in ("ALICE_EMBEDDINGS_BASE_URL", "ALICE_EMBEDDINGS_MODEL", "ALICE_EMBEDDINGS_API_KEY",
+                 "ALICE_RERANKER_BASE_URL", "ALICE_RERANKER_MODEL", "ALICE_RERANKER_API_KEY",
+                 "ALICE_SOURCE_EMBEDDINGS", "ALICE_SEARCH_QUALITY"):
+        monkeypatch.delenv(name, raising=False)
+
+
 def _events(h):
     with h.store() as store:
         return store.list_events()
