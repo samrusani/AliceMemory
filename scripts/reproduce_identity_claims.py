@@ -106,6 +106,7 @@ def main():
             with user_connection(url, user) as conn:
                 ContinuityStore(conn).create_user(user, f"fixture-{user}", "Fixture")
             context = MCPRuntimeContext(database_url=url, user_id=user)
+            settings = Settings(database_url=url, auth_user_id=str(user))
         if args.door == "http":
             status, _, _ = invoke("POST", "/v0/vnext/context-packs", user_id=user, payload={"user_id": str(user), **fields})
             answer = str(status)
