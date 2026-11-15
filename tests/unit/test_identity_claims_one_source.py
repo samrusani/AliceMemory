@@ -300,10 +300,11 @@ def test_nonidentity_argument_errors_do_not_hide_key_claims(vault, monkeypatch):
         with sqlite_user_connection(vault.path, vault.user) as conn:
             key_before = SQLiteVNextStore(conn, vault.user).get_agent_api_key_by_hash(hash_agent_key(key))
         for raw_key in (key, "alice_sk_never_issued"):
-            failed, result = _call(vault, monkeypatch, raw_key, "alice_recall", {
-                "query": "example", field: value, "agent_id": "bound",
-            })
-            assert failed and result["error"]["code"] == "invalid_request", result
+            for identity in ({}, {"agent_id": "bound"}):
+                failed, result = _call(vault, monkeypatch, raw_key, "alice_recall", {
+                    "query": "example", field: value, **identity,
+                })
+                assert failed and result["error"]["code"] == "invalid_request", result
         failed, result = _call(vault, monkeypatch, "alice_sk_never_issued", "alice_recall", {
             "query": "example", field: value, "agent_id": "other-invalid-key",
         })

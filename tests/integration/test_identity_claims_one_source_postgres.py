@@ -251,12 +251,13 @@ def test_postgres_nonidentity_argument_errors_do_not_hide_key_claims(claims, mon
         before = _events(h)
         monkeypatch.setenv("ALICE_AGENT_API_KEY", keys["bound"])
         context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
-        failed, body = wire(context, "alice_recall", {"query": "example", field: value, "agent_id": "bound"})
-        assert failed and body["error"]["code"] == "invalid_request", body
-        status, body, _ = h.request("POST", "/v0/vnext/context-packs", key=keys["bound"], payload={
-            "query": "example", field: value, "agent_id": "bound",
-        })
-        assert status == 422, (status, body)
+        for identity in ({}, {"agent_id": "bound"}):
+            failed, body = wire(context, "alice_recall", {"query": "example", field: value, **identity})
+            assert failed and body["error"]["code"] == "invalid_request", body
+            status, body, _ = h.request("POST", "/v0/vnext/context-packs", key=keys["bound"], payload={
+                "query": "example", field: value, **identity,
+            })
+            assert status == 422, (status, body)
         for raw_key in (None, "alice_sk_never_issued"):
             status, body, _ = h.request("POST", "/v0/vnext/context-packs", key=raw_key, payload={
                 "query": "example", field: value, "agent_id": "other-no-valid-key",
