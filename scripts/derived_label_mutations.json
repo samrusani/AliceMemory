@@ -30020,6 +30020,22 @@
         "tests/integration/test_capture_query_revoke_postgres.py::test_postgres_cli_agent_output_refuses_above_ceiling"
       ],
       "expected_failure": "test_postgres_cli_agent_output_refuses_above_ceiling"
+    },
+    {
+      "name": "query-revoke-capture-pg-legacy-output",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/capture_automation.py",
+          "line": 137,
+          "before": "            write_policy=\"proposal_only\" if _parse_bool(arguments, key=\"propose_memory\", default=False) else None,\n            project_view=ProjectView.unscoped(),\n            capture_sensitivity_ceiling=True,",
+          "after": "            write_policy=\"proposal_only\" if _parse_bool(arguments, key=\"propose_memory\", default=False) else None,\n            project_view=ProjectView.unscoped(),\n            capture_sensitivity_ceiling=False,",
+          "sha256": "cc098a12a5c9f2666495bcdd22fdb36cd626f3d79ab07470017bcdd457000034"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_capture_query_revoke_postgres.py::test_postgres_legacy_agent_output_refuses_above_ceiling"
+      ],
+      "expected_failure": "test_postgres_legacy_agent_output_refuses_above_ceiling"
     }
   ]
 }

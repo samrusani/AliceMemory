@@ -129,6 +129,23 @@ def test_postgres_mcp_capture_refuses_above_ceiling(label_harness, monkeypatch):
         assert "sensitivity_above_agent_ceiling" in json.dumps(events, default=str)
 
 
+def test_postgres_legacy_agent_output_refuses_above_ceiling(label_harness, monkeypatch):
+    """Guard: disable the ceiling on the legacy agent-output tool."""
+    h = label_harness
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    before = h.snapshot()
+    context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+    failed, result = wire(context, "alice_vnext_ingest_agent_output", {
+        "agent_id": "writer", "permission_profile": "project_scoped_agent", "project_scope": ["alpha"],
+        "title": "Output", "content": "Synthetic legacy output.", "domain": "project", "sensitivity": "regulated"})
+    assert failed and result["error"]["code"] == "not_permitted", result
+    assert h.snapshot()["sources"] == before["sources"]
+    failed, result = wire(context, "alice_vnext_ingest_agent_output", {
+        "agent_id": "writer", "permission_profile": "project_scoped_agent", "project_scope": ["alpha"],
+        "title": "Output", "content": "Allowed legacy output.", "domain": "project", "sensitivity": "private"})
+    assert not failed and result["status"] == "imported", result
+
+
 def test_postgres_http_capture_refuses_above_ceiling_and_preserves_allowed(label_harness, tmp_path):
     """Guard: disable the capture sensitivity ceiling on the HTTP source door."""
     h = label_harness
