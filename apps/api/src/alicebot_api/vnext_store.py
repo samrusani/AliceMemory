@@ -3163,7 +3163,7 @@ class PostgresVNextStore:
             (key_hash,),
         )
 
-    def list_agent_api_keys(self, *, limit: int = 50) -> list[VNextRow]:
+    def list_agent_api_keys(self, *, limit: int | None = 50) -> list[VNextRow]:
         return self._fetch_all(
             f"""
                 SELECT {AGENT_API_KEY_COLUMNS}

@@ -222,6 +222,7 @@ def _policy_checked(
     write_policy: str | None = None,
     require_explicit_project_scope: bool = False,
     require_unfiltered_target: bool = False,
+    capture_sensitivity_ceiling: bool = False,
     target_type: str | None = None,
     target_id: str | None = None,
     promotion_settings: PromotionSettings | None = None,
@@ -235,7 +236,7 @@ def _policy_checked(
     check = repr((
         identity.agent_id if identity is not None else None, action, domains, sensitivity_allowed, project_scope, project_floor,
         workflow_type, write_policy, require_explicit_project_scope, require_unfiltered_target, target_type, target_id,
-        owner_verified,
+        owner_verified, capture_sensitivity_ceiling,
     ))
     done = replay_durable(check)
     if is_remembered(done):
@@ -284,6 +285,10 @@ def _policy_checked(
             decision="blocked",
             reasons=tuple(dict.fromkeys((*decision.reasons, "artifact_target_filtering_not_permitted"))),
         )
+    if capture_sensitivity_ceiling:
+        from alicebot_api.vnext_memory_commit import _block_capture_above_sensitivity_ceiling
+
+        decision = _block_capture_above_sensitivity_ceiling(identity, decision)
     append_policy_events(
         store,
         identity=identity,

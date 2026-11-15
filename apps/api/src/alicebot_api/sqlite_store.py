@@ -1872,7 +1872,7 @@ class SQLiteVNextStore:
             (key_hash, self.user_id),
         )
 
-    def list_agent_api_keys(self, *, limit: int = 50) -> list[VNextRow]:
+    def list_agent_api_keys(self, *, limit: int | None = 50) -> list[VNextRow]:
         return self._fetch_all(
             f"""
                 SELECT {", ".join(AGENT_API_KEY_COLUMNS)}
@@ -1881,7 +1881,7 @@ class SQLiteVNextStore:
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
                 """,
-            (self.user_id, limit),
+            (self.user_id, limit if limit is not None else -1),
         )
 
     def revoke_agent_api_key(self, *, key_id: str, actor_type: str = "user") -> VNextRow | None:

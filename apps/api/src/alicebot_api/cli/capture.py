@@ -44,6 +44,7 @@ from alicebot_api.vnext_store import PostgresVNextStore
 from alicebot_api.vnext_label_writes import takes_label_lock as _takes_label_lock
 from .constants import DEFAULT_VNEXT_DEMO_DATASET_PATH, DEMO_SECRET_MARKERS
 from .models import CLIContext
+from .errors import PartialCommandFailure as _PartialCommandFailure
 from .arguments import _object_dict, _object_int, _object_list
 from .shared import (
     _checked_batch_output,
@@ -326,9 +327,14 @@ def _run_vnext_agents_ingest_output(ctx: CLIContext, args: argparse.Namespace) -
             project_scope=tuple(args.project_scope),
             write_policy="proposal_only" if args.propose_memory else None,
         )
+        from alicebot_api.vnext_memory_commit import _block_capture_above_sensitivity_ceiling
+
+        decision = _block_capture_above_sensitivity_ceiling(identity, decision)
         append_policy_events(
             store, identity=identity, decision=decision, target_type="connector", target_id="agent_output"
         )
+        if "sensitivity_above_agent_ceiling" in decision.reasons:
+            raise _PartialCommandFailure(_json_dumps({"status": "rejected", "reason": "sensitivity_above_agent_ceiling"}))
         ensure_policy_allowed(decision)
         result = VNextConnectorService(store, defer_embeddings=True).ingest_agent_output(
             {

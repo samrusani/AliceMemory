@@ -62,6 +62,8 @@ from typing import (
 )
 from uuid import uuid4
 
+from alicebot_api.vnext_key_rejection_events import _clean as _clean_stored_query
+
 # Read-only reuse of the contradiction-detection machinery that backs
 # VNextContradictionService. compile_context_pack must not mutate state,
 # so it calls the pure candidate finder directly instead of
@@ -5879,6 +5881,7 @@ class VNextRetrievalService:
             budget_record["excluded_token_estimate"] = excluded_token_estimate
         else:  # pragma: no cover - integer digit widths converge in a few iterations
             raise RuntimeError("context-pack budget report did not converge")
+        stored_query = _clean_stored_query(request.query)
         append_event(
             self.store,
             event_type="retrieval.context_pack_compiled",
@@ -5889,7 +5892,7 @@ class VNextRetrievalService:
             trace_id=trace_id,
             run_id=request.run_id,
             payload={
-                "query": request.query,
+                "query": stored_query,
                 "query_type": interpretation["query_type"],
                 "candidate_count": trace["candidate_count"],
                 "selected_count": trace["selected_count"],
@@ -5914,7 +5917,7 @@ class VNextRetrievalService:
                 trace_id=trace_id,
                 run_id=request.run_id,
                 payload={
-                    "query": request.query,
+                    "query": stored_query,
                     "query_type": interpretation["query_type"],
                     "selected_count": trace["selected_count"],
                     "agent_identity": request.agent_identity,

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.23.1): context-pack audit events store a cleaned query of at most 128 characters, withholding credential-shaped text; existing events are unchanged, and v0.23.1 stored the full query (`python -m pytest tests/unit/test_query_revoke_capture.py tests/integration/test_capture_query_revoke_postgres.py`).
+- Unreleased (on main, not in v0.23.1): key revocation searches all keys by id or prefix, including revoked keys for prefix ambiguity; v0.23.1 searched only the 200 newest (`python -m pytest tests/unit/test_query_revoke_capture.py tests/integration/test_capture_query_revoke_postgres.py`).
+- Unreleased (on main, not in v0.23.1): an agent source capture above its sensitivity ceiling is refused without storing the source; v0.23.1 stored it (`python -m pytest tests/unit/test_query_revoke_capture.py tests/integration/test_capture_query_revoke_postgres.py`).
+
 - Unreleased (on main, not in v0.23.1): keyed calls read flat and nested identity claims together, keep the stricter profile and scope, and record refusals even when another field has an unknown value. v0.23.1 ignored flat claims beside a nested identity and answered `invalid_request` without recording an event when an unknown profile or agent type accompanied another agent id (`python -m pytest tests/unit/test_identity_claims_one_source.py tests/integration/test_identity_claims_one_source_postgres.py`).
 
 - Unreleased (on main, not in v0.23.1): retirement of a pending write requires the standing to decide it, and retirement or restoration of a lesson requires publishing standing; v0.23.1 allowed project and trusted keys to retire another agent's pending write (`python -m pytest tests/unit/test_retire_standing.py`).

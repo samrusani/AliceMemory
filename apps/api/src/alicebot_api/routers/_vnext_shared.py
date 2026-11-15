@@ -617,6 +617,7 @@ def _vnext_policy_checked(
     promotion_settings: PromotionSettings | None = None,
     promotion_candidate: PromotionCandidate | None = None,
     owner_verified: bool = False,
+    capture_sensitivity_ceiling: bool = False,
 ) -> PolicyDecision:
     _vnext_agent_record(store, identity)
     decision = evaluate_agent_policy(
@@ -633,6 +634,10 @@ def _vnext_policy_checked(
         promotion_candidate=promotion_candidate,
         owner_verified=owner_verified,
     )
+    if capture_sensitivity_ceiling:
+        from alicebot_api.vnext_memory_commit import _block_capture_above_sensitivity_ceiling
+
+        decision = _block_capture_above_sensitivity_ceiling(identity, decision)
     append_policy_events(store, identity=identity, decision=decision, target_type=target_type, target_id=target_id)
     return decision
 
