@@ -112,10 +112,13 @@ def _preflight_key_claim(context: MCPRuntimeContext, arguments: Mapping[str, obj
             except AgentKeyAuthenticationError as exc:
                 if exc.reason in {"agent_id_mismatch", "profile_escalation", "scope_escalation"}:
                     raise
+                # label state: none, preflight checks and touches only the key before the handler runs.
                 store.conn.rollback()
             except AgentIdentityValidationError:
+                # label state: none, preflight checks and touches only the key before the handler runs.
                 store.conn.rollback()
             else:
+                # label state: none, preflight checks and touches only the key before the handler runs.
                 store.conn.rollback()
     except AgentKeyAuthenticationError as exc:
         raise MCPIdentityClaimRefusedError(str(exc)) from exc

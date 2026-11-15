@@ -15512,10 +15512,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/policy.py",
-          "line": 236,
+          "line": 239,
           "before": "    if is_remembered(done):\n        return done  # type: ignore[no-any-return]\n",
           "after": "    if False:\n        return done  # type: ignore[no-any-return]\n",
-          "sha256": "3276496147e3080e0d57300c49ea15aa12ea3183bd40d1925302d8b3ed92130f"
+          "sha256": "752b0108b3b5fbb5d68aa7a8def098a9fb74757b943eaf9594d83246cc53cf47"
         }
       ],
       "pytest": [
@@ -23752,7 +23752,7 @@
           "line": 68,
           "before": "        if _is_sqlite_backend(context):\n            try:\n                has_active_key = _vault_has_active_key(_sqlite_path_from_url(context.database_url))\n            except Exception:\n                # The vault could not be checked; the call is refused rather\n                # than answered with the owner's standing.\n                raise MCPNotPermittedError(\n                    \"the vault's agent keys could not be checked; every call needs \"\n                    f\"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')\"\n                ) from None\n            if has_active_key:\n                raise MCPNotPermittedError(\n                    \"agent API keys are configured for this vault; every call needs \"\n                    f\"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')\"\n                )",
           "after": "",
-          "sha256": "3276496147e3080e0d57300c49ea15aa12ea3183bd40d1925302d8b3ed92130f"
+          "sha256": "752b0108b3b5fbb5d68aa7a8def098a9fb74757b943eaf9594d83246cc53cf47"
         }
       ],
       "pytest": [
@@ -23769,7 +23769,7 @@
           "line": 68,
           "before": "        if _is_sqlite_backend(context):\n            try:",
           "after": "        if _is_sqlite_backend(context) and (\"agent_id\" in arguments or True) and False:\n            try:",
-          "sha256": "3276496147e3080e0d57300c49ea15aa12ea3183bd40d1925302d8b3ed92130f"
+          "sha256": "752b0108b3b5fbb5d68aa7a8def098a9fb74757b943eaf9594d83246cc53cf47"
         }
       ],
       "pytest": [
@@ -23898,7 +23898,7 @@
           "line": 71,
           "before": "            except Exception:\n                # The vault could not be checked; the call is refused rather\n                # than answered with the owner's standing.\n                raise MCPNotPermittedError(",
           "after": "            except Exception:\n                has_active_key = False\n                if False:\n                    raise MCPNotPermittedError(",
-          "sha256": "3276496147e3080e0d57300c49ea15aa12ea3183bd40d1925302d8b3ed92130f"
+          "sha256": "752b0108b3b5fbb5d68aa7a8def098a9fb74757b943eaf9594d83246cc53cf47"
         }
       ],
       "pytest": [
@@ -27885,7 +27885,7 @@
           "line": 97,
           "before": "            raise MCPIdentityClaimRefusedError(str(exc)) from exc",
           "after": "            raise MCPNotPermittedError(str(exc)) from exc",
-          "sha256": "3276496147e3080e0d57300c49ea15aa12ea3183bd40d1925302d8b3ed92130f"
+          "sha256": "752b0108b3b5fbb5d68aa7a8def098a9fb74757b943eaf9594d83246cc53cf47"
         }
       ],
       "pytest": [
@@ -27965,7 +27965,7 @@
           "line": 97,
           "before": "            raise MCPIdentityClaimRefusedError(str(exc)) from exc",
           "after": "            raise MCPNotPermittedError(str(exc)) from exc",
-          "sha256": "3276496147e3080e0d57300c49ea15aa12ea3183bd40d1925302d8b3ed92130f"
+          "sha256": "752b0108b3b5fbb5d68aa7a8def098a9fb74757b943eaf9594d83246cc53cf47"
         }
       ],
       "pytest": [
@@ -27981,7 +27981,7 @@
           "line": 97,
           "before": "            raise MCPIdentityClaimRefusedError(str(exc)) from exc",
           "after": "            raise MCPNotPermittedError(str(exc)) from exc",
-          "sha256": "3276496147e3080e0d57300c49ea15aa12ea3183bd40d1925302d8b3ed92130f"
+          "sha256": "752b0108b3b5fbb5d68aa7a8def098a9fb74757b943eaf9594d83246cc53cf47"
         }
       ],
       "pytest": [
@@ -29179,9 +29179,9 @@
         {
           "file": "apps/api/src/alicebot_api/mcp/policy.py",
           "line": 113,
-          "before": "                if exc.reason in {\"agent_id_mismatch\", \"profile_escalation\", \"scope_escalation\"}:\n                    raise\n                store.conn.rollback()",
-          "after": "                if exc.reason in {\"agent_id_mismatch\", \"profile_escalation\", \"scope_escalation\"}:\n                    raise\n                pass",
-          "sha256": "3276496147e3080e0d57300c49ea15aa12ea3183bd40d1925302d8b3ed92130f"
+          "before": "                if exc.reason in {\"agent_id_mismatch\", \"profile_escalation\", \"scope_escalation\"}:\n                    raise\n                # label state: none, preflight checks and touches only the key before the handler runs.\n                store.conn.rollback()",
+          "after": "                if exc.reason in {\"agent_id_mismatch\", \"profile_escalation\", \"scope_escalation\"}:\n                    raise\n                # label state: none, preflight checks and touches only the key before the handler runs.\n                pass",
+          "sha256": "752b0108b3b5fbb5d68aa7a8def098a9fb74757b943eaf9594d83246cc53cf47"
         }
       ],
       "pytest": [
@@ -29316,6 +29316,54 @@
         "tests/unit/test_workspaces_router_split.py::test_workspace_import_direction_pruning_timing_and_runtime_identities_are_exact"
       ],
       "expected_failure": "test_workspace_import_direction_pruning_timing_and_runtime_identities_are_exact"
+    },
+    {
+      "name": "identity-one-source-reserved-tool-edge",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/registry.py",
+          "line": 586,
+          "before": "        _refuse_reserved_project_marker(parsed_arguments)",
+          "after": "        pass",
+          "sha256": "75a36772f54ea345a504af1d1aa591b54d12df561e1f9594b0e91e0634c895a3"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_reserved_marker_key_binding.py::test_a_caller_who_sends_the_reserved_name_as_a_scope_is_still_refused_at_the_tool_edge"
+      ],
+      "expected_failure": "test_a_caller_who_sends_the_reserved_name_as_a_scope_is_still_refused_at_the_tool_edge"
+    },
+    {
+      "name": "identity-one-source-foreign-replay",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
+          "line": 3232,
+          "before": "            if content_differs or not _stored_labels_are_the_requests(memory, request, identity):",
+          "after": "            if False:",
+          "sha256": "dd5f84a5fe6438e80c19658cfbbef0d0840de73a78b4013b6e8cc7569d40de3d"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_vnext_agentic_memory_commit_api.py::test_blocked_replay_with_foreign_labels_matches_the_writer_400"
+      ],
+      "expected_failure": "test_blocked_replay_with_foreign_labels_matches_the_writer_400"
+    },
+    {
+      "name": "identity-one-source-moved-replay",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
+          "line": 3232,
+          "before": "            if content_differs or not _stored_labels_are_the_requests(memory, request, identity):",
+          "after": "            if content_differs:",
+          "sha256": "dd5f84a5fe6438e80c19658cfbbef0d0840de73a78b4013b6e8cc7569d40de3d"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_vnext_agentic_memory_commit_api.py::test_same_content_replay_after_project_move_is_400_without_the_new_label"
+      ],
+      "expected_failure": "test_same_content_replay_after_project_move_is_400_without_the_new_label"
     }
   ]
 }
