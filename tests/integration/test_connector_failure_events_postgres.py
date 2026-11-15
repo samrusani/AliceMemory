@@ -234,17 +234,17 @@ def test_the_answer_of_a_folder_sync_does_not_name_a_file_the_key_never_sent(lab
     admin = label_harness.key("admin_agent")
     trusted = label_harness.key("trusted_local_agent")
 
-    def call(key):
+    def call(key, sensitivity):
         request = router.VNextLocalFolderSyncRequest(
-            user_id=label_harness.user_id, paths=[str(root)], default_sensitivity="confidential"
+            user_id=label_harness.user_id, paths=[str(root)], default_sensitivity=sensitivity
         )
         return router.sync_vnext_local_folder_connector(request, authorization=f"Bearer {key}")
 
-    answer = call(trusted)
+    answer = call(trusted, "private")
     body = json.loads(answer.body)
     assert body["failed_count"] == 1 and body["failed_external_ids"] == [None]
     assert "HIDDEN-SCAN-FILE" not in answer.body.decode()
-    owner_view = json.loads(call(admin).body)
+    owner_view = json.loads(call(admin, "confidential").body)
     assert owner_view["failed_external_ids"] == [str(hidden.resolve())]
 
 
