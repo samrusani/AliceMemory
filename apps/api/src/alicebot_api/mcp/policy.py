@@ -100,8 +100,12 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
         raise MCPArgumentError(str(exc)) from exc
 
 
+class _PreflightRollback(Exception):
+    """End a non-escalating claim preflight without committing its key touch."""
+
+
 def _preflight_key_claim(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> None:
-    """Check claims behind an identity-shape error without committing other writes."""
+    """Check claims behind an argument error without committing other writes."""
     raw_key = (os.environ.get(AGENT_API_KEY_ENV) or "").strip() or None
     if raw_key is None or context.agent_identity_resolved:
         return
@@ -112,14 +116,12 @@ def _preflight_key_claim(context: MCPRuntimeContext, arguments: Mapping[str, obj
             except AgentKeyAuthenticationError as exc:
                 if exc.reason in {"agent_id_mismatch", "profile_escalation", "scope_escalation"}:
                     raise
-                # label state: none, preflight checks and touches only the key before the handler runs.
-                store.conn.rollback()
             except AgentIdentityValidationError:
-                # label state: none, preflight checks and touches only the key before the handler runs.
-                store.conn.rollback()
-            else:
-                # label state: none, preflight checks and touches only the key before the handler runs.
-                store.conn.rollback()
+                pass
+            # The exception leaves the store's transaction, rolling back the key touch on both backends.
+            raise _PreflightRollback()
+    except _PreflightRollback:
+        return
     except AgentKeyAuthenticationError as exc:
         raise MCPIdentityClaimRefusedError(str(exc)) from exc
 

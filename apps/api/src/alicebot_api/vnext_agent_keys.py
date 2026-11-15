@@ -299,6 +299,22 @@ def resolve_agent_identity(
             status_code=403, reason="agent_id_mismatch", key_rejection=rejection,
         )
 
+    effective_profile = key_profile
+    if claimed_profile is not None:
+        claimed_rank = _PROFILE_RANKS.get(claimed_profile)
+        if claimed_rank is None or claimed_rank > _PROFILE_RANKS[key_profile]:
+            rejection = _append_key_rejection_event(
+                record=record,
+                reason="permission_profile_escalation",
+                claimed={"claimed_permission_profile": claimed_profile},
+            )
+            raise AgentKeyAuthenticationError(
+                "agent API key grants a lower permission profile than the one claimed, which is higher or unknown. Remove the "
+                "claim or request a new key with the required profile.",
+                status_code=403, reason="profile_escalation", key_rejection=rejection,
+            )
+        effective_profile = claimed_profile
+
     deferred_scope_error: AgentKeyAuthenticationError | None = None
     parsed_scopes: list[tuple[str, ...]] = []
     for raw in raw_scopes:
@@ -358,22 +374,6 @@ def resolve_agent_identity(
                 status_code=403, reason="scope_escalation", key_rejection=rejection,
             )
         project_scope_locked = True
-
-    effective_profile = key_profile
-    if claimed_profile is not None:
-        claimed_rank = _PROFILE_RANKS.get(claimed_profile)
-        if claimed_rank is None or claimed_rank > _PROFILE_RANKS[key_profile]:
-            rejection = _append_key_rejection_event(
-                record=record,
-                reason="permission_profile_escalation",
-                claimed={"claimed_permission_profile": claimed_profile},
-            )
-            raise AgentKeyAuthenticationError(
-                "agent API key grants a lower permission profile than the one claimed, which is higher or unknown. Remove the "
-                "claim or request a new key with the required profile.",
-                status_code=403, reason="profile_escalation", key_rejection=rejection,
-            )
-        effective_profile = claimed_profile
 
     if deferred_validation is not None:
         raise deferred_validation

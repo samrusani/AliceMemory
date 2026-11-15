@@ -63,7 +63,6 @@ from alicebot_api.vnext_memory_commit import (
 )
 from alicebot_api.vnext_source_fence import SourceRefNotFoundError
 from alicebot_api.vnext_projects import VNextOpenLoopPersonNotFoundError
-from alicebot_api.vnext_project_scope import holds_global_marker
 
 from .capture_automation import (
     _handle_alice_vnext_capture,
@@ -570,26 +569,21 @@ def call_mcp_tool(
     # before anything of the arguments is stored.
     try:
         _validate_mcp_arguments_against_advertised_schema(name, parsed_arguments)
-    except MCPArgumentError as exc:
-        if name in _CORE_TOOL_NAMES and re.search(
-            r"\bat arguments\.(?:agent_identity|agent_id|agent_type|agent_run_id|task_id|permission_profile|project_scope)(?:[.\[: ]|$)",
-            str(exc),
-        ):
+    except MCPArgumentError:
+        if name in _CORE_TOOL_NAMES:
             _preflight_key_claim(context, parsed_arguments)
         raise
     try:
         refuse_unstorable_json(parsed_arguments, name=f"tool '{name}' arguments")
     except JsonShapeError as exc:
+        if name in _CORE_TOOL_NAMES:
+            _preflight_key_claim(context, parsed_arguments)
         raise MCPArgumentError(str(exc)) from exc
     # The reserved global marker of per-project memory is never caller input.
     try:
         _refuse_reserved_project_marker(parsed_arguments)
     except MCPInvalidRequestError:
-        nested = parsed_arguments.get("agent_identity")
-        scopes = [parsed_arguments.get("project_scope")]
-        if isinstance(nested, Mapping):
-            scopes.append(nested.get("project_scope"))
-        if name in _CORE_TOOL_NAMES and any(value is not None and holds_global_marker(value) for value in scopes):
+        if name in _CORE_TOOL_NAMES:
             _preflight_key_claim(context, parsed_arguments)
         raise
     try:

@@ -211,7 +211,10 @@ def test_the_owner_still_reads_every_project(label_harness, monkeypatch):
 
 @pytest.mark.parametrize("spelling", ["~global", "~GLOBAL", " ~Global "])
 def test_a_declared_scope_with_the_reserved_name_is_refused_over_http(label_harness, spelling):
-    """Guard: remove the reserved-name check from the claim reader of a keyed call."""
+    """A declared scope containing the reserved name is refused over HTTP.
+
+    Guard: remove the reserved-name check from the claim reader of a keyed call.
+    """
 
     build_world(label_harness)
     identity = {"agent_id": "declared", "permission_profile": "project_scoped_agent", "project_scope": [spelling]}

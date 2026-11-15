@@ -388,7 +388,10 @@ def _bind_settings(monkeypatch, database_url: str) -> None:
 def test_blocked_replay_with_foreign_labels_matches_the_writer_400(
     migrated_database_urls, monkeypatch
 ) -> None:
-    """Guard: let a blocked replay return its policy refusal for different content."""
+    """A guessed key does not learn the stored row's labels.
+
+    Guard: let a blocked replay return its policy refusal for different content.
+    """
 
     app_url = migrated_database_urls["app"]
     user_id = seed_user(app_url, email="label-replay@example.com")
@@ -477,7 +480,10 @@ def test_blocked_replay_with_foreign_labels_matches_the_writer_400(
 def test_same_content_replay_after_project_move_is_400_without_the_new_label(
     migrated_database_urls, monkeypatch
 ) -> None:
-    """Guard: ignore changed stored labels for a blocked replay with matching content."""
+    """Moving the row does not put the new project in a blocked replay body.
+
+    Guard: ignore changed stored labels for a blocked replay with matching content.
+    """
 
     app_url = migrated_database_urls["app"]
     user_id = seed_user(app_url, email="moved-replay@example.com")

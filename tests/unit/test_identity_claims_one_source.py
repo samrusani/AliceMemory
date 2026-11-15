@@ -210,7 +210,7 @@ def test_malformed_fields_do_not_mask_key_claims(vault, monkeypatch):
 
 
 def test_malformed_fields_without_overclaim_leave_key_and_events_unchanged(vault, monkeypatch):
-    """Guard: remove the rollback after a non-escalating keyed preflight."""
+    """Guard: commit a non-escalating keyed preflight instead of rolling it back."""
     from alicebot_api.vnext_agent_keys import hash_agent_key
 
     key = vault.key("bound", "project_scoped_agent", "alpha")
@@ -223,3 +223,152 @@ def test_malformed_fields_without_overclaim_leave_key_and_events_unchanged(vault
         with sqlite_user_connection(vault.path, vault.user) as conn:
             after = SQLiteVNextStore(conn, vault.user).get_agent_api_key_by_hash(hash_agent_key(key))
         assert after == before and _events(vault) == events_before
+
+
+def _assert_new_refusal(vault, monkeypatch, key, claim, reason, claimed_field, claimed_value):
+    before = {event["id"] for event in _events(vault)}
+    failed, result = _call(vault, monkeypatch, key, "alice_recall", {"query": "example", **claim})
+    assert failed and result["error"]["code"] == "identity_claim_refused", result
+    [event] = [event for event in _events(vault) if event["id"] not in before]
+    payload = event["payload_json"]
+    assert payload["reason"] == reason and payload[claimed_field] == claimed_value, payload
+    return payload
+
+
+def test_profile_precedes_scope_in_the_recorded_refusal(vault, monkeypatch):
+    """Guard: skip profile escalation when a scope is also supplied."""
+    key = vault.key("bound", "project_scoped_agent", "alpha")
+    payload = _assert_new_refusal(vault, monkeypatch, key,
+        {"permission_profile": "admin_agent", "project_scope": ["beta-priority"]},
+        "permission_profile_escalation", "claimed_permission_profile", "admin_agent")
+    assert "claimed_project_scope" not in payload
+    _assert_new_refusal(vault, monkeypatch, key,
+        {"agent_id": "other-priority", "permission_profile": "trusted_local_agent", "project_scope": ["beta-id"]},
+        "agent_id_mismatch", "claimed_agent_id", "other-priority")
+    _assert_new_refusal(vault, monkeypatch, key,
+        {"permission_profile": "read_only_agent", "project_scope": ["beta-scope"]},
+        "project_scope_escalation", "claimed_project_scope", ["beta-scope"])
+
+
+def test_nested_agent_id_is_checked_beside_own_flat_id(vault, monkeypatch):
+    """Guard: select the first agent ID instead of a different claimed ID."""
+    key = vault.key("bound", "project_scoped_agent", "alpha")
+    _assert_new_refusal(vault, monkeypatch, key,
+        {"agent_id": "bound", "agent_identity": {"agent_id": "other-nested-id"}},
+        "agent_id_mismatch", "claimed_agent_id", "other-nested-id")
+
+
+def test_nested_profile_is_checked_beside_a_lower_flat_profile(vault, monkeypatch):
+    """Guard: select the lowest profile without first checking for escalation."""
+    key = vault.key("bound", "project_scoped_agent", "alpha")
+    for profile in ("admin_agent", "unknown-nested-profile"):
+        _assert_new_refusal(vault, monkeypatch, key,
+            {"permission_profile": "read_only_agent", "agent_identity": {"permission_profile": profile}},
+            "permission_profile_escalation", "claimed_permission_profile", profile)
+
+
+def test_nested_scope_is_checked_beside_the_bound_flat_scope(vault, monkeypatch):
+    """Guard: check only the first supplied project scope."""
+    key = vault.key("bound", "project_scoped_agent", "alpha")
+    _assert_new_refusal(vault, monkeypatch, key,
+        {"project_scope": ["alpha"], "agent_identity": {"project_scope": ["beta-nested"]}},
+        "project_scope_escalation", "claimed_project_scope", ["alpha", "beta-nested"])
+
+
+def test_disagreeing_run_ids_are_refused(vault, monkeypatch):
+    """Guard: ignore conflicts between non-permission identity fields."""
+    key = vault.key("bound", "project_scoped_agent", "alpha")
+    before = _events(vault)
+    failed, result = _call(vault, monkeypatch, key, "alice_recall", {
+        "query": "example", "agent_run_id": "run-flat",
+        "agent_identity": {"agent_id": "bound", "agent_run_id": "run-nested"},
+    })
+    assert failed and result["error"]["code"] == "invalid_request", result
+    assert _events(vault) == before
+
+
+def test_nonidentity_argument_errors_do_not_hide_key_claims(vault, monkeypatch):
+    """Guard: skip claim preflight after a core tool's schema argument error."""
+    from alicebot_api.vnext_agent_keys import hash_agent_key
+
+    key = vault.key("bound", "project_scoped_agent", "alpha")
+    for field, value, agent in (("limit", "abc", "other-limit"),
+                                ("not_a_parameter", True, "other-unknown")):
+        _assert_new_refusal(vault, monkeypatch, key, {field: value, "agent_id": agent},
+                            "agent_id_mismatch", "claimed_agent_id", agent)
+        before = _events(vault)
+        with sqlite_user_connection(vault.path, vault.user) as conn:
+            key_before = SQLiteVNextStore(conn, vault.user).get_agent_api_key_by_hash(hash_agent_key(key))
+        for raw_key in (key, "alice_sk_never_issued"):
+            failed, result = _call(vault, monkeypatch, raw_key, "alice_recall", {
+                "query": "example", field: value, "agent_id": "bound",
+            })
+            assert failed and result["error"]["code"] == "invalid_request", result
+        failed, result = _call(vault, monkeypatch, "alice_sk_never_issued", "alice_recall", {
+            "query": "example", field: value, "agent_id": "other-invalid-key",
+        })
+        assert failed and result["error"]["code"] == "invalid_request", result
+        monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+        context = MCPRuntimeContext(database_url=sqlite_url_for_path(vault.path), user_id=vault.user)
+        failed, result = wire(context, "alice_recall", {"query": "example", field: value, "agent_id": "other-keyless"})
+        assert failed and result["error"]["code"] == "invalid_request", result
+        with sqlite_user_connection(vault.path, vault.user) as conn:
+            key_after = SQLiteVNextStore(conn, vault.user).get_agent_api_key_by_hash(hash_agent_key(key))
+        assert key_after == key_before
+        assert _events(vault) == before
+
+
+def test_nonidentity_reserved_scope_does_not_hide_key_claim(vault, monkeypatch):
+    """Guard: skip claim preflight after a reserved project argument error."""
+    key = vault.key("bound", "project_scoped_agent", "alpha")
+    _assert_new_refusal(vault, monkeypatch, key,
+        {"agent_id": "other-reserved-project", "projects": ["~global"]},
+        "agent_id_mismatch", "claimed_agent_id", "other-reserved-project")
+    before = _events(vault)
+    failed, result = _call(vault, monkeypatch, key, "alice_recall", {
+        "query": "example", "agent_id": "bound", "projects": ["~global"],
+    })
+    assert failed and result["error"]["code"] == "invalid_request", result
+    assert _events(vault) == before
+
+
+def test_argument_error_wording_does_not_choose_claim_preflight(vault, monkeypatch):
+    """Guard: skip claim preflight after a core tool's schema argument error."""
+    from alicebot_api.mcp import registry
+    from alicebot_api.mcp.types import MCPArgumentError
+
+    key = vault.key("bound", "project_scoped_agent", "alpha")
+
+    def invalid(*args, **kwargs):
+        raise MCPArgumentError("a diagnostic without a field name")
+
+    monkeypatch.setattr(registry, "_validate_mcp_arguments_against_advertised_schema", invalid)
+    _assert_new_refusal(vault, monkeypatch, key, {"agent_id": "other-neutral-message"},
+                        "agent_id_mismatch", "claimed_agent_id", "other-neutral-message")
+    before = _events(vault)
+    failed, result = _call(vault, monkeypatch, key, "alice_recall", {"query": "example", "agent_id": "bound"})
+    assert failed and result["error"]["code"] == "invalid_request", result
+    assert _events(vault) == before
+
+
+def test_unstorable_argument_does_not_hide_a_key_claim(vault, monkeypatch):
+    """Guard: skip claim preflight after the JSON bounds check rejects arguments."""
+    from alicebot_api.json_bounds import MAX_STORED_JSON_DEPTH
+    from alicebot_api.mcp import registry
+
+    definition = dict(registry._TOOL_DEFINITIONS_BY_NAME["alice_recall"])
+    definition["inputSchema"] = {
+        "type": "object", "additionalProperties": False,
+        "properties": {"query": {"type": "string"}, "agent_id": {"type": "string"}, "data": {"type": "object"}},
+    }
+    monkeypatch.setitem(registry._TOOL_DEFINITIONS_BY_NAME, "alice_recall", definition)
+    deep = {}
+    for _ in range(MAX_STORED_JSON_DEPTH):
+        deep = {"nested": deep}
+    key = vault.key("bound", "project_scoped_agent", "alpha")
+    _assert_new_refusal(vault, monkeypatch, key, {"agent_id": "other-deep", "data": deep},
+                        "agent_id_mismatch", "claimed_agent_id", "other-deep")
+    before = _events(vault)
+    failed, result = _call(vault, monkeypatch, key, "alice_recall", {"query": "example", "agent_id": "bound", "data": deep})
+    assert failed and result["error"]["code"] == "invalid_request", result
+    assert _events(vault) == before
