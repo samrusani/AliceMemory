@@ -8,6 +8,9 @@ The PostgreSQL case ``readable-budget-reads-past-the-cap-postgres`` also needs
 ``ALICE_READ_MERGE_BASE_CHECKOUT`` set to the source tree at the merge base.
 When replaying on a clean base itself, set it to ``$PWD``. On a later head,
 point it at the actual merge-base source, as the read-budget jobs do.
+``BENCH_TEST_SOURCE`` must name a Git repository; when unset it defaults to the
+repository running this script. If an enclosing Git repository ignores an
+archived file, choose an unignored ``TMPDIR`` or one outside that repository.
 """
 from __future__ import annotations
 
@@ -54,7 +57,6 @@ def main() -> int:
     selected = [case for case in cases if not args.only or case["name"] in args.only]
     if not selected:
         parser.error("no selected mutation cases")
-    args.output.mkdir(parents=True, exist_ok=True)
     results = []
     with tempfile.TemporaryDirectory(prefix="alice-label-mutants-") as directory:
         root = Path(directory).resolve()
@@ -65,13 +67,23 @@ def main() -> int:
         checkout.mkdir()
         with tarfile.open(archive) as source:
             source.extractall(checkout, filter="data")
+        paths = [path.relative_to(checkout).as_posix() for path in checkout.rglob("*") if path.is_file()]
+        ignored = subprocess.run(
+            ["git", "-C", str(checkout), "check-ignore", "--stdin", "-z"],
+            input="\0".join(paths) + "\0", capture_output=True, text=True, check=False,
+        )
+        if ignored.returncode == 0:
+            parser.error("archived files are ignored by an enclosing Git repository; set TMPDIR to an unignored directory or one outside that repository")
+        args.output.mkdir(parents=True, exist_ok=True)
         env = {**os.environ, "PYTHONPATH": str(checkout / "apps/api/src"), "PYTHONDONTWRITEBYTECODE": "1"}
+        env.setdefault("BENCH_TEST_SOURCE", str(repository))
         for case in selected:
             originals = {}
             for edit in case["edits"]:
                 path, raw = check_edit(checkout, edit)
                 originals[path] = raw
             command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *case["pytest"]]
+            (args.output / (case["name"] + "-mutant.log")).unlink(missing_ok=True)
             baseline = subprocess.run(command, cwd=checkout, env=env, capture_output=True, text=True, timeout=180)
             (args.output / (case["name"] + "-baseline.log")).write_text(baseline.stdout + baseline.stderr)
             mutant = None
