@@ -100,6 +100,32 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
         raise MCPArgumentError(str(exc)) from exc
 
 
+class _PreflightRollback(Exception):
+    """End a non-escalating claim preflight without committing its key touch."""
+
+
+def _preflight_key_claim(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> None:
+    """Check claims behind an argument error without committing other writes."""
+    raw_key = (os.environ.get(AGENT_API_KEY_ENV) or "").strip() or None
+    if raw_key is None or context.agent_identity_resolved or not arguments:
+        return
+    try:
+        with _vnext_store_context(context) as store:
+            try:
+                resolve_agent_identity(store, user_id=context.user_id, raw_key=raw_key, payload=arguments)
+            except AgentKeyAuthenticationError as exc:
+                if exc.reason in {"agent_id_mismatch", "profile_escalation", "scope_escalation"}:
+                    raise
+            except AgentIdentityValidationError:
+                pass
+            # The exception leaves the store's transaction, rolling back the key touch on both backends.
+            raise _PreflightRollback()
+    except _PreflightRollback:
+        return
+    except AgentKeyAuthenticationError as exc:
+        raise MCPIdentityClaimRefusedError(str(exc)) from exc
+
+
 RESERVED_PROJECT_NAME_MESSAGE = (
     "the project name ~global is reserved by Alice and cannot be sent as a project, "
     "a project scope or an identity scope"

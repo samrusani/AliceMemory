@@ -20,7 +20,7 @@ import pytest
 
 from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPNotPermittedError, MCPRuntimeContext
-from alicebot_api.vnext_agent_keys import agent_key_prefix, hash_agent_key, mint_agent_key
+from alicebot_api.vnext_agent_keys import agent_key_prefix, create_agent_key, hash_agent_key, mint_agent_key
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
 from tests.integration.operator_route_probes import PROBES
 from tests.integration.operator_route_runner import carried, run_call
@@ -211,7 +211,10 @@ def test_the_owner_still_reads_every_project(label_harness, monkeypatch):
 
 @pytest.mark.parametrize("spelling", ["~global", "~GLOBAL", " ~Global "])
 def test_a_declared_scope_with_the_reserved_name_is_refused_over_http(label_harness, spelling):
-    """Mutation: remove the check from the declared-scope reader, or from the claim reader of a keyed call."""
+    """A declared scope containing the reserved name is refused over HTTP.
+
+    Guard: remove the reserved-name check from the claim reader of a keyed call.
+    """
 
     build_world(label_harness)
     identity = {"agent_id": "declared", "permission_profile": "project_scoped_agent", "project_scope": [spelling]}
@@ -227,8 +230,11 @@ def test_a_declared_scope_with_the_reserved_name_is_refused_over_http(label_harn
     )
     assert status == 201, body
     # Keys exist now: an unbound key and a bound key may not claim the name either.
-    unbound = label_harness.key("trusted_local_agent")
-    bound = label_harness.key("project_scoped_agent", project=ORCHARD)
+    with label_harness.store() as store:
+        _, unbound = create_agent_key(store, user_id=label_harness.user_id, agent_id="declared",
+                                      permission_profile="trusted_local_agent")
+        _, bound = create_agent_key(store, user_id=label_harness.user_id, agent_id="declared",
+                                    permission_profile="project_scoped_agent", project_scope=ORCHARD)
     for key in (unbound, bound):
         for expected, payload in (
             (403, {"query": "Synthetic fact", "agent_identity": {"project_scope": [spelling]}}),

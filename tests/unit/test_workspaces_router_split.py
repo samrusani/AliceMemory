@@ -162,7 +162,7 @@ EXPECTED_CARRIER_NAMES_SHA256 = "946e9d456afbdc7751df671b251457a432ba444dbbdfad5
 # _withhold_hidden_ids keeps ids from that copy. The set of definitions is the same.
 # Re-pin: `_vnext_protected_http_auth` records the user the key was authenticated for, and `_withhold_hidden_ids` keeps
 # every response header, repeated ones included. The set of definitions is the same.
-EXPECTED_CARRIER_AST_SHA256 = "039f3b987d1bce8daff4c142bb69ab4b6357cd284683c59005cef5bbe50400c0"
+EXPECTED_CARRIER_AST_SHA256 = "4f4e5be45b408bc4450316014a8697ea305a0a09e908cb9b40183bf6d52a69cd"
 EXPECTED_ROUTE_NODE_SHA256 = {
     "get_vnext_workspace": "62f9a0dec65229b3ff523d12e99529f1e4751f7953e26ed69fc52d184ebc9d2d",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",
@@ -514,6 +514,7 @@ def test_workspace_handlers_supports_and_partitions_are_exact_mechanical_copies(
 
 
 def test_workspace_import_direction_pruning_timing_and_runtime_identities_are_exact() -> None:
+    """Guard: omit keyed HTTP identity defaults before resolving a request."""
     main_tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
     router_tree = ast.parse(ROUTER_PATH.read_text(encoding="utf-8"))
     main_definitions = _top_level_definitions(main_tree)

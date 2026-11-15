@@ -59,6 +59,8 @@ from alicebot_api.routers._api_shared import (
     _resolve_authenticated_v1_user_id,
 )
 from alicebot_api.routers._vnext_shared import (
+    _allow_partial_keyed_identity,
+    _keyed_http_identity_defaults,
     VNextAgentIdentityRequest,
     VNextAgentRequest,
     VNextDomain,
@@ -915,7 +917,7 @@ def _resolve_vnext_http_auth(
             store,
             user_id=user_id,
             raw_key=raw_key,
-            payload=payload,
+            payload=_keyed_http_identity_defaults(payload) if raw_key is not None else payload,
         )
         route_decision = _vnext_central_route_policy(
             identity=identity,
@@ -1047,7 +1049,14 @@ async def _vnext_protected_http_auth(
     # The user this key was authenticated for. The withhold layer opens its connection for this user and reads no
     # user_id from the query or the body, which only some deployments rewrite.
     request.state.vnext_authenticated_user_id = user_id
-    return await call_next(request)
+    allow_partial = raw_key is not None and any(
+        field in payload for field in ("agent_id", "agent_type", "agent_run_id", "task_id", "permission_profile", "project_scope")
+    )
+    token = _allow_partial_keyed_identity.set(allow_partial)
+    try:
+        return await call_next(request)
+    finally:
+        _allow_partial_keyed_identity.reset(token)
 
 
 # The innermost middleware: it reads a body only once the identity, /v1 and vNext

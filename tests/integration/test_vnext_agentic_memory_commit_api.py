@@ -388,7 +388,10 @@ def _bind_settings(monkeypatch, database_url: str) -> None:
 def test_blocked_replay_with_foreign_labels_matches_the_writer_400(
     migrated_database_urls, monkeypatch
 ) -> None:
-    """A guessed key does not learn the stored row's labels."""
+    """A guessed key does not learn the stored row's labels.
+
+    Guard: let a blocked replay return its policy refusal for different content.
+    """
 
     app_url = migrated_database_urls["app"]
     user_id = seed_user(app_url, email="label-replay@example.com")
@@ -440,7 +443,7 @@ def test_blocked_replay_with_foreign_labels_matches_the_writer_400(
         "confidence": 0.96,
         "source_type": "direct_user_instruction",
         "idempotency_key": key,
-        "project_scope": ["ProjectB"],
+        "project_scope": ["ProjectA"],
     }
     blocked = invoke_request(
         "POST",
@@ -459,7 +462,7 @@ def test_blocked_replay_with_foreign_labels_matches_the_writer_400(
     admin = invoke_request(
         "POST",
         "/v0/vnext/memories/commit",
-        payload={**different, "agent": _agent("admin_agent", agent_id="admin")},
+        payload={**different, "agent": {**_agent("admin_agent", agent_id="admin"), "project_scope": ["ProjectA"]}},
         authorization=f"Bearer {admin_key}",
     )
     assert blocked == admin
@@ -477,7 +480,10 @@ def test_blocked_replay_with_foreign_labels_matches_the_writer_400(
 def test_same_content_replay_after_project_move_is_400_without_the_new_label(
     migrated_database_urls, monkeypatch
 ) -> None:
-    """Moving the row does not put the new project in a blocked replay body."""
+    """Moving the row does not put the new project in a blocked replay body.
+
+    Guard: ignore changed stored labels for a blocked replay with matching content.
+    """
 
     app_url = migrated_database_urls["app"]
     user_id = seed_user(app_url, email="moved-replay@example.com")
@@ -526,7 +532,7 @@ def test_same_content_replay_after_project_move_is_400_without_the_new_label(
         "/v0/vnext/memories/commit",
         payload={
             "user_id": user_id_text,
-            "agent": _agent("read_only_agent", agent_id="readonly"),
+            "agent": {**_agent("read_only_agent", agent_id="readonly"), "project_scope": ["ProjectB"]},
             "intent": "explicit_remember",
             "title": "Project note",
             "canonical_text": text,

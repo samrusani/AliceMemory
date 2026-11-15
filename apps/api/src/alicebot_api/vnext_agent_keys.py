@@ -10,6 +10,7 @@ from typing import Literal, Mapping, Protocol
 from alicebot_api.vnext_agent_control import (
     PERMISSION_PROFILES,
     AgentIdentity,
+    AgentIdentityValidationError,
 )
 from alicebot_api.vnext_project_scope import (
     normalize_project_identifier,
@@ -215,9 +216,8 @@ def resolve_agent_identity(
     ``auth: "unauthenticated_local"``.
     """
 
-    claimed = AgentIdentity.from_payload(payload)
-
     if raw_key is None:
+        claimed = AgentIdentity.from_payload(payload)
         if claimed is None:
             return None
         if int(store.count_active_agent_api_keys()) > 0:
@@ -229,12 +229,24 @@ def resolve_agent_identity(
             )
         return replace(claimed, auth=UNAUTHENTICATED_LOCAL_AUTH)
 
+    # Keep malformed requests' old answer for a key that cannot be used. For
+    # a valid key, defer the error until all of its claims have been checked.
+    deferred_validation: AgentIdentityValidationError | None = None
+    try:
+        AgentIdentity.from_payload(payload)
+    except AgentIdentityValidationError as exc:
+        deferred_validation = exc
+
     record = verify_agent_key(store, raw_key)
     if record is None:
+        if deferred_validation is not None:
+            raise deferred_validation
         raise AgentKeyAuthenticationError(
             "agent API key is invalid or has been revoked", status_code=401, reason="invalid_key"
         )
     if str(record.get("user_id")) != str(user_id):
+        if deferred_validation is not None:
+            raise deferred_validation
         raise AgentKeyAuthenticationError(
             "agent API key does not belong to this user", status_code=401, reason="wrong_user"
         )
@@ -245,6 +257,8 @@ def resolve_agent_identity(
     stored_binding = record.get("project_scope")
     stored_reserved = reserved_project_marker(stored_binding) if isinstance(stored_binding, str) else None
     if stored_reserved is not None:
+        if deferred_validation is not None:
+            raise deferred_validation
         # Every surface answers with its standard refusal, which names no reason, so the reason and the way to
         # find and revoke the key go to the server log. Nothing read from the key's record is logged: the line
         # names the reserved word, and ``alicebot agent keys list`` shows the key whose project_scope reads it.
@@ -269,7 +283,7 @@ def resolve_agent_identity(
 
     key_agent_id = str(record["agent_id"])
     key_profile = str(record["permission_profile"])
-    source = _identity_source(payload)
+    source, raw_scopes, conflicts = _identity_source(payload, key_agent_id=key_agent_id, key_profile=key_profile)
     claimed_agent_id = _claimed_text(source.get("agent_id"))
     claimed_profile = _claimed_text(source.get("permission_profile"))
 
@@ -301,10 +315,21 @@ def resolve_agent_identity(
             )
         effective_profile = claimed_profile
 
-    if claimed is None:
-        claimed = AgentIdentity.from_payload(
-            {"agent_id": key_agent_id, "permission_profile": key_profile}
-        ) or AgentIdentity(agent_id=key_agent_id, permission_profile=key_profile)
+    deferred_scope_error: AgentKeyAuthenticationError | None = None
+    parsed_scopes: list[tuple[str, ...]] = []
+    for raw in raw_scopes:
+        try:
+            scope = _claimed_project_scope({"project_scope": raw})
+        except AgentKeyAuthenticationError as exc:
+            if deferred_scope_error is None:
+                deferred_scope_error = exc
+            # A malformed list can still contain an out-of-binding claim.
+            candidates = [item for item in raw if isinstance(item, str) and normalize_project_identifier(item)
+                          and reserved_project_marker(item) is None] if isinstance(raw, (list, tuple)) else []
+            scope = normalize_project_scope(candidates)
+        if scope:
+            parsed_scopes.append(scope)
+    scopes = tuple(parsed_scopes)
 
     raw_key_project_scope = record.get("project_scope")
     key_project_scope = (
@@ -322,11 +347,7 @@ def resolve_agent_identity(
             "agent API key has an invalid blank project scope binding",
             status_code=403, reason="invalid_binding", key_rejection=rejection,
         )
-    # Read the scope claim from the payload source directly (like the
-    # profile claim): key-only calls without an agent_id still must not be
-    # able to widen the binding.
-    claimed_scope = _claimed_project_scope(source) or claimed.project_scope
-    effective_project_scope = claimed.project_scope or claimed_scope
+    claimed_scope = tuple(dict.fromkeys(value for scope in scopes for value in scope))
     project_scope_locked = False
     if key_project_scope is not None:
         bound_scope = (key_project_scope,)
@@ -352,10 +373,32 @@ def resolve_agent_identity(
                 "projects.",
                 status_code=403, reason="scope_escalation", key_rejection=rejection,
             )
-        # A subset claim narrows; an empty claim inherits the key binding.
-        effective_project_scope = claimed_scope or bound_scope
         project_scope_locked = True
 
+    if deferred_validation is not None:
+        raise deferred_validation
+    if deferred_scope_error is not None:
+        raise deferred_scope_error
+    if conflicts:
+        raise AgentIdentityValidationError("identity fields disagree")
+    effective_project_scope = scopes[0] if scopes else ()
+    for scope in scopes[1:]:
+        allowed = set(project_scope_identity(scope))
+        effective_project_scope = tuple(
+            value for value in effective_project_scope if set(project_scope_identity((value,))).issubset(allowed)
+        )
+        if not effective_project_scope:
+            raise AgentIdentityValidationError("identity project scopes disagree")
+    if key_project_scope is not None:
+        effective_project_scope = effective_project_scope or (key_project_scope,)
+    # This same source supplies both the checks above and the running identity.
+    if scopes:
+        source["project_scope"] = list(scopes[0])
+    claimed = AgentIdentity.from_payload(source)
+    if claimed is None:
+        claimed = AgentIdentity.from_payload(
+            {"agent_id": key_agent_id, "permission_profile": key_profile}
+        ) or AgentIdentity(agent_id=key_agent_id, permission_profile=key_profile)
     return replace(
         claimed,
         agent_id=key_agent_id,
@@ -394,14 +437,32 @@ def resolve_protected_agent_identity(
     )
 
 
-def _identity_source(payload: Mapping[str, object]) -> Mapping[str, object]:
-    nested = payload.get("agent_identity")
-    if isinstance(nested, Mapping):
-        return nested
-    nested = payload.get("agent")
-    if isinstance(nested, Mapping):
-        return nested
-    return payload
+def _identity_source(
+    payload: Mapping[str, object], *, key_agent_id: str, key_profile: str,
+) -> tuple[dict[str, object], tuple[object, ...], bool]:
+    """Combine every keyed claim for both authorization and identity construction."""
+    sources = [payload]
+    for name in ("agent_identity", "agent"):
+        nested = payload.get(name)
+        if isinstance(nested, Mapping):
+            sources.append(nested)
+    combined: dict[str, object] = {}
+    identifiers = [_claimed_text(source.get("agent_id")) for source in sources]
+    ids = [value for value in identifiers if value is not None]
+    if ids:
+        combined["agent_id"] = next((value for value in ids if value != key_agent_id), ids[0])
+    profiles = [value for source in sources if (value := _claimed_text(source.get("permission_profile"))) is not None]
+    if profiles:
+        escalation = next((value for value in profiles if _PROFILE_RANKS.get(value, len(_PROFILE_RANKS)) > _PROFILE_RANKS[key_profile]), None)
+        combined["permission_profile"] = escalation or min(profiles, key=lambda value: _PROFILE_RANKS[value])
+    conflicts = False
+    for field in ("agent_type", "agent_run_id", "task_id"):
+        values = [value for source in sources if (value := _claimed_text(source.get(field))) is not None]
+        if values:
+            combined[field] = values[0]
+            conflicts = conflicts or any(value != values[0] for value in values[1:])
+    scopes = tuple(source["project_scope"] for source in sources if source.get("project_scope") is not None)
+    return combined, scopes, conflicts
 
 
 def _claimed_text(value: object) -> str | None:

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from contextvars import ContextVar
 from typing import Literal, Mapping
 from uuid import UUID
 
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
 from alicebot_api.public_errors import public_exception_response
 from alicebot_api.vnext_agent_control import (
@@ -54,6 +55,9 @@ class VNextAgentIdentityRequest(BaseModel):
     permission_profile: str | None = Field(default=None, min_length=1, max_length=80)
 
 
+_allow_partial_keyed_identity: ContextVar[bool] = ContextVar("allow_partial_keyed_identity", default=False)
+
+
 class VNextAgentRequest(BaseModel):
     agent: VNextAgentIdentityRequest | None = None
     agent_identity: VNextAgentIdentityRequest | None = None
@@ -64,6 +68,25 @@ class VNextAgentRequest(BaseModel):
     project_scope: list[str] = Field(default_factory=list)
     permission_profile: str | None = Field(default=None, min_length=1, max_length=80)
     trace_id: str | None = Field(default=None, min_length=1, max_length=160)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _accept_partial_keyed_identity(cls, value: object, handler):
+        if not _allow_partial_keyed_identity.get() or not isinstance(value, Mapping):
+            return handler(value)
+        adjusted = dict(value)
+        filled = []
+        for name in ("agent_identity", "agent"):
+            nested = adjusted.get(name)
+            if isinstance(nested, Mapping) and "agent_id" not in nested:
+                adjusted[name] = {**nested, "agent_id": "identity-placeholder"}
+                filled.append(name)
+        result = handler(adjusted)
+        for name in filled:
+            nested = getattr(result, name).model_copy(update={"agent_id": None})
+            nested.__pydantic_fields_set__.discard("agent_id")
+            setattr(result, name, nested)
+        return result
 
 
 VNextDomain = Literal[
@@ -463,6 +486,26 @@ def _vnext_agent_identity(request: VNextAgentRequest) -> AgentIdentity | None:
     return AgentIdentity.from_payload(payload)
 
 
+def _keyed_http_identity_defaults(payload: Mapping[str, object]) -> dict[str, object]:
+    """Keep the nested HTTP model's existing default without treating it as a claim."""
+    result = dict(payload)
+    sources = [payload]
+    nested_names = []
+    for name in ("agent_identity", "agent"):
+        nested = payload.get(name)
+        if isinstance(nested, Mapping):
+            sources.append(nested)
+            nested_names.append(name)
+    if nested_names and not any(
+        isinstance(source.get("agent_type"), str) and bool(str(source["agent_type"]).strip()) for source in sources
+    ):
+        name = nested_names[0]
+        nested = payload[name]
+        if isinstance(nested, Mapping):
+            result[name] = {**nested, "agent_type": "unknown"}
+    return result
+
+
 def _vnext_authenticated_agent_identity(
     store: PostgresVNextStore,
     request: VNextAgentRequest,
@@ -470,7 +513,11 @@ def _vnext_authenticated_agent_identity(
     user_id: UUID,
     authorization: str | None,
 ) -> AgentIdentity | None:
-    payload = _vnext_normalized_agent_payload(request)
+    payload = (
+        _keyed_http_identity_defaults(request.model_dump(mode="json", exclude_unset=True, warnings=False))
+        if agent_key_from_authorization(authorization) is not None
+        else _vnext_normalized_agent_payload(request)
+    )
     return resolve_protected_agent_identity(
         store,
         user_id=user_id,

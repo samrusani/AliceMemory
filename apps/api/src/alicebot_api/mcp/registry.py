@@ -171,7 +171,7 @@ from .synthesis import (
     _handle_alice_graph_edge_review,
     _handle_alice_graph_neighborhood,
 )
-from .policy import _vault_has_active_key, _is_sqlite_backend
+from .policy import _vault_has_active_key, _is_sqlite_backend, _preflight_key_claim
 from .runtime import _sqlite_path_from_url
 from .types import (
     MCPArgumentError,
@@ -563,17 +563,34 @@ def call_mcp_tool(
             f"set {LEGACY_SURFACES_ENV}=1 in addition to {MCP_LEGACY_TOOLS_ENV} to enable it"
         )
 
-    parsed_arguments = _normalize_arguments(arguments)
+    try:
+        parsed_arguments = _normalize_arguments(arguments)
+    except MCPArgumentError:
+        if name in _CORE_TOOL_NAMES:
+            _preflight_key_claim(context, {})
+        raise
     # The schema walk first: it names the field of a typed number that is NaN or out of range. Then the write limits, for
     # whatever the schema leaves free (a tool that takes an object or a list of objects): before any handler runs, and
     # before anything of the arguments is stored.
-    _validate_mcp_arguments_against_advertised_schema(name, parsed_arguments)
+    try:
+        _validate_mcp_arguments_against_advertised_schema(name, parsed_arguments)
+    except MCPArgumentError:
+        if name in _CORE_TOOL_NAMES:
+            _preflight_key_claim(context, parsed_arguments)
+        raise
     try:
         refuse_unstorable_json(parsed_arguments, name=f"tool '{name}' arguments")
     except JsonShapeError as exc:
+        if name in _CORE_TOOL_NAMES:
+            _preflight_key_claim(context, parsed_arguments)
         raise MCPArgumentError(str(exc)) from exc
     # The reserved global marker of per-project memory is never caller input.
-    _refuse_reserved_project_marker(parsed_arguments)
+    try:
+        _refuse_reserved_project_marker(parsed_arguments)
+    except MCPInvalidRequestError:
+        if name in _CORE_TOOL_NAMES:
+            _preflight_key_claim(context, parsed_arguments)
+        raise
     try:
         if name in _CORE_TOOL_NAMES:
             # Authentication is a property of the MCP boundary, not an

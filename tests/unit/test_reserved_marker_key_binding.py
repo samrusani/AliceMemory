@@ -601,13 +601,16 @@ def test_the_owner_and_an_unbound_admin_key_still_read_every_project(
 def test_a_caller_who_sends_the_reserved_name_as_a_scope_is_still_refused_at_the_tool_edge(
     world: World, monkeypatch: pytest.MonkeyPatch, spelling: str
 ) -> None:
-    """The refusal at the edge of the tools is unchanged: the name is not accepted as a project, a scope or an identity's scope."""
+    """The refusal at the edge of the tools is unchanged: the name is not accepted as a project, a scope or an identity's scope.
+
+    Guard: remove the reserved-name refusal before the tool handler runs.
+    """
 
     key = store_key(world, profile="trusted_local_agent", binding=None)
     before = world.counts()
     for arguments in (
         {"status": "all", "projects": [spelling]},
-        {"status": "all", "agent_identity": {"agent_id": "agent", "project_scope": [spelling]}},
+        {"status": "all", "agent_identity": {"agent_id": "trusted_local_agent-None", "project_scope": [spelling]}},
     ):
         with pytest.raises(MCPInvalidRequestError):
             seen(world, key, monkeypatch, "alice_memory_review", arguments)

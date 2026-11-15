@@ -98,7 +98,7 @@ _AGENT_IDENTITY_SCHEMA_PROPERTIES: dict[str, object] = {
             "permission_profile": {"type": "string"},
             "trace_id": {"type": "string"},
         },
-        "description": "Optional nested identity; flat fields also work. With an agent key, omit it: the key sets identity; profiles and scopes can only narrow.",
+        "description": "Optional nested identity; flat and nested fields are read together. With an agent key, omit it: the key sets identity; profiles and scopes can only narrow.",
     },
     "agent_id": {
         "type": "string",
