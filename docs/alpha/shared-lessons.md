@@ -50,7 +50,7 @@ id with the returned memory id:
 
 To retire a wrong published lesson, call the full-surface `alice_memory_manage`
 tool with its memory id and a reason. Record a new lesson if a replacement is
-needed.
+needed. See [standing to retire a memory](../memory-operations-protocol.md#standing-to-retire-a-memory) for who may retire or unexpire one.
 
 ```json
 {"action":"expire","memory_id":"00000000-0000-4000-8000-000000000001","reason":"The lesson is no longer correct."}

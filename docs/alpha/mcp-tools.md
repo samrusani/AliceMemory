@@ -335,6 +335,7 @@ is a CLI verb, not an always-on agent tool.
   Redact and
   accept_consolidation require a human operator or an admin agent, and
   expire/unexpire/accept_consolidation/redact all require a `reason`.
+  See [standing to retire a memory](../memory-operations-protocol.md#standing-to-retire-a-memory) for who may use the retirement verbs.
 
 **Read**
 

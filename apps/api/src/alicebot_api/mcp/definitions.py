@@ -956,7 +956,9 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
             "separate source hygiene. A mutation of a memory above the caller's sensitivity "
             "ceiling is refused. Confirm and reject of a pending write are limited to its author, "
             "an admin_agent key, or the owner; on a keyless install that limit is not protection, "
-            "because the caller can declare the author's agent_id. Redact is restricted to a human "
+            "because the caller can declare the author's agent_id. Retiring a waiting write needs "
+            "the standing to decide it; retiring or unexpiring a lesson needs publishing standing. "
+            "Redact is restricted to a human "
             "operator or an admin agent (as is accept_consolidation)."
         ),
         "inputSchema": {

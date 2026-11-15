@@ -124,6 +124,7 @@ def test_mcp_carriers_are_complete_bounded_and_do_not_import_onramps() -> None:
 
 
 def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
+    """Guard: remove retirement standing from the manage tool description."""
     core_definitions = mcp_registry._CORE_TOOL_DEFINITIONS
     legacy_definitions = mcp_registry._LEGACY_TOOL_DEFINITIONS
     handlers = mcp_registry._TOOL_HANDLERS
@@ -189,8 +190,9 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # text). Restoring the previous schema reproduces the previous core
     # digest. No tool added, removed, or renamed, and no other schema,
     # annotation, or default changed. Legacy definitions are unchanged.
+    # The manage description now states retirement standing.
     assert core_definitions[-1]["name"] == "alice_lessons"
-    assert _digest(core_definitions[:-1]) == "a31b23b8a416b55c860a842e63af455184599a2569c1f149da9a945c261e9a5a"
+    assert _digest(core_definitions[:-1]) == "6ed1e621cff2ea24b1ffba5b48d5ea5c7c752157cdc5ba3e5cfbaaf958b4c484"
     assert _digest(legacy_definitions) == "6b302f61e48d4f6196af8a7d2c8882130d565d84134f51bba38648f84c09089e"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items() if name != "alice_lessons"]
     assert _digest(ordered_handler_map) == "fb200cfbecef6249b7cf80b17b0737d3b44cfdd04cda8c701d491ed4ac401798"

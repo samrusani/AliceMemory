@@ -212,7 +212,7 @@ Permission profiles:
 
 - `read_only_agent`: context lookup only
 - `project_scoped_agent`: project context, project outputs, explicit project-domain memory commits, and review-only proposals
-- `trusted_local_agent`: broader local assistant context, still policy-filtered
+- `trusted_local_agent`: broader local assistant context, still policy-filtered; retirement standing is described in the [memory protocol](../memory-operations-protocol.md#standing-to-retire-a-memory)
 - `memory_proposal_agent`: proposal-focused agent
 - `admin_agent`: scheduler and administrative actions
 
@@ -435,6 +435,7 @@ only when all of them are inside its binding. See
 `read_only_agent` cannot write. `memory_proposal_agent` can submit a
 review-only proposal but cannot approve, correct, forget, redact, or otherwise
 mutate an existing resource.
+See [standing to retire a memory](../memory-operations-protocol.md#standing-to-retire-a-memory) for the other profiles.
 
 ## Explicit Memory Commits
 

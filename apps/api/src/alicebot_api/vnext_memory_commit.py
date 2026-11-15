@@ -1038,8 +1038,7 @@ def evaluate_memory_commit_policy(
     if (
         request.lesson is not None
         and mode != "reject"
-        and identity is not None
-        and identity.permission_profile != "admin_agent"
+        and not caller_may_publish_lesson(identity)
     ):
         # Publishing a lesson at once is the owner's and an admin_agent
         # key's standing alone. Every other identity, whatever its profile,
@@ -1169,6 +1168,12 @@ def caller_may_resolve_pending_write(
         return True
     author = pending_write_author_agent_id(memory)
     return author is not None and identity.agent_id == author
+
+
+def caller_may_publish_lesson(identity: AgentIdentity | None) -> bool:
+    """Apply the standing used when a lesson is first published."""
+
+    return identity is None or identity.permission_profile == "admin_agent"
 
 
 def _block_mutation_above_sensitivity_ceiling(decision: PolicyDecision) -> PolicyDecision:
@@ -1875,9 +1880,9 @@ class VNextMemoryCommitService:
                 raise MemoryNotFoundError("superseding memory was not found")
             if str(successor["id"]) == str(memory["id"]):
                 raise VNextMemoryCommitValidationError("a memory cannot supersede itself")
-            self.refuse_unauthorized_write(identity=identity, action="memory.undo", memory=successor)
+            self.refuse_unauthorized_write(identity=identity, action="memory.undo", memory=successor, retirement_target=False)
             _require_project_update_decision_path(successor)
-            self._policy_checked_write(identity=identity, action="memory.undo", memory=successor)
+            self._policy_checked_write(identity=identity, action="memory.undo", memory=successor, retirement_target=False)
         # A retirement always completes (owner ruling R2): a reason carrying
         # credential material is stored as the fixed placeholder.
         reason_text, rationale_withheld = withhold_credential_text(reason or "Agentic memory commit undone.")
@@ -2613,6 +2618,7 @@ class VNextMemoryCommitService:
         memory: Mapping[str, object],
         allow_above_ceiling: bool = False,
         kind: str = "memory",
+        retirement_target: bool = True,
     ) -> PolicyDecision:
         """Decide one mutation of a stored target without writing anything.
 
@@ -2657,6 +2663,42 @@ class VNextMemoryCommitService:
                 decision="blocked",
                 reasons=tuple(dict.fromkeys((*decision.reasons, PENDING_WRITE_RESOLVER_REASON))),
             )
+        if retirement_target and kind == "memory" and action in {"memory.forget", "memory.expire", "memory.undo", "memory.unexpire"}:
+            confirmation = _agentic_metadata(memory).get("confirmation")
+            pending = (
+                memory.get("status") == "needs_review"
+                and isinstance(confirmation, Mapping)
+                and confirmation.get("status") == "pending"
+            )
+            review = memory.get("status") == "candidate"
+            review_decision = (
+                evaluate_agent_policy(
+                    identity=identity,
+                    action="memory.review",
+                    domains=domains,
+                    sensitivity_allowed=sensitivity_allowed,
+                    project_scope=project_scope,
+                    project_floor=project_floor,
+                    require_explicit_project_scope=True,
+                )
+                if review
+                else None
+            )
+            if action != "memory.unexpire" and (
+                (pending and not caller_may_resolve_pending_write(identity, memory))
+                or (review_decision is not None and review_decision.decision == "blocked")
+            ):
+                decision = replace(
+                    decision,
+                    decision="blocked",
+                    reasons=tuple(dict.fromkeys((*decision.reasons, PENDING_WRITE_RESOLVER_REASON))),
+                )
+            if memory_carries_lesson(memory) and not caller_may_publish_lesson(identity):
+                decision = replace(
+                    decision,
+                    decision="blocked",
+                    reasons=tuple(dict.fromkeys((*decision.reasons, "lesson_requires_approval"))),
+                )
         return decision
 
     def _record_write_decision(
@@ -2721,6 +2763,7 @@ class VNextMemoryCommitService:
         target_type: str = "memory",
         allow_above_ceiling: bool = False,
         answer_as_missing: bool = True,
+        retirement_target: bool = True,
     ) -> PolicyDecision:
         """Authorize one mutation of a stored target and record the decision.
 
@@ -2743,6 +2786,7 @@ class VNextMemoryCommitService:
             memory=memory,
             allow_above_ceiling=allow_above_ceiling,
             kind="open_loop" if target_type == "open_loop" else "memory",
+            retirement_target=retirement_target,
         )
         self._answer_as_missing_if_unreadable(
             identity=identity, decision=decision, memory=memory, target_type=target_type, answer_as_missing=answer_as_missing
@@ -2762,6 +2806,7 @@ class VNextMemoryCommitService:
         memory: Mapping[str, object],
         allow_above_ceiling: bool = False,
         answer_as_missing: bool = True,
+        retirement_target: bool = True,
     ) -> None:
         """Refuse a caller the policy blocks, before any check of the row's state.
 
@@ -2781,6 +2826,7 @@ class VNextMemoryCommitService:
             action=action,
             memory=memory,
             allow_above_ceiling=allow_above_ceiling,
+            retirement_target=retirement_target,
         )
         if decision.decision == "blocked":
             # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.

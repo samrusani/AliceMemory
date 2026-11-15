@@ -295,6 +295,19 @@ and a ceiling refusal come back as `not_permitted`, an unknown confirmation
 id as `not_found` and a confirmation that is not pending as
 `precondition_failed`; a credential refusal stays `tool_request_failed`.
 
+## Standing to retire a memory
+
+A `project_scoped_agent` or `trusted_local_agent` key may retire an ordinary
+active memory in its project, regardless of who wrote it. A write waiting for
+confirmation may be retired by its author, an admin key or the owner. A
+proposal waiting for review may be retired by a caller who may approve or
+reject it. A memory carrying a lesson may be retired or unexpired only by a
+caller who may publish a lesson: the owner or an admin key. On a keyless vault,
+a declared admin profile has the same standing as it does when publishing.
+These rules apply to forget, expire and undo, and to unexpire for lessons.
+A refused visible target leaves the usual blocked policy events; an unreadable
+target answers as a missing target.
+
 ## undo
 
 Reverses a commit. The memory leaves recall; its history stays.
