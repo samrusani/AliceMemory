@@ -311,6 +311,7 @@ is a CLI verb, not an always-on agent tool.
   that carries credential material and writes nothing. In v0.17.0 and
   earlier, capture has no credential check, so a note that holds a key is
   stored and recall returns it.
+  An agent capture above its sensitivity ceiling is refused without storing a source.
 - `alice_memory_review` — inspect the review queue, or one item in detail.
 - `alice_memory_correct` — act on a memory: approve, edit-and-approve,
   reject, or supersede with a replacement. Every change is audited.

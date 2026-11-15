@@ -326,6 +326,9 @@ def _run_vnext_agents_ingest_output(ctx: CLIContext, args: argparse.Namespace) -
             project_scope=tuple(args.project_scope),
             write_policy="proposal_only" if args.propose_memory else None,
         )
+        from alicebot_api.vnext_memory_commit import _block_capture_above_sensitivity_ceiling
+
+        decision = _block_capture_above_sensitivity_ceiling(identity, decision)
         append_policy_events(
             store, identity=identity, decision=decision, target_type="connector", target_id="agent_output"
         )

@@ -68,6 +68,7 @@ def _handle_alice_vnext_capture(context: MCPRuntimeContext, arguments: Mapping[s
             sensitivity_allowed=(sensitivity,),
             project_scope=_parse_string_list(arguments, "project_scope"),
             project_view=ProjectView.unscoped(),
+            capture_sensitivity_ceiling=True,
         )
         if decision.decision == "blocked":
             blocked_decision = decision
@@ -135,6 +136,7 @@ def _handle_alice_vnext_ingest_agent_output(context: MCPRuntimeContext, argument
             project_scope=_parse_string_list(arguments, "project_scope"),
             write_policy="proposal_only" if _parse_bool(arguments, key="propose_memory", default=False) else None,
             project_view=ProjectView.unscoped(),
+            capture_sensitivity_ceiling=True,
         )
         if decision.decision == "blocked":
             blocked_decision = decision

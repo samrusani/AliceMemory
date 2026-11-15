@@ -84,15 +84,16 @@ def _run_agent_keys_revoke(ctx: CLIContext, args: argparse.Namespace) -> str:
     if not selector:
         raise AgentKeyValidationError("a key prefix or key id is required")
     with _vnext_store_context(ctx) as store:
-        records = store.list_agent_api_keys(limit=200)
+        records = store.list_agent_api_keys(limit=None)
         matches = [
             record
             for record in records
-            if str(record.get("id")) == selector or str(record.get("key_prefix") or "") == selector
+            if str(record.get("id")) == selector or str(record.get("key_prefix") or "").startswith(selector)
         ]
         if not matches:
             raise AgentKeyValidationError(f"no agent API key matches '{selector}'")
         if len(matches) > 1:
+            logger.warning("key prefix matches several keys; revoke by key id instead")
             raise AgentKeyValidationError(f"key prefix '{selector}' matches multiple keys; revoke by key id instead")
         revoked = store.revoke_agent_api_key(key_id=str(matches[0]["id"]))
         if revoked is None:

@@ -68,6 +68,7 @@ from alicebot_api.vnext_agent_control import (
     AgentPolicyBlockedError,
     PolicyDecision,
     append_policy_events,
+    evaluate_agent_policy,
     resource_project_scope,
 )
 from alicebot_api.vnext_agent_keys import (
@@ -82,6 +83,7 @@ from alicebot_api.vnext_capture import (
 from alicebot_api.vnext_connectors import (
     VNextConnectorService,
     VNextConnectorValidationError,
+    get_connector_definition,
     list_connector_definitions,
     scan_local_folder,
 )
@@ -440,6 +442,7 @@ def create_vnext_source(
                 domains=(request.domain,),
                 sensitivity_allowed=(request.sensitivity,),
                 project_scope=tuple(request.project_scope),
+                capture_sensitivity_ceiling=True,
             )
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
@@ -630,6 +633,36 @@ def _connector_sync_caller_guard(store: PostgresVNextStore, *, user_id: UUID, au
     return guard_for_caller(store, identity)
 
 
+def _connector_capture_ceiling(
+    store: PostgresVNextStore,
+    request: VNextAgentRequest,
+    *,
+    user_id: UUID,
+    authorization: str | None,
+    connector_name: str,
+    sensitivity: str | None,
+) -> PolicyDecision | None:
+    """Refuse a connector capture above the caller's sensitivity ceiling."""
+    from alicebot_api.vnext_memory_commit import _block_capture_above_sensitivity_ceiling
+
+    if agent_key_from_authorization(authorization) is not None:
+        identity = _vnext_authenticated_agent_identity(store, request, user_id=user_id, authorization=authorization)
+    else:
+        identity = _vnext_agent_identity(request)
+    if identity is None:
+        return None
+    definition = get_connector_definition(connector_name)
+    config = VNextConnectorService(store).get_config(connector_name)
+    selected = sensitivity or config.get("default_sensitivity") or definition.default_sensitivity
+    decision = evaluate_agent_policy(identity=identity, action="source.capture", sensitivity_allowed=(str(selected),))
+    blocked = _block_capture_above_sensitivity_ceiling(identity, decision)
+    if "sensitivity_above_agent_ceiling" not in blocked.reasons:
+        return None
+    _vnext_agent_record(store, identity)
+    append_policy_events(store, identity=identity, decision=blocked, target_type="connector", target_id=connector_name)
+    return blocked
+
+
 @connectors_router.post("/v0/vnext/connectors/{connector_name}/sync")
 def sync_vnext_connector(
     connector_name: str,
@@ -647,6 +680,10 @@ def sync_vnext_connector(
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
             guard = _connector_sync_caller_guard(store, user_id=request.user_id, authorization=authorization)
+            refusal = _connector_capture_ceiling(store, request, user_id=request.user_id, authorization=authorization,
+                                                  connector_name=connector_name, sensitivity=request.default_sensitivity)
+            if refusal is not None:
+                return _vnext_permission_response(refusal)
             service = VNextConnectorService(store, defer_embeddings=True)
             result = service.sync_items(
                 connector_name,
@@ -684,6 +721,10 @@ def sync_vnext_telegram_connector(
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
             guard = _connector_sync_caller_guard(store, user_id=request.user_id, authorization=authorization)
+            refusal = _connector_capture_ceiling(store, request, user_id=request.user_id, authorization=authorization,
+                                                  connector_name="telegram", sensitivity=request.default_sensitivity)
+            if refusal is not None:
+                return _vnext_permission_response(refusal)
             service = VNextConnectorService(store, defer_embeddings=True)
             result = service.sync_telegram_updates(
                 request.updates,
@@ -735,6 +776,10 @@ def sync_vnext_local_folder_connector(
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
             guard = _connector_sync_caller_guard(store, user_id=request.user_id, authorization=authorization)
+            refusal = _connector_capture_ceiling(store, request, user_id=request.user_id, authorization=authorization,
+                                                  connector_name="local_folder", sensitivity=request.default_sensitivity)
+            if refusal is not None:
+                return _vnext_permission_response(refusal)
             service = VNextConnectorService(store, defer_embeddings=True)
             result = service.sync_local_folder_scan(
                 scan,
@@ -763,11 +808,16 @@ def sync_vnext_local_folder_connector(
 def capture_vnext_browser_clip(
     request: VNextBrowserClipperCaptureRequest,
     origin: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ) -> JSONResponse:
     settings = get_settings()
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
+            refusal = _connector_capture_ceiling(store, request, user_id=request.user_id, authorization=authorization,
+                                                  connector_name="browser_clipper", sensitivity=request.sensitivity)
+            if refusal is not None:
+                return _vnext_permission_response(refusal)
             capability_authorized = request.capture_capability is not None
             if capability_authorized:
                 if request.capture_token is not None:
@@ -792,6 +842,8 @@ def capture_vnext_browser_clip(
             user_id=request.user_id,
             result=result,
         )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     except (BrowserClipCapabilityValidationError, VNextConnectorValidationError):
         return _vnext_public_error_response(status_code=400, detail="vNext browser clip capture request is invalid")
     return JSONResponse(
@@ -848,6 +900,7 @@ def ingest_vnext_agent_output(
                 target_type="connector",
                 target_id="agent_output",
                 write_policy="proposal_only" if request.propose_memory else None,
+                capture_sensitivity_ceiling=True,
             )
             # A blocked decision ends the request before the service writes a source or an artifact. It is returned
             # inside the connection, as the other write routes return it, so the policy events of the refusal commit.

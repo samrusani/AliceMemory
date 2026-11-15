@@ -1125,6 +1125,21 @@ def _reject_agent_commit_above_sensitivity_ceiling(
     return "reject", "rejected"
 
 
+def _block_capture_above_sensitivity_ceiling(
+    identity: AgentIdentity | None, decision: PolicyDecision,
+) -> PolicyDecision:
+    """Apply the commit ceiling to a capture before recording its decision."""
+    if decision.decision == "blocked":
+        return decision
+    reasons: list[str] = []
+    mode, _status = _reject_agent_commit_above_sensitivity_ceiling(
+        identity=identity, base_decision=decision, mode="commit", status="committed", reasons=reasons,
+    )
+    if mode != "reject":
+        return decision
+    return replace(decision, decision="blocked", reasons=tuple(dict.fromkeys((*decision.reasons, *reasons))))
+
+
 def pending_write_author_agent_id(memory: Mapping[str, object]) -> str | None:
     """The agent recorded as the author of a pending write, if there is one.
 

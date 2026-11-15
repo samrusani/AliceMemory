@@ -1745,7 +1745,7 @@ def _run_keys_revoke(args: argparse.Namespace) -> int:
     try:
         with sqlite_user_connection(db_path, args.user_id) as connection:
             store = SQLiteVNextStore(connection, args.user_id)
-            records = store.list_agent_api_keys(limit=200)
+            records = store.list_agent_api_keys(limit=None)
             matches = [
                 record
                 for record in records
