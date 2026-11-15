@@ -51,6 +51,7 @@ def _query_events(vault, monkeypatch, event_type):
         before = {str(event["id"]) for event in _events(vault)}
         failed, answer = _call(vault, monkeypatch, key, "alice_context_pack", {"query": query})
         assert not failed, answer
+        assert answer["query"] == query
         rows = [event for event in _events(vault) if str(event["id"]) not in before
                 and event["event_type"] == event_type]
         assert len(rows) == 1
@@ -68,6 +69,14 @@ def test_compiled_event_stores_a_clean_bounded_query(vault, monkeypatch):
 def test_agent_request_event_stores_a_clean_bounded_query(vault, monkeypatch):
     """Guard: store the raw query in the agent request event."""
     _query_events(vault, monkeypatch, "agent.context_pack_requested")
+
+
+def test_context_pack_answer_keeps_the_query(vault, monkeypatch):
+    """Guard: truncate the query in the returned context pack."""
+    key = vault.key("reader", "read_only_agent")
+    query = "x" * 256 + " " + "AK" + "IA" + "23456789ABCDEFGH"
+    failed, answer = _call(vault, monkeypatch, key, "alice_context_pack", {"query": query})
+    assert not failed and answer["query"] == query, answer
 
 
 def _make_old_keys(vault):

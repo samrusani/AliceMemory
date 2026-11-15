@@ -30052,6 +30052,38 @@
         "tests/integration/test_capture_query_revoke_postgres.py::test_postgres_cli_capture_refusal_names_the_ceiling"
       ],
       "expected_failure": "test_postgres_cli_capture_refusal_names_the_ceiling"
+    },
+    {
+      "name": "query-revoke-capture-unit-answer-query",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/context.py",
+          "line": 219,
+          "before": "        \"query\": interpretation.get(\"query\"),",
+          "after": "        \"query\": str(interpretation.get(\"query\"))[:128],",
+          "sha256": "e1938e86b1d87b83e1bf939fb4daade2fa311d931a7ee8d1265cd88e3f24d7b7"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_query_revoke_capture.py::test_context_pack_answer_keeps_the_query"
+      ],
+      "expected_failure": "test_context_pack_answer_keeps_the_query"
+    },
+    {
+      "name": "query-revoke-capture-pg-answer-query",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/context.py",
+          "line": 219,
+          "before": "        \"query\": interpretation.get(\"query\"),",
+          "after": "        \"query\": str(interpretation.get(\"query\"))[:128],",
+          "sha256": "e1938e86b1d87b83e1bf939fb4daade2fa311d931a7ee8d1265cd88e3f24d7b7"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_capture_query_revoke_postgres.py::test_postgres_context_pack_answer_keeps_the_query"
+      ],
+      "expected_failure": "test_postgres_context_pack_answer_keeps_the_query"
     }
   ]
 }

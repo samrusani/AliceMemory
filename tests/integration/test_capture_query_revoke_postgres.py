@@ -39,6 +39,7 @@ def _queries(h, monkeypatch, event_type):
         before = {str(event["id"]) for event in _events(h)}
         failed, answer = _wire(h, monkeypatch, key, "alice_context_pack", {"query": query})
         assert not failed, answer
+        assert answer["query"] == query
         rows = [event for event in _events(h) if str(event["id"]) not in before
                 and event["event_type"] == event_type]
         assert len(rows) == 1 and rows[0]["payload_json"]["query"] == expected
@@ -52,6 +53,15 @@ def test_postgres_compiled_event_stores_a_clean_bounded_query(label_harness, mon
 def test_postgres_agent_request_event_stores_a_clean_bounded_query(label_harness, monkeypatch):
     """Guard: store the raw query in the agent request event."""
     _queries(label_harness, monkeypatch, "agent.context_pack_requested")
+
+
+def test_postgres_context_pack_answer_keeps_the_query(label_harness, monkeypatch):
+    """Guard: truncate the query in the returned context pack."""
+    h = label_harness
+    key = h.key("read_only_agent")
+    query = "x" * 256 + " " + "AK" + "IA" + "23456789ABCDEFGH"
+    failed, answer = _wire(h, monkeypatch, key, "alice_context_pack", {"query": query})
+    assert not failed and answer["query"] == query, answer
 
 
 def _old_keys(h):
