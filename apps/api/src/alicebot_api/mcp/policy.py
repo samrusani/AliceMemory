@@ -107,7 +107,7 @@ class _PreflightRollback(Exception):
 def _preflight_key_claim(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> None:
     """Check claims behind an argument error without committing other writes."""
     raw_key = (os.environ.get(AGENT_API_KEY_ENV) or "").strip() or None
-    if raw_key is None or context.agent_identity_resolved:
+    if raw_key is None or context.agent_identity_resolved or not arguments:
         return
     try:
         with _vnext_store_context(context) as store:

@@ -563,7 +563,12 @@ def call_mcp_tool(
             f"set {LEGACY_SURFACES_ENV}=1 in addition to {MCP_LEGACY_TOOLS_ENV} to enable it"
         )
 
-    parsed_arguments = _normalize_arguments(arguments)
+    try:
+        parsed_arguments = _normalize_arguments(arguments)
+    except MCPArgumentError:
+        if name in _CORE_TOOL_NAMES:
+            _preflight_key_claim(context, {})
+        raise
     # The schema walk first: it names the field of a typed number that is NaN or out of range. Then the write limits, for
     # whatever the schema leaves free (a tool that takes an object or a list of objects): before any handler runs, and
     # before anything of the arguments is stored.

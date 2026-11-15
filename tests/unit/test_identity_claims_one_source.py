@@ -236,7 +236,7 @@ def _assert_new_refusal(vault, monkeypatch, key, claim, reason, claimed_field, c
 
 
 def test_profile_precedes_scope_in_the_recorded_refusal(vault, monkeypatch):
-    """Guard: skip profile escalation when a scope is also supplied."""
+    """Guard: check the project scope before the profile."""
     key = vault.key("bound", "project_scoped_agent", "alpha")
     payload = _assert_new_refusal(vault, monkeypatch, key,
         {"permission_profile": "admin_agent", "project_scope": ["beta-priority"]},
@@ -372,3 +372,35 @@ def test_unstorable_argument_does_not_hide_a_key_claim(vault, monkeypatch):
     failed, result = _call(vault, monkeypatch, key, "alice_recall", {"query": "example", "agent_id": "bound", "data": deep})
     assert failed and result["error"]["code"] == "invalid_request", result
     assert _events(vault) == before
+
+
+def test_nonobject_argument_error_runs_claim_preflight(vault, monkeypatch):
+    """Guard: skip claim preflight after the argument object is rejected."""
+    from alicebot_api.mcp import registry
+
+    key = vault.key("bound", "project_scoped_agent", "alpha")
+    observed = []
+    original = registry._preflight_key_claim
+
+    def record(context, arguments):
+        observed.append(arguments)
+        return original(context, arguments)
+
+    monkeypatch.setattr(registry, "_preflight_key_claim", record)
+    failed, result = _call(vault, monkeypatch, key, "alice_recall", [])
+    assert failed and result["error"]["code"] == "invalid_request", result
+    assert observed == [{}] and _events(vault) == []
+
+
+def test_nonobject_argument_error_needs_no_store(vault, monkeypatch):
+    """Guard: attempt a store lookup when an argument object contains no fields."""
+    from alicebot_api.mcp import policy
+
+    key = vault.key("bound", "project_scoped_agent", "alpha")
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("store unavailable")
+
+    monkeypatch.setattr(policy, "_vnext_store_context", unavailable)
+    failed, result = _call(vault, monkeypatch, key, "alice_recall", [])
+    assert failed and result["error"]["code"] == "invalid_request", result

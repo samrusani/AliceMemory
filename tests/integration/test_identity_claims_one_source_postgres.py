@@ -163,7 +163,7 @@ def _postgres_refusal(h, monkeypatch, key, claim, reason, field, value):
 
 
 def test_postgres_profile_precedes_scope_in_the_recorded_refusal(claims, monkeypatch):
-    """Guard: skip profile escalation when a scope is also supplied."""
+    """Guard: check the project scope before the profile."""
     h, keys = claims
     payload = _postgres_refusal(h, monkeypatch, keys["bound"],
         {"permission_profile": "admin_agent", "project_scope": ["beta-priority"]},

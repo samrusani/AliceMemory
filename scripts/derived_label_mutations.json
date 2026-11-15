@@ -5618,7 +5618,7 @@
           "line": 533,
           "before": "if name in _LEGACY_TOOL_NAMES and (os.environ.get(AGENT_API_KEY_ENV) or \"\").strip():",
           "after": "if False:",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -14679,10 +14679,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/registry.py",
-          "line": 577,
+          "line": 582,
           "before": "        refuse_unstorable_json(parsed_arguments, name=f\"tool '{name}' arguments\")\n",
           "after": "        pass\n",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -15304,10 +15304,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/registry.py",
-          "line": 605,
+          "line": 610,
           "before": "        if tool_only_reads(name, parsed_arguments):\n            payload = retry_cutting_deep_json(",
           "after": "        if True:\n            payload = retry_cutting_deep_json(",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -15320,10 +15320,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/registry.py",
-          "line": 605,
+          "line": 610,
           "before": "        if tool_only_reads(name, parsed_arguments):\n            payload = retry_cutting_deep_json(",
           "after": "        if False:\n            payload = retry_cutting_deep_json(",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -15515,7 +15515,7 @@
           "line": 241,
           "before": "    if is_remembered(done):\n        return done  # type: ignore[no-any-return]\n",
           "after": "    if False:\n        return done  # type: ignore[no-any-return]\n",
-          "sha256": "a487be7da19d785527d89ff30b5235ff38973dc61449cafdcf71b75f70bdc969"
+          "sha256": "011e99d5ff2d5e1b5df46eb893a3257f9e0f850227d19303bdf13dffa591ac69"
         }
       ],
       "pytest": [
@@ -23752,7 +23752,7 @@
           "line": 68,
           "before": "        if _is_sqlite_backend(context):\n            try:\n                has_active_key = _vault_has_active_key(_sqlite_path_from_url(context.database_url))\n            except Exception:\n                # The vault could not be checked; the call is refused rather\n                # than answered with the owner's standing.\n                raise MCPNotPermittedError(\n                    \"the vault's agent keys could not be checked; every call needs \"\n                    f\"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')\"\n                ) from None\n            if has_active_key:\n                raise MCPNotPermittedError(\n                    \"agent API keys are configured for this vault; every call needs \"\n                    f\"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')\"\n                )",
           "after": "",
-          "sha256": "a487be7da19d785527d89ff30b5235ff38973dc61449cafdcf71b75f70bdc969"
+          "sha256": "011e99d5ff2d5e1b5df46eb893a3257f9e0f850227d19303bdf13dffa591ac69"
         }
       ],
       "pytest": [
@@ -23769,7 +23769,7 @@
           "line": 68,
           "before": "        if _is_sqlite_backend(context):\n            try:",
           "after": "        if _is_sqlite_backend(context) and (\"agent_id\" in arguments or True) and False:\n            try:",
-          "sha256": "a487be7da19d785527d89ff30b5235ff38973dc61449cafdcf71b75f70bdc969"
+          "sha256": "011e99d5ff2d5e1b5df46eb893a3257f9e0f850227d19303bdf13dffa591ac69"
         }
       ],
       "pytest": [
@@ -23898,7 +23898,7 @@
           "line": 71,
           "before": "            except Exception:\n                # The vault could not be checked; the call is refused rather\n                # than answered with the owner's standing.\n                raise MCPNotPermittedError(",
           "after": "            except Exception:\n                has_active_key = False\n                if False:\n                    raise MCPNotPermittedError(",
-          "sha256": "a487be7da19d785527d89ff30b5235ff38973dc61449cafdcf71b75f70bdc969"
+          "sha256": "011e99d5ff2d5e1b5df46eb893a3257f9e0f850227d19303bdf13dffa591ac69"
         }
       ],
       "pytest": [
@@ -23914,7 +23914,7 @@
           "line": 538,
           "before": "    if (\n        name in _LEGACY_TOOL_NAMES\n        and not (os.environ.get(AGENT_API_KEY_ENV) or \"\").strip()\n        and _is_sqlite_backend(context)\n        and _vault_has_active_key(_sqlite_path_from_url(context.database_url))\n    ):",
           "after": "    if False:\n        pass\n    if (",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -24516,7 +24516,7 @@
           "line": 275,
           "before": "    \"alice_resume\",\n    \"alice_lessons\",",
           "after": "    \"alice_resume\",",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -27357,7 +27357,7 @@
           "line": 275,
           "before": "    \"alice_resume\",\n    \"alice_lessons\",",
           "after": "    \"alice_resume\",",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -27421,7 +27421,7 @@
           "line": 275,
           "before": "    \"alice_resume\",\n    \"alice_lessons\",",
           "after": "    \"alice_resume\",",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -27437,7 +27437,7 @@
           "line": 275,
           "before": "    \"alice_resume\",\n    \"alice_lessons\",",
           "after": "    \"alice_resume\",",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -27885,7 +27885,7 @@
           "line": 97,
           "before": "            raise MCPIdentityClaimRefusedError(str(exc)) from exc",
           "after": "            raise MCPNotPermittedError(str(exc)) from exc",
-          "sha256": "a487be7da19d785527d89ff30b5235ff38973dc61449cafdcf71b75f70bdc969"
+          "sha256": "011e99d5ff2d5e1b5df46eb893a3257f9e0f850227d19303bdf13dffa591ac69"
         }
       ],
       "pytest": [
@@ -27898,10 +27898,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/registry.py",
-          "line": 617,
+          "line": 622,
           "before": "            raise MCPIdentityClaimRefusedError(str(exc)) from exc",
           "after": "            raise MCPNotPermittedError(str(exc)) from exc",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -27965,7 +27965,7 @@
           "line": 97,
           "before": "            raise MCPIdentityClaimRefusedError(str(exc)) from exc",
           "after": "            raise MCPNotPermittedError(str(exc)) from exc",
-          "sha256": "a487be7da19d785527d89ff30b5235ff38973dc61449cafdcf71b75f70bdc969"
+          "sha256": "011e99d5ff2d5e1b5df46eb893a3257f9e0f850227d19303bdf13dffa591ac69"
         }
       ],
       "pytest": [
@@ -27981,7 +27981,7 @@
           "line": 97,
           "before": "            raise MCPIdentityClaimRefusedError(str(exc)) from exc",
           "after": "            raise MCPNotPermittedError(str(exc)) from exc",
-          "sha256": "a487be7da19d785527d89ff30b5235ff38973dc61449cafdcf71b75f70bdc969"
+          "sha256": "011e99d5ff2d5e1b5df46eb893a3257f9e0f850227d19303bdf13dffa591ac69"
         }
       ],
       "pytest": [
@@ -27997,7 +27997,7 @@
           "line": 534,
           "before": "        raise MCPToolNotFoundError(\n            f\"tool '{name}' is part of the legacy MCP surface, which is disabled whenever \"",
           "after": "        raise MCPNotPermittedError(\n            f\"tool '{name}' is part of the legacy MCP surface, which is disabled whenever \"",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -28013,7 +28013,7 @@
           "line": 534,
           "before": "        raise MCPToolNotFoundError(\n            f\"tool '{name}' is part of the legacy MCP surface, which is disabled whenever \"",
           "after": "        raise MCPNotPermittedError(\n            f\"tool '{name}' is part of the legacy MCP surface, which is disabled whenever \"",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -29162,10 +29162,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/registry.py",
-          "line": 574,
+          "line": 579,
           "before": "            _preflight_key_claim(context, parsed_arguments)\n        raise\n    try:\n        refuse_unstorable_json",
           "after": "            pass\n        raise\n    try:\n        refuse_unstorable_json",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -29181,7 +29181,7 @@
           "line": 122,
           "before": "            raise _PreflightRollback()",
           "after": "            pass",
-          "sha256": "a487be7da19d785527d89ff30b5235ff38973dc61449cafdcf71b75f70bdc969"
+          "sha256": "011e99d5ff2d5e1b5df46eb893a3257f9e0f850227d19303bdf13dffa591ac69"
         }
       ],
       "pytest": [
@@ -29322,10 +29322,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/registry.py",
-          "line": 584,
+          "line": 589,
           "before": "        _refuse_reserved_project_marker(parsed_arguments)",
           "after": "        pass",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -29370,9 +29370,9 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 303,
-          "before": "if claimed_profile is not None:",
-          "after": "if claimed_profile is not None and not raw_scopes:",
+          "line": 302,
+          "before": "    effective_profile = key_profile\n    if claimed_profile is not None:\n        claimed_rank = _PROFILE_RANKS.get(claimed_profile)\n        if claimed_rank is None or claimed_rank > _PROFILE_RANKS[key_profile]:\n            rejection = _append_key_rejection_event(\n                record=record,\n                reason=\"permission_profile_escalation\",\n                claimed={\"claimed_permission_profile\": claimed_profile},\n            )\n            raise AgentKeyAuthenticationError(\n                \"agent API key grants a lower permission profile than the one claimed, which is higher or unknown. Remove the \"\n                \"claim or request a new key with the required profile.\",\n                status_code=403, reason=\"profile_escalation\", key_rejection=rejection,\n            )\n        effective_profile = claimed_profile\n\n    deferred_scope_error: AgentKeyAuthenticationError | None = None\n    parsed_scopes: list[tuple[str, ...]] = []\n    for raw in raw_scopes:\n        try:\n            scope = _claimed_project_scope({\"project_scope\": raw})\n        except AgentKeyAuthenticationError as exc:\n            if deferred_scope_error is None:\n                deferred_scope_error = exc\n            # A malformed list can still contain an out-of-binding claim.\n            candidates = [item for item in raw if isinstance(item, str) and normalize_project_identifier(item)\n                          and reserved_project_marker(item) is None] if isinstance(raw, (list, tuple)) else []\n            scope = normalize_project_scope(candidates)\n        if scope:\n            parsed_scopes.append(scope)\n    scopes = tuple(parsed_scopes)\n\n    raw_key_project_scope = record.get(\"project_scope\")\n    key_project_scope = (\n        normalize_project_identifier(raw_key_project_scope)\n        if isinstance(raw_key_project_scope, str)\n        else None\n    )\n    if raw_key_project_scope is not None and not key_project_scope:\n        rejection = _append_key_rejection_event(\n            record=record,\n            reason=\"invalid_project_scope_binding\",\n            claimed={},\n        )\n        raise AgentKeyAuthenticationError(\n            \"agent API key has an invalid blank project scope binding\",\n            status_code=403, reason=\"invalid_binding\", key_rejection=rejection,\n        )\n    claimed_scope = tuple(dict.fromkeys(value for scope in scopes for value in scope))\n    project_scope_locked = False\n    if key_project_scope is not None:\n        bound_scope = (key_project_scope,)\n        bound_identity = set(project_scope_identity(bound_scope))\n        widened = tuple(\n            value\n            for value in claimed_scope\n            if not set(project_scope_identity((value,))).issubset(bound_identity)\n        )\n        if widened:\n            rejection = _append_key_rejection_event(\n                record=record,\n                reason=\"project_scope_escalation\",\n                claimed={\n                    \"claimed_project_scope\": list(claimed_scope),\n                    \"granted_project_scope\": key_project_scope,\n                },\n            )\n            raise AgentKeyAuthenticationError(\n                f\"agent API key is bound to project scope '{_rejection_text(rejection, 'granted_project_scope')}'; \"\n                \"the payload claims projects \"\n                \"outside that scope. Narrow the claim or request a key bound to those \"\n                \"projects.\",\n                status_code=403, reason=\"scope_escalation\", key_rejection=rejection,\n            )\n        project_scope_locked = True\n\n",
+          "after": "    deferred_scope_error: AgentKeyAuthenticationError | None = None\n    parsed_scopes: list[tuple[str, ...]] = []\n    for raw in raw_scopes:\n        try:\n            scope = _claimed_project_scope({\"project_scope\": raw})\n        except AgentKeyAuthenticationError as exc:\n            if deferred_scope_error is None:\n                deferred_scope_error = exc\n            # A malformed list can still contain an out-of-binding claim.\n            candidates = [item for item in raw if isinstance(item, str) and normalize_project_identifier(item)\n                          and reserved_project_marker(item) is None] if isinstance(raw, (list, tuple)) else []\n            scope = normalize_project_scope(candidates)\n        if scope:\n            parsed_scopes.append(scope)\n    scopes = tuple(parsed_scopes)\n\n    raw_key_project_scope = record.get(\"project_scope\")\n    key_project_scope = (\n        normalize_project_identifier(raw_key_project_scope)\n        if isinstance(raw_key_project_scope, str)\n        else None\n    )\n    if raw_key_project_scope is not None and not key_project_scope:\n        rejection = _append_key_rejection_event(\n            record=record,\n            reason=\"invalid_project_scope_binding\",\n            claimed={},\n        )\n        raise AgentKeyAuthenticationError(\n            \"agent API key has an invalid blank project scope binding\",\n            status_code=403, reason=\"invalid_binding\", key_rejection=rejection,\n        )\n    claimed_scope = tuple(dict.fromkeys(value for scope in scopes for value in scope))\n    project_scope_locked = False\n    if key_project_scope is not None:\n        bound_scope = (key_project_scope,)\n        bound_identity = set(project_scope_identity(bound_scope))\n        widened = tuple(\n            value\n            for value in claimed_scope\n            if not set(project_scope_identity((value,))).issubset(bound_identity)\n        )\n        if widened:\n            rejection = _append_key_rejection_event(\n                record=record,\n                reason=\"project_scope_escalation\",\n                claimed={\n                    \"claimed_project_scope\": list(claimed_scope),\n                    \"granted_project_scope\": key_project_scope,\n                },\n            )\n            raise AgentKeyAuthenticationError(\n                f\"agent API key is bound to project scope '{_rejection_text(rejection, 'granted_project_scope')}'; \"\n                \"the payload claims projects \"\n                \"outside that scope. Narrow the claim or request a key bound to those \"\n                \"projects.\",\n                status_code=403, reason=\"scope_escalation\", key_rejection=rejection,\n            )\n        project_scope_locked = True\n\n    effective_profile = key_profile\n    if claimed_profile is not None:\n        claimed_rank = _PROFILE_RANKS.get(claimed_profile)\n        if claimed_rank is None or claimed_rank > _PROFILE_RANKS[key_profile]:\n            rejection = _append_key_rejection_event(\n                record=record,\n                reason=\"permission_profile_escalation\",\n                claimed={\"claimed_permission_profile\": claimed_profile},\n            )\n            raise AgentKeyAuthenticationError(\n                \"agent API key grants a lower permission profile than the one claimed, which is higher or unknown. Remove the \"\n                \"claim or request a new key with the required profile.\",\n                status_code=403, reason=\"profile_escalation\", key_rejection=rejection,\n            )\n        effective_profile = claimed_profile\n\n",
           "sha256": "793d991dc70fecb72a05b8a7a7318084deaebe75536f8feca3b95dd7eef8485d"
         }
       ],
@@ -29386,9 +29386,9 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 303,
-          "before": "if claimed_profile is not None:",
-          "after": "if claimed_profile is not None and not raw_scopes:",
+          "line": 302,
+          "before": "    effective_profile = key_profile\n    if claimed_profile is not None:\n        claimed_rank = _PROFILE_RANKS.get(claimed_profile)\n        if claimed_rank is None or claimed_rank > _PROFILE_RANKS[key_profile]:\n            rejection = _append_key_rejection_event(\n                record=record,\n                reason=\"permission_profile_escalation\",\n                claimed={\"claimed_permission_profile\": claimed_profile},\n            )\n            raise AgentKeyAuthenticationError(\n                \"agent API key grants a lower permission profile than the one claimed, which is higher or unknown. Remove the \"\n                \"claim or request a new key with the required profile.\",\n                status_code=403, reason=\"profile_escalation\", key_rejection=rejection,\n            )\n        effective_profile = claimed_profile\n\n    deferred_scope_error: AgentKeyAuthenticationError | None = None\n    parsed_scopes: list[tuple[str, ...]] = []\n    for raw in raw_scopes:\n        try:\n            scope = _claimed_project_scope({\"project_scope\": raw})\n        except AgentKeyAuthenticationError as exc:\n            if deferred_scope_error is None:\n                deferred_scope_error = exc\n            # A malformed list can still contain an out-of-binding claim.\n            candidates = [item for item in raw if isinstance(item, str) and normalize_project_identifier(item)\n                          and reserved_project_marker(item) is None] if isinstance(raw, (list, tuple)) else []\n            scope = normalize_project_scope(candidates)\n        if scope:\n            parsed_scopes.append(scope)\n    scopes = tuple(parsed_scopes)\n\n    raw_key_project_scope = record.get(\"project_scope\")\n    key_project_scope = (\n        normalize_project_identifier(raw_key_project_scope)\n        if isinstance(raw_key_project_scope, str)\n        else None\n    )\n    if raw_key_project_scope is not None and not key_project_scope:\n        rejection = _append_key_rejection_event(\n            record=record,\n            reason=\"invalid_project_scope_binding\",\n            claimed={},\n        )\n        raise AgentKeyAuthenticationError(\n            \"agent API key has an invalid blank project scope binding\",\n            status_code=403, reason=\"invalid_binding\", key_rejection=rejection,\n        )\n    claimed_scope = tuple(dict.fromkeys(value for scope in scopes for value in scope))\n    project_scope_locked = False\n    if key_project_scope is not None:\n        bound_scope = (key_project_scope,)\n        bound_identity = set(project_scope_identity(bound_scope))\n        widened = tuple(\n            value\n            for value in claimed_scope\n            if not set(project_scope_identity((value,))).issubset(bound_identity)\n        )\n        if widened:\n            rejection = _append_key_rejection_event(\n                record=record,\n                reason=\"project_scope_escalation\",\n                claimed={\n                    \"claimed_project_scope\": list(claimed_scope),\n                    \"granted_project_scope\": key_project_scope,\n                },\n            )\n            raise AgentKeyAuthenticationError(\n                f\"agent API key is bound to project scope '{_rejection_text(rejection, 'granted_project_scope')}'; \"\n                \"the payload claims projects \"\n                \"outside that scope. Narrow the claim or request a key bound to those \"\n                \"projects.\",\n                status_code=403, reason=\"scope_escalation\", key_rejection=rejection,\n            )\n        project_scope_locked = True\n\n",
+          "after": "    deferred_scope_error: AgentKeyAuthenticationError | None = None\n    parsed_scopes: list[tuple[str, ...]] = []\n    for raw in raw_scopes:\n        try:\n            scope = _claimed_project_scope({\"project_scope\": raw})\n        except AgentKeyAuthenticationError as exc:\n            if deferred_scope_error is None:\n                deferred_scope_error = exc\n            # A malformed list can still contain an out-of-binding claim.\n            candidates = [item for item in raw if isinstance(item, str) and normalize_project_identifier(item)\n                          and reserved_project_marker(item) is None] if isinstance(raw, (list, tuple)) else []\n            scope = normalize_project_scope(candidates)\n        if scope:\n            parsed_scopes.append(scope)\n    scopes = tuple(parsed_scopes)\n\n    raw_key_project_scope = record.get(\"project_scope\")\n    key_project_scope = (\n        normalize_project_identifier(raw_key_project_scope)\n        if isinstance(raw_key_project_scope, str)\n        else None\n    )\n    if raw_key_project_scope is not None and not key_project_scope:\n        rejection = _append_key_rejection_event(\n            record=record,\n            reason=\"invalid_project_scope_binding\",\n            claimed={},\n        )\n        raise AgentKeyAuthenticationError(\n            \"agent API key has an invalid blank project scope binding\",\n            status_code=403, reason=\"invalid_binding\", key_rejection=rejection,\n        )\n    claimed_scope = tuple(dict.fromkeys(value for scope in scopes for value in scope))\n    project_scope_locked = False\n    if key_project_scope is not None:\n        bound_scope = (key_project_scope,)\n        bound_identity = set(project_scope_identity(bound_scope))\n        widened = tuple(\n            value\n            for value in claimed_scope\n            if not set(project_scope_identity((value,))).issubset(bound_identity)\n        )\n        if widened:\n            rejection = _append_key_rejection_event(\n                record=record,\n                reason=\"project_scope_escalation\",\n                claimed={\n                    \"claimed_project_scope\": list(claimed_scope),\n                    \"granted_project_scope\": key_project_scope,\n                },\n            )\n            raise AgentKeyAuthenticationError(\n                f\"agent API key is bound to project scope '{_rejection_text(rejection, 'granted_project_scope')}'; \"\n                \"the payload claims projects \"\n                \"outside that scope. Narrow the claim or request a key bound to those \"\n                \"projects.\",\n                status_code=403, reason=\"scope_escalation\", key_rejection=rejection,\n            )\n        project_scope_locked = True\n\n    effective_profile = key_profile\n    if claimed_profile is not None:\n        claimed_rank = _PROFILE_RANKS.get(claimed_profile)\n        if claimed_rank is None or claimed_rank > _PROFILE_RANKS[key_profile]:\n            rejection = _append_key_rejection_event(\n                record=record,\n                reason=\"permission_profile_escalation\",\n                claimed={\"claimed_permission_profile\": claimed_profile},\n            )\n            raise AgentKeyAuthenticationError(\n                \"agent API key grants a lower permission profile than the one claimed, which is higher or unknown. Remove the \"\n                \"claim or request a new key with the required profile.\",\n                status_code=403, reason=\"profile_escalation\", key_rejection=rejection,\n            )\n        effective_profile = claimed_profile\n\n",
           "sha256": "793d991dc70fecb72a05b8a7a7318084deaebe75536f8feca3b95dd7eef8485d"
         }
       ],
@@ -29546,10 +29546,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/registry.py",
-          "line": 572,
+          "line": 577,
           "before": "    except MCPArgumentError:\n        if name in _CORE_TOOL_NAMES:\n            _preflight_key_claim(context, parsed_arguments)\n        raise",
           "after": "    except MCPArgumentError:\n        if name in _CORE_TOOL_NAMES:\n            pass\n        raise",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -29562,10 +29562,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/registry.py",
-          "line": 572,
+          "line": 577,
           "before": "    except MCPArgumentError:\n        if name in _CORE_TOOL_NAMES:\n            _preflight_key_claim(context, parsed_arguments)\n        raise",
           "after": "    except MCPArgumentError:\n        if name in _CORE_TOOL_NAMES:\n            pass\n        raise",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -29578,10 +29578,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/registry.py",
-          "line": 585,
+          "line": 590,
           "before": "    except MCPInvalidRequestError:\n        if name in _CORE_TOOL_NAMES:\n            _preflight_key_claim(context, parsed_arguments)\n        raise",
           "after": "    except MCPInvalidRequestError:\n        if name in _CORE_TOOL_NAMES:\n            pass\n        raise",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -29594,10 +29594,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/registry.py",
-          "line": 572,
+          "line": 577,
           "before": "    except MCPArgumentError:\n        if name in _CORE_TOOL_NAMES:\n            _preflight_key_claim(context, parsed_arguments)\n        raise",
           "after": "    except MCPArgumentError as exc:\n        if name in _CORE_TOOL_NAMES and \"agent_identity\" in str(exc):\n            _preflight_key_claim(context, parsed_arguments)\n        raise",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
@@ -29613,7 +29613,7 @@
           "line": 122,
           "before": "            raise _PreflightRollback()",
           "after": "            pass",
-          "sha256": "a487be7da19d785527d89ff30b5235ff38973dc61449cafdcf71b75f70bdc969"
+          "sha256": "011e99d5ff2d5e1b5df46eb893a3257f9e0f850227d19303bdf13dffa591ac69"
         }
       ],
       "pytest": [
@@ -29626,16 +29626,48 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/registry.py",
-          "line": 578,
+          "line": 583,
           "before": "    except JsonShapeError as exc:\n        if name in _CORE_TOOL_NAMES:\n            _preflight_key_claim(context, parsed_arguments)\n        raise MCPArgumentError(str(exc)) from exc",
           "after": "    except JsonShapeError as exc:\n        if name in _CORE_TOOL_NAMES:\n            pass\n        raise MCPArgumentError(str(exc)) from exc",
-          "sha256": "677fc0c6004dadaee9911367b9aa1975592b880966ac6c2b56e6e5a95937b984"
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
         }
       ],
       "pytest": [
         "tests/unit/test_identity_claims_one_source.py::test_unstorable_argument_does_not_hide_a_key_claim"
       ],
       "expected_failure": "test_unstorable_argument_does_not_hide_a_key_claim"
+    },
+    {
+      "name": "round1-nonobject-argument",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/registry.py",
+          "line": 568,
+          "before": "    except MCPArgumentError:\n        if name in _CORE_TOOL_NAMES:\n            _preflight_key_claim(context, {})\n        raise",
+          "after": "    except MCPArgumentError:\n        if name in _CORE_TOOL_NAMES:\n            pass\n        raise",
+          "sha256": "edf8ec7b3a217a1713c006b3280f39af516593681ffeea9021297e265655e3a4"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_identity_claims_one_source.py::test_nonobject_argument_error_runs_claim_preflight"
+      ],
+      "expected_failure": "test_nonobject_argument_error_runs_claim_preflight"
+    },
+    {
+      "name": "round1-empty-preflight",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/policy.py",
+          "line": 110,
+          "before": "    if raw_key is None or context.agent_identity_resolved or not arguments:",
+          "after": "    if raw_key is None or context.agent_identity_resolved:",
+          "sha256": "011e99d5ff2d5e1b5df46eb893a3257f9e0f850227d19303bdf13dffa591ac69"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_identity_claims_one_source.py::test_nonobject_argument_error_needs_no_store"
+      ],
+      "expected_failure": "test_nonobject_argument_error_needs_no_store"
     }
   ]
 }
