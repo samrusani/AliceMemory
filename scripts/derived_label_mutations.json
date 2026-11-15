@@ -13962,7 +13962,7 @@
           "line": 430,
           "before": "standard text), which does not name the reason. The reason and the commands\nthat find and revoke the key are written to the server log at warning level;\nthe line names no key, which `alicebot agent keys list` shows with its\n`project_scope`.",
           "after": "standard text).",
-          "sha256": "e1c50aad66e08ae0218cc2198e0b3588c7e11ce463fa1ed5012031ab89210e94"
+          "sha256": "27f80865b7de50190496650b971a9ed1d388eb8a2443c61c7d813d8e75c2200d"
         }
       ],
       "pytest": [
