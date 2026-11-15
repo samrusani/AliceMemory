@@ -63,6 +63,7 @@ from alicebot_api.vnext_memory_commit import (
 )
 from alicebot_api.vnext_source_fence import SourceRefNotFoundError
 from alicebot_api.vnext_projects import VNextOpenLoopPersonNotFoundError
+from alicebot_api.vnext_project_scope import holds_global_marker
 
 from .capture_automation import (
     _handle_alice_vnext_capture,
@@ -171,7 +172,7 @@ from .synthesis import (
     _handle_alice_graph_edge_review,
     _handle_alice_graph_neighborhood,
 )
-from .policy import _vault_has_active_key, _is_sqlite_backend
+from .policy import _vault_has_active_key, _is_sqlite_backend, _preflight_key_claim
 from .runtime import _sqlite_path_from_url
 from .types import (
     MCPArgumentError,
@@ -567,13 +568,30 @@ def call_mcp_tool(
     # The schema walk first: it names the field of a typed number that is NaN or out of range. Then the write limits, for
     # whatever the schema leaves free (a tool that takes an object or a list of objects): before any handler runs, and
     # before anything of the arguments is stored.
-    _validate_mcp_arguments_against_advertised_schema(name, parsed_arguments)
+    try:
+        _validate_mcp_arguments_against_advertised_schema(name, parsed_arguments)
+    except MCPArgumentError as exc:
+        if name in _CORE_TOOL_NAMES and re.search(
+            r"\bat arguments\.(?:agent_identity|agent_id|agent_type|agent_run_id|task_id|permission_profile|project_scope)(?:[.\[: ]|$)",
+            str(exc),
+        ):
+            _preflight_key_claim(context, parsed_arguments)
+        raise
     try:
         refuse_unstorable_json(parsed_arguments, name=f"tool '{name}' arguments")
     except JsonShapeError as exc:
         raise MCPArgumentError(str(exc)) from exc
     # The reserved global marker of per-project memory is never caller input.
-    _refuse_reserved_project_marker(parsed_arguments)
+    try:
+        _refuse_reserved_project_marker(parsed_arguments)
+    except MCPInvalidRequestError:
+        nested = parsed_arguments.get("agent_identity")
+        scopes = [parsed_arguments.get("project_scope")]
+        if isinstance(nested, Mapping):
+            scopes.append(nested.get("project_scope"))
+        if name in _CORE_TOOL_NAMES and any(value is not None and holds_global_marker(value) for value in scopes):
+            _preflight_key_claim(context, parsed_arguments)
+        raise
     try:
         if name in _CORE_TOOL_NAMES:
             # Authentication is a property of the MCP boundary, not an

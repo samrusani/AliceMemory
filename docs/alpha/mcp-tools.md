@@ -1001,6 +1001,8 @@ New integrations should stay on the default four tools; the legacy surface
 is frozen and will not gain new capabilities. Set `ALICE_MCP_FULL_TOOLS=1`
 only when capture, the pack, or review must be in the handshake.
 
+On a keyed call, flat identity fields and `agent_identity` are read together. The stricter profile and the intersection of claimed scopes hold; incompatible scopes or conflicting non-permission fields are refused. An unknown profile is an identity claim refusal even with the key's own agent id; an unknown agent type with that id and no other violation is an invalid request. Keyless parsing stays as before. See [Agent keys](agent-integration.md#authentication) for the HTTP `agent` alias and the stored refusal event.
+
 ## Error codes
 
 From v0.20.2, a failed `tools/call` answers one of

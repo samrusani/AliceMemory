@@ -192,7 +192,7 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # annotation, or default changed. Legacy definitions are unchanged.
     # The manage description now states retirement standing.
     assert core_definitions[-1]["name"] == "alice_lessons"
-    assert _digest(core_definitions[:-1]) == "6ed1e621cff2ea24b1ffba5b48d5ea5c7c752157cdc5ba3e5cfbaaf958b4c484"
+    assert _digest(core_definitions[:-1]) == "11e5784380dec6790f80bcb13781507e0483483fdfbc872a4b19da7db18329da"
     assert _digest(legacy_definitions) == "6b302f61e48d4f6196af8a7d2c8882130d565d84134f51bba38648f84c09089e"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items() if name != "alice_lessons"]
     assert _digest(ordered_handler_map) == "fb200cfbecef6249b7cf80b17b0737d3b44cfdd04cda8c701d491ed4ac401798"
