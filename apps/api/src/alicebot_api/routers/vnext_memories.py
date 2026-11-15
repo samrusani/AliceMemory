@@ -68,7 +68,6 @@ from alicebot_api.vnext_agent_control import (
     AgentPolicyBlockedError,
     PolicyDecision,
     append_policy_events,
-    evaluate_agent_policy,
     resource_project_scope,
 )
 from alicebot_api.vnext_agent_keys import (
@@ -643,7 +642,7 @@ def _connector_capture_ceiling(
     sensitivity: str | None,
 ) -> PolicyDecision | None:
     """Refuse a connector capture above the caller's sensitivity ceiling."""
-    from alicebot_api.vnext_memory_commit import _block_capture_above_sensitivity_ceiling
+    from alicebot_api.vnext_memory_commit import _connector_capture_ceiling_decision
 
     if agent_key_from_authorization(authorization) is not None:
         identity = _vnext_authenticated_agent_identity(store, request, user_id=user_id, authorization=authorization)
@@ -654,9 +653,8 @@ def _connector_capture_ceiling(
     definition = get_connector_definition(connector_name)
     config = VNextConnectorService(store).get_config(connector_name)
     selected = sensitivity or config.get("default_sensitivity") or definition.default_sensitivity
-    decision = evaluate_agent_policy(identity=identity, action="source.capture", sensitivity_allowed=(str(selected),))
-    blocked = _block_capture_above_sensitivity_ceiling(identity, decision)
-    if "sensitivity_above_agent_ceiling" not in blocked.reasons:
+    blocked = _connector_capture_ceiling_decision(identity, str(selected))
+    if blocked is None:
         return None
     _vnext_agent_record(store, identity)
     append_policy_events(store, identity=identity, decision=blocked, target_type="connector", target_id=connector_name)

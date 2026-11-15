@@ -1140,6 +1140,13 @@ def _block_capture_above_sensitivity_ceiling(
     return replace(decision, decision="blocked", reasons=tuple(dict.fromkeys((*decision.reasons, *reasons))))
 
 
+def _connector_capture_ceiling_decision(identity: AgentIdentity, sensitivity: str) -> PolicyDecision | None:
+    """Return only a refusal of the sensitivity chosen for a connector capture."""
+    decision = evaluate_agent_policy(identity=identity, action="source.capture", sensitivity_allowed=(sensitivity,))
+    blocked = _block_capture_above_sensitivity_ceiling(identity, decision)
+    return blocked if "sensitivity_above_agent_ceiling" in blocked.reasons else None
+
+
 def pending_write_author_agent_id(memory: Mapping[str, object]) -> str | None:
     """The agent recorded as the author of a pending write, if there is one.
 
