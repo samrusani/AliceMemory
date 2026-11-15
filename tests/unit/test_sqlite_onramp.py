@@ -24,6 +24,7 @@ import pytest
 
 import alicebot_api.onramp as onramp_module
 import alicebot_api.mcp_tools as mcp_tools_module
+from alicebot_api.mcp.types import MCPIdentityClaimRefusedError
 from alicebot_api.mcp_tools import (
     MCPRuntimeContext,
     MCPToolError,
@@ -1161,6 +1162,7 @@ def test_memory_commit_persists_scope_columns_and_recall_filters_by_agent(sqlite
 
 
 def test_project_scope_bound_key_is_enforced_in_sqlite_mode(sqlite_context, monkeypatch) -> None:
+    """Guard: ignore a flat scope claim when a nested identity is present."""
     from alicebot_api.vnext_agent_keys import create_agent_key
 
     # Seed an out-of-scope row before the key is enabled.  A bound key must
@@ -1278,24 +1280,29 @@ def test_project_scope_bound_key_is_enforced_in_sqlite_mode(sqlite_context, monk
             },
         )
 
-    # A request that targets another project without widening the identity
-    # claim is blocked by policy (project_scope_binding_violation).
-    rejected = _full_commit_result(
-        sqlite_context,
-        {
-            "agent_identity": {"agent_id": "openclaw"},
-            "project_scope": ["other-project"],
-            "title": "Out-of-scope project write",
-            "canonical_text": "This must be rejected by policy.",
-            "memory_type": "project_fact",
-            "domain": "project",
-            "sensitivity": "internal",
-            "confidence": 0.96,
-        },
-    )
-    assert rejected["status"] == "rejected"
-    assert "agent_policy_blocked" in rejected["reasons"]
-    assert "project_scope_binding_violation" in rejected["policy_decision"]["policy_decision"]["reasons"]
+    # The flat scope is a claim even beside a nested identity, so it is
+    # refused before policy evaluates the write.
+    with sqlite_user_connection(_db_path(sqlite_context), USER_ID) as conn:
+        before = len([e for e in SQLiteVNextStore(conn, USER_ID).list_events()
+                      if e["event_type"] == "agent.key_escalation_rejected"])
+    with pytest.raises(MCPIdentityClaimRefusedError, match="bound to project scope 'alicebot'"):
+        _full_commit_result(
+            sqlite_context,
+            {
+                "agent_identity": {"agent_id": "openclaw"},
+                "project_scope": ["other-project"],
+                "title": "Out-of-scope project write",
+                "canonical_text": "This must be rejected by policy.",
+                "memory_type": "project_fact",
+                "domain": "project",
+                "sensitivity": "internal",
+                "confidence": 0.96,
+            },
+        )
+    with sqlite_user_connection(_db_path(sqlite_context), USER_ID) as conn:
+        after = len([e for e in SQLiteVNextStore(conn, USER_ID).list_events()
+                     if e["event_type"] == "agent.key_escalation_rejected"])
+    assert after == before + 1
 
 
 def test_read_only_project_key_cannot_read_or_mutate_other_project_or_filtered_data(

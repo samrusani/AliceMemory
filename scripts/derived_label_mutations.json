@@ -29268,6 +29268,22 @@
         "tests/unit/test_identity_claims_one_source.py::test_invalid_key_with_malformed_identity_keeps_its_answer"
       ],
       "expected_failure": "test_invalid_key_with_malformed_identity_keeps_its_answer"
+    },
+    {
+      "name": "identity-one-source-existing-bound-write",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
+          "line": 444,
+          "before": "    sources = [payload]",
+          "after": "    sources = [] if isinstance(payload.get(\"agent_identity\"), Mapping) else [payload]",
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_sqlite_onramp.py::test_project_scope_bound_key_is_enforced_in_sqlite_mode"
+      ],
+      "expected_failure": "test_project_scope_bound_key_is_enforced_in_sqlite_mode"
     }
   ]
 }
