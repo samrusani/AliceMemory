@@ -13959,10 +13959,10 @@
       "edits": [
         {
           "file": "docs/alpha/agent-integration.md",
-          "line": 430,
+          "line": 431,
           "before": "standard text), which does not name the reason. The reason and the commands\nthat find and revoke the key are written to the server log at warning level;\nthe line names no key, which `alicebot agent keys list` shows with its\n`project_scope`.",
           "after": "standard text).",
-          "sha256": "27f80865b7de50190496650b971a9ed1d388eb8a2443c61c7d813d8e75c2200d"
+          "sha256": "c10157f78bf09d0dc41ca8a0081f3475aae5e0eaf4ab8a8bf7bf6b9fd17c7206"
         }
       ],
       "pytest": [
@@ -30010,10 +30010,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/cli/capture.py",
-          "line": 331,
+          "line": 332,
           "before": "        decision = _block_capture_above_sensitivity_ceiling(identity, decision)",
           "after": "        decision = decision",
-          "sha256": "5cdf809c2ff45845e4876b69236edf004bf4f0f4f5d35177c78dce3daf6bc94c"
+          "sha256": "af173a267b75d1122e4bf1bf74d216a9f5342dac15ab1a308e915ab4589f6fa4"
         }
       ],
       "pytest": [
@@ -30036,6 +30036,22 @@
         "tests/integration/test_capture_query_revoke_postgres.py::test_postgres_legacy_agent_output_refuses_above_ceiling"
       ],
       "expected_failure": "test_postgres_legacy_agent_output_refuses_above_ceiling"
+    },
+    {
+      "name": "query-revoke-capture-pg-cli-refusal-result",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/cli/capture.py",
+          "line": 336,
+          "before": "        if \"sensitivity_above_agent_ceiling\" in decision.reasons:",
+          "after": "        if False and \"sensitivity_above_agent_ceiling\" in decision.reasons:",
+          "sha256": "af173a267b75d1122e4bf1bf74d216a9f5342dac15ab1a308e915ab4589f6fa4"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_capture_query_revoke_postgres.py::test_postgres_cli_capture_refusal_names_the_ceiling"
+      ],
+      "expected_failure": "test_postgres_cli_capture_refusal_names_the_ceiling"
     }
   ]
 }

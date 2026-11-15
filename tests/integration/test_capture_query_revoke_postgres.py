@@ -261,3 +261,15 @@ def test_postgres_cli_agent_output_refuses_above_ceiling(label_harness):
                   "--sensitivity", "regulated", "Synthetic CLI output.")
     assert result.returncode != 0
     assert h.snapshot()["sources"] == before["sources"]
+
+
+def test_postgres_cli_capture_refusal_names_the_ceiling(label_harness):
+    """Guard: omit the explicit ceiling-refusal result."""
+    h = label_harness
+    before = h.snapshot()
+    result = _cli(h, "vnext", "agents", "ingest-output", "--agent-id", "writer", "--permission-profile",
+                  "project_scoped_agent", "--project-scope", "alpha", "--title", "Output", "--domain", "project",
+                  "--sensitivity", "regulated", "Synthetic CLI output.")
+    assert result.returncode == 1
+    assert json.loads(result.stdout) == {"status": "rejected", "reason": "sensitivity_above_agent_ceiling"}
+    assert h.snapshot()["event_log"] == before["event_log"]
