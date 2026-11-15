@@ -151,6 +151,24 @@ def test_keyless_calls_keep_the_existing_source(vault, monkeypatch):
     assert failed and result["error"]["code"] == "not_permitted"
 
 
+def test_invalid_key_with_malformed_identity_keeps_its_answer(vault, monkeypatch):
+    """Guard: skip the deferred identity error when a key is invalid or revoked."""
+    from alicebot_api.vnext_agent_keys import hash_agent_key
+
+    revoked = vault.key("revoked", "read_only_agent", "alpha")
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        store = SQLiteVNextStore(conn, vault.user)
+        record = store.get_agent_api_key_by_hash(hash_agent_key(revoked))
+        store.revoke_agent_api_key(key_id=str(record["id"]))
+    for key in ("alice_sk_never_issued", revoked):
+        before = _events(vault)
+        failed, result = _call(vault, monkeypatch, key, "alice_recall", {
+            "query": "example", "agent_id": "declared", "permission_profile": "not-a-profile",
+        })
+        assert failed and result["error"]["code"] == "invalid_request", result
+        assert _events(vault) == before
+
+
 def test_mixed_narrowing_records_the_same_identity_as_one_form(vault, monkeypatch):
     """Guard: make the keyed identity source ignore flat fields beside a nested block."""
     key = vault.key("admin", "admin_agent")

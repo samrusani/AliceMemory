@@ -13130,7 +13130,7 @@
           "line": 163,
           "before": "    reserved = reserved_project_marker(project_scope) if project_scope is not None else None\n",
           "after": "    reserved = None\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -13146,7 +13146,7 @@
           "line": 163,
           "before": "    reserved = reserved_project_marker(project_scope) if project_scope is not None else None\n",
           "after": "    reserved = reserved_project_marker(normalized_project_values[:1]) if normalized_project_values else None\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -13162,7 +13162,7 @@
           "line": 163,
           "before": "    reserved = reserved_project_marker(project_scope) if project_scope is not None else None\n",
           "after": "    reserved = None\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -13191,10 +13191,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 247,
+          "line": 259,
           "before": "    if stored_reserved is not None:\n",
           "after": "    if False:\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -13207,10 +13207,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 246,
+          "line": 258,
           "before": "    stored_reserved = reserved_project_marker(stored_binding) if isinstance(stored_binding, str) else None\n",
           "after": "    stored_reserved = stored_binding if stored_binding == \"~global\" else None\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -13223,10 +13223,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 246,
+          "line": 258,
           "before": "    stored_reserved = reserved_project_marker(stored_binding) if isinstance(stored_binding, str) else None\n",
           "after": "    stored_reserved = reserved_project_marker(stored_binding) if isinstance(stored_binding, str) and record.get(\"permission_profile\") != \"admin_agent\" else None\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -13239,10 +13239,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 247,
+          "line": 259,
           "before": "    if stored_reserved is not None:\n",
           "after": "    if isinstance(stored_binding, str):\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -13255,10 +13255,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 247,
+          "line": 259,
           "before": "    if stored_reserved is not None:\n",
           "after": "    if False:\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -13271,10 +13271,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 247,
+          "line": 259,
           "before": "    if stored_reserved is not None:\n",
           "after": "    if False:\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -13287,10 +13287,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 247,
+          "line": 259,
           "before": "    if stored_reserved is not None:\n",
           "after": "    if False:\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -13303,10 +13303,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 492,
+          "line": 498,
           "before": "    reserved = reserved_project_marker(values)\n",
           "after": "    reserved = None\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -13319,10 +13319,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 492,
+          "line": 498,
           "before": "    reserved = reserved_project_marker(values)\n",
           "after": "    reserved = None\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -13879,10 +13879,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 251,
+          "line": 265,
           "before": "        logger.warning(\n            \"an agent API key bound to the project name %s is refused,",
           "after": "        logger.debug(\n            \"an agent API key bound to the project name %s is refused,",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -23785,7 +23785,7 @@
           "line": 193,
           "before": "    if record.get(\"revoked_at\") is not None:\n        return None",
           "after": "",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -27802,10 +27802,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 293,
+          "line": 299,
           "before": "status_code=403, reason=\"agent_id_mismatch\"",
           "after": "status_code=403, reason=\"other\"",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -27818,10 +27818,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 368,
+          "line": 374,
           "before": "status_code=403, reason=\"profile_escalation\"",
           "after": "status_code=403, reason=\"other\"",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -27834,10 +27834,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 352,
+          "line": 358,
           "before": "status_code=403, reason=\"scope_escalation\"",
           "after": "status_code=403, reason=\"other\"",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -27850,10 +27850,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 489,
+          "line": 495,
           "before": "status_code=403, reason=\"blank_scope\"",
           "after": "status_code=403, reason=\"other\"",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -27869,7 +27869,7 @@
           "line": 65,
           "before": "{\"agent_id_mismatch\", \"profile_escalation\", \"scope_escalation\", \"blank_scope\"}",
           "after": "{\"agent_id_mismatch\", \"profile_escalation\", \"scope_escalation\", \"blank_scope\", \"invalid_key\"}",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -27914,10 +27914,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 239,
+          "line": 251,
           "before": "status_code=401, reason=\"wrong_user\"",
           "after": "status_code=401",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28349,7 +28349,7 @@
           "line": 193,
           "before": "    if record.get(\"revoked_at\") is not None:\n        return None",
           "after": "    if False:\n        return None",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28461,7 +28461,7 @@
           "line": 193,
           "before": "    if record.get(\"revoked_at\") is not None:\n        return None",
           "after": "    if False:\n        return None",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28666,10 +28666,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 292,
+          "line": 298,
           "before": "            \"but the payload claims a different agent\",\n",
           "after": "            f\"but the payload claims agent {claimed_agent_id}\",\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28682,10 +28682,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 366,
+          "line": 372,
           "before": "                \"agent API key grants a lower permission profile than the one claimed, which is higher or unknown. Remove the \"\n",
           "after": "                f\"agent API key claims profile {claimed_profile}. Remove the \"\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28698,10 +28698,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 349,
+          "line": 355,
           "before": "                \"the payload claims projects \"\n",
           "after": "                f\"the payload claims projects {widened} \"\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28714,10 +28714,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 292,
+          "line": 298,
           "before": "            \"but the payload claims a different agent\",\n",
           "after": "            f\"but the payload claims agent {claimed_agent_id}\",\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28730,10 +28730,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 517,
+          "line": 523,
           "before": "        logger.warning(\"could not prepare an agent key identity refusal: %s\", type(exc).__name__)\n",
           "after": "        pass\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28749,7 +28749,7 @@
           "line": 28,
           "before": "logger = logging.getLogger(__name__)\n",
           "after": "logger = logging.getLogger()\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28810,10 +28810,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 515,
+          "line": 521,
           "before": "        return rejection_notice(record, reason, claimed)\n",
           "after": "        return None\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28826,10 +28826,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 515,
+          "line": 521,
           "before": "        return rejection_notice(record, reason, claimed)\n",
           "after": "        return None\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28842,10 +28842,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 515,
+          "line": 521,
           "before": "        return rejection_notice(record, reason, claimed)\n",
           "after": "        return None\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28858,10 +28858,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 515,
+          "line": 521,
           "before": "        return rejection_notice(record, reason, claimed)\n",
           "after": "        return None\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28874,10 +28874,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 515,
+          "line": 521,
           "before": "        return rejection_notice(record, reason, claimed)\n",
           "after": "        return None\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -28922,10 +28922,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 515,
+          "line": 521,
           "before": "        return rejection_notice(record, reason, claimed)\n",
           "after": "        return None\n",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -29050,10 +29050,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 438,
+          "line": 444,
           "before": "sources = [payload]",
           "after": "sources = []",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -29066,10 +29066,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 451,
+          "line": 457,
           "before": "combined[\"permission_profile\"] = escalation or min(profiles, key=lambda value: _PROFILE_RANKS[value])",
           "after": "combined[\"permission_profile\"] = escalation or max(profiles, key=lambda value: _PROFILE_RANKS[value])",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -29082,10 +29082,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 278,
+          "line": 238,
           "before": "deferred_validation = exc",
           "after": "raise",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -29098,10 +29098,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 391,
+          "line": 397,
           "before": "claimed = AgentIdentity.from_payload(source)",
           "after": "claimed = AgentIdentity.from_payload(payload)",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -29114,10 +29114,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 438,
+          "line": 444,
           "before": "sources = [payload]",
           "after": "sources = []",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -29133,7 +29133,7 @@
           "line": 220,
           "before": "claimed = AgentIdentity.from_payload(payload)",
           "after": "claimed = AgentIdentity.from_payload(_identity_source(payload, key_agent_id=\"ignored\", key_profile=\"admin_agent\")[0])",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -29146,10 +29146,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 438,
+          "line": 444,
           "before": "sources = [payload]",
           "after": "sources = []",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -29194,10 +29194,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 438,
+          "line": 444,
           "before": "sources = [payload]",
           "after": "sources = []",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
@@ -29242,16 +29242,32 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
-          "line": 278,
+          "line": 238,
           "before": "deferred_validation = exc",
           "after": "raise",
-          "sha256": "78eabf7f949557e9a63b0682193387c9170d5494aae0eb6cbb5df03632401020"
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
         }
       ],
       "pytest": [
         "tests/integration/test_identity_claims_one_source_postgres.py::test_postgres_malformed_identity_fields_do_not_mask_claims"
       ],
       "expected_failure": "test_postgres_malformed_identity_fields_do_not_mask_claims"
+    },
+    {
+      "name": "identity-one-source-invalid-key",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_agent_keys.py",
+          "line": 241,
+          "before": "    if record is None:\n        if deferred_validation is not None:\n            raise deferred_validation\n        raise AgentKeyAuthenticationError(",
+          "after": "    if record is None:\n        if False and deferred_validation is not None:\n            raise deferred_validation\n        raise AgentKeyAuthenticationError(",
+          "sha256": "001bd33242aed491dcceaa7b2d429cf7c1c66cdf946a187119f04a0b05d8be75"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_identity_claims_one_source.py::test_invalid_key_with_malformed_identity_keeps_its_answer"
+      ],
+      "expected_failure": "test_invalid_key_with_malformed_identity_keeps_its_answer"
     }
   ]
 }

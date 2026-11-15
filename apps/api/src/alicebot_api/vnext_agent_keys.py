@@ -229,12 +229,24 @@ def resolve_agent_identity(
             )
         return replace(claimed, auth=UNAUTHENTICATED_LOCAL_AUTH)
 
+    # Keep malformed requests' old answer for a key that cannot be used. For
+    # a valid key, defer the error until all of its claims have been checked.
+    deferred_validation: AgentIdentityValidationError | None = None
+    try:
+        AgentIdentity.from_payload(payload)
+    except AgentIdentityValidationError as exc:
+        deferred_validation = exc
+
     record = verify_agent_key(store, raw_key)
     if record is None:
+        if deferred_validation is not None:
+            raise deferred_validation
         raise AgentKeyAuthenticationError(
             "agent API key is invalid or has been revoked", status_code=401, reason="invalid_key"
         )
     if str(record.get("user_id")) != str(user_id):
+        if deferred_validation is not None:
+            raise deferred_validation
         raise AgentKeyAuthenticationError(
             "agent API key does not belong to this user", status_code=401, reason="wrong_user"
         )
@@ -245,6 +257,8 @@ def resolve_agent_identity(
     stored_binding = record.get("project_scope")
     stored_reserved = reserved_project_marker(stored_binding) if isinstance(stored_binding, str) else None
     if stored_reserved is not None:
+        if deferred_validation is not None:
+            raise deferred_validation
         # Every surface answers with its standard refusal, which names no reason, so the reason and the way to
         # find and revoke the key go to the server log. Nothing read from the key's record is logged: the line
         # names the reserved word, and ``alicebot agent keys list`` shows the key whose project_scope reads it.
@@ -269,14 +283,6 @@ def resolve_agent_identity(
 
     key_agent_id = str(record["agent_id"])
     key_profile = str(record["permission_profile"])
-    # A malformed identity keeps its old answer only after every key claim has
-    # been checked. A disallowed claim takes precedence over malformed fields.
-    deferred_validation: AgentIdentityValidationError | None = None
-    try:
-        AgentIdentity.from_payload(payload)
-    except AgentIdentityValidationError as exc:
-        deferred_validation = exc
-
     source, raw_scopes, conflicts = _identity_source(payload, key_agent_id=key_agent_id, key_profile=key_profile)
     claimed_agent_id = _claimed_text(source.get("agent_id"))
     claimed_profile = _claimed_text(source.get("permission_profile"))
