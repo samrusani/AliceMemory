@@ -29284,6 +29284,38 @@
         "tests/unit/test_sqlite_onramp.py::test_project_scope_bound_key_is_enforced_in_sqlite_mode"
       ],
       "expected_failure": "test_project_scope_bound_key_is_enforced_in_sqlite_mode"
+    },
+    {
+      "name": "identity-one-source-provider-carrier",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 920,
+          "before": "payload=_keyed_http_identity_defaults(payload) if raw_key is not None else payload,",
+          "after": "payload=payload,",
+          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_providers_router_split.py::test_main_carrier_is_unchanged_and_owns_no_moved_definition"
+      ],
+      "expected_failure": "test_main_carrier_is_unchanged_and_owns_no_moved_definition"
+    },
+    {
+      "name": "identity-one-source-workspace-carrier",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 920,
+          "before": "payload=_keyed_http_identity_defaults(payload) if raw_key is not None else payload,",
+          "after": "payload=payload,",
+          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_workspaces_router_split.py::test_workspace_import_direction_pruning_timing_and_runtime_identities_are_exact"
+      ],
+      "expected_failure": "test_workspace_import_direction_pruning_timing_and_runtime_identities_are_exact"
     }
   ]
 }
