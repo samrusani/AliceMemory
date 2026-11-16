@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.23.1): the agent integration smoke gives its seed the same project as its request, and the capture-to-brief smoke uses the current report date; v0.23.1 used an unscoped seed and a fixed date, so both checks could fail on a fresh install (`python -m pytest tests/integration/test_shipped_smokes_postgres.py`).
+
 - Unreleased (on main, not in v0.23.1): the baseline security scan installs scanner version 1.9.4, the version used in the latest successful main run; v0.23.1 allowed a range (`python -m pytest tests/unit/test_security_scanner_pin.py`).
 - Unreleased (on main, not in v0.23.1): mutation replay refuses an archive whose files an enclosing Git repository ignores, since document scans can otherwise omit those files; v0.23.1 did not check (`python -m pytest tests/unit/test_derived_label_replay_environment.py`).
 - Unreleased (on main, not in v0.23.1): mutation replay defaults `BENCH_TEST_SOURCE` to its source repository when unset and removes stale mutant logs before a baseline; v0.23.1 did neither (`python -m pytest tests/unit/test_derived_label_replay_environment.py`).

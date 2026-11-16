@@ -657,7 +657,7 @@ def _run_vnext_smoke_capture_to_brief(ctx: CLIContext, _args: argparse.Namespace
         )
         artifact = VNextBrainService(store).generate_daily_brief(
             BrainArtifactRequest(agent_identity=None,
-                domains=("project",), sensitivity_allowed=("private", "unknown"), generated_for="2026-05-11"
+                domains=("project",), sensitivity_allowed=("private", "unknown")
             )
         )
         rating = store.create_artifact_quality_rating(
@@ -913,6 +913,7 @@ def _run_vnext_smoke_operator_console(ctx: CLIContext, _args: argparse.Namespace
 def _run_vnext_smoke_agent_integration_pack(ctx: CLIContext, _args: argparse.Namespace) -> str:
     smoke_id = str(uuid4())
     agent_run_id = f"agent-pack-smoke-{smoke_id}"
+    smoke_project = f"Agent integration smoke {smoke_id[:8]}"
     with _vnext_store_context(ctx) as store:
         source = VNextCaptureService(store, defer_embeddings=True).capture_text(
             "\n".join(
@@ -925,13 +926,14 @@ def _run_vnext_smoke_agent_integration_pack(ctx: CLIContext, _args: argparse.Nam
             title="Agent integration pack seed",
             domain="project",
             sensitivity="private",
+            project_scope=(smoke_project,),
             metadata_json={"smoke": "agent-integration-pack"},
         )
         if source.source_id is None:
             raise RuntimeError("agent integration smoke did not create a source")
         project = store.create_project(
             {
-                "name": f"Agent integration smoke {smoke_id[:8]}",
+                "name": smoke_project,
                 "slug": f"agent-pack-{smoke_id[:8]}",
                 "status": "active",
                 "current_state": "Agent integration pack smoke project.",
@@ -946,7 +948,7 @@ def _run_vnext_smoke_agent_integration_pack(ctx: CLIContext, _args: argparse.Nam
             agent_type="coding_agent",
             agent_run_id=agent_run_id,
             task_id=f"task-{smoke_id[:8]}",
-            project_scope=("Alice",),
+            project_scope=(smoke_project,),
             permission_profile="project_scoped_agent",
         )
         agent_identity = store.upsert_agent_identity(
