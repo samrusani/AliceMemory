@@ -307,14 +307,14 @@ def test_the_shards_are_disjoint_and_together_cover_every_unit_test_file_once() 
 
 
 def test_no_shard_is_empty_and_the_shards_are_numbered_in_order() -> None:
-    """Six shards numbered 1 to 6 and each runs at least one file.
+    """Ten shards numbered 1 to 10 and each runs at least one file.
 
-    Mutation: leave a shard with a selection that matches nothing, skip a number, or repeat one.
+    Mutation: remove the last shard, leave a shard with a selection that matches nothing, skip a number, or repeat one.
     """
 
     shards = _shards()
     assert [entry["shard"] for entry in shards] == list(range(1, len(shards) + 1))
-    assert len(shards) == 6
+    assert len(shards) == 10
     for entry in shards:
         assert any(_expand(entry["selection"]).values()), entry["shard"]
 
@@ -539,6 +539,13 @@ def test_the_release_guide_names_the_summary_job_and_the_rule_for_the_shards() -
     assert "Keep its name and its `if: always()`" in text
     assert "do not require the shard jobs one by one" in text
     assert "a skipped required check counts as passing" in text
+
+
+def test_the_release_guide_names_the_current_shard_count() -> None:
+    """Mutation: change the guide's ten shard jobs back to six."""
+    text = " ".join((REPO_ROOT / "RELEASING.md").read_text(encoding="utf-8").split())
+    assert "The unit tests run as ten shard jobs" in text
+    assert len(_shards()) == 10
 
 
 @pytest.mark.parametrize("job_id", UNIT_JOBS)
