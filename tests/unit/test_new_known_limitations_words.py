@@ -42,9 +42,9 @@ def test_retirement_standing_limitation_is_documented():
 
 
 def test_agent_type_defaults_limitation_is_documented():
-    """Mutation: remove the On main opener from the agent_type_defaults bullet in known-limitations.md."""
+    """Mutation: delete the agent_type_defaults bullet in known-limitations.md."""
     page = (ROOT / "docs/alpha/known-limitations.md").read_text()
-    assert '- On main, the two built-in agent ids record different types through MCP and through a nested HTTP identity with no type ([identity](agent-integration.md#agent-identity-fields))' in page
+    assert '- the two built-in agent ids record different types through MCP and through a nested HTTP identity with no type ([identity](agent-integration.md#agent-identity-fields))' in page
 
 
 def test_thin_audit_limitation_is_documented():

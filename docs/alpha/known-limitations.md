@@ -11,7 +11,7 @@ OCR, PDF OCR and voice transcription execution are not packaged. The scheduler i
 - expiring a write awaiting its own confirmation leaves that confirmation usable; accepting it makes the row active with an expiry in the past ([confirm](../memory-operations-protocol.md#confirm-and-reject-rules))
 - rows written before the first key keep their standing, and revoking the last key restores keyless briefs even for a presented revoked key. On main, lessons written before the first key keep their standing too ([authentication](agent-integration.md#authentication))
 - On main, retirement of a write waiting for review is limited to its decision makers, while its writer can retire a row waiting for their own reply ([standing](../memory-operations-protocol.md#standing-to-retire-a-memory))
-- On main, the two built-in agent ids record different types through MCP and through a nested HTTP identity with no type ([identity](agent-integration.md#agent-identity-fields))
+- the two built-in agent ids record different types through MCP and through a nested HTTP identity with no type ([identity](agent-integration.md#agent-identity-fields))
 - some audit records omit actors or keep the original writer, a hidden change leaves no event, and a stored agent row shows its last claimed profile ([audit](../memory-operations-protocol.md#audit-guarantees))
 - On main, every key of a project can read its waiting and rejected lessons through the full review and explain tools; explain returns the decision reason ([lessons](shared-lessons.md))
 - On main, a lesson's reader sees the writer and publishing agent ids ([lessons](shared-lessons.md)); choose neutral agent ids

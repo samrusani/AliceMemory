@@ -20,14 +20,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PAGE = ROOT / "docs/alpha/known-limitations.md"
 
-# The page is 13,316 characters in 40 bullets, and its longest bullet is 643. It was 19,297 characters in 57
+# The page is 13,307 characters in 40 bullets, and its longest bullet is 643. It was 19,297 characters in 57
 # bullets before the version history and the bounds that other pages own left it. The old page before that was 30,000,
 # with single bullets of 4,000 to 6,000. The page cap is fitted to its current length, so new material requires a fit
 # and nothing grows back into a record without this test failing. A bullet is one or two sentences, and
 # a closing "See ..." pointer to the page that explains it does not count as one.
 # Fit 2026-10-21 to the shortened page, 2026-10-27 to the page with the bullet on source embeddings, and 2026-10-30 to the
 # page with the v0.23.0 header, which names three markers. Fit 2026-11-16 for thirteen current limitations.
-MAX_PAGE_CHARS = 13_316
+MAX_PAGE_CHARS = 13_307
 MAX_BULLET_CHARS = 800
 MAX_BULLET_SENTENCES = 2
 
