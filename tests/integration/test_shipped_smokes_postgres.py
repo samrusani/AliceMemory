@@ -28,7 +28,15 @@ GATES = {
     "operator-console": "source_review_action_persisted memory_review_action_persisted artifact_review_and_rating_persisted open_loop_created_from_source scheduler_run_now_created_artifact connector_health_visible doctor_readiness_available capture_to_brief_trace_exists event_log_records_actions",
     "agent-integration-pack": "agent_identified_as_openclaw agent_requested_project_context_pack scoped_context_pack_returned agent_output_stored_as_reviewable_source_or_artifact memory_proposal_in_review_queue no_trusted_memory_auto_promoted event_log_records_full_flow policy_blocks_restricted_domain_request vnext_agent_activity_visible",
     "headless-ubuntu": "installer_exists_and_is_executable installer_supports_required_flags uninstaller_exists_and_confirms_destructive_actions systemd_templates_exist systemd_runs_as_non_root systemd_binds_localhost_by_default env_template_documents_config_layout headless_install_doc_covers_ssh_tunnel hermes_guide_covers_identity_and_policy rc_release_notes_exist cto_summary_exists",
+    "local-runtime": "daemon_once_completed due_scan_executed_all_workflows daily_brief_scheduled weekly_synthesis_scheduled connection_report_scheduled contradiction_report_scheduled open_loop_review_scheduled project_update_scan_scheduled scheduled_artifacts_reviewable scheduled_artifact_metadata_complete",
+    "model-backed": "due_scan_ran_one_workflow run_succeeded artifact_reviewable artifact_model_backed local_route_enforced provider_metadata_present source_grounded_sections_present source_refs_present",
 }
+
+ALPHA_SMOKES = (
+    "connector-hardening", "local-cors", "secret-redaction", "dogfood-doctor", "live-capture-connectors",
+    "capture-to-brief", "agentic-memory-commit", "agentic-scheduler", "operator-console",
+    "agent-integration-pack", "headless-ubuntu",
+)
 
 
 def _run(urls: dict[str, str], args: list[str], tmp_path: Path) -> dict:
@@ -83,7 +91,7 @@ def test_alpha_check_runs_all_shipped_smokes(migrated_database_urls, tmp_path):
     """Guard: skip the smoke loop and the expected smoke names are absent."""
     result = _run(migrated_database_urls, ["alpha", "check", "--headless"], tmp_path)
     assert result["status"] == "passed"
-    assert [item["name"] for item in result["smokes"]] == list(GATES)
+    assert [item["name"] for item in result["smokes"]] == list(ALPHA_SMOKES)
     for item in result["smokes"]:
         assert item["status"] == "passed"
         _assert_smoke(item["result"], item["name"])
