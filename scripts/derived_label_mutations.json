@@ -31157,6 +31157,22 @@
         "tests/unit/test_publish_recheck_rehearsal.py::test_each_mutation_is_found[report limit differs from the timeout]"
       ],
       "expected_failure": "test_each_mutation_is_found[report limit differs from the timeout]"
+    },
+    {
+      "name": "benchmark-note-current-shard-count",
+      "edits": [
+        {
+          "file": "docs/benchmarks/agent-answer/README.md",
+          "line": 75,
+          "before": "The unit tests run as 10 parallel shard jobs",
+          "after": "The unit tests run as 6 parallel shard jobs",
+          "sha256": "417296b406efe10d7a2188551d8c9a4ec31d4d9762defc5d1492add84bc56aa8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_alice_bench_docs.py::test_the_note_states_the_ci_time_sample_that_gates_json_records"
+      ],
+      "expected_failure": "test_the_note_states_the_ci_time_sample_that_gates_json_records"
     }
   ]
 }
