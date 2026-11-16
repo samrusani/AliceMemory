@@ -73,7 +73,7 @@ The API exposes the same local runtime posture through:
 - `GET /v0/vnext/scheduler/runs`
 - `GET /v0/vnext/scheduler/failures`
 - `POST /v0/vnext/scheduler/run-due`
-- `GET /v0/vnext/agents/policy-telemetry`
+- `GET /v0/vnext/agents/policy-telemetry`: the owner on an install without active keys and an unbound trusted or admin key may call it; every other key is refused, and a call without a key is refused while an active key exists ([operator access](../alpha/mcp-tools.md#saved-quotes)).
 - `GET /v0/vnext/connectors/health`
 - `GET /v0/vnext/connectors/status`
 - `PATCH /v0/vnext/connectors/{connector_name}/config`

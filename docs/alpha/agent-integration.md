@@ -208,6 +208,8 @@ you paste into an agent's prompt are [hermes-skill.md](hermes-skill.md) and [ope
 }
 ```
 
+An `openclaw` key records `coding_agent` and a `hermes` key records `personal_assistant` through MCP when no type is sent; an HTTP call with a nested identity and no type records `unknown` for either key.
+
 Permission profiles:
 
 - `read_only_agent`: context lookup only
@@ -253,9 +255,11 @@ Rules:
 - On a keyed core MCP call, an argument error still checks for a claim beyond the key, which is refused and recorded before the argument error; without such a claim the argument error is unchanged.
 - After the refused transaction rolls back, a valid key's refused agent, profile or out-of-binding scope claim, or its reserved or invalid stored binding, records `agent.key_escalation_rejected` on a best-effort basis. A blank scope item and a scope of the wrong type do not record an event when no field overclaims. An invalid, revoked or other user's key records none. Repeats with the same key, reason and stored claim within 60 seconds make one event; distinct claims that store the same bounded or withheld value share the event. The payload names the key's own agent id, cleaned and bounded like the claim. Each stored claim value is at most 128 characters, a list holds at most eight values, control and format characters are removed, and a value flagged by the stored-text credential check is replaced with `[withheld]`. The event is a system audit record, not agent activity. A failed event write logs the error class without its message and does not change the refusal. Refusal messages in the server log do not contain raw claims.
 - Fresh local installs keep working without keys: while a user has no active keys, keyless local human and agent calls remain available; self-asserted agents are audited with `auth: "unauthenticated_local"`.
+  Rows written before the first key keep that standing after keys are issued: their writer is labelled `declared_on_keyless_install`. The same holds for lessons on main, which are not in v0.23.1.
 - The moment at least one active key exists, every protected `/v0/vnext` request requires `Authorization: Bearer alice_sk_...`, including requests that omit agent identity fields. Bare keys are rejected.
 - Manage keys with `alicebot agent keys list` (prefixes only, never hashes) and `alicebot agent keys revoke <key-prefix-or-id>`.
   Revocation searches all keys, including revoked keys when deciding whether a prefix is ambiguous; use the full id when it matches more than one.
+  After the last active key is revoked, the brief and SessionStart hook use the keyless owner view even when the environment still presents that revoked key; MCP refuses the revoked key.
 - An agent capture above its sensitivity ceiling is refused without storing a source, including source-producing connector calls.
   The agent-output CLI exits nonzero with `status: rejected` and reason `sensitivity_above_agent_ceiling` for this refusal.
 - Context-pack audit events remove control, format and surrogate characters, keep at most 128 query characters, and replace a query flagged as credential material with `[withheld]`; existing events are unchanged.

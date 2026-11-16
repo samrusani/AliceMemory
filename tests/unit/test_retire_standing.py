@@ -146,7 +146,10 @@ def _owner(vault, monkeypatch, lesson):
 
 
 def test_pending_retirement_requires_the_existing_decision_maker(vault, monkeypatch):
-    """Guard: remove the pending retirement decision in _write_policy_decision."""
+    """Guard: remove the pending retirement decision in _write_policy_decision.
+
+    The limitations page changes if this standing changes.
+    """
     _matrix(vault, monkeypatch, False)
     _owner(vault, monkeypatch, False)
     author = vault.key("author", "project_scoped_agent", "alpha")

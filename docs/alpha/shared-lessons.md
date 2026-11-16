@@ -10,6 +10,16 @@ distinguish its identity. Other identities' lessons wait for review. A reviewer
 can publish a waiting lesson through `alice_memory_correct` or the memory review
 HTTP route. Published lessons are returned only when the caller may read them.
 A write can also require confirmation or be rejected by the existing checks.
+On the full tool surface, a key that can read a project's rows, including a
+read-only key, can see its waiting and rejected lessons in `alice_memory_review`
+with `status: all` and in `alice_explain` by id. The explanation also returns
+the reason for a decision. The reads on the default four tools return only
+published lessons.
+
+Each lesson returned by `alice_lessons` names its writer and the agent that
+approved it, when an agent approved it. Choose neutral agent ids if those names
+should not be exposed to other readers. A lookup reads a projection of the
+active lesson rows the caller may read, so its cost grows with that number.
 
 The session brief can name how many published lessons are readable. It counts
 up to 20 and says `more than 20` when it finds 21. If it reaches the scan limit

@@ -77,6 +77,13 @@ rewrites governed content copies to content-free skeletons:
   `agent.memory_consolidation_accepted`, `memory.redacted`, plus the policy
   decision events), correlated by `trace_id` and the agent's `run_id`.
 
+Some records are thinner: `memory.redacted` has an actor type but no actor id,
+even when nearby policy events name the agent; the stored agent row carries the
+profile of its last call, which may be a narrower profile it claimed; and an
+admin's replacement from `alice_memory_correct` retains the original writer's
+identity in its metadata. An attempt on a row the caller cannot read leaves
+the same record as an attempt on an id that does not exist.
+
 Committed memories with source references also carry **provenance links** to
 those references, so [audit](#audit) can answer "where did this come from?".
 An explicit commit may legitimately have no source reference.
@@ -124,6 +131,18 @@ refusal also writes `agent.policy_filtered` when the policy decision is
 `blocked`.
 Commits accept an `idempotency_key`; retries replay the original result
 instead of double-writing.
+The key names a write across the whole vault, not one agent or project. A
+second agent sending the same request can replay the stored outcome; a
+different request with that key fails without adding a memory. When the row is
+above the second agent's ceiling, an exact request is refused and a different
+one fails with a different answer, so knowing the key lets that caller test a
+guess of the hidden text. A replay can add policy events and an agent record,
+including when a different request is refused because the original row is in
+another project or above the caller's ceiling. A keyed attempt also updates the
+key's last-used time, including a failed retry. A write that is forgotten, undone or expired still
+replays as committed. On SQLite a rejected review write replays as
+`review_required`; on PostgreSQL the HTTP review rejection replays as
+`rejected`.
 
 ## recall
 
@@ -271,6 +290,11 @@ do not read it: `alice_memory_correct` `approve` and a correction through
 `POST /v0/vnext/memories/correct` or `alicebot vnext memories correct` can
 still make the row active after 24 hours.
 
+Expiring a write that waits for its author's confirmation does not cancel
+that confirmation. The author can confirm it, making the row active with its
+expiry still in the past; recall and the memory list in the context pack leave
+it out, while the pack's recent changes can still name its events.
+
 Credential material, on every route above. Before the 24 hours, a confirm
 whose new text, whose pending text, or whose rationale carries credential
 material is refused and the write stays pending. A reject always completes;
@@ -346,6 +370,8 @@ and its provenance links back to sources.
   or `entity_id` on the Postgres backend)
 - HTTP: `GET /v0/vnext/memories/{memory_id}/audit`
 - CLI: `alicebot vnext memories audit <memory_id>`
+
+The HTTP audit is an operator route: the owner on an install without active keys and an unbound trusted or admin key may call it; every other key is refused, and a call without a key is refused while an active key exists ([operator access](alpha/mcp-tools.md#saved-quotes)).
 
 Recent write activity is listable via `GET /v0/vnext/memories/recent-commits`
 and `alicebot vnext memories recent`.
