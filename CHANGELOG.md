@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.23.1): the limitations page describes thirteen current limits of keys, memory, lessons, reads, commands and connectors; the v0.23.1 page did not list them (`python -m pytest tests/unit/test_new_known_limitations_words.py`).
+
 - Unreleased (on main, not in v0.23.1): the agent integration smoke gives its seed the same project as its request, and the capture-to-brief smoke uses the current report date; on a fresh user, the agent smoke failed from v0.9.2 through v0.23.1 because its seed had no project, and capture-to-brief failed from v0.10.3 through v0.23.1 on days other than 2026-05-11 because it requested that fixed date (`python -m pytest tests/integration/test_shipped_smokes_postgres.py` and the release-tag reproductions in the pull request).
 
 - Unreleased (on main, not in v0.23.1): the baseline security scan installs scanner version 1.9.4, the version used in the latest successful main run; v0.23.1 allowed a range (`python -m pytest tests/unit/test_security_scanner_pin.py`).

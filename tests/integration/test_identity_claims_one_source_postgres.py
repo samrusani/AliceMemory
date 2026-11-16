@@ -93,7 +93,10 @@ def test_postgres_http_claim_table_preserves_validation_and_narrowing(claims):
 
 
 def test_recorded_identity_defaults_stay_the_same_per_door_and_form(label_harness, monkeypatch):
-    """Guard: omit the keyed HTTP nested-identity default before resolving claims."""
+    """Guard: omit the keyed HTTP nested-identity default before resolving claims.
+
+    The limitations page changes if the per-door defaults change.
+    """
     h = label_harness
     monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)

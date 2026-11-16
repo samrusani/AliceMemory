@@ -166,7 +166,10 @@ def _legacy(vault, monkeypatch, kind):
     return failures
 
 def test_pending_retirement_uses_decision_standing_through_each_door(vault, monkeypatch):
-    """Guard: remove the pending retirement decision in _write_policy_decision."""
+    """Guard: remove the pending retirement decision in _write_policy_decision.
+
+    The limitations page changes if this standing changes.
+    """
     failures = []
     for door in ("mcp", "http"):
         for action in ("forget", "expire", "undo"):

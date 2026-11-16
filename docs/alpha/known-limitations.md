@@ -1,12 +1,25 @@
 # Public Alpha Known Limitations
 
-This page lists what is limited now in v0.23.0. What an earlier release did, and what a later release fixed, is in the [CHANGELOG](../../CHANGELOG.md) and the [release notes](../release/v0.23.0-release-notes.md). Behaviour that is new in v0.23.0 is marked `From v0.23.0`, and what v0.22.0 and v0.21.0 changed is marked `From v0.22.0` and `From v0.21.0`.
+This page lists what is limited now in v0.23.0. Additions on main are marked as such. What an earlier release did, and what a later release fixed, is in the [CHANGELOG](../../CHANGELOG.md) and the [release notes](../release/v0.23.0-release-notes.md). Behaviour that is new in v0.23.0 is marked `From v0.23.0`, and what v0.22.0 and v0.21.0 changed is marked `From v0.22.0` and `From v0.21.0`.
 
 Not built in this alpha: no hosted cloud, no production SLA, and no team accounts, billing, cloud sync, mobile app or hosted deployment (out of scope); no managed Gmail or Calendar OAuth consent or account-linking flow (manual operator-token storage exists); no live email or calendar polling; no Telegram polling, delivery or channel transport.
 OCR, PDF OCR and voice transcription execution are not packaged. The scheduler is local, model providers need your configuration, and the Postgres setup is technical (the SQLite install is one command).
 
 - secrets fallback is alpha-grade unless an OS or managed secret provider is configured, and passive memory capture is structured and English-biased, so general conversation is not guaranteed to become memory
 - automatic memory promotion is off unless a deployment opts in with `ALICE_MEMORY_PERSONA` ([personas](../memory/promotion-personas.md)), and only a writer whose identity came from an issued agent key gets it; a compromised key can write durable memory (`alicebot vnext memories quarantine` is the command-line-only sweep). Confirming a pending write with `alice_memory_commit` is not a human gate: the confirm step relies on the agent asking the user ([rules](../memory-operations-protocol.md#confirm-and-reject-rules))
+- idempotency keys are shared across the vault, and a caller who knows one can test a guess of a hidden write ([remember](../memory-operations-protocol.md#remember)); use idempotency keys that cannot be guessed
+- expiring a write awaiting its own confirmation leaves that confirmation usable; accepting it makes the row active with an expiry in the past ([confirm](../memory-operations-protocol.md#confirm-and-reject-rules))
+- rows written before the first key keep their standing, and revoking the last key restores keyless briefs even for a presented revoked key. On main, lessons written before the first key keep their standing too ([authentication](agent-integration.md#authentication))
+- On main, retirement of a write waiting for review is limited to its decision makers, while its writer can retire a row waiting for their own reply ([standing](../memory-operations-protocol.md#standing-to-retire-a-memory))
+- On main, the two built-in agent ids record different types through MCP and through a nested HTTP identity with no type ([identity](agent-integration.md#agent-identity-fields))
+- some audit records omit actors or keep the original writer, a hidden change leaves no event, and a stored agent row shows its last claimed profile ([audit](../memory-operations-protocol.md#audit-guarantees))
+- On main, every key of a project can read its waiting and rejected lessons through the full review and explain tools; explain returns the decision reason ([lessons](shared-lessons.md))
+- On main, a lesson's reader sees the writer and publishing agent ids ([lessons](shared-lessons.md)); choose neutral agent ids
+- On main, `alice_lessons` reads a projection of every lesson the caller may read, so its cost grows with that number ([lessons](shared-lessons.md))
+- with project scoping on and a project detected in the default view, a key's brief and session hook return no brief ([projects](projects.md#the-project-brief))
+- `alice_explain` fails on a readable row linked to a source the caller cannot read ([cited sources](mcp-tools.md#cited-sources))
+- outside capture commands, a CLI policy refusal is reported as `filesystem_operation_failed` ([CLI](../integrations/cli.md#determinism-contract))
+- the dedicated Telegram and local-folder sync routes are shadowed and their request bodies get HTTP 422 ([connectors](mcp-tools.md#saved-quotes))
 - the browser clipper remains a bookmarklet/MVP path, and the user must verify opaque submissions in the Inbox; `/vnext` is the operator console, not the main agent interface: once any agent key exists it needs a dedicated unbound `admin_agent` key entered again for each mounted browser session, and `trusted_local_agent` is not full admin-review parity
 - the Markdown and ChatGPT imports read each file whole, so a file over 16 MiB (Markdown) or 512 MiB (ChatGPT export) is refused with `import_file_too_large` unless `--max-file-mib N` raises the limit ([importers](../integrations/importers.md))
 

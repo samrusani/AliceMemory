@@ -19,6 +19,8 @@ Then start a session in a git repository, or run `alice-memory brief` inside one
 
 With scoping on and a project found, the brief that the SessionStart hook injects and that `alice-memory brief` prints changes in four ways.
 
+When an agent key is presented and a project is found in the default project view, the brief command exits 1 without a brief and the SessionStart hook returns an empty object. With no project found, the same key can receive a brief; scoping is off by default and MCP reads do not have this failure.
+
 1. After the frame line it opens with one line that Alice writes (not a stored note): the project's label in quotes, its id, where it was found (`the git remote` or `the repository folder`) and the id to pass as `project_scope` if your Alice tools cannot see the folder.
 2. This project's notes come first. A note is in the project when its project scope holds one of the project's ids. The newest eight facts and eight open loops are filled with the project's notes first and notes that belong to no project after them, and a quarter of the places, rounded down (two of eight), are kept for the global ones whenever the project has more than enough and global has any. At a limit of three or fewer nothing is kept back, so a caller who asks for one item gets the project's.
 3. A note that belongs to no project is marked: `**fact** (global): "..."`. A note belongs to no project when its project scope holds no Alice project id: it is empty, or it holds only free-form names such as `Alice`. Every note saved before the upgrade is global, and so is every note an agent filed under a name it chose, so none of them disappears from any project.

@@ -172,6 +172,8 @@ These seven pages describe commands, routes and tools of the Postgres stack. Eac
 - correction flow updates future recall/resume results
 - vNext scheduler, connector-hardening, secret-redaction, doctor, and model-backed smoke output is JSON and fails nonzero if any gate fails
 
+Outside the capture commands, a policy refusal is reported as `filesystem_operation_failed`.
+
 See tests:
 
 - `tests/integration/test_mcp_cli_parity.py`
