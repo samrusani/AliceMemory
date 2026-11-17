@@ -131,7 +131,7 @@ EXPECTED_CARRIER_NAMES_SHA256 = "946e9d456afbdc7751df671b251457a432ba444dbbdfad5
 # _withhold_hidden_ids keeps ids from that copy. The set of definitions is the same.
 # Re-pin: `_vnext_protected_http_auth` records the user the key was authenticated for, and `_withhold_hidden_ids` keeps
 # every response header, repeated ones included. The set of definitions is the same.
-EXPECTED_CARRIER_AST_SHA256 = "4f4e5be45b408bc4450316014a8697ea305a0a09e908cb9b40183bf6d52a69cd"
+EXPECTED_CARRIER_AST_SHA256 = "3fc547fa718098943cb0018dcfe0f3aeafcc4c75c15575f3dd34ade9bffcd2f1"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "1a438538e16120361f92d30375cc94679d598fe4b78ba5a58a7d8a4dda6af83c"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "8b79ceaf996b8c51b5bb2f3f38a8c19a4e33796955d8b8f7a66e7ac01ea1732d"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "2fbc286e5aeaca8cb8c5ae1d0e1d7ef7816ae2d905542f967c813a047e1f2c29"
@@ -675,10 +675,10 @@ def test_public_error_and_coverage_controls_include_provider_router_once() -> No
         )
         for path in paths
     }
-    assert call_counts["apps/api/src/alicebot_api/main.py"] == 4
+    assert call_counts["apps/api/src/alicebot_api/main.py"] == 5
     assert call_counts["apps/api/src/alicebot_api/routers/providers.py"] == 59
     assert call_counts["apps/api/src/alicebot_api/routers/workspaces.py"] == 4
-    assert sum(call_counts.values()) == 304
+    assert sum(call_counts.values()) == 305
 
     provider_path = "apps/api/src/alicebot_api/routers/providers.py"
     for relative_path in (

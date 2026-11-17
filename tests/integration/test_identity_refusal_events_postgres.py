@@ -82,7 +82,8 @@ def test_vnext_v1_and_cli_refusals_keep_their_event(label_harness, monkeypatch):
     status, body, _ = h.request("POST", "/v0/vnext/context-packs", key=key,
                                 payload={"query": "x", "agent_id": "vnext-other"})
     assert status == 403, body
-    status, body, _ = h.request("POST", "/v1/workspaces/bootstrap", key=key, payload={"agent_id": "v1-other"})
+    admin_key = h.key("admin_agent")
+    status, body, _ = h.request("POST", "/v1/workspaces/bootstrap", key=admin_key, payload={"agent_id": "v1-other"})
     assert status == 403, body
     monkeypatch.setenv("DATABASE_URL", h.urls["app"])
     monkeypatch.setenv("ALICE_AGENT_API_KEY", key)

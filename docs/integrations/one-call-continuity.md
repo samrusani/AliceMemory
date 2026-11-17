@@ -40,7 +40,9 @@ Every one-call brief returns:
 
 ## API
 
-`POST /v1/continuity/brief` uses the authenticated `v1` API surface.
+On main (unreleased), installs with active keys serve `/v1` only to unbound
+`admin_agent` keys. Other keys use `/v0/vnext` or MCP. The example below uses
+a keyless loopback install.
 
 Example:
 

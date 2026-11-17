@@ -48,6 +48,9 @@ After import, these surfaces will include OpenClaw-backed continuity when it is 
 - CLI: `alice brief`, `alice recall`, `alice resume`
 - MCP: only the legacy continuity tools, such as `alice_brief`, on a deliberately keyless local server with `ALICE_MCP_LEGACY_TOOLS=1`. The core `alice_recall` and `alice_resume` do not return these items.
 
+On main (unreleased), installs with active keys serve `/v1` only to unbound
+`admin_agent` keys. Other keys use `/v0/vnext` or MCP for policy-filtered agent access.
+
 ## Import Commands
 
 Import the file-contract fixture:

@@ -103,6 +103,9 @@ about 330 MiB of server memory), so the reverse proxy should cap the body too:
 
 ### Actors
 
+On main (unreleased), installs with active keys serve `/v1` only to unbound
+`admin_agent` keys. Other keys use `/v0/vnext` or MCP. Keep `/v1` on loopback.
+
 - **Local owner/operator:** controls the host, config, database, UI, and key
   lifecycle. Fully trusted in keyless local mode.
 - **Keyed agent:** trusted only for the identity, permission profile, user, and

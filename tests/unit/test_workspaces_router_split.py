@@ -162,7 +162,7 @@ EXPECTED_CARRIER_NAMES_SHA256 = "946e9d456afbdc7751df671b251457a432ba444dbbdfad5
 # _withhold_hidden_ids keeps ids from that copy. The set of definitions is the same.
 # Re-pin: `_vnext_protected_http_auth` records the user the key was authenticated for, and `_withhold_hidden_ids` keeps
 # every response header, repeated ones included. The set of definitions is the same.
-EXPECTED_CARRIER_AST_SHA256 = "4f4e5be45b408bc4450316014a8697ea305a0a09e908cb9b40183bf6d52a69cd"
+EXPECTED_CARRIER_AST_SHA256 = "3fc547fa718098943cb0018dcfe0f3aeafcc4c75c15575f3dd34ade9bffcd2f1"
 EXPECTED_ROUTE_NODE_SHA256 = {
     "get_vnext_workspace": "62f9a0dec65229b3ff523d12e99529f1e4751f7953e26ed69fc52d184ebc9d2d",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",
@@ -800,9 +800,9 @@ def test_workspace_test_patches_and_release_controls_follow_moved_ownership() ->
         )
         for path in paths
     }
-    assert call_counts["apps/api/src/alicebot_api/main.py"] == 4
+    assert call_counts["apps/api/src/alicebot_api/main.py"] == 5
     assert call_counts[workspace_path] == 4
-    assert sum(call_counts.values()) == 304
+    assert sum(call_counts.values()) == 305
 
 
 def test_workspace_split_receipts_fail_on_old_or_mutated_carriers() -> None:

@@ -1163,35 +1163,39 @@ def _resolve_v1_http_auth(
     raw_key: str | None,
     payload: dict[str, object],
 ) -> AgentIdentity | None:
-    """Run ``/v1`` agent-key authentication off the event-loop thread."""
+    """Authenticate and record a keyed ``/v1`` policy refusal before returning it."""
 
     with user_connection(settings.database_url, user_id) as conn:
-        return resolve_protected_agent_identity(
-            PostgresVNextStore(conn),
+        store = PostgresVNextStore(conn)
+        identity = resolve_protected_agent_identity(
+            store,
             user_id=user_id,
             raw_key=raw_key,
             payload=payload,
         )
+        if raw_key is None or identity is None:
+            return identity
+        decision = evaluate_agent_policy(identity=identity, action="http.v1.access")
+        if decision.decision == "blocked":
+            append_policy_events(store, identity=identity, decision=decision, target_type="http_route", target_id="/v1")
+    # Raise after the transaction commits so the response leaves its audit events.
+    if decision.decision == "blocked":
+        raise AgentPolicyBlockedError(decision)
+    return identity
 
 
 async def enforce_v1_agent_authentication(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
-    """Authenticate the complete ``/v1`` surface before any handler runs.
+    """Authenticate and authorize the complete ``/v1`` surface before dispatch.
 
     ``/v1`` routes resolve their user from ``ALICEBOT_AUTH_USER_ID`` or the
     identity header, which binds the data but proves nothing about the caller.
-    Once the bound user has provisioned an agent API key, every ``/v1`` request
-    must present it. While no key exists the surface stays keyless for local
-    callers only.
-
-    This authenticates and does not authorize. No handler reads the resolved
-    identity, so ``/v1`` enforces no permission profile and records no agent on
-    the rows it writes: any valid key can do anything any other valid key can,
-    and a revoked key's ``/v1`` writes are not reachable by an agent-keyed
-    quarantine sweep. Keep ``/v1`` loopback-only, as
-    ``docs/deployment/single-tenant-self-hosted.md`` instructs.
+    Once the bound user has an active key, only an authenticated unbound
+    admin agent may dispatch. The keyless loopback owner path and OPTIONS
+    retain their existing behavior. Keep ``/v1`` loopback-only as described
+    in ``docs/deployment/single-tenant-self-hosted.md``.
     """
 
     if not _is_v1_path(request.url.path):
@@ -1237,6 +1241,8 @@ async def enforce_v1_agent_authentication(
         return _vnext_agent_auth_error_response(exc)
     except AgentIdentityValidationError as exc:
         return public_exception_response(exc, status_code=400)
+    except AgentPolicyBlockedError as exc:
+        return public_exception_response(exc, status_code=403)
 
     request.state.v1_agent_identity = identity
     return await call_next(request)
