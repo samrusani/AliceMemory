@@ -436,7 +436,9 @@ def test_the_changelog_at_the_tag_has_the_dated_heading_and_an_empty_unreleased_
 
 
 def test_the_changelog_keeps_the_dated_heading_right_after_the_unreleased_section() -> None:
-    """Mutations, each one alone: drop the heading; change its date; put another section between the Unreleased section
+    """Mutation: change the v0.24.0 heading date.
+
+    Mutations, each one alone: drop the heading; change its date; put another section between the Unreleased section
     and v0.23.1; put the marker for the unreleased state back into the v0.23.1 section.
 
     The Unreleased section may hold entries once main has moved on, so this test does not ask for it to be empty. It asks
@@ -446,12 +448,13 @@ def test_the_changelog_keeps_the_dated_heading_right_after_the_unreleased_sectio
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
     assert sections[1].startswith("Unreleased\n")
-    assert sections[2].startswith("v0.23.1 \u2014 2026-10-31\n")
-    assert sections[3].startswith("v0.23.0 \u2014 2026-10-30\n")
-    assert sections[4].startswith("v0.22.0 \u2014 2026-10-26\n")
+    assert sections[2].startswith("v0.24.0 \u2014 2026-11-17\n")
+    assert sections[3].startswith("v0.23.1 \u2014 2026-10-31\n")
+    assert sections[4].startswith("v0.23.0 \u2014 2026-10-30\n")
+    assert sections[5].startswith("v0.22.0 \u2014 2026-10-26\n")
     assert changelog.count(HEADING) == 1
-    assert "Unreleased (on" not in sections[2]
     assert "Unreleased (on" not in sections[3]
+    assert "Unreleased (on" not in sections[4]
 
 
 def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or_the_manifest() -> None:
@@ -1127,14 +1130,14 @@ def test_the_release_check_accepts_the_tree_and_its_pre_tag_mode_refuses_the_pub
 
     metadata, issues = release_check.validate_metadata(REPO_ROOT)
     assert issues == []
-    assert metadata.version == "0.23.1"
-    assert release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=False) == []
+    assert metadata.version != "0.23.1"
+    assert release_check.validate_release_document_state(REPO_ROOT, version="0.23.1", require_finalized=False) == []
     published = [
         "release notes alice-release-state publication_status must be pending before tag",
         "release notes alice-release-state checksums_status must be pending before tag",
         "docs/release/v0.23.1-checksums.txt must not exist on the pre-publication tag",
     ]
-    issues = release_check.validate_release_document_state(REPO_ROOT, version=metadata.version, require_finalized=True)
+    issues = release_check.validate_release_document_state(REPO_ROOT, version="0.23.1", require_finalized=True)
     assert [issue for issue in issues if issue in published] == published
     assert [issue for issue in issues if issue not in published] in (
         [],

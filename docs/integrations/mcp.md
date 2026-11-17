@@ -3,7 +3,7 @@
 Alice's MCP server exposes four tools by default (`alice_memory_commit`,
 `alice_recall`, `alice_resume`, `alice_lessons`). The other core tools become listed
 and callable when `ALICE_MCP_FULL_TOOLS=1`. From v0.21.0,
-`alice_what_changed` is a core tool; v0.20.2 does not have it. On main, the
+`alice_what_changed` is a core tool; v0.20.2 does not have it. From v0.24.0, the
 full surface has thirteen core tools, including `alice_lessons`. The other nine core tools need the flag. The legacy long-tail surface
 is available behind a separate environment flag.
 
@@ -118,7 +118,7 @@ Optional:
 `ALICE_MCP_FULL_TOOLS=1` also advertises `alice_capture`, `alice_context_pack`,
 `alice_open_loops`, `alice_recent_decisions`, `alice_memory_review`,
 `alice_memory_correct`, `alice_memory_manage`, and `alice_explain`. From v0.21.0,
-it also advertises `alice_what_changed`. On main it also advertises `alice_lessons`.
+it also advertises `alice_what_changed`. From v0.24.0 it also advertises `alice_lessons`.
 
 Full schemas with per-parameter descriptions come from `tools/list`.
 Details and examples: [docs/alpha/mcp-tools.md](../alpha/mcp-tools.md).
@@ -218,7 +218,7 @@ One-command bridge demo:
   argument, with the same fixed message except for the reserved project name
   `~global`, which says the name is reserved. The table in
   [`docs/alpha/mcp-tools.md`](../alpha/mcp-tools.md#error-codes) says what each
-  code means. On main, `identity_claim_refused` tells a keyed caller to omit `agent_id`, `agent_identity`, `permission_profile` and `project_scope`, or narrow the profile or scope to the key and retry.
+  code means. From v0.24.0, `identity_claim_refused` tells a keyed caller to omit `agent_id`, `agent_identity`, `permission_profile` and `project_scope`, or narrow the profile or scope to the key and retry.
 - JSON-RPC framing errors use the standard static messages `Parse error`,
   `Invalid Request`, `Invalid params`, and `Method not found`; request data and
   parser exception text are never copied into the wire response

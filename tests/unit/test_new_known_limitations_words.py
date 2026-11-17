@@ -30,15 +30,15 @@ def test_expired_waiting_confirmation_limitation_is_documented():
 
 
 def test_keyless_history_limitation_is_documented():
-    """Mutation: remove the On main opener from the keyless_history bullet in known-limitations.md."""
+    """Mutation: remove the From v0.24.0 opener from the keyless_history bullet in known-limitations.md."""
     page = (ROOT / "docs/alpha/known-limitations.md").read_text()
-    assert '- rows written before the first key keep their standing, and revoking the last key restores keyless briefs even for a presented revoked key. On main, lessons written before the first key keep their standing too ([authentication](agent-integration.md#authentication))' in page
+    assert '- rows written before the first key keep their standing, and revoking the last key restores keyless briefs even for a presented revoked key. From v0.24.0, lessons written before the first key keep their standing too ([authentication](agent-integration.md#authentication))' in page
 
 
 def test_retirement_standing_limitation_is_documented():
-    """Mutation: remove the On main opener from the retirement_standing bullet in known-limitations.md."""
+    """Mutation: remove the From v0.24.0 opener from the retirement_standing bullet in known-limitations.md."""
     page = (ROOT / "docs/alpha/known-limitations.md").read_text()
-    assert '- On main, retirement of a write waiting for review is limited to its decision makers, while its writer can retire a row waiting for their own reply ([standing](../memory-operations-protocol.md#standing-to-retire-a-memory))' in page
+    assert '- From v0.24.0, retirement of a write waiting for review is limited to its decision makers, while its writer can retire a row waiting for their own reply ([standing](../memory-operations-protocol.md#standing-to-retire-a-memory))' in page
 
 
 def test_agent_type_defaults_limitation_is_documented():
@@ -54,21 +54,21 @@ def test_thin_audit_limitation_is_documented():
 
 
 def test_waiting_lessons_limitation_is_documented():
-    """Mutation: remove the On main opener from the waiting_lessons bullet in known-limitations.md."""
+    """Mutation: remove the From v0.24.0 opener from the waiting_lessons bullet in known-limitations.md."""
     page = (ROOT / "docs/alpha/known-limitations.md").read_text()
-    assert '- On main, every key of a project can read its waiting and rejected lessons through the full review and explain tools; explain returns the decision reason ([lessons](shared-lessons.md))' in page
+    assert '- From v0.24.0, every key of a project can read its waiting and rejected lessons through the full review and explain tools; explain returns the decision reason ([lessons](shared-lessons.md))' in page
 
 
 def test_lesson_writer_ids_limitation_is_documented():
-    """Mutation: remove the On main opener from the lesson_writer_ids bullet in known-limitations.md."""
+    """Mutation: remove the From v0.24.0 opener from the lesson_writer_ids bullet in known-limitations.md."""
     page = (ROOT / "docs/alpha/known-limitations.md").read_text()
-    assert "- On main, a lesson's reader sees the writer and publishing agent ids ([lessons](shared-lessons.md)); choose neutral agent ids" in page
+    assert "- From v0.24.0, a lesson's reader sees the writer and publishing agent ids ([lessons](shared-lessons.md)); choose neutral agent ids" in page
 
 
 def test_lesson_cost_limitation_is_documented():
-    """Mutation: remove the On main opener from the lesson_cost bullet in known-limitations.md."""
+    """Mutation: remove the From v0.24.0 opener from the lesson_cost bullet in known-limitations.md."""
     page = (ROOT / "docs/alpha/known-limitations.md").read_text()
-    assert '- On main, `alice_lessons` reads a projection of every lesson the caller may read, so its cost grows with that number ([lessons](shared-lessons.md))' in page
+    assert '- From v0.24.0, `alice_lessons` reads a projection of every lesson the caller may read, so its cost grows with that number ([lessons](shared-lessons.md))' in page
 
 
 def test_scoped_session_limitation_is_documented():

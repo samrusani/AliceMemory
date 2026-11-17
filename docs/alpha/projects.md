@@ -19,12 +19,12 @@ Then start a session in a git repository, or run `alice-memory brief` inside one
 
 With scoping on and a project found, the brief that the SessionStart hook injects and that `alice-memory brief` prints changes in four ways.
 
-When an agent key is presented and a project is found in the default project view, the brief command exits 1 without a brief and the SessionStart hook returns an empty object. With no project found, the same key can receive a brief; scoping is off by default and MCP reads do not have this failure.
-
 1. After the frame line it opens with one line that Alice writes (not a stored note): the project's label in quotes, its id, where it was found (`the git remote` or `the repository folder`) and the id to pass as `project_scope` if your Alice tools cannot see the folder.
 2. This project's notes come first. A note is in the project when its project scope holds one of the project's ids. The newest eight facts and eight open loops are filled with the project's notes first and notes that belong to no project after them, and a quarter of the places, rounded down (two of eight), are kept for the global ones whenever the project has more than enough and global has any. At a limit of three or fewer nothing is kept back, so a caller who asks for one item gets the project's.
 3. A note that belongs to no project is marked: `**fact** (global): "..."`. A note belongs to no project when its project scope holds no Alice project id: it is empty, or it holds only free-form names such as `Alice`. Every note saved before the upgrade is global, and so is every note an agent filed under a name it chose, so none of them disappears from any project.
 4. Notes of another project never show.
+
+When an agent key is presented and a project is found in the default project view, the brief command exits 1 without a brief and the SessionStart hook returns an empty object. With no project found, the same key can receive a brief; scoping is off by default and MCP reads do not have this failure.
 
 Project briefs no longer automatically include global family, health, spiritual, legal or financial material. This applies when Alice finds a project for the folder. When no project is found, when detection fails, or when project scoping is off, the brief searches all memory and still includes them.
 
@@ -32,7 +32,7 @@ The rule applies to every section of the brief: facts, open loops, the recent-ch
 
 ### Where the folder comes from
 
-The hook takes the start folder from the first of these that is an absolute folder that exists: `--project-dir`, `ALICE_PROJECT_DIR`, the `cwd` string in the JSON the host sends on stdin, then the hook's working folder. Claude Code 2.1.281 and Codex 0.158.0 send the folder the session started in as `cwd`, which the host-evidence run recorded, and the resolver walks up from it to the git root, so a session started in a subfolder finds its repository. The hook reads at most 64 KiB of stdin, reads and discards the rest so the host's write never blocks, and ignores a `cwd` that is not an absolute path. `alice-memory brief` and `alice-memory sleep-proposals` take `--project-dir PATH`, and `alice-memory mcp --project-dir PATH` gives the MCP server its folder for `alice_resume`. A server that serves many projects (one global entry) cannot know the current one and falls back to the whole vault.
+The hook takes the start folder from the first of these that is an absolute folder that exists: `--project-dir`, `ALICE_PROJECT_DIR`, the `cwd` string in the JSON the host sends on stdin, then the hook's working folder. Claude Code 2.1.281 and Codex 0.169.0 send the folder the session started in as `cwd`, which the host-evidence run recorded, and the resolver walks up from it to the git root, so a session started in a subfolder finds its repository. The hook reads at most 64 KiB of stdin, reads and discards the rest so the host's write never blocks, and ignores a `cwd` that is not an absolute path. `alice-memory brief` and `alice-memory sleep-proposals` take `--project-dir PATH`, and `alice-memory mcp --project-dir PATH` gives the MCP server its folder for `alice_resume`. A server that serves many projects (one global entry) cannot know the current one and falls back to the whole vault.
 
 ### Flags
 

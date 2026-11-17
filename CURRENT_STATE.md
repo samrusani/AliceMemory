@@ -25,7 +25,7 @@
   unmeasured, so the number may be overstated by an unknown amount. See
   `docs/benchmarks/longmemeval/README.md`.
 - Alice remains public-alpha, pre-1.0, local-first, single-user, and self-hosted.
-- The MCP registry on main is 13-core/65-legacy/78-total. The default handshake
+- The MCP registry from v0.24.0 is 13-core/65-legacy/78-total. The default handshake
   stays at four tools. `ALICE_MCP_FULL_TOOLS=1` exposes all thirteen core tools.
 
 ## What `v0.11.1` Shipped
@@ -108,6 +108,12 @@ draft readback because a release script imported the package in a job that does
 not install it; and `v0.20.1`, whose publish run reached its first job's time
 limit while it reran the unit suite, before anything was built. Neither of the
 last two has a PyPI artifact or a published GitHub Release.
+
+## What `v0.24.0` Targets
+
+`v0.24.0` is the current release candidate. It is not published.
+
+It adds shared lessons and tightens agent key checks. See the [release notes](docs/release/v0.24.0-release-notes.md).
 
 ## What `v0.23.1` Shipped
 
@@ -267,7 +273,7 @@ PostgreSQL stays at revision `20261011_0097`.
   a nested array, a blank string or the text of a JSON object or array.
 - `alice_what_changed` and `POST /v0/vnext/changes` answer the recorded decision
   history of one topic as chains of current, upcoming, disputed and past steps.
-  On main, the full tool surface holds thirteen core tools. `alice_memory_correct` with
+  From v0.24.0, the full tool surface holds thirteen core tools. `alice_memory_correct` with
   `replacement_body.decision_text` stores that text.
 - A killed `alice-memory import` no longer leaves its working copy in the data
   directory: the next import into that vault and the next open of an existing
