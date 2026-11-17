@@ -32376,22 +32376,6 @@
       "expected_failure": "test_release_identity_and_pending_state"
     },
     {
-      "name": "v0240-version-site-2",
-      "edits": [
-        {
-          "file": "packaging/mcpb/manifest.json",
-          "line": 5,
-          "before": "0.24.0",
-          "after": "0.23.1",
-          "sha256": "a520261958eb5f929d7eef6d6ce76c20151bc0c333a2ac7952dbf7627cdc6dc8"
-        }
-      ],
-      "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_release_identity_and_pending_state"
-      ],
-      "expected_failure": "test_release_identity_and_pending_state"
-    },
-    {
       "name": "v0240-version-site-3",
       "edits": [
         {
