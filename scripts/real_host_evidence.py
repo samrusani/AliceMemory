@@ -81,7 +81,7 @@ SCHEMA_VERSION = 1
 HOSTS = ("claude-code", "codex")
 PINNED_VERSIONS = {
     "claude-code": "2.1.281 (Claude Code)",
-    "codex": "codex-cli 0.158.0",
+    "codex": "codex-cli 0.169.0",
 }
 SUMMARY_ENV = "GITHUB_STEP_SUMMARY"
 

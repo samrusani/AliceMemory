@@ -1134,7 +1134,7 @@ def test_run_records_both_hosts_and_keeps_none_of_the_planted_values(
     assert code == 0, report.get("headline")
     claude, codex = report["hosts"]["claude-code"], report["hosts"]["codex"]
     assert claude["version"] == "2.1.281 (Claude Code)" and claude["pinned"] is True
-    assert codex["version"] == "codex-cli 0.158.0" and codex["pinned"] is True
+    assert codex["version"] == "codex-cli 0.169.0" and codex["pinned"] is True
     assert claude["launched_in"] == {"placeholder": "<launch>", "git_levels_up": 2}
     for info in (claude, codex):
         assert info["problems"] == []

@@ -39,8 +39,8 @@ PINNED_IF = (
 )
 CANARY_IF = "${{ github.event_name == 'schedule' }}"
 DISPATCH_JOBS = ("pinned", "hook-trial", "plugin-hook-trial", "marketplace-check", "host-evidence")
-CODEX_NPM = "@openai/codex@0.158.0"
-CODEX_VERSION = "codex-cli 0.158.0"
+CODEX_NPM = "@openai/codex@0.169.0"
+CODEX_VERSION = "codex-cli 0.169.0"
 EVIDENCE_SCRIPT = REPO_ROOT / "scripts" / "real_host_evidence.py"
 EVIDENCE_RUN = (
     'python scripts/real_host_evidence.py run "$RUNNER_TEMP/host-evidence" "$RUNNER_TEMP/host-evidence-work"'
@@ -255,8 +255,8 @@ def test_pinned_job_pins_the_trialed_hosts_and_refuses_a_skip() -> None:
     assert CLAUDE_NPM in script
     assert HERMES_PIP in script
     assert "opencode-ai@1.18.32" in script
-    assert "@openai/codex@0.158.0" in script
-    assert "codex-cli 0.158.0" in script
+    assert "@openai/codex@0.169.0" in script
+    assert "codex-cli 0.169.0" in script
     assert "ran != 15" in script
     assert "@latest" not in script
     assert CLAUDE_VERSION in script
@@ -305,7 +305,7 @@ def test_weekly_canary_does_not_pin_claude_or_hermes() -> None:
     assert "opencode-ai@latest" in script
     assert "opencode-ai@1.18.32" not in script
     assert "@openai/codex@latest" in script
-    assert "@openai/codex@0.158.0" not in script
+    assert "@openai/codex@0.169.0" not in script
     assert "ran != 15" in script
     assert re.search(r"(^|\s)hermes-agent($|\s)", script)
     step = _pytest_step(_job("canary"))

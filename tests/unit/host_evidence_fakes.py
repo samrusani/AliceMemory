@@ -234,7 +234,7 @@ _CODEX = r'''
 def main():
     argv = sys.argv[1:]
     if "--version" in argv:
-        print(os.environ.get("FAKE_CODEX_VERSION", "codex-cli 0.158.0"))
+        print(os.environ.get("FAKE_CODEX_VERSION", "codex-cli 0.169.0"))
         return 0
     import tomllib
 
@@ -285,7 +285,7 @@ def main():
             server_env.update(entry.get("env", {}))
             server = Server(entry["command"], entry["args"], server_env, cwd)
             if not (start and os.environ.get("FAKE_MCP_EXTRA") == "idle"):
-                handshake(server, capabilities, roots_mode, cwd, "codex-mcp-client", "0.158.0")
+                handshake(server, capabilities, roots_mode, cwd, "codex-mcp-client", "0.169.0")
             servers.append(server)
     call_api(base + "/responses")
     for server in servers:
