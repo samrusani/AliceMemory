@@ -124,9 +124,9 @@ def test_lessons_default_surface_is_new_in_the_candidate(tmp_path: Path) -> None
 
 
 def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or_the_manifest() -> None:
-    """Mutation: restore the shared lessons page's unreleased marker."""
+    """Mutation: restore the product brief's on-main marker for the full MCP surface."""
     marker = re.compile(r"Unreleased\s*\(\s*on\s+main\s*,\s*not\s+in\s+v0\.23\.1")
-    paths = [ROOT / name for name in ("README.md", "SECURITY.md", "CURRENT_STATE.md", "CHANGELOG.md", "ROADMAP.md", "RELEASING.md")]
+    paths = [ROOT / name for name in ("README.md", "SECURITY.md", "CURRENT_STATE.md", "CHANGELOG.md", "ROADMAP.md", "RELEASING.md", "PRODUCT_BRIEF.md", "ARCHITECTURE.md")]
     for folder in ("docs", "plugins", "agent-skills", "eval"):
         paths.extend((ROOT / folder).rglob("*.md"))
     for folder in ("apps/api/src", "tests", "scripts"):
@@ -143,9 +143,11 @@ def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or
         "docs/showcase/walkthrough.md": "From this change the plain command works",
         "CURRENT_STATE.md": "On main, the full tool surface holds thirteen core tools",
         "README.md": "The README and documentation describe main, where `alice_lessons`",
+        "PRODUCT_BRIEF.md": "On main, `ALICE_MCP_FULL_TOOLS=1` exposes all thirteen core tools.",
+        "ARCHITECTURE.md": "On main, `ALICE_MCP_FULL_TOOLS=1` exposes all thirteen core tools.",
     }
     for name, text in retired.items():
-        assert text not in (ROOT / name).read_text(), name
+        assert text not in " ".join((ROOT / name).read_text().split()), name
     assert "On main," not in (ROOT / "docs/alpha/known-limitations.md").read_text()
 
 
@@ -390,3 +392,48 @@ def test_upgrade_and_install_commands() -> None:
     assert "`uv tool upgrade alice-memory` or `pip install -U alice-memory`" in notes
     assert "pip install alice-memory==0.24.0 && alice-memory install" in notes
     assert "With uv: `uvx alice-memory install`." in notes
+
+
+def test_no_database_migration_is_needed(tmp_path: Path) -> None:
+    """Mutations, each alone: add a stored SQLite column, change a PostgreSQL revision, or remove the sentence."""
+    import sys
+    import zipfile
+
+    archive = tmp_path / "v0231.zip"
+    with archive.open("wb") as output:
+        subprocess.run(["git", "archive", "--format=zip", "v0.23.1"], cwd=REPOSITORY, stdout=output, check=True)
+    prefix = "apps/api/alembic/versions/"
+    with zipfile.ZipFile(archive) as prior:
+        tagged = {name: prior.read(name) for name in prior.namelist() if name.startswith(prefix) and not name.endswith("/")}
+    candidate = {
+        path.relative_to(ROOT).as_posix(): path.read_bytes()
+        for path in (ROOT / prefix).rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+    }
+    assert tagged == candidate
+
+    probe = '''
+import json, sqlite3, sys
+from pathlib import Path
+from uuid import UUID
+from alicebot_api.onramp import bootstrap_database
+path = Path(sys.argv[1])
+bootstrap_database(path, user_id=UUID("00000000-0000-4000-8000-000000000001"), user_email="fixture@example.invalid")
+with sqlite3.connect(path) as conn:
+    schema = conn.execute("SELECT type, name, tbl_name, sql FROM main.sqlite_master ORDER BY type, name").fetchall()
+print(json.dumps(schema))
+'''
+    prior_path = os.pathsep.join((str(archive) + "/apps/api/src", str(archive)))
+    current_path = os.pathsep.join((str(ROOT / "apps/api/src"), str(ROOT)))
+
+    def bootstrap(pythonpath: str, database: Path) -> list:
+        env = {key: value for key, value in os.environ.items() if not key.startswith("ALICE_")}
+        env.update(PYTHONPATH=pythonpath, PYTHONDONTWRITEBYTECODE="1")
+        output = subprocess.check_output([sys.executable, "-c", probe, str(database)], cwd=tmp_path, env=env, text=True)
+        return json.loads(output)
+
+    prior_schema = bootstrap(prior_path, tmp_path / "prior.db")
+    current_schema = bootstrap(current_path, tmp_path / "current.db")
+    assert prior_schema == current_schema
+    section = NOTES.read_text().split("\n## What to do after upgrading\n", 1)[1].split("\n## ", 1)[0]
+    assert "This release needs no database migration: the PostgreSQL migration files and the stored schema of the SQLite vault are those of v0.23.1." in section
