@@ -8,5 +8,13 @@
     "unconditionally. Add an entry only when there is no available remediation,",
     "and prefer fixing the dependency."
   ],
-  "exceptions": []
+  "exceptions": [
+    {
+      "advisory_url": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf",
+      "package": "picomatch",
+      "expires": "2026-12-17",
+      "scope": "development tooling only",
+      "justification": "GHSA-fc5q-39xc-vjpf is high severity and covers every published picomatch release as of 2026-11-17. The advisory names no patched version, and npm lists 4.0.7 as latest, within the affected range. The locked 2.3.2 is reached through fast-glob and micromatch in lint tooling. The locked 4.0.4 is reached in lint and test tooling, including through tinyglobby and fdir and through Vite and Vitest. The repository's lint and test commands use patterns from committed configuration and the tools' built-in defaults, with no patterns supplied by external callers. The production dependency tree and production audit set do not include picomatch. Remove the exception when a fixed version is available or the tooling drops the dependency."
+    }
+  ]
 }
