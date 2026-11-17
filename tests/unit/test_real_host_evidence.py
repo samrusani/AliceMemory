@@ -1117,6 +1117,8 @@ def test_run_records_both_hosts_and_keeps_none_of_the_planted_values(
 ) -> None:
     """One run against both stand-in hosts records the hook and the server for each, as shapes only.
 
+    Mutation: change the pinned Codex version expected by the evidence script to 0.158.0.
+
     It checks the claims the slice is for: the keys and redacted values of the hook payload, the
     working folder of each process, the variable names added by the host, whether a variable set at
     launch and one set in the server's entry arrive, the initialize capabilities, and what

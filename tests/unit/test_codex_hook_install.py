@@ -1,6 +1,6 @@
 """alice-memory install --host codex writes a SessionStart hook to hooks.json.
 
-Codex 0.158.0 (``codex-cli 0.158.0``) reads ``<CODEX_HOME>/hooks.json``. Install
+Codex 0.169.0 (``codex-cli 0.169.0``) reads ``<CODEX_HOME>/hooks.json``. Install
 appends one group at the end of ``hooks.SessionStart``, replaces its own handler
 in place on a re-run, prints ``--format markdown`` in the command, never
 writes a ``trusted_hash``, and writes no hook when ``config.toml`` holds TOML
@@ -129,6 +129,23 @@ def _backups(vault: Path, name: str) -> list[Path]:
     if not directory.is_dir():
         return []
     return sorted(directory.glob(f"codex-{name}.alice-backup-*"))
+
+
+def test_codex_hook_large_input_integer_reason_names_place_not_value(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mutation: remove the large input integer guard; install then accepts the file."""
+    home, vault = tmp_path / "home", tmp_path / "vault"
+    seeded = _seed(_hooks(home), number_case_document(
+        '{"type":"mcp_tool","server":"s","tool":"t","input":{"secret":[9223372036854775808]}}'
+    ))
+    before = seeded.read_bytes()
+    code, out, err = _install(home, vault, capsys)
+    assert code == 1, (out, err)
+    assert "reason: Codex would skip this hooks.json: hooks.Stop[0].hooks[0] has a whole number from 2^63 to 2^64-1 in its input; change that number so Codex can load the hook" in out
+    assert "9223372036854775808" not in out and "secret" not in out
+    assert seeded.read_bytes() == before
+    assert not _config(home).exists() and not vault.exists()
 
 
 def test_codex_hook_new_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -509,8 +526,8 @@ _ACCEPTED_HOOKS = {
             "input": {"low": -(2**63), "high": 2**63 - 1, "nested": [{"n": 2**63 - 1}]},
         }]}]}
     },
-    "mcp-tool-input-integer-above-i64": {
-        "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": 2**63}}]}]}
+    "mcp-tool-input-integer-at-u64": {
+        "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": 2**64}}]}]}
     },
     "mcp-tool-input-integer-below-i64": {
         "hooks": {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {"a": -(2**63) - 1}}]}]}
@@ -534,7 +551,8 @@ def test_codex_hooks_file_codex_loads_is_accepted(
     """A field typed as an option accepts null, and Codex ignores what it does not read.
 
     Refusing these would say Codex skips a file it loads. Mutation: require a
-    matcher string, or reject an unknown event. The matching case fails.
+    matcher string, reject an unknown event, or remove the upper bound from
+    the input integer check. The matching case fails.
     """
 
     home, vault = tmp_path / "home", tmp_path / "vault"
@@ -563,12 +581,10 @@ def test_codex_hooks_file_number_and_spelling_rules_match_the_serde_judge(
 ) -> None:
     """Install agrees with Codex on which numbers and field spellings make it skip hooks.json.
 
-    ``NUMBER_CASES`` holds each verdict from a Rust judge built from Codex
-    0.158.0's own ``HookHandlerConfig``, serde_json, and the step that hashes
-    each handler as TOML (see the table's comment for the build, and for the
-    labels a plain serde_json build would call differently). An ``mcp_tool``
-    input refuses only a null: integers at and beyond the i64 and u64 limits
-    load. A ``timeout`` must be a whole number from 0 to 2**63-1, because
+    ``NUMBER_CASES`` holds the verdicts measured by the pinned real-host run.
+    An ``mcp_tool`` input refuses null and whole numbers from 2**63 through
+    2**64-1, including inside lists and objects; floats and larger integers load.
+    A ``timeout`` must be a whole number from 0 to 2**63-1, because
     Codex reads a u64 and then panics hashing one above i64, except where
     it hashes none (a clamped event, an empty command, an empty ``mcp_tool``
     server or tool); ``additionalContextLimit`` follows the same rule on the
@@ -576,9 +592,8 @@ def test_codex_hooks_file_number_and_spelling_rules_match_the_serde_judge(
     and ``command_windows`` is skipped, null included. An accepted file gets
     Alice's group appended after the user's, and their handler is kept as
     written. A refused one is left as it was and nothing else is written.
-    Mutations: restore the i64 range check in ``_codex_toml_representable``
-    (every integer case above 2**63-1 or below -2**63 fails); refuse only
-    [2**63, 2**64) there (the ``2^63`` and ``2^64-1`` cases fail); drop the
+    Mutations: remove the input integer check (the seven refused cases fail),
+    or include floats in the integer check (the three new float cases fail); drop the
     both-spellings check (the five ``both-spellings`` cases fail); accept a
     ``timeout`` up to 2**64-1 again (the ``crash`` cases fail); hash a
     timeout on a clamped event, on an empty command or on an empty tool (the

@@ -63,34 +63,25 @@ def _command(key: str, literal: str, command: str = "x") -> str:
 
 
 # (label, handler text, whether Codex uses the file and install accepts it, event the handler sits under).
-# The verdicts are those of a Rust judge that copies HooksFile, MatcherGroup and
-# HookHandlerConfig from Codex 0.158.0 (config/src/hook_config.rs), reads the text with
-# serde_json, and then repeats the step in hooks/src/engine/discovery.rs that hashes each
-# loaded handler as TOML for its trust record. That step is an unreachable!, so a handler
-# it cannot serialize (a timeout or an additionalContextLimit above 2**63-1) makes Codex
-# panic, which the pinned job saw as a dead ``codex app-server``. A refused case is one
-# Codex skips or crashes on. The judge is built with serde_json's arbitrary_precision
-# feature, as Codex is (codex-exec-server-protocol enables it). A build without it differs
-# on the labels marked (plain): it skips an integer in [2**63, 2**64) in an mcp_tool input
-# ("u64 value was too large") and one too large for a float ("number out of range"), and it
-# skips a -0 timeout or limit. Only test_codex_hook_real_host.py, in the pinned job, runs
-# the real Codex over this table.
+# The existing verdicts were recorded against Codex 0.158.0. The pinned
+# 0.169.0 real-host run measured every row, including the nested and float
+# cases; a refused case is one Codex skips or crashes on.
 _BIG = "1" + "0" * 399
 NUMBER_CASES: list[tuple[str, str, bool, str]] = [
     ("mcp-int-2^63-1", _mcp(str(2**63 - 1)), True, "Stop"),
-    ("mcp-int-2^63 (plain)", _mcp(str(2**63)), True, "Stop"),
-    ("mcp-int-2^64-1 (plain)", _mcp(str(2**64 - 1)), True, "Stop"),
+    ("mcp-int-2^63 (plain)", _mcp(str(2**63)), False, "Stop"),
+    ("mcp-int-2^64-1 (plain)", _mcp(str(2**64 - 1)), False, "Stop"),
     ("mcp-int-2^64", _mcp(str(2**64)), True, "Stop"),
     ("mcp-int-minus-2^63", _mcp(str(-(2**63))), True, "Stop"),
     ("mcp-int-minus-2^63-1", _mcp(str(-(2**63) - 1)), True, "Stop"),
     ("mcp-int-1e30", _mcp(str(10**30)), True, "Stop"),
     ("mcp-int-400-digits (plain)", _mcp(_BIG), True, "Stop"),
-    ("mcp-list-holding-2^63 (plain)", _mcp("[[1,%d]]" % 2**63), True, "Stop"),
+    ("mcp-list-holding-2^63 (plain)", _mcp("[[1,%d]]" % 2**63), False, "Stop"),
     ("mcp-nested-holding-minus-2^63-1", _mcp('{"b":{"c":%d}}' % (-(2**63) - 1)), True, "Stop"),
-    ("mcp-object-2^63", _mcp('{"b":{"c":%d}}' % 2**63), True, "Stop"),
-    ("mcp-object-2^64-1", _mcp('{"b":{"c":%d}}' % (2**64 - 1)), True, "Stop"),
-    ("mcp-object-list-2^63", _mcp('{"b":[%d]}' % 2**63), True, "Stop"),
-    ("mcp-object-list-2^64-1", _mcp('{"b":[%d]}' % (2**64 - 1)), True, "Stop"),
+    ("mcp-object-2^63", _mcp('{"b":{"c":%d}}' % 2**63), False, "Stop"),
+    ("mcp-object-2^64-1", _mcp('{"b":{"c":%d}}' % (2**64 - 1)), False, "Stop"),
+    ("mcp-object-list-2^63", _mcp('{"b":[%d]}' % 2**63), False, "Stop"),
+    ("mcp-object-list-2^64-1", _mcp('{"b":[%d]}' % (2**64 - 1)), False, "Stop"),
     ("mcp-float-2^63", _mcp("9223372036854775808.0"), True, "Stop"),
     ("mcp-float-2^63-exponent", _mcp("9.223372036854775808e18"), True, "Stop"),
     ("mcp-float-1e19", _mcp("1e19"), True, "Stop"),
