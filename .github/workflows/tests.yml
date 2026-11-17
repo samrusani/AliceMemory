@@ -86,11 +86,13 @@ jobs:
       - name: Unit tests of this shard with coverage data
         # No threshold here: one shard sees only part of the code. The combined
         # data is gated in the coverage job.
-        run: python -m pytest ${{ matrix.selection }} -q --cov=alicebot_api --cov-report=
+        run: python -m pytest ${{ matrix.selection }} -q --cov=alicebot_api --cov-report= --junitxml=coverage-data/timings-${{ matrix.shard }}.xml -o junit_duration_report=total
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: python-unit-coverage-shard-${{ matrix.shard }}
-          path: coverage-data/shard-${{ matrix.shard }}.coverage
+          path: |
+            coverage-data/shard-${{ matrix.shard }}.coverage
+            coverage-data/timings-${{ matrix.shard }}.xml
           if-no-files-found: error
           retention-days: 1
 
