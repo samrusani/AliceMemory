@@ -8,6 +8,7 @@ release, and sits under the changelog's v0.20.0 heading.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -100,3 +101,28 @@ def test_the_threat_model_and_dependency_posture_mark_the_split_from_v0200() -> 
     assert "The weekly real-host canary installs the current Claude Code, Hermes, OpenCode and Codex CLIs" in posture
     assert f"{FROM_V0200} neither holds a write permission in the job that installs." in posture
     assert "Archive maintenance still holds" not in posture
+
+
+def test_the_picomatch_exception_agrees_with_the_posture_and_changelog() -> None:
+    """Mutation: change the expiry date in the dependency posture paragraph."""
+    exceptions = json.loads((ROOT / "apps/web/security-advisory-exceptions.json").read_text(encoding="utf-8"))
+    assert len(exceptions["exceptions"]) == 1
+    entry = exceptions["exceptions"][0]
+    assert entry["advisory_url"] == "https://github.com/advisories/GHSA-fc5q-39xc-vjpf"
+    assert entry["package"] == "picomatch"
+    assert entry["expires"] == "2026-12-17"
+    assert entry["scope"] == "development tooling only"
+
+    advisory = entry["advisory_url"].rsplit("/", 1)[1]
+    package = entry["package"]
+    expires = entry["expires"]
+    posture = (ROOT / "docs/security/dependency-posture.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    unreleased = changelog.split("\n## Unreleased\n", 1)[1].split("\n## ", 1)[0]
+    marker = "Unreleased (on main, not in v0.24.0):"
+    for text in (posture, unreleased):
+        matches = [paragraph for paragraph in text.split("\n\n") if advisory in paragraph]
+        assert len(matches) == 1
+        paragraph = _flat(matches[0])
+        assert marker in paragraph and f"`{package}`" in paragraph
+        assert f"until {expires}" in paragraph or f"expires on {expires}" in paragraph

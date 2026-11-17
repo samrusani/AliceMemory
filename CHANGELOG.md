@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.24.0): the full web dependency audit excepts `picomatch` advisory GHSA-fc5q-39xc-vjpf until 2026-12-17. The production audit keeps its existing rule (`node scripts/npm-advisory-audit.mjs --audit-level=high` and `node scripts/npm-advisory-audit.mjs --prod --audit-level=high` from `apps/web`).
+
 ## v0.24.0 — 2026-11-17
 
 - Install refuses an `mcp_tool` hook input containing a whole number from 2^63 through 2^64-1, including inside lists and objects, as the pinned Codex 0.169.0 does; v0.23.1 accepted those inputs (`python -m pytest tests/unit/test_codex_hook_install.py` and the real-host run in the pull request).

@@ -53,10 +53,12 @@ entry is printed on each run. The production audit never reads the file, so a
 match that reaches a shipped build always blocks. v0.20.0 ships the mechanism
 with no entries.
 
-From v0.20.2, the file holds one entry, for `braces`
-(GHSA-vfj7-8cjw-p6xm, high, stack exhaustion on a deeply nested brace pattern).
-No released version fixes it. It is reached only through development lint
-tooling, is not in the production dependency tree, and expires on 2026-11-03.
+Unreleased (on main, not in v0.24.0): the file holds one entry, for
+`picomatch` (GHSA-fc5q-39xc-vjpf, high). The advisory names no patched
+version and covers 4.0.7, the latest release on npm as of 2026-11-17.
+Development lint and test tooling reaches it through fast-glob and micromatch,
+and through tinyglobby, fdir, Vite, and Vitest. The production dependency tree
+does not include it. The entry expires on 2026-12-17.
 
 ```bash
 cd apps/web
