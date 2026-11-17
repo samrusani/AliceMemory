@@ -32630,6 +32630,54 @@
         "tests/unit/test_unscheduled_promises_docs.py::test_the_known_limitations_page_names_no_release_for_unscheduled_work"
       ],
       "expected_failure": "test_the_known_limitations_page_names_no_release_for_unscheduled_work"
+    },
+    {
+      "name": "v0240-upgrade-command",
+      "edits": [
+        {
+          "file": "docs/release/v0.24.0-release-notes.md",
+          "line": 8,
+          "before": "`uv tool upgrade alice-memory` or `pip install -U alice-memory`",
+          "after": "upgrade the package",
+          "sha256": "e8ad617b99ddcdce719df3d246e2d15167835da2e71d482b7b7b0e3d2d4c8cf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0240_release_notes.py::test_upgrade_and_install_commands"
+      ],
+      "expected_failure": "test_upgrade_and_install_commands"
+    },
+    {
+      "name": "v0240-pip-install-command",
+      "edits": [
+        {
+          "file": "docs/release/v0.24.0-release-notes.md",
+          "line": 53,
+          "before": "pip install alice-memory==0.24.0 && alice-memory install",
+          "after": "pip install alice-memory==0.23.1 && alice-memory install",
+          "sha256": "e8ad617b99ddcdce719df3d246e2d15167835da2e71d482b7b7b0e3d2d4c8cf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0240_release_notes.py::test_upgrade_and_install_commands"
+      ],
+      "expected_failure": "test_upgrade_and_install_commands"
+    },
+    {
+      "name": "v0240-uv-install-command",
+      "edits": [
+        {
+          "file": "docs/release/v0.24.0-release-notes.md",
+          "line": 56,
+          "before": "With uv: `uvx alice-memory install`.",
+          "after": "With uv: `uvx alice-memory`.",
+          "sha256": "e8ad617b99ddcdce719df3d246e2d15167835da2e71d482b7b7b0e3d2d4c8cf0"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0240_release_notes.py::test_upgrade_and_install_commands"
+      ],
+      "expected_failure": "test_upgrade_and_install_commands"
     }
   ]
 }

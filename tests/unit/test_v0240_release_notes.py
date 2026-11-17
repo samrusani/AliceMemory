@@ -382,3 +382,11 @@ print(json.dumps({"error":failed, "code":result.get("error", {}).get("code")}))
     assert old == {"error": False, "code": None}
     assert now == {"error": True, "code": "not_permitted"}
     assert "Retirement of a pending write requires standing to decide it, while v0.23.1 allowed project and trusted keys to retire another agent's pending write." in NOTES.read_text()
+
+
+def test_upgrade_and_install_commands() -> None:
+    """Mutations, each alone: remove the upgrade command or change one install command."""
+    notes = NOTES.read_text()
+    assert "`uv tool upgrade alice-memory` or `pip install -U alice-memory`" in notes
+    assert "pip install alice-memory==0.24.0 && alice-memory install" in notes
+    assert "With uv: `uvx alice-memory install`." in notes
