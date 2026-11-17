@@ -18,7 +18,7 @@ jobs:
   # job named below stays the required status check of the main ruleset by
   # failing unless every one of those jobs succeeded.
   python-unit-shards:
-    name: Unit tests, shard ${{ matrix.shard }} of 10 (SQLite)
+    name: Unit tests, shard ${{ matrix.shard }} of 11 (SQLite)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -29,16 +29,13 @@ jobs:
         # they cover every file of tests/unit exactly once, and a unit test
         # (tests/unit/test_ci_unit_job_split.py) fails if a file matches none.
         #
-        # The layout uses the mean per-file CI test time from both complete
-        # attempts of main run 43971943200 at 3728ce4b. Each pytest progress
-        # line carries a timestamp and test count; collected test ids map the
-        # intervals to files in shell expansion order. Whole-file groups are
-        # packed into ten shards, each about 422 seconds on that basis; the new
-        # smoke inventory test was not present in those runs. The
-        # three heaviest files are test_entity_disclosure_fence.py (314 s),
-        # test_saved_quote_memory_refs_vault.py (283 s), and
-        # test_saved_quote_every_copy.py (213 s). A new unmatched file fails
-        # the split test.
+        # The layout sums each test's setup, call and teardown times from both
+        # attempts of probe run 44041472995, with coverage, and uses their mean
+        # per file. The eleven shards use 42 broad patterns. Each measured sum
+        # is below 480 seconds except test_entity_disclosure_fence.py, which
+        # alone measures 486.3 seconds. The generated-name test holds future
+        # names as well as the existing file inventory. The new generated-name
+        # test was not present in the probe.
         #
         # By 2026-10-30 shard 2 of five took 19 to 20 minutes as a job, past the
         # split line, because the two showcase bench test files grew from about
@@ -50,25 +47,27 @@ jobs:
         # shards.
         include:
           - shard: 1
-            selection: "tests/unit/test_202604*.py tests/unit/test_cl*.py tests/unit/test_entity_disclosure_fence.py tests/unit/test_entity_owner_parity.py tests/unit/test_label_floor_applied.py tests/unit/test_label_native_rank_admission.py tests/unit/test_lessons_read.py tests/unit/test_me*.py tests/unit/test_row*.py tests/unit/test_skill_packs_are_loadable.py tests/unit/test_source_edges_and_json_bounds_docs.py tests/unit/test_sources_named_by_refs.py tests/unit/test_sqlite_s*.py tests/unit/test_v020*.py tests/unit/test_what_changed_saved_quote_reader.py tests/unit/test_wr*.py"
+            selection: "tests/unit/test_e*ce.py"
           - shard: 2
-            selection: "tests/unit/test_20260311*.py tests/unit/test_20260621_0071_procedure_memory_type.py tests/unit/test_alice_bench_gates.py tests/unit/test_ci*.py tests/unit/test_label_c*.py tests/unit/test_least_privilege_deployment_workflow.py tests/unit/test_li*.py tests/unit/test_lo*.py tests/unit/test_om*.py tests/unit/test_orphan_snapshot_sweep.py tests/unit/test_oversized_paragraphs_split_on_lines.py tests/unit/test_saved_quote_memory_refs_vault.py tests/unit/test_showcase_walkthrough.py tests/unit/test_source_s*.py tests/unit/test_t*.py tests/unit/test_v021*.py"
+            selection: "tests/unit/test_*[!ce]e.py tests/unit/test_*ee.py tests/unit/test_c*e.py tests/unit/test_[!ce]*ce.py"
           - shard: 3
-            selection: "tests/unit/test_202605*.py tests/unit/test_alice_bench_docs.py tests/unit/test_alice_bench_ranking_mode.py tests/unit/test_credential_floor_every_door.py tests/unit/test_env.py tests/unit/test_ev*.py tests/unit/test_k*.py tests/unit/test_n*.py tests/unit/test_open_loop_review_label.py tests/unit/test_real_host_hook_trial.py tests/unit/test_saved_quote_every_copy.py tests/unit/test_shared_lesson_visibility_limits.py tests/unit/test_source_chunk_embeddings.py tests/unit/test_source_readable_parity.py tests/unit/test_sqlite_passage_default.py tests/unit/test_store.py tests/unit/test_validity_on_by_default.py tests/unit/test_vn*.py tests/unit/test_we*.py"
+            selection: "tests/unit/test_saved_quote_memory_refs_vaul*t.py"
           - shard: 4
-            selection: "tests/unit/test_20260314*.py tests/unit/test_ar*.py tests/unit/test_ch*.py tests/unit/test_embedd*.py tests/unit/test_entity_f*.py tests/unit/test_entrypoint_rate_limiter_retirement.py tests/unit/test_f*.py tests/unit/test_label_l*.py tests/unit/test_pe*.py tests/unit/test_po*.py tests/unit/test_real_host_ci_workflow.py tests/unit/test_real_host_plugin_hook_trial.py tests/unit/test_ru*.py tests/unit/test_showcase_bench_*.py tests/unit/test_source_trace_events.py tests/unit/test_sqlite_d*.py tests/unit/test_stage_a_vnext_auth_surface.py tests/unit/test_store_*.py tests/unit/test_surface_gates.py tests/unit/test_view_floor.py tests/unit/test_what_changed_id_spellings.py"
+            selection: "tests/unit/test_*[!l]t.py tests/unit/test_[!s]*t.py tests/unit/test_?[!a]*t.py tests/unit/test_??[!v]*t.py tests/unit/test_???[!e]*t.py tests/unit/test_????[!d]*t.py tests/unit/test_?????[!_]*t.py tests/unit/test_??????[!q]*t.py tests/unit/test_???????[!u]*t.py tests/unit/test_????????[!o]*t.py tests/unit/test_?????????[!t]*t.py tests/unit/test_??????????[!e]*t.py tests/unit/test_???????????[!_]*t.py tests/unit/test_????????????[!m]*t.py tests/unit/test_?????????????[!e]*t.py tests/unit/test_??????????????[!m]*t.py tests/unit/test_???????????????[!o]*t.py tests/unit/test_????????????????[!r]*t.py tests/unit/test_?????????????????[!y]*t.py tests/unit/test_??????????????????[!_]*t.py tests/unit/test_???????????????????[!r]*t.py tests/unit/test_????????????????????[!e]*t.py tests/unit/test_?????????????????????[!f]*t.py tests/unit/test_??????????????????????[!s]*t.py tests/unit/test_???????????????????????[!_]*t.py tests/unit/test_????????????????????????[!v]*t.py tests/unit/test_?????????????????????????[!a]*t.py tests/unit/test_??????????????????????????[!u]*t.py tests/unit/test_???????????????????????????[!l]*t.py"
           - shard: 5
-            selection: "tests/unit/test_ap*.py tests/unit/test_au*.py tests/unit/test_com*.py tests/unit/test_encoded_label_dependencies.py tests/unit/test_entity.py tests/unit/test_entity_edge.py tests/unit/test_label_sql_closed_literals.py tests/unit/test_lesson_block_commit.py tests/unit/test_lessons_default_comparison.py tests/unit/test_model_pack_retirement.py tests/unit/test_pu*.py tests/unit/test_q*.py tests/unit/test_rel*.py tests/unit/test_rev*.py tests/unit/test_saved_provenance_reader.py tests/unit/test_saved_quotes_follow_the_source_fence.py tests/unit/test_se*.py tests/unit/test_sqlite_l*.py tests/unit/test_stored_deep_rows_are_read.py tests/unit/test_v01*.py tests/unit/test_wo*.py"
+            selection: "tests/unit/test_s*s.py"
           - shard: 6
-            selection: "tests/unit/test_20260313*.py tests/unit/test_20260316*.py tests/unit/test_20260319_0030_calendar_accounts_and_credentials.py tests/unit/test_20260330_0042_phase5_continuity_corrections.py tests/unit/test_alice_lite_assets.py tests/unit/test_credential_activation_and_withhold.py tests/unit/test_json_bounds.py tests/unit/test_legacy_ci*.py tests/unit/test_lessons_benchmark_trees.py tests/unit/test_lessons_default_hidden.py tests/unit/test_open_loop_extraction_admission_sqlite.py tests/unit/test_open_loop_handoff_spellings.py tests/unit/test_open_loop_ids_every_spelling_and_after_delete.py tests/unit/test_red*.py tests/unit/test_reindex_live_memories_only.py tests/unit/test_ret*.py tests/unit/test_saved_quote_memory_refs_docs.py tests/unit/test_saved_quote_ref_reading.py tests/unit/test_saved_quote_ref_reading_vault.py tests/unit/test_source_retirement_edges.py tests/unit/test_what_changed.py tests/unit/test_wiki_stays_internal.py"
+            selection: "tests/unit/test_[lv]*s.py"
           - shard: 7
-            selection: "tests/unit/test_20260310_0001_foundation_continuity.py tests/unit/test_absolute_uvx.py tests/unit/test_ca*.py tests/unit/test_credential_floor_design.py tests/unit/test_edge_and_belief_helpers_judge_the_callers_ends.py tests/unit/test_embed_only_recall_visible_memories.py tests/unit/test_label_kernel_pins.py tests/unit/test_label_w*.py tests/unit/test_legacy_s*.py tests/unit/test_mc*.py tests/unit/test_open_loop_references_read_fence.py tests/unit/test_oper*.py tests/unit/test_real_host_evidence.py tests/unit/test_removed_public_contracts.py tests/unit/test_rou*.py tests/unit/test_saved_quote_c*.py tests/unit/test_screen_paired_gate.py tests/unit/test_source_citing_every_spelling.py tests/unit/test_source_review_fixes.py tests/unit/test_source_route_limits_docs.py tests/unit/test_sqlite_agent_keys.py tests/unit/test_v0220_release_notes.py"
+            selection: "tests/unit/test_[!slv]*s.py"
           - shard: 8
-            selection: "tests/unit/test_b*.py tests/unit/test_cod*.py tests/unit/test_con*.py tests/unit/test_cor*.py tests/unit/test_d*.py tests/unit/test_entity_store.py tests/unit/test_h*.py tests/unit/test_i*.py tests/unit/test_label_d*.py tests/unit/test_label_p*.py tests/unit/test_legacy_credential_check.py tests/unit/test_legacy_gated_router_split.py tests/unit/test_legacy_tools_on_sqlite_docs.py tests/unit/test_ops_assets.py tests/unit/test_read*.py tests/unit/test_res*.py tests/unit/test_saved_quote_json_refs.py tests/unit/test_showcase_company.py tests/unit/test_source_ranking_plumbing.py tests/unit/test_unscheduled_promises_docs.py tests/unit/test_what_changed_web_contract.py"
+            selection: "tests/unit/test_*[!estrhmbaovgpd571lnkf3x84].py"
           - shard: 9
-            selection: "tests/unit/test_alice_bench_audit.py tests/unit/test_alice_bench_harness.py tests/unit/test_ex*.py tests/unit/test_g*.py tests/unit/test_label_g*.py tests/unit/test_lessons_default_limits.py tests/unit/test_ma*.py tests/unit/test_openc*.py tests/unit/test_pa*.py tests/unit/test_ph*.py tests/unit/test_pr*.py tests/unit/test_ra*.py tests/unit/test_rec*.py tests/unit/test_ref*.py tests/unit/test_saved_quote_memory_refs.py tests/unit/test_saved_quote_producer_ref_keys.py tests/unit/test_shipped_smokes_inventory.py tests/unit/test_source_co*.py tests/unit/test_source_move_label_preview.py tests/unit/test_source_ref*.py tests/unit/test_v023*.py"
+            selection: "tests/unit/test_*[rhmbaov].py"
           - shard: 10
-            selection: "tests/unit/test_20260312*.py tests/unit/test_2026032*.py tests/unit/test_202607*.py tests/unit/test_ag*.py tests/unit/test_alice_bench_scorer.py tests/unit/test_alice_bench_wiring.py tests/unit/test_credential_marker_lengths.py tests/unit/test_label_r*.py tests/unit/test_lessons_default_brief.py tests/unit/test_open_loop_project_admission.py tests/unit/test_python_coverage.py tests/unit/test_request_body_limits.py tests/unit/test_rol*.py tests/unit/test_saved_quote_memory_refs_doors.py tests/unit/test_showcase_bench.py tests/unit/test_single_tenant_deployment.py tests/unit/test_sl*.py tests/unit/test_source_p*.py tests/unit/test_sqlite_onramp.py tests/unit/test_v1_agent_key_auth.py tests/unit/test_what_changed_review.py"
+            selection: "tests/unit/test_*[gpd571].py"
+          - shard: 11
+            selection: "tests/unit/test_*[lnkf3x84].py"
     env:
       COVERAGE_FILE: ${{ github.workspace }}/coverage-data/shard-${{ matrix.shard }}.coverage
     steps:
@@ -190,7 +189,7 @@ jobs:
           merge-multiple: true
           path: coverage-data
       - name: Combine the shard coverage data (every shard must have written some)
-        run: python scripts/combine_python_coverage.py --data-dir coverage-data --shards 10
+        run: python scripts/combine_python_coverage.py --data-dir coverage-data --shards 11
       - name: Combined coverage baseline
         # The same threshold, configuration and per-file floor that the single
         # unit job enforced, now on the combined data of all shards.

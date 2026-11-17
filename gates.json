@@ -106,9 +106,9 @@
     }
   },
   "ci_time": {
-    "job": "python-unit-shards (Unit tests, shard N of 10, SQLite)",
+    "job": "python-unit-shards (Unit tests, shard N of 11, SQLite)",
     "required_check": "Unit tests + live eval battery (SQLite)",
-    "shard_count": 10,
+    "shard_count": 11,
     "measured_on": "2026-10-03",
     "measured_runs": 2,
     "measured_scope": "every successful attempt of tests.yml on the pull request that split the job up to its first complete head (the run and one re-run of it), the longest of the three shard jobs in each attempt, job start to job finish",
@@ -145,9 +145,9 @@
     },
     "fifth_split": {
       "measured_on": "2026-11-17",
-      "measured_scope": "mean per-file pytest time attributed from both attempts of main tests.yml run 43971943200 at 3728ce4b, summed for each new shard",
-      "mean_test_seconds_per_shard": [421.9, 421.9, 421.9, 421.9, 421.9, 421.9, 421.9, 421.9, 421.9, 421.9],
-      "note": "The ten shards pack whole files using the two-attempt mean; progress lines give the elapsed time for batches of tests, apportioned by test count, so these are estimates rather than per-test measurements. The heaviest file is about 314 seconds and the mean total is about 4219 seconds. The new smoke inventory test was not present in the timing runs."
+      "measured_scope": "mean per-file sum of pytest setup, call and teardown durations with coverage from both attempts of probe tests.yml run 44041472995 at c42899b7, summed for each shard",
+      "mean_test_seconds_per_shard": [486.3, 441.7, 419.9, 268.6, 261.6, 259.2, 395.3, 386.6, 386.5, 386.5, 386.6],
+      "note": "Eleven shards use 42 broad patterns. Each measured sum is under 480 seconds except test_entity_disclosure_fence.py, which alone takes 486.3 seconds. The generated-name test was added after the probe."
     },
     "p0a_tests": {
       "seconds_measured_locally": 24,

@@ -202,9 +202,9 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     shard_job = workflow["jobs"]["python-unit-shards"]
     summary_job = workflow["jobs"]["python-unit"]
     assert shard_job["timeout-minutes"] == budget["timeout_minutes"] == 20
-    assert budget["shard_count"] == len(shard_job["strategy"]["matrix"]["include"]) == 10
+    assert budget["shard_count"] == len(shard_job["strategy"]["matrix"]["include"]) == 11
     assert budget["required_check"] == summary_job["name"] == "Unit tests + live eval battery (SQLite)"
-    assert budget["job"].startswith("python-unit-shards ") and "shard N of 10" in budget["job"]
+    assert budget["job"].startswith("python-unit-shards ") and "shard N of 11" in budget["job"]
     assert budget["split_threshold_minutes"] == 17 < budget["timeout_minutes"]
     assert budget["new_test_budget_seconds"] == 90
     measured = budget["measured_seconds"]
@@ -228,8 +228,8 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     assert past_line == [1061, 1037] and min(past_line) >= budget["split_threshold_minutes"] * 60
     fifth = budget["fifth_split"]
     assert set(fifth) == {"measured_on", "measured_scope", "mean_test_seconds_per_shard", "note"}
-    assert fifth["measured_on"] == "2026-11-17" and "43971943200" in fifth["measured_scope"]
-    assert fifth["mean_test_seconds_per_shard"] == [421.9] * 10
+    assert fifth["measured_on"] == "2026-11-17" and "44041472995" in fifth["measured_scope"]
+    assert fifth["mean_test_seconds_per_shard"] == [486.3, 441.7, 419.9, 268.6, 261.6, 259.2, 395.3, 386.6, 386.5, 386.5, 386.6]
     before = budget["before_split"]
     assert before["job"] == "python-unit (Unit tests + live eval battery, SQLite)"
     assert before["measured_runs"] == 70

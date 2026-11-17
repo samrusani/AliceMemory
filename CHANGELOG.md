@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Unreleased (on main, not in v0.23.1): the unit suite runs as ten coverage shards packed from two main-run timing samples, and the publish and rehearsal limits rise from 200 to 280 minutes; v0.23.1 used six shards (`python -m pytest tests/unit/test_ci_unit_job_split.py tests/unit/test_publish_workflow_time_limit.py`).
+- Unreleased (on main, not in v0.23.1): the unit suite runs as eleven coverage shards packed from two measured probe attempts, and the publish and rehearsal limits rise from 200 to 300 minutes; v0.23.1 used six shards (`python -m pytest tests/unit/test_ci_unit_job_split.py tests/unit/test_publish_workflow_time_limit.py`).
 
 - Unreleased (on main, not in v0.23.1): the limitations page adds thirteen bullets on current limits of keys, memory, lessons, reads, commands and connectors; the v0.23.1 page already described the cited-source explain failure (`python -m pytest tests/unit/test_new_known_limitations_words.py`).
 
