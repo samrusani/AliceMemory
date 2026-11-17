@@ -525,6 +525,7 @@ def test_pnpm10_dependency_audit_decision_is_fail_closed_and_documented() -> Non
 
 
 def test_ci_action_dependency_carrier_uses_exact_atomic_pins() -> None:
+    """Mutations, each alone: restore the old analyze digest or the old init version comment."""
     workflows = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((ROOT / ".github" / "workflows").glob("*.yml"))
@@ -557,13 +558,13 @@ def test_ci_action_dependency_carrier_uses_exact_atomic_pins() -> None:
         "3d3c42e5aac5ba805825da76410c181273ba90b1"
     ] * 32
     assert codeql_refs == [
-        "9b3254085494b55a0f7c4c2b3d2d52cc712ce370"
+        "33d7b85da1a04171e211befe2c739303b9a4c066"
     ] * 3
     security_workflow = _read(".github/workflows/security-scans.yml")
     for step in ("init", "autobuild", "analyze"):
         assert (
             f"github/codeql-action/{step}@"
-            "9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1"
+            "33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3"
         ) in security_workflow
 
 

@@ -4246,7 +4246,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py\"",
           "after": "tests/performance/test_label_read_handoff_budget.py\"",
-          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1",
+          "sha256": "9cf1b7f0ccdf1388a1d38ec5c27582cbde949f8151425aa28c95aae1e5025a9f",
           "line": 2607
         }
       ],
@@ -12455,7 +12455,7 @@
           "line": 2415,
           "before": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"2.0\"",
           "after": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"",
-          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
+          "sha256": "9cf1b7f0ccdf1388a1d38ec5c27582cbde949f8151425aa28c95aae1e5025a9f"
         }
       ],
       "pytest": [
@@ -17584,7 +17584,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
           "after": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
-          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1",
+          "sha256": "9cf1b7f0ccdf1388a1d38ec5c27582cbde949f8151425aa28c95aae1e5025a9f",
           "line": 2561
         }
       ],
@@ -17856,7 +17856,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
           "after": "          ALICE_READ_ABSOLUTE_GATE: \"1\"\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
-          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1",
+          "sha256": "9cf1b7f0ccdf1388a1d38ec5c27582cbde949f8151425aa28c95aae1e5025a9f",
           "line": 2562
         }
       ],
@@ -17872,7 +17872,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_round2_read_budget_postgres.py::test_postgres_round2_read_budgets[one-hidden]'\n",
           "after": "",
-          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1",
+          "sha256": "9cf1b7f0ccdf1388a1d38ec5c27582cbde949f8151425aa28c95aae1e5025a9f",
           "line": 2428
         }
       ],
@@ -17888,7 +17888,7 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_read_handoff_budget_postgres.py::test_postgres_five_thousand_native_read_budgets[False]'\n",
           "after": "",
-          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1",
+          "sha256": "9cf1b7f0ccdf1388a1d38ec5c27582cbde949f8151425aa28c95aae1e5025a9f",
           "line": 2429
         }
       ],
@@ -23653,7 +23653,7 @@
           "line": 2415,
           "before": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"2.0\"",
           "after": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"",
-          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
+          "sha256": "9cf1b7f0ccdf1388a1d38ec5c27582cbde949f8151425aa28c95aae1e5025a9f"
         }
       ],
       "pytest": [
@@ -23962,7 +23962,7 @@
           "line": 58,
           "before": "selection: \"tests/unit/test_s*s.py\"",
           "after": "selection: \"\"",
-          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
+          "sha256": "9cf1b7f0ccdf1388a1d38ec5c27582cbde949f8151425aa28c95aae1e5025a9f"
         }
       ],
       "pytest": [
@@ -23978,7 +23978,7 @@
           "line": 50,
           "before": "selection: \"tests/unit/test_e*ce.py\"",
           "after": "selection: \"tests/unit/test_e*ce.py tests/unit/test_*ee.py\"",
-          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
+          "sha256": "9cf1b7f0ccdf1388a1d38ec5c27582cbde949f8151425aa28c95aae1e5025a9f"
         }
       ],
       "pytest": [
@@ -30173,7 +30173,7 @@
           "line": 75,
           "before": "bandit==1.9.4",
           "after": "bandit>=1.8,<2.0",
-          "sha256": "db6a797cd393172fb08ce323953a6eef03f24443fd9454237f3986830df7cc85"
+          "sha256": "a094604c524704e6b0bdba52cacb6bc26b7b4f4e172e1f9160d8752f3839d960"
         }
       ],
       "pytest": [
@@ -31037,7 +31037,7 @@
           "line": 69,
           "before": "          - shard: 11\n            selection: \"tests/unit/test_*[lnkf3x84].py\"\n",
           "after": "",
-          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
+          "sha256": "9cf1b7f0ccdf1388a1d38ec5c27582cbde949f8151425aa28c95aae1e5025a9f"
         }
       ],
       "pytest": [
@@ -31053,7 +31053,7 @@
           "line": 192,
           "before": "python scripts/combine_python_coverage.py --data-dir coverage-data --shards 11",
           "after": "python scripts/combine_python_coverage.py --data-dir coverage-data --shards 10",
-          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
+          "sha256": "9cf1b7f0ccdf1388a1d38ec5c27582cbde949f8151425aa28c95aae1e5025a9f"
         }
       ],
       "pytest": [
@@ -31182,7 +31182,7 @@
           "line": 64,
           "before": "tests/unit/test_*[!estrhmbaovgpd571lnkf3x84].py",
           "after": "tests/unit/test_*[!zestrhmbaovgpd571lnkf3x84].py",
-          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
+          "sha256": "9cf1b7f0ccdf1388a1d38ec5c27582cbde949f8151425aa28c95aae1e5025a9f"
         }
       ],
       "pytest": [
@@ -33142,6 +33142,38 @@
         "tests/unit/test_ci_alert_split_docs.py::test_the_picomatch_exception_agrees_with_the_posture_and_changelog"
       ],
       "expected_failure": "test_the_picomatch_exception_agrees_with_the_posture_and_changelog"
+    },
+    {
+      "name": "codeql-action-all-steps-match-digest",
+      "edits": [
+        {
+          "file": ".github/workflows/security-scans.yml",
+          "line": 116,
+          "before": "github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066",
+          "after": "github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370",
+          "sha256": "a094604c524704e6b0bdba52cacb6bc26b7b4f4e172e1f9160d8752f3839d960"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_vnext_release_polish.py::test_ci_action_dependency_carrier_uses_exact_atomic_pins"
+      ],
+      "expected_failure": "test_ci_action_dependency_carrier_uses_exact_atomic_pins"
+    },
+    {
+      "name": "codeql-action-version-comment-matches-tag",
+      "edits": [
+        {
+          "file": ".github/workflows/security-scans.yml",
+          "line": 108,
+          "before": "github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3",
+          "after": "github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.1",
+          "sha256": "a094604c524704e6b0bdba52cacb6bc26b7b4f4e172e1f9160d8752f3839d960"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_vnext_release_polish.py::test_ci_action_dependency_carrier_uses_exact_atomic_pins"
+      ],
+      "expected_failure": "test_ci_action_dependency_carrier_uses_exact_atomic_pins"
     }
   ]
 }
