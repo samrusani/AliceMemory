@@ -156,7 +156,7 @@ def test_the_error_bullet_names_the_generic_codes_and_the_four_that_tell_a_refus
     and the three generic codes come before them.
 
     The four are read from ``MCP_CODED_ERROR_CODES``: the five coded errors less ``invalid_request``, which a query over a
-    size limit already got in v0.20.0. The page is written for v0.23.0 and this bullet carries no marker.
+    size limit already got in v0.20.0. The page is written for v0.24.0 and this bullet carries no marker.
 
     Mutations, each one alone: on the page, delete ``precondition_failed`` from the list, delete ``except
     `invalid_request` for a rejected argument or an oversized query``, move a generic code after the three or put

@@ -32347,11 +32347,11 @@
       "name": "v0240-prior-notes-release-check",
       "edits": [
         {
-          "file": "CHANGELOG.md",
-          "line": 44,
-          "before": "## v0.23.1 — 2026-10-31",
-          "after": "## v0.23.1 — 2026-10-30",
-          "sha256": "dbc4e646ab8a683688e3985b966cb45d2ce28f23d0e809ad165d838462b332cb"
+          "file": "docs/release/v0.23.1-release-notes.md",
+          "line": 2,
+          "before": "\"publication_status\":\"published\"",
+          "after": "\"publication_status\":\"pending\"",
+          "sha256": "881b2b3466be1ff2ae385c5db21fb22d571ba73cbbc79ea30e67c945a0bb76eb"
         }
       ],
       "pytest": [
@@ -32598,6 +32598,54 @@
         "tests/unit/test_v0240_release_notes.py::test_pending_write_retirement_on_the_tag_and_candidate"
       ],
       "expected_failure": "test_pending_write_retirement_on_the_tag_and_candidate"
+    },
+    {
+      "name": "v0240-hidden-ids-leadin",
+      "edits": [
+        {
+          "file": "docs/alpha/known-limitations.md",
+          "line": 46,
+          "before": "Open in v0.24.0,",
+          "after": "Open in v0.23.0,",
+          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_hidden_ids_disclosure_docs.py::test_the_known_limitations_page_lists_both_limits"
+      ],
+      "expected_failure": "test_the_known_limitations_page_lists_both_limits"
+    },
+    {
+      "name": "v0240-expired-leadin",
+      "edits": [
+        {
+          "file": "docs/alpha/known-limitations.md",
+          "line": 46,
+          "before": "Open in v0.24.0,",
+          "after": "Open in v0.23.0,",
+          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_expired_memories_docs.py::test_the_known_limitations_list_what_stays_open_after_the_expiry_fix"
+      ],
+      "expected_failure": "test_the_known_limitations_list_what_stays_open_after_the_expiry_fix"
+    },
+    {
+      "name": "v0240-unscheduled-promises",
+      "edits": [
+        {
+          "file": "docs/alpha/known-limitations.md",
+          "line": 52,
+          "before": "hiding these words is planned, with no release set",
+          "after": "hiding these words is planned for v0.24.0",
+          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_unscheduled_promises_docs.py::test_the_known_limitations_page_names_no_release_for_unscheduled_work"
+      ],
+      "expected_failure": "test_the_known_limitations_page_names_no_release_for_unscheduled_work"
     }
   ]
 }

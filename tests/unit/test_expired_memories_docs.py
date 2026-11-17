@@ -80,7 +80,9 @@ def test_the_entry_states_the_v0200_behaviour_beside_each_change() -> None:
 
 
 def test_the_known_limitations_list_what_stays_open_after_the_expiry_fix() -> None:
-    """The open list keeps what stays open, and the history of the four closed gaps is on the dated records.
+    """Mutation: change the security-note lead-in back to v0.23.0.
+
+    The open list keeps what stays open, and the history of the four closed gaps is on the dated records.
 
     The three bullets that listed the gaps as open are gone from the open list: the gaps are fixed. One bullet keeps what
     is left (the context pack still names the id of an expired memory in ``recent_changes``, its ``max_tokens`` budget
@@ -96,7 +98,7 @@ def test_the_known_limitations_list_what_stays_open_after_the_expiry_fix() -> No
     """
 
     limitations = _read("docs/alpha/known-limitations.md")
-    section = limitations[limitations.index("Open in v0.23.0") :]
+    section = limitations[limitations.index("Open in v0.24.0") :]
     assert "- the session brief, `alice_resume` and `alice_recent_decisions` list memories by status" not in section
     assert "- consolidation and the roll-up semantic tier embed, for clustering" not in section
     assert "- promoting a reviewed artifact into a memory does not embed the new memory" not in section
