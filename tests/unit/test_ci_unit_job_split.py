@@ -16,8 +16,10 @@ from __future__ import annotations
 import collections
 import fnmatch
 import glob
+import itertools
 from pathlib import Path
 import re
+import string
 import subprocess
 import tomllib
 
@@ -306,15 +308,42 @@ def test_the_shards_are_disjoint_and_together_cover_every_unit_test_file_once() 
     assert extra == []
 
 
-def test_no_shard_is_empty_and_the_shards_are_numbered_in_order() -> None:
-    """Six shards numbered 1 to 6 and each runs at least one file.
+def test_generated_unit_test_names_match_exactly_one_shard() -> None:
+    """Each generated name belongs to exactly one shard.
 
-    Mutation: leave a shard with a selection that matches nothing, skip a number, or repeat one.
+    Mutation: add z to the excluded characters of the suffix fallback pattern."""
+    shards = [(entry["shard"], entry["selection"].split()) for entry in _shards()]
+    patterns = [pattern for _, selection in shards for pattern in selection]
+    suffixes = {f"{name[:-3]}_more.py" for name in _unit_test_files()}
+    alphabet = string.ascii_lowercase + string.digits + "_"
+    pairs = {
+        f"tests/unit/test_{first}{second}zz.py"
+        for first, second in itertools.product(alphabet, repeat=2)
+    }
+    prefixes = set()
+    minimum = len("tests/unit/test_") + 2
+    for pattern in patterns:
+        stem = pattern.removesuffix(".py")
+        leading = re.split(r"[\[\]*?]", stem, maxsplit=1)[0]
+        for end in range(minimum, len(leading) + 1):
+            prefixes.update(f"{leading[:end]}{character}zz.py" for character in alphabet)
+    for name in sorted(suffixes | pairs | prefixes):
+        matches = [
+            shard for shard, selection in shards
+            if any(fnmatch.fnmatchcase(name, pattern) for pattern in selection)
+        ]
+        assert len(matches) == 1, (name, matches)
+
+
+def test_no_shard_is_empty_and_the_shards_are_numbered_in_order() -> None:
+    """Eleven shards numbered 1 to 11 and each runs at least one file.
+
+    Mutation: remove the last shard, leave a shard with a selection that matches nothing, skip a number, or repeat one.
     """
 
     shards = _shards()
     assert [entry["shard"] for entry in shards] == list(range(1, len(shards) + 1))
-    assert len(shards) == 6
+    assert len(shards) == 11
     for entry in shards:
         assert any(_expand(entry["selection"]).values()), entry["shard"]
 
@@ -539,6 +568,13 @@ def test_the_release_guide_names_the_summary_job_and_the_rule_for_the_shards() -
     assert "Keep its name and its `if: always()`" in text
     assert "do not require the shard jobs one by one" in text
     assert "a skipped required check counts as passing" in text
+
+
+def test_the_release_guide_names_the_current_shard_count() -> None:
+    """Mutation: change the guide's eleven shard jobs back to six."""
+    text = " ".join((REPO_ROOT / "RELEASING.md").read_text(encoding="utf-8").split())
+    assert "The unit tests run as eleven shard jobs" in text
+    assert len(_shards()) == 11
 
 
 @pytest.mark.parametrize("job_id", UNIT_JOBS)

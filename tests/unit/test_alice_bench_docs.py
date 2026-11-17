@@ -231,7 +231,7 @@ def test_the_changelog_entry_states_the_v0200_behaviour() -> None:
 def test_the_note_states_the_ci_time_sample_that_gates_json_records() -> None:
     """The CI time sentence of the note carries the numbers of ``gates.json`` and no others.
 
-    Mutation: change the median, the maximum, the number of runs or the two dates of the pre-split
+    Mutation: change the shard count in the note, the median, the maximum, the number of runs or the two dates of the pre-split
     sample in the note, change the shard median, maximum or run count in the note, or change any of
     them in ``gates.json`` without the note.
     """

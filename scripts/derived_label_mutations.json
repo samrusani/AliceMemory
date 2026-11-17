@@ -323,10 +323,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 187,
+          "line": 189,
           "before": "omit content diagnostics for a caller with limits",
           "after": "show content diagnostics to a caller",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -996,10 +996,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 121,
+          "line": 123,
           "before": "stays refused to every key but an unbound `admin_agent`",
           "after": "stays refused",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -1176,10 +1176,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 121,
+          "line": 123,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -1548,10 +1548,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 122,
+          "line": 124,
           "before": "where it raised a server error",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -2050,10 +2050,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 124,
+          "line": 126,
           "before": "and the call writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry.",
           "after": "and the call is recorded.",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -2242,10 +2242,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 170,
+          "line": 172,
           "before": "A refused redact of an archived or redacted row now writes nothing, as a redact of an id the vault never held writes nothing: no policy event and no agent record.",
           "after": "A refused redact of an archived or redacted row is still recorded.",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -4020,10 +4020,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 123,
+          "line": 125,
           "before": "The memory audit route (`GET /v0/vnext/memories/{id}/audit`) returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, so the ids of archived members stand there too (a derived memory that recorded a redacted memory as a member is read by the owner and an unbound admin key only), ",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -4036,10 +4036,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 115,
+          "line": 117,
           "before": "The context tree and the dogfooding view read the same rule. ",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -4246,8 +4246,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "tests/performance/test_label_read_handoff_budget.py tests/performance/test_label_round2_read_budget.py\"",
           "after": "tests/performance/test_label_read_handoff_budget.py\"",
-          "sha256": "5e46d4abdc851d8d5424d3adf57039ab92b9b1861c8d2cec5a2be10b1ad6e8cf",
-          "line": 2604
+          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1",
+          "line": 2607
         }
       ],
       "pytest": [
@@ -4698,10 +4698,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 107,
+          "line": 109,
           "before": "An artifact event that holds anything more still stops the redaction, so no text is left behind. ",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -4778,10 +4778,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 123,
+          "line": 125,
           "before": " The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says.",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -5177,10 +5177,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 109,
+          "line": 111,
           "before": "Redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "Redacting a memory leaves reports as they were",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -5225,10 +5225,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 109,
+          "line": 111,
           "before": "This is temporary access containment, not removal",
           "after": "This is removal",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -5289,10 +5289,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 109,
+          "line": 111,
           "before": "say to regenerate or delete the reports built from a redacted memory",
           "after": "say nothing",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -5633,10 +5633,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 109,
+          "line": 111,
           "before": "is refused to a key that may not read the belief, with the answer of a missing belief, and a refused review changes nothing.",
           "after": "is open to every key.",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -5987,10 +5987,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 109,
+          "line": 111,
           "before": "A project end that names the project by a name or by an id that finds no project row hides nothing",
           "after": "A project end hides every edge",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -6115,10 +6115,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 123,
+          "line": 125,
           "before": "but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says",
           "after": "but a report that recorded a redacted memory is read like any other report, as the entry on redacted memories says",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -6147,10 +6147,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 142,
+          "line": 144,
           "before": "The graph neighborhood and the edge review route apply the same ceiling to the rows an edge joins, as the entry on redacted memories and the security note say.",
           "after": "Graph edge explanations remain outside that ceiling, as disclosed in the security note.",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -6227,10 +6227,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 109,
+          "line": 111,
           "before": "The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. ",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -6259,10 +6259,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 123,
+          "line": 125,
           "before": "Two answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; and a memory commit",
           "after": "Three answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; the graph neighborhood route, which returns the edges of any id with their explanations; and a memory commit",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -7608,10 +7608,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 106,
+          "line": 108,
           "before": "The CTE now names the picked id `next_id`. ",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -7848,10 +7848,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 106,
+          "line": 108,
           "before": " A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made. The event guard judges that artifact like the artifact of any other event, so the workspace feed of a key with a ceiling holds neither event, and not the id of the artifact, when the task was above its ceiling, and its event count leaves both out. The claim and the failure of a task name no artifact and hold the id of the task, which the entry on the operator routes lists for the creation events of a queued task.",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -7896,10 +7896,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 111,
+          "line": 113,
           "before": ", and, for a task that a worker has claimed, `task.claimed`, and `task.updated` and `queue.task_failed` when it failed",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -8203,10 +8203,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 112,
+          "line": 114,
           "before": "The filter on the target stays: an event about a row the trace does not list is still left out. ",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -8219,10 +8219,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 113,
+          "line": 115,
           "before": "so no caller left an event that names an object it may not read",
           "after": "so a caller may have left an event",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -8459,10 +8459,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 112,
+          "line": 114,
           "before": "A key with limits is read the newest 2,000 events that the trace asks for, as the event feeds are",
           "after": "A key with limits is read every event that the trace asks for",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -8491,10 +8491,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 113,
+          "line": 115,
           "before": "which by default leaves out the confidential levels, is not a limit: the owner",
           "after": "which by default leaves out the confidential levels, is a limit: the owner",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -8587,10 +8587,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 112,
+          "line": 114,
           "before": "only the events aimed at the source or at a row the trace lists count against that reach",
           "after": "every event of the source counts against that reach",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -8859,10 +8859,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 126,
+          "line": 128,
           "before": "out of the `created_count` of the `open_loop.extraction_completed` event, as a missing row is, and nothing about it is returned",
           "after": "as a missing row is, and nothing about it is returned",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -9424,10 +9424,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 108,
+          "line": 110,
           "before": "The quote a commit saved of a memory is withheld from a caller who may not read that memory",
           "after": "The quote a commit saved of a memory is shown to every caller",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -10145,10 +10145,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 108,
+          "line": 110,
           "before": "and the recent events and the agent activity of the workspace and the events of a source trace hold the payload of a confirmed commit to the same rule.",
           "after": "and nothing else holds a confirmed commit to it.",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -10435,10 +10435,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 108,
+          "line": 110,
           "before": "the recent events and the agent activity of the workspace and the events of a source trace hold the payload",
           "after": "the recent events of the workspace and the events of a source trace hold the payload",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -10483,10 +10483,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 108,
+          "line": 110,
           "before": "(a `#` fragment after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`, and a field that holds an id and more than an id reads `null`)",
           "after": "(a `#` fragment after a reference is kept)",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -10963,10 +10963,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 108,
+          "line": 110,
           "before": "and the names of the fields are withheld with their values: the entry keeps a field only when its name is one the product writes",
           "after": "and the entry keeps every field",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -12052,10 +12052,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 108,
+          "line": 110,
           "before": "An entry beside such a ref that names nothing the caller may read is held to the same rule (a bare string and a `text` field go with the `quote`), one that names a stored source or memory the caller may read keeps its text and loses the names the product does not write with their values, and so are the refs a source made by the agent-output ingest keeps (the source routes, the source trace, the artifact trace, the context pack, the workspace and the connector status), the metadata of a quality rating and the allowed sources and scope of a queued task; the report of a consolidation run and the artifact a queue worker makes are derived from the memories their refs and tasks name, and `alicebot vnext memories audit` with an agent key applies the reader. ",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -12452,10 +12452,10 @@
       "edits": [
         {
           "file": ".github/workflows/tests.yml",
-          "line": 2412,
+          "line": 2415,
           "before": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"2.0\"",
           "after": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"",
-          "sha256": "5e46d4abdc851d8d5424d3adf57039ab92b9b1861c8d2cec5a2be10b1ad6e8cf"
+          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
         }
       ],
       "pytest": [
@@ -13511,10 +13511,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 100,
+          "line": 102,
           "before": "In v0.20.0 the name was an ordinary one, a key bound to it read only",
           "after": "In v0.20.0 the name was an ordinary one, so this is a regression of main and no release had it. A key bound to it read only",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -13735,10 +13735,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 101,
+          "line": 103,
           "before": "In v0.19.2 and in v0.20.0 an unbound `trusted_local_agent` key, whose ceiling is `public`, `internal`, `private` and `unknown`, was shown the path of a confidential file",
           "after": "In v0.20.0 an unbound `trusted_local_agent` key, whose ceiling is `public`, `internal`, `private` and `unknown`, was shown the path of a confidential file",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -13975,10 +13975,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 100,
+          "line": 102,
           "before": "Each surface answers with its standard refusal and none of them names the reason: the HTTP body is the standard forbidden message and the tool error is the standard text of its code. ",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -13991,10 +13991,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 101,
+          "line": 103,
           "before": "One case stays: a key that imports a public item at a path it already knows (it was told the path or guessed it) is then shown a failed import of that same path, so it can confirm that a failed import of a path it can name exists; it learns the path it sent and nothing about the file. ",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -14423,10 +14423,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 130,
+          "line": 132,
           "before": "A report that a relabel during the run raised after the run had read its inputs is judged the same way: it is stored with the current floor, and a caller who may not read it is answered as for a missing artifact. ",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -15657,10 +15657,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 103,
+          "line": 105,
           "before": "A direct call of the commit service stored an entry nested about 950 levels deep (in v0.19.2 and in v0.20.0)",
           "after": "The HTTP route and the MCP commit tool stored an entry nested about 950 levels deep (in v0.19.2 and in v0.20.0)",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -15673,10 +15673,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 103,
+          "line": 105,
           "before": "A request or tool call that may have written is never run twice, because it may have committed before it failed: ",
           "after": "",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -15689,10 +15689,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 103,
+          "line": 105,
           "before": "so a write that reads it, `forget` and `expire` among them, writes the placeholder back into the row and into the audit event it appends.",
           "after": "so a write that reads it keeps the row whole.",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -15705,10 +15705,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 103,
+          "line": 105,
           "before": "so a retried call leaves the events an ordinary call leaves",
           "after": "so a retried call leaves its events twice",
-          "sha256": "a5049d2ff746453e46a619f0b57ce07677fcba7c25605a5d4a24b97f34b4fbca"
+          "sha256": "3e5ca065e664a85b89545242d917a97bcf41b91eba6b8dfe185f3d3b2771c830"
         }
       ],
       "pytest": [
@@ -17584,8 +17584,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
           "after": "          DATABASE_ADMIN_URL: postgresql://alicebot_admin:ci@localhost:5432/alicebot\n          ALICE_READ_MAIN_CHECKOUT: ${{ github.workspace }}/.read-budget-baseline\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long.",
-          "sha256": "5e46d4abdc851d8d5424d3adf57039ab92b9b1861c8d2cec5a2be10b1ad6e8cf",
-          "line": 2558
+          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1",
+          "line": 2561
         }
       ],
       "pytest": [
@@ -17856,8 +17856,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
           "after": "          ALICE_READ_ABSOLUTE_GATE: \"1\"\n          ALICE_READ_MERGE_BASE_CHECKOUT: ${{ github.workspace }}/.read-budget-merge-base\n          ALICE_READ_BUDGET_EVIDENCE: ${{ runner.temp }}/round3-postgres-read-budgets.jsonl\n        # --timeout=180 names one test that runs that long. The cancelled\n",
-          "sha256": "5e46d4abdc851d8d5424d3adf57039ab92b9b1861c8d2cec5a2be10b1ad6e8cf",
-          "line": 2559
+          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1",
+          "line": 2562
         }
       ],
       "pytest": [
@@ -17872,8 +17872,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_round2_read_budget_postgres.py::test_postgres_round2_read_budgets[one-hidden]'\n",
           "after": "",
-          "sha256": "5e46d4abdc851d8d5424d3adf57039ab92b9b1861c8d2cec5a2be10b1ad6e8cf",
-          "line": 2425
+          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1",
+          "line": 2428
         }
       ],
       "pytest": [
@@ -17888,8 +17888,8 @@
           "file": ".github/workflows/tests.yml",
           "before": "          'tests/integration/test_label_read_handoff_budget_postgres.py::test_postgres_five_thousand_native_read_budgets[False]'\n",
           "after": "",
-          "sha256": "5e46d4abdc851d8d5424d3adf57039ab92b9b1861c8d2cec5a2be10b1ad6e8cf",
-          "line": 2426
+          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1",
+          "line": 2429
         }
       ],
       "pytest": [
@@ -23650,10 +23650,10 @@
       "edits": [
         {
           "file": ".github/workflows/tests.yml",
-          "line": 2412,
+          "line": 2415,
           "before": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"2.0\"",
           "after": "ALICE_READ_ABSOLUTE_LIMIT_SECONDS: \"1.5\"",
-          "sha256": "5e46d4abdc851d8d5424d3adf57039ab92b9b1861c8d2cec5a2be10b1ad6e8cf"
+          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
         }
       ],
       "pytest": [
@@ -23959,10 +23959,10 @@
       "edits": [
         {
           "file": ".github/workflows/tests.yml",
-          "line": 67,
-          "before": "selection: \"tests/unit/test_saved_quote_m*.py tests/unit/test_sq*.py tests/unit/test_s[tu]*.py\"",
-          "after": "selection: \"tests/unit/test_saved_quote_m*.py tests/unit/test_s[tu]*.py\"",
-          "sha256": "5e46d4abdc851d8d5424d3adf57039ab92b9b1861c8d2cec5a2be10b1ad6e8cf"
+          "line": 58,
+          "before": "selection: \"tests/unit/test_s*s.py\"",
+          "after": "selection: \"\"",
+          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
         }
       ],
       "pytest": [
@@ -23975,10 +23975,10 @@
       "edits": [
         {
           "file": ".github/workflows/tests.yml",
-          "line": 67,
-          "before": "selection: \"tests/unit/test_saved_quote_m*.py tests/unit/test_sq*.py tests/unit/test_s[tu]*.py\"",
-          "after": "selection: \"tests/unit/test_saved_quote_*.py tests/unit/test_sq*.py tests/unit/test_s[tu]*.py\"",
-          "sha256": "5e46d4abdc851d8d5424d3adf57039ab92b9b1861c8d2cec5a2be10b1ad6e8cf"
+          "line": 50,
+          "before": "selection: \"tests/unit/test_e*ce.py\"",
+          "after": "selection: \"tests/unit/test_e*ce.py tests/unit/test_*ee.py\"",
+          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
         }
       ],
       "pytest": [
@@ -23992,9 +23992,9 @@
         {
           "file": "gates.json",
           "line": 111,
-          "before": "\"shard_count\": 6,",
-          "after": "\"shard_count\": 5,",
-          "sha256": "d911fa1bbf11dcc8592b91d98dc73d25ed004f7260dac146ca969a754ba2d5fc"
+          "before": "\"shard_count\": 11,",
+          "after": "\"shard_count\": 10,",
+          "sha256": "0eeed967e16c1a736f22368f1b3455f9db9b59e8c7b1699ec9161a52d143166f"
         }
       ],
       "pytest": [
@@ -24008,9 +24008,9 @@
         {
           "file": ".github/workflows/publish-pypi.yml",
           "line": 45,
-          "before": "    timeout-minutes: 200",
-          "after": "    timeout-minutes: 180",
-          "sha256": "0f4b1727747508b14d00448fe04189a855f318af52081c59a24391c19a2b2587"
+          "before": "    timeout-minutes: 300",
+          "after": "    timeout-minutes: 280",
+          "sha256": "4b305979345f78c4f66c919e83d91e97b786cf95b87c72d639454e4ff5aef870"
         }
       ],
       "pytest": [
@@ -24024,9 +24024,9 @@
         {
           "file": ".github/workflows/publish-recheck-rehearsal.yml",
           "line": 23,
-          "before": "    timeout-minutes: 200",
-          "after": "    timeout-minutes: 199",
-          "sha256": "892f8a03c8887659b4f3f1af9b3df3f83b3fec8fddbf6ceed03248f00cecbcd3"
+          "before": "    timeout-minutes: 300",
+          "after": "    timeout-minutes: 299",
+          "sha256": "47f24a76716794c8794c11770f79c9d166a8c71e389fcfbe9ff6bed4d5453899"
         }
       ],
       "pytest": [
@@ -24042,7 +24042,7 @@
           "line": 142,
           "before": "      \"five_shards_longest_job_seconds\": [1010, 1061],",
           "after": "      \"five_shards_longest_job_seconds\": [1010, 1019],",
-          "sha256": "d911fa1bbf11dcc8592b91d98dc73d25ed004f7260dac146ca969a754ba2d5fc"
+          "sha256": "0eeed967e16c1a736f22368f1b3455f9db9b59e8c7b1699ec9161a52d143166f"
         }
       ],
       "pytest": [
@@ -31012,6 +31012,183 @@
         "tests/unit/test_known_limitations_page_shape.py::test_the_page_is_short_and_no_bullet_is_a_record"
       ],
       "expected_failure": "test_the_page_is_short_and_no_bullet_is_a_record"
+    },
+    {
+      "name": "shipped-smoke-parser-inventory",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/cli/parser.py",
+          "line": 1357,
+          "before": "        \"model-backed\",",
+          "after": "        \"model-backed-renamed\",",
+          "sha256": "fa5a476ee8e91b4fbbb43d82c8b245c7f7d936a2761669c64f8453af78287122"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_shipped_smokes_inventory.py::test_gate_inventory_names_every_registered_smoke_subcommand"
+      ],
+      "expected_failure": "test_gate_inventory_names_every_registered_smoke_subcommand"
+    },
+    {
+      "name": "ten-shards-numbered-and-present",
+      "edits": [
+        {
+          "file": ".github/workflows/tests.yml",
+          "line": 69,
+          "before": "          - shard: 11\n            selection: \"tests/unit/test_*[lnkf3x84].py\"\n",
+          "after": "",
+          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ci_unit_job_split.py::test_no_shard_is_empty_and_the_shards_are_numbered_in_order"
+      ],
+      "expected_failure": "test_no_shard_is_empty_and_the_shards_are_numbered_in_order"
+    },
+    {
+      "name": "ten-shards-combined-coverage",
+      "edits": [
+        {
+          "file": ".github/workflows/tests.yml",
+          "line": 192,
+          "before": "python scripts/combine_python_coverage.py --data-dir coverage-data --shards 11",
+          "after": "python scripts/combine_python_coverage.py --data-dir coverage-data --shards 10",
+          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ci_unit_job_split.py::test_the_combine_job_downloads_every_shard_and_demands_one_file_per_shard"
+      ],
+      "expected_failure": "test_the_combine_job_downloads_every_shard_and_demands_one_file_per_shard"
+    },
+    {
+      "name": "ten-shards-recorded-job-name",
+      "edits": [
+        {
+          "file": "gates.json",
+          "line": 109,
+          "before": "python-unit-shards (Unit tests, shard N of 11, SQLite)",
+          "after": "python-unit-shards (Unit tests, shard N of 6, SQLite)",
+          "sha256": "0eeed967e16c1a736f22368f1b3455f9db9b59e8c7b1699ec9161a52d143166f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_alice_bench_gates.py::test_the_ci_time_budget_matches_the_workflow_it_describes"
+      ],
+      "expected_failure": "test_the_ci_time_budget_matches_the_workflow_it_describes"
+    },
+    {
+      "name": "ten-shards-measured-mean",
+      "edits": [
+        {
+          "file": "gates.json",
+          "line": 149,
+          "before": "\"mean_test_seconds_per_shard\": [486.3,",
+          "after": "\"mean_test_seconds_per_shard\": [486.2,",
+          "sha256": "0eeed967e16c1a736f22368f1b3455f9db9b59e8c7b1699ec9161a52d143166f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_alice_bench_gates.py::test_the_ci_time_budget_matches_the_workflow_it_describes"
+      ],
+      "expected_failure": "test_the_ci_time_budget_matches_the_workflow_it_describes"
+    },
+    {
+      "name": "ten-shards-release-guide",
+      "edits": [
+        {
+          "file": "RELEASING.md",
+          "line": 70,
+          "before": "The unit tests run as eleven shard jobs",
+          "after": "The unit tests run as six shard jobs",
+          "sha256": "7ab2931a210c9aade37a6aeb5593c1a4efc6b3be1b942a882cd7c81270655a01"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ci_unit_job_split.py::test_the_release_guide_names_the_current_shard_count"
+      ],
+      "expected_failure": "test_the_release_guide_names_the_current_shard_count"
+    },
+    {
+      "name": "rehearsal-half-limit-matches-publish",
+      "edits": [
+        {
+          "file": ".github/workflows/publish-recheck-rehearsal.yml",
+          "line": 63,
+          "before": "JOB_TIMEOUT_MINUTES: \"300\"",
+          "after": "JOB_TIMEOUT_MINUTES: \"299\"",
+          "sha256": "47f24a76716794c8794c11770f79c9d166a8c71e389fcfbe9ff6bed4d5453899"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0210_release_notes.py::test_the_publish_limit_of_the_workflows_and_the_releasing_guide_is_one_number"
+      ],
+      "expected_failure": "test_the_publish_limit_of_the_workflows_and_the_releasing_guide_is_one_number"
+    },
+    {
+      "name": "rehearsal-timeout-mutation-detection",
+      "edits": [
+        {
+          "file": "tests/unit/test_publish_recheck_rehearsal.py",
+          "line": 148,
+          "before": "if not isinstance(timeout, int) or timeout != publish_job.get(\"timeout-minutes\"):",
+          "after": "if False:",
+          "sha256": "57fbb84d5019db63379979377488adc9a7063fb7fc29868680ea1d5860c05d20"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_publish_recheck_rehearsal.py::test_each_mutation_is_found[rehearsal timeout]",
+        "tests/unit/test_publish_recheck_rehearsal.py::test_each_mutation_is_found[publish timeout]"
+      ],
+      "expected_failure": "test_each_mutation_is_found[rehearsal timeout]"
+    },
+    {
+      "name": "rehearsal-env-mutation-detection",
+      "edits": [
+        {
+          "file": "tests/unit/test_publish_recheck_rehearsal.py",
+          "line": 166,
+          "before": "elif str((steps[-1].get(\"env\") or {}).get(\"JOB_TIMEOUT_MINUTES\")) != str(timeout):",
+          "after": "elif False:",
+          "sha256": "57fbb84d5019db63379979377488adc9a7063fb7fc29868680ea1d5860c05d20"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_publish_recheck_rehearsal.py::test_each_mutation_is_found[report limit differs from the timeout]"
+      ],
+      "expected_failure": "test_each_mutation_is_found[report limit differs from the timeout]"
+    },
+    {
+      "name": "benchmark-note-current-shard-count",
+      "edits": [
+        {
+          "file": "docs/benchmarks/agent-answer/README.md",
+          "line": 75,
+          "before": "The unit tests run as 11 parallel shard jobs",
+          "after": "The unit tests run as 6 parallel shard jobs",
+          "sha256": "c37ee540fcd1a404ea16ac001bb6210990261eed8241ae33cc2066116d746214"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_alice_bench_docs.py::test_the_note_states_the_ci_time_sample_that_gates_json_records"
+      ],
+      "expected_failure": "test_the_note_states_the_ci_time_sample_that_gates_json_records"
+    },
+    {
+      "name": "generated-unit-name-suffix-fallback",
+      "edits": [
+        {
+          "file": ".github/workflows/tests.yml",
+          "line": 64,
+          "before": "tests/unit/test_*[!estrhmbaovgpd571lnkf3x84].py",
+          "after": "tests/unit/test_*[!zestrhmbaovgpd571lnkf3x84].py",
+          "sha256": "63920998a99fe7741ff245188afc949c76829a51b7908336a719da27d4c2aaf1"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_ci_unit_job_split.py::test_generated_unit_test_names_match_exactly_one_shard"
+      ],
+      "expected_failure": "test_generated_unit_test_names_match_exactly_one_shard"
     }
   ]
 }

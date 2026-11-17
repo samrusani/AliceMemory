@@ -185,7 +185,7 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     tests grew until the longest of the three took 17.5, 18.7 and over 20 minutes, so they ran as four.
     The longest of the four then took 18.0 and 20.0 minutes, the second run stopped at the limit, so they run as five.
 
-    Mutation: change ``timeout-minutes`` of the shard job in the workflow (the budget then describes
+    Mutation: change a recorded fifth-split mean or the shard count in gates, or change ``timeout-minutes`` of the shard job in the workflow (the budget then describes
     a different job), change the shard count or the required check name in the workflow alone, record
     a split threshold at or above the timeout, write the pre-split sample as fewer runs than it was
     taken over, record a shard measurement at or above the split line, record a four-shard measurement
@@ -202,9 +202,9 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     shard_job = workflow["jobs"]["python-unit-shards"]
     summary_job = workflow["jobs"]["python-unit"]
     assert shard_job["timeout-minutes"] == budget["timeout_minutes"] == 20
-    assert budget["shard_count"] == len(shard_job["strategy"]["matrix"]["include"]) == 6
+    assert budget["shard_count"] == len(shard_job["strategy"]["matrix"]["include"]) == 11
     assert budget["required_check"] == summary_job["name"] == "Unit tests + live eval battery (SQLite)"
-    assert budget["job"].startswith("python-unit-shards ") and "shard N of 6" in budget["job"]
+    assert budget["job"].startswith("python-unit-shards ") and "shard N of 11" in budget["job"]
     assert budget["split_threshold_minutes"] == 17 < budget["timeout_minutes"]
     assert budget["new_test_budget_seconds"] == 90
     measured = budget["measured_seconds"]
@@ -226,6 +226,10 @@ def test_the_ci_time_budget_matches_the_workflow_it_describes() -> None:
     assert len(five_shards) == 2 and five_shards == [1010, 1061]
     past_line = fourth["main_jobs_past_the_split_line_seconds"]
     assert past_line == [1061, 1037] and min(past_line) >= budget["split_threshold_minutes"] * 60
+    fifth = budget["fifth_split"]
+    assert set(fifth) == {"measured_on", "measured_scope", "mean_test_seconds_per_shard", "note"}
+    assert fifth["measured_on"] == "2026-11-17" and "44041472995" in fifth["measured_scope"]
+    assert fifth["mean_test_seconds_per_shard"] == [486.3, 441.7, 419.9, 268.6, 261.6, 259.2, 395.3, 386.6, 386.5, 386.5, 386.6]
     before = budget["before_split"]
     assert before["job"] == "python-unit (Unit tests + live eval battery, SQLite)"
     assert before["measured_runs"] == 70
