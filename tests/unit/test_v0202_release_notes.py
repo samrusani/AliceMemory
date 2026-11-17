@@ -184,7 +184,9 @@ def test_the_marketplace_pins_the_published_release_and_the_notes_carry_its_inst
 
 
 def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section() -> None:
-    """Mutations, each one alone: drop the heading; change its date form; put another section between
+    """Mutation: change the v0.24.0 heading date.
+
+    Mutations, each one alone: drop the heading; change its date form; put another section between
     v0.20.2 and v0.20.0; put an unreleased marker inside the v0.20.2 section.
 
     The Unreleased section was empty on the release commit. It may hold entries now that main has
@@ -196,15 +198,16 @@ def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section(
     sections = changelog.split("\n## ")
     assert sections[1].startswith("Unreleased\n")
     assert sections[1].endswith("\n")
-    assert sections[2].startswith("v0.23.1 \u2014 2026-10-31\n")
-    assert sections[3].startswith("v0.23.0 \u2014 2026-10-30\n")
-    assert sections[4].startswith("v0.22.0 \u2014 2026-10-26\n")
-    assert sections[5].startswith("v0.21.1 \u2014 2026-10-23\n")
-    assert sections[6].startswith("v0.21.0 \u2014 2026-10-22\n")
-    assert sections[7].startswith("v0.20.2 \u2014 2026-10-17\n")
-    assert sections[8].startswith("v0.20.0 \u2014 2026-10-02\n")
+    assert sections[2].startswith("v0.24.0 \u2014 2026-11-17\n")
+    assert sections[3].startswith("v0.23.1 \u2014 2026-10-31\n")
+    assert sections[4].startswith("v0.23.0 \u2014 2026-10-30\n")
+    assert sections[5].startswith("v0.22.0 \u2014 2026-10-26\n")
+    assert sections[6].startswith("v0.21.1 \u2014 2026-10-23\n")
+    assert sections[7].startswith("v0.21.0 \u2014 2026-10-22\n")
+    assert sections[8].startswith("v0.20.2 \u2014 2026-10-17\n")
+    assert sections[9].startswith("v0.20.0 \u2014 2026-10-02\n")
     assert changelog.count(HEADING) == 1
-    assert "Unreleased (on main" not in sections[7]
+    assert "Unreleased (on main" not in sections[8]
 
 
 def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_or_the_code() -> None:

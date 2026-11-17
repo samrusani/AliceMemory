@@ -36,9 +36,9 @@ The default MCP surface is four tools:
 
 ## Status
 
-`v0.23.1` is the latest published release and remains the install, checksum, and release-note baseline. `v0.23.0` is the immediately prior published release. Pre-1.0; [Current state](CURRENT_STATE.md) lists the tags that were never published. To run v0.23.1, run `git checkout v0.23.1` before `make setup`.
+`v0.24.0` is the current release candidate. It is not published.
 
-The README and documentation describe main, where `alice_lessons` and the `lesson` block of `alice_memory_commit` are available but are not in v0.23.1. The [Unreleased section of the changelog](CHANGELOG.md#unreleased) lists all changes on main since v0.23.1.
+`v0.23.1` is the latest published release and remains the install, checksum, and release-note baseline. `v0.23.0` is the immediately prior published release. Pre-1.0; [Current state](CURRENT_STATE.md) lists the tags that were never published. To run v0.23.1, run `git checkout v0.23.1` before `make setup`.
 
 ## Benchmark
 

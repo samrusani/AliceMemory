@@ -1,6 +1,6 @@
 # Public Alpha Known Limitations
 
-This page lists what is limited now in v0.23.0. What an earlier release did, and what a later release fixed, is in the [CHANGELOG](../../CHANGELOG.md) and the [release notes](../release/v0.23.0-release-notes.md). Behaviour that is new in v0.23.0 is marked `From v0.23.0`, and what v0.22.0 and v0.21.0 changed is marked `From v0.22.0` and `From v0.21.0`.
+This page lists what is limited now in v0.24.0. What an earlier release did, and what a later release fixed, is in the [CHANGELOG](../../CHANGELOG.md) and the [release notes](../release/v0.24.0-release-notes.md). Behaviour that is new in v0.24.0 is marked `From v0.24.0`, and what v0.23.0, v0.22.0 and v0.21.0 changed is marked `From v0.23.0`, `From v0.22.0` and `From v0.21.0`.
 
 Not built in this alpha: no hosted cloud, no production SLA, and no team accounts, billing, cloud sync, mobile app or hosted deployment (out of scope); no managed Gmail or Calendar OAuth consent or account-linking flow (manual operator-token storage exists); no live email or calendar polling; no Telegram polling, delivery or channel transport.
 OCR, PDF OCR and voice transcription execution are not packaged. The scheduler is local, model providers need your configuration, and the Postgres setup is technical (the SQLite install is one command).
@@ -9,13 +9,13 @@ OCR, PDF OCR and voice transcription execution are not packaged. The scheduler i
 - automatic memory promotion is off unless a deployment opts in with `ALICE_MEMORY_PERSONA` ([personas](../memory/promotion-personas.md)), and only a writer whose identity came from an issued agent key gets it; a compromised key can write durable memory (`alicebot vnext memories quarantine` is the command-line-only sweep). Confirming a pending write with `alice_memory_commit` is not a human gate: the confirm step relies on the agent asking the user ([rules](../memory-operations-protocol.md#confirm-and-reject-rules))
 - idempotency keys are shared across the vault, and a caller who knows one can test a guess of a hidden write ([remember](../memory-operations-protocol.md#remember)); use idempotency keys that cannot be guessed
 - expiring a write awaiting its own confirmation leaves that confirmation usable; accepting it makes the row active with an expiry in the past ([confirm](../memory-operations-protocol.md#confirm-and-reject-rules))
-- rows written before the first key keep their standing, and revoking the last key restores keyless briefs even for a presented revoked key. On main, lessons written before the first key keep their standing too ([authentication](agent-integration.md#authentication))
-- On main, retirement of a write waiting for review is limited to its decision makers, while its writer can retire a row waiting for their own reply ([standing](../memory-operations-protocol.md#standing-to-retire-a-memory))
+- rows written before the first key keep their standing, and revoking the last key restores keyless briefs even for a presented revoked key. From v0.24.0, lessons written before the first key keep their standing too ([authentication](agent-integration.md#authentication))
+- From v0.24.0, retirement of a write waiting for review is limited to its decision makers, while its writer can retire a row waiting for their own reply ([standing](../memory-operations-protocol.md#standing-to-retire-a-memory))
 - the two built-in agent ids record different types through MCP and through a nested HTTP identity with no type ([identity](agent-integration.md#agent-identity-fields))
 - some audit records omit actors or keep the original writer, a hidden change leaves no event, and a stored agent row shows its last claimed profile ([audit](../memory-operations-protocol.md#audit-guarantees))
-- On main, every key of a project can read its waiting and rejected lessons through the full review and explain tools; explain returns the decision reason ([lessons](shared-lessons.md))
-- On main, a lesson's reader sees the writer and publishing agent ids ([lessons](shared-lessons.md)); choose neutral agent ids
-- On main, `alice_lessons` reads a projection of every lesson the caller may read, so its cost grows with that number ([lessons](shared-lessons.md))
+- From v0.24.0, every key of a project can read its waiting and rejected lessons through the full review and explain tools; explain returns the decision reason ([lessons](shared-lessons.md))
+- From v0.24.0, a lesson's reader sees the writer and publishing agent ids ([lessons](shared-lessons.md)); choose neutral agent ids
+- From v0.24.0, `alice_lessons` reads a projection of every lesson the caller may read, so its cost grows with that number ([lessons](shared-lessons.md))
 - with project scoping on and a project detected in the default view, a key's brief and session hook return no brief ([projects](projects.md#the-project-brief))
 - `alice_explain` fails on a readable row linked to a source the caller cannot read ([cited sources](mcp-tools.md#cited-sources))
 - outside capture commands, a CLI policy refusal is reported as `filesystem_operation_failed` ([CLI](../integrations/cli.md#determinism-contract))
@@ -43,7 +43,7 @@ Postgres stack and outbound calls, with the detail in the [threat model](../secu
 - an unbound `trusted_local_agent` key reads the configured local-folder paths in `config.config_json.paths` of `GET /v0/vnext/connectors/{connector_name}/status`, even when a file under a path is confidential (every other profile and a project-bound key get HTTP 403, and an unbound `admin_agent` key reads them too); the fix has no release set
 - `alice_context_pack` removes the id of a memory the caller cannot read from `metadata_json`, but looks only for a 36-character UUID there: an id in another column of a stored row or in another spelling is not removed
 
-Open in v0.23.0, with the detail in the [security note](../release/derived-labels-security-note-draft.md):
+Open in v0.24.0, with the detail in the [security note](../release/derived-labels-security-note-draft.md):
 
 - `alice_context_pack` still names the id of an expired memory in `recent_changes`, and its `max_tokens` budget prices the full stored row while the agent receives a compact row. Text that earlier releases sent to an embeddings endpoint, an expired memory's included, cannot be taken back from it
 - the cited-source fence has gaps: memory proposals and the agent-output ingest store `source_refs` without checking the ids (v0.20.2 kept an object entry and JSON text whole; from v0.21.0, only a string that is not blank and not JSON text), the owner dependency trace lists the first id of a multi-id ref only, and `provenance_count` counts a withheld link. A memory or open loop saved before v0.20.2 keeps its link, so `alice_explain` fails for it, and an `admin_agent` writer's link makes it fail for keys of a project with a lower ceiling ([Cited sources](mcp-tools.md#cited-sources))

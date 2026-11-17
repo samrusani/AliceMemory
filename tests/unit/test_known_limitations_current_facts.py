@@ -1,6 +1,6 @@
 """The facts that only the known limitations page states are pinned, and the numbers on it are the ones the code enforces.
 
-The page is a short list of what is limited now in v0.23.0. Most of its statements are pinned next to the pages that
+The page is a short list of what is limited now in v0.24.0. Most of its statements are pinned next to the pages that
 explain them (the local-folder scan, the HTTP edge, the expiry and commit text bullets and the rest). A bound that
 another page owns is one short sentence on the page and a link, and the page that owns it holds the rest and is pinned
 here, so the fact is not lost when it leaves the page:
@@ -79,7 +79,7 @@ def _under(heading_start: str, bullet: str) -> bool:
 
     raw = (ROOT / "docs/alpha/known-limitations.md").read_text(encoding="utf-8")
     start = raw.index(heading_start)
-    following = [raw.find(lead, start + 1) for lead in ("\nPostgres stack and outbound calls", "\nOpen in v0.23.0")]
+    following = [raw.find(lead, start + 1) for lead in ("\nPostgres stack and outbound calls", "\nOpen in v0.24.0")]
     end = min(position for position in following if position != -1)
     return _flat(bullet.removeprefix("- ")) in _flat(raw[start:end])
 

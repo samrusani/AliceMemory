@@ -3,7 +3,7 @@
 Alice advertises four MCP tools by default: `alice_memory_commit`,
 `alice_recall`, `alice_resume`, and `alice_lessons`. The other core tools stay defined
 and become callable when `ALICE_MCP_FULL_TOOLS=1`. From v0.21.0,
-`alice_what_changed` is a core tool, and v0.20.2 does not have it. On main,
+`alice_what_changed` is a core tool, and v0.20.2 does not have it. From v0.24.0,
 `alice_lessons` is also a core tool. The other nine core tools are enabled by that flag. Every parameter carries a
 description, so MCP-capable agents can use the surface without reading this
 page. This page exists for humans wiring things up. For the full verb
@@ -292,7 +292,7 @@ the answer verifier (`render_pack_context_block`) does the same.
 ## The full core surface
 
 `ALICE_MCP_FULL_TOOLS=1` advertises the core tools. The grouped list below
-describes the other nine core tools. The full surface has thirteen core tools on main, with
+describes the other nine core tools. The full surface has thirteen core tools from v0.24.0, with
 `alice_lessons` last. `alice_what_changed` was added in v0.21.0 and is absent
 from v0.20.2. Capture and the pack are on this surface. Vault import
 is a CLI verb, not an always-on agent tool.
@@ -445,7 +445,7 @@ rejected the same way.
 From v0.19.0, every MCP tool declares hints. From v0.19.2, `alice_recall`, `alice_resume`, `alice_context_pack`,
 `alice_recent_decisions`, `alice_explain`, and `alice_memory_review` are marked read-only. `alice_memory_review` only
 lists items or shows one, and v0.19.0 marked it destructive, grouped with the tools that act on the review queue.
-From v0.21.0, `alice_what_changed` is marked read-only too, and v0.20.2 does not have it. On main, `alice_lessons` has the same hints as `alice_recall`.
+From v0.21.0, `alice_what_changed` is marked read-only too, and v0.20.2 does not have it. From v0.24.0, `alice_lessons` has the same hints as `alice_recall`.
 `alice_memory_commit` and `alice_capture` are marked non-destructive, which is true of adding a fact.
 `alice_memory_commit` called with `confirmation_id` and `confirmation_action` instead updates the one pending write it
 names, so by Codex's default approval rule neither call prompts, and the confirm step relies on the agent asking the
@@ -922,7 +922,7 @@ Earlier releases exposed a much larger surface. The retained long tail has 62
 memory tools. `ALICE_MCP_LEGACY_TOOLS=1` appends that tail to whatever core
 set is enabled. It does not imply the extra core tools.
 
-The counts below include `alice_lessons` on main and `alice_what_changed`.
+The counts below include `alice_lessons` from v0.24.0 and `alice_what_changed`.
 v0.20.2 has neither tool, while v0.23.1 has `alice_what_changed`.
 
 ```bash
@@ -995,7 +995,7 @@ From v0.20.0, it also answers an `alice_resume` or
 From v0.20.2, three more codes, `not_permitted`,
 `not_found` and `precondition_failed`, tell a refusal from a failure, and
 `invalid_request` also answers a rejected argument. The table under
-[Error codes](#error-codes) lists the codes, including the identity-claim code on main.
+[Error codes](#error-codes) lists the codes, including the identity-claim code from v0.24.0.
 Permanently deleted hosted, channel, chat, chief-of-staff, and model-pack tools
 never list.
 New integrations should stay on the default four tools; the legacy surface
@@ -1010,7 +1010,7 @@ From v0.20.2, a failed `tools/call` answers one of
 seven codes. `not_permitted`, `not_found` and `precondition_failed` are new,
 and `invalid_request` now also answers a rejected argument. v0.20.0 answered
 `tool_request_failed` for every case these four cover, apart from the query
-size limits that v0.19.2 and v0.20.0 already answered with `invalid_request`. On main, `identity_claim_refused` is an eighth code; v0.23.1 answered `not_permitted` for those claims.
+size limits that v0.19.2 and v0.20.0 already answered with `invalid_request`. From v0.24.0, `identity_claim_refused` is an eighth code; v0.23.1 answered `not_permitted` for those claims.
 
 | Code | It means | What an agent should do |
 | --- | --- | --- |
@@ -1520,4 +1520,4 @@ From v0.20.2, after a memory is redacted the owner and an unbound admin key read
 
 From v0.20.2, a graph edge has no label and keeps the explanation it was made with, which can hold the title of a memory redacted since, so `GET /v0/vnext/graph/neighborhood/{target_id}` lists and `POST /v0/vnext/graph/edges/{edge_id}/review` changes an edge for a key with limits only when that key may read every labelled row the edge joins and none of them is redacted; any other edge answers as a missing edge does (the review answers 404), and a refused review changes nothing. A project end that names the project by a name or by an id that finds no project row hides nothing, as an entity end hides nothing; a project row that exists and is not readable still hides the edge. The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. The owner and an unbound admin key are not limited: they list and review every edge, and read the explanations that kept the words, because this is containment and not removal. An end that is an entity or a chunk of a source carries no label and hides nothing by itself. `POST /v0/vnext/beliefs/{belief_id}/review` is refused to a key that may not read the belief, with the answer of a missing belief, and a refused review changes nothing. The owner and an unbound admin key review any belief.
 
-The legacy tools `alice_graph_neighborhood`, `alice_graph_edge_review`, `alice_belief_review` and `alice_belief_state` are the MCP twins of these routes. They are on the legacy MCP surface, which the server turns off whenever an agent key is configured, because its handlers do not all enforce a key's limits, so a key cannot call them. The only tools a key can call are the core tools: `alice_recall`, `alice_context_pack`, `alice_resume`, `alice_recent_decisions`, `alice_open_loops`, `alice_explain`, `alice_memory_review`, `alice_capture`, `alice_memory_commit`, `alice_memory_correct` and `alice_memory_manage`. From v0.21.0, `alice_what_changed` is also a core tool a key can call. On main, a key can also call `alice_lessons`. The containment tests call the ones among them that return a report or a memory, and check that every legacy tool is refused under each key profile.
+The legacy tools `alice_graph_neighborhood`, `alice_graph_edge_review`, `alice_belief_review` and `alice_belief_state` are the MCP twins of these routes. They are on the legacy MCP surface, which the server turns off whenever an agent key is configured, because its handlers do not all enforce a key's limits, so a key cannot call them. The only tools a key can call are the core tools: `alice_recall`, `alice_context_pack`, `alice_resume`, `alice_recent_decisions`, `alice_open_loops`, `alice_explain`, `alice_memory_review`, `alice_capture`, `alice_memory_commit`, `alice_memory_correct` and `alice_memory_manage`. From v0.21.0, `alice_what_changed` is also a core tool a key can call. From v0.24.0, a key can also call `alice_lessons`. The containment tests call the ones among them that return a report or a memory, and check that every legacy tool is refused under each key profile.

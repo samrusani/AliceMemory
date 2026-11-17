@@ -239,7 +239,9 @@ def test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0211_th
 
 
 def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section() -> None:
-    """Mutations, each one alone: drop the heading; change its date; put another section between v0.21.1 and v0.21.0;
+    """Mutation: change the v0.24.0 heading date.
+
+    Mutations, each one alone: drop the heading; change its date; put another section between v0.21.1 and v0.21.0;
     put the marker for the unreleased state back into the v0.21.1 section.
 
     The Unreleased section is empty on the release commit. It may hold entries once main has moved on, so this test does
@@ -250,15 +252,16 @@ def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section(
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
     assert sections[1].startswith("Unreleased\n")
-    assert sections[2].startswith("v0.23.1 \u2014 2026-10-31\n")
-    assert sections[3].startswith("v0.23.0 \u2014 2026-10-30\n")
-    assert sections[4].startswith("v0.22.0 \u2014 2026-10-26\n")
-    assert sections[5].startswith("v0.21.1 \u2014 2026-10-23\n")
-    assert sections[6].startswith("v0.21.0 \u2014 2026-10-22\n")
-    assert sections[7].startswith("v0.20.2 \u2014 2026-10-17\n")
+    assert sections[2].startswith("v0.24.0 \u2014 2026-11-17\n")
+    assert sections[3].startswith("v0.23.1 \u2014 2026-10-31\n")
+    assert sections[4].startswith("v0.23.0 \u2014 2026-10-30\n")
+    assert sections[5].startswith("v0.22.0 \u2014 2026-10-26\n")
+    assert sections[6].startswith("v0.21.1 \u2014 2026-10-23\n")
+    assert sections[7].startswith("v0.21.0 \u2014 2026-10-22\n")
+    assert sections[8].startswith("v0.20.2 \u2014 2026-10-17\n")
     assert changelog.count(HEADING) == 1
-    assert "Unreleased (on" not in sections[5]
     assert "Unreleased (on" not in sections[6]
+    assert "Unreleased (on" not in sections[7]
 
 
 def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or_the_manifest() -> None:
