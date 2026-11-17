@@ -45,7 +45,7 @@ CLAIMS = [
     pytest.param('Checks and install', 'On a fresh user, the first failed from v0.9.2 through v0.23.1 because its seed lacked a project; the second failed from v0.10.3 through v0.23.1 on days other than 2026-05-11 because its input requested that fixed date.', id="sentence-18"),
     pytest.param('Checks and install', "These were faults in the checks' own inputs, so `alicebot vnext alpha check` could report failure on a healthy installation.", id="sentence-19"),
     pytest.param('Checks and install', 'Codex install refuses an `mcp_tool` input containing a whole number from 2^63 through 2^64-1, including nested values; v0.23.1 accepted it.', id="sentence-20"),
-    pytest.param('Checks and install', 'Codex 0.166.0 and later skip such a hooks file, while 0.164.0 loaded the tested inputs; install follows the version it is tested against, 0.169.0.', id="sentence-21"),
+    pytest.param('Checks and install', 'Codex 0.166.0, 0.167.0 and 0.169.0 skipped the tested hooks files, while 0.164.0 loaded them; install follows the version it is tested against, 0.169.0.', id="sentence-21"),
     pytest.param('Checks and install', 'The showcase walkthrough runs as a plain command from a checkout, and the scripted demo records the June price as the step replaced by the November correction.', id="sentence-22"),
     pytest.param('Checks and install', "The README is rewritten around long-term memory with permissions for a company's teams of agents.", id="sentence-23"),
     pytest.param('Checks and install', 'The chunk-vector build avoids the extra matrix-sized peak seen at the first append on the measured Linux runner.', id="sentence-24"),
@@ -259,9 +259,9 @@ def test_project_evidence_names_the_pinned_codex_version() -> None:
 
 
 def test_codex_hook_number_guidance_names_the_tested_versions() -> None:
-    """Mutation: change the documented first skipping version to 0.167.0."""
+    """Mutation: remove Codex 0.166.0 from the observed skipping versions."""
     page = (ROOT / "docs/integrations/codex.md").read_text()
-    assert "Codex 0.166.0 and later skip such a file; 0.164.0 loaded it." in page
+    assert "Codex 0.166.0, 0.167.0 and 0.169.0 skipped the tested files; 0.164.0 loaded them." in page
     assert "Install follows the Codex version it is tested against." in page
 
 
