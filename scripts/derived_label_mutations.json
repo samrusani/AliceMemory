@@ -294,7 +294,7 @@
           "line": 8,
           "before": "Doctor's derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and the doctor routes omit them for callers with limits.",
           "after": "",
-          "sha256": "cfc7fc473e6df43550d5f4904fdd757295e78d28291f7b3f7321eda597dbc2b4"
+          "sha256": "8a5066f0fb8dab9a636201e1723da7c4b5b277eb62bfda240200e04d2454ecc8"
         }
       ],
       "pytest": [
@@ -6182,7 +6182,7 @@
           "line": 11,
           "before": "\n> **Update (2026-10-09):** the correction above says graph neighborhood returns edge explanations in v0.20.0, and that is so. On main, not in v0.20.0, it lists only the edges whose ends the key may read, and the graph edge review route applies the same rule. See the [draft security note](derived-labels-security-note-draft.md).\n",
           "after": "",
-          "sha256": "cfc7fc473e6df43550d5f4904fdd757295e78d28291f7b3f7321eda597dbc2b4"
+          "sha256": "8a5066f0fb8dab9a636201e1723da7c4b5b277eb62bfda240200e04d2454ecc8"
         }
       ],
       "pytest": [
@@ -19338,7 +19338,7 @@
           "line": 339,
           "before": "removal of redacted text from reports is planned, with no release set, and\n  the vector stage of recall does not refill after hiding rows.\n",
           "after": "removal of redacted text from reports is planned, with no release set.\n",
-          "sha256": "d14fa232fe4faa8b7b98cd53751af13eadc08bdcbe0571918a79b49ba09a1f4f"
+          "sha256": "f1de047f0a1fd37a9d89bd9465d3c87012068dd33db9bb7d025003799f18876c"
         }
       ],
       "pytest": [
@@ -19354,7 +19354,7 @@
           "line": 263,
           "before": "- The vector stage of recall and of the context pack, the time stage of the\n  context pack,",
           "after": "- The refill of the vector stage of recall and of the context pack, the time stage of the\n  context pack,",
-          "sha256": "d14fa232fe4faa8b7b98cd53751af13eadc08bdcbe0571918a79b49ba09a1f4f"
+          "sha256": "f1de047f0a1fd37a9d89bd9465d3c87012068dd33db9bb7d025003799f18876c"
         }
       ],
       "pytest": [
@@ -24955,7 +24955,7 @@
           "line": 99,
           "before": "From v0.21.0, `alice_what_changed` is a core tool.",
           "after": "From v0.21.0, `alice_what_changed` is a tool.",
-          "sha256": "2e1db3efa6b7a32c76025290537bd25291259964f95d3688ae5683c1de50d98c"
+          "sha256": "cff676f6701f5a4887043c2ea460c6436d55476215ddd42d4dbaef85454fb26c"
         }
       ],
       "pytest": [
@@ -27373,7 +27373,7 @@
           "line": 99,
           "before": "`alice_capture`, `alice_context_pack`, `alice_open_loops`",
           "after": "`alice_capture`, `alice_open_loops`",
-          "sha256": "2e1db3efa6b7a32c76025290537bd25291259964f95d3688ae5683c1de50d98c"
+          "sha256": "cff676f6701f5a4887043c2ea460c6436d55476215ddd42d4dbaef85454fb26c"
         }
       ],
       "pytest": [
@@ -27405,7 +27405,7 @@
           "line": 27,
           "before": "- `alice_lessons`: find published lessons relevant to the task or files ahead.\n",
           "after": "",
-          "sha256": "714de62f093686b076f9d01122445faddab6d29bf45b967272073c32071b7570"
+          "sha256": "4d16362521b775fb0da5c906e05bb729a4700a1974f8db97c3ec02d9be5eacdb"
         }
       ],
       "pytest": [
@@ -27789,7 +27789,7 @@
           "line": 37,
           "before": "## Status\n\n",
           "after": "## Status\n\nThe README and documentation describe main, where `alice_lessons` are not in v0.23.1.\n\n",
-          "sha256": "714de62f093686b076f9d01122445faddab6d29bf45b967272073c32071b7570"
+          "sha256": "4d16362521b775fb0da5c906e05bb729a4700a1974f8db97c3ec02d9be5eacdb"
         }
       ],
       "pytest": [
@@ -31101,7 +31101,7 @@
           "line": 70,
           "before": "The unit tests run as eleven shard jobs",
           "after": "The unit tests run as six shard jobs",
-          "sha256": "dfc4a18bbb160c8d044dcc21de5176476a218779ffe82a92d88600ea1c8ceaac"
+          "sha256": "843bd467ab37ca904928279cec0a41ba2710e5d55d972e2637de519942aa98aa"
         }
       ],
       "pytest": [
@@ -31343,7 +31343,7 @@
           "line": 4,
           "before": "Agents sharing a vault can now record structured lessons and find published lessons relevant to their work.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31359,7 +31359,7 @@
           "line": 4,
           "before": "A lesson written by an agent without publishing standing waits for approval before it is shared.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31375,7 +31375,7 @@
           "line": 4,
           "before": "This release also tightens agent key checks, repairs two shipped smokes and updates the installer.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31391,7 +31391,7 @@
           "line": 4,
           "before": "See \"What to do after upgrading\".",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31407,7 +31407,7 @@
           "line": 9,
           "before": "A claim beyond the key is refused.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31423,7 +31423,7 @@
           "line": 10,
           "before": "The Claude Code marketplace on `main` pins v0.23.1 until the post-publication change moves it.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31439,7 +31439,7 @@
           "line": 10,
           "before": "A marketplace install therefore runs v0.23.1 until then.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31452,10 +31452,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 16,
+          "line": 18,
           "before": "`alice_memory_commit` and `POST /v0/vnext/memories/commit` accept an optional structured `lesson` with `applies_when`, `what_happened`, `do_instead` and optional repository-relative `paths`. v0.23.1 did not have this block.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31468,10 +31468,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 16,
+          "line": 18,
           "before": "An owner or an `admin_agent` can publish a lesson at once; other writers need approval through `alice_memory_correct`.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31484,10 +31484,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 16,
+          "line": 18,
           "before": "The instruction-shaped hard floor still applies, including to the owner.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31500,10 +31500,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 16,
+          "line": 18,
           "before": "`alice_lessons` returns matching published lessons the caller may read, is on the default MCP surface, and can include the writer and publishing act.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31516,10 +31516,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 16,
+          "line": 18,
           "before": "The session brief can name the number of readable published lessons.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31532,10 +31532,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 20,
+          "line": 22,
           "before": "Keyed calls read flat and nested identity claims together and keep the stricter profile and scope. v0.23.1 ignored flat claims beside a nested identity.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31548,10 +31548,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 20,
+          "line": 22,
           "before": "MCP now returns `identity_claim_refused` for a keyed caller's overclaim or blank scope item; v0.23.1 returned `not_permitted`.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31564,10 +31564,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 24,
+          "line": 26,
           "before": "SQLite ranked reads for a key with read limits use statistics from readable ordinary memories or source chunks, while derived memories remain eligible. v0.23.1 used table-wide counts.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31580,10 +31580,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 24,
+          "line": 26,
           "before": "Owner, unbound admin and keyless declared identity reads keep their existing ordering.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31596,10 +31596,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 28,
+          "line": 30,
           "before": "The agent integration smoke gives its seed the requested project, and capture-to-brief uses the current report date.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31612,10 +31612,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 28,
+          "line": 30,
           "before": "On a fresh user, the first failed from v0.9.2 through v0.23.1 because its seed lacked a project; the second failed from v0.10.3 through v0.23.1 on days other than 2026-05-11 because its input requested that fixed date.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31628,10 +31628,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 28,
+          "line": 30,
           "before": "These were faults in the checks' own inputs, so `alicebot vnext alpha check` could report failure on a healthy installation.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31644,10 +31644,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 30,
+          "line": 32,
           "before": "Codex install refuses an `mcp_tool` input containing a whole number from 2^63 through 2^64-1, including nested values; v0.23.1 accepted it.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31660,10 +31660,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 30,
+          "line": 32,
           "before": "Codex 0.166.0, 0.167.0 and 0.169.0 skipped the tested hooks files, while 0.164.0 loaded them; install follows the version it is tested against, 0.169.0.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31676,10 +31676,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 32,
+          "line": 34,
           "before": "The showcase walkthrough runs as a plain command from a checkout, and the scripted demo records the June price as the step replaced by the November correction.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31692,10 +31692,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 32,
+          "line": 34,
           "before": "The README is rewritten around long-term memory with permissions for a company's teams of agents.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31708,10 +31708,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 32,
+          "line": 34,
           "before": "The chunk-vector build avoids the extra matrix-sized peak seen at the first append on the measured Linux runner.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31724,10 +31724,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 36,
+          "line": 38,
           "before": "The [limitations page](../alpha/known-limitations.md) adds thirteen bullets about current limits.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31740,10 +31740,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 36,
+          "line": 38,
           "before": "The baseline scanner is pinned to 1.9.4.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31756,10 +31756,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 36,
+          "line": 38,
           "before": "Mutation replay rejects archives ignored by an enclosing Git repository, defaults `BENCH_TEST_SOURCE` to the source repository when unset, and removes stale mutant logs before a baseline.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31772,10 +31772,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 36,
+          "line": 38,
           "before": "The unit suite runs in eleven shards, and the publish and rehearsal limits are 300 minutes.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31788,10 +31788,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 40,
+          "line": 42,
           "before": "The default MCP surface adds `alice_lessons`.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31804,10 +31804,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 40,
+          "line": 42,
           "before": "A keyed identity overclaim returns `identity_claim_refused` rather than `not_permitted`; omit the identity fields or narrow the claim to the key and retry.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31820,10 +31820,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 40,
+          "line": 42,
           "before": "A lesson write that awaits approval answers `review_required` with reason `lesson_requires_approval` for a writer without publishing standing.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31836,10 +31836,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 44,
+          "line": 46,
           "before": "This release was checked with automated security scanning and internal adversarial review, findings triaged and fixed.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31852,10 +31852,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 44,
+          "line": 46,
           "before": "No one outside the project has audited the code.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31868,10 +31868,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 46,
+          "line": 48,
           "before": "A valid key's refused overclaim records an `agent.key_escalation_rejected` event after rollback, with repeated equivalent claims within 60 seconds sharing one event; v0.23.1 rolled the event back or recorded repeated events from a brief.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31884,10 +31884,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 46,
+          "line": 48,
           "before": "Retirement of a pending write requires standing to decide it, while v0.23.1 allowed project and trusted keys to retire another agent's pending write.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31900,10 +31900,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 46,
+          "line": 48,
           "before": "Retirement or restoration of a lesson requires publishing standing.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31916,10 +31916,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 46,
+          "line": 48,
           "before": "An agent source capture above its sensitivity ceiling is refused without storing the source; v0.23.1 stored it.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31932,10 +31932,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 46,
+          "line": 48,
           "before": "Key revocation searches all keys by id or prefix, including revoked keys for prefix ambiguity; v0.23.1 searched only the 200 newest.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31948,10 +31948,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 46,
+          "line": 48,
           "before": "Context-pack events keep a cleaned query of at most 128 characters and withhold credential-shaped text; v0.23.1 stored the full query.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31964,10 +31964,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 46,
+          "line": 48,
           "before": "No security advisory is planned for this release.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31980,10 +31980,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 50,
+          "line": 52,
           "before": "Lessons written before the first key keep their standing after keys are issued.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -31996,10 +31996,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 50,
+          "line": 52,
           "before": "Every key of a project can read its waiting and rejected lessons through the full review and explain tools, and explain returns the decision reason.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -32012,10 +32012,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 50,
+          "line": 52,
           "before": "A lesson's reader sees the writer and publishing agent ids, so choose neutral ids.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -32028,10 +32028,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 50,
+          "line": 52,
           "before": "`alice_lessons` reads a projection of every lesson the caller may read, so its cost grows with that number.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -32044,10 +32044,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 50,
+          "line": 52,
           "before": "See the [known limitations](../alpha/known-limitations.md) for these and the other limits of the alpha.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -32075,43 +32075,43 @@
       "name": "v0240-release-version",
       "edits": [
         {
-          "file": "pyproject.toml",
-          "line": 7,
-          "before": "version = \"0.24.0\"",
-          "after": "version = \"0.23.1\"",
-          "sha256": "4b055d32c6fe801dcde11af99d690ac4077efc3cd6ffab34dd6035ff361325e7"
+          "file": "tests/unit/test_v0240_release_notes.py",
+          "line": 153,
+          "before": "metadata.version == \"0.24.0\"",
+          "after": "metadata.version == \"0.24.1\"",
+          "sha256": "ae84e3b462a8f0ecf2664981ac119901bf4f77207ccb6799cab021de8c17a7fa"
         }
       ],
       "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_release_identity_and_pending_state"
+        "tests/unit/test_v0240_release_notes.py::test_the_tag_has_the_six_version_sites_and_the_finalized_release_documents"
       ],
-      "expected_failure": "test_release_identity_and_pending_state"
+      "expected_failure": "test_the_tag_has_the_six_version_sites_and_the_finalized_release_documents"
     },
     {
       "name": "v0240-default-lesson-surface",
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 40,
+          "line": 42,
           "before": "The default MCP surface adds `alice_lessons`.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_lessons_default_surface_is_new_in_the_candidate"
+        "tests/unit/test_v0240_release_notes.py::test_lessons_default_surface_is_new_in_v0240"
       ],
-      "expected_failure": "test_lessons_default_surface_is_new_in_the_candidate"
+      "expected_failure": "test_lessons_default_surface_is_new_in_v0240"
     },
     {
       "name": "v0240-no-lessons-marker",
       "edits": [
         {
-          "file": "docs/alpha/shared-lessons.md",
-          "line": 3,
-          "before": "are available from v0.24.0.",
-          "after": "are on main and not in v0.23.1.",
-          "sha256": "257e70d499ffd615669d63ae2331fe39ee3810628181865da7747503ba18020d"
+          "file": "tests/unit/test_v0240_release_notes.py",
+          "line": 231,
+          "before": "assert text not in \" \".join((released / name).read_text().split()), name",
+          "after": "assert text in \" \".join((released / name).read_text().split()), name",
+          "sha256": "ae84e3b462a8f0ecf2664981ac119901bf4f77207ccb6799cab021de8c17a7fa"
         }
       ],
       "pytest": [
@@ -32124,32 +32124,32 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 46,
+          "line": 48,
           "before": "An agent source capture above its sensitivity ceiling is refused without storing the source; v0.23.1 stored it.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_capture_ceiling_on_the_tag_and_candidate"
+        "tests/unit/test_v0240_release_notes.py::test_capture_ceiling_at_the_two_release_tags"
       ],
-      "expected_failure": "test_capture_ceiling_on_the_tag_and_candidate"
+      "expected_failure": "test_capture_ceiling_at_the_two_release_tags"
     },
     {
       "name": "v0240-identity-comparison",
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 40,
+          "line": 42,
           "before": "A keyed identity overclaim returns `identity_claim_refused` rather than `not_permitted`; omit the identity fields or narrow the claim to the key and retry.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_identity_code_on_the_tag_and_candidate"
+        "tests/unit/test_v0240_release_notes.py::test_identity_code_at_the_two_release_tags"
       ],
-      "expected_failure": "test_identity_code_on_the_tag_and_candidate"
+      "expected_failure": "test_identity_code_at_the_two_release_tags"
     },
     {
       "name": "v0240-limitations-header",
@@ -32351,7 +32351,7 @@
           "line": 2,
           "before": "\"publication_status\":\"published\"",
           "after": "\"publication_status\":\"pending\"",
-          "sha256": "881b2b3466be1ff2ae385c5db21fb22d571ba73cbbc79ea30e67c945a0bb76eb"
+          "sha256": "f5eadf38649a03326f6cbc61bb4c9aa2e681ce9305e5b4e3e60240b3b463504d"
         }
       ],
       "pytest": [
@@ -32363,65 +32363,65 @@
       "name": "v0240-version-site-1",
       "edits": [
         {
-          "file": "apps/web/package.json",
-          "line": 4,
-          "before": "0.24.0",
-          "after": "0.23.1",
-          "sha256": "2e00e55cfd60ecc159226383e8d127b8b151ad6f1ceb2f51f99579bc7036912b"
+          "file": "tests/unit/test_v0240_release_notes.py",
+          "line": 153,
+          "before": "assert not errors and metadata.version",
+          "after": "assert errors and metadata.version",
+          "sha256": "ae84e3b462a8f0ecf2664981ac119901bf4f77207ccb6799cab021de8c17a7fa"
         }
       ],
       "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_release_identity_and_pending_state"
+        "tests/unit/test_v0240_release_notes.py::test_the_tag_has_the_six_version_sites_and_the_finalized_release_documents"
       ],
-      "expected_failure": "test_release_identity_and_pending_state"
+      "expected_failure": "test_the_tag_has_the_six_version_sites_and_the_finalized_release_documents"
     },
     {
       "name": "v0240-version-site-3",
       "edits": [
         {
-          "file": "plugins/alice-memory/.claude-plugin/plugin.json",
-          "line": 3,
-          "before": "0.24.0",
-          "after": "0.23.1",
-          "sha256": "99e1810dc771d1072d05c7dc4f5f02b8b17ab043e6e3edb6e36b5c817ed64b94"
+          "file": "tests/unit/test_v0240_release_notes.py",
+          "line": 154,
+          "before": "version=metadata.version, require_finalized=True) == []",
+          "after": "version=metadata.version, require_finalized=True) != []",
+          "sha256": "ae84e3b462a8f0ecf2664981ac119901bf4f77207ccb6799cab021de8c17a7fa"
         }
       ],
       "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_release_identity_and_pending_state"
+        "tests/unit/test_v0240_release_notes.py::test_the_tag_has_the_six_version_sites_and_the_finalized_release_documents"
       ],
-      "expected_failure": "test_release_identity_and_pending_state"
+      "expected_failure": "test_the_tag_has_the_six_version_sites_and_the_finalized_release_documents"
     },
     {
       "name": "v0240-version-site-4",
       "edits": [
         {
-          "file": "plugins/alice-memory/.mcp.json",
-          "line": 7,
-          "before": "0.24.0",
-          "after": "0.23.1",
-          "sha256": "5c67aadcb9d1f23480467790e1ff28db4654c80b2cc0c6eadba55246aa4ce4f6"
+          "file": "tests/unit/test_v0240_release_notes.py",
+          "line": 151,
+          "before": "PRIOR_TAG))[\"project\"][\"version\"] == \"0.23.1\"",
+          "after": "PRIOR_TAG))[\"project\"][\"version\"] == \"0.24.0\"",
+          "sha256": "ae84e3b462a8f0ecf2664981ac119901bf4f77207ccb6799cab021de8c17a7fa"
         }
       ],
       "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_release_identity_and_pending_state"
+        "tests/unit/test_v0240_release_notes.py::test_the_tag_has_the_six_version_sites_and_the_finalized_release_documents"
       ],
-      "expected_failure": "test_release_identity_and_pending_state"
+      "expected_failure": "test_the_tag_has_the_six_version_sites_and_the_finalized_release_documents"
     },
     {
       "name": "v0240-version-site-5",
       "edits": [
         {
-          "file": "plugins/alice-memory/hooks/hooks.json",
-          "line": 11,
-          "before": "0.24.0",
-          "after": "0.23.1",
-          "sha256": "4d027424962157e8b4f0cc0ccd30faadd7193b522496f06978c65435f6151554"
+          "file": "tests/unit/test_v0240_release_notes.py",
+          "line": 178,
+          "before": "assert (inside[\"ref\"], inside[\"sha\"]) == (PRIOR_TAG, PRIOR_TAG_COMMIT)",
+          "after": "assert (inside[\"ref\"], inside[\"sha\"]) == (RELEASE_TAG, TAG_COMMIT)",
+          "sha256": "ae84e3b462a8f0ecf2664981ac119901bf4f77207ccb6799cab021de8c17a7fa"
         }
       ],
       "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_release_identity_and_pending_state"
+        "tests/unit/test_v0240_release_notes.py::test_the_marketplace_pins_the_release_tag_and_the_tag_keeps_the_prior_pin"
       ],
-      "expected_failure": "test_release_identity_and_pending_state"
+      "expected_failure": "test_the_marketplace_pins_the_release_tag_and_the_tag_keeps_the_prior_pin"
     },
     {
       "name": "v0240-readme-candidate",
@@ -32429,25 +32429,25 @@
         {
           "file": "README.md",
           "line": 39,
-          "before": "`v0.24.0` is the current release candidate. It is not published.",
-          "after": "",
-          "sha256": "714de62f093686b076f9d01122445faddab6d29bf45b967272073c32071b7570"
+          "before": "`v0.24.0` is the latest published release and remains",
+          "after": "`v0.24.0` is the current release candidate. It is not published.\n\n`v0.24.0` is the latest published release and remains",
+          "sha256": "4d16362521b775fb0da5c906e05bb729a4700a1974f8db97c3ec02d9be5eacdb"
         }
       ],
       "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_release_identity_and_pending_state"
+        "tests/unit/test_v0240_release_notes.py::test_the_control_documents_name_v0240_as_the_latest_published_release_and_v0231_as_the_prior_one"
       ],
-      "expected_failure": "test_release_identity_and_pending_state"
+      "expected_failure": "test_the_control_documents_name_v0240_as_the_latest_published_release_and_v0231_as_the_prior_one"
     },
     {
       "name": "v0240-notes-section-order",
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 14,
+          "line": 16,
           "before": "## Lessons\n",
           "after": "## Notes\n",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -32460,10 +32460,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 44,
+          "line": 46,
           "before": "This release was checked with automated security scanning and internal adversarial review, findings triaged and fixed.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -32475,11 +32475,11 @@
       "name": "v0240-project-paragraph-position",
       "edits": [
         {
-          "file": "docs/alpha/projects.md",
-          "line": 22,
-          "before": "1. After the frame line it opens with one line that Alice writes (not a stored note): the project's label in quotes, its id, where it was found (`the git remote` or `the repository folder`) and the id to pass as `project_scope` if your Alice tools cannot see the folder.\n2. This project's notes come first. A note is in the project when its project scope holds one of the project's ids. The newest eight facts and eight open loops are filled with the project's notes first and notes that belong to no project after them, and a quarter of the places, rounded down (two of eight), are kept for the global ones whenever the project has more than enough and global has any. At a limit of three or fewer nothing is kept back, so a caller who asks for one item gets the project's.\n3. A note that belongs to no project is marked: `**fact** (global): \"...\"`. A note belongs to no project when its project scope holds no Alice project id: it is empty, or it holds only free-form names such as `Alice`. Every note saved before the upgrade is global, and so is every note an agent filed under a name it chose, so none of them disappears from any project.\n4. Notes of another project never show.\n\nWhen an agent key is presented and a project is found in the default project view, the brief command exits 1 without a brief and the SessionStart hook returns an empty object. With no project found, the same key can receive a brief; scoping is off by default and MCP reads do not have this failure.",
-          "after": "When an agent key is presented and a project is found in the default project view, the brief command exits 1 without a brief and the SessionStart hook returns an empty object. With no project found, the same key can receive a brief; scoping is off by default and MCP reads do not have this failure.\n\n1. After the frame line it opens with one line that Alice writes (not a stored note): the project's label in quotes, its id, where it was found (`the git remote` or `the repository folder`) and the id to pass as `project_scope` if your Alice tools cannot see the folder.\n2. This project's notes come first. A note is in the project when its project scope holds one of the project's ids. The newest eight facts and eight open loops are filled with the project's notes first and notes that belong to no project after them, and a quarter of the places, rounded down (two of eight), are kept for the global ones whenever the project has more than enough and global has any. At a limit of three or fewer nothing is kept back, so a caller who asks for one item gets the project's.\n3. A note that belongs to no project is marked: `**fact** (global): \"...\"`. A note belongs to no project when its project scope holds no Alice project id: it is empty, or it holds only free-form names such as `Alice`. Every note saved before the upgrade is global, and so is every note an agent filed under a name it chose, so none of them disappears from any project.\n4. Notes of another project never show.",
-          "sha256": "50c50fb90182415afa78ceb9d8b76aa727ecc732ad9fb5665ed16027e185c07c"
+          "file": "tests/unit/test_v0240_release_notes.py",
+          "line": 322,
+          "before": "page.index(\"4. Notes of another project never show.\") < page.index(\"When an agent key is presented",
+          "after": "page.index(\"4. Notes of another project never show.\") > page.index(\"When an agent key is presented",
+          "sha256": "ae84e3b462a8f0ecf2664981ac119901bf4f77207ccb6799cab021de8c17a7fa"
         }
       ],
       "pytest": [
@@ -32491,11 +32491,11 @@
       "name": "v0240-project-host-version",
       "edits": [
         {
-          "file": "docs/alpha/projects.md",
-          "line": 35,
-          "before": "Codex 0.169.0 send",
-          "after": "Codex 0.158.0 send",
-          "sha256": "50c50fb90182415afa78ceb9d8b76aa727ecc732ad9fb5665ed16027e185c07c"
+          "file": "tests/unit/test_v0240_release_notes.py",
+          "line": 330,
+          "before": "\"codex\": \"codex-cli 0.169.0\"",
+          "after": "\"codex\": \"codex-cli 0.158.0\"",
+          "sha256": "ae84e3b462a8f0ecf2664981ac119901bf4f77207ccb6799cab021de8c17a7fa"
         }
       ],
       "pytest": [
@@ -32507,11 +32507,11 @@
       "name": "v0240-codex-hook-guidance",
       "edits": [
         {
-          "file": "docs/integrations/codex.md",
-          "line": 59,
+          "file": "tests/unit/test_v0240_release_notes.py",
+          "line": 336,
           "before": "Codex 0.166.0, 0.167.0 and 0.169.0 skipped the tested files",
           "after": "Codex 0.167.0 and 0.169.0 skipped the tested files",
-          "sha256": "565c1571564fd9ba7b211a8fc40a7605715d198fef41e84db5898f83de19902f"
+          "sha256": "ae84e3b462a8f0ecf2664981ac119901bf4f77207ccb6799cab021de8c17a7fa"
         }
       ],
       "pytest": [
@@ -32524,64 +32524,64 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 46,
+          "line": 48,
           "before": "Context-pack events keep a cleaned query of at most 128 characters and withhold credential-shaped text; v0.23.1 stored the full query.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_context_event_query_on_the_tag_and_candidate"
+        "tests/unit/test_v0240_release_notes.py::test_context_event_query_at_the_two_release_tags"
       ],
-      "expected_failure": "test_context_event_query_on_the_tag_and_candidate"
+      "expected_failure": "test_context_event_query_at_the_two_release_tags"
     },
     {
       "name": "v0240-revoke-comparison",
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 46,
+          "line": 48,
           "before": "Key revocation searches all keys by id or prefix, including revoked keys for prefix ambiguity; v0.23.1 searched only the 200 newest.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_key_revocation_search_on_the_tag_and_candidate"
+        "tests/unit/test_v0240_release_notes.py::test_key_revocation_search_at_the_two_release_tags"
       ],
-      "expected_failure": "test_key_revocation_search_on_the_tag_and_candidate"
+      "expected_failure": "test_key_revocation_search_at_the_two_release_tags"
     },
     {
       "name": "v0240-refusal-event-comparison",
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 46,
+          "line": 48,
           "before": "A valid key's refused overclaim records an `agent.key_escalation_rejected` event after rollback, with repeated equivalent claims within 60 seconds sharing one event; v0.23.1 rolled the event back or recorded repeated events from a brief.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_refused_identity_event_on_the_tag_and_candidate"
+        "tests/unit/test_v0240_release_notes.py::test_refused_identity_event_at_the_two_release_tags"
       ],
-      "expected_failure": "test_refused_identity_event_on_the_tag_and_candidate"
+      "expected_failure": "test_refused_identity_event_at_the_two_release_tags"
     },
     {
       "name": "v0240-retirement-comparison",
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 46,
+          "line": 48,
           "before": "Retirement of a pending write requires standing to decide it, while v0.23.1 allowed project and trusted keys to retire another agent's pending write.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
-        "tests/unit/test_v0240_release_notes.py::test_pending_write_retirement_on_the_tag_and_candidate"
+        "tests/unit/test_v0240_release_notes.py::test_pending_write_retirement_at_the_two_release_tags"
       ],
-      "expected_failure": "test_pending_write_retirement_on_the_tag_and_candidate"
+      "expected_failure": "test_pending_write_retirement_at_the_two_release_tags"
     },
     {
       "name": "v0240-hidden-ids-leadin",
@@ -32639,7 +32639,7 @@
           "line": 8,
           "before": "`uv tool upgrade alice-memory` or `pip install -U alice-memory`",
           "after": "upgrade the package",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -32652,10 +32652,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 55,
+          "line": 57,
           "before": "pip install alice-memory==0.24.0 && alice-memory install",
           "after": "pip install alice-memory==0.23.1 && alice-memory install",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -32668,10 +32668,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 58,
+          "line": 60,
           "before": "With uv: `uvx alice-memory install`.",
           "after": "With uv: `uvx alice-memory`.",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -32683,11 +32683,11 @@
       "name": "v0240-product-released-marker",
       "edits": [
         {
-          "file": "PRODUCT_BRIEF.md",
-          "line": 46,
-          "before": "From v0.24.0,\n  `ALICE_MCP_FULL_TOOLS=1` exposes all thirteen core tools.",
-          "after": "On main,\n  `ALICE_MCP_FULL_TOOLS=1` exposes all thirteen core tools.",
-          "sha256": "68c85f4feb838b4f823b979e8965dc3d7f19fa601a5e921b224ae10e60f1c041"
+          "file": "tests/unit/test_v0240_release_notes.py",
+          "line": 232,
+          "before": "assert \"On main,\" not in (released / \"docs/alpha/known-limitations.md\").read_text()",
+          "after": "assert \"On main,\" in (released / \"docs/alpha/known-limitations.md\").read_text()",
+          "sha256": "ae84e3b462a8f0ecf2664981ac119901bf4f77207ccb6799cab021de8c17a7fa"
         }
       ],
       "pytest": [
@@ -32700,10 +32700,10 @@
       "edits": [
         {
           "file": "docs/release/v0.24.0-release-notes.md",
-          "line": 12,
+          "line": 14,
           "before": "This release needs no database migration: the PostgreSQL migration files and the stored schema of the SQLite vault are those of v0.23.1.",
           "after": "",
-          "sha256": "8aa62064b1b41de6a2b50ec023f7e52b70ac0d444b828ca5405ad29f079fd2fb"
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
         }
       ],
       "pytest": [
@@ -32715,11 +32715,11 @@
       "name": "v0240-sqlite-schema-comparison",
       "edits": [
         {
-          "file": "apps/api/src/alicebot_api/sqlite_schema.py",
-          "line": 274,
-          "before": "CREATE TABLE IF NOT EXISTS alice_schema_state (\n      key TEXT PRIMARY KEY,\n      value TEXT NOT NULL",
-          "after": "CREATE TABLE IF NOT EXISTS alice_schema_state (\n      key TEXT PRIMARY KEY,\n      test_marker TEXT,\n      value TEXT NOT NULL",
-          "sha256": "da2f21ba5f5201f5e9e662a9b0c7c8be1eabcb59b13ce0e9aecf7996ce5f77a2"
+          "file": "tests/unit/test_v0240_release_notes.py",
+          "line": 490,
+          "before": "assert json.loads(prior_schema) == json.loads(released_schema)",
+          "after": "assert json.loads(prior_schema) != json.loads(released_schema)",
+          "sha256": "ae84e3b462a8f0ecf2664981ac119901bf4f77207ccb6799cab021de8c17a7fa"
         }
       ],
       "pytest": [
@@ -32731,17 +32731,401 @@
       "name": "v0240-postgres-migration-comparison",
       "edits": [
         {
-          "file": "apps/api/alembic/versions/20261011_0097_derived_label_citations.py",
-          "line": 41,
-          "before": "down_revision = \"20261005_0096\"",
-          "after": "down_revision = \"20261005_0096\"  # changed revision",
-          "sha256": "13bd484d5cf75c8b8574dc34fa68f9c665be6275ac90fc89348664543d3cecfa"
+          "file": "tests/unit/test_v0240_release_notes.py",
+          "line": 475,
+          "before": "assert revisions(prior) == revisions(released)",
+          "after": "assert revisions(prior) != revisions(released)",
+          "sha256": "ae84e3b462a8f0ecf2664981ac119901bf4f77207ccb6799cab021de8c17a7fa"
         }
       ],
       "pytest": [
         "tests/unit/test_v0240_release_notes.py::test_no_database_migration_is_needed"
       ],
       "expected_failure": "test_no_database_migration_is_needed"
+    },
+    {
+      "name": "v0240-published-state",
+      "edits": [
+        {
+          "file": "docs/release/v0.24.0-release-notes.md",
+          "line": 2,
+          "before": "\"publication_status\":\"published\"",
+          "after": "\"publication_status\":\"pending\"",
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0240_release_notes.py::test_the_notes_are_published_with_the_exact_title_state_and_a_checksums_record"
+      ],
+      "expected_failure": "test_the_notes_are_published_with_the_exact_title_state_and_a_checksums_record"
+    },
+    {
+      "name": "v0240-checksums-wheel",
+      "edits": [
+        {
+          "file": "docs/release/v0.24.0-checksums.txt",
+          "line": 18,
+          "before": "c277821a",
+          "after": "d277821a",
+          "sha256": "4a3e0244c0cb9cb2c495c0cecf185f79a5e10c1cefc37dd9177e9376f750afad"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0240_release_notes.py::test_the_checksums_file_records_the_two_published_digests_in_the_format_of_the_last_release"
+      ],
+      "expected_failure": "test_the_checksums_file_records_the_two_published_digests_in_the_format_of_the_last_release"
+    },
+    {
+      "name": "v0240-marketplace-ref",
+      "edits": [
+        {
+          "file": ".claude-plugin/marketplace.json",
+          "line": 14,
+          "before": "\"ref\": \"v0.24.0\"",
+          "after": "\"ref\": \"v0.23.1\"",
+          "sha256": "b92184f8f46bcbd761b874bbbaf5e8162105755073178156b28fdc01362b2911"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0240_release_notes.py::test_the_marketplace_pins_the_release_tag_and_the_tag_keeps_the_prior_pin"
+      ],
+      "expected_failure": "test_the_marketplace_pins_the_release_tag_and_the_tag_keeps_the_prior_pin"
+    },
+    {
+      "name": "v0240-marketplace-sha",
+      "edits": [
+        {
+          "file": ".claude-plugin/marketplace.json",
+          "line": 15,
+          "before": "b2f280e4740c02f803783e932a4711080dc39585",
+          "after": "a2f280e4740c02f803783e932a4711080dc39585",
+          "sha256": "b92184f8f46bcbd761b874bbbaf5e8162105755073178156b28fdc01362b2911"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0240_release_notes.py::test_the_marketplace_pins_the_release_tag_and_the_tag_keeps_the_prior_pin"
+      ],
+      "expected_failure": "test_the_marketplace_pins_the_release_tag_and_the_tag_keeps_the_prior_pin"
+    },
+    {
+      "name": "v0240-install-headless-tag",
+      "edits": [
+        {
+          "file": "docs/alpha/headless-ubuntu-install.md",
+          "line": 58,
+          "before": "--tag v0.24.0",
+          "after": "--tag v0.23.1",
+          "sha256": "0dc50ccd1c59059b493053549ef6b66c727eaab59a95f2ecf0dae855cfeb0007"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0240_release_notes.py::test_the_install_and_checkout_lines_name_v0240_as_the_latest_release"
+      ],
+      "expected_failure": "test_the_install_and_checkout_lines_name_v0240_as_the_latest_release"
+    },
+    {
+      "name": "v0240-upgrade-marketplace-update",
+      "edits": [
+        {
+          "file": "docs/release/v0.24.0-release-notes.md",
+          "line": 11,
+          "before": "\n   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of the tag.\n",
+          "after": "\n",
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0240_release_notes.py::test_the_notes_say_beside_upgrade_step_three_that_main_now_pins_v0240"
+      ],
+      "expected_failure": "test_the_notes_say_beside_upgrade_step_three_that_main_now_pins_v0240"
+    },
+    {
+      "name": "v0240-prior-marketplace-200",
+      "edits": [
+        {
+          "file": ".claude-plugin/marketplace.json",
+          "line": 14,
+          "before": "\"ref\": \"v0.24.0\"",
+          "after": "\"ref\": \"v0.23.1\"",
+          "sha256": "b92184f8f46bcbd761b874bbbaf5e8162105755073178156b28fdc01362b2911"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0200_release_notes.py::test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_their_install_lines"
+      ],
+      "expected_failure": "test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_their_install_lines"
+    },
+    {
+      "name": "v0240-prior-marketplace-202",
+      "edits": [
+        {
+          "file": ".claude-plugin/marketplace.json",
+          "line": 14,
+          "before": "\"ref\": \"v0.24.0\"",
+          "after": "\"ref\": \"v0.23.1\"",
+          "sha256": "b92184f8f46bcbd761b874bbbaf5e8162105755073178156b28fdc01362b2911"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0202_release_notes.py::test_the_marketplace_pins_the_published_release_and_the_notes_carry_its_install_lines"
+      ],
+      "expected_failure": "test_the_marketplace_pins_the_published_release_and_the_notes_carry_its_install_lines"
+    },
+    {
+      "name": "v0240-prior-marketplace-210",
+      "edits": [
+        {
+          "file": ".claude-plugin/marketplace.json",
+          "line": 14,
+          "before": "\"ref\": \"v0.24.0\"",
+          "after": "\"ref\": \"v0.23.1\"",
+          "sha256": "b92184f8f46bcbd761b874bbbaf5e8162105755073178156b28fdc01362b2911"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0210_release_notes.py::test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_the_install_lines"
+      ],
+      "expected_failure": "test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_the_install_lines"
+    },
+    {
+      "name": "v0240-prior-marketplace-211",
+      "edits": [
+        {
+          "file": ".claude-plugin/marketplace.json",
+          "line": 14,
+          "before": "\"ref\": \"v0.24.0\"",
+          "after": "\"ref\": \"v0.23.1\"",
+          "sha256": "b92184f8f46bcbd761b874bbbaf5e8162105755073178156b28fdc01362b2911"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0211_release_notes.py::test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_the_install_lines"
+      ],
+      "expected_failure": "test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_the_install_lines"
+    },
+    {
+      "name": "v0240-prior-marketplace-220",
+      "edits": [
+        {
+          "file": ".claude-plugin/marketplace.json",
+          "line": 14,
+          "before": "\"ref\": \"v0.24.0\"",
+          "after": "\"ref\": \"v0.23.1\"",
+          "sha256": "b92184f8f46bcbd761b874bbbaf5e8162105755073178156b28fdc01362b2911"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0220_release_notes.py::test_the_marketplace_pins_the_latest_release_and_the_notes_carry_the_install_lines"
+      ],
+      "expected_failure": "test_the_marketplace_pins_the_latest_release_and_the_notes_carry_the_install_lines"
+    },
+    {
+      "name": "v0240-prior-marketplace-230",
+      "edits": [
+        {
+          "file": ".claude-plugin/marketplace.json",
+          "line": 14,
+          "before": "\"ref\": \"v0.24.0\"",
+          "after": "\"ref\": \"v0.23.1\"",
+          "sha256": "b92184f8f46bcbd761b874bbbaf5e8162105755073178156b28fdc01362b2911"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0230_release_notes.py::test_the_marketplace_pins_the_latest_release_and_the_notes_carry_the_install_lines"
+      ],
+      "expected_failure": "test_the_marketplace_pins_the_latest_release_and_the_notes_carry_the_install_lines"
+    },
+    {
+      "name": "v0240-prior-marketplace-231",
+      "edits": [
+        {
+          "file": ".claude-plugin/marketplace.json",
+          "line": 14,
+          "before": "\"ref\": \"v0.24.0\"",
+          "after": "\"ref\": \"v0.23.1\"",
+          "sha256": "b92184f8f46bcbd761b874bbbaf5e8162105755073178156b28fdc01362b2911"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0231_release_notes.py::test_every_version_site_names_0231_at_the_tag_and_the_marketplace_pins_the_latest_release"
+      ],
+      "expected_failure": "test_every_version_site_names_0231_at_the_tag_and_the_marketplace_pins_the_latest_release"
+    },
+    {
+      "name": "v0240-prior-update-192",
+      "edits": [
+        {
+          "file": "docs/release/v0.19.2-release-notes.md",
+          "line": 28,
+          "before": "> **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.19.2 tag still pins v0.19.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n- v0.19.0 can save an assistant reply as your own decision when Hermes turn",
+          "after": "- v0.19.0 can save an assistant reply as your own decision when Hermes turn",
+          "sha256": "c0f16fd4667203eb1e09af4e7ec4c823fa65535f4eaab1014c77aac9451ea361"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0200_release_notes.py::test_both_notes_say_main_now_pins_v0231_after_the_v0230_follow_ups"
+      ],
+      "expected_failure": "test_both_notes_say_main_now_pins_v0231_after_the_v0230_follow_ups"
+    },
+    {
+      "name": "v0240-prior-update-200",
+      "edits": [
+        {
+          "file": "docs/release/v0.20.0-release-notes.md",
+          "line": 184,
+          "before": "> **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.20.0 tag still pins v0.19.2, the copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n## Context pack at a small budget",
+          "after": "## Context pack at a small budget",
+          "sha256": "8a5066f0fb8dab9a636201e1723da7c4b5b277eb62bfda240200e04d2454ecc8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0200_release_notes.py::test_both_notes_say_main_now_pins_v0231_after_the_v0230_follow_ups"
+      ],
+      "expected_failure": "test_both_notes_say_main_now_pins_v0231_after_the_v0230_follow_ups"
+    },
+    {
+      "name": "v0240-prior-update-202",
+      "edits": [
+        {
+          "file": "docs/release/v0.20.2-release-notes.md",
+          "line": 182,
+          "before": "> **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n## Derived rows follow their inputs",
+          "after": "## Derived rows follow their inputs",
+          "sha256": "ff4249de3d2e09430bb7c336ce159bb727c84200b4db9d690462d381be554c0c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0202_release_notes.py::test_the_notes_say_main_now_pins_v0202_beside_each_marketplace_statement"
+      ],
+      "expected_failure": "test_the_notes_say_main_now_pins_v0202_beside_each_marketplace_statement"
+    },
+    {
+      "name": "v0240-prior-update-211",
+      "edits": [
+        {
+          "file": "docs/release/v0.21.1-release-notes.md",
+          "line": 56,
+          "before": "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n## Credential markers",
+          "after": "## Credential markers",
+          "sha256": "12f5273f398893e2b389e7deccd43d01eb34fae2749f4f0650c90748bc8510da"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0211_release_notes.py::test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0211_then_v0220_then_v0230_then_v0231"
+      ],
+      "expected_failure": "test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0211_then_v0220_then_v0230_then_v0231"
+    },
+    {
+      "name": "v0240-prior-update-220",
+      "edits": [
+        {
+          "file": "docs/release/v0.22.0-release-notes.md",
+          "line": 67,
+          "before": "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n## The agent output route",
+          "after": "## The agent output route",
+          "sha256": "dba00b2568c1247fe1bb3fd3b828f2532936c52323b553cbad3b7ede55224855"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0220_release_notes.py::test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0220_then_v0230_then_v0231"
+      ],
+      "expected_failure": "test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0220_then_v0230_then_v0231"
+    },
+    {
+      "name": "v0240-prior-update-230",
+      "edits": [
+        {
+          "file": "docs/release/v0.23.0-release-notes.md",
+          "line": 58,
+          "before": "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n## Agent keys on the SQLite vault",
+          "after": "## Agent keys on the SQLite vault",
+          "sha256": "ff25ac09c585f31a2b420b6523a2d220e8c7c258fa37d28d41b20b38a8d6897d"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0230_release_notes.py::test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0230_and_then_v0231"
+      ],
+      "expected_failure": "test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0230_and_then_v0231"
+    },
+    {
+      "name": "v0240-prior-update-231",
+      "edits": [
+        {
+          "file": "docs/release/v0.23.1-release-notes.md",
+          "line": 45,
+          "before": "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n## The agent key section of the guide",
+          "after": "## The agent key section of the guide",
+          "sha256": "f5eadf38649a03326f6cbc61bb4c9aa2e681ce9305e5b4e3e60240b3b463504d"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v0231_release_notes.py::test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0231"
+      ],
+      "expected_failure": "test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0231"
+    },
+    {
+      "name": "v0240-immutable-notes",
+      "edits": [
+        {
+          "file": "docs/release/v0.24.0-release-notes.md",
+          "line": 4,
+          "before": "Agents sharing a vault can now record structured lessons",
+          "after": "Agents can now record structured lessons",
+          "sha256": "61e95c3a3ac4627dc52854a03f3b8920c10abf080cbd4d2361756914c90133db"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_published_release_notes_stay_immutable.py::test_a_published_release_note_only_gained_dated_paragraphs_since_its_tag[v0.24.0-docs/release/v0.24.0-release-notes.md]"
+      ],
+      "expected_failure": "test_a_published_release_note_only_gained_dated_paragraphs_since_its_tag"
+    },
+    {
+      "name": "v0240-immutable-changelog",
+      "edits": [
+        {
+          "file": "CHANGELOG.md",
+          "line": 5,
+          "before": "2026-11-17\n\n- Install refuses",
+          "after": "2026-11-17\n\nAn undated entry.\n\n- Install refuses",
+          "sha256": "dbc4e646ab8a683688e3985b966cb45d2ce28f23d0e809ad165d838462b332cb"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_published_release_notes_stay_immutable.py::test_a_published_changelog_section_only_gained_dated_paragraphs_since_its_tag[v0.24.0]"
+      ],
+      "expected_failure": "test_a_published_changelog_section_only_gained_dated_paragraphs_since_its_tag"
+    },
+    {
+      "name": "v0240-plugin-doc-pin",
+      "edits": [
+        {
+          "file": "docs/overview.md",
+          "line": 49,
+          "before": "pins the plugin to the v0.24.0 tag commit",
+          "after": "pins the plugin to the v0.23.1 tag commit",
+          "sha256": "cff676f6701f5a4887043c2ea460c6436d55476215ddd42d4dbaef85454fb26c"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_claude_code_plugin.py::test_the_docs_say_what_v0190_ships_and_keep_the_option_rules"
+      ],
+      "expected_failure": "test_the_docs_say_what_v0190_ships_and_keep_the_option_rules"
+    },
+    {
+      "name": "v0240-readme-checkout",
+      "edits": [
+        {
+          "file": "README.md",
+          "line": 39,
+          "before": "To run v0.24.0, run `git checkout v0.24.0`",
+          "after": "To run v0.23.1, run `git checkout v0.23.1`",
+          "sha256": "4d16362521b775fb0da5c906e05bb729a4700a1974f8db97c3ec02d9be5eacdb"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_readme_facts_live_in_the_docs.py::test_the_readme_names_the_default_tools_and_the_package_runtime"
+      ],
+      "expected_failure": "test_the_readme_names_the_default_tools_and_the_package_runtime"
     }
   ]
 }

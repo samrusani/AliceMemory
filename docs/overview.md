@@ -46,7 +46,7 @@ claude plugin marketplace add samrusani/AliceMemory
 claude plugin install alice-memory@alicememory
 ```
 
-The marketplace file on `main` pins the plugin to the v0.23.1 tag commit, so add it from `main`, not from a checkout of a tag. See [Claude Code plugin](integrations/claude-code-plugin.md), which lists what each tag pins.
+The marketplace file on `main` pins the plugin to the v0.24.0 tag commit, so add it from `main`, not from a checkout of a tag. See [Claude Code plugin](integrations/claude-code-plugin.md), which lists what each tag pins.
 
 For a host that wants a config file, paste this (no `DATABASE_URL`):
 
@@ -74,7 +74,7 @@ uvx alice-memory mcp --data-dir ~/.alice
 
 ## Full stack (Postgres + review console)
 
-For Postgres with pgvector, the web review console, and the core memory scheduler workflows, run from a repo checkout. Requirements: Python 3.12+, Node 20+, pnpm, Docker, Git. The clone checks out `main`, which can be ahead of the latest release. To run v0.23.1, run `git checkout v0.23.1` before `make setup`.
+For Postgres with pgvector, the web review console, and the core memory scheduler workflows, run from a repo checkout. Requirements: Python 3.12+, Node 20+, pnpm, Docker, Git. The clone checks out `main`, which can be ahead of the latest release. To run v0.24.0, run `git checkout v0.24.0` before `make setup`.
 
 ```bash
 git clone https://github.com/samrusani/AliceMemory.git
@@ -145,7 +145,7 @@ Alice is a public-alpha, pre-1.0 project:
 - [Health and monitoring](runbooks/health-and-monitoring.md)
 - [Upgrade v0.12.0 to current](runbooks/upgrade-v0.12-to-current.md)
 - [Security and privacy](alpha/security-and-privacy.md)
-- [v0.23.1 release notes](release/v0.23.1-release-notes.md)
+- [v0.24.0 release notes](release/v0.24.0-release-notes.md)
 - [All release notes](https://github.com/samrusani/AliceMemory/releases)
 - [Release procedure](../RELEASING.md)
 - [Architecture](../ARCHITECTURE.md)

@@ -46,7 +46,7 @@ import pytest
 
 import scripts.release_check as release_check
 from tests.unit import legacy_v0160_credential_oracle as oracle
-from tests.unit.test_published_release_notes_stay_immutable import _tagged
+from tests.unit.test_published_release_notes_stay_immutable import _tagged, marketplace_follow_up
 from tests.unit.test_v0210_release_notes import _tagged_listing
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -57,10 +57,10 @@ HEADING = "## v0.21.1 \u2014 2026-10-23"
 # A patch release: the notes are about 9,800 characters, and 12,000 leaves room for a correction and no more.
 NOTES_CEILING = 12_000
 
-# The commit of the latest tag (v0.23.1), which the marketplace file pins now, and the digests of the two files
+# The commit of the latest tag (v0.24.0), which the marketplace file pins now, and the digests of the two files
 # published for v0.21.1.
 CHECKSUMS_PATH = "docs/release/v0.21.1-checksums.txt"
-LATEST_TAG_COMMIT = "2443e7cb6d8f89b4e625cec7adcd7b4a8dcd7276"
+LATEST_TAG_COMMIT = "b2f280e4740c02f803783e932a4711080dc39585"
 WHEEL_SHA256 = "49452a0d9726c06b8b1f1018527cc90a756b3f252cba6b266816eeefa2a931c3"
 SDIST_SHA256 = "813459987dac7837ba2414a803937de2088cac3a1ce81c6687aa835ce12deb6d"
 
@@ -174,7 +174,7 @@ def test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_t
     """
 
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.23.1"
+    assert marketplace["ref"] == "v0.24.0"
     assert marketplace["sha"] == LATEST_TAG_COMMIT
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.21.1 && alice-memory install" in notes
@@ -182,7 +182,9 @@ def test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_t
 
 
 def test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0211_then_v0220_then_v0230_then_v0231() -> None:
-    """Mutations, each one alone: delete one of the four dated updates; name v0.21.0 as what ``main`` pins in the
+    """Mutation: delete the 2026-11-17 marketplace follow-up.
+
+    Mutations, each one alone: delete one of the four dated updates; name v0.21.0 as what ``main`` pins in the
     first, v0.21.1 in the second, v0.22.0 in the third or v0.23.0 in the fourth; drop the sentence about the copy
     inside the tag; move them away from step 6 of the upgrade steps; swap two of them; glue one to the end of another
     paragraph; add a fifth dated update.
@@ -230,12 +232,14 @@ def test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0211_th
     assert blocks[index + 1] == follow_up
     assert blocks[index + 2] == second_follow_up
     assert blocks[index + 3] == third_follow_up
-    assert blocks[index + 4] == "## Credential markers"
+    assert blocks[index + 4] == marketplace_follow_up(third_follow_up)
+    assert blocks[index + 5] == "## Credential markers"
     assert _text(NOTES_PATH).count("Update (2026-10-23)") == 1
     assert _text(NOTES_PATH).count("Update (2026-10-27)") == 1
     assert _text(NOTES_PATH).count("Update (2026-10-30)") == 1
     assert _text(NOTES_PATH).count("Update (2026-11-01)") == 1
-    assert sum(block.startswith("**Update (") for block in blocks) == 4
+    assert _text(NOTES_PATH).count("Update (2026-11-17)") == 1
+    assert sum(block.startswith("**Update (") for block in blocks) == 5
 
 
 def test_the_changelog_has_the_dated_heading_right_after_the_unreleased_section() -> None:

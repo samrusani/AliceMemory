@@ -29,7 +29,9 @@ and v0.19.2 notes in ``test_v0200_release_notes.py``. On 2026-11-01 the notes an
 the list once it was published. The 2026-11-01 updates in the v0.23.0, v0.22.0 and v0.21.1 notes are pinned in
 ``test_v0230_release_notes.py``, ``test_v0220_release_notes.py`` and ``test_v0211_release_notes.py``, the one in the
 v0.23.1 notes in ``test_v0231_release_notes.py``, those in the v0.20.2 notes in ``test_v0202_release_notes.py``, and
-those in the v0.20.0 and v0.19.2 notes in ``test_v0200_release_notes.py``.
+those in the v0.20.0 and v0.19.2 notes in ``test_v0200_release_notes.py``. On 2026-11-17 the
+v0.24.0 notes and the v0.24.0 changelog section joined both lists after publication. The
+release-note tests pin the 2026-11-17 marketplace updates beside their predecessors.
 
 Three things are pinned here, by reading the tag with ``git show`` and not by
 trusting the working file:
@@ -75,7 +77,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHANGELOG = "CHANGELOG.md"
 # Changelog sections of published releases, unchanged since their tags except for dated lines.
-PUBLISHED_CHANGELOG_SECTIONS = ("v0.17.0", "v0.18.0", "v0.19.0", "v0.19.2", "v0.20.0", "v0.20.2", "v0.21.0", "v0.21.1", "v0.22.0", "v0.23.0", "v0.23.1")
+PUBLISHED_CHANGELOG_SECTIONS = ("v0.17.0", "v0.18.0", "v0.19.0", "v0.19.2", "v0.20.0", "v0.20.2", "v0.21.0", "v0.21.1", "v0.22.0", "v0.23.0", "v0.23.1", "v0.24.0")
 
 PUBLISHED_NOTES = (
     ("v0.17.0", "docs/release/v0.17.0-release-notes.md"),
@@ -89,6 +91,7 @@ PUBLISHED_NOTES = (
     ("v0.22.0", "docs/release/v0.22.0-release-notes.md"),
     ("v0.23.0", "docs/release/v0.23.0-release-notes.md"),
     ("v0.23.1", "docs/release/v0.23.1-release-notes.md"),
+    ("v0.24.0", "docs/release/v0.24.0-release-notes.md"),
 )
 
 # The dated 2026-10-01 update paragraphs, in file order, as read after quote
@@ -245,7 +248,7 @@ def _working(path: str) -> str:
 def _tagged(tag: str, path: str) -> str:
     done = subprocess.run(
         ["git", "show", f"{tag}:{path}"],
-        cwd=REPO_ROOT,
+        cwd=Path(os.environ.get("BENCH_TEST_SOURCE", REPO_ROOT)),
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -257,6 +260,18 @@ def _tagged(tag: str, path: str) -> str:
             pytest.fail(message + ". The checkout must include tags (fetch-depth: 0).")
         pytest.skip(message)
     return done.stdout
+
+
+def marketplace_follow_up(previous: str) -> str:
+    """Keep the pinned tag history from the previous update and add the v0.24.0 tag."""
+    _, _, history = previous.partition(". The copy ")
+    history, _, _ = history.partition(", so add the marketplace")
+    history = history.replace(" and the copy", ", the copy")
+    return (
+        "**Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag "
+        f"commit, so the marketplace install runs v0.24.0. The copy {history}, and the copy inside the v0.24.0 tag "
+        "still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag."
+    )
 
 
 # --- the helpers, on synthetic text ------------------------------------------

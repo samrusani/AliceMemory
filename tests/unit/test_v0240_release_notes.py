@@ -6,7 +6,10 @@ import json
 import os
 import re
 import subprocess
+import sys
+import tarfile
 import tomllib
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -14,13 +17,51 @@ import pytest
 import scripts.release_check as release_check
 
 ROOT = Path(__file__).resolve().parents[2]
-NOTES = ROOT / "docs/release/v0.24.0-release-notes.md"
+NOTES_PATH = "docs/release/v0.24.0-release-notes.md"
+CHECKSUMS_PATH = "docs/release/v0.24.0-checksums.txt"
+NOTES = ROOT / NOTES_PATH
+RELEASE_TAG = "v0.24.0"
+PRIOR_TAG = "v0.23.1"
+TAG_COMMIT = "b2f280e4740c02f803783e932a4711080dc39585"
+PRIOR_TAG_COMMIT = "2443e7cb6d8f89b4e625cec7adcd7b4a8dcd7276"
+CANDIDATE_LINE = "`v0.24.0` is the current release candidate. It is not published."
 REPOSITORY = Path(os.environ.get("BENCH_TEST_SOURCE", ROOT))
 BASE = "51f606bad13cce58c89e24c48e225ce2f69a7d90"
 
 
-def _tag(path: str) -> str:
-    return subprocess.check_output(["git", "show", f"v0.23.1:{path}"], cwd=REPOSITORY, text=True)
+def _tagged(path: str, tag: str = RELEASE_TAG) -> str:
+    return subprocess.check_output(["git", "show", f"{tag}:{path}"], cwd=REPOSITORY, text=True)
+
+
+@pytest.fixture(scope="module")
+def release_trees(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
+    trees = []
+    for tag in (PRIOR_TAG, RELEASE_TAG):
+        target = tmp_path_factory.mktemp(tag)
+        export = subprocess.check_output(["git", "archive", tag], cwd=REPOSITORY)
+        with tarfile.open(fileobj=BytesIO(export)) as archive:
+            archive.extractall(target, filter="data")
+        trees.append(target)
+    return trees[0], trees[1]
+
+
+def _tag_python(source: Path, cwd: Path, code: str, *args: str, **settings: str) -> str:
+    env = {key: value for key, value in os.environ.items() if not key.startswith("ALICE_")}
+    env.update(PYTHONPATH=os.pathsep.join((str(source / "apps/api/src"), str(source))),
+               PYTHONDONTWRITEBYTECODE="1", **settings)
+    result = subprocess.run(
+        [sys.executable, "-c", code, *args], cwd=cwd, env=env, text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def _text(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def _flat(path: str) -> str:
+    return " ".join(_text(path).split())
 
 
 # Every parameter is a sentence of the notes; removing that sentence is its guard edit.
@@ -92,47 +133,87 @@ def test_the_changelog_moves_all_twenty_two_entries_without_changing_their_words
     assert released.strip() == now.strip()
 
 
-def test_release_identity_and_pending_state() -> None:
-    """Mutations, each alone: change one candidate version site or remove the README candidate line."""
-    assert tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"] == "0.24.0"
-    assert tomllib.loads(_tag("pyproject.toml"))["project"]["version"] == "0.23.1"
-    metadata, errors = release_check.validate_metadata(ROOT)
+def test_the_notes_are_published_with_the_exact_title_state_and_a_checksums_record() -> None:
+    """Mutation: set publication_status back to pending in the notes' second line."""
+    lines = NOTES.read_text().splitlines()
+    assert lines[0] == "# Alice v0.24.0 Release Notes"
+    assert lines[1] == (
+        '<!-- alice-release-state: {"schema_version":"alice_release_document_state_v1","version":"0.24.0",'
+        '"publication_status":"published","checksums_status":"recorded"} -->'
+    )
+    assert sum("alice-release-state" in line for line in lines) == 1
+    assert (ROOT / CHECKSUMS_PATH).is_file()
+
+
+def test_the_tag_has_the_six_version_sites_and_the_finalized_release_documents(release_trees: tuple[Path, Path]) -> None:
+    """Mutation: change the expected tagged version from 0.24.0 to 0.24.1."""
+    _, released = release_trees
+    assert tomllib.loads(_tagged("pyproject.toml", PRIOR_TAG))["project"]["version"] == "0.23.1"
+    metadata, errors = release_check.validate_metadata(released)
     assert not errors and metadata.version == "0.24.0"
-    assert release_check.validate_release_document_state(ROOT, version=metadata.version, require_finalized=True) == []
-    market = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())["plugins"][0]["source"]
-    assert market["ref"] == "v0.23.1"
-    assert "`v0.24.0` is the current release candidate. It is not published." in (ROOT / "README.md").read_text()
+    assert release_check.validate_release_document_state(released, version=metadata.version, require_finalized=True) == []
 
 
-def test_lessons_default_surface_is_new_in_the_candidate(tmp_path: Path) -> None:
+def test_the_checksums_file_records_the_two_published_digests_in_the_format_of_the_last_release() -> None:
+    """Mutation: change one hex digit in the wheel digest in the checksums record."""
+    prior = _tagged("docs/release/v0.23.1-checksums.txt").splitlines(keepends=True)
+    current = _text(CHECKSUMS_PATH).splitlines(keepends=True)
+    assert len(prior) == len(current) == 19
+    assert [line.replace("0.23.1", "0.24.0") for line in prior[:17]] == current[:17]
+    assert current[17:] == [
+        "c277821aa021d09301e97aaca643605c75fedaa566247ea3a3b8931380313572  alice_memory-0.24.0-py3-none-any.whl\n",
+        "b24d88a9e8bd6ca56aa923d0d63fa0251b79c9e1ddf6e40a72f3d95c11f5af84  alice_memory-0.24.0.tar.gz\n",
+    ]
+
+
+def test_the_marketplace_pins_the_release_tag_and_the_tag_keeps_the_prior_pin() -> None:
+    """Mutation: set the working marketplace ref back to v0.23.1."""
+    marketplace_path = ".claude-plugin/marketplace.json"
+    marketplace = json.loads(_text(marketplace_path))["plugins"][0]["source"]
+    assert (marketplace["ref"], marketplace["sha"]) == (RELEASE_TAG, TAG_COMMIT)
+    for tag, commit in ((RELEASE_TAG, TAG_COMMIT), (PRIOR_TAG, PRIOR_TAG_COMMIT)):
+        actual = subprocess.check_output(["git", "rev-parse", f"{tag}^{{commit}}"], cwd=REPOSITORY, text=True)
+        assert actual.strip() == commit
+    inside = json.loads(_tagged(marketplace_path))["plugins"][0]["source"]
+    assert (inside["ref"], inside["sha"]) == (PRIOR_TAG, PRIOR_TAG_COMMIT)
+
+
+def test_the_notes_say_beside_upgrade_step_three_that_main_now_pins_v0240() -> None:
+    """Mutation: remove the dated blockquote immediately after upgrade step 3."""
+    update = (
+        "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag "
+        "commit, so the marketplace install runs v0.24.0. The copy inside the v0.24.0 tag still pins v0.23.1, so add "
+        "the marketplace from the repository, not from a checkout of the tag."
+    )
+    notes = NOTES.read_text()
+    upgrade = notes.split("\n## What to do after upgrading\n", 1)[1].split("\n## ", 1)[0]
+    step = (
+        "3. The Claude Code marketplace on `main` pins v0.23.1 until the post-publication change moves it. "
+        "A marketplace install therefore runs v0.23.1 until then."
+    )
+    assert f"{step}\n\n{update}\n\nThis release needs no database migration:" in upgrade
+    assert notes.count("**Update (2026-11-17):**") == 1
+
+
+def test_lessons_default_surface_is_new_in_v0240(tmp_path: Path, release_trees: tuple[Path, Path]) -> None:
     """Mutation: remove the sentence naming alice_lessons on the default MCP surface."""
-    import sys
-
-    archive = tmp_path / "prior.zip"
-    with archive.open("wb") as output:
-        subprocess.run(["git", "archive", "--format=zip", "v0.23.1"], cwd=REPOSITORY, stdout=output, check=True)
-    source = "from alicebot_api.mcp.registry import list_mcp_tools; print(','.join(x['name'] for x in list_mcp_tools()))"
-    found = []
-    for pythonpath in (os.pathsep.join((str(archive) + "/apps/api/src", str(archive))),
-                       os.pathsep.join((str(ROOT / "apps/api/src"), str(ROOT)))):
-        env = {key: value for key, value in os.environ.items() if not key.startswith("ALICE_")}
-        env["PYTHONPATH"] = pythonpath
-        output = subprocess.check_output([sys.executable, "-c", source], cwd=tmp_path, env=env, text=True)
-        found.append(output.strip().split(","))
-    assert "alice_lessons" not in found[0] and "alice_lessons" in found[1]
+    code = "from alicebot_api.mcp.registry import list_mcp_tools; print(','.join(x['name'] for x in list_mcp_tools()))"
+    prior, released = (_tag_python(tree, tmp_path, code).strip().split(",") for tree in release_trees)
+    assert "alice_lessons" not in prior and "alice_lessons" in released
     assert "The default MCP surface adds `alice_lessons`." in NOTES.read_text()
 
 
-def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or_the_manifest() -> None:
-    """Mutation: restore the product brief's on-main marker for the full MCP surface."""
+def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or_the_manifest(release_trees: tuple[Path, Path]) -> None:
+    """Mutation: change the last assertion to expect an on-main marker in the tagged limitations."""
+    _, released = release_trees
     marker = re.compile(r"Unreleased\s*\(\s*on\s+main\s*,\s*not\s+in\s+v0\.23\.1")
-    paths = [ROOT / name for name in ("README.md", "SECURITY.md", "CURRENT_STATE.md", "CHANGELOG.md", "ROADMAP.md", "RELEASING.md", "PRODUCT_BRIEF.md", "ARCHITECTURE.md")]
+    paths = [released / name for name in ("README.md", "SECURITY.md", "CURRENT_STATE.md", "CHANGELOG.md", "ROADMAP.md", "RELEASING.md", "PRODUCT_BRIEF.md", "ARCHITECTURE.md")]
     for folder in ("docs", "plugins", "agent-skills", "eval"):
-        paths.extend((ROOT / folder).rglob("*.md"))
+        paths.extend((released / folder).rglob("*.md"))
     for folder in ("apps/api/src", "tests", "scripts"):
-        paths.extend((ROOT / folder).rglob("*.py"))
-    paths.append(ROOT / "scripts/derived_label_mutations.json")
-    assert not [str(path.relative_to(ROOT)) for path in paths if marker.search(path.read_text())]
+        paths.extend((released / folder).rglob("*.py"))
+    paths.append(released / "scripts/derived_label_mutations.json")
+    assert not [str(path.relative_to(released)) for path in paths if marker.search(path.read_text())]
     retired = {
         "docs/alpha/shared-lessons.md": "are on main and not in v0.23.1",
         "docs/alpha/agent-integration.md": "lessons on main, which are not in v0.23.1",
@@ -147,33 +228,22 @@ def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or
         "ARCHITECTURE.md": "On main, `ALICE_MCP_FULL_TOOLS=1` exposes all thirteen core tools.",
     }
     for name, text in retired.items():
-        assert text not in " ".join((ROOT / name).read_text().split()), name
-    assert "On main," not in (ROOT / "docs/alpha/known-limitations.md").read_text()
+        assert text not in " ".join((released / name).read_text().split()), name
+    assert "On main," not in (released / "docs/alpha/known-limitations.md").read_text()
 
 
-
-def _run_key_probe(tmp_path: Path, source: str) -> list[dict]:
-    """Run the same synthetic keyed MCP request on the tagged and candidate sources."""
-    import sys
-
-    archive = tmp_path / "prior.zip"
-    with archive.open("wb") as output:
-        subprocess.run(["git", "archive", "--format=zip", "v0.23.1"], cwd=REPOSITORY, stdout=output, check=True)
-    results = []
-    for index, pythonpath in enumerate((os.pathsep.join((str(archive) + "/apps/api/src", str(archive))),
-                                        os.pathsep.join((str(ROOT / "apps/api/src"), str(ROOT))))):
-        env = {key: value for key, value in os.environ.items() if not key.startswith("ALICE_")}
-        env.update(PYTHONPATH=pythonpath, ALICE_MCP_FULL_TOOLS="1", ALICE_SOURCE_EMBEDDINGS="off")
-        result = subprocess.run(
-            [sys.executable, "-c", source, str(tmp_path / f"vault-{index}.db")],
-            cwd=tmp_path, env=env, text=True, capture_output=True, check=False,
-        )
-        assert result.returncode == 0, result.stderr
-        results.append(json.loads(result.stdout))
-    return results
+def _run_key_probe(tmp_path: Path, source: str, release_trees: tuple[Path, Path]) -> list:
+    """Run the existing synthetic keyed requests against the two published exports."""
+    return [
+        json.loads(_tag_python(
+            tree, tmp_path, source, str(tmp_path / f"vault-{index}.db"),
+            ALICE_MCP_FULL_TOOLS="1", ALICE_SOURCE_EMBEDDINGS="off",
+        ))
+        for index, tree in enumerate(release_trees)
+    ]
 
 
-def test_capture_ceiling_on_the_tag_and_candidate(tmp_path: Path) -> None:
+def test_capture_ceiling_at_the_two_release_tags(tmp_path: Path, release_trees: tuple[Path, Path]) -> None:
     """Mutation: remove the Security sentence about above-ceiling source capture."""
     source = '''
 import json, os, sys
@@ -196,13 +266,13 @@ with sqlite_user_connection(p, user) as conn:
     count = conn.execute("SELECT count(*) AS total FROM sources").fetchone()["total"]
 print(json.dumps({"error":answer["isError"], "sources":count}))
 '''
-    old, now = _run_key_probe(tmp_path, source)
+    old, now = _run_key_probe(tmp_path, source, release_trees)
     assert old == {"error": False, "sources": 1}
     assert now == {"error": True, "sources": 0}
     assert "An agent source capture above its sensitivity ceiling is refused without storing the source; v0.23.1 stored it." in NOTES.read_text()
 
 
-def test_identity_code_on_the_tag_and_candidate(tmp_path: Path) -> None:
+def test_identity_code_at_the_two_release_tags(tmp_path: Path, release_trees: tuple[Path, Path]) -> None:
     """Mutation: remove the integrator sentence about the identity refusal code."""
     source = '''
 import json, os, sys
@@ -223,7 +293,7 @@ server = MCPServer(context=MCPRuntimeContext(database_url=sqlite_url_for_path(p)
 answer = server._handle_request({"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":"alice_recall", "arguments":{"query":"fixture", "agent_id":"another"}}})["result"]
 print(json.dumps(json.loads(answer["content"][0]["text"])["error"]["code"]))
 '''
-    old, now = _run_key_probe(tmp_path, source)
+    old, now = _run_key_probe(tmp_path, source, release_trees)
     assert (old, now) == ("not_permitted", "identity_claim_refused")
     assert "A keyed identity overclaim returns `identity_claim_refused` rather than `not_permitted`; omit the identity fields or narrow the claim to the key and retry." in NOTES.read_text()
 
@@ -245,29 +315,29 @@ def test_release_sections_and_security_opening() -> None:
 
 
 def test_project_key_note_follows_the_four_item_list() -> None:
-    """Mutation: move the key paragraph above the numbered list."""
-    page = (ROOT / "docs/alpha/projects.md").read_text()
+    """Mutation: reverse the comparison that places the key paragraph after item four."""
+    page = _tagged("docs/alpha/projects.md")
     assert page.index("changes in four ways.") < page.index("1. After the frame line")
     assert page.index("1. After the frame line") < page.index("4. Notes of another project never show.")
     assert page.index("4. Notes of another project never show.") < page.index("When an agent key is presented and a project is found")
 
 
 def test_project_evidence_names_the_pinned_codex_version() -> None:
-    """Mutation: change the project's recorded Codex version to 0.158.0."""
-    page = (ROOT / "docs/alpha/projects.md").read_text()
-    evidence = (ROOT / "scripts/real_host_evidence.py").read_text()
+    """Mutation: change the expected host version in the project evidence to 0.158.0."""
+    page = _tagged("docs/alpha/projects.md")
+    evidence = _tagged("scripts/real_host_evidence.py")
     assert "Codex 0.169.0 send the folder the session started in as `cwd`" in page
     assert '"codex": "codex-cli 0.169.0"' in evidence
 
 
 def test_codex_hook_number_guidance_names_the_tested_versions() -> None:
-    """Mutation: remove Codex 0.166.0 from the observed skipping versions."""
-    page = (ROOT / "docs/integrations/codex.md").read_text()
+    """Mutation: remove Codex 0.166.0 from the expected skipping versions."""
+    page = _tagged("docs/integrations/codex.md")
     assert "Codex 0.166.0, 0.167.0 and 0.169.0 skipped the tested files; 0.164.0 loaded them." in page
     assert "Install follows the Codex version it is tested against." in page
 
 
-def test_context_event_query_on_the_tag_and_candidate(tmp_path: Path) -> None:
+def test_context_event_query_at_the_two_release_tags(tmp_path: Path, release_trees: tuple[Path, Path]) -> None:
     """Mutation: remove the Security sentence about context-pack event queries."""
     source = '''
 import json, os, sys
@@ -292,13 +362,13 @@ with sqlite_user_connection(p, user) as conn:
 queries = [e["payload_json"]["query"] for e in events if e["event_type"] == "retrieval.context_pack_compiled"]
 print(json.dumps(queries))
 '''
-    old, now = _run_key_probe(tmp_path, source)
+    old, now = _run_key_probe(tmp_path, source, release_trees)
     assert old == ["x" * 200]
     assert now == ["x" * 128]
     assert "Context-pack events keep a cleaned query of at most 128 characters and withhold credential-shaped text; v0.23.1 stored the full query." in NOTES.read_text()
 
 
-def test_key_revocation_search_on_the_tag_and_candidate(tmp_path: Path) -> None:
+def test_key_revocation_search_at_the_two_release_tags(tmp_path: Path, release_trees: tuple[Path, Path]) -> None:
     """Mutation: remove the Security sentence about the key revocation search."""
     source = '''
 import contextlib, io, json, sys
@@ -318,12 +388,12 @@ with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.St
     code = main(["keys", "revoke", str(oldest["id"]), "--db", str(p), "--user-id", str(user)])
 print(json.dumps(code))
 '''
-    old, now = _run_key_probe(tmp_path, source)
+    old, now = _run_key_probe(tmp_path, source, release_trees)
     assert old == 2 and now == 0
     assert "Key revocation searches all keys by id or prefix, including revoked keys for prefix ambiguity; v0.23.1 searched only the 200 newest." in NOTES.read_text()
 
 
-def test_refused_identity_event_on_the_tag_and_candidate(tmp_path: Path) -> None:
+def test_refused_identity_event_at_the_two_release_tags(tmp_path: Path, release_trees: tuple[Path, Path]) -> None:
     """Mutation: remove the Security sentence about the event for a refused claim."""
     source = '''
 import json, os, sys
@@ -347,12 +417,12 @@ with sqlite_user_connection(p, user) as conn:
     events = SQLiteVNextStore(conn, user).list_events()
 print(json.dumps(sum(e["event_type"] == "agent.key_escalation_rejected" for e in events)))
 '''
-    old, now = _run_key_probe(tmp_path, source)
+    old, now = _run_key_probe(tmp_path, source, release_trees)
     assert old == 0 and now == 1
     assert "A valid key's refused overclaim records an `agent.key_escalation_rejected` event after rollback, with repeated equivalent claims within 60 seconds sharing one event; v0.23.1 rolled the event back or recorded repeated events from a brief." in NOTES.read_text()
 
 
-def test_pending_write_retirement_on_the_tag_and_candidate(tmp_path: Path) -> None:
+def test_pending_write_retirement_at_the_two_release_tags(tmp_path: Path, release_trees: tuple[Path, Path]) -> None:
     """Mutation: remove the Security sentence about retirement standing."""
     source = '''
 import json, os, sys
@@ -380,7 +450,7 @@ assert not failed and created["status"] == "confirmation_required"
 failed, result = call(stranger, "alice_memory_manage", {"action":"forget", "memory_id":created["memory"]["id"], "reason":"Retire it"})
 print(json.dumps({"error":failed, "code":result.get("error", {}).get("code")}))
 '''
-    old, now = _run_key_probe(tmp_path, source)
+    old, now = _run_key_probe(tmp_path, source, release_trees)
     assert old == {"error": False, "code": None}
     assert now == {"error": True, "code": "not_permitted"}
     assert "Retirement of a pending write requires standing to decide it, while v0.23.1 allowed project and trusted keys to retire another agent's pending write." in NOTES.read_text()
@@ -394,23 +464,15 @@ def test_upgrade_and_install_commands() -> None:
     assert "With uv: `uvx alice-memory install`." in notes
 
 
-def test_no_database_migration_is_needed(tmp_path: Path) -> None:
-    """Mutations, each alone: add a stored SQLite column, change a PostgreSQL revision, or remove the sentence."""
-    import sys
-    import zipfile
+def test_no_database_migration_is_needed(tmp_path: Path, release_trees: tuple[Path, Path]) -> None:
+    """Mutation: remove the notes sentence saying the stored schema and migration files stayed the same."""
+    prefix = "apps/api/alembic/versions"
 
-    archive = tmp_path / "v0231.zip"
-    with archive.open("wb") as output:
-        subprocess.run(["git", "archive", "--format=zip", "v0.23.1"], cwd=REPOSITORY, stdout=output, check=True)
-    prefix = "apps/api/alembic/versions/"
-    with zipfile.ZipFile(archive) as prior:
-        tagged = {name: prior.read(name) for name in prior.namelist() if name.startswith(prefix) and not name.endswith("/")}
-    candidate = {
-        path.relative_to(ROOT).as_posix(): path.read_bytes()
-        for path in (ROOT / prefix).rglob("*")
-        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
-    }
-    assert tagged == candidate
+    def revisions(tree: Path) -> dict[str, bytes]:
+        return {path.relative_to(tree).as_posix(): path.read_bytes() for path in (tree / prefix).rglob("*") if path.is_file()}
+
+    prior, released = release_trees
+    assert revisions(prior) == revisions(released)
 
     probe = '''
 import json, sqlite3, sys
@@ -423,17 +485,56 @@ with sqlite3.connect(path) as conn:
     schema = conn.execute("SELECT type, name, tbl_name, sql FROM main.sqlite_master ORDER BY type, name").fetchall()
 print(json.dumps(schema))
 '''
-    prior_path = os.pathsep.join((str(archive) + "/apps/api/src", str(archive)))
-    current_path = os.pathsep.join((str(ROOT / "apps/api/src"), str(ROOT)))
-
-    def bootstrap(pythonpath: str, database: Path) -> list:
-        env = {key: value for key, value in os.environ.items() if not key.startswith("ALICE_")}
-        env.update(PYTHONPATH=pythonpath, PYTHONDONTWRITEBYTECODE="1")
-        output = subprocess.check_output([sys.executable, "-c", probe, str(database)], cwd=tmp_path, env=env, text=True)
-        return json.loads(output)
-
-    prior_schema = bootstrap(prior_path, tmp_path / "prior.db")
-    current_schema = bootstrap(current_path, tmp_path / "current.db")
-    assert prior_schema == current_schema
+    prior_schema = _tag_python(prior, tmp_path, probe, str(tmp_path / "prior.db"))
+    released_schema = _tag_python(released, tmp_path, probe, str(tmp_path / "released.db"))
+    assert json.loads(prior_schema) == json.loads(released_schema)
     section = NOTES.read_text().split("\n## What to do after upgrading\n", 1)[1].split("\n## ", 1)[0]
     assert "This release needs no database migration: the PostgreSQL migration files and the stored schema of the SQLite vault are those of v0.23.1." in section
+
+
+
+def test_the_control_documents_name_v0240_as_the_latest_published_release_and_v0231_as_the_prior_one() -> None:
+    """Mutation: restore the v0.24.0 candidate line in the README."""
+    for name in ("ARCHITECTURE.md", "CURRENT_STATE.md", "PRODUCT_BRIEF.md", "README.md",
+                 "RELEASING.md", "ROADMAP.md", "docs/vnext/README.md"):
+        text = _flat(name)
+        assert CANDIDATE_LINE not in text, name
+        assert "`v0.24.0` is the latest published release" in text, name
+        assert "`v0.23.1` is the latest published release" not in text, name
+    for name in ("ARCHITECTURE.md", "CURRENT_STATE.md", "PRODUCT_BRIEF.md", "README.md", "ROADMAP.md"):
+        assert "`v0.23.1` is the immediately prior published release" in _flat(name), name
+    for name in ("ARCHITECTURE.md", "CURRENT_STATE.md", "PRODUCT_BRIEF.md", "ROADMAP.md"):
+        assert CHECKSUMS_PATH in _text(name), name
+    assert "artifact digests are in `docs/release/v0.23.1-checksums.txt`." in _flat("ARCHITECTURE.md")
+    assert f"- [v0.24.0 release notes]({NOTES_PATH})" in _text("README.md")
+    assert "[latest published release notes](../release/v0.24.0-release-notes.md)" in _flat("docs/vnext/README.md")
+    assert "[v0.24.0 release notes](release/v0.24.0-release-notes.md)" in _text("docs/overview.md")
+    assert f"`{NOTES_PATH}`, with artifact digests in `{CHECKSUMS_PATH}`." in _flat("ROADMAP.md")
+    state = _text("CURRENT_STATE.md")
+    assert f"- `{NOTES_PATH}`\n- `{CHECKSUMS_PATH}`\n" in state
+    assert "`v0.23.1` is the immediately prior published release; its records are" in state
+    assert "What `v0.24.0` Targets" not in state
+    latest = "## What `v0.24.0` Shipped"
+    previous = "## What `v0.23.1` Shipped"
+    assert state.index(latest) < state.index(previous)
+    assert f"[release notes]({NOTES_PATH})" in state.split(latest, 1)[1].split(previous, 1)[0]
+    assert f"{previous}\n\n`v0.23.1` is the immediately prior published release." in state
+    for earlier in ("v0.23.0", "v0.22.0", "v0.21.1", "v0.21.0"):
+        assert f"## What `{earlier}` Shipped\n\n`{earlier}` is an earlier published release." in state
+    history = " ".join(state.split())
+    assert "pins the plugin to the `v0.24.0` tag commit, so the plugin installs from that marketplace." in history
+    assert "`v0.24.0` tag has it still pinned to the `v0.23.1` tag commit." in history
+    assert "`v0.23.1` tag has it still pinned to the `v0.23.0` tag commit," in history
+
+
+def test_the_install_and_checkout_lines_name_v0240_as_the_latest_release() -> None:
+    """Mutation: set the headless install guide's --tag back to v0.23.1."""
+    guide = _flat("docs/alpha/headless-ubuntu-install.md")
+    assert "use the latest published release tag (`v0.24.0`) for an immutable deployment." in guide
+    assert "with the latest published release tag (`v0.24.0`): `--tag v0.24.0`." in guide
+    assert "v0.23.1" not in guide
+    for name in ("README.md", "docs/alpha/quickstart.md", "docs/overview.md"):
+        page = _flat(name)
+        assert "To run v0.24.0, run `git checkout v0.24.0` before `make setup`." in page, name
+        assert "git checkout v0.23.1" not in page, name
+    assert "on top of the latest published `v0.24.0` baseline." in _flat("docs/integrations/reference-paths.md")
