@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.23.1): install refuses an `mcp_tool` hook input containing a whole number from 2^63 through 2^64-1, including inside lists and objects, as the pinned Codex 0.169.0 does; v0.23.1 accepted those inputs (`python -m pytest tests/unit/test_codex_hook_install.py` and the real-host run in the pull request).
+
 - Unreleased (on main, not in v0.23.1): the unit suite runs as eleven coverage shards packed from two measured probe attempts, and the publish and rehearsal limits rise from 200 to 300 minutes; v0.23.1 used six shards (`python -m pytest tests/unit/test_ci_unit_job_split.py tests/unit/test_publish_workflow_time_limit.py`).
 
 - Unreleased (on main, not in v0.23.1): the limitations page adds thirteen bullets on current limits of keys, memory, lessons, reads, commands and connectors; the v0.23.1 page already described the cited-source explain failure (`python -m pytest tests/unit/test_new_known_limitations_words.py`).

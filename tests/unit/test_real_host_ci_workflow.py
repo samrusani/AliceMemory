@@ -37,10 +37,13 @@ PINNED_IF = (
     "${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' "
     "&& (inputs.job == 'all' || inputs.job == 'pinned')) }}"
 )
-CANARY_IF = "${{ github.event_name == 'schedule' }}"
+CANARY_IF = (
+    "${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' "
+    "&& inputs.job == 'canary') }}"
+)
 DISPATCH_JOBS = ("pinned", "hook-trial", "plugin-hook-trial", "marketplace-check", "host-evidence")
-CODEX_NPM = "@openai/codex@0.158.0"
-CODEX_VERSION = "codex-cli 0.158.0"
+CODEX_NPM = "@openai/codex@0.169.0"
+CODEX_VERSION = "codex-cli 0.169.0"
 EVIDENCE_SCRIPT = REPO_ROOT / "scripts" / "real_host_evidence.py"
 EVIDENCE_RUN = (
     'python scripts/real_host_evidence.py run "$RUNNER_TEMP/host-evidence" "$RUNNER_TEMP/host-evidence-work"'
@@ -247,7 +250,8 @@ def test_pinned_job_pins_the_trialed_hosts_and_refuses_a_skip() -> None:
     """The pull request job installs the versions the trial ran.
 
     A skipped real-host test would otherwise exit 0. Mutation: install
-    ``@anthropic-ai/claude-code@latest`` in the pinned job. This test fails.
+    ``@anthropic-ai/claude-code@latest`` in the pinned job, or change the
+    expected Codex version in its version check. This test fails.
     """
 
     job = _job("pinned")
@@ -255,8 +259,8 @@ def test_pinned_job_pins_the_trialed_hosts_and_refuses_a_skip() -> None:
     assert CLAUDE_NPM in script
     assert HERMES_PIP in script
     assert "opencode-ai@1.18.32" in script
-    assert "@openai/codex@0.158.0" in script
-    assert "codex-cli 0.158.0" in script
+    assert "@openai/codex@0.169.0" in script
+    assert "codex-cli 0.169.0" in script
     assert "ran != 15" in script
     assert "@latest" not in script
     assert CLAUDE_VERSION in script
@@ -272,9 +276,9 @@ def test_pinned_job_pins_the_trialed_hosts_and_refuses_a_skip() -> None:
 
 
 def test_canary_runs_weekly_and_not_on_pull_requests() -> None:
-    """The unpinned run is a Monday schedule, not a pull request check.
+    """The unpinned run is scheduled weekly or selected by dispatch.
 
-    Mutation: change the cron day-of-week to ``*``. This test fails.
+    Mutation: remove the dispatch choice from the canary condition. This test fails.
     """
 
     triggers = _load_workflow().get("on")
@@ -291,7 +295,7 @@ def test_canary_runs_weekly_and_not_on_pull_requests() -> None:
 def test_weekly_canary_does_not_pin_claude_or_hermes() -> None:
     """The canary installs current claude and hermes, not the trial pins.
 
-    Mutation: change the canary pip line to ``hermes-agent==0.19.0``.
+    Mutation: pin Codex in the canary install line.
     This test fails.
     """
 
@@ -305,7 +309,7 @@ def test_weekly_canary_does_not_pin_claude_or_hermes() -> None:
     assert "opencode-ai@latest" in script
     assert "opencode-ai@1.18.32" not in script
     assert "@openai/codex@latest" in script
-    assert "@openai/codex@0.158.0" not in script
+    assert "@openai/codex@0.169.0" not in script
     assert "ran != 15" in script
     assert re.search(r"(^|\s)hermes-agent($|\s)", script)
     step = _pytest_step(_job("canary"))
@@ -338,15 +342,15 @@ def test_weekly_canary_opens_an_ops_issue_on_failure() -> None:
     _assert_failure_fails_the_job(job)
 
 
-ALERT_IF = "${{ always() && needs.canary.result == 'failure' }}"
+ALERT_IF = "${{ always() && github.event_name == 'schedule' && needs.canary.result == 'failure' }}"
 
 
-def _alert_runs(condition: str, canary_result: str) -> bool:
+def _alert_runs(condition: str, canary_result: str, event: str) -> bool:
     match = re.fullmatch(r"\$\{\{ (.*) \}\}", condition)
     assert match, condition
     text = match.group(1).replace("&&", " and ").replace("||", " or ")
-    text = text.replace("needs.canary.result", "canary_result")
-    return bool(_evaluate(ast.parse(text, mode="eval"), {"canary_result": canary_result}))
+    text = text.replace("needs.canary.result", "canary_result").replace("github.event_name", "event_name")
+    return bool(_evaluate(ast.parse(text, mode="eval"), {"canary_result": canary_result, "event_name": event}))
 
 
 def test_canary_job_installs_mutable_packages_with_no_write_scope_and_no_token() -> None:
@@ -375,8 +379,8 @@ def test_canary_job_installs_mutable_packages_with_no_write_scope_and_no_token()
 def test_canary_alert_is_the_only_issue_writer_and_installs_nothing() -> None:
     """The alert job holds issues: write and never installs, checks out, or runs a shell.
 
-    It runs only when the canary job itself failed. A skipped canary (every
-    pull request and dispatch) must not raise an alert. Mutation: drop
+    It runs only when a scheduled canary failed. A dispatch failure must not
+    raise an alert. Mutation: remove the scheduled-event condition. Other mutations: drop
     ``needs``; change the condition to ``!= 'success'`` or ``always()`` alone;
     add a ``run`` step, a checkout, or a second action; put ``if: failure()``
     back on the step; add any scope beside ``issues: write``; add a job-level
@@ -404,7 +408,8 @@ def test_canary_alert_is_the_only_issue_writer_and_installs_nothing() -> None:
         ("skipped", False),
         ("cancelled", False),
     ):
-        assert _alert_runs(job["if"], result) is expected, result
+        assert _alert_runs(job["if"], result, "schedule") is expected, result
+        assert not _alert_runs(job["if"], result, "workflow_dispatch"), result
     writers = [
         name
         for name, other in _load_workflow()["jobs"].items()
@@ -606,12 +611,13 @@ def _jobs_that_run(event: str, job_input: str) -> list[str]:
 
 
 def test_dispatch_input_selects_which_dispatch_job_runs() -> None:
-    """A dispatch with a job name runs that job alone. ``all`` runs every dispatch job.
+    """A dispatch with a job name runs that job alone. ``all`` keeps its existing jobs.
 
     Pull requests still run only the pinned job, and the schedule only the canary.
     The ``if`` lines are evaluated, not compared as text. Mutation: drop the
     input test from one job, run the pinned job on any dispatch, add
     ``pull_request`` to a dispatch-only job, or leave a job out of the options.
+    Mutation: remove the canary choice.
     This test fails.
     """
 
@@ -620,16 +626,17 @@ def test_dispatch_input_selects_which_dispatch_job_runs() -> None:
     assert isinstance(dispatch, dict)
     option = dispatch["inputs"]["job"]
     assert option["type"] == "choice" and option["default"] == "all"
-    assert option["options"] == ["all", *DISPATCH_JOBS]
+    assert option["options"] == ["all", "pinned", "canary", *DISPATCH_JOBS[1:]]
     dispatch_jobs = {
         name for name, job in workflow["jobs"].items() if "'workflow_dispatch'" in job["if"]
     }
-    assert dispatch_jobs == set(DISPATCH_JOBS)
+    assert dispatch_jobs == set(DISPATCH_JOBS) | {"canary"}
     for name in DISPATCH_JOBS:
         assert _jobs_that_run("workflow_dispatch", name) == [name], name
     assert _jobs_that_run("workflow_dispatch", "all") == list(
         job for job in workflow["jobs"] if job in DISPATCH_JOBS
     )
+    assert _jobs_that_run("workflow_dispatch", "canary") == ["canary"]
     assert "canary" not in _jobs_that_run("workflow_dispatch", "all")
     for stray in ("", "plugin-hook-trial", "all"):
         assert _jobs_that_run("pull_request", stray) == ["pinned"], stray

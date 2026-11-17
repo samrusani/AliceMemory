@@ -1,7 +1,7 @@
 """The real Codex runs the SessionStart hook install wrote, and injects the brief.
 
 Opt-in: ALICE_TEST_REAL_HOSTS=1 on Linux with ``codex`` on PATH (the pinned
-real-host job installs ``@openai/codex@0.158.0``). Nothing here reaches the
+real-host job installs ``@openai/codex@0.169.0``). Nothing here reaches the
 network. ``codex exec`` talks to a loopback mock of ``/v1/responses`` that
 answers with one assistant message and records each request body, so the
 test can read what Codex put in front of the model.
@@ -894,15 +894,11 @@ def test_real_codex_and_install_agree_on_hooks_json_number_and_spelling_rules(ri
     dies with a panic in its trust-hash step (``normalized hook identity
     should serialize to TOML``) when a handler holds a number TOML cannot
     store. Install is run on the same file and must accept only the first.
-    The three must agree: Codex, install, and the table's verdict, which came
-    from a Rust judge built from Codex's own types and its hash step. That
-    build turns on serde_json's ``arbitrary_precision`` as Codex does, so an
-    ``mcp_tool`` input takes an integer of any size and a ``-0`` timeout loads.
-    Every disagreement is collected before the test fails, so one run in the
-    pinned job shows them all. Mutation: restore the i64 range check in
-    ``_codex_toml_representable``, accept a timeout up to 2**64-1, or drop the
-    both-spellings check. The cases it breaks disagree with Codex and this test
-    fails.
+    The three must agree: Codex, install, and the table's verdict. The table
+    records the pinned real-host run for all rows. Every disagreement is
+    collected before the test fails. Mutation: remove the input integer guard,
+    accept a timeout up to 2**64-1, or drop the both-spellings check.
+
     """
 
     tmp_path = rig.tmp_path

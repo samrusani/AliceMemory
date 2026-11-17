@@ -1410,11 +1410,6 @@ def _codex_toml_representable(value: object) -> bool:
 
     Codex hashes the handler as TOML for trust, so it rejects the input at
     load when ``toml`` cannot represent a value, and it cannot represent a null.
-    An integer of any size passes. Codex's release build enables serde_json's
-    ``arbitrary_precision`` (``codex-exec-server-protocol`` asks for it), which
-    hands each number to ``toml`` as a one-entry table, so nothing is out of
-    range there. A plain serde_json build refuses an integer in [2**63, 2**64)
-    and one too large for a float, and this function does not follow that build.
     """
 
     if value is None:
@@ -1424,6 +1419,15 @@ def _codex_toml_representable(value: object) -> bool:
     if isinstance(value, list):
         return all(_codex_toml_representable(item) for item in value)
     return True
+
+
+def _codex_input_has_large_unsigned_integer(value: object) -> bool:
+    """Find whole numbers the tested Codex skips inside an MCP hook input."""
+    if isinstance(value, dict):
+        return any(_codex_input_has_large_unsigned_integer(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_codex_input_has_large_unsigned_integer(item) for item in value)
+    return isinstance(value, int) and _CODEX_I64_MAX < value < _U64_LIMIT
 
 
 def _codex_cannot_hash(value: object, applies: bool, where: str, key: str) -> None:
@@ -1490,6 +1494,11 @@ def _check_codex_handler(handler: object, where: str, event: str) -> None:
             value = handler["input"]
             if not isinstance(value, dict) or not _codex_toml_representable(value):
                 _codex_skips(f"{where} has an input Codex cannot hash")
+            if _codex_input_has_large_unsigned_integer(value):
+                _codex_skips(
+                    f"{where} has a whole number from 2^63 to 2^64-1 in its input; "
+                    "change that number so Codex can load the hook"
+                )
         if handler.get("timeout") is not None and not _codex_is_u64(handler["timeout"]):
             _codex_skips(f"{where} has a timeout that is not a whole number of at least 0")
         if handler.get("statusMessage") is not None and not isinstance(handler["statusMessage"], str):
