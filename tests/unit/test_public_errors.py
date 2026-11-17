@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MAIN_PATH = ROOT / "apps/api/src/alicebot_api/main.py"
 ROUTERS_PATH = ROOT / "apps/api/src/alicebot_api/routers"
 PUBLIC_EXCEPTION_RESPONSE_CALL_MANIFEST = {
-    "apps/api/src/alicebot_api/main.py": 4,
+    "apps/api/src/alicebot_api/main.py": 5,
     "apps/api/src/alicebot_api/routers/__init__.py": 0,
     "apps/api/src/alicebot_api/routers/_api_shared.py": 0,
     "apps/api/src/alicebot_api/routers/_vnext_automation.py": 0,
@@ -189,7 +189,7 @@ def test_http_modules_have_no_exception_text_to_public_response_conversion() -> 
         for relative_path, source in sources.items()
     }
     assert call_counts == PUBLIC_EXCEPTION_RESPONSE_CALL_MANIFEST
-    assert sum(call_counts.values()) == 304
+    assert sum(call_counts.values()) == 305
 
     source = "\n".join(sources.values())
     assert 'content={"detail": f"thread {thread_id} was not found"}' not in source

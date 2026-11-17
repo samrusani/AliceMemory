@@ -33334,6 +33334,22 @@
         "tests/unit/test_workspaces_router_split.py::test_workspace_test_patches_and_release_controls_follow_moved_ownership"
       ],
       "expected_failure": "test_workspace_test_patches_and_release_controls_follow_moved_ownership"
+    },
+    {
+      "name": "v1-operator-public-error-inventory",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 1244,
+          "before": "    except AgentPolicyBlockedError as exc:\n        return public_exception_response(exc, status_code=403)\n",
+          "after": "    except AgentPolicyBlockedError:\n        return JSONResponse(status_code=403, content={\"detail\": {\"code\": \"forbidden\", \"message\": \"The requested action is not permitted\"}})\n",
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_public_errors.py::test_http_modules_have_no_exception_text_to_public_response_conversion"
+      ],
+      "expected_failure": "test_http_modules_have_no_exception_text_to_public_response_conversion"
     }
   ]
 }
