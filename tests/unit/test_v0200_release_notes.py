@@ -21,7 +21,7 @@ import json
 import re
 from pathlib import Path
 
-from tests.unit.test_published_release_notes_stay_immutable import _tagged
+from tests.unit.test_published_release_notes_stay_immutable import _tagged, marketplace_follow_up
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NOTES_PATH = "docs/release/v0.20.0-release-notes.md"
@@ -77,8 +77,8 @@ def test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_t
     """
 
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.23.1"
-    assert marketplace["sha"] == "2443e7cb6d8f89b4e625cec7adcd7b4a8dcd7276"
+    assert marketplace["ref"] == "v0.24.0"
+    assert marketplace["sha"] == "b2f280e4740c02f803783e932a4711080dc39585"
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.20.0 && alice-memory install" in notes
     assert "pip install -U alice-memory==0.20.0" in notes
@@ -1115,7 +1115,9 @@ def test_both_notes_say_main_now_pins_v0230_after_the_v0220_follow_ups() -> None
 
 
 def test_both_notes_say_main_now_pins_v0231_after_the_v0230_follow_ups() -> None:
-    """Mutations, each one alone: delete one of the three 2026-11-01 follow-ups in the v0.20.0 notes or one of the four
+    """Mutation: delete a 2026-11-17 marketplace follow-up.
+
+    Mutations, each one alone: delete one of the three 2026-11-01 follow-ups in the v0.20.0 notes or one of the four
     in the v0.19.2 notes; name v0.23.0 as what ``main`` pins in one of them; drop the sentence about the copy inside a
     tag; leave the v0.23.1 tag out of it in the v0.20.0 notes; move one away from the 2026-10-30 follow-up it follows;
     glue one to the end of another paragraph.
@@ -1171,3 +1173,6 @@ def test_both_notes_say_main_now_pins_v0231_after_the_v0230_follow_ups() -> None
         assert len(updates) == count, (path, len(updates))
         # An update glued to the end of another paragraph, with no blank line, is no paragraph of its own.
         assert _text(path).count("Update (2026-11-01)") == count, path
+        expected = marketplace_follow_up(follow_up)
+        assert [blocks[index + 1] for index in positions] == [expected] * count, path
+        assert _text(path).count("Update (2026-11-17)") == count, path
