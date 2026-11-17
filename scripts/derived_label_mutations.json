@@ -31186,9 +31186,9 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_ci_unit_job_split.py::test_generated_unit_test_names_match_exactly_one_pattern"
+        "tests/unit/test_ci_unit_job_split.py::test_generated_unit_test_names_match_exactly_one_shard"
       ],
-      "expected_failure": "test_generated_unit_test_names_match_exactly_one_pattern"
+      "expected_failure": "test_generated_unit_test_names_match_exactly_one_shard"
     }
   ]
 }

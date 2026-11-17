@@ -308,7 +308,7 @@ def test_the_shards_are_disjoint_and_together_cover_every_unit_test_file_once() 
     assert extra == []
 
 
-def test_generated_unit_test_names_match_exactly_one_pattern() -> None:
+def test_generated_unit_test_names_match_exactly_one_shard() -> None:
     """Each generated name belongs to exactly one shard.
 
     Mutation: add z to the excluded characters of the suffix fallback pattern."""
