@@ -1409,6 +1409,67 @@ def test_control_doc_truth_rejects_future_state_in_new_published_notes(
     assert any("published notes contain future-state language" in issue for issue in issues)
 
 
+@pytest.fixture
+def published_notes_with_tagged_passages(tmp_path: Path):
+    def seed(version: str = "0.24.1") -> Path:
+        _seed_truth_docs(tmp_path, published=True, version=version)
+        notes = tmp_path / "docs" / "release" / f"v{version}-release-notes.md"
+        with notes.open("a", encoding="utf-8") as handle:
+            handle.write(
+                "\n6. **Claude Code plugin.** The marketplace on `main` pins v0.24.0 until the\n"
+                "   change after publication moves it.\n\n"
+                "## Install\n\nAfter publication:\n\nUse the published package.\n"
+            )
+        return notes
+
+    return seed
+
+
+def test_v0241_published_notes_accept_the_two_tagged_passages(tmp_path, published_notes_with_tagged_passages) -> None:
+    """Mutation: remove the marketplace passage from the exemption."""
+    published_notes_with_tagged_passages()
+    assert control_doc_truth.run_control_doc_truth_check(root_dir=tmp_path) == []
+
+
+@pytest.mark.parametrize("opener", ("", "> **Update (2026-11-18):** "), ids=("plain", "dated-update"))
+def test_v0241_published_notes_still_report_new_future_state(tmp_path, published_notes_with_tagged_passages, opener) -> None:
+    """Mutation: bypass the pattern when the notes have exemptions."""
+    notes = published_notes_with_tagged_passages()
+    with notes.open("a", encoding="utf-8") as handle:
+        handle.write(f"\n{opener}More artifacts will be recorded after publication.\n")
+    assert control_doc_truth.run_control_doc_truth_check(root_dir=tmp_path) == [
+        "docs/release/v0.24.1-release-notes.md: published notes contain future-state language"
+    ]
+
+
+def test_the_tagged_passages_are_reported_in_another_release(tmp_path, published_notes_with_tagged_passages) -> None:
+    """Mutation: use the v0.24.1 exemptions for other releases too."""
+    published_notes_with_tagged_passages("9.8.7")
+    assert control_doc_truth.run_control_doc_truth_check(root_dir=tmp_path) == [
+        "docs/release/v9.8.7-release-notes.md: published notes contain future-state language"
+    ]
+
+
+def test_v0241_published_notes_report_a_duplicate_exempt_passage(tmp_path, published_notes_with_tagged_passages) -> None:
+    """Mutation: accept an exemption that occurs more than once."""
+    notes = published_notes_with_tagged_passages()
+    with notes.open("a", encoding="utf-8") as handle:
+        handle.write("\n## Install\n\nAfter publication:\n")
+    issues = control_doc_truth.run_control_doc_truth_check(root_dir=tmp_path)
+    assert any("exempt passage must occur exactly once, found 2" in issue for issue in issues)
+
+
+def test_v0241_published_notes_are_reported_without_the_exemptions(
+    tmp_path, published_notes_with_tagged_passages, monkeypatch,
+) -> None:
+    """Mutation: bypass the pattern on v0.24.1 when no exemptions apply."""
+    published_notes_with_tagged_passages()
+    monkeypatch.setattr(control_doc_truth, "_PUBLISHED_FUTURE_STATE_EXEMPTIONS", {})
+    assert control_doc_truth.run_control_doc_truth_check(root_dir=tmp_path) == [
+        "docs/release/v0.24.1-release-notes.md: published notes contain future-state language"
+    ]
+
+
 def _seed_historical_remediation_docs(tmp_path: Path, *, finalization: bool = True) -> Path:
     handoff_dir = tmp_path / control_doc_truth._HISTORICAL_REMEDIATION_HANDOFF
     handoff_dir.mkdir(parents=True, exist_ok=True)

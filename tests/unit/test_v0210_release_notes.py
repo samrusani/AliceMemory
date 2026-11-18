@@ -43,7 +43,7 @@ HEADING = "## v0.21.0 \u2014 2026-10-22"
 NOTES_CEILING = 15_000
 
 CHECKSUMS_PATH = "docs/release/v0.21.0-checksums.txt"
-LATEST_TAG_COMMIT = "b2f280e4740c02f803783e932a4711080dc39585"
+LATEST_TAG_COMMIT = "6718d7c006c2d64b4ca108a9a84b4eeff59b4709"
 WHEEL_SHA256 = "0f3377871981e98a1a64a85e82ad1bcef26fc23c322e3a48820d1a1834fe5bbf"
 SDIST_SHA256 = "49232235fc85f677b1f78551268d0574b5a45e30a2974a81ddcaa63d7721aecc"
 
@@ -163,7 +163,7 @@ def test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_t
     """
 
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.24.0"
+    assert marketplace["ref"] == "v0.24.1"
     assert marketplace["sha"] == LATEST_TAG_COMMIT
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.21.0 && alice-memory install" in notes
