@@ -36,7 +36,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.test_published_release_notes_stay_immutable import _tagged, marketplace_follow_up
+from tests.unit.test_published_release_notes_stay_immutable import _tagged, marketplace_follow_up, marketplace_follow_up_v0241
 from tests.unit.test_v0210_release_notes import _tagged_listing
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -48,7 +48,7 @@ HEADING = "## v0.20.2 \u2014 2026-10-17"
 NOTE_PATH = "docs/release/derived-labels-security-note-draft.md"
 CHECKSUMS_PATH = "docs/release/v0.20.2-checksums.txt"
 TAG_COMMIT = "8d5606153fa4900b0cbbc8ce60a65e342f7fe640"
-LATEST_TAG_COMMIT = "b2f280e4740c02f803783e932a4711080dc39585"
+LATEST_TAG_COMMIT = "6718d7c006c2d64b4ca108a9a84b4eeff59b4709"
 WHEEL_SHA256 = "efc4da0e7512faa8e357a0eaec83bb6e5bdf5f7333a3809fd15a118f9e90c0c2"
 SDIST_SHA256 = "31da21f7a84f1dde61f2d871cece6f33538a234cd8559a5036ada4519a62332a"
 
@@ -170,7 +170,7 @@ def test_the_marketplace_pins_the_published_release_and_the_notes_carry_its_inst
     """
 
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.24.0"
+    assert marketplace["ref"] == "v0.24.1"
     assert marketplace["sha"] == LATEST_TAG_COMMIT
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.20.2 && alice-memory install" in notes
@@ -598,7 +598,7 @@ def _blocks(path: str) -> list[str]:
 
 
 def test_the_notes_say_main_now_pins_v0202_beside_each_marketplace_statement() -> None:
-    """Mutation: delete a 2026-11-17 marketplace follow-up.
+    """Mutation: delete a 2026-11-18 marketplace follow-up.
 
     Mutations, each one alone: delete one of the three updates; name v0.20.0 as what ``main`` pins in one of
     them; move one away from its statement; reword the tagged marketplace sentence it follows.
@@ -637,11 +637,14 @@ def test_the_notes_say_main_now_pins_v0202_beside_each_marketplace_statement() -
     assert [blocks[index + 5] for index in positions] == [PIN_FOLLOW_UP_V0231] * 3
     assert [blocks[index + 6] for index in positions] == [marketplace_follow_up(PIN_FOLLOW_UP_V0231)] * 3
     assert _text(NOTES_PATH).count("Update (2026-11-17)") == 3
-    assert blocks[positions[0] + 7] == "## Derived rows follow their inputs"
-    assert blocks[positions[1] + 7].startswith(
+    follow_up = marketplace_follow_up(PIN_FOLLOW_UP_V0231)
+    assert [blocks[index + 7] for index in positions] == [marketplace_follow_up_v0241(follow_up)] * 3
+    assert _text(NOTES_PATH).count("Update (2026-11-18)") == 3
+    assert blocks[positions[0] + 8] == "## Derived rows follow their inputs"
+    assert blocks[positions[1] + 8].startswith(
         "- Use the plugin or `alice-memory install --host claude-code`, not both, as in v0.20.0."
     )
-    assert blocks[positions[2] + 7].startswith("- **The commit routes trust the role a client sends.**")
+    assert blocks[positions[2] + 8].startswith("- **The commit routes trust the role a client sends.**")
 
 
 def test_the_notes_say_main_now_pins_v0210_after_each_2026_10_17_marketplace_update() -> None:

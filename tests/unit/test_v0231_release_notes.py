@@ -44,7 +44,7 @@ import yaml
 
 import scripts.release_check as release_check
 from alicebot_api.mcp_tools import AGENT_API_KEY_ENV
-from tests.unit.test_published_release_notes_stay_immutable import _tagged, marketplace_follow_up
+from tests.unit.test_published_release_notes_stay_immutable import _tagged, marketplace_follow_up, marketplace_follow_up_v0241
 from tests.unit.test_v0210_release_notes import _tagged_listing
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -258,7 +258,7 @@ def test_every_version_site_names_0231_at_the_tag_and_the_marketplace_pins_the_l
 
     The six sites are the ones ``scripts/release_check.py`` requires, and they are read from the tag, so the change that
     prepares the next release can move them in the tree without failing a claim about this one. The post-publication
-    change moved the marketplace file to the v0.24.0 tag and the commit that tag points at. The v0.23.1 tag itself
+    change moved the marketplace file to the v0.24.1 tag and the commit that tag points at. The v0.23.1 tag itself
     still pins v0.23.0, and the plugin page says so.
     """
 
@@ -272,8 +272,8 @@ def test_every_version_site_names_0231_at_the_tag_and_the_marketplace_pins_the_l
         assert f"alice-memory=={pyproject}" in _tagged(RELEASE_TAG, name), name
         assert "alice-memory==0.23.0" not in _tagged(RELEASE_TAG, name), name
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.24.0"
-    assert marketplace["sha"] == "b2f280e4740c02f803783e932a4711080dc39585"
+    assert marketplace["ref"] == "v0.24.1"
+    assert marketplace["sha"] == "6718d7c006c2d64b4ca108a9a84b4eeff59b4709"
     # The copy of the marketplace file inside the tag still pins the release before it.
     inside = json.loads(_tagged(RELEASE_TAG, ".claude-plugin/marketplace.json"))["plugins"][0]["source"]
     assert (inside["ref"], inside["sha"]) == (PRIOR_TAG, PRIOR_TAG_COMMIT)
@@ -297,7 +297,7 @@ def _blocks(path: str) -> list[str]:
 
 
 def test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0231() -> None:
-    """Mutation: delete the 2026-11-17 marketplace follow-up.
+    """Mutation: delete the 2026-11-18 marketplace follow-up.
 
     Mutations, each one alone: delete the 2026-11-01 update; name v0.23.0 as what ``main`` pins in it; drop the
     sentence about the copy inside the tag; move it away from step 4 of the upgrade steps; glue it to the end of another
@@ -322,10 +322,12 @@ def test_the_notes_say_beside_their_marketplace_step_that_main_now_pins_v0231() 
         "this release moves it, so a marketplace install runs v0.23.0 code until then."
     )
     assert blocks[index + 1] == marketplace_follow_up(update)
-    assert blocks[index + 2] == "## The agent key section of the guide"
+    assert blocks[index + 2] == marketplace_follow_up_v0241(marketplace_follow_up(update))
+    assert blocks[index + 3] == "## The agent key section of the guide"
     assert _text(NOTES_PATH).count("Update (2026-11-01)") == 1
     assert _text(NOTES_PATH).count("Update (2026-11-17)") == 1
-    assert sum(block.startswith("**Update (") for block in blocks) == 2
+    assert _text(NOTES_PATH).count("Update (2026-11-18)") == 1
+    assert sum(block.startswith("**Update (") for block in blocks) == 3
 
 
 def test_the_changelog_at_the_tag_has_the_dated_heading_and_an_empty_unreleased_section_right_before_it() -> None:

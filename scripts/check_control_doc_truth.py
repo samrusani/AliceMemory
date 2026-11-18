@@ -63,6 +63,13 @@ _PUBLISHED_FUTURE_STATE_PATTERN = re.compile(
 # v0.10.3 is an immutable published baseline whose historical prose cannot be
 # rewritten. Enforce publication-neutral notes for every later release.
 _FUTURE_STATE_ENFORCEMENT_AFTER = (0, 10, 3)
+# Both passages were published with v0.24.1, and published notes are not rewritten.
+_PUBLISHED_FUTURE_STATE_EXEMPTIONS = {
+    "docs/release/v0.24.1-release-notes.md": (
+        "The marketplace on `main` pins v0.24.0 until the\n   change after publication moves it.",
+        "## Install\n\nAfter publication:\n",
+    ),
+}
 _HISTORICAL_REMEDIATION_HANDOFF = Path("docs/handoff/2026-07-14-v0.10.4-remediation")
 _HISTORICAL_REMEDIATION_MARKERS: dict[str, tuple[str, ...]] = {
     "README.md": (
@@ -826,9 +833,19 @@ def run_control_doc_truth_check(
 
     version_key = _semantic_version_key(version)
     if release_mode == "published" and version_key is not None and version_key > _FUTURE_STATE_ENFORCEMENT_AFTER:
-        notes_path = root_dir / "docs" / "release" / f"v{version}-release-notes.md"
-        if notes_path.is_file() and _PUBLISHED_FUTURE_STATE_PATTERN.search(notes_path.read_text(encoding="utf-8")):
-            issues.append(f"docs/release/v{version}-release-notes.md: published notes contain future-state language")
+        notes_relative = f"docs/release/v{version}-release-notes.md"
+        notes_path = root_dir / notes_relative
+        if notes_path.is_file():
+            notes_text = notes_path.read_text(encoding="utf-8")
+            exemptions = _PUBLISHED_FUTURE_STATE_EXEMPTIONS.get(notes_relative, ())
+            for passage in exemptions:
+                occurrences = notes_text.count(passage)
+                if occurrences != 1:
+                    issues.append(f"{notes_relative}: exempt passage must occur exactly once, found {occurrences}: {passage!r}")
+                else:
+                    notes_text = notes_text.replace(passage, "", 1)
+            if _PUBLISHED_FUTURE_STATE_PATTERN.search(notes_text):
+                issues.append(f"{notes_relative}: published notes contain future-state language")
 
     for relative_path, stale_pattern in _STALE_RELEASE_CLOSURE_PATTERNS:
         path = root_dir / relative_path

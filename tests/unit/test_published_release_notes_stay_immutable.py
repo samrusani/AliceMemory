@@ -32,6 +32,8 @@ v0.23.1 notes in ``test_v0231_release_notes.py``, those in the v0.20.2 notes in 
 those in the v0.20.0 and v0.19.2 notes in ``test_v0200_release_notes.py``. On 2026-11-17 the
 v0.24.0 notes and the v0.24.0 changelog section joined both lists after publication. The
 release-note tests pin the 2026-11-17 marketplace updates beside their predecessors.
+On 2026-11-18 the v0.24.1 notes and changelog section joined the lists. The
+release-note tests pin the 2026-11-18 marketplace and advisory updates.
 
 Three things are pinned here, by reading the tag with ``git show`` and not by
 trusting the working file:
@@ -77,7 +79,10 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHANGELOG = "CHANGELOG.md"
 # Changelog sections of published releases, unchanged since their tags except for dated lines.
-PUBLISHED_CHANGELOG_SECTIONS = ("v0.17.0", "v0.18.0", "v0.19.0", "v0.19.2", "v0.20.0", "v0.20.2", "v0.21.0", "v0.21.1", "v0.22.0", "v0.23.0", "v0.23.1", "v0.24.0")
+PUBLISHED_CHANGELOG_SECTIONS = (
+    "v0.17.0", "v0.18.0", "v0.19.0", "v0.19.2", "v0.20.0", "v0.20.2", "v0.21.0",
+    "v0.21.1", "v0.22.0", "v0.23.0", "v0.23.1", "v0.24.0", "v0.24.1",
+)
 
 PUBLISHED_NOTES = (
     ("v0.17.0", "docs/release/v0.17.0-release-notes.md"),
@@ -92,6 +97,7 @@ PUBLISHED_NOTES = (
     ("v0.23.0", "docs/release/v0.23.0-release-notes.md"),
     ("v0.23.1", "docs/release/v0.23.1-release-notes.md"),
     ("v0.24.0", "docs/release/v0.24.0-release-notes.md"),
+    ("v0.24.1", "docs/release/v0.24.1-release-notes.md"),
 )
 
 # The dated 2026-10-01 update paragraphs, in file order, as read after quote
@@ -271,6 +277,17 @@ def marketplace_follow_up(previous: str) -> str:
         "**Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag "
         f"commit, so the marketplace install runs v0.24.0. The copy {history}, and the copy inside the v0.24.0 tag "
         "still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag."
+    )
+
+
+def marketplace_follow_up_v0241(previous: str) -> str:
+    """Keep the tag history in the v0.24.0 update and add the v0.24.1 tag."""
+    history = previous.partition(". The copy ")[2].partition(", so add the marketplace")[0]
+    history = re.sub(r",? and the copy ", ", the copy ", history)
+    return (
+        "**Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag "
+        f"commit, so the marketplace install runs v0.24.1. The copy {history}, and the copy inside the v0.24.1 tag "
+        "still pins v0.24.0. Add the marketplace from the repository."
     )
 
 
@@ -462,6 +479,15 @@ def test_a_published_changelog_section_only_gained_dated_paragraphs_since_its_ta
     old = section(_tagged(tag, CHANGELOG), tag).splitlines()
     new = section(_working(CHANGELOG), tag).splitlines()
     _check_only_dated_lines_were_added(f"the {tag} section of {CHANGELOG}", tag, old, new)
+
+
+def test_the_2026_11_18_updates_have_no_doubled_commas() -> None:
+    """Mutation: double a list separator in the v0.23.1 marketplace follow-up."""
+    dated_update = re.compile(r"^\W*Update\W+(?:added\W+)?2026-11-18\b")
+    for _, path in PUBLISHED_NOTES:
+        for block in paragraphs(_working(path)):
+            if dated_update.match(block):
+                assert "," * 2 not in block, (path, block)
 
 
 @pytest.mark.parametrize(("path", "heading"), sorted(UPDATES, key=lambda key: (key[0], key[1] or "")))

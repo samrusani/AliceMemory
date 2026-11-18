@@ -16,6 +16,8 @@ import pytest
 
 import scripts.release_check as release_check
 
+from tests.unit.test_published_release_notes_stay_immutable import marketplace_follow_up_v0241
+
 ROOT = Path(__file__).resolve().parents[2]
 NOTES_PATH = "docs/release/v0.24.0-release-notes.md"
 CHECKSUMS_PATH = "docs/release/v0.24.0-checksums.txt"
@@ -24,7 +26,6 @@ RELEASE_TAG = "v0.24.0"
 PRIOR_TAG = "v0.23.1"
 TAG_COMMIT = "b2f280e4740c02f803783e932a4711080dc39585"
 PRIOR_TAG_COMMIT = "2443e7cb6d8f89b4e625cec7adcd7b4a8dcd7276"
-CANDIDATE_LINE = "`v0.24.0` is the current release candidate. It is not published."
 REPOSITORY = Path(os.environ.get("BENCH_TEST_SOURCE", ROOT))
 BASE = "51f606bad13cce58c89e24c48e225ce2f69a7d90"
 
@@ -170,7 +171,7 @@ def test_the_marketplace_pins_the_release_tag_and_the_tag_keeps_the_prior_pin() 
     """Mutation: set the working marketplace ref back to v0.23.1."""
     marketplace_path = ".claude-plugin/marketplace.json"
     marketplace = json.loads(_text(marketplace_path))["plugins"][0]["source"]
-    assert (marketplace["ref"], marketplace["sha"]) == (RELEASE_TAG, TAG_COMMIT)
+    assert (marketplace["ref"], marketplace["sha"]) == ("v0.24.1", "6718d7c006c2d64b4ca108a9a84b4eeff59b4709")
     for tag, commit in ((RELEASE_TAG, TAG_COMMIT), (PRIOR_TAG, PRIOR_TAG_COMMIT)):
         actual = subprocess.check_output(["git", "rev-parse", f"{tag}^{{commit}}"], cwd=REPOSITORY, text=True)
         assert actual.strip() == commit
@@ -179,7 +180,7 @@ def test_the_marketplace_pins_the_release_tag_and_the_tag_keeps_the_prior_pin() 
 
 
 def test_the_notes_say_beside_upgrade_step_three_that_main_now_pins_v0240() -> None:
-    """Mutation: remove the dated blockquote immediately after upgrade step 3."""
+    """Mutation: remove the 2026-11-18 follow-up beside upgrade step 3."""
     update = (
         "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag "
         "commit, so the marketplace install runs v0.24.0. The copy inside the v0.24.0 tag still pins v0.23.1, so add "
@@ -191,7 +192,9 @@ def test_the_notes_say_beside_upgrade_step_three_that_main_now_pins_v0240() -> N
         "3. The Claude Code marketplace on `main` pins v0.23.1 until the post-publication change moves it. "
         "A marketplace install therefore runs v0.23.1 until then."
     )
-    assert f"{step}\n\n{update}\n\nThis release needs no database migration:" in upgrade
+    follow_up = marketplace_follow_up_v0241(update.removeprefix("   > "))
+    assert f"{step}\n\n{update}\n\n   > {follow_up}\n\nThis release needs no database migration:" in upgrade
+    assert notes.count("**Update (2026-11-18):** v0.24.1 is published") == 1
     assert notes.count("**Update (2026-11-17):**") == 1
 
 
@@ -490,51 +493,3 @@ print(json.dumps(schema))
     assert json.loads(prior_schema) == json.loads(released_schema)
     section = NOTES.read_text().split("\n## What to do after upgrading\n", 1)[1].split("\n## ", 1)[0]
     assert "This release needs no database migration: the PostgreSQL migration files and the stored schema of the SQLite vault are those of v0.23.1." in section
-
-
-
-def test_the_control_documents_name_v0240_as_the_latest_published_release_and_v0231_as_the_prior_one() -> None:
-    """Mutation: restore the v0.24.0 candidate line in the README."""
-    for name in ("ARCHITECTURE.md", "CURRENT_STATE.md", "PRODUCT_BRIEF.md", "README.md",
-                 "RELEASING.md", "ROADMAP.md", "docs/vnext/README.md"):
-        text = _flat(name)
-        assert CANDIDATE_LINE not in text, name
-        assert "`v0.24.0` is the latest published release" in text, name
-        assert "`v0.23.1` is the latest published release" not in text, name
-    for name in ("ARCHITECTURE.md", "CURRENT_STATE.md", "PRODUCT_BRIEF.md", "README.md", "ROADMAP.md"):
-        assert "`v0.23.1` is the immediately prior published release" in _flat(name), name
-    for name in ("ARCHITECTURE.md", "CURRENT_STATE.md", "PRODUCT_BRIEF.md", "ROADMAP.md"):
-        assert CHECKSUMS_PATH in _text(name), name
-    assert "artifact digests are in `docs/release/v0.23.1-checksums.txt`." in _flat("ARCHITECTURE.md")
-    assert f"- [v0.24.0 release notes]({NOTES_PATH})" in _text("README.md")
-    assert "[latest published release notes](../release/v0.24.0-release-notes.md)" in _flat("docs/vnext/README.md")
-    assert "[v0.24.0 release notes](release/v0.24.0-release-notes.md)" in _text("docs/overview.md")
-    assert f"`{NOTES_PATH}`, with artifact digests in `{CHECKSUMS_PATH}`." in _flat("ROADMAP.md")
-    state = _text("CURRENT_STATE.md")
-    assert f"- `{NOTES_PATH}`\n- `{CHECKSUMS_PATH}`\n" in state
-    assert "`v0.23.1` is the immediately prior published release; its records are" in state
-    assert "What `v0.24.0` Targets" not in state
-    latest = "## What `v0.24.0` Shipped"
-    previous = "## What `v0.23.1` Shipped"
-    assert state.index(latest) < state.index(previous)
-    assert f"[release notes]({NOTES_PATH})" in state.split(latest, 1)[1].split(previous, 1)[0]
-    assert f"{previous}\n\n`v0.23.1` is the immediately prior published release." in state
-    for earlier in ("v0.23.0", "v0.22.0", "v0.21.1", "v0.21.0"):
-        assert f"## What `{earlier}` Shipped\n\n`{earlier}` is an earlier published release." in state
-    history = " ".join(state.split())
-    assert "pins the plugin to the `v0.24.0` tag commit, so the plugin installs from that marketplace." in history
-    assert "`v0.24.0` tag has it still pinned to the `v0.23.1` tag commit." in history
-    assert "`v0.23.1` tag has it still pinned to the `v0.23.0` tag commit," in history
-
-
-def test_the_install_and_checkout_lines_name_v0240_as_the_latest_release() -> None:
-    """Mutation: set the headless install guide's --tag back to v0.23.1."""
-    guide = _flat("docs/alpha/headless-ubuntu-install.md")
-    assert "use the latest published release tag (`v0.24.0`) for an immutable deployment." in guide
-    assert "with the latest published release tag (`v0.24.0`): `--tag v0.24.0`." in guide
-    assert "v0.23.1" not in guide
-    for name in ("README.md", "docs/alpha/quickstart.md", "docs/overview.md"):
-        page = _flat(name)
-        assert "To run v0.24.0, run `git checkout v0.24.0` before `make setup`." in page, name
-        assert "git checkout v0.23.1" not in page, name
-    assert "on top of the latest published `v0.24.0` baseline." in _flat("docs/integrations/reference-paths.md")
