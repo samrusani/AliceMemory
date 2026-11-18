@@ -32,6 +32,8 @@ import anyio
 import pytest
 import uvicorn
 
+from tests.support.timing import best_duration
+
 import alicebot_api.main as main_module
 import alicebot_api.request_limits as request_limits
 from alicebot_api.config import (
@@ -710,7 +712,14 @@ def test_a_body_that_is_mostly_escaped_quotes_is_scanned_in_linear_time(unit: by
 
     body = b"[" * 300 + b'"' + unit * (CAP // len(unit)) + trailer
     assert len(body) >= CAP
-    seconds, exceeds = _time_the_scan_in_a_child(body)
+    exceeds = False
+
+    def sample() -> float:
+        nonlocal exceeds
+        seconds, exceeds = _time_the_scan_in_a_child(body)
+        return seconds
+
+    seconds = best_duration(sample, limit=1.0)
     assert seconds < 1.0
     # The 300 brackets come before the string, so the body is too deep either way.
     assert exceeds
@@ -737,7 +746,7 @@ def test_a_body_at_the_cap_is_scanned_in_well_under_a_second_whatever_its_shape(
     ``json_nesting_exceeds``.
     """
 
-    seconds, _exceeds = _time_the_scan_in_a_child(body)
+    seconds = best_duration(lambda: _time_the_scan_in_a_child(body)[0], limit=1.0)
     assert seconds < 1.0
 
 

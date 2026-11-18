@@ -40,7 +40,7 @@ Every one-call brief returns:
 
 ## API
 
-On main (unreleased), installs with active keys serve `/v1` only to unbound
+From v0.24.1, installs with active keys serve `/v1` only to unbound
 `admin_agent` keys. Other keys use `/v0/vnext` or MCP. The example below uses
 a keyless loopback install.
 

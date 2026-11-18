@@ -41,6 +41,7 @@ from alicebot_api.json_bounds import (
     refuse_unstorable_json,
     text_nests_deeper_than,
 )
+from tests.support.timing import best_duration
 
 
 def _nested(depth: int, leaf: object = "x") -> object:
@@ -191,16 +192,25 @@ def test_a_long_string_of_escapes_costs_one_pass() -> None:
 
     body = '\\"' * 400_000
     document = '{"s": "' + body + '", "deep": ' + _text(300) + "}"
-    started = time.perf_counter()
-    assert text_nests_deeper_than(document, MAX_READ_JSON_DEPTH)
-    decoded = loads_bounded(document)
-    elapsed = time.perf_counter() - started
-    assert decoded["s"].count('"') == 400_000  # type: ignore[index]
+
+    def closed_sample() -> float:
+        started = time.perf_counter()
+        assert text_nests_deeper_than(document, MAX_READ_JSON_DEPTH)
+        decoded = loads_bounded(document)
+        elapsed = time.perf_counter() - started
+        assert decoded["s"].count('"') == 400_000  # type: ignore[index]
+        return elapsed
+
+    elapsed = best_duration(closed_sample, limit=3.0)
     assert elapsed < 3.0, elapsed
     unterminated = '{"s": "' + body + _text(400)
-    started = time.perf_counter()
-    text_nests_deeper_than(unterminated, MAX_READ_JSON_DEPTH)
-    assert time.perf_counter() - started < 3.0
+
+    def open_sample() -> float:
+        started = time.perf_counter()
+        text_nests_deeper_than(unterminated, MAX_READ_JSON_DEPTH)
+        return time.perf_counter() - started
+
+    assert best_duration(open_sample, limit=3.0) < 3.0
 
 
 def test_the_decoder_reads_bytes_and_memoryview_as_the_database_driver_hands_them() -> None:

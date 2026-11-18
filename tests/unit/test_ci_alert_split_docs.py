@@ -118,11 +118,11 @@ def test_the_picomatch_exception_agrees_with_the_posture_and_changelog() -> None
     expires = entry["expires"]
     posture = (ROOT / "docs/security/dependency-posture.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = changelog.split("\n## Unreleased\n", 1)[1].split("\n## ", 1)[0]
-    marker = "Unreleased (on main, not in v0.24.0):"
-    for text in (posture, unreleased):
+    released = changelog.split("\n## v0.24.1 ", 1)[1].split("\n## ", 1)[0]
+    assert "From v0.24.1, the file holds one entry" in posture
+    for text in (posture, released):
         matches = [paragraph for paragraph in text.split("\n\n") if advisory in paragraph]
         assert len(matches) == 1
         paragraph = _flat(matches[0])
-        assert marker in paragraph and f"`{package}`" in paragraph
+        assert f"`{package}`" in paragraph
         assert f"until {expires}" in paragraph or f"expires on {expires}" in paragraph

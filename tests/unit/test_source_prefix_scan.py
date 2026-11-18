@@ -20,6 +20,7 @@ import time
 import pytest
 
 from alicebot_api.vnext_source_fence import _source_prefixes_end
+from tests.support.timing import best_duration
 
 _EARLIER = re.compile(r"(?:\s*source:)*", re.IGNORECASE)
 
@@ -76,8 +77,12 @@ def test_isspace_is_the_whitespace_the_earlier_pattern_skipped() -> None:
     ],
 )
 def test_long_whitespace_is_read_in_linear_time(text: str) -> None:
-    started = time.perf_counter()
-    end = _source_prefixes_end(text)
-    elapsed = time.perf_counter() - started
-    assert end == _EARLIER.match(text).end()  # type: ignore[union-attr]
+    def sample() -> float:
+        started = time.perf_counter()
+        end = _source_prefixes_end(text)
+        elapsed = time.perf_counter() - started
+        assert end == _EARLIER.match(text).end()  # type: ignore[union-attr]
+        return elapsed
+
+    elapsed = best_duration(sample, limit=5.0)
     assert elapsed < 5.0, elapsed

@@ -2,7 +2,7 @@
 
 These examples show the narrow default adoption path for a generic external agent: call Alice one time through `POST /v1/continuity/brief`, then use the returned bundle inside your runtime.
 
-The examples use a keyless loopback install. On main (unreleased), installs with
+The examples use a keyless loopback install. From v0.24.1, installs with
 active keys serve `/v1` only to unbound `admin_agent` keys. Other keys use
 `/v0/vnext` or MCP.
 

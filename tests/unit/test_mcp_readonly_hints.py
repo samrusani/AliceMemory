@@ -527,7 +527,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0192() -> None:
-    """Mutation: change the v0.24.0 heading date.
+    """Mutation: change the v0.24.1 heading date.
 
     v0.19.2 marks the review tool read-only, and the docs keep v0.19.0's flag as history.
 
@@ -550,16 +550,16 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0192() -> N
     # Unreleased, the v0.23.1, v0.23.0, v0.22.0, v0.21.1, v0.21.0, v0.20.2 and v0.20.0 sections may hold entries for
     # changes made after v0.19.2.
     assert sections[1].startswith("Unreleased")
-    assert sections[2].startswith("v0.24.0 \u2014 2026-11-17\n")
-    assert sections[3].startswith("v0.23.1 \u2014 2026-10-31\n")
-    assert sections[4].startswith("v0.23.0 \u2014 2026-10-30\n")
-    assert sections[5].startswith("v0.22.0 \u2014 2026-10-26\n")
-    assert sections[6].startswith("v0.21.1 \u2014 2026-10-23\n")
-    assert sections[7].startswith("v0.21.0 \u2014 2026-10-22\n")
-    assert sections[8].startswith("v0.20.2 \u2014 2026-10-17\n")
-    assert sections[9].startswith("v0.20.0 \u2014 2026-10-02\n")
+    assert sections[2].startswith("v0.24.1 \u2014 2026-11-18\n")
+    assert sections[3].startswith("v0.24.0 \u2014 2026-11-17\n")
+    assert sections[4].startswith("v0.23.1 \u2014 2026-10-31\n")
+    assert sections[5].startswith("v0.23.0 \u2014 2026-10-30\n")
+    assert sections[6].startswith("v0.22.0 \u2014 2026-10-26\n")
+    assert sections[7].startswith("v0.21.1 \u2014 2026-10-23\n")
+    assert sections[8].startswith("v0.21.0 \u2014 2026-10-22\n")
+    assert sections[9].startswith("v0.20.2 \u2014 2026-10-17\n")
+    assert sections[10].startswith("v0.20.0 \u2014 2026-10-02\n")
     # The released hint entry stays in the v0.19.2 section, not in a newer one.
-    assert "readOnlyHint" not in sections[1]
     assert "readOnlyHint" not in sections[2]
     assert "readOnlyHint" not in sections[3]
     assert "readOnlyHint" not in sections[4]
@@ -568,8 +568,9 @@ def test_the_docs_and_the_hint_comment_say_review_is_read_only_from_v0192() -> N
     assert "readOnlyHint" not in sections[7]
     assert "readOnlyHint" not in sections[8]
     assert "readOnlyHint" not in sections[9]
-    assert sections[10].startswith("v0.19.2 \u2014 2026-10-01\n")
-    released_now = " ".join(sections[10].split())
+    assert "readOnlyHint" not in sections[10]
+    assert sections[11].startswith("v0.19.2 \u2014 2026-10-01\n")
+    released_now = " ".join(sections[11].split())
     assert "`alice_memory_review` sets `readOnlyHint` and no longer sets `destructiveHint`." in released_now
     assert (
         "In v0.19.0 `alice_memory_review` sets `destructiveHint` to true, grouped with the tools "

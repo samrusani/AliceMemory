@@ -1,6 +1,6 @@
 """The facts that only the known limitations page states are pinned, and the numbers on it are the ones the code enforces.
 
-The page is a short list of what is limited now in v0.24.0. Most of its statements are pinned next to the pages that
+The page is a short list of what is limited now in v0.24.1. Most of its statements are pinned next to the pages that
 explain them (the local-folder scan, the HTTP edge, the expiry and commit text bullets and the rest). A bound that
 another page owns is one short sentence on the page and a link, and the page that owns it holds the rest and is pinned
 here, so the fact is not lost when it leaves the page:
@@ -79,7 +79,7 @@ def _under(heading_start: str, bullet: str) -> bool:
 
     raw = (ROOT / "docs/alpha/known-limitations.md").read_text(encoding="utf-8")
     start = raw.index(heading_start)
-    following = [raw.find(lead, start + 1) for lead in ("\nPostgres stack and outbound calls", "\nOpen in v0.24.0")]
+    following = [raw.find(lead, start + 1) for lead in ("\nPostgres stack and outbound calls", "\nOpen in v0.24.1")]
     end = min(position for position in following if position != -1)
     return _flat(bullet.removeprefix("- ")) in _flat(raw[start:end])
 
@@ -156,7 +156,7 @@ def test_the_error_bullet_names_the_generic_codes_and_the_four_that_tell_a_refus
     and the three generic codes come before them.
 
     The four are read from ``MCP_CODED_ERROR_CODES``: the five coded errors less ``invalid_request``, which a query over a
-    size limit already got in v0.20.0. The page is written for v0.24.0 and this bullet carries no marker.
+    size limit already got in v0.20.0. The page is written for v0.24.1 and this bullet carries no marker.
 
     Mutations, each one alone: on the page, delete ``precondition_failed`` from the list, delete ``except
     `invalid_request` for a rejected argument or an oversized query``, move a generic code after the three or put
