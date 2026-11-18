@@ -712,17 +712,15 @@ def test_a_body_that_is_mostly_escaped_quotes_is_scanned_in_linear_time(unit: by
 
     body = b"[" * 300 + b'"' + unit * (CAP // len(unit)) + trailer
     assert len(body) >= CAP
-    exceeds = False
 
     def sample() -> float:
-        nonlocal exceeds
         seconds, exceeds = _time_the_scan_in_a_child(body)
+        # The 300 brackets come before the string, so the body is too deep either way.
+        assert exceeds
         return seconds
 
     seconds = best_duration(sample, limit=1.0)
     assert seconds < 1.0
-    # The 300 brackets come before the string, so the body is too deep either way.
-    assert exceeds
 
 
 @pytest.mark.parametrize(

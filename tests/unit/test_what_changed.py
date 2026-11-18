@@ -597,6 +597,7 @@ def test_the_budget_of_10000_hidden_candidates_stops_at_128(tmp_path, monkeypatc
     def recall_sample() -> float:
         nonlocal recalled
         if recalled:
+            # Recreate the state that recall saw after the decision read.
             sample_vault = fresh_vault()
             read_decision(sample_vault)
         else:

@@ -361,13 +361,14 @@ def test_the_changelog_keeps_the_dated_heading_right_after_the_unreleased_sectio
     changelog = _text("CHANGELOG.md")
     sections = changelog.split("\n## ")
     assert sections[1].startswith("Unreleased\n")
-    assert sections[2].startswith("v0.24.0 \u2014 2026-11-17\n")
-    assert sections[3].startswith("v0.23.1 \u2014 2026-10-31\n")
-    assert sections[4].startswith("v0.23.0 \u2014 2026-10-30\n")
-    assert sections[5].startswith("v0.22.0 \u2014 2026-10-26\n")
+    assert sections[2].startswith("v0.24.1 \u2014 2026-11-18\n")
+    assert sections[3].startswith("v0.24.0 \u2014 2026-11-17\n")
+    assert sections[4].startswith("v0.23.1 \u2014 2026-10-31\n")
+    assert sections[5].startswith("v0.23.0 \u2014 2026-10-30\n")
+    assert sections[6].startswith("v0.22.0 \u2014 2026-10-26\n")
     assert changelog.count(HEADING) == 1
-    assert "Unreleased (on" not in sections[3]
     assert "Unreleased (on" not in sections[4]
+    assert "Unreleased (on" not in sections[5]
 
 
 def test_no_marker_for_the_unreleased_state_is_left_in_the_documents_the_code_or_the_manifest() -> None:

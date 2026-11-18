@@ -34702,7 +34702,7 @@
           "file": "tests/unit/test_v0241_release_notes.py",
           "line": 203,
           "before": "_tag_python(ROOT, tmp_path, probe, str(tmp_path / \"candidate.db\"))",
-          "after": "_tag_python(ROOT, tmp_path, probe.replace(\"bootstrap_database(path,\", \"print(path,\"), str(tmp_path / \"candidate.db\"))",
+          "after": "_tag_python(ROOT, tmp_path, probe.replace(\"bootstrap_database(path,\", \"# bootstrap_database(path,\"), str(tmp_path / \"candidate.db\"))",
           "sha256": "92d4b3683230af7d4e7d4f3bbaa91e009456c31aa2af45d39e5fd1af7c04ba1e"
         }
       ],
