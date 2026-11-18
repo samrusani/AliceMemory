@@ -218,7 +218,7 @@ Permission profiles:
 - `memory_proposal_agent`: proposal-focused agent
 - `admin_agent`: scheduler and administrative actions
 
-On main (unreleased), installs with active keys serve `/v1` only to unbound
+From v0.24.1, installs with active keys serve `/v1` only to unbound
 `admin_agent` keys. Other keys use `/v0/vnext` or MCP.
 
 Every profile except `trusted_local_agent` and `admin_agent` is held back from the
@@ -227,7 +227,7 @@ See [MCP tools](mcp-tools.md#domains-a-profile-may-read).
 
 ## Authentication
 
-Unreleased (on main, not in v0.24.0): PostgreSQL MCP requires an `ALICE_AGENT_API_KEY` once the user holds an active key, including for reads and legacy tools. Browser clip capabilities on keyed installs use the strictest sensitivity ceiling of any key allowed to issue one. Mounted legacy `/v0` routes require a loopback peer in every mode and remain keyless.
+From v0.24.1, PostgreSQL MCP requires an `ALICE_AGENT_API_KEY` once the user holds an active key, including for reads and legacy tools. Browser clip capabilities on keyed installs use the strictest sensitivity ceiling of any key allowed to issue one. Mounted legacy `/v0` routes require a loopback peer in every mode and remain keyless.
 
 Custom agents calling the HTTP API authenticate with per-agent API keys. Create one per agent:
 

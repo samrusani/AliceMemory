@@ -89,7 +89,7 @@ Use the full operator examples for production config details:
 ## One-Call Continuity Inside Hermes
 
 For generic continuity lookups on a key-bound server, use the core
-`alice_recall` and `alice_resume` tools. On main (unreleased), installs with
+`alice_recall` and `alice_resume` tools. From v0.24.1, installs with
 active keys serve `/v1`, including `POST /v1/continuity/brief`, only to unbound
 `admin_agent` keys. Other keys use `/v0/vnext` or MCP.
 

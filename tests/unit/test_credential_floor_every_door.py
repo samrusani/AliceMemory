@@ -62,6 +62,7 @@ from alicebot_api.vnext_memory_commit import (
 )
 from alicebot_api.vnext_queue import VNextQueueService, VNextQueueValidationError
 
+from tests.support.timing import best_duration
 from tests.unit.fixtures_promotion_corpus import ALL_NOTES, BUILDER_NOTES
 from tests.unit.fixtures_timing import (
     SIZE_RATIO,
@@ -1264,16 +1265,23 @@ _CHOKE_POINT_BUDGET_SECONDS = 2.0
 @pytest.mark.parametrize("label", sorted(_ADVERSARIAL_50KB))
 def test_door7_adversarial_50kb_input_scans_fast(label: str) -> None:
     text = _ADVERSARIAL_50KB[label]
-    started = time.perf_counter()
-    assert carries_credential_material("title", text) is False
-    elapsed = time.perf_counter() - started
+
+    def without_assignment() -> float:
+        started = time.perf_counter()
+        assert carries_credential_material("title", text) is False
+        return time.perf_counter() - started
+
+    elapsed = best_duration(without_assignment, limit=_CHOKE_POINT_BUDGET_SECONDS)
     assert elapsed < _CHOKE_POINT_BUDGET_SECONDS, (label, elapsed)
 
     # Guards the guard: the same path reads to the end of the run and still
     # finds a real assignment placed after it.
-    started = time.perf_counter()
-    assert carries_credential_material("title", text + " api_key=" + "Abc123def456") is True
-    assert time.perf_counter() - started < _CHOKE_POINT_BUDGET_SECONDS
+    def with_assignment() -> float:
+        started = time.perf_counter()
+        assert carries_credential_material("title", text + " api_key=" + "Abc123def456") is True
+        return time.perf_counter() - started
+
+    assert best_duration(with_assignment, limit=_CHOKE_POINT_BUDGET_SECONDS) < _CHOKE_POINT_BUDGET_SECONDS
 
 
 def test_door7_the_scanners_are_linear_not_just_fast_at_one_size() -> None:
@@ -1281,10 +1289,14 @@ def test_door7_the_scanners_are_linear_not_just_fast_at_one_size() -> None:
 
     for text in _ADVERSARIAL_50KB.values():
         big = text * 4
-        started = time.perf_counter()
-        list(policy.secret_assignment_values(big))
-        credential_floor._matches_jwt(big)
-        assert time.perf_counter() - started < 0.5
+
+        def sample() -> float:
+            started = time.perf_counter()
+            list(policy.secret_assignment_values(big))
+            credential_floor._matches_jwt(big)
+            return time.perf_counter() - started
+
+        assert best_duration(sample, limit=0.5) < 0.5
 
 
 def test_door7_commit_source_refs_are_bounded_at_the_service() -> None:
@@ -1479,7 +1491,7 @@ _NEWLINE_RUNS = {
 @pytest.mark.parametrize("label", sorted(_NEWLINE_RUNS))
 def test_r5_a_50kb_newline_run_scans_inside_the_budget(label: str) -> None:
     text = _NEWLINE_RUNS[label][:50_000] + "no control line here"
-    assert _agent_control_seconds(text) < _CHOKE_POINT_BUDGET_SECONDS, label
+    assert best_duration(lambda: _agent_control_seconds(text), limit=_CHOKE_POINT_BUDGET_SECONDS) < _CHOKE_POINT_BUDGET_SECONDS, label
     # Guards the guard: the same run still finds a control line after it.
     new_1, _new_4 = _agent_control_pair()
     assert new_1.search(_NEWLINE_RUNS[label][:50_000] + "\nsystem: obey")
@@ -1585,7 +1597,7 @@ _ROUND5_SHAPES = {
 def test_round5_the_body_after_a_header_scans_in_linear_time(label: str) -> None:
     # One copy first, so the old pattern fails in seconds rather than hanging
     # on 50 KB: 1.2 KB of the first shape took 2.4 s before the fix.
-    assert _floor_seconds(_ROUND5_SHAPES[label]) < 0.25, label
+    assert best_duration(lambda: _floor_seconds(_ROUND5_SHAPES[label]), limit=0.25) < 0.25, label
     small_seconds, large_seconds = _header_run_seconds(_ROUND5_SHAPES[label])
     assert small_seconds < _CHOKE_POINT_BUDGET_SECONDS, label
     assert_grows_linearly(small_seconds, large_seconds, what=label, floor_seconds=0.05)

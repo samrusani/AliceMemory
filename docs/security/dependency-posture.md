@@ -53,7 +53,7 @@ entry is printed on each run. The production audit never reads the file, so a
 match that reaches a shipped build always blocks. v0.20.0 ships the mechanism
 with no entries.
 
-Unreleased (on main, not in v0.24.0): the file holds one entry, for
+From v0.24.1, the file holds one entry, for
 `picomatch` (GHSA-fc5q-39xc-vjpf, high). The advisory names no patched
 version and covers 4.0.7, the latest release on npm as of 2026-11-17.
 Development lint and test tooling reaches it through fast-glob and micromatch,

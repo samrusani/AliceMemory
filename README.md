@@ -36,6 +36,8 @@ The default MCP surface is four tools:
 
 ## Status
 
+`v0.24.1` is the current release candidate. It is not published.
+
 `v0.24.0` is the latest published release and remains the install, checksum, and release-note baseline. `v0.23.1` is the immediately prior published release. Pre-1.0; [Current state](CURRENT_STATE.md) lists the tags that were never published. To run v0.24.0, run `git checkout v0.24.0` before `make setup`.
 
 ## Benchmark

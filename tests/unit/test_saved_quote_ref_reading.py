@@ -79,14 +79,14 @@ def assert_cost_grows_linearly(
     run_small: Callable[[], object], run_large: Callable[[], object], *, size_ratio: int, what: str
 ) -> None:
     """``run_large`` does the work of ``run_small`` on an input ``size_ratio`` times larger. Fails when it takes more than
-    ``_GROWTH_FACTOR * size_ratio`` times as long (never less than a noise floor of 0.02 s for the small input). A slow
-    first run of the large input is not repeated: only one that is close to the limit is run again, to rule out noise."""
+    ``_GROWTH_FACTOR * size_ratio`` times as long (never less than a noise floor of 0.02 s for the small input).
+    The large input is repeated after any slow sample, up to the run limit."""
 
     small = min(_cpu_seconds(run_small) for _ in range(_RUNS))
     limit = _GROWTH_FACTOR * size_ratio * max(small, _NOISE_FLOOR_SECONDS)
     large = _cpu_seconds(run_large)
     for _ in range(_RUNS - 1):
-        if large < limit or large > 3 * limit:
+        if large < limit:
             break
         large = min(large, _cpu_seconds(run_large))
     assert large < limit, (

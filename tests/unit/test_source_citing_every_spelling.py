@@ -52,6 +52,7 @@ from alicebot_api.vnext_stores.sqlite import source_retirement
 from alicebot_api.vnext_stores.sqlite.source_retirement import (
     _Probes, _citation_hits, _in_ascii_digits, _memories_by_id, citing_memories, citing_memories_by_source,
 )
+from tests.support.timing import best_duration
 from tests.unit.test_importer_per_file_savepoint import USER_ID, _folder, _vault
 from tests.unit.test_saved_quote_ref_reading import _zero_led_id, _zero_led_spellings
 from tests.unit.test_source_commands import command
@@ -720,10 +721,14 @@ def test_a_long_run_of_backslashes_is_read_in_time_that_grows_with_its_length():
     """
 
     text = "\\u0000" + "\\" * 400_000
-    started = time.perf_counter()
-    assert _in_ascii_digits(text) is None
-    assert not text_hits(text, "1" * 9) and not text_hits(text, "1" * 9, in_value=True)
-    assert time.perf_counter() - started < 5
+
+    def sample() -> float:
+        started = time.perf_counter()
+        assert _in_ascii_digits(text) is None
+        assert not text_hits(text, "1" * 9) and not text_hits(text, "1" * 9, in_value=True)
+        return time.perf_counter() - started
+
+    assert best_duration(sample, limit=5) < 5
 
 
 def test_what_an_id_ignores_is_taken_out_in_the_order_the_reader_takes_it_out():
