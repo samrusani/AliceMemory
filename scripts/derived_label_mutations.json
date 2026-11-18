@@ -23751,7 +23751,7 @@
           "file": "apps/api/src/alicebot_api/mcp/policy.py",
           "line": 70,
           "before": "        if _is_sqlite_backend(context):\n            try:\n                has_active_key = _vault_has_active_key(_sqlite_path_from_url(context.database_url))\n            except Exception:\n                # The vault could not be checked; the call is refused rather\n                # than answered with the owner's standing.\n                raise MCPNotPermittedError(\n                    \"the vault's agent keys could not be checked; every call needs \"\n                    f\"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')\"\n                ) from None\n            if has_active_key:\n                raise MCPNotPermittedError(\n                    \"agent API keys are configured for this vault; every call needs \"\n                    f\"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')\"\n                )",
-          "after": "",
+          "after": "        if _is_sqlite_backend(context):\n            pass",
           "sha256": "141f61a481371b413e67d61f4b8ef1e7787ed6cf3eda60285ebf7c5ffd0c2308"
         }
       ],
@@ -33798,6 +33798,150 @@
         "tests/integration/test_source_id_spelling_context_pack_postgres.py::test_mcp_context_pack_answers_a_reference_spelling_like_the_canonical_spelling[urn:uuid:{id}]"
       ],
       "expected_failure": "test_mcp_context_pack_answers_a_reference_spelling_like_the_canonical_spelling"
+    },
+    {
+      "name": "v1-policy-refusal-not-raised",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 1182,
+          "before": "    if decision.decision == \"blocked\":\n        raise AgentPolicyBlockedError(decision)\n    return identity",
+          "after": "    return identity",
+          "sha256": "3848295979a65d06cf3ba7f56cf43488902c4136ba2595490c9a4de1b685a9f8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v1_agent_key_auth.py::test_v1_openapi_operations_require_an_unbound_admin"
+      ],
+      "expected_failure": "test_v1_openapi_operations_require_an_unbound_admin"
+    },
+    {
+      "name": "v1-policy-admits-trusted-profile",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_agent_control.py",
+          "line": 508,
+          "before": "    if action == \"http.v1.access\" and profile != \"admin_agent\":",
+          "after": "    if action == \"http.v1.access\" and profile not in {\"trusted_local_agent\", \"admin_agent\"}:",
+          "sha256": "e70b4a4166cd4657701507194d19abf4b68e1a058f2d4844a46d7512e0752027"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v1_agent_key_auth.py::test_v1_openapi_operations_require_an_unbound_admin"
+      ],
+      "expected_failure": "test_v1_openapi_operations_require_an_unbound_admin"
+    },
+    {
+      "name": "v1-policy-serves-bound-admin",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_agent_control.py",
+          "line": 512,
+          "before": "    if action in {\"http.operator.access\", \"http.v1.access\"} and _operator_project_bound(identity):",
+          "after": "    if action in {\"http.operator.access\"} and _operator_project_bound(identity):",
+          "sha256": "e70b4a4166cd4657701507194d19abf4b68e1a058f2d4844a46d7512e0752027"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v1_agent_key_auth.py::test_v1_openapi_operations_require_an_unbound_admin"
+      ],
+      "expected_failure": "test_v1_openapi_operations_require_an_unbound_admin"
+    },
+    {
+      "name": "postgres-mcp-core-key-check-removed",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/policy.py",
+          "line": 85,
+          "before": "        else:\n            _refuse_keyless_postgres(context)",
+          "after": "        else:\n            pass",
+          "sha256": "141f61a481371b413e67d61f4b8ef1e7787ed6cf3eda60285ebf7c5ffd0c2308"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_active_key_install_boundaries_postgres.py::test_active_postgres_key_requires_mcp_server_key_before_every_tool"
+      ],
+      "expected_failure": "test_active_postgres_key_requires_mcp_server_key_before_every_tool"
+    },
+    {
+      "name": "postgres-mcp-legacy-key-check-removed",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/registry.py",
+          "line": 550,
+          "before": "not _is_sqlite_backend(context):\n        _refuse_keyless_postgres(context)",
+          "after": "not _is_sqlite_backend(context):\n        pass",
+          "sha256": "098a9c3dd18c92953c645f6339cbcb326aa1d6245f9282aad68846695611c67a"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_active_key_install_boundaries_postgres.py::test_active_postgres_key_requires_mcp_server_key_before_every_tool"
+      ],
+      "expected_failure": "test_active_postgres_key_requires_mcp_server_key_before_every_tool"
+    },
+    {
+      "name": "postgres-mcp-unreadable-key-count-serves",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/policy.py",
+          "line": 119,
+          "before": "    except Exception:\n        raise MCPPostgresKeyRequiredError(MCPPostgresKeyRequiredError.public_message) from None",
+          "after": "    except Exception:\n        return",
+          "sha256": "141f61a481371b413e67d61f4b8ef1e7787ed6cf3eda60285ebf7c5ffd0c2308"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_active_key_install_boundaries_postgres.py::test_postgres_mcp_refuses_when_active_key_count_is_unavailable"
+      ],
+      "expected_failure": "test_postgres_mcp_refuses_when_active_key_count_is_unavailable"
+    },
+    {
+      "name": "browser-capability-ceiling-removed",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 855,
+          "before": "                _check_browser_clip_capability_ceiling(store, request.sensitivity)",
+          "after": "                pass",
+          "sha256": "f8a48227d08228170fd60ae9045607f1f7b8080be3268e7e0d0be98ff5afe1e2"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_active_key_install_boundaries_postgres.py::test_browser_capability_uses_the_strictest_issuer_ceiling"
+      ],
+      "expected_failure": "test_browser_capability_uses_the_strictest_issuer_ceiling"
+    },
+    {
+      "name": "browser-capability-ceiling-from-admin-only",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/vnext_memories.py",
+          "line": 684,
+          "before": "        if admission.decision != \"blocked\" and _connector_capture_ceiling_decision(issuer, selected) is not None:",
+          "after": "        if admission.decision != \"blocked\" and profile == \"admin_agent\" and _connector_capture_ceiling_decision(issuer, selected) is not None:",
+          "sha256": "f8a48227d08228170fd60ae9045607f1f7b8080be3268e7e0d0be98ff5afe1e2"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_active_key_install_boundaries_postgres.py::test_browser_capability_uses_the_strictest_issuer_ceiling"
+      ],
+      "expected_failure": "test_browser_capability_uses_the_strictest_issuer_ceiling"
+    },
+    {
+      "name": "legacy-peer-judged-outside-development-only",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 1373,
+          "before": "    if not is_vnext_path and not _request_client_is_loopback(request, settings):",
+          "after": "    if not is_vnext_path and settings.app_env not in {\"development\", \"test\"} and not _request_client_is_loopback(request, settings):",
+          "sha256": "3848295979a65d06cf3ba7f56cf43488902c4136ba2595490c9a4de1b685a9f8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_keyed_install_legacy_peer.py::test_mounted_legacy_v0_operations_stay_on_loopback"
+      ],
+      "expected_failure": "test_mounted_legacy_v0_operations_stay_on_loopback"
     }
   ]
 }
