@@ -33708,9 +33708,9 @@
       "edits": [
         {
           "file": "tests/integration/test_what_changed_review_postgres.py",
-          "line": 137,
-          "before": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)",
-          "after": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)\n            if name == \"alice_what_changed\":\n                payload[\"chains\"] = []",
+          "line": 158,
+          "before": "            with keyless_owner(self):\n                pack = _vnext_context_pack_payload(context, arguments)",
+          "after": "            with keyless_owner(self):\n                pack = _vnext_context_pack_payload(context, arguments)\n            pack[\"relevant_memories\"] = [{\"id\": row[\"id\"]} for row in pack[\"relevant_memories\"]]",
           "sha256": "6085487525ad92e9c8a4214afac28fb81ce7cf6538d27ba00004557508a30e16"
         }
       ],
