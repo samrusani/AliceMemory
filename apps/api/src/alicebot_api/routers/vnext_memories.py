@@ -680,9 +680,8 @@ def _check_browser_clip_capability_ceiling(store: PostgresVNextStore, sensitivit
     selected = _connector_capture_sensitivity(store, "browser_clipper", sensitivity)
     for profile in PERMISSION_PROFILES:
         issuer = AgentIdentity(agent_id="browser-clip-policy", permission_profile=profile, auth="agent_api_key")
-        if evaluate_agent_policy(identity=issuer, action="http.operator.access").decision == "blocked":
-            continue
-        if _connector_capture_ceiling_decision(issuer, selected) is not None:
+        admission = evaluate_agent_policy(identity=issuer, action="http.operator.access")
+        if admission.decision != "blocked" and _connector_capture_ceiling_decision(issuer, selected) is not None:
             raise _BrowserClipCeilingRefusal
 
 
