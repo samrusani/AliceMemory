@@ -23,6 +23,7 @@ from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
+from tests.integration.redaction_containment_support import keyless_owner
 from tests.unit.test_recall_fallback_hidden_rows import (
     HIDDEN_FROM,
     KEYS,
@@ -65,9 +66,10 @@ class _Postgres:
     def call(self, key: str | None, tool: str, **arguments: object) -> dict[str, object]:
         if key:
             self.monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
-        else:
-            self.monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
-        return call_mcp_tool(self.context, name=tool, arguments=arguments)
+            return call_mcp_tool(self.context, name=tool, arguments=arguments)
+        self.monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+        with keyless_owner(self.h):
+            return call_mcp_tool(self.context, name=tool, arguments=arguments)
 
     def recall(self, key: str | None, **extra: object) -> dict[str, object]:
         return self.call(key, "alice_recall", query=QUERY, debug=True, **extra)

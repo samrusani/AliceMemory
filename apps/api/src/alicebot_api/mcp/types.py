@@ -128,6 +128,12 @@ class MCPNotPermittedError(MCPCodedToolError):
     code = "not_permitted"
 
 
+class MCPPostgresKeyRequiredError(MCPNotPermittedError):
+    """The PostgreSQL vault requires a key or could not be checked."""
+
+    public_message = "Set ALICE_AGENT_API_KEY for this server. Mint a PostgreSQL key with 'alicebot agent keys create'."
+
+
 class MCPIdentityClaimRefusedError(MCPNotPermittedError):
     """An identity claim exceeds what the caller's key grants."""
 

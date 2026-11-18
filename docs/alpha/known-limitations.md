@@ -4,6 +4,8 @@ This page lists what is limited now in v0.24.0. What an earlier release did, and
 
 On main (unreleased), installs with active keys serve `/v1` only to unbound `admin_agent` keys. Other keys use `/v0/vnext` or MCP.
 
+Unreleased (on main, not in v0.24.0): mounted legacy `/v0` routes require a loopback peer in every mode and still serve local callers without a key or label filtering.
+
 Not built in this alpha: no hosted cloud, no production SLA, and no team accounts, billing, cloud sync, mobile app or hosted deployment (out of scope); no managed Gmail or Calendar OAuth consent or account-linking flow (manual operator-token storage exists); no live email or calendar polling; no Telegram polling, delivery or channel transport.
 OCR, PDF OCR and voice transcription execution are not packaged. The scheduler is local, model providers need your configuration, and the Postgres setup is technical (the SQLite install is one command).
 

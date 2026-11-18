@@ -27,7 +27,7 @@ PAGE = ROOT / "docs/alpha/known-limitations.md"
 # a closing "See ..." pointer to the page that explains it does not count as one.
 # Fit 2026-10-21 to the shortened page, 2026-10-27 to the page with the bullet on source embeddings, and 2026-10-30 to the
 # page with the v0.23.0 header; refitted for v0.24.0.
-MAX_PAGE_CHARS = 13_451
+MAX_PAGE_CHARS = 13_620
 MAX_BULLET_CHARS = 800
 MAX_BULLET_SENTENCES = 2
 
@@ -197,6 +197,12 @@ def test_the_page_describes_v0240_and_marks_what_is_new_with_the_from_marker() -
     flat = " ".join(_text().split())
     assert "From v0.20.2" not in flat
     assert not re.search(r"\bin v0\.(19\.\d|20\.0)\b", flat), re.findall(r"\bin v0\.(?:19\.\d|20\.0)\b", flat)
+    unreleased_legacy = (
+        "Unreleased (on main, not in v0.24.0): mounted legacy `/v0` routes require a loopback peer in every mode "
+        "and still serve local callers without a key or label filtering."
+    )
+    assert flat.count(unreleased_legacy) == 1
+    flat = flat.replace(unreleased_legacy, "")
     assert "Unreleased (on main" not in flat
     assert "On main," not in flat
     rest = flat

@@ -24,7 +24,7 @@ from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_store import PostgresVNextStore
 
 
-def invoke(method, path, *, user_id, payload=None, key=None):
+def invoke(method, path, *, user_id, payload=None, key=None, origin=None):
     """Invoke the mounted HTTP application, preserving response headers."""
     messages = []
     body = json.dumps(payload).encode() if payload is not None else b""
@@ -43,6 +43,8 @@ def invoke(method, path, *, user_id, payload=None, key=None):
     headers = [(b"host", b"127.0.0.1:8000"), (b"content-type", b"application/json")]
     if key:
         headers.append((b"authorization", f"Bearer {key}".encode()))
+    if origin:
+        headers.append((b"origin", origin.encode()))
     scope = {
         "type": "http",
         "asgi": {"version": "3.0"},
@@ -73,10 +75,10 @@ class LabelHarness:
         with user_connection(self.urls["app"], self.user_id) as conn:
             yield PostgresVNextStore(conn)
 
-    def request(self, method, path, *, payload=None, key=None):
+    def request(self, method, path, *, payload=None, key=None, origin=None):
         if payload is not None:
             payload = {"user_id": str(self.user_id), **payload}
-        return invoke(method, path, user_id=self.user_id, payload=payload, key=key)
+        return invoke(method, path, user_id=self.user_id, payload=payload, key=key, origin=origin)
 
     def relabel(self, kind, row_id, **labels):
         # Call the real owner handler independently of the middleware's key-provisioning gate.

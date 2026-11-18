@@ -197,6 +197,8 @@ def test_the_known_limitations_page_names_no_release_for_unscheduled_work() -> N
     for described in (
         "v0.24.0-release-notes.md",
         "limited now in v0.24.0",
+        "Unreleased (on main, not in v0.24.0): mounted legacy `/v0` routes require a loopback peer in every mode "
+        "and still serve local callers without a key or label filtering.",
         "new in v0.24.0 is marked `From v0.24.0`",
         "what v0.23.0, v0.22.0 and v0.21.0 changed is marked `From v0.23.0`, `From v0.22.0` and `From v0.21.0`",
         "Open in v0.24.0,",

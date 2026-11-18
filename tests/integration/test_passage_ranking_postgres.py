@@ -7,6 +7,7 @@ scan. It does not assert the order of equal-looking rows: PostgreSQL ranks with
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import functools
 import io
 import json
@@ -27,6 +28,8 @@ from alicebot_api.vnext_retrieval import (
     VNextRetrievalService,
 )
 from alicebot_api.vnext_store import PostgresVNextStore
+from tests.integration.derived_labels_postgres_support import LabelHarness
+from tests.integration.redaction_containment_support import keyless_owner
 
 
 def _quiet(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -260,8 +263,9 @@ def test_both_doors_hide_a_confidential_source(migrated_database_urls, monkeypat
         )
     context = MCPRuntimeContext(database_url=migrated_database_urls["app"], user_id=user_id)
     arguments = {"query": "brass lantern", "sensitivity_allowed": ["public"]}
-    via_call = call_mcp_tool(context, name="alice_recall", arguments=arguments)
-    via_stdio = _stdio(context, arguments)
+    with keyless_owner(LabelHarness(migrated_database_urls, user_id)):
+        via_call = call_mcp_tool(context, name="alice_recall", arguments=arguments)
+        via_stdio = _stdio(context, arguments)
     assert via_call["sources"] == via_stdio["sources"]
     assert via_call["source_count"] == 2
     assert str(hidden["id"]) not in json.dumps(via_call, default=str)
@@ -336,7 +340,9 @@ def test_unset_is_document_mode_on_postgres_for_every_caller(
         else:
             monkeypatch.setenv("ALICE_AGENT_API_KEY", str(keys[caller]))
         seen.clear()
-        payload = call_mcp_tool(context, name="alice_recall", arguments={"query": "brass lantern"})
+        owner_scope = keyless_owner(LabelHarness(migrated_database_urls, user_id)) if caller == "owner" else nullcontext()
+        with owner_scope:
+            payload = call_mcp_tool(context, name="alice_recall", arguments={"query": "brass lantern"})
         assert len(seen) == 1
         return seen[0][0], payload
 

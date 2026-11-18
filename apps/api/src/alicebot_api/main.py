@@ -1370,11 +1370,11 @@ async def enforce_authenticated_user_identity(
                 status_code=404,
                 content={"detail": "legacy v0 API is disabled outside development and test"},
             )
-        if not _request_client_is_loopback(request, settings):
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "legacy v0 API is restricted to loopback clients"},
-            )
+    if not is_vnext_path and not _request_client_is_loopback(request, settings):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "legacy v0 API is restricted to loopback clients"},
+        )
 
     # The legacy /v0 routes have no agent key to present, so every request to them
     # is a keyless one: it must name this machine in Host, and any Origin it sends

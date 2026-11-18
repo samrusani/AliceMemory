@@ -60,6 +60,8 @@ only in development and test or with `LEGACY_V0_ENABLED_OUTSIDE_DEV`, take no
 agent key, so the identity layer applies the same rule to every request to them,
 whatever `Authorization` header it carries. A CORS preflight is not refused by it.
 
+Unreleased (on main, not in v0.24.0): mounted legacy `/v0` routes check for a loopback peer before `Host` and `Origin` in every mode. PostgreSQL MCP refuses keyless tool calls once the bound user has an active key. A browser clip capability on a keyed install uses the strictest sensitivity ceiling of any key allowed to issue one, and a ceiling refusal leaves the capability available for another attempt.
+
 From v0.20.0, the HTTP API caps a request body before any
 layer reads it, because a request that has not authenticated can still make the
 server read and parse what it sends. A pure ASGI layer, registered last so it is
