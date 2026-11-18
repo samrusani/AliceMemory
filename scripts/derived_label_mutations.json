@@ -323,10 +323,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 195,
+          "line": 197,
           "before": "omit content diagnostics for a caller with limits",
           "after": "show content diagnostics to a caller",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -996,10 +996,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 129,
+          "line": 131,
           "before": "stays refused to every key but an unbound `admin_agent`",
           "after": "stays refused",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -1176,10 +1176,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 129,
+          "line": 131,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -1516,10 +1516,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 50,
+          "line": 52,
           "before": "the count of a list that lost an id is recomputed or dropped",
           "after": "the count of a list that lost an id is kept",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -1532,10 +1532,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 55,
+          "line": 57,
           "before": "judged at most 128 rows of each list",
           "after": "listed",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -1548,10 +1548,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 130,
+          "line": 132,
           "before": "where it raised a server error",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -2050,10 +2050,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 132,
+          "line": 134,
           "before": "and the call writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry.",
           "after": "and the call is recorded.",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -2242,10 +2242,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 178,
+          "line": 180,
           "before": "A refused redact of an archived or redacted row now writes nothing, as a redact of an id the vault never held writes nothing: no policy event and no agent record.",
           "after": "A refused redact of an archived or redacted row is still recorded.",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -3988,10 +3988,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 51,
+          "line": 53,
           "before": "; from v0.21.0, a key with limits is not shown those",
           "after": "",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -4020,10 +4020,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 131,
+          "line": 133,
           "before": "The memory audit route (`GET /v0/vnext/memories/{id}/audit`) returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, so the ids of archived members stand there too (a derived memory that recorded a redacted memory as a member is read by the owner and an unbound admin key only), ",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -4036,10 +4036,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 123,
+          "line": 125,
           "before": "The context tree and the dogfooding view read the same rule. ",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -4698,10 +4698,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 115,
+          "line": 117,
           "before": "An artifact event that holds anything more still stops the redaction, so no text is left behind. ",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -4730,10 +4730,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 50,
+          "line": 52,
           "before": "the owner and an unbound admin key keep every id",
           "after": "every key keeps every id",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -4778,10 +4778,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 131,
+          "line": 133,
           "before": " The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says.",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -5177,10 +5177,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 117,
+          "line": 119,
           "before": "Redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "Redacting a memory leaves reports as they were",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -5209,10 +5209,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 53,
+          "line": 55,
           "before": "the reports and derived rows built from a redacted memory are readable by the owner and an unbound admin key only until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -5225,10 +5225,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 117,
+          "line": 119,
           "before": "This is temporary access containment, not removal",
           "after": "This is removal",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -5241,10 +5241,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 53,
+          "line": 55,
           "before": "removing it is planned, with no release set",
           "after": "removing it is done",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -5289,10 +5289,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 117,
+          "line": 119,
           "before": "say to regenerate or delete the reports built from a redacted memory",
           "after": "say nothing",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -5633,10 +5633,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 117,
+          "line": 119,
           "before": "is refused to a key that may not read the belief, with the answer of a missing belief, and a refused review changes nothing.",
           "after": "is open to every key.",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -5987,10 +5987,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 117,
+          "line": 119,
           "before": "A project end that names the project by a name or by an id that finds no project row hides nothing",
           "after": "A project end hides every edge",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -6051,10 +6051,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 53,
+          "line": 55,
           "before": "are readable by the owner and an unbound admin key only",
           "after": "are readable by every key that reads the report",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -6067,10 +6067,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 52,
+          "line": 54,
           "before": ", and a key that can read the report reads it",
           "after": "",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -6115,10 +6115,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 131,
+          "line": 133,
           "before": "but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says",
           "after": "but a report that recorded a redacted memory is read like any other report, as the entry on redacted memories says",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -6147,10 +6147,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 150,
+          "line": 152,
           "before": "The graph neighborhood and the edge review route apply the same ceiling to the rows an edge joins, as the entry on redacted memories and the security note say.",
           "after": "Graph edge explanations remain outside that ceiling, as disclosed in the security note.",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -6227,10 +6227,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 117,
+          "line": 119,
           "before": "The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. ",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -6243,10 +6243,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 46,
+          "line": 48,
           "before": "Open in v0.24.0, with the detail in the [security note]",
           "after": "Open in v0.24.0, but graph edge explanations remain outside that ceiling, with the detail in the [security note]",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -6259,10 +6259,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 131,
+          "line": 133,
           "before": "Two answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; and a memory commit",
           "after": "Three answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; the graph neighborhood route, which returns the edges of any id with their explanations; and a memory commit",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -6662,7 +6662,7 @@
           "line": 765,
           "before": "        (\"GET\", \"/v0/vnext/memories/recent-commits\"),\n",
           "after": "",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -6675,10 +6675,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/main.py",
-          "line": 1361,
+          "line": 1367,
           "before": "    if settings.app_env not in {\"development\", \"test\"} and not is_vnext_path:",
           "after": "    if False and not is_vnext_path:",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -7608,10 +7608,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 114,
+          "line": 116,
           "before": "The CTE now names the picked id `next_id`. ",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -7848,10 +7848,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 114,
+          "line": 116,
           "before": " A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made. The event guard judges that artifact like the artifact of any other event, so the workspace feed of a key with a ceiling holds neither event, and not the id of the artifact, when the task was above its ceiling, and its event count leaves both out. The claim and the failure of a task name no artifact and hold the id of the task, which the entry on the operator routes lists for the creation events of a queued task.",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -7896,10 +7896,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 119,
+          "line": 121,
           "before": ", and, for a task that a worker has claimed, `task.claimed`, and `task.updated` and `queue.task_failed` when it failed",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -8203,10 +8203,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 120,
+          "line": 122,
           "before": "The filter on the target stays: an event about a row the trace does not list is still left out. ",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -8219,10 +8219,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 121,
+          "line": 123,
           "before": "so no caller left an event that names an object it may not read",
           "after": "so a caller may have left an event",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -8459,10 +8459,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 120,
+          "line": 122,
           "before": "A key with limits is read the newest 2,000 events that the trace asks for, as the event feeds are",
           "after": "A key with limits is read every event that the trace asks for",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -8491,10 +8491,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 121,
+          "line": 123,
           "before": "which by default leaves out the confidential levels, is not a limit: the owner",
           "after": "which by default leaves out the confidential levels, is a limit: the owner",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -8587,10 +8587,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 120,
+          "line": 122,
           "before": "only the events aimed at the source or at a row the trace lists count against that reach",
           "after": "every event of the source counts against that reach",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -8859,10 +8859,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 134,
+          "line": 136,
           "before": "out of the `created_count` of the `open_loop.extraction_completed` event, as a missing row is, and nothing about it is returned",
           "after": "as a missing row is, and nothing about it is returned",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -9424,10 +9424,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 116,
+          "line": 118,
           "before": "The quote a commit saved of a memory is withheld from a caller who may not read that memory",
           "after": "The quote a commit saved of a memory is shown to every caller",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -9456,10 +9456,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 54,
+          "line": 56,
           "before": "keeps the title and description its caller typed, so words of the memory stay readable to every key that reads the loop",
           "after": "keeps the title and description its caller typed, so words of the memory are withheld from every key that reads the loop",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -10145,10 +10145,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 116,
+          "line": 118,
           "before": "and the recent events and the agent activity of the workspace and the events of a source trace hold the payload of a confirmed commit to the same rule.",
           "after": "and nothing else holds a confirmed commit to it.",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -10435,10 +10435,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 116,
+          "line": 118,
           "before": "the recent events and the agent activity of the workspace and the events of a source trace hold the payload",
           "after": "the recent events of the workspace and the events of a source trace hold the payload",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -10483,10 +10483,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 116,
+          "line": 118,
           "before": "(a `#` fragment after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`, and a field that holds an id and more than an id reads `null`)",
           "after": "(a `#` fragment after a reference is kept)",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -10963,10 +10963,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 116,
+          "line": 118,
           "before": "and the names of the fields are withheld with their values: the entry keeps a field only when its name is one the product writes",
           "after": "and the entry keeps every field",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -12052,10 +12052,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 116,
+          "line": 118,
           "before": "An entry beside such a ref that names nothing the caller may read is held to the same rule (a bare string and a `text` field go with the `quote`), one that names a stored source or memory the caller may read keeps its text and loses the names the product does not write with their values, and so are the refs a source made by the agent-output ingest keeps (the source routes, the source trace, the artifact trace, the context pack, the workspace and the connector status), the metadata of a quality rating and the allowed sources and scope of a queued task; the report of a consolidation run and the artifact a queue worker makes are derived from the memories their refs and tasks name, and `alicebot vnext memories audit` with an agent key applies the reader. ",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -13338,7 +13338,7 @@
           "line": 281,
           "before": "    reserved = reserved_project_marker(value)\n",
           "after": "    reserved = None\n",
-          "sha256": "1cf62e591c56d3af3248532975d5b3bc05b812028b15e1be0c44801fc4ac1528"
+          "sha256": "e70b4a4166cd4657701507194d19abf4b68e1a058f2d4844a46d7512e0752027"
         }
       ],
       "pytest": [
@@ -13354,7 +13354,7 @@
           "line": 281,
           "before": "    reserved = reserved_project_marker(value)\n",
           "after": "    reserved = None\n",
-          "sha256": "1cf62e591c56d3af3248532975d5b3bc05b812028b15e1be0c44801fc4ac1528"
+          "sha256": "e70b4a4166cd4657701507194d19abf4b68e1a058f2d4844a46d7512e0752027"
         }
       ],
       "pytest": [
@@ -13370,7 +13370,7 @@
           "line": 281,
           "before": "    reserved = reserved_project_marker(value)\n",
           "after": "    reserved = None\n",
-          "sha256": "1cf62e591c56d3af3248532975d5b3bc05b812028b15e1be0c44801fc4ac1528"
+          "sha256": "e70b4a4166cd4657701507194d19abf4b68e1a058f2d4844a46d7512e0752027"
         }
       ],
       "pytest": [
@@ -13383,10 +13383,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_control.py",
-          "line": 481,
+          "line": 485,
           "before": "    if reserved_project_marker(identity.project_scope) is not None:\n",
           "after": "    if False:\n",
-          "sha256": "1cf62e591c56d3af3248532975d5b3bc05b812028b15e1be0c44801fc4ac1528"
+          "sha256": "e70b4a4166cd4657701507194d19abf4b68e1a058f2d4844a46d7512e0752027"
         }
       ],
       "pytest": [
@@ -13399,10 +13399,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_control.py",
-          "line": 481,
+          "line": 485,
           "before": "    if reserved_project_marker(identity.project_scope) is not None:\n",
           "after": "    if identity.project_scope:\n",
-          "sha256": "1cf62e591c56d3af3248532975d5b3bc05b812028b15e1be0c44801fc4ac1528"
+          "sha256": "e70b4a4166cd4657701507194d19abf4b68e1a058f2d4844a46d7512e0752027"
         }
       ],
       "pytest": [
@@ -13415,10 +13415,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_control.py",
-          "line": 481,
+          "line": 485,
           "before": "    if reserved_project_marker(identity.project_scope) is not None:\n",
           "after": "    if identity.project_scope:\n",
-          "sha256": "1cf62e591c56d3af3248532975d5b3bc05b812028b15e1be0c44801fc4ac1528"
+          "sha256": "e70b4a4166cd4657701507194d19abf4b68e1a058f2d4844a46d7512e0752027"
         }
       ],
       "pytest": [
@@ -13511,10 +13511,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 108,
+          "line": 110,
           "before": "In v0.20.0 the name was an ordinary one, a key bound to it read only",
           "after": "In v0.20.0 the name was an ordinary one, so this is a regression of main and no release had it. A key bound to it read only",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -13735,10 +13735,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 109,
+          "line": 111,
           "before": "In v0.19.2 and in v0.20.0 an unbound `trusted_local_agent` key, whose ceiling is `public`, `internal`, `private` and `unknown`, was shown the path of a confidential file",
           "after": "In v0.20.0 an unbound `trusted_local_agent` key, whose ceiling is `public`, `internal`, `private` and `unknown`, was shown the path of a confidential file",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -13959,10 +13959,10 @@
       "edits": [
         {
           "file": "docs/alpha/agent-integration.md",
-          "line": 435,
+          "line": 438,
           "before": "standard text), which does not name the reason. The reason and the commands\nthat find and revoke the key are written to the server log at warning level;\nthe line names no key, which `alicebot agent keys list` shows with its\n`project_scope`.",
           "after": "standard text).",
-          "sha256": "829b8baa202891b167935e21ad968a7a2e519c2d59ce803ef0843e7cc3635952"
+          "sha256": "059dadb96e2add50ee0a27caac49f1085eba0771df634490f49b465261801b53"
         }
       ],
       "pytest": [
@@ -13975,10 +13975,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 108,
+          "line": 110,
           "before": "Each surface answers with its standard refusal and none of them names the reason: the HTTP body is the standard forbidden message and the tool error is the standard text of its code. ",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -13991,10 +13991,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 109,
+          "line": 111,
           "before": "One case stays: a key that imports a public item at a path it already knows (it was told the path or guessed it) is then shown a failed import of that same path, so it can confirm that a failed import of a path it can name exists; it learns the path it sent and nothing about the file. ",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -14423,10 +14423,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 138,
+          "line": 140,
           "before": "A report that a relabel during the run raised after the run had read its inputs is judged the same way: it is stored with the current floor, and a caller who may not read it is answered as for a missing artifact. ",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -15287,10 +15287,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/main.py",
-          "line": 1449,
+          "line": 1455,
           "before": "app.add_middleware(RetryDeepRowMiddleware)\n",
           "after": "pass\n",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -15657,10 +15657,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 111,
+          "line": 113,
           "before": "A direct call of the commit service stored an entry nested about 950 levels deep (in v0.19.2 and in v0.20.0)",
           "after": "The HTTP route and the MCP commit tool stored an entry nested about 950 levels deep (in v0.19.2 and in v0.20.0)",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -15673,10 +15673,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 111,
+          "line": 113,
           "before": "A request or tool call that may have written is never run twice, because it may have committed before it failed: ",
           "after": "",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -15689,10 +15689,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 111,
+          "line": 113,
           "before": "so a write that reads it, `forget` and `expire` among them, writes the placeholder back into the row and into the audit event it appends.",
           "after": "so a write that reads it keeps the row whole.",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -15705,10 +15705,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 111,
+          "line": 113,
           "before": "so a retried call leaves the events an ordinary call leaves",
           "after": "so a retried call leaves its events twice",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -17934,10 +17934,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_agent_control.py",
-          "line": 789,
+          "line": 798,
           "before": "    if is_remembered(replay_durable(remembered)):\n        return\n",
           "after": "    if False:\n        return\n",
-          "sha256": "1cf62e591c56d3af3248532975d5b3bc05b812028b15e1be0c44801fc4ac1528"
+          "sha256": "e70b4a4166cd4657701507194d19abf4b68e1a058f2d4844a46d7512e0752027"
         }
       ],
       "pytest": [
@@ -19695,10 +19695,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/main.py",
-          "line": 1441,
+          "line": 1447,
           "before": "        *[(name, value) for name, value in response.raw_headers if name.lower() != b\"content-length\"],",
           "after": "        *list({name.lower(): (name, value) for name, value in response.raw_headers if name.lower() != b\"content-length\"}.values()),",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -19711,10 +19711,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/main.py",
-          "line": 1431,
+          "line": 1437,
           "before": "named_body=bytes(named_body))",
           "after": "named_body=b\"\")",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -19807,10 +19807,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/main.py",
-          "line": 1442,
+          "line": 1448,
           "before": "        *[(name, value) for name, value in rebuilt.raw_headers if name == b\"content-length\"],",
           "after": "        (b\"content-length\", str(len(content)).encode(\"latin-1\")),",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -20054,10 +20054,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/main.py",
-          "line": 1431,
+          "line": 1437,
           "before": "    updated = withhold_json_body(request, raw, database_url=get_settings().database_url, named_body=bytes(named_body))\n",
           "after": "    if response.status_code == 422:\n        request.state.request_validation_echo = True\n    updated = withhold_json_body(request, raw, database_url=get_settings().database_url, named_body=bytes(named_body))\n",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -20070,10 +20070,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/main.py",
-          "line": 1431,
+          "line": 1437,
           "before": "named_body=bytes(named_body))",
           "after": "named_body=b\"\")",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -20244,10 +20244,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 52,
+          "line": 54,
           "before": "; hiding these words is planned, with no release set",
           "after": "",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -27213,7 +27213,7 @@
           "line": 8,
           "before": "MCP gives Hermes the default four tools",
           "after": "MCP gives Hermes four tools",
-          "sha256": "970216fb989d68afa9dbc20a844c4678c0799cc2e8597e11b83c29bcfbb3e5d1"
+          "sha256": "5fed54520aead266734224b4f58a03949a756e9a3770948fc101ea7128a2c7a5"
         }
       ],
       "pytest": [
@@ -28106,10 +28106,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 30,
+          "line": 32,
           "before": "`identity_claim_refused`, `not_permitted`, `not_found` and `precondition_failed`",
           "after": "`not_permitted`, `not_found` and `precondition_failed`",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -29213,7 +29213,7 @@
           "line": 1052,
           "before": "allow_partial = raw_key is not None and any(",
           "after": "allow_partial = False and raw_key is not None and any(",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -29293,7 +29293,7 @@
           "line": 920,
           "before": "payload=_keyed_http_identity_defaults(payload) if raw_key is not None else payload,",
           "after": "payload=payload,",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -29309,7 +29309,7 @@
           "line": 920,
           "before": "payload=_keyed_http_identity_defaults(payload) if raw_key is not None else payload,",
           "after": "payload=payload,",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -30253,7 +30253,7 @@
           "line": 900,
           "before": "    return evaluate_agent_policy(identity=identity, action=\"http.operator.access\")",
           "after": "    return None",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -30346,10 +30346,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 10,
+          "line": 12,
           "before": "- idempotency keys are shared across the vault, and a caller who knows one can test a guess of a hidden write ([remember](../memory-operations-protocol.md#remember)); use idempotency keys that cannot be guessed",
           "after": "",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -30362,10 +30362,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 11,
+          "line": 13,
           "before": "- expiring a write awaiting its own confirmation leaves that confirmation usable; accepting it makes the row active with an expiry in the past ([confirm](../memory-operations-protocol.md#confirm-and-reject-rules))",
           "after": "",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -30525,7 +30525,7 @@
           "line": 295,
           "before": "    if agent_id.casefold() == \"openclaw\":\n        return \"coding_agent\"",
           "after": "    if agent_id.casefold() == \"openclaw\":\n        return \"unknown\"",
-          "sha256": "1cf62e591c56d3af3248532975d5b3bc05b812028b15e1be0c44801fc4ac1528"
+          "sha256": "e70b4a4166cd4657701507194d19abf4b68e1a058f2d4844a46d7512e0752027"
         }
       ],
       "pytest": [
@@ -30682,10 +30682,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/main.py",
-          "line": 1378,
+          "line": 1384,
           "before": "    if not is_vnext_path and request.method != \"OPTIONS\":\n        legacy_refusal = keyless_request_refusal(request, settings)",
           "after": "    if not is_vnext_path and request.headers.get(\"authorization\"):\n        return JSONResponse(status_code=403, content={\"detail\": \"legacy key refused\"})\n    if not is_vnext_path and request.method != \"OPTIONS\":\n        legacy_refusal = keyless_request_refusal(request, settings)",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -30781,7 +30781,7 @@
           "line": 900,
           "before": "    return evaluate_agent_policy(identity=identity, action=\"http.operator.access\")",
           "after": "    return None",
-          "sha256": "4e34e3f4bf70f90763b38d68bf798641989faf0f10a613296a9b4a33e865bc15"
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
         }
       ],
       "pytest": [
@@ -30826,10 +30826,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 12,
+          "line": 14,
           "before": "- rows written before the first key keep their standing, and revoking the last key restores keyless briefs even for a presented revoked key. From v0.24.0, lessons written before the first key keep their standing too ([authentication](agent-integration.md#authentication))",
           "after": "- rows written before the first key keep their standing, and revoking the last key restores keyless briefs even for a presented revoked key. lessons written before the first key keep their standing too ([authentication](agent-integration.md#authentication))",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -30842,10 +30842,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 13,
+          "line": 15,
           "before": "- From v0.24.0, retirement of a write waiting for review is limited to its decision makers, while its writer can retire a row waiting for their own reply ([standing](../memory-operations-protocol.md#standing-to-retire-a-memory))",
           "after": "- retirement of a write waiting for review is limited to its decision makers, while its writer can retire a row waiting for their own reply ([standing](../memory-operations-protocol.md#standing-to-retire-a-memory))",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -30858,10 +30858,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 14,
+          "line": 16,
           "before": "- the two built-in agent ids record different types through MCP and through a nested HTTP identity with no type ([identity](agent-integration.md#agent-identity-fields))",
           "after": "",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -30874,10 +30874,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 15,
+          "line": 17,
           "before": "- some audit records omit actors or keep the original writer, a hidden change leaves no event, and a stored agent row shows its last claimed profile ([audit](../memory-operations-protocol.md#audit-guarantees))",
           "after": "",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -30890,10 +30890,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 16,
+          "line": 18,
           "before": "- From v0.24.0, every key of a project can read its waiting and rejected lessons through the full review and explain tools; explain returns the decision reason ([lessons](shared-lessons.md))",
           "after": "- every key of a project can read its waiting and rejected lessons through the full review and explain tools; explain returns the decision reason ([lessons](shared-lessons.md))",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -30906,10 +30906,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 17,
+          "line": 19,
           "before": "- From v0.24.0, a lesson's reader sees the writer and publishing agent ids ([lessons](shared-lessons.md)); choose neutral agent ids",
           "after": "- a lesson's reader sees the writer and publishing agent ids ([lessons](shared-lessons.md)); choose neutral agent ids",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -30922,10 +30922,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 18,
+          "line": 20,
           "before": "- From v0.24.0, `alice_lessons` reads a projection of every lesson the caller may read, so its cost grows with that number ([lessons](shared-lessons.md))",
           "after": "- `alice_lessons` reads a projection of every lesson the caller may read, so its cost grows with that number ([lessons](shared-lessons.md))",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -30938,10 +30938,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 19,
+          "line": 21,
           "before": "- with project scoping on and a project detected in the default view, a key's brief and session hook return no brief ([projects](projects.md#the-project-brief))",
           "after": "",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -30954,10 +30954,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 20,
+          "line": 22,
           "before": "- `alice_explain` fails on a readable row linked to a source the caller cannot read ([cited sources](mcp-tools.md#cited-sources))",
           "after": "",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -30970,10 +30970,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 21,
+          "line": 23,
           "before": "- outside capture commands, a CLI policy refusal is reported as `filesystem_operation_failed` ([CLI](../integrations/cli.md#determinism-contract))",
           "after": "",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -30986,10 +30986,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 22,
+          "line": 24,
           "before": "- the dedicated Telegram and local-folder sync routes are shadowed and their request bodies get HTTP 422 ([connectors](mcp-tools.md#saved-quotes))",
           "after": "",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -31002,10 +31002,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 60,
+          "line": 62,
           "before": "Do not describe this alpha as hosted SaaS, production-ready, or automatic memory autopilot.",
           "after": "Do not describe this alpha as hosted SaaS, production-ready, or automatic memory autopilot.\nThis page is longer.",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -32060,10 +32060,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 23,
+          "line": 25,
           "before": "An agent source capture above its sensitivity ceiling is refused without storing the source",
           "after": "An agent source capture above its sensitivity ceiling is accepted",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -32159,7 +32159,7 @@
           "line": 3,
           "before": "This page lists what is limited now in v0.24.0.",
           "after": "This page lists what is limited now in v0.23.0.",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -32172,10 +32172,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 13,
+          "line": 15,
           "before": "From v0.24.0, retirement of a write waiting for review",
           "after": "On main, retirement of a write waiting for review",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -32188,10 +32188,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 7,
+          "line": 9,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -32204,10 +32204,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 7,
+          "line": 9,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -32220,10 +32220,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 7,
+          "line": 9,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -32236,10 +32236,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 7,
+          "line": 9,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -32252,10 +32252,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 7,
+          "line": 9,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -32268,10 +32268,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 7,
+          "line": 9,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -32284,10 +32284,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 7,
+          "line": 9,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -32300,10 +32300,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 7,
+          "line": 9,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -32316,10 +32316,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 7,
+          "line": 9,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -32332,10 +32332,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 7,
+          "line": 9,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -32588,10 +32588,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 46,
+          "line": 48,
           "before": "Open in v0.24.0,",
           "after": "Open in v0.23.0,",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -32604,10 +32604,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 46,
+          "line": 48,
           "before": "Open in v0.24.0,",
           "after": "Open in v0.23.0,",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -32620,10 +32620,10 @@
       "edits": [
         {
           "file": "docs/alpha/known-limitations.md",
-          "line": 52,
+          "line": 54,
           "before": "hiding these words is planned, with no release set",
           "after": "hiding these words is planned for v0.24.0",
-          "sha256": "3dcd781cf1dc0aade94d1c2ce00a530579029aeebd0143a85d42aa39b97a1771"
+          "sha256": "a206f19e18cd934228a40a8d81651d9c038a1aadfc0ed178947c8701401622c3"
         }
       ],
       "pytest": [
@@ -33084,10 +33084,10 @@
       "edits": [
         {
           "file": "CHANGELOG.md",
-          "line": 7,
+          "line": 9,
           "before": "2026-11-17\n\n- Install refuses",
           "after": "2026-11-17\n\nAn undated entry.\n\n- Install refuses",
-          "sha256": "705cf06a5ca27c17b6d54413114054e5c2bfef63fb9d993545bc46a4974c1827"
+          "sha256": "8922792d2cb165c883f45fdcf93e1b7c494868d278943615c7b2b66f89777c92"
         }
       ],
       "pytest": [
@@ -33174,6 +33174,182 @@
         "tests/unit/test_vnext_release_polish.py::test_ci_action_dependency_carrier_uses_exact_atomic_pins"
       ],
       "expected_failure": "test_ci_action_dependency_carrier_uses_exact_atomic_pins"
+    },
+    {
+      "name": "v1-operator-denies-unbound-admin",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_agent_control.py",
+          "line": 508,
+          "before": "    if action == \"http.v1.access\" and profile != \"admin_agent\":",
+          "after": "    if action == \"http.v1.access\":",
+          "sha256": "e70b4a4166cd4657701507194d19abf4b68e1a058f2d4844a46d7512e0752027"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v1_agent_key_auth.py::test_v1_openapi_operations_require_an_unbound_admin"
+      ],
+      "expected_failure": "test_v1_openapi_operations_require_an_unbound_admin"
+    },
+    {
+      "name": "v1-operator-profile-reason-missing",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_agent_control.py",
+          "line": 509,
+          "before": "        reasons.append(\"admin_agent_required_for_v1_route\")\n",
+          "after": "",
+          "sha256": "e70b4a4166cd4657701507194d19abf4b68e1a058f2d4844a46d7512e0752027"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_v1_operator_policy_postgres.py::test_v1_refusal_commits_policy_events_without_dispatch"
+      ],
+      "expected_failure": "test_v1_refusal_commits_policy_events_without_dispatch"
+    },
+    {
+      "name": "v1-operator-binding-reason-missing",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_agent_control.py",
+          "line": 513,
+          "before": "        reasons.append(\"unbound_operator_key_required\")\n",
+          "after": "",
+          "sha256": "e70b4a4166cd4657701507194d19abf4b68e1a058f2d4844a46d7512e0752027"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_v1_operator_policy_postgres.py::test_v1_refusal_commits_policy_events_without_dispatch"
+      ],
+      "expected_failure": "test_v1_refusal_commits_policy_events_without_dispatch"
+    },
+    {
+      "name": "v1-operator-refusal-events-missing",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 1179,
+          "before": "        if decision.decision == \"blocked\":\n            append_policy_events(store, identity=identity, decision=decision, target_type=\"http_route\", target_id=\"/v1\")\n",
+          "after": "",
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_v1_operator_policy_postgres.py::test_v1_refusal_commits_policy_events_without_dispatch"
+      ],
+      "expected_failure": "test_v1_refusal_commits_policy_events_without_dispatch"
+    },
+    {
+      "name": "v1-auth-middleware-drops-identity",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 1247,
+          "before": "    request.state.v1_agent_identity = identity\n",
+          "after": "    request.state.v1_agent_identity = None\n",
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v1_agent_key_auth.py::test_v1_request_with_a_valid_key_resolves_that_keys_identity"
+      ],
+      "expected_failure": "test_v1_request_with_a_valid_key_resolves_that_keys_identity"
+    },
+    {
+      "name": "v1-auth-malformed-answer-is-forbidden",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 1242,
+          "before": "    except AgentIdentityValidationError as exc:\n        return public_exception_response(exc, status_code=400)\n    except AgentPolicyBlockedError as exc:\n",
+          "after": "    except AgentIdentityValidationError as exc:\n        return public_exception_response(exc, status_code=403)\n    except AgentPolicyBlockedError as exc:\n",
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_v1_agent_key_auth.py::test_v1_authentication_answers_before_operator_policy"
+      ],
+      "expected_failure": "test_v1_authentication_answers_before_operator_policy"
+    },
+    {
+      "name": "v1-operator-provider-carrier-drift",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 1166,
+          "before": "\"\"\"Authenticate and record a keyed ``/v1`` policy refusal before returning it.\"\"\"",
+          "after": "\"\"\"Check a request.\"\"\"",
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_providers_router_split.py::test_main_carrier_is_unchanged_and_owns_no_moved_definition"
+      ],
+      "expected_failure": "test_main_carrier_is_unchanged_and_owns_no_moved_definition"
+    },
+    {
+      "name": "v1-operator-provider-carrier-serializer",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 1244,
+          "before": "    except AgentPolicyBlockedError as exc:\n        return public_exception_response(exc, status_code=403)\n",
+          "after": "    except AgentPolicyBlockedError:\n        return JSONResponse(status_code=403, content={\"detail\": {\"code\": \"forbidden\", \"message\": \"The requested action is not permitted\"}})\n",
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_providers_router_split.py::test_public_error_and_coverage_controls_include_provider_router_once"
+      ],
+      "expected_failure": "test_public_error_and_coverage_controls_include_provider_router_once"
+    },
+    {
+      "name": "v1-operator-workspace-carrier-drift",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 1166,
+          "before": "\"\"\"Authenticate and record a keyed ``/v1`` policy refusal before returning it.\"\"\"",
+          "after": "\"\"\"Check a request.\"\"\"",
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_workspaces_router_split.py::test_workspace_import_direction_pruning_timing_and_runtime_identities_are_exact"
+      ],
+      "expected_failure": "test_workspace_import_direction_pruning_timing_and_runtime_identities_are_exact"
+    },
+    {
+      "name": "v1-operator-workspace-carrier-serializer",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 1244,
+          "before": "    except AgentPolicyBlockedError as exc:\n        return public_exception_response(exc, status_code=403)\n",
+          "after": "    except AgentPolicyBlockedError:\n        return JSONResponse(status_code=403, content={\"detail\": {\"code\": \"forbidden\", \"message\": \"The requested action is not permitted\"}})\n",
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_workspaces_router_split.py::test_workspace_test_patches_and_release_controls_follow_moved_ownership"
+      ],
+      "expected_failure": "test_workspace_test_patches_and_release_controls_follow_moved_ownership"
+    },
+    {
+      "name": "v1-operator-public-error-inventory",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/main.py",
+          "line": 1244,
+          "before": "    except AgentPolicyBlockedError as exc:\n        return public_exception_response(exc, status_code=403)\n",
+          "after": "    except AgentPolicyBlockedError:\n        return JSONResponse(status_code=403, content={\"detail\": {\"code\": \"forbidden\", \"message\": \"The requested action is not permitted\"}})\n",
+          "sha256": "0b424cc65cfcb4aacaf23f388a6d49df7bf5980cc35acb7fed30c12ba02dbc73"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_public_errors.py::test_http_modules_have_no_exception_text_to_public_response_conversion"
+      ],
+      "expected_failure": "test_http_modules_have_no_exception_text_to_public_response_conversion"
     }
   ]
 }

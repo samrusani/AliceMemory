@@ -4,6 +4,7 @@ import asyncio
 from contextlib import contextmanager
 import json
 import logging
+import re
 from typing import Any, Iterator
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
@@ -24,6 +25,7 @@ _AUTHENTICATION_FAILED = {
         "message": "Authentication failed",
     }
 }
+_FORBIDDEN = {"detail": {"code": "forbidden", "message": "The requested action is not permitted"}}
 
 # A credential-shaped literal is the point of these tests: the fixture proves
 # that presenting a key changes the outcome.
@@ -281,6 +283,7 @@ def test_v1_request_with_a_valid_key_resolves_that_keys_identity(monkeypatch: py
     user_id = uuid4()
     settings = _settings(user_id)
     store = _AgentKeyStore(user_id=user_id)
+    store.record["permission_profile"] = "admin_agent"
     _install_agent_key_store(monkeypatch, store, settings=settings)
 
     response, reached = _run_v1_middleware(
@@ -296,9 +299,92 @@ def test_v1_request_with_a_valid_key_resolves_that_keys_identity(monkeypatch: py
     identity = reached[0].state.v1_agent_identity
     assert identity is not None
     assert identity.agent_id == "v1-fixture-agent"
-    assert identity.permission_profile == "read_only_agent"
+    assert identity.permission_profile == "admin_agent"
     assert identity.auth == "agent_api_key"
     assert store.touched == [str(store.record["id"])]
+
+
+@pytest.mark.parametrize(
+    ("profile", "project", "allowed"),
+    (
+        ("read_only_agent", None, False),
+        ("memory_proposal_agent", None, False),
+        ("project_scoped_agent", "alpha", False),
+        ("trusted_local_agent", None, False),
+        ("trusted_local_agent", "alpha", False),
+        ("admin_agent", "alpha", False),
+        ("admin_agent", None, True),
+    ),
+)
+def test_v1_openapi_operations_require_an_unbound_admin(
+    monkeypatch: pytest.MonkeyPatch, profile: str, project: str | None, allowed: bool,
+) -> None:
+    """In v0.24.0 any valid key reached downstream dispatch."""
+    user_id = uuid4()
+    store = _AgentKeyStore(user_id=user_id)
+    store.record.update(permission_profile=profile, project_scope=project)
+    _install_agent_key_store(monkeypatch, store, settings=_settings(user_id))
+    operations = [
+        (method.upper(), re.sub(r"\{[^}]+\}", str(uuid4()), path))
+        for path, item in main_module.app.openapi()["paths"].items()
+        if path == "/v1" or path.startswith("/v1/")
+        for method in item
+        if method in {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+    ]
+    assert operations
+    for method, path in operations:
+        response, reached = _run_v1_middleware(
+            _build_request(method, path, authorization=f"Bearer {_FIXTURE_AGENT_KEY}"),
+        )
+        if allowed or method == "OPTIONS":
+            assert response.status_code == 204 and len(reached) == 1, (method, path)
+        else:
+            assert response.status_code == 403 and reached == [], (method, path)
+            assert json.loads(response.body) == _FORBIDDEN
+
+
+@pytest.mark.parametrize(
+    ("credential", "malformed", "method", "foreign_user", "status"),
+    (
+        ("none", False, "POST", False, 401),
+        ("none", True, "POST", False, 401),
+        ("unknown", False, "POST", False, 401),
+        ("unknown", True, "POST", False, 400),
+        ("revoked", False, "POST", False, 401),
+        ("revoked", True, "POST", False, 400),
+        ("valid", True, "POST", False, 400),
+        ("valid", False, "POST", True, 401),
+        ("none", False, "OPTIONS", False, 204),
+    ),
+)
+def test_v1_authentication_answers_before_operator_policy(
+    monkeypatch: pytest.MonkeyPatch, credential: str, malformed: bool,
+    method: str, foreign_user: bool, status: int,
+) -> None:
+    user_id = uuid4()
+    store = _AgentKeyStore(user_id=user_id)
+    if credential == "revoked":
+        store.record["revoked_at"] = "2026-01-01T00:00:00Z"
+    _install_agent_key_store(monkeypatch, store, settings=_settings(user_id))
+    authorization = {
+        "none": None,
+        "unknown": "Bearer alice_sk_unissued_v1_fixture",
+        "revoked": f"Bearer {_FIXTURE_AGENT_KEY}",
+        "valid": f"Bearer {_FIXTURE_AGENT_KEY}",
+    }[credential]
+    body: dict[str, object] = {"user_id": str(uuid4() if foreign_user else user_id)}
+    if malformed:
+        body.update(agent_id="v1-fixture-agent", agent_type="invalid-type")
+    response, reached = _run_v1_middleware(
+        _build_request(method, "/v1/policy-probe", authorization=authorization, body=body),
+    )
+    assert response.status_code == status
+    assert len(reached) == (1 if method == "OPTIONS" else 0)
+    if status == 401:
+        assert json.loads(response.body) == _AUTHENTICATION_FAILED
+    elif status == 400:
+        assert json.loads(response.body) == {"detail": {"code": "invalid_request", "message": "The request is invalid"}}
+    assert store.events == []
 
 
 def test_v1_payload_user_id_cannot_widen_privilege(

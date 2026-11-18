@@ -218,6 +218,9 @@ Permission profiles:
 - `memory_proposal_agent`: proposal-focused agent
 - `admin_agent`: scheduler and administrative actions
 
+On main (unreleased), installs with active keys serve `/v1` only to unbound
+`admin_agent` keys. Other keys use `/v0/vnext` or MCP.
+
 Every profile except `trusted_local_agent` and `admin_agent` is held back from the
 family, health, spiritual, legal and financial domains. From v0.20.2, that holds when a request names no domain too, not only when it names one.
 See [MCP tools](mcp-tools.md#domains-a-profile-may-read).

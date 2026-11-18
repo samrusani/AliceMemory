@@ -363,6 +363,10 @@ def resource_project_scope(resource: Mapping[str, object] | None) -> tuple[str, 
     return resolve_project_scope(resource).values
 
 
+def _operator_project_bound(identity: AgentIdentity) -> bool:
+    return identity.project_scope_locked or bool(identity.project_scope)
+
+
 def evaluate_agent_policy(
     *,
     identity: AgentIdentity | None,
@@ -500,9 +504,14 @@ def evaluate_agent_policy(
         if profile not in {"trusted_local_agent", "admin_agent"}:
             reasons.append("trusted_or_admin_agent_required_for_operator_route")
             decision = "blocked"
-        if identity.project_scope_locked or identity.project_scope:
-            reasons.append("unbound_operator_key_required")
-            decision = "blocked"
+
+    if action == "http.v1.access" and profile != "admin_agent":
+        reasons.append("admin_agent_required_for_v1_route")
+        decision = "blocked"
+
+    if action in {"http.operator.access", "http.v1.access"} and _operator_project_bound(identity):
+        reasons.append("unbound_operator_key_required")
+        decision = "blocked"
 
     if action == "artifact.export" and profile not in {"trusted_local_agent", "admin_agent"}:
         reasons.append("trusted_or_admin_agent_required_for_artifact_export")

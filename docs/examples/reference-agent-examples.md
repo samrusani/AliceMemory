@@ -2,6 +2,10 @@
 
 These examples show the narrow default adoption path for a generic external agent: call Alice one time through `POST /v1/continuity/brief`, then use the returned bundle inside your runtime.
 
+The examples use a keyless loopback install. On main (unreleased), installs with
+active keys serve `/v1` only to unbound `admin_agent` keys. Other keys use
+`/v0/vnext` or MCP.
+
 ## Files
 
 - Python: `docs/examples/generic_python_agent.py`
