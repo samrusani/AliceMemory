@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- Unreleased (on main, not in v0.24.0): PostgreSQL MCP refuses keyless calls when the bound user has an active key. Set `ALICE_AGENT_API_KEY` on the server. v0.24.0 served keyless PostgreSQL calls even after a key was issued (`python -m pytest tests/integration/test_keyed_install_boundaries_postgres.py`).
+- Unreleased (on main, not in v0.24.0): PostgreSQL MCP refuses keyless calls when the bound user has an active key. Set `ALICE_AGENT_API_KEY` on the server. v0.24.0 served keyless PostgreSQL calls even after a key was issued (`python -m pytest tests/integration/test_active_key_install_boundaries_postgres.py`).
 
-- Unreleased (on main, not in v0.24.0): on a keyed installation, browser clip capabilities use the strictest sensitivity ceiling among eligible issuers. A sensitivity refusal leaves the capability available for a lower-sensitivity request. v0.24.0 applied no issuer ceiling to capability-only captures (`python -m pytest tests/integration/test_keyed_install_boundaries_postgres.py`).
+- Unreleased (on main, not in v0.24.0): on a keyed installation, browser clip capabilities use the strictest sensitivity ceiling among eligible issuers. A sensitivity refusal leaves the capability available for a lower-sensitivity request. v0.24.0 applied no issuer ceiling to capability-only captures (`python -m pytest tests/integration/test_active_key_install_boundaries_postgres.py`).
 
 - Unreleased (on main, not in v0.24.0): mounted legacy `/v0` routes require a loopback peer in every mode. v0.24.0 checked the peer only outside development and test (`python -m pytest tests/unit/test_keyed_install_legacy_peer.py`).
 
