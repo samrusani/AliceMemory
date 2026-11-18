@@ -10,7 +10,7 @@
 
 - Mounted legacy `/v0` routes require a loopback peer in every mode. v0.24.0 checked the peer only outside development and test (`python -m pytest tests/unit/test_keyed_install_legacy_peer.py`).
 
-- On installs with active keys, `/v1` serves only valid unbound `admin_agent` keys and answers `403 forbidden` to other valid keys. Use `/v0/vnext` or MCP with those keys. v0.24.0 served any valid key on `/v1` (`python -m pytest tests/unit/test_v1_agent_key_auth.py tests/integration/test_v1_operator_policy_postgres.py` and the release-tag dispatch probe in this pull request).
+- On installs with active keys, `/v1` serves only valid unbound `admin_agent` keys and answers `403 forbidden` to other valid keys. Use `/v0/vnext` or MCP with those keys. v0.24.0 served any valid key on `/v1` (`python -m pytest tests/unit/test_v1_agent_key_auth.py tests/integration/test_v1_operator_policy_postgres.py`).
 
 - The full web dependency audit excepts `picomatch` advisory GHSA-fc5q-39xc-vjpf until 2026-12-17. The production audit keeps its existing rule (`node scripts/npm-advisory-audit.mjs --audit-level=high` and `node scripts/npm-advisory-audit.mjs --prod --audit-level=high` from `apps/web`).
 

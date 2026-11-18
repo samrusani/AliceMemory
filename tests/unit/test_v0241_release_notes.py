@@ -54,9 +54,9 @@ CLAIMS = [
     pytest.param('Security', 'No one outside the project has audited the code.', id='outside-audit'),
     pytest.param('Security', 'On keyed installs the `/v1` check reserves operator access for a valid unbound `admin_agent` key.', id='v1-security'),
     pytest.param('Security', 'The PostgreSQL MCP check closes keyless tool access while a key is active.', id='mcp-security'),
-    pytest.param('Security', "The browser capability ceiling prevents a clip from exceeding the strictest eligible issuer's ceiling.", id='clip-security'),
+    pytest.param('Security', "The browser capability ceiling refuses a capture above the strictest eligible issuer's ceiling.", id='clip-security'),
     pytest.param('Security', 'The legacy peer check keeps mounted `/v0` routes local in development and test as well.', id='legacy-security'),
-    pytest.param('Security', 'A security advisory for the /v1 change is published with this release; it also names the PostgreSQL MCP change and the browser clip change.', id='advisory'),
+    pytest.param('Security', 'A security advisory for the `/v1` change is published with this release; it also names the PostgreSQL MCP change and the browser clip change.', id='advisory'),
     pytest.param('Security', 'The v0.24.0 notes said that no security advisory was planned; that sentence is corrected here.', id='advisory-correction'),
     pytest.param('What this release does not claim', 'Mounted legacy `/v0` routes still serve local callers without a key or label filtering.', id='legacy-limit'),
     pytest.param('What this release does not claim', 'See [known limitations](../alpha/known-limitations.md).', id='legacy-link'),
@@ -113,6 +113,7 @@ def test_the_changelog_moves_the_five_entries_and_preserves_published_sections()
     assert f"\n## Unreleased\n\n{CHANGELOG_HEADING}\n" in current
     released, history = current.split(CHANGELOG_HEADING + "\n", 1)[1].split("\n## ", 1)
     old_entries = old_unreleased.replace(DRAFT_MARKERS[0] + " ", "")
+    old_entries = old_entries.replace(" and the release-tag dispatch probe in this pull request", "", 1)
     expected = re.sub(r"(?m)^- ([a-z])", lambda match: "- " + match.group(1).upper(), old_entries)
     assert len(re.findall(r"(?m)^- ", expected)) == 5
     assert released == expected

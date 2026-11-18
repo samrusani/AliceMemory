@@ -326,7 +326,7 @@
           "line": 205,
           "before": "omit content diagnostics for a caller with limits",
           "after": "show content diagnostics to a caller",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -999,7 +999,7 @@
           "line": 139,
           "before": "stays refused to every key but an unbound `admin_agent`",
           "after": "stays refused",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -1179,7 +1179,7 @@
           "line": 139,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -1551,7 +1551,7 @@
           "line": 140,
           "before": "where it raised a server error",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -2053,7 +2053,7 @@
           "line": 142,
           "before": "and the call writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry.",
           "after": "and the call is recorded.",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -2245,7 +2245,7 @@
           "line": 188,
           "before": "A refused redact of an archived or redacted row now writes nothing, as a redact of an id the vault never held writes nothing: no policy event and no agent record.",
           "after": "A refused redact of an archived or redacted row is still recorded.",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -4023,7 +4023,7 @@
           "line": 141,
           "before": "The memory audit route (`GET /v0/vnext/memories/{id}/audit`) returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, so the ids of archived members stand there too (a derived memory that recorded a redacted memory as a member is read by the owner and an unbound admin key only), ",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -4039,7 +4039,7 @@
           "line": 133,
           "before": "The context tree and the dogfooding view read the same rule. ",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -4701,7 +4701,7 @@
           "line": 125,
           "before": "An artifact event that holds anything more still stops the redaction, so no text is left behind. ",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -4781,7 +4781,7 @@
           "line": 141,
           "before": " The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says.",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -5180,7 +5180,7 @@
           "line": 127,
           "before": "Redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "Redacting a memory leaves reports as they were",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -5228,7 +5228,7 @@
           "line": 127,
           "before": "This is temporary access containment, not removal",
           "after": "This is removal",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -5292,7 +5292,7 @@
           "line": 127,
           "before": "say to regenerate or delete the reports built from a redacted memory",
           "after": "say nothing",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -5636,7 +5636,7 @@
           "line": 127,
           "before": "is refused to a key that may not read the belief, with the answer of a missing belief, and a refused review changes nothing.",
           "after": "is open to every key.",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -5990,7 +5990,7 @@
           "line": 127,
           "before": "A project end that names the project by a name or by an id that finds no project row hides nothing",
           "after": "A project end hides every edge",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -6118,7 +6118,7 @@
           "line": 141,
           "before": "but a report that recorded a redacted memory is read by the owner and an unbound admin key only, as the entry on redacted memories says",
           "after": "but a report that recorded a redacted memory is read like any other report, as the entry on redacted memories says",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -6150,7 +6150,7 @@
           "line": 160,
           "before": "The graph neighborhood and the edge review route apply the same ceiling to the rows an edge joins, as the entry on redacted memories and the security note say.",
           "after": "Graph edge explanations remain outside that ceiling, as disclosed in the security note.",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -6230,7 +6230,7 @@
           "line": 127,
           "before": "The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. ",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -6262,7 +6262,7 @@
           "line": 141,
           "before": "Two answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; and a memory commit",
           "after": "Three answers show a little more and are named in the security note: the search tools, which take the id as query text and show nothing of the row; the graph neighborhood route, which returns the edges of any id with their explanations; and a memory commit",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -7611,7 +7611,7 @@
           "line": 124,
           "before": "The CTE now names the picked id `next_id`. ",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -7851,7 +7851,7 @@
           "line": 124,
           "before": " A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made. The event guard judges that artifact like the artifact of any other event, so the workspace feed of a key with a ceiling holds neither event, and not the id of the artifact, when the task was above its ceiling, and its event count leaves both out. The claim and the failure of a task name no artifact and hold the id of the task, which the entry on the operator routes lists for the creation events of a queued task.",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -7899,7 +7899,7 @@
           "line": 129,
           "before": ", and, for a task that a worker has claimed, `task.claimed`, and `task.updated` and `queue.task_failed` when it failed",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -8206,7 +8206,7 @@
           "line": 130,
           "before": "The filter on the target stays: an event about a row the trace does not list is still left out. ",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -8222,7 +8222,7 @@
           "line": 131,
           "before": "so no caller left an event that names an object it may not read",
           "after": "so a caller may have left an event",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -8462,7 +8462,7 @@
           "line": 130,
           "before": "A key with limits is read the newest 2,000 events that the trace asks for, as the event feeds are",
           "after": "A key with limits is read every event that the trace asks for",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -8494,7 +8494,7 @@
           "line": 131,
           "before": "which by default leaves out the confidential levels, is not a limit: the owner",
           "after": "which by default leaves out the confidential levels, is a limit: the owner",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -8590,7 +8590,7 @@
           "line": 130,
           "before": "only the events aimed at the source or at a row the trace lists count against that reach",
           "after": "every event of the source counts against that reach",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -8862,7 +8862,7 @@
           "line": 144,
           "before": "out of the `created_count` of the `open_loop.extraction_completed` event, as a missing row is, and nothing about it is returned",
           "after": "as a missing row is, and nothing about it is returned",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -9427,7 +9427,7 @@
           "line": 126,
           "before": "The quote a commit saved of a memory is withheld from a caller who may not read that memory",
           "after": "The quote a commit saved of a memory is shown to every caller",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -10148,7 +10148,7 @@
           "line": 126,
           "before": "and the recent events and the agent activity of the workspace and the events of a source trace hold the payload of a confirmed commit to the same rule.",
           "after": "and nothing else holds a confirmed commit to it.",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -10438,7 +10438,7 @@
           "line": 126,
           "before": "the recent events and the agent activity of the workspace and the events of a source trace hold the payload",
           "after": "the recent events of the workspace and the events of a source trace hold the payload",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -10486,7 +10486,7 @@
           "line": 126,
           "before": "(a `#` fragment after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`, and a field that holds an id and more than an id reads `null`)",
           "after": "(a `#` fragment after a reference is kept)",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -10966,7 +10966,7 @@
           "line": 126,
           "before": "and the names of the fields are withheld with their values: the entry keeps a field only when its name is one the product writes",
           "after": "and the entry keeps every field",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -12055,7 +12055,7 @@
           "line": 126,
           "before": "An entry beside such a ref that names nothing the caller may read is held to the same rule (a bare string and a `text` field go with the `quote`), one that names a stored source or memory the caller may read keeps its text and loses the names the product does not write with their values, and so are the refs a source made by the agent-output ingest keeps (the source routes, the source trace, the artifact trace, the context pack, the workspace and the connector status), the metadata of a quality rating and the allowed sources and scope of a queued task; the report of a consolidation run and the artifact a queue worker makes are derived from the memories their refs and tasks name, and `alicebot vnext memories audit` with an agent key applies the reader. ",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -13514,7 +13514,7 @@
           "line": 118,
           "before": "In v0.20.0 the name was an ordinary one, a key bound to it read only",
           "after": "In v0.20.0 the name was an ordinary one, so this is a regression of main and no release had it. A key bound to it read only",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -13738,7 +13738,7 @@
           "line": 119,
           "before": "In v0.19.2 and in v0.20.0 an unbound `trusted_local_agent` key, whose ceiling is `public`, `internal`, `private` and `unknown`, was shown the path of a confidential file",
           "after": "In v0.20.0 an unbound `trusted_local_agent` key, whose ceiling is `public`, `internal`, `private` and `unknown`, was shown the path of a confidential file",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -13962,7 +13962,7 @@
           "line": 440,
           "before": "standard text), which does not name the reason. The reason and the commands\nthat find and revoke the key are written to the server log at warning level;\nthe line names no key, which `alicebot agent keys list` shows with its\n`project_scope`.",
           "after": "standard text).",
-          "sha256": "0997e7be7260459efdc92ab9b2e15293968a10d0a0951c11cb4f7710ffd77799"
+          "sha256": "07e6872e8b51d27ed3a7fa1b6f3273b077050357849e80d5a7738a159db1097a"
         }
       ],
       "pytest": [
@@ -13978,7 +13978,7 @@
           "line": 118,
           "before": "Each surface answers with its standard refusal and none of them names the reason: the HTTP body is the standard forbidden message and the tool error is the standard text of its code. ",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -13994,7 +13994,7 @@
           "line": 119,
           "before": "One case stays: a key that imports a public item at a path it already knows (it was told the path or guessed it) is then shown a failed import of that same path, so it can confirm that a failed import of a path it can name exists; it learns the path it sent and nothing about the file. ",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -14426,7 +14426,7 @@
           "line": 148,
           "before": "A report that a relabel during the run raised after the run had read its inputs is judged the same way: it is stored with the current floor, and a caller who may not read it is answered as for a missing artifact. ",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -15660,7 +15660,7 @@
           "line": 121,
           "before": "A direct call of the commit service stored an entry nested about 950 levels deep (in v0.19.2 and in v0.20.0)",
           "after": "The HTTP route and the MCP commit tool stored an entry nested about 950 levels deep (in v0.19.2 and in v0.20.0)",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -15676,7 +15676,7 @@
           "line": 121,
           "before": "A request or tool call that may have written is never run twice, because it may have committed before it failed: ",
           "after": "",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -15692,7 +15692,7 @@
           "line": 121,
           "before": "so a write that reads it, `forget` and `expire` among them, writes the placeholder back into the row and into the audit event it appends.",
           "after": "so a write that reads it keeps the row whole.",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -15708,7 +15708,7 @@
           "line": 121,
           "before": "so a retried call leaves the events an ordinary call leaves",
           "after": "so a retried call leaves its events twice",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -32063,7 +32063,7 @@
           "line": 33,
           "before": "An agent source capture above its sensitivity ceiling is refused without storing the source",
           "after": "An agent source capture above its sensitivity ceiling is accepted",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -32191,7 +32191,7 @@
           "line": 17,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -32207,7 +32207,7 @@
           "line": 17,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -32223,7 +32223,7 @@
           "line": 17,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -32239,7 +32239,7 @@
           "line": 17,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -32255,7 +32255,7 @@
           "line": 17,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -32271,7 +32271,7 @@
           "line": 17,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -32287,7 +32287,7 @@
           "line": 17,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -32303,7 +32303,7 @@
           "line": 17,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -32319,7 +32319,7 @@
           "line": 17,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -32335,7 +32335,7 @@
           "line": 17,
           "before": "## v0.24.0 — 2026-11-17",
           "after": "## v0.24.0 — 2026-11-16",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -33087,7 +33087,7 @@
           "line": 17,
           "before": "2026-11-17\n\n- Install refuses",
           "after": "2026-11-17\n\nAn undated entry.\n\n- Install refuses",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -33951,7 +33951,7 @@
           "line": 4,
           "before": "This is a security release for installs that use agent keys on the PostgreSQL\nstack.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -33967,7 +33967,7 @@
           "line": 5,
           "before": "The SQLite vault behaves as before.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -33983,7 +33983,7 @@
           "line": 9,
           "before": "**Upgrade the copy your hosts run** (`uv tool upgrade alice-memory` or\n   `pip install -U alice-memory` in the environment they use), check it with\n   `alice-memory --version`, and restart your hosts.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -33999,7 +33999,7 @@
           "line": 12,
           "before": "Once an active key exists, calls to\n   `/v1` need an unbound `admin_agent` key.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34015,7 +34015,7 @@
           "line": 13,
           "before": "Other keys use `/v0/vnext` or MCP.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34031,7 +34031,7 @@
           "line": 14,
           "before": "Set `ALICE_AGENT_API_KEY` in\n   the server's environment once the vault holds an active key.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34047,7 +34047,7 @@
           "line": 16,
           "before": "On an install with active\n   keys, a capability capture at `confidential`, `highly_sensitive`, `sacred`\n   or `regulated` is refused.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34063,7 +34063,7 @@
           "line": 18,
           "before": "If appropriate for the clip, use `private` for\n   capture and have the owner or an unbound admin key raise the label after\n   capture.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34079,7 +34079,7 @@
           "line": 21,
           "before": "**No database migration is needed.**",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34095,7 +34095,7 @@
           "line": 22,
           "before": "The marketplace on `main` pins v0.24.0 until the\n   change after publication moves it.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34111,7 +34111,7 @@
           "line": 27,
           "before": "On a PostgreSQL install with active keys, a valid unbound\n  `admin_agent` key is required.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34127,7 +34127,7 @@
           "line": 28,
           "before": "Other valid keys receive HTTP 403.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34143,7 +34143,7 @@
           "line": 29,
           "before": "v0.24.0 served any valid key on `/v1`.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34159,7 +34159,7 @@
           "line": 30,
           "before": "A server without `ALICE_AGENT_API_KEY` refuses tool\n  calls, including reads and legacy tools, while an active key exists.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34175,7 +34175,7 @@
           "line": 32,
           "before": "v0.24.0 served keyless calls while active keys existed, although the\n  [MCP guide](../alpha/mcp-tools.md) said those calls were refused.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34191,7 +34191,7 @@
           "line": 34,
           "before": "On an install with active keys, a capability\n  capture is held to the strictest sensitivity ceiling among eligible\n  issuers.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34207,7 +34207,7 @@
           "line": 36,
           "before": "A ceiling refusal leaves the capability available for another\n  attempt before expiry.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34223,7 +34223,7 @@
           "line": 37,
           "before": "v0.24.0 applied no sensitivity ceiling to a capture\n  made with a capability, even where the issuing key had a lower ceiling.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34239,7 +34239,7 @@
           "line": 39,
           "before": "Every mode checks that the peer is loopback.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34255,7 +34255,7 @@
           "line": 40,
           "before": "v0.24.0 checked the peer only outside development and test.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34271,7 +34271,7 @@
           "line": 44,
           "before": "On a keyed PostgreSQL install, a valid key that cannot use `/v1` receives HTTP\n403, and a keyless MCP tool call that reaches the key check receives\n`not_permitted`.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34287,7 +34287,7 @@
           "line": 46,
           "before": "A browser capture refused by the capability ceiling receives\nHTTP 403 with `sensitivity_above_agent_ceiling`.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34303,7 +34303,7 @@
           "line": 47,
           "before": "A mounted legacy `/v0`\nroute refuses a non-loopback peer with HTTP 403.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34319,7 +34319,7 @@
           "line": 52,
           "before": "This release was checked with automated security scanning and internal adversarial review, findings triaged and fixed.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34335,7 +34335,7 @@
           "line": 52,
           "before": "No one outside the project has audited the code.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34351,7 +34351,7 @@
           "line": 54,
           "before": "On keyed installs the `/v1` check reserves operator access for a valid\nunbound `admin_agent` key.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34367,7 +34367,7 @@
           "line": 55,
           "before": "The PostgreSQL MCP check closes keyless tool\naccess while a key is active.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34381,9 +34381,9 @@
         {
           "file": "docs/release/v0.24.1-release-notes.md",
           "line": 56,
-          "before": "The browser capability ceiling prevents a clip\nfrom exceeding the strictest eligible issuer's ceiling.",
+          "before": "The browser capability ceiling refuses a capture\nabove the strictest eligible issuer's ceiling.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34399,7 +34399,7 @@
           "line": 57,
           "before": "The legacy peer\ncheck keeps mounted `/v0` routes local in development and test as well.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34413,9 +34413,9 @@
         {
           "file": "docs/release/v0.24.1-release-notes.md",
           "line": 60,
-          "before": "A security advisory for the /v1 change is published with this release; it also names the PostgreSQL MCP change and the browser clip change.",
+          "before": "A security advisory for the `/v1` change is published with this release; it also names the PostgreSQL MCP change and the browser clip change.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34431,7 +34431,7 @@
           "line": 60,
           "before": "The v0.24.0 notes said that no security advisory was planned; that sentence is corrected here.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34447,7 +34447,7 @@
           "line": 64,
           "before": "Mounted legacy `/v0` routes still serve local callers without a key or\n  label filtering.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34463,7 +34463,7 @@
           "line": 65,
           "before": "See [known limitations](../alpha/known-limitations.md).",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34479,7 +34479,7 @@
           "line": 66,
           "before": "In the supported deployment, `/v1` remains a loopback surface for the\n  operator.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34495,7 +34495,7 @@
           "line": 67,
           "before": "See the [deployment guide](../deployment/single-tenant-self-hosted.md).",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34511,7 +34511,7 @@
           "line": 68,
           "before": "The strictest eligible issuer ceiling applies to capability captures\n  made on a keyed install even when an admin key issued the capability.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34527,7 +34527,7 @@
           "line": 70,
           "before": "See [agent integration](../alpha/agent-integration.md#authentication).",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34543,7 +34543,7 @@
           "line": 74,
           "before": "After publication:",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34559,7 +34559,7 @@
           "line": 77,
           "before": "pip install alice-memory==0.24.1 && alice-memory install",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34575,7 +34575,7 @@
           "line": 80,
           "before": "With uv: `uvx alice-memory==0.24.1 install`.",
           "after": "",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34591,7 +34591,7 @@
           "line": 2,
           "before": "\"publication_status\":\"pending\"",
           "after": "\"publication_status\":\"published\"",
-          "sha256": "d7eddff1e1dfa1237b5d797aa6bf50ef9f4aa515340b89f4e61749b36209b76d"
+          "sha256": "ff6d9f12fcf2c5d66e9ee81d395baf0b35c8e6eb95c672e7602ab486afa01591"
         }
       ],
       "pytest": [
@@ -34607,7 +34607,7 @@
           "line": 5,
           "before": "## v0.24.1 — 2026-11-18",
           "after": "## v0.24.1 — 2026-11-19",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -34623,7 +34623,7 @@
           "line": 25,
           "before": "\"On main (\" + \"unreleased)\"",
           "after": "\"From v0.24.1,\"",
-          "sha256": "92d4b3683230af7d4e7d4f3bbaa91e009456c31aa2af45d39e5fd1af7c04ba1e"
+          "sha256": "db98419de6ea2aaba160e91a71d6941e8455d9753b48eec9c1d8387c9cd57e12"
         }
       ],
       "pytest": [
@@ -34671,7 +34671,7 @@
           "line": 230,
           "before": "Browser clip capabilities on keyed installs use the strictest sensitivity ceiling of any key allowed to issue one.",
           "after": "",
-          "sha256": "0997e7be7260459efdc92ab9b2e15293968a10d0a0951c11cb4f7710ffd77799"
+          "sha256": "07e6872e8b51d27ed3a7fa1b6f3273b077050357849e80d5a7738a159db1097a"
         }
       ],
       "pytest": [
@@ -34684,10 +34684,10 @@
       "edits": [
         {
           "file": "tests/unit/test_v0241_release_notes.py",
-          "line": 172,
+          "line": 173,
           "before": "path = \"docs/alpha/mcp-tools.md\"",
           "after": "path = \".claude-plugin/marketplace.json\"",
-          "sha256": "92d4b3683230af7d4e7d4f3bbaa91e009456c31aa2af45d39e5fd1af7c04ba1e"
+          "sha256": "db98419de6ea2aaba160e91a71d6941e8455d9753b48eec9c1d8387c9cd57e12"
         }
       ],
       "pytest": [
@@ -34700,10 +34700,10 @@
       "edits": [
         {
           "file": "tests/unit/test_v0241_release_notes.py",
-          "line": 203,
+          "line": 204,
           "before": "_tag_python(ROOT, tmp_path, probe, str(tmp_path / \"candidate.db\"))",
           "after": "_tag_python(ROOT, tmp_path, probe.replace(\"bootstrap_database(path,\", \"# bootstrap_database(path,\"), str(tmp_path / \"candidate.db\"))",
-          "sha256": "92d4b3683230af7d4e7d4f3bbaa91e009456c31aa2af45d39e5fd1af7c04ba1e"
+          "sha256": "db98419de6ea2aaba160e91a71d6941e8455d9753b48eec9c1d8387c9cd57e12"
         }
       ],
       "pytest": [
@@ -34847,7 +34847,7 @@
           "line": 5,
           "before": "## v0.24.1 — 2026-11-18",
           "after": "## v0.24.1 — 2026-11-19",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -34863,7 +34863,7 @@
           "line": 5,
           "before": "## v0.24.1 — 2026-11-18",
           "after": "## v0.24.1 — 2026-11-19",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
@@ -34879,7 +34879,7 @@
           "line": 5,
           "before": "## v0.24.1 — 2026-11-18",
           "after": "## v0.24.1 — 2026-11-19",
-          "sha256": "e2c3ece136a607f3c5e985c818c64b023ab9b169dd57188485658f08b31274e2"
+          "sha256": "74190d2fca17ceb467bc0f63b1e22fd97145e67b340ac986570126e19b6138e4"
         }
       ],
       "pytest": [
