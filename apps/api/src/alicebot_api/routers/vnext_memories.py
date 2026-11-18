@@ -66,8 +66,10 @@ from alicebot_api.vnext_agent_control import (
     AgentIdentity,
     AgentIdentityValidationError,
     AgentPolicyBlockedError,
+    PERMISSION_PROFILES,
     PolicyDecision,
     append_policy_events,
+    evaluate_agent_policy,
     resource_project_scope,
 )
 from alicebot_api.vnext_agent_keys import (
@@ -650,15 +652,38 @@ def _connector_capture_ceiling(
         identity = _vnext_agent_identity(request)
     if identity is None:
         return None
-    definition = get_connector_definition(connector_name)
-    config = VNextConnectorService(store).get_config(connector_name)
-    selected = sensitivity or config.get("default_sensitivity") or definition.default_sensitivity
-    blocked = _connector_capture_ceiling_decision(identity, str(selected))
+    selected = _connector_capture_sensitivity(store, connector_name, sensitivity)
+    blocked = _connector_capture_ceiling_decision(identity, selected)
     if blocked is None:
         return None
     _vnext_agent_record(store, identity)
     append_policy_events(store, identity=identity, decision=blocked, target_type="connector", target_id=connector_name)
     return blocked
+
+
+def _connector_capture_sensitivity(store: PostgresVNextStore, connector_name: str, sensitivity: str | None) -> str:
+    definition = get_connector_definition(connector_name)
+    config = VNextConnectorService(store).get_config(connector_name)
+    selected = sensitivity or config.get("default_sensitivity") or definition.default_sensitivity
+    return str(selected)
+
+
+class _BrowserClipCeilingRefusal(Exception):
+    """Leave the capture transaction so capability consumption rolls back."""
+
+
+def _check_browser_clip_capability_ceiling(store: PostgresVNextStore, sensitivity: str) -> None:
+    from alicebot_api.vnext_memory_commit import _connector_capture_ceiling_decision
+
+    if store.count_active_agent_api_keys() == 0:
+        return
+    selected = _connector_capture_sensitivity(store, "browser_clipper", sensitivity)
+    for profile in PERMISSION_PROFILES:
+        issuer = AgentIdentity(agent_id="browser-clip-policy", permission_profile=profile, auth="agent_api_key")
+        if evaluate_agent_policy(identity=issuer, action="http.operator.access").decision == "blocked":
+            continue
+        if _connector_capture_ceiling_decision(issuer, selected) is not None:
+            raise _BrowserClipCeilingRefusal
 
 
 @connectors_router.post("/v0/vnext/connectors/{connector_name}/sync")
@@ -828,6 +853,7 @@ def capture_vnext_browser_clip(
                     capture_url=request.url,
                     request_origin=origin if isinstance(origin, str) else None,
                 )
+                _check_browser_clip_capability_ceiling(store, request.sensitivity)
             result = VNextConnectorService(store, defer_embeddings=True).capture_browser_clip(
                 request.model_dump(mode="json"),
                 default_domain=request.domain,
@@ -842,6 +868,10 @@ def capture_vnext_browser_clip(
         )
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
+    except _BrowserClipCeilingRefusal:
+        return JSONResponse(status_code=403, content={"detail": {
+            "code": "sensitivity_above_agent_ceiling", "message": "The requested sensitivity exceeds the browser capture ceiling",
+        }})
     except (BrowserClipCapabilityValidationError, VNextConnectorValidationError):
         return _vnext_public_error_response(status_code=400, detail="vNext browser clip capture request is invalid")
     return JSONResponse(

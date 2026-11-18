@@ -27,7 +27,6 @@ from alicebot_api.config import Settings
 from alicebot_api.db import user_connection
 from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext
-from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService, memory_commit_request_from_payload
 from alicebot_api.vnext_store import PostgresVNextStore
@@ -189,16 +188,13 @@ def test_http_pack_answers_a_reference_spelling_like_the_canonical_spelling(app,
 
 
 @pytest.mark.parametrize("spelling", REFERENCE_SPELLINGS)
-def test_mcp_context_pack_answers_a_reference_spelling_like_the_canonical_spelling(app, spelling) -> None:
+def test_mcp_context_pack_answers_a_reference_spelling_like_the_canonical_spelling(app, spelling, monkeypatch) -> None:
     """The tool result carries the memory exactly when the canonical spelling does, keyless and keyed."""
 
     user_id, source_id, memory_id = _seed_source_and_memory(app.url)
-    admin_key = _create_key(app.url, user_id, agent_id="admin-reader", permission_profile="admin_agent")
+    context = MCPRuntimeContext(database_url=app.url, user_id=UUID(user_id))
 
-    def tool(identity: AgentIdentity | None) -> dict[str, object]:
-        context = MCPRuntimeContext(
-            database_url=app.url, user_id=UUID(user_id), agent_identity=identity, agent_identity_resolved=identity is not None
-        )
+    def tool() -> dict[str, object]:
         return call_mcp_tool(context, name="alice_context_pack", arguments={"query": QUERY})
 
     def tool_memories(result: object) -> list[tuple[str, str | None]]:
@@ -207,16 +203,18 @@ def test_mcp_context_pack_answers_a_reference_spelling_like_the_canonical_spelli
             for item in (result.get("memories") or [])  # type: ignore[union-attr]
         ]
 
-    _set_source_id(app.admin_url, memory_id, source_id)
-    canonical_keyless = tool(None)
-    canonical_admin = tool(AgentIdentity(agent_id="admin-reader", permission_profile="admin_agent", auth="agent_key"))
-    assert tool_memories(canonical_keyless) and tool_memories(canonical_keyless)[0][1] is not None
-
-    _set_source_id(app.admin_url, memory_id, spelling.format(id=source_id))
-    for name, result in (("keyless", tool(None)), ("keyed", tool(AgentIdentity(agent_id="admin-reader", permission_profile="admin_agent", auth="agent_key")))):
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    for name in ("keyless", "keyed"):
+        if name == "keyed":
+            key = _create_key(app.url, user_id, agent_id="admin-reader", permission_profile="admin_agent")
+            monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
+        _set_source_id(app.admin_url, memory_id, source_id)
+        canonical = tool_memories(tool())
+        assert canonical and canonical[0][1] is not None, name
+        _set_source_id(app.admin_url, memory_id, spelling.format(id=source_id))
+        result = tool()
         assert "tool_execution_failed" not in json.dumps(result), (name, result)
-    assert tool_memories(tool(None)) == tool_memories(canonical_keyless)
-    assert tool_memories(tool(AgentIdentity(agent_id="admin-reader", permission_profile="admin_agent", auth="agent_key"))) == tool_memories(canonical_admin)
+        assert tool_memories(result) == canonical, name
 
 
 @pytest.mark.parametrize("value", ("manual-import", "manual import", "{id}#chunk-1", "   "))

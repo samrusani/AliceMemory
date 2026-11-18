@@ -21,7 +21,9 @@ Historical note: `v0.5.1-vnext-preview` and `v0.6.0-alpha-rc.2` are older milest
 The default keyless posture trusts the local machine owner. It is not an
 internet-facing authentication mode: while no active agent key exists, a local
 caller can select the Alice `user_id`, and that identifier is not proof of
-identity. Keep both services on `127.0.0.1` and use an SSH tunnel:
+identity. In development mode, the mounted legacy `/v0` routes serve local callers without a key and without regard to labels.
+
+Keep both services on `127.0.0.1` and use an SSH tunnel.
 
 Use an SSH tunnel from your laptop:
 

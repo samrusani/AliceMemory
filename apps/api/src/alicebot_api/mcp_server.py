@@ -12,7 +12,7 @@ from alicebot_api import __version__
 from alicebot_api.json_bounds import MAX_READ_JSON_DEPTH, retry_cutting_deep_json, text_nests_deeper_than
 from alicebot_api.config import Settings, get_runtime_settings, get_settings
 from alicebot_api.mcp.definitions import tool_only_reads
-from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES, MCPCodedToolError, MCPInvalidRequestError
+from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES, MCPCodedToolError, MCPInvalidRequestError, MCPPostgresKeyRequiredError
 from alicebot_api.mcp_tools import (
     MCPRuntimeContext,
     MCPToolError,
@@ -333,7 +333,7 @@ class MCPServer:
                     request_id,
                     result=_tool_error_result(
                         code=exc.code if exc.code in MCP_CODED_ERROR_CODES else _TOOL_REQUEST_FAILED_CODE,
-                        message=_TOOL_REQUEST_FAILED_MESSAGE,
+                        message=exc.public_message if isinstance(exc, MCPPostgresKeyRequiredError) else _TOOL_REQUEST_FAILED_MESSAGE,
                     ),
                 )
             except MCPToolError:

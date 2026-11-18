@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
+from alicebot_api.db import user_connection
 from alicebot_api.json_bounds import is_remembered, remember_durable, replay_durable
 from alicebot_api.project_view import (
     ProjectView,
@@ -34,6 +35,7 @@ from .types import (
     MCPInvalidRequestError,
     MCPIdentityClaimRefusedError,
     MCPNotPermittedError,
+    MCPPostgresKeyRequiredError,
     MCPRuntimeContext,
     MCPToolError,
 )
@@ -80,6 +82,8 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
                     "agent API keys are configured for this vault; every call needs "
                     f"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')"
                 )
+        else:
+            _refuse_keyless_postgres(context)
         try:
             return AgentIdentity.from_payload(arguments)
         except AgentIdentityValidationError as exc:
@@ -102,6 +106,20 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
 
 class _PreflightRollback(Exception):
     """End a non-escalating claim preflight without committing its key touch."""
+
+
+def _postgres_has_active_key(context: MCPRuntimeContext) -> bool:
+    with user_connection(context.database_url, context.user_id) as conn:
+        return PostgresVNextStore(conn).count_active_agent_api_keys() > 0
+
+
+def _refuse_keyless_postgres(context: MCPRuntimeContext) -> None:
+    try:
+        has_active_key = _postgres_has_active_key(context)
+    except Exception:
+        raise MCPPostgresKeyRequiredError(MCPPostgresKeyRequiredError.public_message) from None
+    if has_active_key:
+        raise MCPPostgresKeyRequiredError(MCPPostgresKeyRequiredError.public_message)
 
 
 def _preflight_key_claim(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> None:

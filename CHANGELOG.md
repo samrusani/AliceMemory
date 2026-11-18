@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.24.0): PostgreSQL MCP refuses keyless calls when the bound user has an active key. Set `ALICE_AGENT_API_KEY` on the server. v0.24.0 served keyless PostgreSQL calls even after a key was issued (`python -m pytest tests/integration/test_keyed_install_boundaries_postgres.py`).
+
+- Unreleased (on main, not in v0.24.0): on a keyed installation, browser clip capabilities use the strictest sensitivity ceiling among eligible issuers. A sensitivity refusal leaves the capability available for a lower-sensitivity request. v0.24.0 applied no issuer ceiling to capability-only captures (`python -m pytest tests/integration/test_keyed_install_boundaries_postgres.py`).
+
+- Unreleased (on main, not in v0.24.0): mounted legacy `/v0` routes require a loopback peer in every mode. v0.24.0 checked the peer only outside development and test (`python -m pytest tests/unit/test_keyed_install_legacy_peer.py`).
+
 - Unreleased (on main, not in v0.24.0): on installs with active keys, `/v1` serves only valid unbound `admin_agent` keys and answers `403 forbidden` to other valid keys. Use `/v0/vnext` or MCP with those keys. v0.24.0 served any valid key on `/v1` (`python -m pytest tests/unit/test_v1_agent_key_auth.py tests/integration/test_v1_operator_policy_postgres.py` and the release-tag dispatch probe in this pull request).
 
 - Unreleased (on main, not in v0.24.0): the full web dependency audit excepts `picomatch` advisory GHSA-fc5q-39xc-vjpf until 2026-12-17. The production audit keeps its existing rule (`node scripts/npm-advisory-audit.mjs --audit-level=high` and `node scripts/npm-advisory-audit.mjs --prod --audit-level=high` from `apps/web`).

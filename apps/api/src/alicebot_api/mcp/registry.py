@@ -171,7 +171,7 @@ from .synthesis import (
     _handle_alice_graph_edge_review,
     _handle_alice_graph_neighborhood,
 )
-from .policy import _vault_has_active_key, _is_sqlite_backend, _preflight_key_claim
+from .policy import _vault_has_active_key, _is_sqlite_backend, _preflight_key_claim, _refuse_keyless_postgres
 from .runtime import _sqlite_path_from_url
 from .types import (
     MCPArgumentError,
@@ -547,6 +547,8 @@ def call_mcp_tool(
             "agent API keys are configured for this vault; every call needs "
             f"{AGENT_API_KEY_ENV} (mint a key with 'alice-memory keys create')"
         )
+    if name in _LEGACY_TOOL_NAMES and not (os.environ.get(AGENT_API_KEY_ENV) or "").strip() and not _is_sqlite_backend(context):
+        _refuse_keyless_postgres(context)
     if name not in _CORE_TOOL_NAMES and not _legacy_tools_enabled():
         raise MCPToolNotFoundError(
             f"tool '{name}' is part of the legacy MCP surface and is currently disabled; "

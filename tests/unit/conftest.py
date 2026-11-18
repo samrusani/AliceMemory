@@ -9,12 +9,31 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
 from tests.support.host_home_guard import HostHomeGuard, process_guard
 
 PROCESS_GUARD = process_guard()
+
+
+@pytest.fixture(autouse=True)
+def mock_key_count_for_postgres_unit_contexts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The PostgreSQL stand-ins used by unit tests represent empty key tables."""
+    from alicebot_api.config import DEFAULT_DATABASE_URL
+    from alicebot_api.mcp import policy
+
+    count_from_database = policy._postgres_has_active_key
+
+    def has_active_key(context):
+        if context.database_url in {"postgresql://localhost/alicebot", DEFAULT_DATABASE_URL}:
+            return False
+        if urlsplit(context.database_url).hostname == "db":
+            return False
+        return count_from_database(context)
+
+    monkeypatch.setattr(policy, "_postgres_has_active_key", has_active_key)
 
 
 @pytest.fixture(autouse=True)
