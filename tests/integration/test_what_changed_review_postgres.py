@@ -45,6 +45,7 @@ from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 from alicebot_api.vnext_store import PostgresVNextStore
 from tests.integration.conftest import lock_label_fixture
+from tests.integration.redaction_containment_support import keyless_owner
 from tests.unit.test_what_changed_saved_quote_reader import DECLARED, KEYED, READS_CONFIDENTIAL, catalog_cases
 from tests.unit.what_changed_quote_support import PACK_CALLERS, UNLIMITED, run_quote_differential
 
@@ -131,7 +132,12 @@ class Vault:
         return MCPRuntimeContext(database_url=self.app_url, user_id=UUID(str(self.user_id)))
 
     def tool(self, key: str | None, arguments: dict[str, object], *, name: str = "alice_what_changed") -> dict[str, object]:
-        payload = call_mcp_tool(self._context(key), name=name, arguments=arguments)
+        context = self._context(key)
+        if key is None:
+            with keyless_owner(self):
+                payload = call_mcp_tool(context, name=name, arguments=arguments)
+        else:
+            payload = call_mcp_tool(context, name=name, arguments=arguments)
         assert isinstance(payload, dict)
         return payload
 
@@ -147,7 +153,12 @@ class Vault:
         """The memory rows of the full context pack for this caller, keyed by id."""
 
         arguments: dict[str, object] = {"query": query, "max_items": 50, **(DECLARED if declared else {})}
-        pack = _vnext_context_pack_payload(self._context(key), arguments)
+        context = self._context(key)
+        if key is None:
+            with keyless_owner(self):
+                pack = _vnext_context_pack_payload(context, arguments)
+        else:
+            pack = _vnext_context_pack_payload(context, arguments)
         return {str(row["id"]): row for row in pack["relevant_memories"]}  # type: ignore[union-attr]
 
     def both(self, key: str | None, topic: str) -> tuple[dict[str, object], dict[str, object]]:

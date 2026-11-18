@@ -909,7 +909,10 @@ def test_a_request_no_route_takes_keeps_its_404_or_405_and_its_body_is_not_read_
         (b"x-alicebot-user-id", USER_ID.encode()),
     ]
 
-    for client in (("127.0.0.1", 50000), ("203.0.113.9", 50000)):
+    clients = [("127.0.0.1", 50000)]
+    if not path.startswith("/v0/"):
+        clients.append(("203.0.113.9", 50000))
+    for client in clients:
         got, _headers, raw, reads = _asgi_exchange(main_module.app, method, path, body, headers=headers, client=client)
         assert got == status, raw
         assert SENTINEL.encode() not in raw
@@ -918,28 +921,27 @@ def test_a_request_no_route_takes_keeps_its_404_or_405_and_its_body_is_not_read_
 
 
 def test_a_request_a_route_takes_is_still_refused_after_the_route_check(reached: list[str]) -> None:
-    """The route check does not let a routed surrogate body through, from loopback or from outside it.
+    """The route check still refuses a routed surrogate body from an admitted loopback peer.
 
     Mutation: make ``request_has_matching_route`` return False. The body
     reaches the route, which answers its own validation error and not this one.
     """
 
     body = _escaped({"user_id": USER_ID, "candidates": [{f"{SENTINEL}\ud800": 1}]})
-    for client in (("127.0.0.1", 50000), ("203.0.113.9", 50000)):
-        status, _headers, raw, reads = _asgi_exchange(
-            main_module.app,
-            "POST",
-            _COMMIT,
-            body,
-            headers=[
-                (b"host", b"127.0.0.1:8000"),
-                (b"content-type", b"application/json"),
-                (b"x-alicebot-user-id", USER_ID.encode()),
-            ],
-            client=client,
-        )
-        _assert_refused_without_echo(status, raw, expected=_error("candidates", 0, "[key]"))
-        assert reads > 0
+    status, _headers, raw, reads = _asgi_exchange(
+        main_module.app,
+        "POST",
+        _COMMIT,
+        body,
+        headers=[
+            (b"host", b"127.0.0.1:8000"),
+            (b"content-type", b"application/json"),
+            (b"x-alicebot-user-id", USER_ID.encode()),
+        ],
+        client=("127.0.0.1", 50000),
+    )
+    _assert_refused_without_echo(status, raw, expected=_error("candidates", 0, "[key]"))
+    assert reads > 0
     assert reached == []
 
 

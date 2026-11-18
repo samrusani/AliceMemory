@@ -11,6 +11,7 @@ from uuid import uuid4
 from alicebot_api.vnext_event_log import build_event_log_record
 from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401  (fixture)
+from tests.integration.redaction_containment_support import keyless_owner
 
 
 def test_events_that_name_a_row_are_judged_alike_by_the_native_count_the_list_and_the_per_row_guard(label_harness):
@@ -245,7 +246,8 @@ def test_the_context_tree_shows_the_policy_event_of_an_explain_of_a_continuity_o
     """The tree filters by a selection of sensitivities, and the owner's default one leaves out the confidential levels.
     That selection is not a limit: the owner and an unbound admin key keep the event under it, and a key with limits does
     not see it. The owner can read the route only while no key exists, so its read comes first, with an event written by hand;
-    the keys then read it with the event that a real explain leaves. The tool is read with a declared profile and with none."""
+    the keys then read it with the event that a real explain leaves. The tool is read with a declared profile and with none
+    while no active key exists, because a keyless call on a vault with an active key is refused."""
     from alicebot_api.mcp.registry import call_mcp_tool
     from alicebot_api.mcp.types import MCPRuntimeContext
     from alicebot_api.routers import vnext_retrieval
@@ -289,6 +291,7 @@ def test_the_context_tree_shows_the_policy_event_of_an_explain_of_a_continuity_o
 
     assert written <= route(admin)
     assert not written & route(trusted)
-    assert written <= tool(None)
-    assert written <= tool({"agent_id": "declared-admin", "permission_profile": "admin_agent"})
-    assert not written & tool({"agent_id": "declared-trusted", "permission_profile": "trusted_local_agent"})
+    with keyless_owner(h):
+        assert written <= tool(None)
+        assert written <= tool({"agent_id": "declared-admin", "permission_profile": "admin_agent"})
+        assert not written & tool({"agent_id": "declared-trusted", "permission_profile": "trusted_local_agent"})

@@ -33526,6 +33526,278 @@
         "tests/unit/test_v1_agent_key_auth.py::test_v1_openapi_operations_require_an_unbound_admin[admin_agent-alpha-False]"
       ],
       "expected_failure": "test_v1_openapi_operations_require_an_unbound_admin"
+    },
+    {
+      "name": "legacy-context-tree-omits-default-events",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/context.py",
+          "line": 488,
+          "before": "include_events=_parse_bool(arguments, key=\"include_events\", default=True),",
+          "after": "include_events=_parse_bool(arguments, key=\"include_events\", default=False),",
+          "sha256": "e1938e86b1d87b83e1bf939fb4daade2fa311d931a7ee8d1265cd88e3f24d7b7"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_event_references_postgres.py::test_the_context_tree_shows_the_policy_event_of_an_explain_of_a_continuity_object_to_the_owner_and_an_unbound_admin_only"
+      ],
+      "expected_failure": "test_the_context_tree_shows_the_policy_event_of_an_explain_of_a_continuity_object_to_the_owner_and_an_unbound_admin_only"
+    },
+    {
+      "name": "surrogate-route-precheck-removed",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/lone_surrogates.py",
+          "line": 446,
+          "before": "        and request_has_matching_route(request)\n",
+          "after": "",
+          "sha256": "1ef4cdae962422da82b2d9cf5b54cc7dfb8d15dea6a19181e7798c7c1a38b305"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lone_surrogate_request_body.py::test_a_request_no_route_takes_keeps_its_404_or_405_and_its_body_is_not_read_for_it"
+      ],
+      "expected_failure": "test_a_request_no_route_takes_keeps_its_404_or_405_and_its_body_is_not_read_for_it"
+    },
+    {
+      "name": "surrogate-gate-returns-wrong-status",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/lone_surrogates.py",
+          "line": 393,
+          "before": "    return JSONResponse(status_code=422, content={\"detail\": [lone_surrogate_error(location)]})",
+          "after": "    return JSONResponse(status_code=400, content={\"detail\": [lone_surrogate_error(location)]})",
+          "sha256": "1ef4cdae962422da82b2d9cf5b54cc7dfb8d15dea6a19181e7798c7c1a38b305"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_lone_surrogate_request_body.py::test_a_request_a_route_takes_is_still_refused_after_the_route_check"
+      ],
+      "expected_failure": "test_a_request_a_route_takes_is_still_refused_after_the_route_check"
+    },
+    {
+      "name": "postgres-malformed-label-read-refuses-instead-of-being-empty",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_store.py",
+          "line": 485,
+          "before": "        if not wanted:\n            return []\n        if kind == \"edge\":",
+          "after": "        if not wanted:\n            raise ValueError(\"invalid fixture row identifier\")\n        if kind == \"edge\":",
+          "sha256": "5355c770194619f061c1a566462961abcd61a115da168d6c969969aa6292108c"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_label_handoff_malformed_postgres.py::test_non_uuid_record_does_not_crash_get_or_recall"
+      ],
+      "expected_failure": "test_non_uuid_record_does_not_crash_get_or_recall"
+    },
+    {
+      "name": "postgres-passage-mode-owner-falls-back-to-documents",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/retrieval.py",
+          "line": 232,
+          "before": "    ranking = SourceRanking.from_environment(unset=unset)\n    if ranking.mode == ",
+          "after": "    ranking = SourceRanking.document()\n    if ranking.mode == ",
+          "sha256": "830eb96c3b04a564cce77824ae566c92c223daae6c25d20d7dd92aace47f0f9e"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_passage_ranking_postgres.py::test_both_doors_hide_a_confidential_source"
+      ],
+      "expected_failure": "test_both_doors_hide_a_confidential_source"
+    },
+    {
+      "name": "postgres-owner-control-loses-grounding",
+      "edits": [
+        {
+          "file": "tests/integration/test_recall_fallback_hidden_rows_postgres.py",
+          "line": 71,
+          "before": "        with keyless_owner(self.h):\n            return call_mcp_tool(self.context, name=tool, arguments=arguments)",
+          "after": "        with keyless_owner(self.h):\n            answer = call_mcp_tool(self.context, name=tool, arguments=arguments)\n        if tool == \"alice_context_pack\":\n            answer[\"grounding\"] = None\n        if tool == \"alice_resume\":\n            brief = answer[\"brief\"]\n            if brief.get(\"last_decision\"):\n                brief[\"last_decision\"][\"id\"] = \"\"\n            brief[\"next_action\"] = None\n            brief[\"recent_changes\"] = []\n            brief[\"open_loops\"] = []\n        return answer",
+          "sha256": "a71c4e35cf8ce5cfb24ac578b585d9580a2fa7c84f21ec33a2bb0a105fb45de8"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_hidden_rows_resume_and_grounding_postgres.py::test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key[domain-read_only]"
+      ],
+      "expected_failure": "test_a_hidden_row_that_mentions_a_name_does_not_change_the_grounding_of_a_restricted_key"
+    },
+    {
+      "name": "postgres-owner-control-loses-resume",
+      "edits": [
+        {
+          "file": "tests/integration/test_recall_fallback_hidden_rows_postgres.py",
+          "line": 71,
+          "before": "        with keyless_owner(self.h):\n            return call_mcp_tool(self.context, name=tool, arguments=arguments)",
+          "after": "        with keyless_owner(self.h):\n            answer = call_mcp_tool(self.context, name=tool, arguments=arguments)\n        if tool == \"alice_context_pack\":\n            answer[\"grounding\"] = None\n        if tool == \"alice_resume\":\n            brief = answer[\"brief\"]\n            if brief.get(\"last_decision\"):\n                brief[\"last_decision\"][\"id\"] = \"\"\n            brief[\"next_action\"] = None\n            brief[\"recent_changes\"] = []\n            brief[\"open_loops\"] = []\n        return answer",
+          "sha256": "a71c4e35cf8ce5cfb24ac578b585d9580a2fa7c84f21ec33a2bb0a105fb45de8"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_hidden_rows_resume_and_grounding_postgres.py::test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key[recent_changes]"
+      ],
+      "expected_failure": "test_a_newer_hidden_row_does_not_change_the_resume_of_a_restricted_key"
+    },
+    {
+      "name": "postgres-owner-control-loses-deep-decision",
+      "edits": [
+        {
+          "file": "tests/integration/test_recall_fallback_hidden_rows_postgres.py",
+          "line": 71,
+          "before": "        with keyless_owner(self.h):\n            return call_mcp_tool(self.context, name=tool, arguments=arguments)",
+          "after": "        with keyless_owner(self.h):\n            answer = call_mcp_tool(self.context, name=tool, arguments=arguments)\n        if tool == \"alice_context_pack\":\n            answer[\"grounding\"] = None\n        if tool == \"alice_resume\":\n            brief = answer[\"brief\"]\n            if brief.get(\"last_decision\"):\n                brief[\"last_decision\"][\"id\"] = \"\"\n            brief[\"next_action\"] = None\n            brief[\"recent_changes\"] = []\n            brief[\"open_loops\"] = []\n        return answer",
+          "sha256": "a71c4e35cf8ce5cfb24ac578b585d9580a2fa7c84f21ec33a2bb0a105fb45de8"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_hidden_rows_three_deep_postgres.py::test_a_hidden_decision_three_deep_does_not_change_the_last_decision[health-chain-health-public]"
+      ],
+      "expected_failure": "test_a_hidden_decision_three_deep_does_not_change_the_last_decision"
+    },
+    {
+      "name": "postgres-owner-control-loses-deep-loop",
+      "edits": [
+        {
+          "file": "tests/integration/test_recall_fallback_hidden_rows_postgres.py",
+          "line": 71,
+          "before": "        with keyless_owner(self.h):\n            return call_mcp_tool(self.context, name=tool, arguments=arguments)",
+          "after": "        with keyless_owner(self.h):\n            answer = call_mcp_tool(self.context, name=tool, arguments=arguments)\n        if tool == \"alice_context_pack\":\n            answer[\"grounding\"] = None\n        if tool == \"alice_resume\":\n            brief = answer[\"brief\"]\n            if brief.get(\"last_decision\"):\n                brief[\"last_decision\"][\"id\"] = \"\"\n            brief[\"next_action\"] = None\n            brief[\"recent_changes\"] = []\n            brief[\"open_loops\"] = []\n        return answer",
+          "sha256": "a71c4e35cf8ce5cfb24ac578b585d9580a2fa7c84f21ec33a2bb0a105fb45de8"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_hidden_rows_three_deep_postgres.py::test_a_hidden_loop_three_deep_does_not_change_the_open_loops_of_resume_or_the_pack[health-chain-health-public]"
+      ],
+      "expected_failure": "test_a_hidden_loop_three_deep_does_not_change_the_open_loops_of_resume_or_the_pack"
+    },
+    {
+      "name": "postgres-owner-control-loses-scan-loop",
+      "edits": [
+        {
+          "file": "tests/integration/test_recall_fallback_hidden_rows_postgres.py",
+          "line": 71,
+          "before": "        with keyless_owner(self.h):\n            return call_mcp_tool(self.context, name=tool, arguments=arguments)",
+          "after": "        with keyless_owner(self.h):\n            answer = call_mcp_tool(self.context, name=tool, arguments=arguments)\n        if tool == \"alice_context_pack\":\n            answer[\"grounding\"] = None\n        if tool == \"alice_resume\":\n            brief = answer[\"brief\"]\n            if brief.get(\"last_decision\"):\n                brief[\"last_decision\"][\"id\"] = \"\"\n            brief[\"next_action\"] = None\n            brief[\"recent_changes\"] = []\n            brief[\"open_loops\"] = []\n        return answer",
+          "sha256": "a71c4e35cf8ce5cfb24ac578b585d9580a2fa7c84f21ec33a2bb0a105fb45de8"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_readable_scan_bounds_postgres.py::test_a_newer_unfloored_open_loop_does_not_change_the_open_loops_of_a_restricted_key"
+      ],
+      "expected_failure": "test_a_newer_unfloored_open_loop_does_not_change_the_open_loops_of_a_restricted_key"
+    },
+    {
+      "name": "what-changed-owner-control-loses-sibling",
+      "edits": [
+        {
+          "file": "tests/integration/test_what_changed_review_postgres.py",
+          "line": 137,
+          "before": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)",
+          "after": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)\n            if name == \"alice_what_changed\":\n                payload[\"chains\"] = []",
+          "sha256": "6085487525ad92e9c8a4214afac28fb81ce7cf6538d27ba00004557508a30e16"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_what_changed_review_postgres.py::test_a_quote_in_a_sibling_entry_is_withheld_when_the_cited_memory_becomes_confidential"
+      ],
+      "expected_failure": "test_a_quote_in_a_sibling_entry_is_withheld_when_the_cited_memory_becomes_confidential"
+    },
+    {
+      "name": "what-changed-owner-control-loses-retired",
+      "edits": [
+        {
+          "file": "tests/integration/test_what_changed_review_postgres.py",
+          "line": 137,
+          "before": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)",
+          "after": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)\n            if name == \"alice_what_changed\":\n                payload[\"chains\"] = []",
+          "sha256": "6085487525ad92e9c8a4214afac28fb81ce7cf6538d27ba00004557508a30e16"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_what_changed_review_postgres.py::test_a_quote_that_names_a_retired_memory_in_an_incidental_place_is_withheld"
+      ],
+      "expected_failure": "test_a_quote_that_names_a_retired_memory_in_an_incidental_place_is_withheld"
+    },
+    {
+      "name": "what-changed-owner-control-loses-contradiction",
+      "edits": [
+        {
+          "file": "tests/integration/test_what_changed_review_postgres.py",
+          "line": 137,
+          "before": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)",
+          "after": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)\n            if name == \"alice_what_changed\":\n                payload[\"chains\"] = []",
+          "sha256": "6085487525ad92e9c8a4214afac28fb81ce7cf6538d27ba00004557508a30e16"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_what_changed_review_postgres.py::test_an_unresolved_contradiction_disputes_the_one_chain"
+      ],
+      "expected_failure": "test_an_unresolved_contradiction_disputes_the_one_chain"
+    },
+    {
+      "name": "what-changed-owner-control-loses-history",
+      "edits": [
+        {
+          "file": "tests/integration/test_what_changed_review_postgres.py",
+          "line": 137,
+          "before": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)",
+          "after": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)\n            if name == \"alice_what_changed\":\n                payload[\"chains\"] = []",
+          "sha256": "6085487525ad92e9c8a4214afac28fb81ce7cf6538d27ba00004557508a30e16"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_what_changed_review_postgres.py::test_forgotten_and_undone_successors_are_in_the_history_with_their_state"
+      ],
+      "expected_failure": "test_forgotten_and_undone_successors_are_in_the_history_with_their_state"
+    },
+    {
+      "name": "what-changed-owner-control-loses-archived",
+      "edits": [
+        {
+          "file": "tests/integration/test_what_changed_review_postgres.py",
+          "line": 137,
+          "before": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)",
+          "after": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)\n            if name == \"alice_what_changed\":\n                payload[\"chains\"] = []",
+          "sha256": "6085487525ad92e9c8a4214afac28fb81ce7cf6538d27ba00004557508a30e16"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_what_changed_review_postgres.py::test_an_archived_successor_is_not_a_step"
+      ],
+      "expected_failure": "test_an_archived_successor_is_not_a_step"
+    },
+    {
+      "name": "what-changed-owner-control-loses-profiles",
+      "edits": [
+        {
+          "file": "tests/integration/test_what_changed_review_postgres.py",
+          "line": 137,
+          "before": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)",
+          "after": "            with keyless_owner(self):\n                payload = call_mcp_tool(context, name=name, arguments=arguments)\n            if name == \"alice_what_changed\":\n                payload[\"chains\"] = []",
+          "sha256": "6085487525ad92e9c8a4214afac28fb81ce7cf6538d27ba00004557508a30e16"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_what_changed_review_postgres.py::test_each_profile_is_shown_what_recall_allows_it_and_nothing_changes_with_what_it_may_not_read"
+      ],
+      "expected_failure": "test_each_profile_is_shown_what_recall_allows_it_and_nothing_changes_with_what_it_may_not_read"
+    },
+    {
+      "name": "source-spelling-control-loses-reference",
+      "edits": [
+        {
+          "file": "tests/integration/test_source_id_spelling_context_pack_postgres.py",
+          "line": 214,
+          "before": "_set_source_id(app.admin_url, memory_id, spelling.format(id=source_id))\n        result = tool()",
+          "after": "_set_source_id(app.admin_url, memory_id, spelling.format(id=str(uuid4())))\n        result = tool()",
+          "sha256": "7a23695a78144ba76425d14587a0fb4273303f14c6048bc2fd2c7cfd6c83a6b1"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_source_id_spelling_context_pack_postgres.py::test_mcp_context_pack_answers_a_reference_spelling_like_the_canonical_spelling[urn:uuid:{id}]"
+      ],
+      "expected_failure": "test_mcp_context_pack_answers_a_reference_spelling_like_the_canonical_spelling"
     }
   ]
 }

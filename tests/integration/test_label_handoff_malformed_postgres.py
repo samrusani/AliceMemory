@@ -8,6 +8,7 @@ from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.vnext_store import PostgresVNextStore
 from tests.integration.derived_labels_postgres_support import label_harness
+from tests.integration.redaction_containment_support import keyless_owner
 
 
 @pytest.mark.parametrize("key", ["source_refs", "derived_from", "source_id", "artifact_id"])
@@ -50,6 +51,7 @@ def test_non_uuid_record_does_not_crash_get_or_recall(label_harness, key):
         assert response.status_code == 404, response.body
         assert b"derived_labels_unverified" not in response.body
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
-    result = call_mcp_tool(context, name="alice_recall", arguments={"query": "Synthetic malformed", "agent_id": "synthetic-reader", "permission_profile": "read_only_agent"})
+    with keyless_owner(h):
+        result = call_mcp_tool(context, name="alice_recall", arguments={"query": "Synthetic malformed", "agent_id": "synthetic-reader", "permission_profile": "read_only_agent"})
     if key != "source_refs":
         assert str(memory["id"]) not in str(result)
