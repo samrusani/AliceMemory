@@ -283,7 +283,7 @@ def marketplace_follow_up(previous: str) -> str:
 def marketplace_follow_up_v0241(previous: str) -> str:
     """Keep the tag history in the v0.24.0 update and add the v0.24.1 tag."""
     history = previous.partition(". The copy ")[2].partition(", so add the marketplace")[0]
-    history = history.replace(" and the copy", ", the copy")
+    history = re.sub(r",? and the copy ", ", the copy ", history)
     return (
         "**Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag "
         f"commit, so the marketplace install runs v0.24.1. The copy {history}, and the copy inside the v0.24.1 tag "
@@ -479,6 +479,15 @@ def test_a_published_changelog_section_only_gained_dated_paragraphs_since_its_ta
     old = section(_tagged(tag, CHANGELOG), tag).splitlines()
     new = section(_working(CHANGELOG), tag).splitlines()
     _check_only_dated_lines_were_added(f"the {tag} section of {CHANGELOG}", tag, old, new)
+
+
+def test_the_2026_11_18_updates_have_no_doubled_commas() -> None:
+    """Mutation: double a list separator in the v0.23.1 marketplace follow-up."""
+    dated_update = re.compile(r"^\W*Update\W+(?:added\W+)?2026-11-18\b")
+    for _, path in PUBLISHED_NOTES:
+        for block in paragraphs(_working(path)):
+            if dated_update.match(block):
+                assert "," * 2 not in block, (path, block)
 
 
 @pytest.mark.parametrize(("path", "heading"), sorted(UPDATES, key=lambda key: (key[0], key[1] or "")))

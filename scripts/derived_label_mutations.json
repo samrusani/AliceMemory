@@ -294,7 +294,7 @@
           "line": 8,
           "before": "Doctor's derived-label check counts are new in this set, absent from v0.20.0 and baseline main 48873b03, and the doctor routes omit them for callers with limits.",
           "after": "",
-          "sha256": "9ec84c8fb7e55c1d38778a1ccae7629bf530ded42b5a8018d9c9b1b381381ace"
+          "sha256": "1368ff0d1eb97bee72059b228b27bedd93de23ca7727fcbe9835788e878bd683"
         }
       ],
       "pytest": [
@@ -6182,7 +6182,7 @@
           "line": 11,
           "before": "\n> **Update (2026-10-09):** the correction above says graph neighborhood returns edge explanations in v0.20.0, and that is so. On main, not in v0.20.0, it lists only the edges whose ends the key may read, and the graph edge review route applies the same rule. See the [draft security note](derived-labels-security-note-draft.md).\n",
           "after": "",
-          "sha256": "9ec84c8fb7e55c1d38778a1ccae7629bf530ded42b5a8018d9c9b1b381381ace"
+          "sha256": "1368ff0d1eb97bee72059b228b27bedd93de23ca7727fcbe9835788e878bd683"
         }
       ],
       "pytest": [
@@ -32351,7 +32351,7 @@
           "line": 2,
           "before": "\"publication_status\":\"published\"",
           "after": "\"publication_status\":\"pending\"",
-          "sha256": "ff161b70205974d3858280f44238d7fb154a7767d33c49ea59837269f86d2124"
+          "sha256": "f7ad49c2681ca4c5cdca4bd80998b81360d65b9664b5f13b3ea16fe5657c2de9"
         }
       ],
       "pytest": [
@@ -32957,9 +32957,9 @@
         {
           "file": "docs/release/v0.19.2-release-notes.md",
           "line": 28,
-          "before": "> **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.19.2 tag still pins v0.19.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.19.2 tag still pins v0.19.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n- v0.19.0 can save an assistant reply as your own decision when Hermes turn",
-          "after": "> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.19.2 tag still pins v0.19.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n- v0.19.0 can save an assistant reply as your own decision when Hermes turn",
-          "sha256": "d2db554e542ce670cab859bb687418e4e791a841d44dbb74c02048143b3b1427"
+          "before": "> **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.19.2 tag still pins v0.19.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.19.2 tag still pins v0.19.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n- v0.19.0 can save an assistant reply as your own decision when Hermes turn",
+          "after": "> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.19.2 tag still pins v0.19.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n- v0.19.0 can save an assistant reply as your own decision when Hermes turn",
+          "sha256": "9df317f68de89f6e2dac17f27dba5c03aaa8b68e38f596f3485d66867544a01c"
         }
       ],
       "pytest": [
@@ -32973,9 +32973,9 @@
         {
           "file": "docs/release/v0.20.0-release-notes.md",
           "line": 184,
-          "before": "> **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.20.0 tag still pins v0.19.2, the copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.20.0 tag still pins v0.19.2, the copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Context pack at a small budget",
-          "after": "> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.20.0 tag still pins v0.19.2, the copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Context pack at a small budget",
-          "sha256": "9ec84c8fb7e55c1d38778a1ccae7629bf530ded42b5a8018d9c9b1b381381ace"
+          "before": "> **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.20.0 tag still pins v0.19.2, the copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.20.0 tag still pins v0.19.2, the copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Context pack at a small budget",
+          "after": "> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.20.0 tag still pins v0.19.2, the copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Context pack at a small budget",
+          "sha256": "1368ff0d1eb97bee72059b228b27bedd93de23ca7727fcbe9835788e878bd683"
         }
       ],
       "pytest": [
@@ -32989,9 +32989,9 @@
         {
           "file": "docs/release/v0.20.2-release-notes.md",
           "line": 182,
-          "before": "> **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Derived rows follow their inputs",
-          "after": "> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Derived rows follow their inputs",
-          "sha256": "aa274bdf3b5cfb867b2a6a2b72fd145403836b7d30cb098e61c1ff7b57a28184"
+          "before": "> **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Derived rows follow their inputs",
+          "after": "> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Derived rows follow their inputs",
+          "sha256": "70972d0e9b23f7976df9bfa6e71f2ab9becea08ea6ae14e3d5ca08d69acc14e9"
         }
       ],
       "pytest": [
@@ -33005,9 +33005,9 @@
         {
           "file": "docs/release/v0.21.1-release-notes.md",
           "line": 56,
-          "before": "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Credential markers",
-          "after": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Credential markers",
-          "sha256": "533eee7405e6ceb4636160016bcc8381420b38920faba4dafc41065914a9a36d"
+          "before": "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Credential markers",
+          "after": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Credential markers",
+          "sha256": "7643db593fad0f190b5c1c2e67f603dba44c78633f970996815f766c54cf497a"
         }
       ],
       "pytest": [
@@ -33021,9 +33021,9 @@
         {
           "file": "docs/release/v0.22.0-release-notes.md",
           "line": 67,
-          "before": "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## The agent output route",
-          "after": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## The agent output route",
-          "sha256": "de8699746b3b8bc1cbfe7b6b5ed684b80490862f3015c2a7ddd4a7aae31affb9"
+          "before": "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## The agent output route",
+          "after": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## The agent output route",
+          "sha256": "828b36d38d0bacc4eeb2e40c9303094e58a4c19da1f7d192d360d34b457d190e"
         }
       ],
       "pytest": [
@@ -33037,9 +33037,9 @@
         {
           "file": "docs/release/v0.23.0-release-notes.md",
           "line": 58,
-          "before": "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Agent keys on the SQLite vault",
-          "after": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Agent keys on the SQLite vault",
-          "sha256": "485d60c0e7ce5db3436f310096b42420fe3fa726ffcc0a64542006ae74aa0886"
+          "before": "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Agent keys on the SQLite vault",
+          "after": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Agent keys on the SQLite vault",
+          "sha256": "5c99b1af434b252eb798ac7bdb0d5ebbfb8f89b9fb3fc00c5fa7e8c04295828c"
         }
       ],
       "pytest": [
@@ -33053,9 +33053,9 @@
         {
           "file": "docs/release/v0.23.1-release-notes.md",
           "line": 45,
-          "before": "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## The agent key section of the guide",
-          "after": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## The agent key section of the guide",
-          "sha256": "ff161b70205974d3858280f44238d7fb154a7767d33c49ea59837269f86d2124"
+          "before": "   > **Update (2026-11-17):** v0.24.0 is published, and the marketplace file on `main` now pins the v0.24.0 tag commit, so the marketplace install runs v0.24.0. The copy inside the v0.23.1 tag still pins v0.23.0, and the copy inside the v0.24.0 tag still pins v0.23.1, so add the marketplace from the repository, not from a checkout of a tag.\n\n   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## The agent key section of the guide",
+          "after": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## The agent key section of the guide",
+          "sha256": "f7ad49c2681ca4c5cdca4bd80998b81360d65b9664b5f13b3ea16fe5657c2de9"
         }
       ],
       "pytest": [
@@ -34893,9 +34893,9 @@
         {
           "file": "docs/release/v0.19.2-release-notes.md",
           "line": 30,
-          "before": "> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.19.2 tag still pins v0.19.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n- v0.19.0 can save an assistant reply as your own decision when Hermes turn",
+          "before": "> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.19.2 tag still pins v0.19.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n- v0.19.0 can save an assistant reply as your own decision when Hermes turn",
           "after": "- v0.19.0 can save an assistant reply as your own decision when Hermes turn",
-          "sha256": "d2db554e542ce670cab859bb687418e4e791a841d44dbb74c02048143b3b1427"
+          "sha256": "9df317f68de89f6e2dac17f27dba5c03aaa8b68e38f596f3485d66867544a01c"
         }
       ],
       "pytest": [
@@ -34909,9 +34909,9 @@
         {
           "file": "docs/release/v0.20.0-release-notes.md",
           "line": 186,
-          "before": "> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.20.0 tag still pins v0.19.2, the copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Context pack at a small budget",
+          "before": "> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.20.0 tag still pins v0.19.2, the copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Context pack at a small budget",
           "after": "## Context pack at a small budget",
-          "sha256": "9ec84c8fb7e55c1d38778a1ccae7629bf530ded42b5a8018d9c9b1b381381ace"
+          "sha256": "1368ff0d1eb97bee72059b228b27bedd93de23ca7727fcbe9835788e878bd683"
         }
       ],
       "pytest": [
@@ -34925,9 +34925,9 @@
         {
           "file": "docs/release/v0.20.2-release-notes.md",
           "line": 184,
-          "before": "> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Derived rows follow their inputs",
+          "before": "> **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.20.2 tag still pins v0.20.0, the copy inside the v0.21.0 tag still pins v0.20.2, the copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Derived rows follow their inputs",
           "after": "## Derived rows follow their inputs",
-          "sha256": "aa274bdf3b5cfb867b2a6a2b72fd145403836b7d30cb098e61c1ff7b57a28184"
+          "sha256": "70972d0e9b23f7976df9bfa6e71f2ab9becea08ea6ae14e3d5ca08d69acc14e9"
         }
       ],
       "pytest": [
@@ -34941,9 +34941,9 @@
         {
           "file": "docs/release/v0.21.1-release-notes.md",
           "line": 58,
-          "before": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Credential markers",
+          "before": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.21.1 tag still pins v0.21.0, the copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Credential markers",
           "after": "## Credential markers",
-          "sha256": "533eee7405e6ceb4636160016bcc8381420b38920faba4dafc41065914a9a36d"
+          "sha256": "7643db593fad0f190b5c1c2e67f603dba44c78633f970996815f766c54cf497a"
         }
       ],
       "pytest": [
@@ -34957,9 +34957,9 @@
         {
           "file": "docs/release/v0.22.0-release-notes.md",
           "line": 69,
-          "before": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## The agent output route",
+          "before": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.22.0 tag still pins v0.21.1, the copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## The agent output route",
           "after": "## The agent output route",
-          "sha256": "de8699746b3b8bc1cbfe7b6b5ed684b80490862f3015c2a7ddd4a7aae31affb9"
+          "sha256": "828b36d38d0bacc4eeb2e40c9303094e58a4c19da1f7d192d360d34b457d190e"
         }
       ],
       "pytest": [
@@ -34973,9 +34973,9 @@
         {
           "file": "docs/release/v0.23.0-release-notes.md",
           "line": 60,
-          "before": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Agent keys on the SQLite vault",
+          "before": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.0 tag still pins v0.22.0, the copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## Agent keys on the SQLite vault",
           "after": "## Agent keys on the SQLite vault",
-          "sha256": "485d60c0e7ce5db3436f310096b42420fe3fa726ffcc0a64542006ae74aa0886"
+          "sha256": "5c99b1af434b252eb798ac7bdb0d5ebbfb8f89b9fb3fc00c5fa7e8c04295828c"
         }
       ],
       "pytest": [
@@ -34989,9 +34989,9 @@
         {
           "file": "docs/release/v0.23.1-release-notes.md",
           "line": 47,
-          "before": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## The agent key section of the guide",
+          "before": "   > **Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.\n\n## The agent key section of the guide",
           "after": "## The agent key section of the guide",
-          "sha256": "ff161b70205974d3858280f44238d7fb154a7767d33c49ea59837269f86d2124"
+          "sha256": "f7ad49c2681ca4c5cdca4bd80998b81360d65b9664b5f13b3ea16fe5657c2de9"
         }
       ],
       "pytest": [
@@ -35238,6 +35238,22 @@
         "tests/unit/test_v0211_release_notes.py::test_the_notes_stay_under_the_size_ceiling_and_keep_their_sections_in_order"
       ],
       "expected_failure": "test_the_notes_stay_under_the_size_ceiling_and_keep_their_sections_in_order"
+    },
+    {
+      "name": "v0241-marketplace-update-single-commas",
+      "edits": [
+        {
+          "file": "docs/release/v0.23.1-release-notes.md",
+          "line": 47,
+          "before": "**Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.1 tag still pins v0.23.0, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.",
+          "after": "**Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag commit, so the marketplace install runs v0.24.1. The copy inside the v0.23.1 tag still pins v0.23.0,, the copy inside the v0.24.0 tag still pins v0.23.1, and the copy inside the v0.24.1 tag still pins v0.24.0. Add the marketplace from the repository.",
+          "sha256": "f7ad49c2681ca4c5cdca4bd80998b81360d65b9664b5f13b3ea16fe5657c2de9"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_published_release_notes_stay_immutable.py::test_the_2026_11_18_updates_have_no_doubled_commas"
+      ],
+      "expected_failure": "test_the_2026_11_18_updates_have_no_doubled_commas"
     }
   ]
 }
