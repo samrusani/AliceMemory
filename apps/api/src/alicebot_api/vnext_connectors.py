@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 import csv
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -1207,6 +1207,7 @@ class VNextConnectorService:
         for definition in SUPPORTED_CONNECTORS:
             if definition.name not in CORE_SETTINGS_CONNECTORS:
                 continue
+            self._lock_connector_setting(definition.name)
             existing = cast(Any, self.store).get_connector_setting(definition.name)
             if existing is None:
                 cast(Any, self.store).upsert_connector_setting(
@@ -1226,6 +1227,11 @@ class VNextConnectorService:
                         actor_type="system",
                     )
         return {"status": "ok", "created": created}
+
+    def _lock_connector_setting(self, connector_name: str) -> None:
+        lock = getattr(self.store, "lock_connector_setting", None)
+        if lock is not None:
+            lock(connector_name)
 
     def _default_setting_payload(self, connector_name: str) -> JsonObject:
         definition = get_connector_definition(connector_name)
@@ -1327,6 +1333,7 @@ class VNextConnectorService:
         sync_mode: str | None = None,
         poll_interval_seconds: int | None = None,
         config_json: JsonObject | None = None,
+        authorize_sensitivity_change: Callable[[str], None] | None = None,
     ) -> JsonObject:
         definition = get_connector_definition(connector_name)
         # Before the store is read: the configuration is stored as it is merged into the existing one.
@@ -1342,16 +1349,14 @@ class VNextConnectorService:
             raise VNextConnectorValidationError(
                 "telegram source ingestion is on-demand and does not accept polling or secret configuration"
             )
+        self._lock_connector_setting(definition.name)
         existing_config = self.get_config(definition.name)
         existing_config_json = (
             existing_config.get("config_json") if isinstance(existing_config.get("config_json"), dict) else {}
         )
         domain = default_domain or _as_optional_text(existing_config.get("default_domain")) or definition.default_domain
-        sensitivity = (
-            default_sensitivity
-            or _as_optional_text(existing_config.get("default_sensitivity"))
-            or definition.default_sensitivity
-        )
+        current_sensitivity = _as_optional_text(existing_config.get("default_sensitivity")) or definition.default_sensitivity
+        sensitivity = default_sensitivity or current_sensitivity
         if domain not in _VALID_DOMAINS:
             raise VNextConnectorValidationError(f"invalid connector default domain: {domain}")
         if sensitivity not in _VALID_SENSITIVITIES:
@@ -1405,6 +1410,8 @@ class VNextConnectorService:
             "validation_errors": validation_errors,
             "updated_at": _utc_now_iso(),
         }
+        if authorize_sensitivity_change is not None and sensitivity != current_sensitivity:
+            authorize_sensitivity_change(definition.name)
         if hasattr(self.store, "upsert_connector_setting"):
             row = cast(Any, self.store).upsert_connector_setting(
                 {

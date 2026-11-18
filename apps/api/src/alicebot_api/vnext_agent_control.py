@@ -122,7 +122,7 @@ PROPOSAL_ONLY_WRITE_ACTIONS = frozenset({"memory.propose", "memory.commit"})
 
 # Actions only a human (identity=None) or an admin agent may perform:
 # review decisions (artifact/memory review, consolidation acceptance) and
-# destructive operations (content redaction). Enforced in
+# destructive operations (content redaction), and sensitivity changes. Enforced in
 # evaluate_agent_policy with the same profile-restriction mechanism as the
 # scheduler controls.
 HUMAN_OR_ADMIN_ACTIONS = frozenset(
@@ -131,6 +131,7 @@ HUMAN_OR_ADMIN_ACTIONS = frozenset(
         "memory.review",
         "memory.redact",
         "memory.accept_consolidation",
+        "sensitivity.change",
         # Quarantining everything one agent key auto-promoted is an operator
         # action. An agent that could run it against another key could bury
         # that key's writes; an agent that could run it against its own could

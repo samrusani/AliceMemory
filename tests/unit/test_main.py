@@ -300,6 +300,13 @@ def test_request_models_reject_unknown_fields() -> None:
         )
 
 
+def test_openapi_connector_configuration_accepts_an_optional_authorization_header() -> None:
+    """Mutation: rename the connector configuration header in the schema."""
+    operation = main_module.app.openapi()["paths"]["/v0/vnext/connectors/{connector_name}/config"]["patch"]
+    headers = {parameter["name"]: parameter for parameter in operation["parameters"] if parameter["in"] == "header"}
+    assert headers["authorization"]["required"] is False
+
+
 def test_openapi_has_concrete_success_contracts_and_accurate_statuses() -> None:
     route_paths = _registered_route_paths()
     schema = main_module.app.openapi()

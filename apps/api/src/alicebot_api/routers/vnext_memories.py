@@ -593,8 +593,33 @@ def get_vnext_connector_status(
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 
+def _vnext_require_sensitivity_change_permission(
+    store: PostgresVNextStore,
+    identity: AgentIdentity | None,
+    *,
+    target_type: str,
+    target_id: str,
+) -> None:
+    if identity is None:
+        return
+    decision = _vnext_policy_checked(
+        store=store,
+        identity=identity,
+        action="sensitivity.change",
+        sensitivity_allowed=(),
+        target_type=target_type,
+        target_id=target_id,
+    )
+    if decision.decision == "blocked":
+        raise AgentPolicyBlockedError(decision)
+
+
 @connectors_router.patch("/v0/vnext/connectors/{connector_name}/config")
-def update_vnext_connector_config(connector_name: str, request: VNextConnectorConfigRequest) -> JSONResponse:
+def update_vnext_connector_config(
+    connector_name: str,
+    request: VNextConnectorConfigRequest,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings = get_settings()
     if connector_name == "telegram" and (
         request.secret_ref is not None
@@ -607,16 +632,34 @@ def update_vnext_connector_config(connector_name: str, request: VNextConnectorCo
         )
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
-            payload = VNextConnectorService(PostgresVNextStore(conn)).update_config(
-                connector_name,
-                enabled=request.enabled,
-                default_domain=request.default_domain,
-                default_sensitivity=request.default_sensitivity,
-                secret_ref=request.secret_ref,
-                sync_mode=request.sync_mode,
-                poll_interval_seconds=request.poll_interval_seconds,
-                config_json=request.config_json,
-            )
+            store = PostgresVNextStore(conn)
+
+            def authorize_sensitivity_change(canonical_name: str) -> None:
+                identity = _vnext_source_route_identity(
+                    store, user_id=request.user_id, authorization=authorization, request=request
+                )
+                _vnext_require_sensitivity_change_permission(
+                    store, identity, target_type="connector", target_id=canonical_name
+                )
+
+            try:
+                payload = VNextConnectorService(store).update_config(
+                    connector_name,
+                    enabled=request.enabled,
+                    default_domain=request.default_domain,
+                    default_sensitivity=request.default_sensitivity,
+                    secret_ref=request.secret_ref,
+                    sync_mode=request.sync_mode,
+                    poll_interval_seconds=request.poll_interval_seconds,
+                    config_json=request.config_json,
+                    authorize_sensitivity_change=authorize_sensitivity_change,
+                )
+            except AgentPolicyBlockedError as exc:
+                return _vnext_permission_response(exc.decision)
+    except AgentIdentityValidationError as exc:
+        return public_exception_response(exc, status_code=400)
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
     except VNextConnectorValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext connector config request is invalid")
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
@@ -1140,8 +1183,8 @@ def _vnext_trace_for_caller(
 ) -> dict[str, object]:
     """The source trace embedded in a review answer, limited to what the caller may read.
 
-    A caller who changes a source to a label above their own ceiling is not shown the trace of it afterwards (the trace
-    loader answers None for it), so the answer carries an empty trace and nothing the caller had not already read.
+    If the updated source is outside the caller's read fence, the trace loader returns None and the answer carries
+    an empty trace.
     """
 
     trace = _vnext_load_source_trace(store=store, source=source, identity=identity)
@@ -1200,6 +1243,14 @@ def review_vnext_source(
 
             if action == "assign_project" and request.project_id is None:
                 return _vnext_public_error_response(status_code=400, detail="project_id is required")
+
+            if request.sensitivity is not None and request.sensitivity != existing["sensitivity"]:
+                try:
+                    _vnext_require_sensitivity_change_permission(
+                        store, identity, target_type="source", target_id=str(source_id)
+                    )
+                except AgentPolicyBlockedError as exc:
+                    return _vnext_permission_response(exc.decision)
 
             metadata = {
                 **_vnext_metadata(existing),
