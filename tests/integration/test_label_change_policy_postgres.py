@@ -6,6 +6,7 @@ import psycopg
 from psycopg import sql
 import pytest
 
+from alicebot_api.vnext_agent_keys import hash_agent_key
 from alicebot_api.vnext_connectors import VNextConnectorService
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401 (fixture)
 
@@ -58,19 +59,60 @@ def _assert_refusal(status, body):
     assert decision["reasons"] == ["human_or_admin_review_required"]
 
 
-def _assert_only_refusal_recorded(h, before, body, target_type, target_id):
-    after = _snapshot(h)
-    for table in before.keys() - {"event_log", "agent_identities"}:
+def _assert_key_use(before, after, key):
+    if key is None:
+        assert before == after == []
+        return None
+    key_hash = hash_agent_key(key)
+    (previous,) = [row for (row,) in before if row["key_hash"] == key_hash]
+    (current,) = [row for (row,) in after if row["key_hash"] == key_hash]
+    used_at = current["last_used_at"]
+    assert used_at is not None and used_at != previous["last_used_at"]
+    assert current == {**previous, "last_used_at": used_at}
+    assert [row for (row,) in after if row["key_hash"] != key_hash] == [
+        row for (row,) in before if row["key_hash"] != key_hash
+    ]
+    return current["agent_id"]
+
+
+def _assert_other_tables_equal(before, after, excluded):
+    assert before.keys() == after.keys()
+    for table in before.keys() - excluded:
         assert after[table] == before[table], table
+
+
+def _assert_only_key_use_recorded(before, after, key):
+    _assert_key_use(before["agent_api_keys"], after["agent_api_keys"], key)
+    _assert_other_tables_equal(before, after, {"agent_api_keys"})
+
+
+def _assert_only_refusal_recorded(before, after, body, target_type, target_id, *, key, declared_agent_id=None):
+    key_agent_id = _assert_key_use(before["agent_api_keys"], after["agent_api_keys"], key)
+    caller_id = key_agent_id if key is not None else declared_agent_id
+    _assert_other_tables_equal(before, after, {"event_log", "agent_identities", "agent_api_keys"})
+
+    old_identities = {row["agent_id"]: row for (row,) in before["agent_identities"]}
+    new_identities = {row["agent_id"]: row for (row,) in after["agent_identities"]}
+    previous = old_identities.pop(caller_id, None)
+    caller = new_identities.pop(caller_id)
+    assert new_identities == old_identities
+    assert caller["permission_profile"] == body["policy_decision"]["permission_profile"]
+    if previous is not None:
+        assert caller["updated_at"] != previous["updated_at"]
+        assert caller == {**previous, "updated_at": caller["updated_at"]}
+
     assert all(row in after["event_log"] for row in before["event_log"])
     added = _new_events(before, after)
     assert sorted(row["event_type"] for row in added) == [
         "agent.identity_upserted", "agent.policy_blocked", "policy.decision"
     ]
-    decisions = [row for row in added if row["event_type"] != "agent.identity_upserted"]
-    for row in decisions:
-        assert (row["target_type"], row["target_id"]) == (target_type, target_id)
-        assert row["payload_json"]["policy_decision"] == body["policy_decision"]
+    for row in added:
+        assert row["actor_id"] == caller_id
+        if row["event_type"] == "agent.identity_upserted":
+            assert (row["target_type"], row["target_id"]) == ("agent_identity", caller["id"])
+        else:
+            assert (row["target_type"], row["target_id"]) == (target_type, target_id)
+            assert row["payload_json"]["policy_decision"] == body["policy_decision"]
 
 
 def _review_payload(h, action, sensitivity):
@@ -93,6 +135,7 @@ def test_a_trusted_key_cannot_change_a_stored_source_label(label_harness, monkey
     h.memory(source=source)
     payload = _review_payload(h, action, requested)
     key = h.key("trusted_local_agent")
+    h.key("admin_agent")
     before = _snapshot(h)
 
     def unexpected_preview(*args, **kwargs):
@@ -101,7 +144,7 @@ def test_a_trusted_key_cannot_change_a_stored_source_label(label_harness, monkey
     monkeypatch.setattr(vnext_label_writes, "count_rows_hidden_by_scope_move", unexpected_preview)
     status, body = _review(h, source_id, payload, key=key)
     _assert_refusal(status, body)
-    _assert_only_refusal_recorded(h, before, body, "source", source_id)
+    _assert_only_refusal_recorded(before, _snapshot(h), body, "source", source_id, key=key)
 
 
 @pytest.mark.parametrize("payload", [
@@ -139,7 +182,6 @@ def test_source_validation_and_read_fence_precede_sensitivity_authorization(labe
     hidden_id = str(h.source(sensitivity="confidential")["id"])
     missing_id = str(uuid4())
     key = h.key("trusted_local_agent")
-    before = _snapshot(h)
     cases = [
         (visible_id, "invalid", 400, "vNext source review action is invalid"),
         (visible_id, "assign_project", 400, "project_id is required"),
@@ -147,10 +189,11 @@ def test_source_validation_and_read_fence_precede_sensitivity_authorization(labe
         (missing_id, "assign_project", 404, f"vNext source {missing_id} was not found"),
     ]
     for source_id, action, status, detail in cases:
+        before = _snapshot(h)
         assert _review(h, source_id, {"action": action, "sensitivity": "public"}, key=key) == (
             status, {"detail": detail},
         )
-    assert _snapshot(h) == before
+        _assert_only_key_use_recorded(before, _snapshot(h), key)
 
 
 @pytest.mark.parametrize("sensitivity", ["confidential", "internal"])
@@ -161,10 +204,11 @@ def test_a_trusted_key_cannot_change_the_default_for_a_connector(label_harness, 
     with h.store() as store:
         VNextConnectorService(store).update_config(CONNECTOR, default_sensitivity="private", enabled=False)
     key = h.key("trusted_local_agent")
+    h.key("admin_agent")
     before = _snapshot(h)
     status, body = _config(h, {"default_sensitivity": sensitivity, **additional_fields}, key=key)
     _assert_refusal(status, body)
-    _assert_only_refusal_recorded(h, before, body, "connector", CONNECTOR)
+    _assert_only_refusal_recorded(before, _snapshot(h), body, "connector", CONNECTOR, key=key)
 
 
 @pytest.mark.parametrize("payload", [{"default_sensitivity": "private"}, {}])
@@ -188,18 +232,16 @@ def test_connector_validation_precedes_sensitivity_authorization(label_harness):
     """Mutation: answer invalid connector configuration with HTTP 403."""
     h = label_harness
     key = h.key("trusted_local_agent")
-    before = _snapshot(h)
     polling = {"default_sensitivity": "confidential", "poll_interval_seconds": 30}
-    assert _config(h, polling, key=key, connector="telegram") == (400, {
-        "detail": "Telegram source ingestion is on-demand and does not accept polling or secret configuration",
-    })
-    assert _config(h, {"default_sensitivity": "confidential"}, key=key, connector="missing") == (
-        400, {"detail": "vNext connector config request is invalid"},
-    )
-    assert _config(h, polling, key=key, connector="TELEGRAM") == (
-        400, {"detail": "vNext connector config request is invalid"},
-    )
-    assert _snapshot(h) == before
+    cases = [
+        ("telegram", polling, "Telegram source ingestion is on-demand and does not accept polling or secret configuration"),
+        ("missing", {"default_sensitivity": "confidential"}, "vNext connector config request is invalid"),
+        ("TELEGRAM", polling, "vNext connector config request is invalid"),
+    ]
+    for connector, payload, detail in cases:
+        before = _snapshot(h)
+        assert _config(h, payload, key=key, connector=connector) == (400, {"detail": detail})
+        _assert_only_key_use_recorded(before, _snapshot(h), key)
 
 
 @pytest.mark.parametrize(("key_profile", "claims", "allowed", "has_policy"), [
@@ -217,14 +259,21 @@ def test_both_label_changes_use_the_resolved_caller(label_harness, key_profile, 
     key = h.key(key_profile) if key_profile else None
     before = _snapshot(h)
     source_status, source_body = _review(h, source_id, {"action": "review", "sensitivity": "confidential", **claims}, key=key)
+    after_source = _snapshot(h)
     connector_status, connector_body = _config(h, {"default_sensitivity": "confidential", **claims}, key=key)
+    after = _snapshot(h)
     if allowed:
         assert source_status == connector_status == 200
         assert source_body["source"]["sensitivity"] == connector_body["default_sensitivity"] == "confidential"
     else:
         _assert_refusal(source_status, source_body)
         _assert_refusal(connector_status, connector_body)
-    added = _new_events(before, _snapshot(h))
+        declared = claims.get("agent_id")
+        _assert_only_refusal_recorded(before, after_source, source_body, "source", source_id, key=key, declared_agent_id=declared)
+        _assert_only_refusal_recorded(
+            after_source, after, connector_body, "connector", CONNECTOR, key=key, declared_agent_id=declared,
+        )
+    added = _new_events(before, after)
     observed = [
         (row["target_type"], row["payload_json"]["policy_decision"]["decision"])
         for row in added if row["event_type"] == "policy.decision"
