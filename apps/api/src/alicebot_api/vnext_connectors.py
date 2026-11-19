@@ -20,6 +20,8 @@ import time
 from typing import TYPE_CHECKING, Any, Protocol, cast
 from uuid import UUID, uuid4
 
+import psycopg
+
 from alicebot_api.json_bounds import JsonShapeError, loads_caller_json, refuse_unstorable_json
 from alicebot_api.vnext_source_fence import SOURCE_REF_SHAPE_MESSAGE, is_producer_source_ref
 from alicebot_api.connector_payloads import ConnectorPayloadValidationError, normalize_telegram_source_item
@@ -1230,10 +1232,9 @@ class VNextConnectorService:
 
     def _lock_connector_setting(self, connector_name: str) -> None:
         """Serialize PostgreSQL config writes, including the first insert."""
-        from alicebot_api.vnext_store import PostgresVNextStore
-
-        if isinstance(self.store, PostgresVNextStore):
-            with self.store.conn.cursor() as cur:
+        conn = getattr(self.store, "conn", None)
+        if isinstance(conn, psycopg.Connection):
+            with conn.cursor() as cur:
                 cur.execute(
                     "SELECT pg_advisory_xact_lock(hashtext('vnext_connector_config'), "
                     "hashtext(app.current_user_id()::text || ':' || %s))",

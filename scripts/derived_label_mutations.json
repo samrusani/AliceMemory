@@ -6707,10 +6707,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1589,
+          "line": 1590,
           "before": "        if guard.active and last_captured_item is not None:\n            if not self._caller_reads_sources(guard, [last_captured_item.get(\"source_id\")]):\n                last_captured_item = None",
           "after": "        if False:\n            if not self._caller_reads_sources(guard, [last_captured_item.get(\"source_id\")]):\n                last_captured_item = None",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -6723,10 +6723,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1658,
+          "line": 1659,
           "before": "        if cursor is None or not guard.active:\n            return cursor",
           "after": "        if True:\n            return cursor",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -6739,10 +6739,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1715,
+          "line": 1716,
           "before": "        if not carriers or not self._caller_reads_sources(guard, [item.get(\"source_id\") for item in carriers]):\n            return None",
           "after": "        if carriers and not self._caller_reads_sources(guard, [item.get(\"source_id\") for item in carriers]):\n            return None",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -6755,10 +6755,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1714,
+          "line": 1715,
           "before": "        carriers = index[field].get(value, [])\n",
           "after": "        carriers = [item for items in index[field].values() for item in items]\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -6771,10 +6771,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1828,
+          "line": 1829,
           "before": "            if not isinstance(row, Mapping) or row.get(\"deleted_at\") is not None:\n                return False",
           "after": "            if not isinstance(row, Mapping):\n                return False",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -6787,10 +6787,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1825,
+          "line": 1826,
           "before": "            except (ValueError, AttributeError, TypeError):\n                return False\n            row = getter(source_id)",
           "after": "            except (ValueError, AttributeError, TypeError):\n                continue\n            row = getter(source_id)",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -6803,10 +6803,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1867,
+          "line": 1868,
           "before": "        grant = (\"result\", guard.active, guard.domains, guard.sensitivity_allowed, guard.projects, guard.all_of)",
           "after": "        grant = \"result\"",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -6819,10 +6819,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1728,
+          "line": 1729,
           "before": "        record = result.to_record()\n        if guard.active:",
           "after": "        record = result.to_record()\n        if False:",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -6835,10 +6835,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1766,
+          "line": 1767,
           "before": "        if not guard.active:\n            return list(events)\n        # The imports of each connector are indexed once for the whole call, so a failure that lists thousands of ids",
           "after": "        if True:\n            return list(events)\n        # The imports of each connector are indexed once for the whole call, so a failure that lists thousands of ids",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -7190,10 +7190,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 54,
+          "line": 56,
           "before": "    \"connector.sync_started\": (\"previous_cursor\",),",
           "after": "    \"connector.sync_started\": (),",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -7207,10 +7207,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 53,
+          "line": 55,
           "before": "    \"connector.state_updated\": (\"cursor_value\",),",
           "after": "    \"connector.state_updated\": (),",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -7224,10 +7224,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 55,
+          "line": 57,
           "before": "    \"connector.sync_completed\": (\"previous_cursor\", \"sync_cursor\"),",
           "after": "    \"connector.sync_completed\": (\"sync_cursor\",),",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -7241,10 +7241,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 56,
+          "line": 58,
           "before": "    \"connector.sync_failed\": (\"previous_cursor\", \"sync_cursor\"),",
           "after": "    \"connector.sync_failed\": (),",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -7257,10 +7257,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1794,
+          "line": 1795,
           "before": "            cleaned = dict(payload)\n            for field in cursor_fields:",
           "after": "            cleaned = payload\n            for field in cursor_fields:",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -7273,10 +7273,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1775,
+          "line": 1776,
           "before": "            if not isinstance(value, str) or not isinstance(name, str):\n                return None",
           "after": "            if not isinstance(name, str):\n                return None",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -7289,10 +7289,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1775,
+          "line": 1776,
           "before": "            if not isinstance(value, str) or not isinstance(name, str):\n                return None",
           "after": "            if not isinstance(value, str):\n                return None",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -7321,10 +7321,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1797,
+          "line": 1798,
           "before": "                if cursor is None or cursor == \"\":\n                    continue",
           "after": "                if cursor is None:\n                    continue",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -7370,10 +7370,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1831,
+          "line": 1832,
           "before": "        return len(guard.admit_rows(\"source\", rows)) == len(rows)",
           "after": "        return len(guard.admit_rows(\"source\", rows)) > 0",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13543,10 +13543,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 57,
+          "line": 59,
           "before": "    \"connector.item_failed\": (\"sync_cursor\",),\n",
           "after": "",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13559,10 +13559,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 64,
+          "line": 66,
           "before": "    \"connector.item_failed\": (\"external_id\",),\n",
           "after": "",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13575,10 +13575,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 66,
+          "line": 68,
           "before": "    \"connector.sync_failed\": (\"failed_external_ids\",),\n",
           "after": "",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13591,10 +13591,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 65,
+          "line": 67,
           "before": "    \"connector.sync_completed\": (\"failed_external_ids\",),\n",
           "after": "",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13607,10 +13607,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1780,
+          "line": 1781,
           "before": "                field = \"sync_cursor\" if kind == \"cursor\" else \"external_id\"\n",
           "after": "                field = \"sync_cursor\"\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13623,10 +13623,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1804,
+          "line": 1805,
           "before": "                if isinstance(value, (list, tuple)):\n",
           "after": "                if False:\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13639,10 +13639,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1794,
+          "line": 1795,
           "before": "            cleaned = dict(payload)\n",
           "after": "            cleaned = payload\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13655,10 +13655,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1775,
+          "line": 1776,
           "before": "            if not isinstance(value, str) or not isinstance(name, str):\n                return None\n",
           "after": "            if not isinstance(value, str) or not isinstance(name, str):\n                return value if isinstance(value, str) else None\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13671,10 +13671,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 64,
+          "line": 66,
           "before": "    \"connector.item_failed\": (\"external_id\",),\n",
           "after": "",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13687,10 +13687,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 65,
+          "line": 67,
           "before": "    \"connector.sync_completed\": (\"failed_external_ids\",),\n",
           "after": "",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13703,10 +13703,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 66,
+          "line": 68,
           "before": "    \"connector.sync_failed\": (\"failed_external_ids\",),\n",
           "after": "",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13719,10 +13719,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 64,
+          "line": 66,
           "before": "    \"connector.item_failed\": (\"external_id\",),\n",
           "after": "",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13783,10 +13783,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1743,
+          "line": 1744,
           "before": "            if isinstance(failed, list):\n                record[\"failed_external_ids\"] = [",
           "after": "            if False:\n                record[\"failed_external_ids\"] = [",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13799,10 +13799,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1743,
+          "line": 1744,
           "before": "            if isinstance(failed, list):\n                record[\"failed_external_ids\"] = [",
           "after": "            if False:\n                record[\"failed_external_ids\"] = [",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13815,10 +13815,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1743,
+          "line": 1744,
           "before": "            if isinstance(failed, list):\n                record[\"failed_external_ids\"] = [",
           "after": "            if False:\n                record[\"failed_external_ids\"] = [",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13831,10 +13831,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1735,
+          "line": 1736,
           "before": "                if any(isinstance(value, str) for value in judged)\n",
           "after": "                if True\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13847,10 +13847,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1778,
+          "line": 1779,
           "before": "                if name not in indexes:\n",
           "after": "                if True:\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -13863,10 +13863,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1733,
+          "line": 1734,
           "before": "            index = (\n                self._import_index(result.connector_name)\n                if any(isinstance(value, str) for value in judged)\n                else {\"sync_cursor\": {}, \"external_id\": {}}\n            )\n",
           "after": "            index = {\"sync_cursor\": {}, \"external_id\": {}}\n            self._import_index(result.connector_name)\n            self._import_index(result.connector_name)\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -14663,10 +14663,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1040,
+          "line": 1042,
           "before": "        loaded = loads_caller_json(payload_path.read_text(encoding=\"utf-8\"), name=\"the connector payload file\")\n",
           "after": "        loaded = json.loads(payload_path.read_text(encoding=\"utf-8\"))\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -14775,10 +14775,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1348,
+          "line": 1349,
           "before": "            refuse_unstorable_json(config_json, name=\"config_json\")\n",
           "after": "            pass\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -15432,10 +15432,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1001,
+          "line": 1003,
           "before": "            refuse_unstorable_json(payload, name=f\"{definition.name} item\")\n",
           "after": "            pass\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -15448,10 +15448,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 996,
+          "line": 998,
           "before": "            refuse_unstorable_json({key: value for key, value in payload.items() if key != \"source_refs\"},\n                                   name=f\"{definition.name} item\")\n",
           "after": "            pass\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -15464,10 +15464,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 999,
+          "line": 1001,
           "before": "                refuse_unstorable_json(ref, name=\"each source_ref\")\n",
           "after": "                pass\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -15480,10 +15480,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 995,
+          "line": 997,
           "before": "        if isinstance(refs, list):\n",
           "after": "        if False:\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -19486,10 +19486,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 808,
+          "line": 810,
           "before": "    if not isinstance(refs, list) or not all(is_producer_source_ref(ref) for ref in refs):\n        raise VNextConnectorValidationError(SOURCE_REF_SHAPE_MESSAGE)\n",
           "after": "    if False and (not isinstance(refs, list) or not all(is_producer_source_ref(ref) for ref in refs)):\n        raise VNextConnectorValidationError(SOURCE_REF_SHAPE_MESSAGE)\n",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -22771,10 +22771,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 2106,
+          "line": 2107,
           "before": "_refuse_blocked_policy_decision(policy_decision)\n        item = normalize_connector_item(\"agent_output\", payload)",
           "after": "item = normalize_connector_item(\"agent_output\", payload)",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -22787,10 +22787,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 2106,
+          "line": 2107,
           "before": "_refuse_blocked_policy_decision(policy_decision)\n        item = normalize_connector_item(\"agent_output\", payload)",
           "after": "item = normalize_connector_item(\"agent_output\", payload)\n        _refuse_blocked_policy_decision(policy_decision)",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -22803,10 +22803,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 636,
+          "line": 638,
           "before": "return tuple(str(item) for item in value) if isinstance(value, (list, tuple)) else default",
           "after": "return default",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -22826,10 +22826,10 @@
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 2106,
+          "line": 2107,
           "before": "_refuse_blocked_policy_decision(policy_decision)\n        item = normalize_connector_item(\"agent_output\", payload)",
           "after": "item = normalize_connector_item(\"agent_output\", payload)",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
@@ -35324,10 +35324,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_connectors.py",
-          "line": 1420,
+          "line": 1421,
           "before": "if authorize_sensitivity_change is not None and sensitivity != current_sensitivity:",
           "after": "if authorize_sensitivity_change is not None and default_sensitivity is not None:",
-          "sha256": "af554798e1608c7fa786becb69be8f146355e538fdad215af3456580a5e31975"
+          "sha256": "fd1f92eaf866b819de19255f238840c4b8812e1b197448ccce539d19dd7a03bd"
         }
       ],
       "pytest": [
