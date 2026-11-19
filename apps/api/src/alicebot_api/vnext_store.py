@@ -925,15 +925,6 @@ class PostgresVNextStore:
             """
         )
 
-    def lock_connector_setting(self, connector_name: str) -> None:
-        """Serialize the read and write of a connector setting, even before its first insert."""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT pg_advisory_xact_lock(hashtext('vnext_connector_config'), "
-                "hashtext(app.current_user_id()::text || ':' || %s))",
-                (connector_name,),
-            )
-
     def get_connector_setting(self, connector_name: str) -> VNextRow | None:
         return self._fetch_optional_one(
             f"""

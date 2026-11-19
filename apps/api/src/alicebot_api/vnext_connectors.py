@@ -1229,9 +1229,16 @@ class VNextConnectorService:
         return {"status": "ok", "created": created}
 
     def _lock_connector_setting(self, connector_name: str) -> None:
-        lock = getattr(self.store, "lock_connector_setting", None)
-        if lock is not None:
-            lock(connector_name)
+        """Serialize PostgreSQL config writes, including the first insert."""
+        from alicebot_api.vnext_store import PostgresVNextStore
+
+        if isinstance(self.store, PostgresVNextStore):
+            with self.store.conn.cursor() as cur:
+                cur.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext('vnext_connector_config'), "
+                    "hashtext(app.current_user_id()::text || ':' || %s))",
+                    (connector_name,),
+                )
 
     def _default_setting_payload(self, connector_name: str) -> JsonObject:
         definition = get_connector_definition(connector_name)

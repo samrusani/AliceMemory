@@ -656,8 +656,8 @@ def update_vnext_connector_config(
                 )
             except AgentPolicyBlockedError as exc:
                 return _vnext_permission_response(exc.decision)
-    except AgentIdentityValidationError as exc:
-        return public_exception_response(exc, status_code=400)
+    except AgentIdentityValidationError:
+        return _vnext_public_error_response(status_code=400, detail="vNext connector identity claims are invalid")
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
     except VNextConnectorValidationError:
