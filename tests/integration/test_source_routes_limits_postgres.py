@@ -282,20 +282,21 @@ def test_a_trusted_key_can_still_review_and_move_a_readable_source_into_a_projec
     assert "MEMORY-OPEN-readable-visible" in json.dumps(body)
 
 
-def test_a_trusted_key_that_raises_its_own_source_above_its_ceiling_gets_no_trace(label_harness):
+def test_a_trusted_key_cannot_raise_a_readable_source_above_its_ceiling(label_harness):
+    """Mutation: answer the source sensitivity refusal with HTTP 400."""
     h = label_harness
     world = World(h, "raise")
     key = h.key("trusted_local_agent")
+    before = _stored(h, world.ids["visible"])
     status, body, _ = h.request(
         "POST", f"/v0/vnext/sources/{world.ids['visible']}/review",
         payload={"action": "update", "sensitivity": "confidential"}, key=key,
     )
-    assert status == 200
-    assert body["source"]["sensitivity"] == "confidential"
-    assert body["trace"] == {}
-    assert _stored(h, world.ids["visible"])["sensitivity"] == "confidential"
+    assert status == 403
+    assert body["policy_decision"]["reasons"] == ["human_or_admin_review_required"]
+    assert _stored(h, world.ids["visible"]) == before
     status, body, _ = h.request("GET", "/v0/vnext/sources/" + world.ids["visible"], key=key)
-    assert status == 404
+    assert status == 200 and body["sensitivity"] == before["sensitivity"]
 
 
 @pytest.mark.parametrize("profile", ["owner", "admin", "trusted"])

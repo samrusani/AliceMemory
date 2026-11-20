@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.24.1): changing a source's stored sensitivity or a connector's default sensitivity requires the owner or an unbound `admin_agent` key. A trusted operator key can still update a readable source or save connector settings at the current sensitivity. v0.24.1 allowed trusted operator keys to make both sensitivity changes (`python -m pytest tests/integration/test_label_change_policy_postgres.py`).
+
 ## v0.24.1 — 2026-11-18
 
 - PostgreSQL MCP refuses keyless calls when the bound user has an active key. Set `ALICE_AGENT_API_KEY` on the server. v0.24.0 served keyless PostgreSQL calls even after a key was issued (`python -m pytest tests/integration/test_active_key_install_boundaries_postgres.py`).

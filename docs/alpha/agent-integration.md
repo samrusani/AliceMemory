@@ -229,6 +229,8 @@ See [MCP tools](mcp-tools.md#domains-a-profile-may-read).
 
 From v0.24.1, PostgreSQL MCP requires an `ALICE_AGENT_API_KEY` once the user holds an active key, including for reads and legacy tools. Browser clip capabilities on keyed installs use the strictest sensitivity ceiling of any key allowed to issue one. Mounted legacy `/v0` routes require a loopback peer in every mode and remain keyless.
 
+Unreleased (on main, not in v0.24.1): only the owner or an unbound `admin_agent` key may change a source's stored sensitivity or a connector's default sensitivity.
+
 Custom agents calling the HTTP API authenticate with per-agent API keys. Create one per agent:
 
 ```bash
