@@ -1,5 +1,7 @@
 """Authorization and committed audit evidence for changes to sensitivity labels."""
 
+from concurrent.futures import ThreadPoolExecutor
+import time
 from uuid import uuid4
 
 import psycopg
@@ -361,3 +363,57 @@ def test_connector_sync_uses_the_admin_selected_default(label_harness):
         assert sources[0]["sensitivity"] == "confidential"
     status, body, _ = h.request("GET", f"/v0/vnext/sources/{source_id}", key=trusted)
     assert (status, body) == (404, {"detail": f"vNext source {source_id} was not found"})
+
+
+@pytest.mark.parametrize("has_setting", [False, True], ids=["first-insert", "existing-row"])
+@pytest.mark.parametrize("repeats_default", [False, True], ids=["no-default", "earlier-default"])
+def test_connector_settings_wait_for_the_default_in_force(label_harness, has_setting, repeats_default):
+    h = label_harness
+    trusted = h.key("trusted_local_agent")
+    with h.store() as store:
+        service = VNextConnectorService(store)
+        if has_setting:
+            service.update_config(CONNECTOR, default_sensitivity="private", enabled=False)
+        assert (store.get_connector_setting(CONNECTOR) is not None) is has_setting
+        earlier_default = service.get_config(CONNECTOR)["default_sensitivity"]
+
+    payload = {"enabled": True}
+    if repeats_default:
+        payload["default_sensitivity"] = earlier_default
+
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        with h.store() as holder:
+            VNextConnectorService(holder).update_config(CONNECTOR, default_sensitivity="confidential", enabled=False)
+            owner_setting = holder.get_connector_setting(CONNECTOR)
+            pending = worker.submit(_config, h, payload, key=trusted)
+
+            # Identify the blocker by backend PID so the test observes the two
+            # transactions overlap independently of the kind of lock involved.
+            deadline = time.monotonic() + 10
+            with psycopg.connect(h.urls["app"], autocommit=True) as observer:
+                while not pending.done():
+                    waiting = observer.execute(
+                        """SELECT EXISTS (
+                            SELECT 1 FROM pg_stat_activity
+                            WHERE datname = current_database()
+                              AND %s = ANY (pg_blocking_pids(pid))
+                        )""",
+                        (holder.conn.info.backend_pid,),
+                    ).fetchone()[0]
+                    if waiting:
+                        break
+                    assert time.monotonic() < deadline, "connector request never waited for the open writer"
+                    time.sleep(0.01)
+            assert not pending.done(), "connector request answered while the writer was still open"
+
+        status, body = pending.result(timeout=30)
+
+    with h.store() as store:
+        stored = store.get_connector_setting(CONNECTOR)
+    assert stored["default_sensitivity"] == "confidential"
+    if repeats_default:
+        _assert_refusal(status, body)
+        assert stored == owner_setting
+    else:
+        assert status == 200
+        assert stored["enabled"] is True
