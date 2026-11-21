@@ -28,6 +28,7 @@ from alicebot_api.routers._vnext_shared import (
     _vnext_agent_identity,
     _vnext_authenticated_agent_identity,
     _vnext_canonical_id,
+    _vnext_created_sensitivity_refusal,
     _vnext_permission_response,
     _vnext_policy_checked,
     _vnext_public_error_response,
@@ -157,13 +158,27 @@ def _vnext_slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-") or "project"
 
 @project_core_router.post("/v0/vnext/projects")
-def create_vnext_project(request: VNextProjectCreateRequest) -> JSONResponse:
+def create_vnext_project(
+    request: VNextProjectCreateRequest, authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings = get_settings()
     slug = request.slug or _vnext_slug(request.name)
 
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
-            payload = PostgresVNextStore(conn).create_project(
+            store = PostgresVNextStore(conn)
+            # The default Header object is only present in direct in-process calls.
+            identity = None
+            if authorization is None or isinstance(authorization, str):
+                identity = _vnext_authenticated_agent_identity(
+                    store, request, user_id=request.user_id, authorization=authorization,
+                )
+            refusal = _vnext_created_sensitivity_refusal(
+                store, identity, action="project.create", sensitivity=request.sensitivity,
+            )
+            if refusal is not None:
+                return refusal
+            payload = store.create_project(
                 {
                     "name": request.name.strip(),
                     "slug": slug,
@@ -176,6 +191,10 @@ def create_vnext_project(request: VNextProjectCreateRequest) -> JSONResponse:
                 },
                 actor_type="user",
             )
+    except AgentKeyAuthenticationError as exc:
+        return _vnext_agent_auth_error_response(exc)
+    except AgentIdentityValidationError:
+        return _vnext_public_error_response(status_code=400, detail="vNext project identity claims are invalid")
     except ProjectSlugConflictError:
         # Outside the connection block, so the refused call rolls back and writes nothing. One answer for every caller
         # and every holder of the slug: it names no project, so the owner, an admin and a key with a ceiling are told
@@ -307,6 +326,7 @@ def create_vnext_open_loop(
                 domains=(request.domain,),
                 sensitivity_allowed=(request.sensitivity,),
                 project_scope=tuple(request.project_scope),
+                created_sensitivity=request.sensitivity,
             )
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)
@@ -437,6 +457,11 @@ def upsert_vnext_brain_charter(
                     target_id="/v0/vnext/settings/brain-charter",
                 )
                 return _vnext_permission_response(refusal)
+            sensitivity_refusal = _vnext_created_sensitivity_refusal(
+                store, identity, action="brain_charter.update", sensitivity=request.sensitivity,
+            )
+            if sensitivity_refusal is not None:
+                return sensitivity_refusal
             payload = store.upsert_brain_charter(
                 {
                     "content_markdown": request.content_markdown,

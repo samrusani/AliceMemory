@@ -39,6 +39,7 @@ def _run_vnext_agent_propose_memory(ctx: CLIContext, args: argparse.Namespace) -
     # Imported here, not at module level: tests/unit/test_cli_package_split.py
     # pins the CLI package's public names.
     from alicebot_api.vnext_memory_propose import propose_memory
+    from .errors import PartialCommandFailure
 
     if not getattr(args, "agent_id", None):
         raise ValueError("--agent-id is required")
@@ -57,6 +58,8 @@ def _run_vnext_agent_propose_memory(ctx: CLIContext, args: argparse.Namespace) -
 
         # One propose function for all three doors (ruling C2(ii)).
         outcome = propose_memory(store, proposal=proposal, authorize=authorize)  # type: ignore[arg-type]
+        if "sensitivity_above_agent_ceiling" in outcome.decision.reasons:
+            raise PartialCommandFailure(_json_dumps({"status": "rejected", "reason": "sensitivity_above_agent_ceiling"}))
     if outcome.memory is None:
         ensure_policy_allowed(outcome.decision)
         raise RuntimeError("agent memory proposal did not complete")

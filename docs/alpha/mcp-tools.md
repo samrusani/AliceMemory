@@ -312,6 +312,7 @@ is a CLI verb, not an always-on agent tool.
   earlier, capture has no credential check, so a note that holds a key is
   stored and recall returns it.
   An agent capture above its sensitivity ceiling is refused without storing a source.
+  Unreleased (on main, not in v0.24.1): Memory proposals, open loops, queue tasks, projects and brain charter writes respect the admitted caller's sensitivity ceiling.
 - `alice_memory_review` — inspect the review queue, or one item in detail.
 - `alice_memory_correct` — act on a memory: approve, edit-and-approve,
   reject, or supersede with a replacement. Every change is audited.

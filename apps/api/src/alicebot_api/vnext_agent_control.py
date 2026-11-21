@@ -352,6 +352,21 @@ def _filtered_sensitivity(profile: str, sensitivity_allowed: tuple[str, ...]) ->
     return allowed or tuple(_profile_sensitivity(profile)), filtered
 
 
+def block_created_sensitivity(
+    identity: AgentIdentity | None, decision: PolicyDecision, sensitivity: str,
+) -> PolicyDecision:
+    """Check the label being stored after the caller's ordinary admission checks."""
+    if (
+        decision.decision == "blocked"
+        or identity is None
+        or identity.permission_profile == "admin_agent"
+        or sensitivity not in RESTRICTED_SENSITIVITY
+    ):
+        return decision
+    reasons = (*decision.reasons, "restricted_sensitivity_filtered", "sensitivity_above_agent_ceiling")
+    return replace(decision, decision="blocked", reasons=tuple(dict.fromkeys(reasons)))
+
+
 def resource_project_scope(resource: Mapping[str, object] | None) -> tuple[str, ...]:
     """Return the persisted project identifiers carried by one resource.
 

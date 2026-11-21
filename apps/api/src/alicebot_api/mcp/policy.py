@@ -246,6 +246,8 @@ def _policy_checked(
     promotion_settings: PromotionSettings | None = None,
     promotion_candidate: PromotionCandidate | None = None,
     owner_verified: bool = False,
+    created_sensitivity: str | None = None,
+    record_policy_events: bool = True,
 ) -> tuple[str, str | None, PolicyDecision]:
     # A tool call that is run again after a reader overflowed (``retry_cutting_deep_json``) must not write its audit
     # events twice. When the first attempt's transaction committed this check, its result comes back and the identity row
@@ -254,7 +256,7 @@ def _policy_checked(
     check = repr((
         identity.agent_id if identity is not None else None, action, domains, sensitivity_allowed, project_scope, project_floor,
         workflow_type, write_policy, require_explicit_project_scope, require_unfiltered_target, target_type, target_id,
-        owner_verified, capture_sensitivity_ceiling,
+        owner_verified, capture_sensitivity_ceiling, created_sensitivity, record_policy_events,
     ))
     done = replay_durable(check)
     if is_remembered(done):
@@ -307,13 +309,18 @@ def _policy_checked(
         from alicebot_api.vnext_memory_commit import _block_capture_above_sensitivity_ceiling
 
         decision = _block_capture_above_sensitivity_ceiling(identity, decision)
-    append_policy_events(
-        store,
-        identity=identity,
-        decision=decision,
-        target_type=target_type,
-        target_id=target_id,
-    )
+    if created_sensitivity is not None:
+        from alicebot_api.vnext_agent_control import block_created_sensitivity
+
+        decision = block_created_sensitivity(identity, decision, created_sensitivity)
+    if record_policy_events:
+        append_policy_events(
+            store,
+            identity=identity,
+            decision=decision,
+            target_type=target_type,
+            target_id=target_id,
+        )
     checked = ("agent", identity.agent_id, decision) if identity is not None else ("system", None, decision)
     remember_durable(check, checked)
     return checked

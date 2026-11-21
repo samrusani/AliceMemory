@@ -198,6 +198,7 @@ def _handle_alice_vnext_queue_task(context: MCPRuntimeContext, arguments: Mappin
             project_scope=_parse_string_list(arguments, "project_scope"),
             write_policy=write_policy,
             project_view=ProjectView.unscoped(),
+            created_sensitivity=sensitivity,
         )
         if decision.decision == "blocked":
             blocked_decision = decision

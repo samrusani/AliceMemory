@@ -618,6 +618,8 @@ def _vnext_policy_checked(
     promotion_candidate: PromotionCandidate | None = None,
     owner_verified: bool = False,
     capture_sensitivity_ceiling: bool = False,
+    created_sensitivity: str | None = None,
+    record_policy_events: bool = True,
 ) -> PolicyDecision:
     _vnext_agent_record(store, identity)
     decision = evaluate_agent_policy(
@@ -638,8 +640,28 @@ def _vnext_policy_checked(
         from alicebot_api.vnext_memory_commit import _block_capture_above_sensitivity_ceiling
 
         decision = _block_capture_above_sensitivity_ceiling(identity, decision)
-    append_policy_events(store, identity=identity, decision=decision, target_type=target_type, target_id=target_id)
+    if created_sensitivity is not None:
+        from alicebot_api.vnext_agent_control import block_created_sensitivity
+
+        decision = block_created_sensitivity(identity, decision, created_sensitivity)
+    if record_policy_events:
+        append_policy_events(store, identity=identity, decision=decision, target_type=target_type, target_id=target_id)
     return decision
+
+
+def _vnext_created_sensitivity_refusal(
+    store: PostgresVNextStore, identity: AgentIdentity | None, *, action: str, sensitivity: str,
+) -> JSONResponse | None:
+    """Record only a refusal for a write that normally has no policy audit."""
+    from alicebot_api.vnext_agent_control import block_created_sensitivity
+
+    decision = evaluate_agent_policy(identity=identity, action=action, sensitivity_allowed=(sensitivity,))
+    decision = block_created_sensitivity(identity, decision, sensitivity)
+    if decision.decision == "blocked" and "sensitivity_above_agent_ceiling" in decision.reasons:
+        _vnext_agent_record(store, identity)
+        append_policy_events(store, identity=identity, decision=decision)
+        return _vnext_permission_response(decision)
+    return None
 
 
 def _vnext_exact_resource_policy(

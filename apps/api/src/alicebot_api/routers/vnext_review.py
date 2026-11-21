@@ -559,6 +559,7 @@ def create_vnext_queue_task(
                 sensitivity_allowed=(request.sensitivity,),
                 project_scope=tuple(request.project_scope),
                 write_policy=request.write_policy,
+                created_sensitivity=request.sensitivity,
             )
             if decision.decision == "blocked":
                 return _vnext_permission_response(decision)

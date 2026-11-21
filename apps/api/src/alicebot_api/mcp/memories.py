@@ -106,11 +106,12 @@ def _handle_alice_vnext_propose_memory(context: MCPRuntimeContext, arguments: Ma
                 # is nobody in particular rather than the owner.
                 owner_verified=False,
                 project_view=ProjectView.unscoped(),
+                record_policy_events=False,
             )
             return identity, decision
 
         # One propose function for all three doors (ruling C2(ii)).
-        outcome = propose_memory(store, proposal=proposal, authorize=authorize)
+        outcome = propose_memory(store, proposal=proposal, authorize=authorize, record_policy_events=True)
     if outcome.memory is None:
         _raise_mcp_policy_blocked(outcome.decision)
     return _json_object(
