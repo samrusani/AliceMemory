@@ -5,7 +5,7 @@ from dataclasses import replace
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Header, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import Field
@@ -35,6 +35,7 @@ from alicebot_api.routers._vnext_shared import (
     _vnext_string_list,
 )
 from alicebot_api.vnext_agent_control import (
+    RESTRICTED_SENSITIVITY,
     AgentIdentity,
     AgentIdentityValidationError,
     AgentPolicyBlockedError,
@@ -159,7 +160,9 @@ def _vnext_slug(value: str) -> str:
 
 @project_core_router.post("/v0/vnext/projects")
 def create_vnext_project(
-    request: VNextProjectCreateRequest, authorization: str | None = Header(default=None),
+    request: VNextProjectCreateRequest,
+    authorization: str | None = Header(default=None),
+    http_request: Request = None,  # type: ignore[assignment]  # FastAPI injects this for HTTP calls.
 ) -> JSONResponse:
     settings = get_settings()
     slug = request.slug or _vnext_slug(request.name)
@@ -167,17 +170,19 @@ def create_vnext_project(
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
-            # The default Header object is only present in direct in-process calls.
-            identity = None
-            if authorization is None or isinstance(authorization, str):
-                identity = _vnext_authenticated_agent_identity(
-                    store, request, user_id=request.user_id, authorization=authorization,
+            # The operator gate already admitted this request. Resolve a caller
+            # for the new ceiling only when the label can reach it.
+            if request.sensitivity in RESTRICTED_SENSITIVITY and (authorization is None or isinstance(authorization, str)):
+                identity = getattr(http_request.state, "vnext_agent_identity", None) if http_request is not None else None
+                if identity is None:
+                    identity = _vnext_authenticated_agent_identity(
+                        store, request, user_id=request.user_id, authorization=authorization,
+                    )
+                refusal = _vnext_created_sensitivity_refusal(
+                    store, identity, action="project.create", sensitivity=request.sensitivity,
                 )
-            refusal = _vnext_created_sensitivity_refusal(
-                store, identity, action="project.create", sensitivity=request.sensitivity,
-            )
-            if refusal is not None:
-                return refusal
+                if refusal is not None:
+                    return refusal
             payload = store.create_project(
                 {
                     "name": request.name.strip(),

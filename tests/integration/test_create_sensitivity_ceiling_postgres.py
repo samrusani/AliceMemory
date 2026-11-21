@@ -268,8 +268,29 @@ def test_cli_proposal_uses_its_stored_label(label_harness, monkeypatch, capsys, 
 
 
 def test_ceiling_respects_existing_http_refusal_order(label_harness):
-    """Guard edit: change the HTTP sensitivity refusal to status 422."""
+    """Guard edit: resolve the project caller again on a within-ceiling request."""
     h = label_harness
+    project_claims = {
+        "agent_id": "synthetic-outer-claim",
+        "agent_identity": {"agent_id": "synthetic-inner-claim", "permission_profile": "trusted_local_agent"},
+    }
+    status, body, _ = h.request("POST", "/v0/vnext/projects", payload={
+        **project_claims, "name": "Synthetic private project", "sensitivity": "private",
+    })
+    assert status == 201, body
+    _assert_stored_sensitivity(h, "projects", body["project"], "private")
+
+    status, body, _ = h.request("POST", "/v0/vnext/projects", payload={
+        **project_claims, "name": "Synthetic project ceiling", "sensitivity": "confidential",
+    })
+    _assert_ceiling(status, body, action="project.create")
+
+    status, body, _ = h.request("POST", "/v0/vnext/projects", payload={
+        "agent": {"agent_id": "synthetic-agent-alias", "permission_profile": "trusted_local_agent"},
+        "name": "Synthetic alias ceiling", "sensitivity": "confidential",
+    })
+    _assert_ceiling(status, body, action="project.create")
+
     _, key = _key(h, "trusted_local_agent")
     before = _snapshot(h)
     proposal = {
