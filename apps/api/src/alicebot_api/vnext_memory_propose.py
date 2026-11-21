@@ -30,7 +30,9 @@ from alicebot_api.vnext_agent_control import (
     AgentIdentity,
     PolicyDecision,
     agent_metadata,
+    append_policy_events,
     append_promotion_event,
+    block_created_sensitivity,
 )
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_promotion_policy import PromotionCandidate, promotion_candidate_for_proposal
@@ -145,11 +147,16 @@ def refuse_proposal_credentials(proposal: MemoryProposal) -> None:
     )
 
 
-def propose_memory(store: ProposalStore, *, proposal: MemoryProposal, authorize: Authorize) -> ProposalOutcome:
+def propose_memory(
+    store: ProposalStore, *, proposal: MemoryProposal, authorize: Authorize, record_policy_events: bool = False,
+) -> ProposalOutcome:
     """Gate, authorize and write one memory proposal."""
 
     refuse_proposal_credentials(proposal)
     identity, decision = authorize(proposal.promotion_candidate())
+    decision = block_created_sensitivity(identity, decision, proposal.sensitivity)
+    if record_policy_events:
+        append_policy_events(store, identity=identity, decision=decision)
     if decision.decision == "blocked":
         return ProposalOutcome(decision=decision, identity=identity, memory=None)
     if identity is None:

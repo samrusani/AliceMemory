@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.24.1): HTTP memory proposals, open loops, queue tasks, projects and brain charter writes apply the caller's sensitivity ceiling. The proposal CLI and the legacy proposal and queue tools apply the same rule. v0.24.1 allowed these writes above the caller's ceiling where the caller passed admission (`python -m pytest tests/integration/test_create_sensitivity_ceiling_postgres.py tests/unit/test_create_sensitivity_ceiling_sqlite.py`).
+
 - Unreleased (on main, not in v0.24.1): changing a source's stored sensitivity or a connector's default sensitivity requires the owner or an unbound `admin_agent` key. A trusted operator key can still update a readable source or save connector settings at the current sensitivity. v0.24.1 allowed trusted operator keys to make both sensitivity changes (`python -m pytest tests/integration/test_label_change_policy_postgres.py`).
 
 ## v0.24.1 — 2026-11-18

@@ -269,6 +269,7 @@ Rules:
   After the last active key is revoked, the brief and SessionStart hook use the keyless owner view even when the environment still presents that revoked key; MCP refuses the revoked key.
 - An agent capture above its sensitivity ceiling is refused without storing a source, including source-producing connector calls.
   The agent-output CLI exits nonzero with `status: rejected` and reason `sensitivity_above_agent_ceiling` for this refusal.
+  Unreleased (on main, not in v0.24.1): Memory proposals, open loops, queue tasks, projects and brain charter writes respect the admitted caller's sensitivity ceiling.
 - Context-pack audit events remove control, format and surrogate characters, keep at most 128 query characters, and replace a query flagged as credential material with `[withheld]`; existing events are unchanged.
 - MCP servers bind a key by setting `ALICE_AGENT_API_KEY` in the server env. Key-bound MCP runs fail closed to the enabled core set (four by default, thirteen with `ALICE_MCP_FULL_TOOLS=1`): legacy tools are neither listed nor callable, even if `ALICE_MCP_LEGACY_TOOLS=1` is also set.
 

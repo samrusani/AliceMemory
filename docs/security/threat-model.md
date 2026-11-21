@@ -62,6 +62,8 @@ whatever `Authorization` header it carries. A CORS preflight is not refused by i
 
 From v0.24.1, mounted legacy `/v0` routes check for a loopback peer before `Host` and `Origin` in every mode. PostgreSQL MCP refuses keyless tool calls once the bound user has an active key. A browser clip capability on a keyed install uses the strictest sensitivity ceiling of any key allowed to issue one, and a ceiling refusal leaves the capability available for another attempt.
 
+Unreleased (on main, not in v0.24.1): Memory proposals, open loops, queue tasks, projects and brain charter writes respect the admitted caller's sensitivity ceiling.
+
 From v0.20.0, the HTTP API caps a request body before any
 layer reads it, because a request that has not authenticated can still make the
 server read and parse what it sends. A pure ASGI layer, registered last so it is

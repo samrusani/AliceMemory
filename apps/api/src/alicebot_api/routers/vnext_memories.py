@@ -1917,12 +1917,13 @@ def create_vnext_memory_proposal(
                     promotion_settings=load_promotion_settings(brain_charter=_brain_charter_row(store)),
                     promotion_candidate=candidate,
                     owner_verified=agent_api_keys_provisioned(store),
+                    record_policy_events=False,
                 )
 
             # One propose function for all three doors (ruling C2(ii)): it
             # refuses credential material over every persisted field before
             # anything is written, then authorizes, then writes the row.
-            outcome = propose_memory(store, proposal=proposal, authorize=authorize)
+            outcome = propose_memory(store, proposal=proposal, authorize=authorize, record_policy_events=True)
             if outcome.memory is None:
                 return _vnext_permission_response(outcome.decision)
     except MemoryProposalRefused:
