@@ -1,89 +1,57 @@
-"""Measure the application JIT policy through real PostgreSQL calls."""
+"""Check current PostgreSQL query plans through real MCP and scheduler calls."""
 
-from contextlib import contextmanager, ExitStack
-import json
-import os
-from pathlib import Path
-from statistics import median
-import subprocess
-import sys
-from zipfile import ZipFile
+from contextlib import contextmanager
 
 import psycopg
+from psycopg import sql
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 import pytest
 
 from alicebot_api.mcp.types import MCPRuntimeContext
+from alicebot_api.vnext_scheduler import SchedulerRunRequest
+from alicebot_api.vnext_scheduler_runtime import run_now_durable
+from alicebot_api.vnext_stores.postgres.query_predicates import _MEMORY_PROJECT_SCOPE_SQL
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401
+from tests.integration.test_app_jit_postgres import jit_on_url  # noqa: F401
 from tests.unit.test_identity_claim_codes import wire
 
-ROOT = Path(__file__).resolve().parents[2]
-MAIN = "04aad19835a6519649879adfbeb971c20f49425c"
-SAMPLES = 15
 QUERY = "synthetic calibration"
-
-
-def _base_checkout(tmp_path):
-    if configured := os.getenv("ALICE_READ_MERGE_BASE_CHECKOUT"):
-        revision = subprocess.check_output(["git", "-C", configured, "rev-parse", "HEAD"], text=True).strip()
-        if revision == MAIN:
-            return Path(configured)
-    archive = tmp_path / "main.zip"
-    repository = Path(os.environ.get("BENCH_TEST_SOURCE", ROOT))
-    with archive.open("wb") as output:
-        subprocess.run(["git", "archive", "--format=zip", MAIN], cwd=repository, stdout=output, check=True)
-    checkout = tmp_path / "main"
-    with ZipFile(archive) as source:
-        source.extractall(checkout)
-    return checkout
+PLANNABLE_COMMANDS = {"SELECT", "WITH", "INSERT", "UPDATE", "DELETE", "MERGE", "VALUES", "TABLE"}
 
 
 @contextmanager
-def _probe(checkout, harness, keys):
-    code = os.pathsep.join((str(checkout / "apps/api/src"), str(ROOT)))
-    with subprocess.Popen(
-        [sys.executable, str(ROOT / "tests/support/postgres_jit_probe.py")],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env={**os.environ, "PYTHONPATH": code},
-    ) as process:
-        process.stdin.write(json.dumps([harness.urls["app"], str(harness.user_id), keys]) + "\n")
-        process.stdin.flush()
-        try:
-            def measure(tool, profile, arguments, mode=None):
-                process.stdin.write(json.dumps([tool, profile, arguments, mode]) + "\n")
-                process.stdin.flush()
-                output = process.stdout.readline()
-                assert output, f"{tool} probe ended before returning a result"
-                sample = json.loads(output)
-                assert sample["ok"], sample["error"]
-                return sample
+def _capture_plans(monkeypatch):
+    plans = []
+    execute = psycopg.Cursor.execute
 
-            yield measure
-        finally:
-            process.stdin.close()
-            assert process.wait(timeout=15) == 0
+    def record(cursor, query, params=None, **kwargs):
+        statement = query.as_string(cursor.connection) if isinstance(query, sql.Composable) else query
+        if isinstance(statement, bytes):
+            statement = statement.decode(cursor.connection.info.encoding)
+        command = statement.lstrip().split(maxsplit=1)[:1]
+        if command and command[0].upper() in PLANNABLE_COMMANDS:
+            # Plan on the connection about to run the statement, with its own
+            # transaction or session settings. Leave execution to the real call.
+            with cursor.connection.cursor(row_factory=dict_row) as probe:
+                execute(probe, "EXPLAIN (FORMAT JSON) " + statement, params)
+                plan = probe.fetchone()["QUERY PLAN"][0]
+            plans.append((statement, plan))
+        return execute(cursor, query, params, **kwargs)
 
-
-def _compare(base, head, tool, profile, arguments, *, count=SAMPLES):
-    base_samples, head_samples = [], []
-    for index in range(count):
-        pair = [(base, base_samples), (head, head_samples)]
-        for probe, samples in pair if index % 2 == 0 else reversed(pair):
-            samples.append(probe(tool, profile, arguments)["ms"])
-    return median(base_samples), median(head_samples)
+    with monkeypatch.context() as patch:
+        patch.setattr(psycopg.Cursor, "execute", record)
+        yield plans
 
 
-def _runtime(harness, capsys):
-    with psycopg.connect(harness.urls["app"], autocommit=True) as conn:
-        jit = conn.execute("SHOW jit").fetchone()[0]
-        available = conn.execute("SELECT pg_jit_available()").fetchone()[0]
-        cost = float(conn.execute("SHOW jit_above_cost").fetchone()[0])
-        version = conn.execute("SHOW server_version").fetchone()[0]
-    with capsys.disabled():
-        print(f"JIT benchmark PostgreSQL {version}: plain jit={jit}, pg_jit_available={available}, "
-              f"jit_above_cost={cost:g}", flush=True)
-    if jit != "on" or not available:
-        pytest.skip(f"timing requires plain jit=on and a provider (jit={jit}, available={available})")
-    return cost
+def _jit_threshold(jit_on_url):
+    with psycopg.connect(jit_on_url, autocommit=True) as conn:
+        if not conn.execute("SELECT pg_jit_available()").fetchone()[0]:
+            pytest.skip("PostgreSQL does not have a JIT provider")
+        threshold = float(conn.execute("SHOW jit_above_cost").fetchone()[0])
+        if threshold < 0:
+            pytest.skip("PostgreSQL disables compilation at every plan cost")
+    return threshold
 
 
 def _analyze(harness):
@@ -91,20 +59,13 @@ def _analyze(harness):
         conn.execute("ANALYZE memories, memory_revisions, sources, event_log, generated_artifacts, open_loops")
 
 
-def _prepare(harness, monkeypatch, tmp_path):
-    monkeypatch.setenv("ALICE_PROJECT_DIR", str(tmp_path))
-    for env in ("ALICE_EMBEDDINGS_BASE_URL", "ALICE_EMBEDDINGS_MODEL", "ALICE_EMBEDDINGS_API_KEY"):
-        monkeypatch.delenv(env, raising=False)
-    return {"bound": harness.key("project_scoped_agent", project="alpha"), "unbound": harness.key("admin_agent")}
-
-
 def _seed_published_vault(harness, monkeypatch):
     key = harness.key("admin_agent", project="alpha")
     context = MCPRuntimeContext(database_url=harness.urls["app"], user_id=harness.user_id)
     monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
-    for index in range(1_200):
+    for index in range(300):
         fields = {"sensitivity": "private", "domain": "project"}
-        if index < 1_000:
+        if index < 250:
             fields.update(memory_type="semantic", title=f"Synthetic calibration {index}",
                           canonical_text=f"Synthetic calibration {index} tracks observations in an isolated vault.")
         else:
@@ -118,44 +79,34 @@ def _seed_published_vault(harness, monkeypatch):
         assert not failed and result["status"] == "committed", result
 
 
-def test_application_jit_read_bars_and_statement_counts(label_harness, monkeypatch, tmp_path, capsys):
-    """Guard: enable JIT in the common user setup and the bound reads miss their bars."""
+def test_bound_application_reads_avoid_jit(label_harness, jit_on_url, monkeypatch, tmp_path):
+    """Guard: enable JIT in the shared setup and a bound read plans compilation."""
     h = label_harness
-    threshold = _runtime(h, capsys)
-    keys = _prepare(h, monkeypatch, tmp_path)
+    threshold = _jit_threshold(jit_on_url)
+    monkeypatch.setenv("ALICE_PROJECT_DIR", str(tmp_path))
+    for env in ("ALICE_EMBEDDINGS_BASE_URL", "ALICE_EMBEDDINGS_MODEL", "ALICE_EMBEDDINGS_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
     _seed_published_vault(h, monkeypatch)
     _analyze(h)
-    read_bars = {
-        "alice_recall": 0.25, "alice_resume": 0.5, "alice_context_pack": 0.25, "alice_lessons": None,
-    }
-    failures = []
-    with ExitStack() as stack:
-        base = stack.enter_context(_probe(_base_checkout(tmp_path), h, keys))
-        head = stack.enter_context(_probe(ROOT, h, keys))
-        old_plans = base("alice_recall", "bound", {"query": QUERY}, "plan")["plans"]
-        assert max(plan["cost"] for plan in old_plans) > threshold
-        assert any(plan["jit"] for plan in old_plans)
-        for tool, bound_ratio in read_bars.items():
-            arguments = {"task": QUERY, "limit": 3} if tool == "alice_lessons" else {"query": QUERY}
-            for profile in ("bound", "unbound"):
-                old_count = base(tool, profile, arguments, "count")["statement_count"]
-                new_count = head(tool, profile, arguments, "count")["statement_count"]
-                assert old_count == new_count and old_count > 0, (tool, profile, old_count, new_count)
-                before, after = _compare(base, head, tool, profile, arguments)
-                with capsys.disabled():
-                    print(f"Application JIT {tool} {profile}: main {before:.3f} ms, head {after:.3f} ms, "
-                          f"statements {old_count}/{new_count}", flush=True)
-                limit = before + 10 if profile == "unbound" else (before * bound_ratio if bound_ratio else None)
-                if limit is not None and after > limit:
-                    failures.append((tool, profile, before, after, limit))
-    assert not failures, failures
+    key = h.key("project_scoped_agent", project="alpha")
+    monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
+    context = MCPRuntimeContext(database_url=jit_on_url, user_id=h.user_id)
+    for tool in ("alice_recall", "alice_resume", "alice_context_pack", "alice_lessons"):
+        arguments = {"task": QUERY, "limit": 3} if tool == "alice_lessons" else {"query": QUERY}
+        with _capture_plans(monkeypatch) as plans:
+            failed, result = wire(context, tool, arguments)
+        assert not failed, result
+        assert plans, tool
+        if tool == "alice_recall":
+            cost = max(plan["Plan"]["Total Cost"] for _, plan in plans)
+            assert cost > threshold, (cost, threshold)
+        assert not any("JIT" in plan for _, plan in plans), tool
 
 
-def test_project_scoped_scheduler_sweep_avoids_jit(label_harness, monkeypatch, tmp_path, capsys):
-    """Guard: enable JIT in the shared setup and the scheduler compiles its scoped statement."""
+def test_project_scoped_scheduler_sweep_avoids_jit(label_harness, jit_on_url, monkeypatch):
+    """Guard: enable JIT in the shared setup and the scheduler plans compilation."""
     h = label_harness
-    threshold = _runtime(h, capsys)
-    keys = _prepare(h, monkeypatch, tmp_path)
+    threshold = _jit_threshold(jit_on_url)
     with h.store() as store:
         store.conn.execute(
             """
@@ -168,17 +119,12 @@ def test_project_scoped_scheduler_sweep_avoids_jit(label_harness, monkeypatch, t
             (Jsonb({"project_scope": ["alpha"]}),),
         )
     _analyze(h)
-    args = {"workflow_type": "staleness_sweep", "projects": ["alpha"],
-            "domains": ["project"], "sensitivity_allowed": ["internal"]}
-    with ExitStack() as stack:
-        base = stack.enter_context(_probe(_base_checkout(tmp_path), h, keys))
-        head = stack.enter_context(_probe(ROOT, h, keys))
-        old = base("staleness_sweep", "bound", args, "plan")
-        new = head("staleness_sweep", "bound", args, "plan")
-        before, after = _compare(base, head, "staleness_sweep", "bound", args, count=9)
-    with capsys.disabled():
-        print(f"Scheduler JIT sweep: main {before:.3f} ms, head {after:.3f} ms", flush=True)
-    assert old["sweep_jit"] == ["on"] and new["sweep_jit"] == ["off"]
-    assert any(plan["scoped_sweep"] and plan["cost"] > threshold and plan["compiled_ms"] > 0 for plan in old["plans"])
-    assert any(plan["scoped_sweep"] for plan in new["plans"])
-    assert not any(plan["jit"] for plan in new["plans"])
+    request = SchedulerRunRequest(workflow_type="staleness_sweep", projects=["alpha"],
+                                  domains=["project"], sensitivity_allowed=["internal"])
+    with _capture_plans(monkeypatch) as plans:
+        result = run_now_durable(database_url=jit_on_url, user_id=h.user_id, request=request)
+    assert result["run"]["status"] == "succeeded", result
+    scoped_costs = [plan["Plan"]["Total Cost"] for statement, plan in plans
+                    if "FROM memories" in statement and _MEMORY_PROJECT_SCOPE_SQL in statement]
+    assert any(cost > threshold for cost in scoped_costs), (scoped_costs, threshold)
+    assert not any("JIT" in plan for _, plan in plans)

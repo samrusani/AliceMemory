@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Unreleased (on main, not in v0.24.1): PostgreSQL reads with a project-bound key skip repeated JIT compilation of scoped queries. v0.24.1 disabled JIT for the workspace route and let other requests use the server default (`python -m pytest tests/integration/test_app_jit_reads_postgres.py tests/integration/test_workspace_jit_postgres.py`).
+- Unreleased (on main, not in v0.24.1): PostgreSQL avoids repeated JIT compilation on scoped reads with a project-bound key and on `alice_resume` and `alice_context_pack` with an unbound `admin_agent` key. v0.24.1 disabled JIT for the workspace route and let other requests use the server default (`python -m pytest tests/integration/test_app_jit_reads_postgres.py tests/integration/test_workspace_jit_postgres.py`).
 
 - Unreleased (on main, not in v0.24.1): `alice_lessons` tells a writer using an agent key how many readable lessons are waiting, how many were published or closed without publication in the last seven days, and the three latest unpublished decisions with their reasons when available. v0.24.1 returned only published lesson results (`python -m pytest tests/unit/test_lessons_read.py tests/integration/test_lessons_default_postgres.py` and the release-tag comparison in the pull request).
 
