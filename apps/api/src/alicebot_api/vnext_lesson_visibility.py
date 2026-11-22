@@ -1,6 +1,7 @@
 """Shared visibility rule for lessons awaiting or refused publication."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from alicebot_api.vnext_agent_control import AgentIdentity
 
@@ -50,12 +51,14 @@ def outside_lesson_review_standing(row: Mapping[str, object], identity: AgentIde
     return is_unpublished_lesson(row) and hidden_review_lesson(row, review_lesson_reader(identity))
 
 
-def lock_lesson_review_history(store: object, identity: AgentIdentity | None) -> None:
-    """Keep a review from adding private history after an exact read admits its row."""
-    if review_lesson_reader(identity) is not None:
-        lock = getattr(store, "lock_graph_mutation", None)
-        if callable(lock):
-            lock()
+def lesson_history_is_hidden(store: Any, identity: AgentIdentity | None, memory_ids: Sequence[str]) -> bool:
+    """Recheck standing after gathering history, using the current rows in one read."""
+    reader = review_lesson_reader(identity)
+    if reader is None:
+        return False
+    fetch = getattr(store, "get_memories_by_ids", None)
+    rows = fetch(memory_ids) if callable(fetch) else (store.get_memory(memory_id) for memory_id in memory_ids)
+    return any(isinstance(row, Mapping) and hidden_review_lesson(row, reader) for row in rows)
 
 
 def review_lesson_selection(reader: str | None, *, sqlite: bool) -> tuple[str, tuple[str, ...]]:

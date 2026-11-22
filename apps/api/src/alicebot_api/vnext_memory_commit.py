@@ -103,7 +103,7 @@ from alicebot_api.vnext_project_update_guard import (
 )
 from alicebot_api.vnext_derived_labels import group_scope
 from alicebot_api.vnext_label_guard import guard_for_caller, label_read_request, newest_admitted_rows
-from alicebot_api.vnext_lesson_visibility import is_unpublished_lesson, outside_lesson_review_standing
+from alicebot_api.vnext_lesson_visibility import is_unpublished_lesson, lesson_history_is_hidden, outside_lesson_review_standing
 from alicebot_api.vnext_project_scope import normalize_project_scope, project_scope_identity
 from alicebot_api.vnext_repositories import EventStore, JsonObject
 from alicebot_api.store import ContinuityStoreInvariantError
@@ -1938,7 +1938,7 @@ class VNextMemoryCommitService:
         memory = (
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
-        if memory is None:
+        if memory is None or outside_lesson_review_standing(memory, identity):
             raise MemoryNotFoundError("memory was not found")
         self.refuse_unauthorized_write(identity=identity, action="memory.correct", memory=memory)
         # A memory that carries a lesson is never corrected: the block and the
@@ -2769,8 +2769,6 @@ class VNextMemoryCommitService:
         other than the id of a row (a confirmation token, an idempotency key) passes ``answer_as_missing=False``.
         """
 
-        if answer_as_missing and target_type == "memory" and outside_lesson_review_standing(memory, identity):
-            raise MemoryNotFoundError("memory was not found")
         if not answer_as_missing or decision.decision != "blocked":
             return
         from alicebot_api.vnext_label_guard import outside_caller_limits
@@ -2853,8 +2851,6 @@ class VNextMemoryCommitService:
             allow_above_ceiling=allow_above_ceiling,
             retirement_target=retirement_target,
         )
-        if answer_as_missing and outside_lesson_review_standing(memory, identity):
-            raise MemoryNotFoundError("memory was not found")
         if decision.decision == "blocked":
             # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.
             self._answer_as_missing_if_unreadable(
@@ -3123,6 +3119,7 @@ class VNextMemoryCommitService:
         *,
         memory_id: str,
         authorize_memory: Callable[[Mapping[str, object]], None] | None = None,
+        identity: AgentIdentity | None = None,
     ) -> JsonObject:
         """Return one memory's audit envelope after authorizing its full chain.
 
@@ -3138,15 +3135,20 @@ class VNextMemoryCommitService:
             raise MemoryNotFoundError("memory was not found")
         if authorize_memory is not None:
             authorize_memory(memory)
+        chain = self._supersession_chain(memory, authorize_memory=authorize_memory)
+        revisions = self.store.list_revisions(memory_id)
+        events = self.store.list_events(target_type="memory", target_id=memory_id)
+        links = self.store.list_provenance_links(target_type="memory", target_id=memory_id)
+        # A review can commit between authorizing the row and loading its
+        # history. Recheck the rows after the last history read.
+        if lesson_history_is_hidden(self.store, identity, [str(node["id"]) for node in chain]):
+            raise MemoryNotFoundError("memory was not found")
         return {
             "memory": memory,
-            "supersession_chain": self._supersession_chain(
-                memory,
-                authorize_memory=authorize_memory,
-            ),
-            "revisions": self.store.list_revisions(memory_id),
-            "events": self.store.list_events(target_type="memory", target_id=memory_id),
-            "provenance_links": self.store.list_provenance_links(target_type="memory", target_id=memory_id),
+            "supersession_chain": chain,
+            "revisions": revisions,
+            "events": events,
+            "provenance_links": links,
         }
 
     def _supersession_chain(

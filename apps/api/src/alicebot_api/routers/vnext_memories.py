@@ -2346,7 +2346,6 @@ def get_vnext_memory_audit(
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
     from alicebot_api.vnext_label_guard import apply_unverified_rule, effective_row_for_fence, outside_caller_limits
-    from alicebot_api.vnext_lesson_visibility import lock_lesson_review_history
 
     settings = get_settings()
     try:
@@ -2370,8 +2369,9 @@ def get_vnext_memory_audit(
                     raise AgentPolicyBlockedError(decision)
 
             try:
-                lock_lesson_review_history(store, identity)
-                payload = VNextMemoryCommitService(store).audit(memory_id=str(memory_id), authorize_memory=authorize_memory)
+                payload = VNextMemoryCommitService(store).audit(
+                    memory_id=str(memory_id), authorize_memory=authorize_memory, identity=identity,
+                )
             except AgentPolicyBlockedError as exc:
                 return _vnext_permission_response(exc.decision)
             # The memory, its revisions, its links and its events keep the quote of every source and memory they cite.

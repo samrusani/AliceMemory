@@ -706,11 +706,9 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
             # is answered as an unknown id is answered and the cast never
             # sees text it cannot read.
             canonical_memory_id = _canonical_row_id_argument(arguments, "memory_id", store=store, not_found=lambda _raw: MemoryNotFoundError("memory was not found"))
-            from alicebot_api.vnext_lesson_visibility import lock_lesson_review_history
-
-            lock_lesson_review_history(store, identity)
             audit = VNextMemoryCommitService(store).audit(
                 memory_id=canonical_memory_id,
+                identity=identity,
                 authorize_memory=lambda memory: _authorize_explain_resource(
                     store,
                     identity=identity,
@@ -758,6 +756,11 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
             payload["revisions"] = frame_disclosed_tree(extended.get("revisions"))
             payload["provenance_links"] = frame_disclosed_tree(extended.get("provenance_links"))
             payload["supersession_chain"] = frame_disclosed_tree(extended.get("supersession_chain"))
+        except MemoryNotFoundError:
+            # Roll back any audit records staged before the final standing check.
+            if _is_key_bound_explain(identity):
+                raise MCPToolError(_EXPLAIN_UNAVAILABLE_MESSAGE) from None
+            raise
         except _ExplainAuthorizationError as exc:
             authorization_error = exc
         except VNextMemoryCommitValidationError as exc:

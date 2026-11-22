@@ -312,11 +312,9 @@ def _run_vnext_memory_audit(ctx: CLIContext, args: argparse.Namespace) -> str:
         policy_labels,
     )
     from alicebot_api.vnext_memory_commit import MemoryNotFoundError
-    from alicebot_api.vnext_lesson_visibility import lock_lesson_review_history
     from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 
     with _vnext_store_context(ctx) as store:
-        lock_lesson_review_history(store, _vnext_agent_identity_from_args(args))
         identity, _actor_type, _actor_id, decision = _vnext_policy_checked_for_args(
             store,
             args,
@@ -352,6 +350,7 @@ def _run_vnext_memory_audit(ctx: CLIContext, args: argparse.Namespace) -> str:
             ensure_policy_allowed(chain)
 
         payload = VNextMemoryCommitService(store).audit(
+            identity=identity,
             memory_id=args.memory_id, authorize_memory=authorize_memory if identity is not None else None
         )
         # The memory, its revisions, its links and its events keep the quote of every source and memory they cite. A caller with

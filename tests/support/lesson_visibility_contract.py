@@ -2,6 +2,7 @@
 
 import json
 from contextlib import nullcontext
+from datetime import UTC, datetime, timedelta
 from time import process_time
 from uuid import uuid4
 
@@ -31,7 +32,7 @@ APPROVAL_REASON = "Synthetic approval reason"
 STATES = ("candidate", "rejected", "active")
 
 
-def make_review_lessons(call, writer, reviewer):
+def make_review_lessons(call, writer, reviewer, *, confirmation_writer=None):
     rows = {}
     for state in STATES:
         payload = {
@@ -49,11 +50,22 @@ def make_review_lessons(call, writer, reviewer):
         "action": "approve", "review_item_id": rows["active"][0], "reason": APPROVAL_REASON,
     })
     assert not failed, result
+    if confirmation_writer is not None:
+        payload = {
+            "lesson": {**LESSON_BLOCK, "applies_when": "rebasing synthetic needs review"},
+            "confidence": 0.7,
+        }
+        failed, result = call(confirmation_writer, "alice_memory_commit", payload)
+        assert not failed and result["status"] == "confirmation_required", result
+        assert result["confirmation_id"] and result["memory"]["status"] == "needs_review"
+        rows["needs_review"] = (str(result["memory"]["id"]), payload)
     return rows
 
 
-def assert_lesson_absent(body, rows, states=("candidate", "rejected")):
+def assert_lesson_absent(body, rows, states=None):
     serialized = json.dumps(body, default=str).lower()
+    if states is None:
+        states = tuple(state for state in rows if state != "active")
     for state in states:
         memory_id, payload = rows[state]
         assert memory_id.lower() not in serialized
@@ -286,11 +298,13 @@ def _read_saved_lesson_refs(call, http, caller, memory_id, term, *, outside, ope
 
 
 def check_lesson_visibility(call, writer, reviewer, readers, snapshot):
-    rows = make_review_lessons(call, writer, reviewer)
+    rows = make_review_lessons(call, writer, reviewer, confirmation_writer=reviewer)
     missing = str(uuid4())
     active_id = rows["active"][0]
     for reader, same_scope, may_read_review in readers:
         expected = {row[0] for row in rows.values()} if may_read_review else {active_id} if same_scope else set()
+        if reader == writer:
+            expected.remove(rows["needs_review"][0])
         failed, review = call(reader, "alice_memory_review", {"status": "all"})
         assert not failed and {str(item["id"]) for item in review["items"]} == expected, review
         assert review["count"] == len(expected)
@@ -429,24 +443,57 @@ def check_keyless_lesson_visibility(call):
                 assert not failed and memory_id in json.dumps(result), result
 
 
-def check_lesson_pack(read, rows, *, may_read_review, same_scope=True):
+def check_keyless_legacy_lesson_correction(call):
+    writer = {"agent_id": "local-writer", "permission_profile": "memory_proposal_agent", "project_scope": ["alpha"]}
+    reviewer = {"agent_id": "local-reviewer", "permission_profile": "admin_agent"}
+    peer = {"agent_id": "local-peer", "permission_profile": "trusted_local_agent"}
+    rows = make_review_lessons(call, writer, reviewer)
+
+    def correct(identity, memory_id):
+        return call(identity, "alice_vnext_correct_memory", {
+            "memory_id": memory_id, "canonical_text": "Synthetic correction text",
+        })
+
+    absent = correct(peer, str(uuid4()))
+    assert absent[0] and absent[1]["error"]["code"] == "not_found"
+    for state in ("candidate", "rejected"):
+        assert correct(peer, rows[state][0]) == absent
+        failed, refusal = correct(reviewer, rows[state][0])
+        assert failed and refusal["error"]["code"] == "tool_request_failed", refusal
+    failed, refusal = correct(peer, rows["active"][0])
+    assert failed and refusal["error"]["code"] == "tool_request_failed", refusal
+
+
+def check_lesson_pack(read, rows, prefix, *, may_read_review, same_scope=True):
     failed, pack = read()
     assert not failed, pack
     recent = pack.get("recent_changes", [])
-    targets = {entry["target_id"] for entry in recent}
+    assert all(entry["target_id"] for entry in recent), recent
+    visible = {mid for state, (mid, _) in rows.items() if same_scope and (may_read_review or state == "active")}
+    expected = [entry for entry in prefix if entry[1] in visible][:5]
+    assert [(entry["event_type"], entry["target_id"]) for entry in recent] == expected
     trace = pack["trace"]["stages"]["recent_changes"]
     assert trace["candidate_count"] == len(recent)
     if not may_read_review:
         assert_lesson_absent(pack, rows)
-    for state, (memory_id, _) in rows.items():
-        assert (memory_id in targets) == (same_scope and (may_read_review or state == "active")), (state, targets)
 
 
 def put_each_lesson_in_the_pack_event_prefix(store, rows):
-    # The pack keeps five events. Give each saved lesson one of the newest
-    # events so both review-only states reach the same admission test.
-    for memory_id, _payload in rows.values():
-        append_event(store, event_type="memory.updated", actor_type="user", target_type="memory", target_id=memory_id)
+    # Five visible events allow the pack to fill after dropping hidden targets.
+    # Interleave different event types and fix the order independently of IDs.
+    prefix = [(event, rows[state][0]) for state, event in (
+        ("active", "memory.updated"), ("candidate", "memory.created"),
+        ("active", "memory.reviewed"), ("rejected", "memory.reviewed"),
+        ("active", "memory.created"), ("active", "memory.updated"),
+        ("active", "memory.reviewed"),
+    )]
+    now = datetime.now(UTC)
+    for index, (event, memory_id) in enumerate(reversed(prefix), start=1):
+        append_event(
+            store, event_type=event, actor_type="user", target_type="memory", target_id=memory_id,
+            occurred_at=(now + timedelta(seconds=index)).isoformat(),
+        )
+    return prefix
 
 
 def check_lesson_publisher_ids(call, writer, reviewer, reader):

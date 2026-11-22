@@ -137,9 +137,8 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
         blocked_decision: PolicyDecision | None = None
         payload: dict[str, object] | None = None
         with _vnext_store_context(context) as store:
-            from alicebot_api.vnext_lesson_visibility import lock_lesson_review_history
+            from alicebot_api.vnext_lesson_visibility import lesson_history_is_hidden
 
-            lock_lesson_review_history(store, identity)
             memory = store.get_memory(memory_id)
             from alicebot_api.vnext_label_guard import (
                 apply_unverified_rule,
@@ -190,6 +189,8 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
                 shown_memory = saved.memory(memory)
                 shown_revisions = [saved.revision(row) for row in store.list_revisions(memory_id)]
                 shown_links = saved.links(memory_id)
+                if lesson_history_is_hidden(store, identity, [memory_id]):
+                    raise MCPReferenceNotFoundError(f"memory {memory_id} was not found")
                 framed_memory = frame_disclosed_tree(shown_memory)
                 if isinstance(framed_memory, dict):
                     framed_memory["writer"] = memory_writer(store, memory)
