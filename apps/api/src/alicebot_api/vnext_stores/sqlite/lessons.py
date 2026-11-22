@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator, Sequence
+from datetime import datetime
 from typing import Any
 
 from alicebot_api.vnext_stores.sqlite.columns import MEMORY_COLUMNS, REVISION_COLUMNS
@@ -62,8 +63,35 @@ def stream_lesson_memories(store: Any, *, domains, sensitivity, projects, lazy_m
         cursor.close()
 
 
-def stream_lesson_revisions(self: Any, memory_ids: Sequence[str]) -> Iterator[dict[str, object]]:
-    columns = ", ".join("r." + column for column in REVISION_COLUMNS if column in _REVISION_FIELDS)
+def select_lesson_outcome_rows(store: Any, *, writer: str, projects: Sequence[str], updated_since: datetime):
+    """Select a writer's waiting and recent candidates before loading revisions."""
+    project, project_params = store._project_clause(tuple(projects), global_excluded_domains=())
+    columns = f"{LESSON_MEMORY_COLUMNS}, status, source_event_ids"
+    # Only column and predicate constants are interpolated; user values are parameters.
+    base = (
+        f"SELECT {columns} FROM memories "  # nosec B608
+        "WHERE user_id = ? AND created_by_agent_id = ? "
+        "AND deleted_at IS NULL "
+        "AND CASE WHEN memory_type = 'procedure' THEN json_type(value, '$.lesson') END = 'object' "
+        f"{project}"
+    )
+    params = (store.user_id, writer, *project_params)
+    updated_text = updated_since.isoformat(timespec="microseconds").replace("+00:00", "Z")
+    return store._fetch_all(
+        f"""{base} AND status = 'candidate'
+        UNION ALL
+        {base} AND status IN ('active', 'rejected', 'private_only', 'superseded')
+          AND updated_at >= ?
+        """,
+        (*params, *params, updated_text),
+    )
+
+
+def stream_lesson_revisions(
+    self: Any, memory_ids: Sequence[str], *, include_reason: bool = False,
+) -> Iterator[dict[str, object]]:
+    fields = _REVISION_FIELDS | {"reason"} if include_reason else _REVISION_FIELDS
+    columns = ", ".join("r." + column for column in REVISION_COLUMNS if column in fields)
     # Column names come from the shared constants; IDs are bound parameters.
     cursor = self._execute(
         f"SELECT {columns}, json_extract(r.new_value, '$.lesson') AS publication_lesson "  # nosec B608

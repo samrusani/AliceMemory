@@ -1786,6 +1786,9 @@ def review_vnext_memory(
                     },
                     actor_type=actor_type,
                 )
+            from alicebot_api.vnext_lifecycle import default_memory_decision_reason
+
+            revision_action = f"memory_review_{action}"
             store.append_revision(
                 {
                     "memory_id": str(memory_id),
@@ -1794,10 +1797,10 @@ def review_vnext_memory(
                     "new_value": updated.get("value"),
                     "source_event_ids": updated.get("source_event_ids"),
                     "revision_type": revision_type,
-                    "action": f"memory_review_{action}",
+                    "action": revision_action,
                     "text_before": existing.get("canonical_text"),
                     "text_after": str(updated.get("canonical_text", "")),
-                    "reason": review_reason or f"vNext workspace memory review action: {action}",
+                    "reason": review_reason or default_memory_decision_reason(revision_action),
                     "actor_type": actor_type,
                     "actor_id": actor_id,
                     "metadata_json": {"action": action, "project_id": request.project_id},
