@@ -137,6 +137,9 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
         blocked_decision: PolicyDecision | None = None
         payload: dict[str, object] | None = None
         with _vnext_store_context(context) as store:
+            from alicebot_api.vnext_lesson_visibility import lock_lesson_review_history
+
+            lock_lesson_review_history(store, identity)
             memory = store.get_memory(memory_id)
             from alicebot_api.vnext_label_guard import (
                 apply_unverified_rule,
@@ -267,6 +270,7 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
             domains=decision.effective_domains,
             sensitivity_allowed=decision.effective_sensitivity_allowed,
             projects=decision.effective_project_scope,
+            identity=identity,
         )[:limit]
         items = [
             present_model_item(

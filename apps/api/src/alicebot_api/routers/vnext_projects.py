@@ -547,6 +547,7 @@ def get_vnext_agent_policy_telemetry(
             guard = LabelGuard.for_filters(
                 store, (), sensitivity_ceiling(identity) or ALL_SENSITIVITY, projects,
                 all_of=projects if identity is not None and identity.project_scope_locked else None,
+                identity=identity,
             )
             payload = summarize_agent_policy_telemetry(
                 agent_events=guard.admit_events(store.list_agent_events(agent_id=agent_id, limit=bounded_limit)),

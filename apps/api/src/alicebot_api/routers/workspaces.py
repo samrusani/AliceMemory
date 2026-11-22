@@ -99,7 +99,7 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
         sensitivity_allowed = [value for value in sensitivity_allowed if value in ceiling]
     requested_projects = identity.project_scope if identity is not None else ()
     all_of = requested_projects if identity is not None and identity.project_scope_locked else None
-    guard = LabelGuard.for_filters(store, (), sensitivity_allowed, requested_projects, all_of=all_of)
+    guard = LabelGuard.for_filters(store, (), sensitivity_allowed, requested_projects, all_of=all_of, identity=identity)
     unfenced = not SourceReadFence.for_identity(identity).entity_read_fenced
     if unfenced:
         guard = LabelGuard(store=store, active=False)
@@ -130,6 +130,7 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
                 statuses=review_statuses,
                 sensitivity_allowed=sensitivity_allowed,
                 limit=n,
+                **guard.lesson_selection_options(),
             )
         # Compatibility for external/test stores implementing the older protocol.
         return [
@@ -215,7 +216,7 @@ def _vnext_workspace_payload(store: PostgresVNextStore, *, identity: AgentIdenti
     memory_commit_service = VNextMemoryCommitService(store)
     def fetch_recent_commits(n: int):
         if callable(list_recent_agentic_commits):
-            return list_recent_agentic_commits(limit=n)
+            return list_recent_agentic_commits(limit=n, **guard.lesson_selection_options())
         # The rows are admitted by this screen's guard, so the service lists them for the owner.
         return memory_commit_service.recent_commits(limit=n, identity=None)["recent_commits"]
 

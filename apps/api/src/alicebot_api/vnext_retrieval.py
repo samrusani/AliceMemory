@@ -94,6 +94,7 @@ from alicebot_api import vnext_currency
 from alicebot_api import vnext_reranker
 from alicebot_api.vnext_reranker import RerankProvider, get_reranker_provider
 from alicebot_api.credential_floor import credential_verdict
+from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.source_chunk_vector_search import (
     STATUS_NO_STORE_SUPPORT as VECTOR_STATUS_NO_STORE_SUPPORT,
     ChunkVectorSession,
@@ -5524,6 +5525,7 @@ class VNextRetrievalService:
                 person_linked_memory_ids=person_linked_memory_ids,
                 domains=domains,
                 sensitivity_allowed=sensitivity_allowed,
+                identity=source_fence.identity,
             )
             recent_changes_stage_record = {"candidate_count": len(recent_changes)}
 
@@ -6037,6 +6039,7 @@ class VNextRetrievalService:
         person_linked_memory_ids: frozenset[str],
         domains: list[str],
         sensitivity_allowed: list[str],
+        identity: AgentIdentity | None = None,
         limit: int = DEFAULT_RECENT_CHANGES_LIMIT,
     ) -> list[JsonObject]:
         """Most recent ``memory.*`` events from the store event log.
@@ -6093,6 +6096,7 @@ class VNextRetrievalService:
                     domains=domains,
                     sensitivity_allowed=sensitivity_allowed,
                     projects=tuple(scope.projects),
+                    identity=identity,
                 )
             }
 

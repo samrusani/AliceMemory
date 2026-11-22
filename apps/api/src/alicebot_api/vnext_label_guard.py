@@ -58,6 +58,7 @@ from alicebot_api.vnext_label_sql import (
     EVENT_TYPE_REFERENCES,
     EVENT_UNJUDGED_TARGETS,
 )
+from alicebot_api.vnext_lesson_visibility import hidden_review_lesson, review_lesson_reader
 from alicebot_api.vnext_project_scope import (
     project_floor_shape,
     project_scope_identity,
@@ -333,6 +334,7 @@ class LabelGuard:
     # leaves an event about a row whose label it cannot read (``EVENT_UNJUDGED_TARGETS``) to its caller, which knows whether
     # the caller has limits. A guard that stands for the limits of a caller withholds that event.
     selection_only: bool = False
+    lesson_reader: str | None = None
     _nodes: dict[tuple[str, str], list[dict[str, object]]] | None = None
     _request: _RequestLabels | None = None
     # True when ``all_of``, a key's binding, holds a reserved name. Judged once here and not once for each row.
@@ -349,6 +351,12 @@ class LabelGuard:
         self._request = state
         self._nodes = state.nodes
         return state
+
+    def lesson_selection_options(self) -> dict[str, str]:
+        """Push the row check ahead of native counts and page limits."""
+        if self.lesson_reader is None or not getattr(type(self.store), "native_review_lesson_selection", False):
+            return {}
+        return {"lesson_reader": self.lesson_reader}
 
     @classmethod
     def for_fence(cls, store: Any, fence: Any) -> LabelGuard:
@@ -374,6 +382,7 @@ class LabelGuard:
         *,
         all_of: tuple[str, ...] | None = None,
         selection_only: bool = False,
+        identity: AgentIdentity | None = None,
     ) -> LabelGuard:
         """List doors. Inactive when the filters admit every label.
 
@@ -394,6 +403,7 @@ class LabelGuard:
             projects=project_list,
             all_of=all_of,
             selection_only=selection_only,
+            lesson_reader=review_lesson_reader(identity),
         )
 
     def effective_row(self, kind: str, row: Mapping[str, object] | None) -> Mapping[str, object] | None:
@@ -576,6 +586,10 @@ class LabelGuard:
     def admit_rows(self, kind: str, rows: Sequence[_Row]) -> list[_Row]:
         """Rows whose effective labels pass this guard's filters. Originals of the rows, not copies."""
 
+        if kind == "memory" and self.lesson_reader is not None:
+            rows = [
+                row for row in rows if isinstance(row, Mapping) and not hidden_review_lesson(row, self.lesson_reader)
+            ]
         if not self.active:
             return [row for row in rows if isinstance(row, Mapping)]
         state = self._state()
@@ -725,17 +739,19 @@ class LabelGuard:
         if not callable(iterator):
             raise TypeError("readable counts require complete label enumeration")
         state = self._state()
-        key = (kind, self.domains, self.sensitivity_allowed, self.projects, self.all_of)
+        key = (kind, self.domains, self.sensitivity_allowed, self.projects, self.all_of, self.lesson_reader)
         if key in state.counts:
             return dict(state.counts[key])
         native = getattr(self.store, "count_" + {"memory": "memories", "artifact": "artifacts", "open_loop": "open_loops"}.get(kind, kind) + "_by_status", None)
-        if not self.active and callable(native):
+        if not self.active and callable(native) and (kind != "memory" or self.lesson_reader is None):
             counts = native()
             state.counts[key] = dict(counts)
             return counts
         plain_counter = getattr(self.store, "count_original_label_statuses", None)
-        if callable(getattr(type(self.store), "count_original_label_statuses", None)) and callable(plain_counter) and not self.projects and self.all_of is None:
-            counts = plain_counter(kind, domains=self.domains, sensitivity_allowed=self.sensitivity_allowed)
+        lesson_filter = self.lesson_selection_options() if kind == "memory" else {}
+        can_count_originals = kind != "memory" or self.lesson_reader is None or bool(lesson_filter)
+        if callable(getattr(type(self.store), "count_original_label_statuses", None)) and callable(plain_counter) and not self.projects and self.all_of is None and can_count_originals:
+            counts = plain_counter(kind, domains=self.domains, sensitivity_allowed=self.sensitivity_allowed, **lesson_filter)
             prefilter = {"reject_sensitivity_allowed": self.sensitivity_allowed} if getattr(type(self.store), "label_count_input_prefilter", False) else {}
             unique_ids = getattr(type(self.store), "label_count_canonical_unique_ids", False)
             batches = iterator(kind, derived_only=True, **prefilter, **({"batch_size": 5000} if unique_ids else {}))
@@ -950,6 +966,11 @@ class LabelGuard:
         spelled = {row_id: _spellings(row_id) if echoed else (row_id, row_id) for row_id in ids}
         wanted = list(dict.fromkeys(text for pair in spelled.values() for text in pair if text))
         state = self._state()
+        if kind == "memory" and self.lesson_reader is not None:
+            # An event may have been appended by a review after the display
+            # page read the target. Judge the batch from its current rows.
+            for row_id in wanted:
+                state.targets.pop((kind, row_id), None)
         missing = [row_id for row_id in wanted if (kind, row_id) not in state.targets]
         if kind == "source":
             for row_id in missing:
@@ -1245,10 +1266,11 @@ def admit_loaded(
     sensitivity_allowed: Sequence[str] | None,
     projects: Sequence[str] | None = (),
     all_of: tuple[str, ...] | None = None,
+    identity: AgentIdentity | None = None,
 ) -> list[_Row]:
     """Drop loaded inputs whose effective labels miss the request filters."""
 
-    guard = LabelGuard.for_filters(store, domains, sensitivity_allowed, projects, all_of=all_of)
+    guard = LabelGuard.for_filters(store, domains, sensitivity_allowed, projects, all_of=all_of, identity=identity)
     return guard.admit_rows(kind, rows)
 
 
@@ -1392,6 +1414,7 @@ def apply_sensitivity_ceiling(
         domains=(),
         sensitivity_allowed=ceiling,
         projects=(),
+        identity=identity,
     )
 
 
@@ -1439,6 +1462,7 @@ def guard_for_caller(store: Any, identity: AgentIdentity | None, *, action: str 
         decision.effective_sensitivity_allowed,
         projects,
         all_of=projects if locked else None,
+        identity=identity,
     )
 
 

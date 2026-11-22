@@ -1,31 +1,141 @@
-"""Full-surface review and explain expose a project's waiting lesson rows."""
+"""Standing to read lessons through the real SQLite MCP server."""
 
+import sqlite3
+from contextlib import closing
+
+import pytest
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.onramp import sqlite_url_for_path
-from alicebot_api.vnext_agent_control import PERMISSION_PROFILES
-from tests.support.lesson_visibility_contract import check_lesson_publisher_ids, check_lesson_visibility
+from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+from tests.support.lesson_visibility_contract import (
+    LESSON_BLOCK,
+    check_hidden_lesson_verbs,
+    check_keyless_lesson_visibility,
+    check_lesson_pack,
+    check_lesson_publisher_ids,
+    check_lesson_replays,
+    check_lesson_review_growth,
+    check_lesson_visibility,
+    make_review_lessons,
+    omit_key_use,
+    put_each_lesson_in_the_pack_event_prefix,
+    seed_timing_lessons,
+)
 from tests.unit.test_identity_claim_codes import wire
 from tests.unit.test_lessons_read import Vault
 
 
-def test_a_read_only_project_key_reads_waiting_and_rejected_lessons(tmp_path, monkeypatch):
-    """The limitations page changes if review and explain no longer return these rows.
-
-    Mutation: make review's ``all`` status select only ``active`` rows.
-    """
+@pytest.fixture
+def lesson_review_sqlite(tmp_path, monkeypatch):
     monkeypatch.setenv("ALICE_PROJECT_DIR", str(tmp_path))
     monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
     vault = Vault(tmp_path / "vault.db")
-    writer = vault.key("writer", "project_scoped_agent", "alpha")
+    writer = vault.key("writer", "memory_proposal_agent", "alpha")
     reviewer = vault.key("reviewer", "admin_agent", "alpha")
-    readers = [vault.key("reader-" + profile, profile, "alpha") for profile in PERMISSION_PROFILES]
+    admin = vault.key("admin", "admin_agent")
+    peer = vault.key("peer", "memory_proposal_agent", "alpha")
+    scoped = vault.key("scoped", "project_scoped_agent", "alpha")
+    reader = vault.key("reader", "read_only_agent", "alpha")
+    trusted = vault.key("trusted", "trusted_local_agent")
+    outside = vault.key("outside", "memory_proposal_agent", "beta")
+    outside_admin = vault.key("outside-admin", "admin_agent", "beta")
+
     context = MCPRuntimeContext(database_url=sqlite_url_for_path(vault.path), user_id=vault.user)
 
     def call(key, tool, arguments):
         monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
         return wire(context, tool, arguments)
 
-    check_lesson_visibility(call, writer, reviewer, readers)
+    def snapshot(key):
+        with closing(sqlite3.connect(vault.path)) as conn:
+            conn.row_factory = sqlite3.Row
+            tables = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").fetchall()
+            rows = {}
+            for (table,) in tables:
+                quoted = '"' + table.replace('"', '""') + '"'
+                rows[table] = [dict(row) for row in conn.execute(f"SELECT * FROM {quoted}")]
+            return omit_key_use(rows, key)
+
+    return call, snapshot, writer, reviewer, admin, peer, scoped, reader, trusted, outside, outside_admin, vault
+
+
+def test_a_read_only_project_key_cannot_read_waiting_or_rejected_lessons(lesson_review_sqlite):
+    """Guard edit: include active lessons in the review-only states."""
+    call, snapshot, writer, reviewer, admin, peer, scoped, reader, trusted, outside, outside_admin, _vault = lesson_review_sqlite
+    check_lesson_visibility(call, writer, reviewer, [
+        (peer, True, False), (scoped, True, False), (reader, True, False), (trusted, True, False),
+        (writer, True, True), (reviewer, True, True), (admin, True, True), (outside, False, False),
+        (outside_admin, False, False),
+    ], snapshot)
+
+
+def test_sqlite_lesson_idempotency_conflicts_withhold_the_row(lesson_review_sqlite):
+    """Guard edit: also refuse the writer and decider replay of a review-only lesson."""
+    call, snapshot, writer, reviewer, admin, peer, scoped, _reader, trusted, outside, outside_admin, _vault = lesson_review_sqlite
+    check_lesson_replays(call, writer, reviewer, [
+        (peer, True, False), (scoped, True, False), (trusted, True, False), (writer, True, True),
+        (reviewer, True, True), (admin, True, True), (outside, False, False), (outside_admin, False, False),
+    ], snapshot)
+
+
+def test_sqlite_lesson_mutations_use_the_missing_id_answer(lesson_review_sqlite):
+    """Guard edit: also hide a review-only lesson from its writer and decider at a write verb."""
+    call, snapshot, writer, reviewer, _admin, peer, scoped, reader, trusted, outside, outside_admin, _vault = lesson_review_sqlite
+    check_hidden_lesson_verbs(call, writer, reviewer, (peer, scoped, reader, trusted, outside, outside_admin), snapshot)
+
+
+def test_sqlite_keyless_lesson_review_uses_the_resolved_identity(tmp_path, monkeypatch):
+    """Guard edit: include active lessons in the review-only states."""
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    monkeypatch.setenv("ALICE_PROJECT_DIR", str(tmp_path))
+    vault = Vault(tmp_path / "vault.db")
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(vault.path), user_id=vault.user)
+    check_keyless_lesson_visibility(lambda claims, tool, args: wire(context, tool, {**args, **claims}))
+
+
+def test_sqlite_context_pack_recent_changes_follow_review_standing(lesson_review_sqlite):
+    """Guard edit: return no recent changes to callers with an identity."""
+    call, _snapshot, writer, reviewer, admin, peer, scoped, reader, trusted, outside, outside_admin, vault = lesson_review_sqlite
+    rows = make_review_lessons(call, writer, reviewer)
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        put_each_lesson_in_the_pack_event_prefix(SQLiteVNextStore(conn, vault.user), rows)
+    for key, same_scope, may_read_review in (
+        (peer, True, False), (scoped, True, False), (reader, True, False), (trusted, True, False),
+        (writer, True, True), (reviewer, True, True), (admin, True, True), (outside, False, False),
+        (outside_admin, False, False),
+    ):
+        check_lesson_pack(
+            lambda: call(key, "alice_context_pack", {"query": "rebasing", "max_tokens": 8000, "debug": True}),
+            rows, may_read_review=may_read_review, same_scope=same_scope,
+        )
+
+
+def test_sqlite_lesson_review_cost_over_200_and_2000_waiting_lessons(tmp_path, monkeypatch):
+    """Guard edit: stop returning active lessons in the all-status review queue."""
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    monkeypatch.setenv("ALICE_PROJECT_DIR", str(tmp_path))
+
+    def setup(count):
+        vault = Vault(tmp_path / f"vault-{count}.db")
+        reader = vault.key("timing-reader", "read_only_agent", "alpha")
+        admin = vault.key("timing-admin", "admin_agent", "alpha")
+        context = MCPRuntimeContext(database_url=sqlite_url_for_path(vault.path), user_id=vault.user)
+        monkeypatch.setenv("ALICE_AGENT_API_KEY", admin)
+        failed, published = wire(context, "alice_memory_commit", {"lesson": LESSON_BLOCK})
+        assert not failed and published["status"] == "committed"
+        with sqlite_user_connection(vault.path, vault.user) as conn:
+            seed_timing_lessons(SQLiteVNextStore(conn, vault.user), count)
+
+        def read():
+            monkeypatch.setenv("ALICE_AGENT_API_KEY", reader)
+            failed, result = wire(context, "alice_memory_review", {"status": "all", "limit": 1})
+            assert not failed and result["count"] == 1, result
+            assert result["items"][0]["id"] == published["memory"]["id"]
+
+        return read
+
+    check_lesson_review_growth(setup(200), setup(2000))
 
 
 def test_lesson_reader_sees_writer_and_reviewer_ids(tmp_path, monkeypatch):

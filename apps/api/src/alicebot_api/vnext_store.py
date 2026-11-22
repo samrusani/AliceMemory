@@ -449,6 +449,7 @@ class PostgresVNextStore:
 
     memory_fts_offset_paging = True
     label_count_input_prefilter = True
+    native_review_lesson_selection = True
     label_count_canonical_unique_ids = True
     stream_lesson_revisions = _lesson_stream_lesson_revisions
 
@@ -509,7 +510,7 @@ class PostgresVNextStore:
             )
         extra = ""
         if table == "memories":
-            extra = ", value, project_id, source_event_ids, deleted_at, status"
+            extra = ", value, project_id, source_event_ids, deleted_at, status, created_by_agent_id"
         elif table == "open_loops":
             extra = ", project_id, source_id::text AS source_id, memory_id::text AS memory_id"
         elif table == "beliefs":
@@ -525,17 +526,19 @@ class PostgresVNextStore:
             (wanted,),
         )
 
-    def count_original_label_statuses(self, kind: str, *, domains=(), sensitivity_allowed=()) -> dict[str, int]:
+    def count_original_label_statuses(self, kind: str, *, domains=(), sensitivity_allowed=(), lesson_reader: str | None = None) -> dict[str, int]:
         """Count the definitely-original, unscoped partition using stored labels."""
         from alicebot_api.vnext_label_sql import original_label_sql
+        from alicebot_api.vnext_lesson_visibility import review_lesson_selection
         table = {"source": "sources", "memory": "memories", "open_loop": "open_loops", "artifact": "generated_artifacts", "project": "projects"}[kind]
         status = "status" if kind != "source" else "'unknown'"
         predicate = original_label_sql(kind, sqlite=False)
         live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""
-        rows = self._fetch_all(f"SELECT {status} AS status, COUNT(*) AS count FROM {table} WHERE {predicate}{live} "
+        lesson_sql, lesson_params = review_lesson_selection(lesson_reader, sqlite=False)
+        rows = self._fetch_all(f"SELECT {status} AS status, COUNT(*) AS count FROM {table} WHERE {predicate}{live}{lesson_sql} "
             "AND (%s::text[] IS NULL OR domain=ANY(%s::text[]) OR domain='unknown') "
             "AND (%s::text[] IS NULL OR sensitivity=ANY(%s::text[])) "
-            "GROUP BY 1", (list(domains) or None, list(domains) or None,
+            "GROUP BY 1", (*lesson_params, list(domains) or None, list(domains) or None,
                                   list(sensitivity_allowed) or None, list(sensitivity_allowed) or None))
         return {str(row["status"]): int(cast(int, row["count"])) for row in rows}
 
@@ -550,7 +553,7 @@ class PostgresVNextStore:
             raise ValueError("unsupported label kind")
         extra = ""
         if kind == "memory":
-            extra = ", status, value, project_id, source_event_ids, deleted_at"
+            extra = ", status, value, project_id, source_event_ids, deleted_at, created_by_agent_id"
         elif kind == "open_loop":
             extra = ", status, project_id, source_id::text AS source_id, memory_id::text AS memory_id"
         elif kind == "artifact":

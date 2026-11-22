@@ -501,6 +501,7 @@ class SQLiteVNextStore:
     fts_stage_source = "sqlite_fts"
     memory_fts_offset_paging = True
     label_count_input_prefilter = True
+    native_review_lesson_selection = True
     stream_lesson_revisions = _lesson_stream_lesson_revisions
 
     def __init__(self, conn: sqlite3.Connection, user_id: UUID | str):
@@ -537,7 +538,7 @@ class SQLiteVNextStore:
             return []
         extra = ""
         if table == "memories":
-            extra = ", value, project_id, source_event_ids, deleted_at, status"
+            extra = ", value, project_id, source_event_ids, deleted_at, status, created_by_agent_id"
         elif table == "open_loops":
             extra = ", project_id, source_id, memory_id"
         from alicebot_api.vnext_label_guard import SQLITE_LABEL_ID_MAP, request_row_cache
@@ -580,15 +581,18 @@ class SQLiteVNextStore:
             (self.user_id, *wanted, *canonical),
         )
 
-    def count_original_label_statuses(self, kind: str, *, domains=(), sensitivity_allowed=()) -> dict[str, int]:
+    def count_original_label_statuses(self, kind: str, *, domains=(), sensitivity_allowed=(), lesson_reader: str | None = None) -> dict[str, int]:
         """Count the definitely-original, unscoped partition using stored labels."""
         from alicebot_api.vnext_label_sql import original_label_sql
+        from alicebot_api.vnext_lesson_visibility import review_lesson_selection
         table = {"source": "sources", "memory": "memories", "open_loop": "open_loops"}[kind]
         status = "status" if kind != "source" else "'unknown'"
         predicate = original_label_sql(kind, sqlite=True)
         live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""
         params = [self.user_id]
-        where = "user_id=? AND " + predicate + live
+        lesson_sql, lesson_params = review_lesson_selection(lesson_reader, sqlite=True)
+        where = "user_id=? AND " + predicate + live + lesson_sql
+        params.extend(lesson_params)
         if domains:
             where += " AND (domain IN (" + ",".join("?" for _ in domains) + ") OR domain='unknown')"
             params.extend(domains)
@@ -608,7 +612,7 @@ class SQLiteVNextStore:
             raise ValueError("unsupported label kind")
         extra = ""
         if kind == "memory":
-            extra = ", status, value, project_id, source_event_ids, deleted_at"
+            extra = ", status, value, project_id, source_event_ids, deleted_at, created_by_agent_id"
         elif kind == "open_loop":
             extra = ", status, project_id, source_id, memory_id"
         live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""

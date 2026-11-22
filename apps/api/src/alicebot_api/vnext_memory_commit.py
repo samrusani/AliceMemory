@@ -103,6 +103,7 @@ from alicebot_api.vnext_project_update_guard import (
 )
 from alicebot_api.vnext_derived_labels import group_scope
 from alicebot_api.vnext_label_guard import guard_for_caller, label_read_request, newest_admitted_rows
+from alicebot_api.vnext_lesson_visibility import is_unpublished_lesson, outside_lesson_review_standing
 from alicebot_api.vnext_project_scope import normalize_project_scope, project_scope_identity
 from alicebot_api.vnext_repositories import EventStore, JsonObject
 from alicebot_api.store import ContinuityStoreInvariantError
@@ -2768,6 +2769,8 @@ class VNextMemoryCommitService:
         other than the id of a row (a confirmation token, an idempotency key) passes ``answer_as_missing=False``.
         """
 
+        if answer_as_missing and target_type == "memory" and outside_lesson_review_standing(memory, identity):
+            raise MemoryNotFoundError("memory was not found")
         if not answer_as_missing or decision.decision != "blocked":
             return
         from alicebot_api.vnext_label_guard import outside_caller_limits
@@ -2850,6 +2853,8 @@ class VNextMemoryCommitService:
             allow_above_ceiling=allow_above_ceiling,
             retirement_target=retirement_target,
         )
+        if answer_as_missing and outside_lesson_review_standing(memory, identity):
+            raise MemoryNotFoundError("memory was not found")
         if decision.decision == "blocked":
             # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.
             self._answer_as_missing_if_unreadable(
@@ -3065,17 +3070,20 @@ class VNextMemoryCommitService:
         """
 
         guard = guard_for_caller(self.store, identity, action="memory.recent_commits")
-        rows = newest_admitted_rows(guard, "memory", self._newest_commits, want=max(limit, 1))
+        lesson_options = guard.lesson_selection_options()
+        rows = newest_admitted_rows(
+            guard, "memory", lambda size: self._newest_commits(size, **lesson_options), want=max(limit, 1),
+        )
         if guard.active:
             rows = SavedProvenanceReader(self.store, fence=SourceReadFence.for_identity(identity)).memories(rows)
         return {"recent_commits": rows, "count": len(rows)}
 
-    def _newest_commits(self, size: int) -> list[VNextRow]:
+    def _newest_commits(self, size: int, **lesson_options: str) -> list[VNextRow]:
         """The newest ``size`` commits, newest first, whatever their labels."""
 
         newest = getattr(self.store, "list_recent_agentic_commits", None)
         if callable(newest):
-            return list(newest(limit=size))
+            return list(newest(limit=size, **lesson_options))
         rows: list[VNextRow] = []
         for memory in self.store.list_memories(status=None):
             if _agentic_metadata(memory).get("kind") == "agentic_memory_commit":
@@ -3242,6 +3250,10 @@ class VNextMemoryCommitService:
         request: MemoryCommitRequest,
         identity: AgentIdentity | None,
     ) -> JsonObject:
+        from alicebot_api.vnext_label_guard import outside_caller_limits
+
+        if is_unpublished_lesson(memory) and outside_caller_limits(self.store, identity, "memory", memory):
+            raise IdempotencyKeyConflictError("idempotency_key was already used for a different memory request")
         try:
             # An idempotency key names the commit and not the id of a row, so a refusal stays a refusal here.
             self._policy_checked_write(identity=identity, action="memory.commit", memory=memory, answer_as_missing=False)

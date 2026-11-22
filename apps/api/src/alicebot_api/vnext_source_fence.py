@@ -194,6 +194,7 @@ from alicebot_api.vnext_agent_control import (
     evaluate_agent_policy,
     resource_project_scope,
 )
+from alicebot_api.vnext_lesson_visibility import outside_lesson_review_standing
 from alicebot_api.vnext_project_scope import project_floor_shape, source_project_scope
 
 SOURCE_REF_NOT_FOUND_MESSAGE = "the cited source was not found in the current user scope"
@@ -299,7 +300,9 @@ class SourceReadFence:
         it was given by id: ``resource_project_scope``.
         """
 
-        return self._admits(memory, project_scope=resource_project_scope(memory))
+        return not outside_lesson_review_standing(memory, self.identity) and self._admits(
+            memory, project_scope=resource_project_scope(memory),
+        )
 
     def _admits(self, row: Mapping[str, object], *, project_scope: tuple[str, ...]) -> bool:
         if row.get("deleted_at") is not None:

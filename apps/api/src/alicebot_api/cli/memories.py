@@ -312,9 +312,11 @@ def _run_vnext_memory_audit(ctx: CLIContext, args: argparse.Namespace) -> str:
         policy_labels,
     )
     from alicebot_api.vnext_memory_commit import MemoryNotFoundError
+    from alicebot_api.vnext_lesson_visibility import lock_lesson_review_history
     from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 
     with _vnext_store_context(ctx) as store:
+        lock_lesson_review_history(store, _vnext_agent_identity_from_args(args))
         identity, _actor_type, _actor_id, decision = _vnext_policy_checked_for_args(
             store,
             args,

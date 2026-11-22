@@ -279,7 +279,12 @@ def _authorize_explain_resource(
     """Require an unfiltered policy decision for one expanded resource."""
 
     from alicebot_api.vnext_label_guard import apply_unverified_rule, effective_row_for_fence, policy_labels
+    from alicebot_api.vnext_lesson_visibility import outside_lesson_review_standing
 
+    if target_type == "memory" and outside_lesson_review_standing(resource, identity):
+        if _is_key_bound_explain(identity):
+            raise _ExplainAuthorizationError()
+        raise MemoryNotFoundError("memory was not found")
     judged: Mapping[str, object] = resource
     judged_scope = project_scope
     judged_floor: tuple[str, ...] = ()
@@ -701,6 +706,9 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
             # is answered as an unknown id is answered and the cast never
             # sees text it cannot read.
             canonical_memory_id = _canonical_row_id_argument(arguments, "memory_id", store=store, not_found=lambda _raw: MemoryNotFoundError("memory was not found"))
+            from alicebot_api.vnext_lesson_visibility import lock_lesson_review_history
+
+            lock_lesson_review_history(store, identity)
             audit = VNextMemoryCommitService(store).audit(
                 memory_id=canonical_memory_id,
                 authorize_memory=lambda memory: _authorize_explain_resource(
