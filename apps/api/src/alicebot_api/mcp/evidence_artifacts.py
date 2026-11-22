@@ -759,7 +759,7 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
         except MemoryNotFoundError:
             # Roll back any audit records staged before the final standing check.
             if _is_key_bound_explain(identity):
-                raise MCPToolError(_EXPLAIN_UNAVAILABLE_MESSAGE) from None
+                _raise_explain_authorization_error(identity, _ExplainAuthorizationError())
             raise
         except _ExplainAuthorizationError as exc:
             authorization_error = exc

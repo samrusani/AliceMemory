@@ -1805,7 +1805,7 @@
           "line": 316,
           "before": "        if apply_unverified_rule(probe, judged, identity).decision != \"allowed\":\n            raise _ExplainAuthorizationError()",
           "after": "        if False:\n            raise _ExplainAuthorizationError()",
-          "sha256": "13644188e70416ec89a3790447b8e3d7124baa7325eb6dadcea6a05e89949838"
+          "sha256": "011b03fee9db84e9a43711516b6fc6fa633b376a481c9293390d0727a8d7a46e"
         }
       ],
       "pytest": [
@@ -8029,7 +8029,7 @@
           "line": 193,
           "before": "    if _is_key_bound_explain(identity):\n        assert identity is not None\n        try:\n            _authorize_continuity_explain_target(",
           "after": "    if identity is not None:\n        assert identity is not None\n        try:\n            _authorize_continuity_explain_target(",
-          "sha256": "13644188e70416ec89a3790447b8e3d7124baa7325eb6dadcea6a05e89949838"
+          "sha256": "011b03fee9db84e9a43711516b6fc6fa633b376a481c9293390d0727a8d7a46e"
         }
       ],
       "pytest": [
@@ -9263,7 +9263,7 @@
           "line": 745,
           "before": "            if _is_key_bound_explain(identity) and quote_fence.entity_read_fenced:\n",
           "after": "            if False:\n",
-          "sha256": "13644188e70416ec89a3790447b8e3d7124baa7325eb6dadcea6a05e89949838"
+          "sha256": "011b03fee9db84e9a43711516b6fc6fa633b376a481c9293390d0727a8d7a46e"
         }
       ],
       "pytest": [
@@ -9280,7 +9280,7 @@
           "line": 745,
           "before": "            if _is_key_bound_explain(identity) and quote_fence.entity_read_fenced:\n",
           "after": "            if quote_fence.entity_read_fenced:\n",
-          "sha256": "13644188e70416ec89a3790447b8e3d7124baa7325eb6dadcea6a05e89949838"
+          "sha256": "011b03fee9db84e9a43711516b6fc6fa633b376a481c9293390d0727a8d7a46e"
         }
       ],
       "pytest": [
@@ -30653,7 +30653,7 @@
           "line": 426,
           "before": "        _authorize_explain_resource(\n            store,\n            identity=identity,\n            resource=source,\n            project_scope=source_project_scope(source),\n            target_type=\"source\",\n            target_id=source_id,\n        )\n        authorized_source_ids.add(source_id)",
           "after": "        authorized_source_ids.add(source_id)",
-          "sha256": "13644188e70416ec89a3790447b8e3d7124baa7325eb6dadcea6a05e89949838"
+          "sha256": "011b03fee9db84e9a43711516b6fc6fa633b376a481c9293390d0727a8d7a46e"
         }
       ],
       "pytest": [
@@ -30669,7 +30669,7 @@
           "line": 426,
           "before": "        _authorize_explain_resource(\n            store,\n            identity=identity,\n            resource=source,\n            project_scope=source_project_scope(source),\n            target_type=\"source\",\n            target_id=source_id,\n        )\n        authorized_source_ids.add(source_id)",
           "after": "        authorized_source_ids.add(source_id)",
-          "sha256": "13644188e70416ec89a3790447b8e3d7124baa7325eb6dadcea6a05e89949838"
+          "sha256": "011b03fee9db84e9a43711516b6fc6fa633b376a481c9293390d0727a8d7a46e"
         }
       ],
       "pytest": [
