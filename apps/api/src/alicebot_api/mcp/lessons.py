@@ -147,10 +147,13 @@ def _outcome_reason(revision: Mapping[str, object]) -> str | None:
 def _lesson_outcomes(store, *, identity: AgentIdentity, domains, sensitivity, projects) -> dict[str, object] | None:
     now = _utc_now()
     cutoff = now - LESSON_OUTCOME_WINDOW
-    backend = sqlite_lessons if isinstance(store.conn, sqlite3.Connection) else postgres_lessons
-    rows = backend.select_lesson_outcome_rows(
-        store, writer=identity.agent_id, projects=projects, updated_since=cutoff - LESSON_OUTCOME_UPDATED_MARGIN,
-    )
+    updated_since = cutoff - LESSON_OUTCOME_UPDATED_MARGIN
+    if isinstance(store.conn, sqlite3.Connection):
+        rows = sqlite_lessons.select_lesson_outcome_rows(
+            store, writer=identity.agent_id, projects=projects, updated_since=updated_since,
+        )
+    else:
+        rows = postgres_lessons.select_lesson_outcome_rows(store, writer=identity.agent_id, updated_since=updated_since)
     admitted = admit_loaded(
         store, kind="memory", rows=rows, domains=domains, sensitivity_allowed=sensitivity,
         projects=projects, identity=identity,

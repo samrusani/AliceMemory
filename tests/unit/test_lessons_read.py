@@ -966,3 +966,24 @@ def test_sqlite_lesson_outcomes_read_budget(outcome_vault, case):
     from tests.support.lesson_outcomes_contract import check_outcome_growth
 
     check_outcome_growth(outcome_vault, case)
+
+
+def test_sqlite_lesson_outcomes_respect_the_key_ceiling(outcome_vault):
+    """Guard: the key's ceiling applies even when the agent id matches the writer."""
+    from tests.support.lesson_outcomes_contract import check_outcome_ceiling
+
+    check_outcome_ceiling(outcome_vault)
+
+
+def test_sqlite_lesson_outcomes_ignore_ordinary_memories(outcome_vault):
+    """Guard: an outcome requires a lesson block."""
+    from tests.support.lesson_outcomes_contract import check_ordinary_memories_are_not_outcomes
+
+    check_ordinary_memories_are_not_outcomes(outcome_vault)
+
+
+def test_sqlite_lesson_outcomes_withhold_the_consolidation_reason(outcome_vault):
+    """Guard: the writer receives the supersession without its generated reason."""
+    from tests.support.lesson_outcomes_contract import check_consolidation_outcome_reason
+
+    check_consolidation_outcome_reason(outcome_vault)

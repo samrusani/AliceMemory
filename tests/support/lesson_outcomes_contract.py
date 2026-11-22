@@ -229,6 +229,95 @@ def check_writer_outcomes(vault):
                           project_scope=["alpha"]) == baseline
 
 
+def check_outcome_ceiling(vault):
+    writer = vault.key("writer", profile="project_scoped_agent")
+    reader = vault.key("writer", profile="read_only_agent")
+    admin = vault.key("admin", None, "admin_agent")
+    private_waiting = vault.commit(writer, text="Private waiting fixture")
+    private_rejected = vault.commit(writer, text="Private rejected fixture")
+    vault.commit(writer, text="Internal waiting fixture", sensitivity="internal")
+    waiting_id = private_waiting["memory"]["id"]
+    rejected_id = private_rejected["memory"]["id"]
+    reason = "The private fixture needs more evidence."
+    vault.decide(admin, rejected_id, "correct", "reject", reason=reason)
+
+    limited = vault.read(reader)["yours"]
+    assert limited == {"waiting": 1, "published_in_last_7_days": 0, "not_published_in_last_7_days": 0}
+    payload = json.dumps(limited)
+    for private in (waiting_id, rejected_id, "Private waiting fixture", "Private rejected fixture", reason):
+        assert private not in payload
+    full = vault.read(writer)["yours"]
+    assert (full["waiting"], full["published_in_last_7_days"], full["not_published_in_last_7_days"]) == (2, 0, 1)
+    (detail,) = full["not_published"]
+    assert (detail["id"], detail["applies_when"], detail["reason"]) == (rejected_id, "Private rejected fixture", reason)
+
+
+def check_ordinary_memories_are_not_outcomes(vault):
+    writer = vault.key("writer", profile="memory_proposal_agent")
+    admin = vault.key("admin", None, "admin_agent")
+
+    def ordinary(name, *, memory_type):
+        reply = vault.call(writer, "alice_memory_commit", {
+            "title": name, "canonical_text": name, "memory_type": memory_type, "sensitivity": "private",
+            "domain": "project", "confidence": 0.7,
+        })
+        assert reply["memory"]["status"] == "candidate"
+        return reply["memory"]["id"]
+
+    ordinary("Ordinary procedure in review", memory_type="procedure")
+    rejected = ordinary("Ordinary memory for rejection", memory_type="semantic")
+    approved = ordinary("Ordinary memory for approval", memory_type="semantic")
+    assert "yours" not in vault.read(writer)
+    assert vault.decide(admin, rejected, "correct", "reject")["memory"]["status"] == "rejected"
+    assert vault.decide(admin, approved, "correct", "approve")["memory"]["status"] == "active"
+    assert "yours" not in vault.read(writer)
+    vault.commit(writer)
+    assert vault.read(writer)["yours"] == {
+        "waiting": 1, "published_in_last_7_days": 0, "not_published_in_last_7_days": 0,
+    }
+
+
+def check_consolidation_outcome_reason(vault):
+    from alicebot_api.vnext_derived_labels import with_derived_from
+    from alicebot_api.vnext_memory_version import memory_version_snapshot
+
+    writer = vault.key("writer")
+    admin = vault.key("admin", None, "admin_agent")
+    mids = [vault.commit(writer, text=f"Reviewing synthetic service note {index}")["memory"]["id"]
+            for index in range(2)]
+    for mid in mids:
+        vault.decide(admin, mid, "correct", "approve")
+    with vault.store() as store:
+        members = [store.get_memory(mid) for mid in mids]
+        candidate = store.create_memory({
+            "memory_key": "fixture.lesson-consolidation", "status": "candidate", "domain": "project",
+            "memory_type": "procedure", "sensitivity": "private", "project_scope": ["alpha"],
+            "canonical_text": "A consolidation proposal for two synthetic service notes.",
+            "metadata_json": with_derived_from({
+                "candidate_kind": "memory_consolidation",
+                "project_scope": ["alpha"],
+                "consolidation": {
+                    "proposal_kind": "dedup", "cluster_member_ids": mids, "proposed_supersede": mids,
+                    "member_snapshots": [memory_version_snapshot(member) for member in members],
+                },
+            }, {"memories": members}),
+        })["id"]
+    accepted = vault.decide(admin, str(candidate), "manage", "accept_consolidation", reason="Accept these notes.")
+    assert accepted["status"] == "accepted"
+    assert set(accepted["superseded_member_ids"]) == set(mids)
+    with vault.store() as store:
+        for mid in mids:
+            assert store.get_memory(mid)["status"] == "superseded"
+            decision = next(row for row in store.list_revisions(mid)
+                            if row["action"] == "agentic_memory_consolidation_supersede")
+            assert f"{candidate}" in decision["reason"]
+    outcome = vault.read(writer)["yours"]
+    assert outcome["published_in_last_7_days"] == 0
+    assert outcome["not_published_in_last_7_days"] == 2
+    assert {detail["id"]: detail["reason"] for detail in outcome["not_published"]} == dict.fromkeys(mids)
+    assert str(candidate) not in json.dumps(outcome)
+
+
 def check_default_and_withheld_reasons(vault, cases):
     writer = vault.key("writer")
     admin = vault.key("admin", None, "admin_agent")
