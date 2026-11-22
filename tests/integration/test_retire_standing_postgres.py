@@ -102,12 +102,25 @@ def _exercise(vault, monkeypatch, kind, action, profile, door):
             "action": "expire", "memory_id": mid, "reason": "Retire it",
         })
         assert not failed, result
+    hidden = kind == "waiting_lesson" and profile not in {"admin_agent", writer}
+    missing = str(uuid4())
     if door == "http":
-        return _http(vault, profile, action, mid)[0] == 200
+        answer = _http(vault, profile, action, mid)
+        if hidden:
+            assert answer == _http(vault, profile, action, missing)
+            assert answer[0] == 400
+        elif kind == "waiting_lesson" and profile == writer:
+            assert answer[0] == 403
+        return answer[0] == 200
     failed, result = _tool(vault, monkeypatch, profile, "alice_memory_manage", {
         "action": action, "memory_id": mid, "reason": "Retire it",
     })
-    if failed:
+    if hidden:
+        absent = _tool(vault, monkeypatch, profile, "alice_memory_manage", {
+            "action": action, "memory_id": missing, "reason": "Retire it",
+        })
+        assert (failed, result) == absent and failed and result["error"]["code"] == "not_found"
+    elif failed:
         assert result["error"]["code"] == "not_permitted"
     return not failed
 

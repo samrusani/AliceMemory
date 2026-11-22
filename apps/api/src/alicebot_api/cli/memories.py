@@ -350,6 +350,7 @@ def _run_vnext_memory_audit(ctx: CLIContext, args: argparse.Namespace) -> str:
             ensure_policy_allowed(chain)
 
         payload = VNextMemoryCommitService(store).audit(
+            identity=identity,
             memory_id=args.memory_id, authorize_memory=authorize_memory if identity is not None else None
         )
         # The memory, its revisions, its links and its events keep the quote of every source and memory they cite. A caller with

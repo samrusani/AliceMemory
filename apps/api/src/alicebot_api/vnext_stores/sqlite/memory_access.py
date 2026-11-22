@@ -678,6 +678,7 @@ def list_memories_by_statuses(
     domains: list[str] | None = None,
     sensitivity_allowed: list[str] | None = None,
     limit: int = 30,
+    lesson_reader: str | None = None,
 ) -> list[VNextRow]:
     """Bounded multi-status memory query for workspace/review surfaces."""
     if limit < 1:
@@ -699,6 +700,10 @@ def list_memories_by_statuses(
         sensitivity_placeholders = self._placeholders(sensitivity_allowed)
         sensitivity_sql = f" AND COALESCE(sensitivity, 'unknown') IN ({sensitivity_placeholders})"
         params.extend(sensitivity_allowed)
+    from alicebot_api.vnext_lesson_visibility import review_lesson_selection
+
+    lesson_sql, lesson_params = review_lesson_selection(lesson_reader, sqlite=True)
+    params.extend(lesson_params)
     params.append(limit)
     return self._fetch_all(
         f"""
@@ -708,7 +713,7 @@ def list_memories_by_statuses(
                   AND deleted_at IS NULL
                   AND status IN ({status_placeholders})
                   {domains_sql}
-                  {sensitivity_sql}
+                  {sensitivity_sql}{lesson_sql}
                 ORDER BY updated_at DESC, created_at DESC, id DESC
                 LIMIT ?
                 """,
@@ -752,9 +757,12 @@ def count_memories_by_status(
     return {str(row["status"]): int(cast(int, row["count"])) for row in rows}
 
 
-def list_recent_agentic_commits(self, *, limit: int = 20) -> list[VNextRow]:
+def list_recent_agentic_commits(self, *, limit: int = 20, lesson_reader: str | None = None) -> list[VNextRow]:
     if limit < 1:
         raise ValueError("limit must be positive")
+    from alicebot_api.vnext_lesson_visibility import review_lesson_selection
+
+    lesson_sql, lesson_params = review_lesson_selection(lesson_reader, sqlite=True)
     return self._fetch_all(
         f"""
                 SELECT {", ".join(MEMORY_COLUMNS)}
@@ -762,10 +770,11 @@ def list_recent_agentic_commits(self, *, limit: int = 20) -> list[VNextRow]:
                 WHERE user_id = ?
                   AND deleted_at IS NULL
                   AND json_extract(metadata_json, '$.agentic_memory.kind') = 'agentic_memory_commit'
+                  {lesson_sql}
                 ORDER BY updated_at DESC, created_at DESC, id DESC
                 LIMIT ?
                 """,
-        (self.user_id, limit),
+        (self.user_id, *lesson_params, limit),
     )
 
 

@@ -394,6 +394,7 @@ def get_vnext_context_tree(
                     include_events=include_events,
                     generated_by="user",
                     caller_limited=SourceReadFence.for_identity(identity).entity_read_fenced,
+                    identity=identity,
                 )
             )
     except AgentKeyAuthenticationError as exc:

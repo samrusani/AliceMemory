@@ -54,9 +54,9 @@ def test_thin_audit_limitation_is_documented():
 
 
 def test_waiting_lessons_limitation_is_documented():
-    """Mutation: remove the From v0.24.0 opener from the waiting_lessons bullet in known-limitations.md."""
+    """Guard edit: remove the From v0.24.0 opener from the published lesson reasons bullet."""
     page = (ROOT / "docs/alpha/known-limitations.md").read_text()
-    assert '- From v0.24.0, every key of a project can read its waiting and rejected lessons through the full review and explain tools; explain returns the decision reason ([lessons](shared-lessons.md))' in page
+    assert "- From v0.24.0, a reader of a published lesson can read its approval reason through `alice_explain` ([lessons](shared-lessons.md))" in page
 
 
 def test_lesson_writer_ids_limitation_is_documented():

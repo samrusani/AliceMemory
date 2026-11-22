@@ -501,6 +501,7 @@ class SQLiteVNextStore:
     fts_stage_source = "sqlite_fts"
     memory_fts_offset_paging = True
     label_count_input_prefilter = True
+    native_review_lesson_selection = True
     stream_lesson_revisions = _lesson_stream_lesson_revisions
 
     def __init__(self, conn: sqlite3.Connection, user_id: UUID | str):
@@ -519,7 +520,7 @@ class SQLiteVNextStore:
         if not self.conn.in_transaction:
             self.conn.execute("BEGIN IMMEDIATE")
 
-    def read_label_rows(self, kind: str, ids: Sequence[str]) -> list[VNextRow]:
+    def read_label_rows(self, kind: str, ids: Sequence[str], *, lesson_blocks_only: bool = False) -> list[VNextRow]:
         """Narrow label rows for the insert floor. No text columns."""
 
         wanted = [str(item) for item in ids if str(item)]
@@ -536,8 +537,13 @@ class SQLiteVNextStore:
         if table is None:
             return []
         extra = ""
+        condition = ""
         if table == "memories":
-            extra = ", value, project_id, source_event_ids, deleted_at, status"
+            extra = ", value, project_id, source_event_ids, deleted_at, status, created_by_agent_id"
+            if lesson_blocks_only:
+                from alicebot_api.vnext_lesson_visibility import lesson_block_sql
+
+                condition = f" AND {lesson_block_sql(sqlite=True)}"
         elif table == "open_loops":
             extra = ", project_id, source_id, memory_id"
         from alicebot_api.vnext_label_guard import SQLITE_LABEL_ID_MAP, request_row_cache
@@ -556,7 +562,7 @@ class SQLiteVNextStore:
                 resolved.update(cache[kind].get(identifier(item), ()))
             marks = ",".join("?" for _ in resolved)
             return self._fetch_all(
-                f"SELECT id, user_id, domain, sensitivity, metadata_json{extra} FROM {table} WHERE user_id = ? AND id IN ({marks})",
+                f"SELECT id, user_id, domain, sensitivity, metadata_json{extra} FROM {table} WHERE user_id = ? AND id IN ({marks}){condition}",
                 (self.user_id, *sorted(resolved)),
             )
         from uuid import UUID
@@ -575,20 +581,23 @@ class SQLiteVNextStore:
             f"""
                 SELECT id, user_id, domain, sensitivity, metadata_json{extra}
                 FROM {table}
-                WHERE user_id = ? AND (id IN ({marks}){alias_sql})
+                WHERE user_id = ? AND (id IN ({marks}){alias_sql}){condition}
                 """,
             (self.user_id, *wanted, *canonical),
         )
 
-    def count_original_label_statuses(self, kind: str, *, domains=(), sensitivity_allowed=()) -> dict[str, int]:
+    def count_original_label_statuses(self, kind: str, *, domains=(), sensitivity_allowed=(), lesson_reader: str | None = None) -> dict[str, int]:
         """Count the definitely-original, unscoped partition using stored labels."""
         from alicebot_api.vnext_label_sql import original_label_sql
+        from alicebot_api.vnext_lesson_visibility import review_lesson_selection
         table = {"source": "sources", "memory": "memories", "open_loop": "open_loops"}[kind]
         status = "status" if kind != "source" else "'unknown'"
         predicate = original_label_sql(kind, sqlite=True)
         live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""
         params = [self.user_id]
-        where = "user_id=? AND " + predicate + live
+        lesson_sql, lesson_params = review_lesson_selection(lesson_reader, sqlite=True)
+        where = "user_id=? AND " + predicate + live + lesson_sql
+        params.extend(lesson_params)
         if domains:
             where += " AND (domain IN (" + ",".join("?" for _ in domains) + ") OR domain='unknown')"
             params.extend(domains)
@@ -608,7 +617,7 @@ class SQLiteVNextStore:
             raise ValueError("unsupported label kind")
         extra = ""
         if kind == "memory":
-            extra = ", status, value, project_id, source_event_ids, deleted_at"
+            extra = ", status, value, project_id, source_event_ids, deleted_at, created_by_agent_id"
         elif kind == "open_loop":
             extra = ", status, project_id, source_id, memory_id"
         live = " AND deleted_at IS NULL" if kind in {"source", "memory"} else ""

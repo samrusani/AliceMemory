@@ -17,7 +17,7 @@ OCR, PDF OCR and voice transcription execution are not packaged. The scheduler i
 - From v0.24.0, retirement of a write waiting for review is limited to its decision makers, while its writer can retire a row waiting for their own reply ([standing](../memory-operations-protocol.md#standing-to-retire-a-memory))
 - the two built-in agent ids record different types through MCP and through a nested HTTP identity with no type ([identity](agent-integration.md#agent-identity-fields))
 - some audit records omit actors or keep the original writer, a hidden change leaves no event, and a stored agent row shows its last claimed profile ([audit](../memory-operations-protocol.md#audit-guarantees))
-- From v0.24.0, every key of a project can read its waiting and rejected lessons through the full review and explain tools; explain returns the decision reason ([lessons](shared-lessons.md))
+- From v0.24.0, a reader of a published lesson can read its approval reason through `alice_explain` ([lessons](shared-lessons.md))
 - From v0.24.0, a lesson's reader sees the writer and publishing agent ids ([lessons](shared-lessons.md)); choose neutral agent ids
 - From v0.24.0, `alice_lessons` reads a projection of every lesson the caller may read, so its cost grows with that number ([lessons](shared-lessons.md))
 - with project scoping on and a project detected in the default view, a key's brief and session hook return no brief ([projects](projects.md#the-project-brief))

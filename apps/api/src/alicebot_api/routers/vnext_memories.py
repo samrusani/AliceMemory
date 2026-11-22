@@ -1007,7 +1007,8 @@ def get_vnext_dogfooding_dashboard(
     user_id: UUID,
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
-    from alicebot_api.vnext_label_guard import sensitivity_ceiling
+    from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
+    from alicebot_api.vnext_label_guard import LabelGuard, sensitivity_ceiling
 
     settings = get_settings()
     try:
@@ -1019,7 +1020,9 @@ def get_vnext_dogfooding_dashboard(
                 raw_key=agent_key_from_authorization(authorization),
                 payload={},
             )
-            payload = VNextDogfoodingService(store).dashboard(sensitivity_allowed=sensitivity_ceiling(identity))
+            ceiling = sensitivity_ceiling(identity)
+            guard = LabelGuard.for_filters(store, (), ceiling or ALL_SENSITIVITY, identity=identity)
+            payload = VNextDogfoodingService(store).dashboard(sensitivity_allowed=ceiling, label_guard=guard)
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
@@ -2366,7 +2369,9 @@ def get_vnext_memory_audit(
                     raise AgentPolicyBlockedError(decision)
 
             try:
-                payload = VNextMemoryCommitService(store).audit(memory_id=str(memory_id), authorize_memory=authorize_memory)
+                payload = VNextMemoryCommitService(store).audit(
+                    memory_id=str(memory_id), authorize_memory=authorize_memory, identity=identity,
+                )
             except AgentPolicyBlockedError as exc:
                 return _vnext_permission_response(exc.decision)
             # The memory, its revisions, its links and its events keep the quote of every source and memory they cite.

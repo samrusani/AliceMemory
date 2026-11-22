@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -95,8 +96,13 @@ def _matrix(vault, monkeypatch, lesson):
                     })
                     assert not failed, answer
                 allowed = profile == "admin_agent" or (kind == "active" and profile in profiles[2:4])
+                hidden = kind == "waiting" and profile not in {"admin_agent", "memory_proposal_agent"}
+                missing = str(uuid4())
                 status = _http(vault, monkeypatch, keys[profile], action, mid)
-                assert status == (200 if allowed else 403)
+                if hidden:
+                    assert status == _http(vault, monkeypatch, keys[profile], action, missing) == 400
+                else:
+                    assert status == (200 if allowed else 403)
                 # HTTP succeeded on allowed cases, so use a fresh row for MCP.
                 if allowed:
                     if lesson:
@@ -113,7 +119,13 @@ def _matrix(vault, monkeypatch, lesson):
                 failed, answer = _call(vault, monkeypatch, keys[profile], "alice_memory_manage", {
                     "action": action, "memory_id": mid, "reason": "Retire it",
                 })
-                assert not failed if allowed else failed and answer["error"]["code"] == "not_permitted"
+                if hidden:
+                    absent = _call(vault, monkeypatch, keys[profile], "alice_memory_manage", {
+                        "action": action, "memory_id": missing, "reason": "Retire it",
+                    })
+                    assert (failed, answer) == absent and failed and answer["error"]["code"] == "not_found"
+                else:
+                    assert not failed if allowed else failed and answer["error"]["code"] == "not_permitted"
 
 
 def _owner(vault, monkeypatch, lesson):
@@ -242,8 +254,6 @@ def test_lesson_retirement_requires_the_existing_publisher(vault, monkeypatch):
             "action": action, "memory_id": ordinary["memory"]["id"], "reason": "A reason",
         })
         assert failed and answer["error"]["code"] == "not_permitted"
-
-    from uuid import uuid4
 
     hidden_key = vault.key("outside", "project_scoped_agent", "beta")
     bound_admin = vault.key("bound_admin", "admin_agent", "alpha")

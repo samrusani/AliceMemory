@@ -10,11 +10,12 @@ distinguish its identity. Other identities' lessons wait for review. A reviewer
 can publish a waiting lesson through `alice_memory_correct` or the memory review
 HTTP route. Published lessons are returned only when the caller may read them.
 A write can also require confirmation or be rejected by the existing checks.
-On the full tool surface, a key that can read a project's rows, including a
-read-only key, can see its waiting and rejected lessons in `alice_memory_review`
-with `status: all` and in `alice_explain` by id. The explanation also returns
-the reason for a decision. The reads on the default four tools return only
-published lessons.
+
+Unreleased (on main, not in v0.24.1): A waiting or rejected lesson and its
+decision reason are visible only to its writer and to the owner or an admin
+whose limits allow the row. Other readers see a missing lesson. A commit that
+would replay such a hidden lesson gives the existing idempotency conflict.
+Published lessons and their decision reasons follow the usual read limits.
 
 Each lesson returned by `alice_lessons` names its writer and the agent that
 approved it, when an agent approved it. Choose neutral agent ids if those names

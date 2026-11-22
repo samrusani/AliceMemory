@@ -6,7 +6,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from alicebot_api.project_view import page_after_label_drop
-from alicebot_api.vnext_agent_control import resource_project_scope
+from alicebot_api.vnext_agent_control import AgentIdentity, resource_project_scope
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_project_scope import (
     normalize_project_scope,
@@ -58,6 +58,7 @@ class ContextTreeRequest:
     # policy event of an explain of a continuity object) is left out of the tree of a caller with limits, and kept for the
     # owner and an unbound admin key whatever they select. A caller that sets nothing is treated as limited.
     caller_limited: bool = True
+    identity: AgentIdentity | None = None
 
 
 def _validate_request(request: ContextTreeRequest) -> None:
@@ -176,6 +177,7 @@ def _tree_event_visible(
     projects: tuple[str, ...],
     *,
     caller_limited: bool,
+    identity: AgentIdentity | None = None,
 ) -> bool:
     from alicebot_api.vnext_label_guard import LabelGuard
     from alicebot_api.vnext_label_sql import EVENT_UNJUDGED_TARGETS
@@ -187,7 +189,7 @@ def _tree_event_visible(
     if caller_limited and str(event.get("target_type")) in EVENT_UNJUDGED_TARGETS:
         return False
     # A node of the tree names the event by its type, so the cursors in its payload are not judged.
-    guard = LabelGuard.for_filters(store, domains, sensitivity, projects, selection_only=True)
+    guard = LabelGuard.for_filters(store, domains, sensitivity, projects, selection_only=True, identity=identity)
     return bool(guard.admit_events([event], cursors=False))
 
 
@@ -293,6 +295,7 @@ class VNextContextTreeService:
                     domains=domains,
                     sensitivity_allowed=sensitivity,
                     projects=project_scope,
+                    identity=request.identity,
                 )
 
             return page_after_label_drop(
@@ -350,7 +353,8 @@ class VNextContextTreeService:
                     event
                     for event in rows
                     if _tree_event_visible(
-                        self.store, event, domains, sensitivity, project_scope, caller_limited=request.caller_limited
+                        self.store, event, domains, sensitivity, project_scope,
+                        caller_limited=request.caller_limited, identity=request.identity,
                     )
                 ],
                 refill=request.caller_limited,

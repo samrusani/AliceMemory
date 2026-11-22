@@ -279,7 +279,12 @@ def _authorize_explain_resource(
     """Require an unfiltered policy decision for one expanded resource."""
 
     from alicebot_api.vnext_label_guard import apply_unverified_rule, effective_row_for_fence, policy_labels
+    from alicebot_api.vnext_lesson_visibility import outside_lesson_review_standing
 
+    if target_type == "memory" and outside_lesson_review_standing(resource, identity):
+        if _is_key_bound_explain(identity):
+            raise _ExplainAuthorizationError()
+        raise MemoryNotFoundError("memory was not found")
     judged: Mapping[str, object] = resource
     judged_scope = project_scope
     judged_floor: tuple[str, ...] = ()
@@ -703,6 +708,7 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
             canonical_memory_id = _canonical_row_id_argument(arguments, "memory_id", store=store, not_found=lambda _raw: MemoryNotFoundError("memory was not found"))
             audit = VNextMemoryCommitService(store).audit(
                 memory_id=canonical_memory_id,
+                identity=identity,
                 authorize_memory=lambda memory: _authorize_explain_resource(
                     store,
                     identity=identity,
@@ -750,6 +756,11 @@ def _handle_alice_vnext_memory_audit(context: MCPRuntimeContext, arguments: Mapp
             payload["revisions"] = frame_disclosed_tree(extended.get("revisions"))
             payload["provenance_links"] = frame_disclosed_tree(extended.get("provenance_links"))
             payload["supersession_chain"] = frame_disclosed_tree(extended.get("supersession_chain"))
+        except MemoryNotFoundError:
+            # Roll back any audit records staged before the final standing check.
+            if _is_key_bound_explain(identity):
+                _raise_explain_authorization_error(identity, _ExplainAuthorizationError())
+            raise
         except _ExplainAuthorizationError as exc:
             authorization_error = exc
         except VNextMemoryCommitValidationError as exc:

@@ -491,6 +491,7 @@ def _handle_alice_vnext_context_tree(context: MCPRuntimeContext, arguments: Mapp
                     policy_decision=decision.to_record(),
                     trace_id=_parse_optional_text(arguments, "trace_id") or decision.trace_id,
                     caller_limited=SourceReadFence.for_identity(identity).entity_read_fenced,
+                    identity=identity,
                 )
             )
     if blocked_decision is not None:

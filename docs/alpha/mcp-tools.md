@@ -314,6 +314,8 @@ is a CLI verb, not an always-on agent tool.
   An agent capture above its sensitivity ceiling is refused without storing a source.
   Unreleased (on main, not in v0.24.1): Memory proposals, open loops, queue tasks, projects and brain charter writes respect the admitted caller's sensitivity ceiling.
 - `alice_memory_review` — inspect the review queue, or one item in detail.
+  Unreleased (on main, not in v0.24.1): A waiting or rejected lesson is listed
+  and counted only for its writer and for a decider who may read the row.
 - `alice_memory_correct` — act on a memory: approve, edit-and-approve,
   reject, or supersede with a replacement. Every change is audited.
 - `alice_memory_manage` — lifecycle verbs for committed memories: `confirm`
@@ -382,6 +384,9 @@ is a CLI verb, not an always-on agent tool.
 - `alice_open_loops` — list open loops, or close/snooze/edit/reopen one.
 - `alice_explain` — where a memory came from and why it can be trusted:
   sources, revisions, corroboration, contradiction signals.
+  Unreleased (on main, not in v0.24.1): A waiting or rejected lesson and its
+  decision reason are visible only to its writer or a decider who may read it.
+  A published lesson keeps its decision reason under the usual read limits.
 - `alice_what_changed` (from v0.21.0): the recorded decision history for one
   topic that this caller may read. Each chain has its own current step,
   upcoming ids, disputed ids and history. A reason is the stored rationale or a quote already saved

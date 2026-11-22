@@ -103,6 +103,7 @@ from alicebot_api.vnext_project_update_guard import (
 )
 from alicebot_api.vnext_derived_labels import group_scope
 from alicebot_api.vnext_label_guard import guard_for_caller, label_read_request, newest_admitted_rows
+from alicebot_api.vnext_lesson_visibility import is_unpublished_lesson, lesson_history_is_hidden, outside_lesson_review_standing
 from alicebot_api.vnext_project_scope import normalize_project_scope, project_scope_identity
 from alicebot_api.vnext_repositories import EventStore, JsonObject
 from alicebot_api.store import ContinuityStoreInvariantError
@@ -1937,7 +1938,7 @@ class VNextMemoryCommitService:
         memory = (
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
-        if memory is None:
+        if memory is None or outside_lesson_review_standing(memory, identity):
             raise MemoryNotFoundError("memory was not found")
         self.refuse_unauthorized_write(identity=identity, action="memory.correct", memory=memory)
         # A memory that carries a lesson is never corrected: the block and the
@@ -3065,17 +3066,20 @@ class VNextMemoryCommitService:
         """
 
         guard = guard_for_caller(self.store, identity, action="memory.recent_commits")
-        rows = newest_admitted_rows(guard, "memory", self._newest_commits, want=max(limit, 1))
+        lesson_options = guard.lesson_selection_options()
+        rows = newest_admitted_rows(
+            guard, "memory", lambda size: self._newest_commits(size, **lesson_options), want=max(limit, 1),
+        )
         if guard.active:
             rows = SavedProvenanceReader(self.store, fence=SourceReadFence.for_identity(identity)).memories(rows)
         return {"recent_commits": rows, "count": len(rows)}
 
-    def _newest_commits(self, size: int) -> list[VNextRow]:
+    def _newest_commits(self, size: int, **lesson_options: str) -> list[VNextRow]:
         """The newest ``size`` commits, newest first, whatever their labels."""
 
         newest = getattr(self.store, "list_recent_agentic_commits", None)
         if callable(newest):
-            return list(newest(limit=size))
+            return list(newest(limit=size, **lesson_options))
         rows: list[VNextRow] = []
         for memory in self.store.list_memories(status=None):
             if _agentic_metadata(memory).get("kind") == "agentic_memory_commit":
@@ -3115,6 +3119,7 @@ class VNextMemoryCommitService:
         *,
         memory_id: str,
         authorize_memory: Callable[[Mapping[str, object]], None] | None = None,
+        identity: AgentIdentity | None = None,
     ) -> JsonObject:
         """Return one memory's audit envelope after authorizing its full chain.
 
@@ -3130,15 +3135,20 @@ class VNextMemoryCommitService:
             raise MemoryNotFoundError("memory was not found")
         if authorize_memory is not None:
             authorize_memory(memory)
+        chain = self._supersession_chain(memory, authorize_memory=authorize_memory)
+        revisions = self.store.list_revisions(memory_id)
+        events = self.store.list_events(target_type="memory", target_id=memory_id)
+        links = self.store.list_provenance_links(target_type="memory", target_id=memory_id)
+        # A review can commit between authorizing the row and loading its
+        # history. Recheck the rows after the last history read.
+        if lesson_history_is_hidden(self.store, identity, [str(node["id"]) for node in chain]):
+            raise MemoryNotFoundError("memory was not found")
         return {
             "memory": memory,
-            "supersession_chain": self._supersession_chain(
-                memory,
-                authorize_memory=authorize_memory,
-            ),
-            "revisions": self.store.list_revisions(memory_id),
-            "events": self.store.list_events(target_type="memory", target_id=memory_id),
-            "provenance_links": self.store.list_provenance_links(target_type="memory", target_id=memory_id),
+            "supersession_chain": chain,
+            "revisions": revisions,
+            "events": events,
+            "provenance_links": links,
         }
 
     def _supersession_chain(
@@ -3242,6 +3252,10 @@ class VNextMemoryCommitService:
         request: MemoryCommitRequest,
         identity: AgentIdentity | None,
     ) -> JsonObject:
+        from alicebot_api.vnext_label_guard import outside_caller_limits
+
+        if is_unpublished_lesson(memory) and outside_caller_limits(self.store, identity, "memory", memory):
+            raise IdempotencyKeyConflictError("idempotency_key was already used for a different memory request")
         try:
             # An idempotency key names the commit and not the id of a row, so a refusal stays a refusal here.
             self._policy_checked_write(identity=identity, action="memory.commit", memory=memory, answer_as_missing=False)
