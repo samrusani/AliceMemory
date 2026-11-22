@@ -18,10 +18,7 @@ import time
 from typing import Callable
 from uuid import UUID, uuid4
 
-import psycopg
-from psycopg.rows import dict_row
-
-from alicebot_api.db import user_connection
+from alicebot_api.db import autocommit_user_connection, user_connection
 from alicebot_api.vnext_agent_control import AgentIdentity, PolicyDecision
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_repositories import JsonObject
@@ -309,15 +306,7 @@ def _autocommit_user_store(
 ) -> Iterator[PostgresVNextStore]:
     """Dedicated tenant session whose statements never span provider work."""
 
-    with psycopg.connect(
-        database_url,
-        autocommit=True,
-        row_factory=dict_row,
-    ) as conn:
-        conn.execute(
-            "SELECT set_config('app.current_user_id', %s, false)",
-            (str(user_id),),
-        )
+    with autocommit_user_connection(database_url, user_id) as conn:
         yield PostgresVNextStore(conn)
 
 

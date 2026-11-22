@@ -9,6 +9,9 @@ import pytest
 from alicebot_api import db
 
 
+USER_SETUP_SQL = "SELECT set_config('app.current_user_id', %s, %s), set_config('jit', 'off', %s)"
+
+
 class RecordingCursor:
     def __init__(self) -> None:
         self.executed: list[tuple[str, tuple[object, ...] | None]] = []
@@ -91,7 +94,7 @@ def test_set_current_user_sets_database_context() -> None:
     db.set_current_user(connection, user_id)
 
     assert connection.cursor_instance.executed == [
-        ("SELECT set_config('app.current_user_id', %s, true)", (str(user_id),)),
+        (USER_SETUP_SQL, (str(user_id), True, True)),
     ]
 
 
@@ -171,5 +174,5 @@ def test_user_connection_uses_configured_lazy_pool(monkeypatch) -> None:
         assert conn is connection
 
     assert connection.cursor_instance.executed == [
-        ("SELECT set_config('app.current_user_id', %s, true)", (str(user_id),)),
+        (USER_SETUP_SQL, (str(user_id), True, True)),
     ]

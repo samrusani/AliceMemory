@@ -1,12 +1,7 @@
-"""The workspace transaction runs without PostgreSQL JIT compilation.
-
-The project dashboards read artifacts through a long scope expression. PostgreSQL
-estimates that expression above its JIT threshold, so every such read spent about
-a quarter of a second compiling a query that runs in two milliseconds. On a vault
-with two projects that was most of a 0.6 second page. The setting is local to the
-workspace transaction and must never reach another request.
-"""
+"""The workspace uses the shared PostgreSQL JIT setting."""
 from __future__ import annotations
+
+import psycopg
 
 from alicebot_api.routers import workspaces
 
@@ -14,12 +9,12 @@ from tests.integration.derived_labels_postgres_support import label_harness  # n
 
 
 def current_jit(h):
-    with h.store() as store:
-        return store.conn.execute("SHOW jit").fetchone()["jit"]
+    with psycopg.connect(h.urls["app"], autocommit=True) as conn:
+        return conn.execute("SHOW jit").fetchone()[0]
 
 
 def test_workspace_transaction_turns_jit_off_and_leaves_the_next_request_alone(label_harness, monkeypatch):
-    """Mutation: drop the SET LOCAL from the route."""
+    """Mutation: enable JIT in the shared user setup."""
     h = label_harness
     default = current_jit(h)
     seen = []

@@ -257,6 +257,8 @@ client-side refactor and is out of scope for this guide.
 
 ## 3. Prepare and verify PostgreSQL
 
+Alice runs its PostgreSQL transactions with JIT compilation off to avoid compiling short queries on each call, with no operator configuration needed.
+
 Provision PostgreSQL 16 and install pgvector 0.8 or newer. Create four distinct
 login roles:
 
