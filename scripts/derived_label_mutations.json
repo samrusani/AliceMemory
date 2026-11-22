@@ -36685,6 +36685,22 @@
         "tests/integration/test_app_jit_reads_postgres.py::test_project_scoped_scheduler_sweep_avoids_jit"
       ],
       "expected_failure": "test_project_scoped_scheduler_sweep_avoids_jit"
+    },
+    {
+      "name": "jit-workspace-shared-route-pin",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/routers/workspaces.py",
+          "before": "        with user_connection(settings.database_url, user_id) as conn:\n            store = PostgresVNextStore(conn)",
+          "after": "        with user_connection(settings.database_url, user_id) as conn:\n            conn.execute(\"SET LOCAL jit = off\")\n            store = PostgresVNextStore(conn)",
+          "line": 391,
+          "sha256": "f234685b5026e65c4b065e92c2220877dd80aa365bbd5b119baca2f845c53845"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_workspaces_router_split.py::test_workspace_handlers_supports_and_partitions_are_exact_mechanical_copies"
+      ],
+      "expected_failure": "test_workspace_handlers_supports_and_partitions_are_exact_mechanical_copies"
     }
   ]
 }
