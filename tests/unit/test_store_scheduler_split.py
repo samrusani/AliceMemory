@@ -63,8 +63,8 @@ EXPECTED_METADATA_MANIFESTS = {
 }
 EXPECTED_CLASS_ORDERS = {
     # The graft assignments keep every member name and position the inline
-    # methods held, so this receipt is the base commit's own order.
-    "PostgresVNextStore": (186, "974e71a5c4c9748e51169bd5878c94ac354d404096b2f71d238cadbbed85cebe"),
+    # methods held. The facade also advertises native review standing selection.
+    "PostgresVNextStore": (187, "8127a95de95339a8352ba835b62531cbe7a296def66a68233fdc1d9c205a52a4"),
 }
 
 

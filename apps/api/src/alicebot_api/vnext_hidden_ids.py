@@ -379,6 +379,7 @@ def _guard_at_full_ceiling(store: Any, identity: Any) -> Any:
         sensitivity,
         projects,
         all_of=projects if locked else None,
+        identity=identity,
     )
 
 

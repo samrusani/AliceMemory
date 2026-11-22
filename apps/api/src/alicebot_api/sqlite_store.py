@@ -520,7 +520,7 @@ class SQLiteVNextStore:
         if not self.conn.in_transaction:
             self.conn.execute("BEGIN IMMEDIATE")
 
-    def read_label_rows(self, kind: str, ids: Sequence[str]) -> list[VNextRow]:
+    def read_label_rows(self, kind: str, ids: Sequence[str], *, lesson_blocks_only: bool = False) -> list[VNextRow]:
         """Narrow label rows for the insert floor. No text columns."""
 
         wanted = [str(item) for item in ids if str(item)]
@@ -537,8 +537,13 @@ class SQLiteVNextStore:
         if table is None:
             return []
         extra = ""
+        condition = ""
         if table == "memories":
             extra = ", value, project_id, source_event_ids, deleted_at, status, created_by_agent_id"
+            if lesson_blocks_only:
+                from alicebot_api.vnext_lesson_visibility import lesson_block_sql
+
+                condition = f" AND {lesson_block_sql(sqlite=True)}"
         elif table == "open_loops":
             extra = ", project_id, source_id, memory_id"
         from alicebot_api.vnext_label_guard import SQLITE_LABEL_ID_MAP, request_row_cache
@@ -557,7 +562,7 @@ class SQLiteVNextStore:
                 resolved.update(cache[kind].get(identifier(item), ()))
             marks = ",".join("?" for _ in resolved)
             return self._fetch_all(
-                f"SELECT id, user_id, domain, sensitivity, metadata_json{extra} FROM {table} WHERE user_id = ? AND id IN ({marks})",
+                f"SELECT id, user_id, domain, sensitivity, metadata_json{extra} FROM {table} WHERE user_id = ? AND id IN ({marks}){condition}",
                 (self.user_id, *sorted(resolved)),
             )
         from uuid import UUID
@@ -576,7 +581,7 @@ class SQLiteVNextStore:
             f"""
                 SELECT id, user_id, domain, sensitivity, metadata_json{extra}
                 FROM {table}
-                WHERE user_id = ? AND (id IN ({marks}){alias_sql})
+                WHERE user_id = ? AND (id IN ({marks}){alias_sql}){condition}
                 """,
             (self.user_id, *wanted, *canonical),
         )

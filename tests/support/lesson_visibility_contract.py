@@ -1,9 +1,11 @@
 """Common assertions for lesson visibility at the MCP doors."""
 
 import json
+from contextlib import nullcontext
 from time import process_time
 from uuid import uuid4
 
+from alicebot_api.recall_framing import frame_disclosed_tree
 from alicebot_api.vnext_agent_keys import hash_agent_key
 from alicebot_api.vnext_event_log import append_event
 
@@ -59,6 +61,228 @@ def assert_lesson_absent(body, rows, states=("candidate", "rejected")):
         assert payload["lesson"]["applies_when"].lower() not in serialized
         if state == "rejected":
             assert REJECTION_REASON.lower() not in serialized
+
+
+def check_saved_lesson_references(call, store_context, keys, shape, *, keyless_owner, http=None):
+    """Compare the citation copies, keeping each readable citing row in the answer."""
+    writer, reviewer, admin, peer, scoped, reader, trusted, outside, outside_admin = keys
+    hidden = make_review_lessons(call, writer, reviewer)
+    failed, result = call(admin, "alice_memory_commit", {
+        "title": "Restricted reference control", "canonical_text": "A separate synthetic procedure.",
+        "domain": "project", "project_scope": ["alpha"], "sensitivity": "confidential",
+    })
+    assert not failed and result["status"] == "confirmation_required", result
+    failed, confirmed = call(admin, "alice_memory_manage", {
+        "action": "confirm", "memory_id": result["memory"]["id"], "confirmation_id": result["confirmation_id"],
+    })
+    assert not failed, confirmed
+    targets = {"missing": str(uuid4()), "confidential": result["memory"]["id"],
+               **{state: hidden[state][0] for state in ("candidate", "rejected")}}
+    if shape == "object":
+        failed, pending = call(writer, "alice_memory_commit", {
+            "lesson": {**LESSON_BLOCK, "applies_when": "synthetic retired reference target"},
+        })
+        assert not failed and pending["status"] == "review_required", pending
+        targets["superseded"] = pending["memory"]["id"]
+        with store_context() as store:
+            store.update_memory(memory_id=targets["superseded"], patch={"status": "superseded"}, actor_type="user")
+
+    for author, key in (("admin", admin), ("writer", writer), ("scoped", scoped)):
+        control_refs = {}
+        for state, target in targets.items():
+            term = f"citationfixture{author}{state}"
+            words = f"Exact synthetic quotation for {term}."
+            refs = {
+                "typed": [f"memory:{target}", words],
+                "incidental": [f"Memory {target} said {words}"],
+                "excerpt": [f"memory:{target}"],
+                "object": [{"memory_id": target.replace("-", ""), "quote": words}],
+            }[shape]
+            fields = {"title": term, "domain": "project", "project_scope": ["alpha"], "sensitivity": "internal",
+                      "source_refs": refs if shape != "object" else []}
+            if author == "writer":
+                fields["lesson"] = {**LESSON_BLOCK, "applies_when": term}
+            else:
+                fields.update(memory_type="procedure", canonical_text=f"The citing procedure for {term}.")
+            if shape == "excerpt":
+                fields["conversation_excerpt"] = words
+                assert http is not None
+                status, committed, _ = http("POST", "/v0/vnext/memories/commit", payload=fields, key=key)
+                assert status in (200, 201, 202), committed
+            else:
+                failed, committed = call(key, "alice_memory_commit", fields)
+                assert not failed, committed
+            memory_id = committed["memory"]["id"]
+            if author == "writer":
+                failed, approved = call(reviewer, "alice_memory_correct", {
+                    "action": "approve", "review_item_id": memory_id, "reason": "Publish the citing lesson.",
+                })
+                assert not failed, approved
+            with store_context() as store:
+                row = store.get_memory(memory_id)
+                assert row["status"] == "active", (author, state, row["status"])
+                if shape == "object":
+                    metadata = row["metadata_json"]
+                    agentic = {**metadata["agentic_memory"], "source_refs": refs}
+                    row = store.update_memory(
+                        memory_id=memory_id,
+                        patch={
+                            "value": {**row["value"], "source_refs": refs},
+                            "metadata_json": {**metadata, "agentic_memory": agentic},
+                        },
+                        actor_type="user",
+                    )
+                if shape == "typed" and state == "candidate":
+                    previous = row["value"]
+                    row = store.update_memory(memory_id=memory_id, patch={
+                        "value": {**previous, "citation_fixture_revision": 1},
+                        "metadata_json": {**row["metadata_json"], "citation_fixture_revision": 1},
+                    }, actor_type="user")
+                    store.append_revision({
+                        "memory_id": memory_id, "memory_key": row["memory_key"],
+                        "action": "edited", "revision_type": "edited",
+                        "previous_value": previous, "new_value": row["value"],
+                        "reason": "Synthetic citation history",
+                    }, actor_type="user")
+            for role, caller in (
+                ("peer", peer), ("scoped", scoped), ("read-only", reader), ("trusted", trusted),
+                ("writer", writer), ("reviewer", reviewer), ("admin", admin),
+                ("outside", outside), ("outside admin", outside_admin), ("owner", None),
+            ):
+                unfenced = role in ("owner", "admin")
+                allowed_ref = (
+                    state in hidden or state == "superseded"
+                ) and (unfenced or caller in (writer, reviewer)) or (
+                    state == "confidential" and (unfenced or caller == reviewer)
+                )
+                outside_project = caller in (outside, outside_admin)
+                with keyless_owner() if role == "owner" else nullcontext():
+                    examples = list(_read_saved_lesson_refs(
+                        call, http, caller, memory_id, term,
+                        outside=outside_project, operator=unfenced or caller == trusted,
+                    ))
+                for door, body, projections in examples:
+                    if outside_project:
+                        _assert_no_reference(body, target, words)
+                        continue
+                    assert projections, (shape, author, state, role, door)
+                    pack_door = door in ("MCP context pack", "HTTP context pack")
+                    keeps_ref = allowed_ref or state == "missing" and (shape == "incidental" or unfenced)
+                    if keeps_ref:
+                        expected = refs
+                    elif shape == "object":
+                        expected = [{"memory_id": None, "quote": None}]
+                    else:
+                        expected = [None]
+                    for index, projection in enumerate(projections):
+                        exact_mcp = door in ("alice_explain", "alice_memory_review")
+                        text = row["canonical_text"]
+                        actual = projection["value"]["source_refs"]
+                        metadata = projection["metadata_json"]["agentic_memory"]
+                        actual_pair = (actual, metadata["source_refs"])
+                        place = (caller, door, index)
+                        framed_ref = frame_disclosed_tree(expected) if exact_mcp else expected
+                        shown_refs = shown_metadata_refs = framed_ref
+                        if pack_door and role in ("writer", "reviewer") and allowed_ref:
+                            # The existing project selection removes these references
+                            # from both lists even when the caller can read the quote.
+                            shown_refs = shown_metadata_refs = []
+                        elif pack_door and unfenced and state in hidden:
+                            shown_metadata_refs = {
+                                "typed": [words], "excerpt": [],
+                                "incidental": [f"Memory (id withheld) said {words}"],
+                                "object": refs,
+                            }[shape]
+                        elif state == "missing":
+                            variants = (framed_ref, []) if pack_door or shape == "excerpt" else (framed_ref,)
+                            assert all(refs in variants for refs in actual_pair), (shape, author, role, door, actual_pair)
+                            if not unfenced and shape != "incidental":
+                                control_refs[place] = actual_pair
+                            shown_refs, shown_metadata_refs = actual_pair
+                        elif not keeps_ref and shape == "incidental" and pack_door:
+                            if state == "confidential":
+                                assert all(refs in (expected, []) for refs in actual_pair), (shape, author, role, door)
+                                control_refs[place] = actual_pair
+                            shown_refs, shown_metadata_refs = control_refs[place]
+                        elif not keeps_ref and shape != "incidental":
+                            shown_refs, shown_metadata_refs = control_refs[place]
+                        value = dict(row["value"])
+                        if exact_mcp:
+                            text = frame_disclosed_tree({"canonical_text": text})["canonical_text"]
+                            value = frame_disclosed_tree(value)
+                        value["source_refs"] = shown_refs
+                        assert projection["id"] == memory_id
+                        assert projection["canonical_text"] in (text, json.dumps(text))
+                        assert projection["sensitivity"] == row["sensitivity"]
+                        assert projection["value"] == value, (shape, author, state, role, door, projection["value"], value)
+                        assert metadata["source_refs"] == shown_metadata_refs, (
+                            shape, author, state, role, door, metadata["source_refs"], shown_metadata_refs,
+                        )
+                        if shape == "excerpt":
+                            assert metadata.get("conversation_excerpt") == (words if keeps_ref else None)
+                    if not keeps_ref:
+                        _assert_no_reference(body, target, words)
+                        if state == "rejected":
+                            assert REJECTION_REASON not in json.dumps(body)
+                    if shape == "typed" and state == "candidate" and role == "admin" and door in (
+                        "alice_explain", "alice_memory_review",
+                    ):
+                        history = body["review"] if door == "alice_memory_review" else body
+                        revision = next(item for item in history["revisions"] if "Synthetic citation history" in (item.get("reason") or ""))
+                        assert revision["previous_value"]["source_refs"] == refs
+                        assert revision["new_value"]["source_refs"] == refs
+                        if door == "alice_explain":
+                            assert any(
+                                event.get("payload_json", {}).get("changes", {}).get("metadata_json", {})
+                                .get("agentic_memory", {}).get("source_refs") == refs
+                                for event in history["events"]
+                            )
+
+
+def _assert_no_reference(body, target, words):
+    serialized = json.dumps(body, default=str).lower()
+    assert target.lower() not in serialized
+    assert target.replace("-", "").lower() not in serialized
+    assert words.lower() not in serialized
+
+
+def _read_saved_lesson_refs(call, http, caller, memory_id, term, *, outside, operator):
+    for tool, field, entry in (
+        ("alice_explain", "memory_id", None), ("alice_memory_review", "review_item_id", "review"),
+    ):
+        failed, body = call(caller, tool, {field: memory_id})
+        if outside:
+            assert failed
+            absent = call(caller, tool, {field: str(uuid4())})
+            assert absent[0] and body["error"]["code"] == absent[1]["error"]["code"], (tool, body)
+            yield tool, body, []
+        else:
+            assert not failed, (tool, body)
+            audit = body[entry] if entry else body
+            yield tool, body, [audit["memory"]]
+
+    def selected(pack, *sections):
+        return [row for section in sections for row in pack.get(section, []) if row["id"] == memory_id]
+
+    limits = {"max_tokens": 12000, "sensitivity_allowed": ["public", "internal", "private", "confidential"]}
+    failed, pack = call(caller, "alice_context_pack", {"query": term, "debug": True, **limits})
+    assert not failed, pack
+    rows = selected(pack, "procedures")
+    if outside:
+        assert not rows and memory_id not in json.dumps(pack)
+    yield "MCP context pack", pack, rows
+    if http is not None:
+        status, pack, _ = http("POST", "/v0/vnext/context-packs", key=caller, payload={
+            "query": term, "options": limits,
+        })
+        assert status == 201, pack
+        rows = selected(pack, "procedures", "relevant_memories")
+        assert len(rows) == (0 if outside else 2), (term, status, pack)
+        yield "HTTP context pack", pack, rows
+        status, audit, _ = http("GET", f"/v0/vnext/memories/{memory_id}/audit", key=caller)
+        assert status == (200 if operator else 403), audit
+        if operator:
+            yield "HTTP audit", audit, [audit["memory"]]
 
 
 def check_lesson_visibility(call, writer, reviewer, readers, snapshot):

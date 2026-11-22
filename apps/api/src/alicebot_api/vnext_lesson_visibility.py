@@ -18,6 +18,17 @@ def review_lesson_reader(identity: AgentIdentity | None) -> str | None:
     return identity.agent_id
 
 
+def has_lesson_block(row: Mapping[str, object]) -> bool:
+    value = row.get("value")
+    return isinstance(value, Mapping) and isinstance(value.get("lesson"), Mapping)
+
+
+def lesson_block_sql(*, sqlite: bool) -> str:
+    """Match the lesson shape in the stored value."""
+    storage_type = "json_type(value, '$.lesson')" if sqlite else "jsonb_typeof(value -> 'lesson')"
+    return f"{storage_type} = 'object'"
+
+
 def is_unpublished_lesson(row: Mapping[str, object]) -> bool:
     status = row.get("status")
     if status not in REVIEW_LESSON_STATUSES:
@@ -27,8 +38,7 @@ def is_unpublished_lesson(row: Mapping[str, object]) -> bool:
         agentic = metadata.get("agentic_memory") if isinstance(metadata, Mapping) else None
         if not isinstance(agentic, Mapping) or agentic.get("status") not in _UNPUBLISHED_WRITE_STATUSES:
             return False
-    value = row.get("value")
-    return isinstance(value, Mapping) and isinstance(value.get("lesson"), Mapping)
+    return has_lesson_block(row)
 
 
 def hidden_review_lesson(row: Mapping[str, object], reader: str | None) -> bool:
@@ -53,7 +63,7 @@ def review_lesson_selection(reader: str | None, *, sqlite: bool) -> tuple[str, t
     if reader is None:
         return "", ()
     marker = "?" if sqlite else "%s"
-    lesson = "json_type(value, '$.lesson')" if sqlite else "jsonb_typeof(value -> 'lesson')"
+    lesson = lesson_block_sql(sqlite=sqlite)
     write_status = (
         "json_extract(metadata_json, '$.agentic_memory.status')" if sqlite
         else "metadata_json #>> '{agentic_memory,status}'"
@@ -63,7 +73,7 @@ def review_lesson_selection(reader: str | None, *, sqlite: bool) -> tuple[str, t
     return (
         f" AND NOT ((status IN ({statuses}) OR"
         f" (status = 'superseded' AND COALESCE({write_status} IN ({unpublished}), FALSE)))"
-        f" AND COALESCE({lesson} = 'object', FALSE)"
+        f" AND COALESCE({lesson}, FALSE)"
         f" AND (created_by_agent_id IS NULL OR created_by_agent_id <> {marker}))",
         (reader,),
     )

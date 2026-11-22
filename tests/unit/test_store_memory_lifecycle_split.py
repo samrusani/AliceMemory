@@ -121,6 +121,7 @@ EXPECTED_METADATA_MANIFESTS = {
 # facades; all existing members retain their relative order.
 # Round three adds only count_source_label_events before iter_label_events.
 # Removing that new member reproduces the previous exact native member order.
+# Both facades advertise native review standing selection.
 EXPECTED_CLASS_ORDERS = {
     # Reviewed additions: label/event enumeration, PG ratings, belief aliases and source recovery.
     # Existing facade members retain their relative order.
@@ -131,7 +132,7 @@ EXPECTED_CLASS_ORDERS = {
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     # One Postgres-only method more, ``get_edge``, after ``create_edge`` (2026-10-08): the edge review route reads one edge
     # by id before it judges its ends. Previous receipt (184, e5bb6fbb...). Every other member keeps its order.
-    "PostgresVNextStore": (186, "974e71a5c4c9748e51169bd5878c94ac354d404096b2f71d238cadbbed85cebe"),
+    "PostgresVNextStore": (187, "8127a95de95339a8352ba835b62531cbe7a296def66a68233fdc1d9c205a52a4"),
     # One SQLite-only method more, ``check_source_search_query``: the Postgres
     # source search has no expression-depth or LIKE-length limit to check.
     # Merge of #500 and #502 (2026-10-01): one more SQLite-only method,
@@ -146,7 +147,7 @@ EXPECTED_CLASS_ORDERS = {
     # 040a2a10 with ``savepoint`` added at the end and nothing else moved (reviewed change, not drift).
     # Proof: the replacement branch gains only scrub_source, source_inventory and
     # prunable_sources here; every pre-existing class member keeps its order.
-    "SQLiteVNextStore": (142, "46697d314affb5302994ae9b28cb29451ec506d9bd07d51e5fd215b890508297"),
+    "SQLiteVNextStore": (143, "b40f83bfef5fc9c5c2edc0c9d4079d86996044d6eced632a2273a1c53430cee6"),
 }
 EXPECTED_FACADE_COMMENT_DIGESTS = {
     POSTGRES_FACADE_PATH: "d8599a46ee26dc35a3ae52c1a98a416509add9ae4a42ece780c5c5ed7e132b93",

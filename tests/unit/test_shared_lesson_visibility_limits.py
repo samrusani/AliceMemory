@@ -1,12 +1,13 @@
 """Standing to read lessons through the real SQLite MCP server."""
 
 import sqlite3
-from contextlib import closing
+from contextlib import closing, contextmanager
 
 import pytest
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.onramp import sqlite_url_for_path
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
+from alicebot_api.vnext_label_guard import LabelGuard
 from tests.support.lesson_visibility_contract import (
     LESSON_BLOCK,
     check_hidden_lesson_verbs,
@@ -16,6 +17,7 @@ from tests.support.lesson_visibility_contract import (
     check_lesson_replays,
     check_lesson_review_growth,
     check_lesson_visibility,
+    check_saved_lesson_references,
     make_review_lessons,
     omit_key_use,
     put_each_lesson_in_the_pack_event_prefix,
@@ -43,7 +45,10 @@ def lesson_review_sqlite(tmp_path, monkeypatch):
     context = MCPRuntimeContext(database_url=sqlite_url_for_path(vault.path), user_id=vault.user)
 
     def call(key, tool, arguments):
-        monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
+        if key is None:
+            monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+        else:
+            monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
         return wire(context, tool, arguments)
 
     def snapshot(key):
@@ -82,6 +87,57 @@ def test_sqlite_lesson_mutations_use_the_missing_id_answer(lesson_review_sqlite)
     """Guard edit: also hide a review-only lesson from its writer and decider at a write verb."""
     call, snapshot, writer, reviewer, _admin, peer, scoped, reader, trusted, outside, outside_admin, _vault = lesson_review_sqlite
     check_hidden_lesson_verbs(call, writer, reviewer, (peer, scoped, reader, trusted, outside, outside_admin), snapshot)
+
+
+@pytest.mark.parametrize("shape", ("typed", "incidental", "object"))
+def test_sqlite_saved_lesson_references_follow_review_standing(lesson_review_sqlite, shape):
+    """Guard edit: remove references to review-only lessons even for their writer."""
+    call, _snapshot, *keys, vault = lesson_review_sqlite
+
+    @contextmanager
+    def store():
+        with sqlite_user_connection(vault.path, vault.user) as conn:
+            yield SQLiteVNextStore(conn, vault.user)
+
+    @contextmanager
+    def keyless_owner():
+        with sqlite_user_connection(vault.path, vault.user) as conn:
+            conn.execute("UPDATE agent_api_keys SET revoked_at = CURRENT_TIMESTAMP WHERE revoked_at IS NULL")
+        try:
+            yield
+        finally:
+            with sqlite_user_connection(vault.path, vault.user) as conn:
+                conn.execute("UPDATE agent_api_keys SET revoked_at = NULL WHERE revoked_at IS NOT NULL")
+
+    check_saved_lesson_references(call, store, keys, shape, keyless_owner=keyless_owner)
+
+
+def test_event_admission_refreshes_lessons_and_reuses_ordinary_memory_labels():
+    """Guard edit: reload ordinary cached rows as well as lessons."""
+    ordinary = {"id": "ordinary", "domain": "project", "sensitivity": "internal", "status": "active",
+                "value": {"text": "Ordinary memory"}}
+    edited = {**ordinary, "id": "edited"}
+    rejected = {**edited, "status": "rejected", "value": {"lesson": LESSON_BLOCK}, "created_by_agent_id": "writer"}
+
+    class Store:
+        native_review_lesson_selection = True
+
+        def __init__(self):
+            self.reads = []
+
+        def read_label_rows(self, kind, ids, *, lesson_blocks_only=False):
+            assert kind == "memory"
+            self.reads.append((ids, lesson_blocks_only))
+            return [row for row in (ordinary, rejected)
+                    if row["id"] in ids and (not lesson_blocks_only or row is rejected)]
+
+    store = Store()
+    guard = LabelGuard(store=store, active=True, sensitivity_allowed=("internal",), lesson_reader="peer")
+    assert guard.admit_rows("memory", [ordinary, edited]) == [ordinary, edited]
+    events = [{"event_type": "memory.updated", "target_type": "memory", "target_id": row["id"]}
+              for row in (ordinary, edited)]
+    assert guard.admit_events(events) == events[:1]
+    assert store.reads == [(["ordinary", "edited"], True)]
 
 
 def test_sqlite_keyless_lesson_review_uses_the_resolved_identity(tmp_path, monkeypatch):

@@ -107,7 +107,8 @@ EXPECTED_ROUTE_AST_SHA256 = "7045d27156861c06b2283bb09416e522c59a5064941f40e81c8
 # Same definition.
 # Re-pin 2026-10-17: the payload fills each list after the label drop for a caller with limits, judging at most 128
 # rows. One definition changed, ``_vnext_workspace_payload``, and the router imports ``page_after_label_drop``.
-EXPECTED_SUPPORT_AST_SHA256 = "c2728edcb47be5e1be17c7fe9d096b055f2a1ef3c6aae0f26c24004c3fa0c753"
+# The workspace payload applies the caller's review standing to its memory lists.
+EXPECTED_SUPPORT_AST_SHA256 = "bbd55cee85438c99e4bf7db5d12b2f7fb4433badbcd3ca43338a8686121e058d"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "225c57c08bd8314156c56352dd1c53ffed3f556ce285c666dd6fca125115d0b4"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "c320979b62d7ee8de244fe38bde5bf3761a4f9d76f76bf3cd8576c30fce9857e"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "e47e66aa92793bef538eb870420780ecea8b741b5b632ade82b9d26e61002b97"
@@ -170,7 +171,7 @@ EXPECTED_ROUTE_NODE_SHA256 = {
 }
 EXPECTED_SUPPORT_NODE_SHA256 = {
     "_vnext_status_counts": "0bf0ed228a14bd648a9d18fcd5f99ebf8c585bd29f4b5e81e1df17fe0201fd15",
-    "_vnext_workspace_payload": "492b17fc9a1b20b911354ab7a099c38b2ed2f7d70a4ec76cac255dc6754686ac",
+    "_vnext_workspace_payload": "fcdac19b1fc606659da2827c62f9fdf69ae8fb8d5d6ea5b13d139bc6481b3e30",
     "_workspace_rows": "070bdfbd1eae10608bd8208b08367e1c0ea10e2064f03ad5a84121a190ed4cf0",
     "_workspace_event_visible": "8343c060909326a5cb69fa6f671ac62f160630ecf989f04d78e792ea74c0ea90",
 }

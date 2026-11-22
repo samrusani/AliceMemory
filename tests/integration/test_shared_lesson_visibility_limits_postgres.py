@@ -11,6 +11,7 @@ from alicebot_api.routers.workspaces import _vnext_workspace_payload
 from alicebot_api.store import ContinuityStore
 from alicebot_api.vnext_agent_keys import create_agent_key, resolve_protected_agent_identity
 from tests.integration.derived_labels_postgres_support import LabelHarness, label_harness  # noqa: F401
+from tests.integration.redaction_containment_support import keyless_owner
 from tests.integration.test_label_change_policy_postgres import _snapshot
 from tests.support.lesson_visibility_contract import (
     APPROVAL_REASON,
@@ -24,6 +25,7 @@ from tests.support.lesson_visibility_contract import (
     check_lesson_replays,
     check_lesson_review_growth,
     check_lesson_visibility,
+    check_saved_lesson_references,
     make_review_lessons,
     omit_key_use,
     put_each_lesson_in_the_pack_event_prefix,
@@ -52,7 +54,10 @@ def lesson_review_postgres(label_harness, monkeypatch):
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
 
     def call(key, tool, arguments):
-        monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
+        if key is None:
+            monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+        else:
+            monkeypatch.setenv("ALICE_AGENT_API_KEY", key)
         return wire(context, tool, arguments)
 
     def snapshot(key):
@@ -84,6 +89,16 @@ def test_postgres_lesson_mutations_use_the_missing_id_answer(lesson_review_postg
     """Guard edit: also hide a review-only lesson from its writer and decider at a write verb."""
     call, snapshot, writer, reviewer, _admin, peer, scoped, reader, trusted, outside, outside_admin = lesson_review_postgres
     check_hidden_lesson_verbs(call, writer, reviewer, (peer, scoped, reader, trusted, outside, outside_admin), snapshot)
+
+
+@pytest.mark.parametrize("shape", ("typed", "incidental", "excerpt", "object"))
+def test_postgres_saved_lesson_references_follow_review_standing(label_harness, lesson_review_postgres, shape):
+    """Guard edit: remove references to review-only lessons even for their writer."""
+    call, _snapshot, *keys = lesson_review_postgres
+    check_saved_lesson_references(
+        call, label_harness.store, keys, shape, http=label_harness.request,
+        keyless_owner=lambda: keyless_owner(label_harness),
+    )
 
 
 def test_http_lesson_rows_and_events_follow_review_standing(label_harness, lesson_review_postgres):

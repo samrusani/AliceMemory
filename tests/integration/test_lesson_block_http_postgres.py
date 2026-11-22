@@ -10,6 +10,7 @@ nothing.
 from __future__ import annotations
 
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
@@ -382,7 +383,8 @@ def test_a_body_without_a_lesson_that_omits_every_optional_field_stores_what_mai
 def test_only_the_owner_or_an_admin_key_can_accept_or_promote_a_waiting_lesson(migrated_database_urls, monkeypatch) -> None:
     """Guard: the review route's action check (HUMAN_OR_ADMIN_ACTIONS) for a memory that carries a
     lesson: the dashboard surface that can activate a waiting lesson is the owner's and an admin
-    key's, and a1 or a2 cannot move their own or each other's waiting lesson.
+    key's. The writer's own lesson is visible and the action refused; a peer
+    gets the same answer for that lesson as for a missing memory.
 
     Mutation: let a project key accept or promote (drop the action check or widen it); the
     waiting lesson becomes active through a1 and the assertions fail.
@@ -414,13 +416,27 @@ def test_only_the_owner_or_an_admin_key_can_accept_or_promote_a_waiting_lesson(m
     before = row()
     for name, key, agent_id in (("a1", a1, "a1"), ("a2", a2, "a2")):
         for action in ("accept", "promote"):
+            review_payload = {
+                "user_id": str(user_id),
+                "agent": _agent("project_scoped_agent", agent_id=agent_id, scope=["alpha"]),
+                "action": action,
+            }
             status, refusal = invoke_request(
                 "POST",
                 f"/v0/vnext/memories/{memory_id}/review",
-                payload={"user_id": str(user_id), "agent": _agent("project_scoped_agent", agent_id=agent_id, scope=["alpha"]), "action": action},
+                payload=review_payload,
                 authorization=f"Bearer {key}",
             )
-            assert status == 403, (name, action, refusal)
+            if name == "a1":
+                assert status == 403, (name, action, refusal)
+            else:
+                assert (status, refusal) == invoke_request(
+                    "POST",
+                    f"/v0/vnext/memories/{uuid4()}/review",
+                    payload=review_payload,
+                    authorization=f"Bearer {key}",
+                )
+                assert status == 404
             assert row() == before, (name, action, refusal)
 
 

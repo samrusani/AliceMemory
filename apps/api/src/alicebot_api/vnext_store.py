@@ -474,7 +474,7 @@ class PostgresVNextStore:
         if not _in_transaction(self):
             raise LabelLockOrderError("label writes require an open transaction")
 
-    def read_label_rows(self, kind: str, ids: Sequence[str]) -> list[VNextRow]:
+    def read_label_rows(self, kind: str, ids: Sequence[str], *, lesson_blocks_only: bool = False) -> list[VNextRow]:
         """Narrow label rows for the insert floor. No text columns."""
 
         wanted = []
@@ -509,8 +509,13 @@ class PostgresVNextStore:
                 (wanted,),
             )
         extra = ""
+        condition = ""
         if table == "memories":
             extra = ", value, project_id, source_event_ids, deleted_at, status, created_by_agent_id"
+            if lesson_blocks_only:
+                from alicebot_api.vnext_lesson_visibility import lesson_block_sql
+
+                condition = f" AND {lesson_block_sql(sqlite=False)}"
         elif table == "open_loops":
             extra = ", project_id, source_id::text AS source_id, memory_id::text AS memory_id"
         elif table == "beliefs":
@@ -521,7 +526,7 @@ class PostgresVNextStore:
             f"""
                 SELECT id, user_id, domain, sensitivity, metadata_json{extra}
                 FROM {table}
-                WHERE id = ANY(%s::uuid[])
+                WHERE id = ANY(%s::uuid[]){condition}
                 """,
             (wanted,),
         )

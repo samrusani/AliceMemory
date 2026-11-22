@@ -58,7 +58,7 @@ from alicebot_api.vnext_label_sql import (
     EVENT_TYPE_REFERENCES,
     EVENT_UNJUDGED_TARGETS,
 )
-from alicebot_api.vnext_lesson_visibility import hidden_review_lesson, review_lesson_reader
+from alicebot_api.vnext_lesson_visibility import has_lesson_block, hidden_review_lesson, review_lesson_reader
 from alicebot_api.vnext_project_scope import (
     project_floor_shape,
     project_scope_identity,
@@ -967,10 +967,18 @@ class LabelGuard:
         wanted = list(dict.fromkeys(text for pair in spelled.values() for text in pair if text))
         state = self._state()
         if kind == "memory" and self.lesson_reader is not None:
-            # An event may have been appended by a review after the display
-            # page read the target. Judge the batch from its current rows.
-            for row_id in wanted:
-                state.targets.pop((kind, row_id), None)
+            # A review can change standing or add a lesson block after an
+            # earlier read. Refresh those targets in one batch and reuse
+            # the cached labels for ordinary memories.
+            cached = {row_id: state.targets[(kind, row_id)] for row_id in wanted if (kind, row_id) in state.targets}
+            native = getattr(type(self.store), "native_review_lesson_selection", False)
+            for row_id, row in cached.items():
+                if not native or has_lesson_block(row):
+                    key = (kind, row_id)
+                    state.targets.pop(key)
+            if native and cached:
+                for row in reader(kind, list(cached), lesson_blocks_only=True):
+                    state.targets[(kind, str(row.get("id")))] = row
         missing = [row_id for row_id in wanted if (kind, row_id) not in state.targets]
         if kind == "source":
             for row_id in missing:
