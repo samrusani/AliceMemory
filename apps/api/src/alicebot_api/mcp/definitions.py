@@ -902,7 +902,10 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                 },
                 "reason": {
                     "type": "string",
-                    "description": "Why the change is being made. Stored in the audit trail.",
+                    "description": (
+                        "Why the change is being made. Stored in the audit trail. "
+                        "The writer of a lesson can see its reason. Write for that writer and leave out other writers' lessons."
+                    ),
                 },
                 "title": {
                     **_CORRECTION_TITLE_SCHEMA,
@@ -1085,7 +1088,10 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
     },
     {
         "name": "alice_lessons",
-        "description": "Find published lessons relevant to a task or the files about to be touched.",
+        "description": (
+            "Find published lessons relevant to a task or the files about to be touched. "
+            "With an agent key, also see what became of the lessons you wrote."
+        ),
         "inputSchema": {
             "type": "object",
             "additionalProperties": False,

@@ -22,6 +22,13 @@ approved it, when an agent approved it. Choose neutral agent ids if those names
 should not be exposed to other readers. A lookup reads a projection of the
 active lesson rows the caller may read, so its cost grows with that number.
 
+Unreleased (on main, not in v0.24.1): A lookup with an agent key also counts
+the caller's readable lessons that are waiting, were published in the last seven
+days, or were rejected, made private, forgotten or undone in the last seven
+days. It shows the three most recent unpublished decisions and their reasons
+when available. Two keys with the same agent id see the same writer's outcomes,
+each within its own read limits.
+
 The session brief can name how many published lessons are readable. It counts
 up to 20 and says `more than 20` when it finds 21. If it reaches the scan limit
 first, it says `at least` the number found, or `Shared lessons may apply` when

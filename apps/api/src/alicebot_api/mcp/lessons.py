@@ -2,31 +2,62 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import fnmatch
+from heapq import nlargest
 from itertools import groupby
 import json
 import sqlite3
 from collections.abc import Mapping
 
+from alicebot_api.credential_floor import RATIONALE_WITHHELD_PLACEHOLDER, carries_credential_material
 from alicebot_api.project_view import ProjectView
 from alicebot_api.json_bounds import loads_stored
 from alicebot_api.recall_framing import memory_writer, with_result_framing
-from alicebot_api.vnext_agent_control import ALL_SENSITIVITY
+from alicebot_api.vnext_agent_control import ALL_SENSITIVITY, AgentIdentity
+from alicebot_api.vnext_derived_labels import is_redacted_row
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_json import json_safe
 from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded, sensitivity_ceiling
+from alicebot_api.vnext_lifecycle import default_memory_decision_reason
 from alicebot_api.vnext_memory_commit import (
     VNextMemoryCommitValidationError,
     _lesson_block_from_payload,
     _lesson_paths,
+    _utc_now,
 )
-from alicebot_api.vnext_retrieval import VNextRetrievalService, reciprocal_rank_fusion
+from alicebot_api.vnext_retrieval import VNextRetrievalService, _parse_timestamp, reciprocal_rank_fusion
 from alicebot_api.vnext_source_fence import SourceReadFence
+from alicebot_api.vnext_stores.postgres import lessons as postgres_lessons
+from alicebot_api.vnext_stores.sqlite import lessons as sqlite_lessons
 
 from .arguments import _parse_int, _parse_required_text
 from .policy import _agent_identity_from_arguments, _mcp_agent_policy_preflight
 from .runtime import _vnext_store_context
 from .types import MCPArgumentError, MCPRuntimeContext
+
+
+LESSON_OUTCOME_WINDOW = timedelta(days=7)
+LESSON_OUTCOME_UPDATED_MARGIN = timedelta(hours=1)
+LESSON_OUTCOME_DETAIL_LIMIT = 3
+LESSON_OUTCOME_APPLIES_WHEN_CHARS = 160
+LESSON_OUTCOME_REASON_CHARS = 300
+LESSON_OUTCOME_CUT_MARK = "…"
+
+_UNPUBLISHED_DECISIONS = {
+    "rejected": {
+        ("rejected", "memory_correct_reject"),
+        ("rejected", "memory_review_reject"),
+        ("rejected", "agentic_memory_confirm_reject"),
+        ("rejected", "agentic_memory_confirmation_expired"),
+    },
+    "private_only": {("edited", "memory_review_private")},
+    "superseded": {
+        ("archived", "agentic_memory_forget"),
+        ("superseded", "agentic_memory_undo"),
+        ("superseded", "agentic_memory_consolidation_supersede"),
+    },
+}
 
 
 class _RevisionView:
@@ -90,6 +121,86 @@ def _publication(row, revisions):
             continue
         return {"by": str(actor), "at": json_safe(revision["created_at"]), "how": how}
     return None
+
+
+def _cut_outcome_note(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit - len(LESSON_OUTCOME_CUT_MARK)] + LESSON_OUTCOME_CUT_MARK
+
+
+def _outcome_reason(revision: Mapping[str, object]) -> str | None:
+    reason = revision.get("reason")
+    action = revision.get("action")
+    if (
+        not isinstance(reason, str) or not reason.strip()
+        or reason == default_memory_decision_reason(str(action))
+        # Consolidation writes its own per-member reason and takes no reason for this lesson.
+        or action == "agentic_memory_consolidation_supersede"
+        or reason == RATIONALE_WITHHELD_PLACEHOLDER
+        or carries_credential_material(reason)
+    ):
+        return None
+    return _cut_outcome_note(reason, LESSON_OUTCOME_REASON_CHARS)
+
+
+def _lesson_outcomes(store, *, identity: AgentIdentity, domains, sensitivity, projects) -> dict[str, object] | None:
+    now = _utc_now()
+    cutoff = now - LESSON_OUTCOME_WINDOW
+    backend = sqlite_lessons if isinstance(store.conn, sqlite3.Connection) else postgres_lessons
+    rows = backend.select_lesson_outcome_rows(
+        store, writer=identity.agent_id, projects=projects, updated_since=cutoff - LESSON_OUTCOME_UPDATED_MARGIN,
+    )
+    admitted = admit_loaded(
+        store, kind="memory", rows=rows, domains=domains, sensitivity_allowed=sensitivity,
+        projects=projects, identity=identity,
+    )
+    visible = [row for row in admitted if not is_redacted_row(row)]
+    waiting = sum(row["status"] == "candidate" for row in visible)
+    timed = {str(row["id"]): row for row in visible if row["status"] != "candidate"}
+    published = 0
+    unpublished: list[tuple[datetime, str, str, Mapping[str, object]]] = []
+    if timed:
+        batch = store.stream_lesson_revisions(list(timed), include_reason=True)
+        for memory_id, group in groupby(batch, key=lambda revision: str(revision["memory_id"])):
+            row = timed[memory_id]
+            revisions = list(group)
+            status = row["status"]
+            if status == "active":
+                publication = _publication(row, revisions)
+                at = _parse_timestamp(publication["at"]) if publication else None
+                published += int(at is not None and cutoff <= at <= now)
+                continue
+            actions = _UNPUBLISHED_DECISIONS.get(status, set())
+            decision = next(
+                (rev for rev in reversed(revisions) if (rev.get("revision_type"), rev.get("action")) in actions),
+                None,
+            )
+            if decision is None:
+                continue
+            at = _parse_timestamp(decision.get("created_at"))
+            applies_when = row["value"]["lesson"].get("applies_when")
+            if at is not None and cutoff <= at <= now and isinstance(applies_when, str):
+                unpublished.append((at, memory_id, applies_when, decision))
+    if not (waiting or published or unpublished):
+        return None
+    result: dict[str, object] = {
+        "waiting": waiting,
+        "published_in_last_7_days": published,
+        "not_published_in_last_7_days": len(unpublished),
+    }
+    if unpublished:
+        newest = nlargest(LESSON_OUTCOME_DETAIL_LIMIT, unpublished, key=lambda item: (item[0], item[1]))
+        result["not_published"] = [
+            {
+                "id": memory_id,
+                "applies_when": _cut_outcome_note(applies_when, LESSON_OUTCOME_APPLIES_WHEN_CHARS),
+                "reason": _outcome_reason(decision),
+                "at": json_safe(decision["created_at"]),
+            }
+            for _at, memory_id, applies_when, decision in newest
+        ]
+    return result
 
 
 def _select_published_lessons(store, *, domains, sensitivity, projects, limit, order, scan_state=None):
@@ -281,6 +392,11 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
             for row, lesson, publication, _path, _text, _score in choices
             if str(row["id"]) in full_by_id
         ]
+        response: dict[str, object] = {"count": len(result), "lessons": result}
+        if identity is not None and identity.auth == "agent_api_key":
+            yours = _lesson_outcomes(store, identity=identity, domains=domains, sensitivity=sensitivity, projects=projects)
+            if yours is not None:
+                response["yours"] = yours
         append_event(
             store,
             event_type="agent.lessons_requested",
@@ -288,4 +404,4 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
             actor_id=identity.agent_id if identity is not None else None,
             payload={"returned": len(result), "limit": limit, "paths_given": len(paths)},
         )
-    return with_result_framing({"count": len(result), "lessons": result})
+    return with_result_framing(response)

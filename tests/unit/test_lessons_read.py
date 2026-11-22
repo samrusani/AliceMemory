@@ -365,7 +365,8 @@ def test_surface(monkeypatch):
     assert tools["alice_lessons"]["annotations"] == tools["alice_recall"]["annotations"]
     old = [item for item in list_mcp_tools() if item["name"] != "alice_lessons"]
     digest = hashlib.sha256(json.dumps(old, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    assert digest == "11e5784380dec6790f80bcb13781507e0483483fdfbc872a4b19da7db18329da"
+    assert digest == "5b76155677a8b45653d4e36977690c300bb7d23828748202f13f6fad2a58ec66"
+    assert tools["alice_lessons"]["description"].endswith("With an agent key, also see what became of the lessons you wrote.")
 
 
 def test_a_plain_row_with_a_planted_block_has_no_publisher(vault, monkeypatch):
@@ -553,7 +554,7 @@ def test_hidden_documents_do_not_change_text_rank(vault, monkeypatch, tmp_path):
 
 
 def test_statement_count_does_not_grow_with_lesson_count(vault, monkeypatch):
-    """Guard: revisions are fetched in one batch rather than one statement per lesson."""
+    """Guard: publication and writer outcomes each fetch revisions in one batch."""
     import copy
     from alicebot_api.sqlite_store import SQLiteVNextStore
 
@@ -597,7 +598,7 @@ def test_statement_count_does_not_grow_with_lesson_count(vault, monkeypatch):
             monkeypatch, admin, "alice_lessons", {"task": "rebasing", "paths": ["src/a.py"], "agent_id": "admin"}
         )
         assert answer["count"] == 5
-        assert sum("JOIN memory_revisions" in q for q in statements) == 1
+        assert sum("JOIN memory_revisions" in q for q in statements) == 2
         return len(statements)
 
     at_100 = measured()
@@ -906,3 +907,62 @@ def test_text_rank_precedes_creation_time_in_matching_group(vault, monkeypatch):
         conn.execute("update memories set created_at = '2021-01-01T00:00:00Z' where id = ?", (weak,))
     answer = vault.call(monkeypatch, None, "alice_lessons", {"task": "amber cobalt citrine"})
     assert [item["id"] for item in answer["lessons"]] == [strong, weak]
+
+
+@pytest.fixture
+def outcome_vault(vault, monkeypatch, tmp_path):
+    from contextlib import contextmanager
+
+    from tests.support.lesson_outcomes_contract import OutcomeVault
+
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+
+    def outcome(current, *, sibling=None):
+        @contextmanager
+        def store():
+            with sqlite_user_connection(current.path, current.user) as conn:
+                yield SQLiteVNextStore(conn, current.user)
+
+        context = MCPRuntimeContext(database_url=sqlite_url_for_path(current.path), user_id=current.user)
+        return OutcomeVault(context, store, monkeypatch, sibling=sibling)
+
+    return outcome(vault, sibling=lambda: outcome(Vault(tmp_path / "larger.db")))
+
+
+def test_sqlite_lesson_outcomes_follow_the_writer_key(outcome_vault):
+    """Guard: a keyholder who wrote a lesson receives the three outcome counts."""
+    from tests.support.lesson_outcomes_contract import check_writer_outcomes
+
+    check_writer_outcomes(outcome_vault)
+
+
+def test_sqlite_lesson_outcomes_withhold_default_and_flagged_reasons(outcome_vault):
+    """Guard: a writer's newest unpublished decision exposes only a shareable reason."""
+    from tests.support.lesson_outcomes_contract import MCP_REASONS, check_default_and_withheld_reasons
+
+    check_default_and_withheld_reasons(outcome_vault, MCP_REASONS)
+
+
+def test_sqlite_lesson_outcomes_use_the_revision_cutoff(outcome_vault):
+    """Guard: the timestamp prefilter leaves room for earlier row timestamps."""
+    from tests.support.lesson_outcomes_contract import check_outcome_cutoff
+
+    check_outcome_cutoff(outcome_vault)
+
+
+def test_sqlite_lesson_outcomes_preserve_read_bookkeeping(outcome_vault):
+    """Guard: the existing lesson request event describes only the published results."""
+    from tests.support.lesson_outcomes_contract import check_read_bookkeeping
+
+    check_read_bookkeeping(outcome_vault)
+
+
+@pytest.mark.parametrize("case", [
+    "peer waiting", "own waiting", "own recent rejects", "own old rejects",
+    "own recent publications", "same writer outside project",
+])
+def test_sqlite_lesson_outcomes_read_budget(outcome_vault, case):
+    """Guard: the indexed selection admits the writer's own waiting and timed rows."""
+    from tests.support.lesson_outcomes_contract import check_outcome_growth
+
+    check_outcome_growth(outcome_vault, case)

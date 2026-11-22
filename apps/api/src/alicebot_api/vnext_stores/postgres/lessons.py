@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
+from datetime import datetime
 from typing import Any
 
+from alicebot_api.vnext_project_scope import project_scope_identity
 from alicebot_api.vnext_stores.postgres.columns import MEMORY_COLUMNS, REVISION_COLUMNS
+from alicebot_api.vnext_stores.postgres.query_predicates import _MEMORY_PROJECT_SCOPE_SQL
 
 _MEMORY_FIELDS = frozenset(
     {"id", "user_id", "value", "metadata_json", "created_by_agent_id", "created_at", "domain", "sensitivity", "project_id"}
@@ -46,8 +49,35 @@ def stream_lesson_memories(store: Any, *, domains, sensitivity, projects, lazy_m
     yield from (row for row in rows if str(row["id"]) in possible)
 
 
-def stream_lesson_revisions(self: Any, memory_ids: Sequence[str]) -> Iterator[dict[str, object]]:
-    columns = ", ".join("r." + name.strip() for name in REVISION_COLUMNS.split(",") if name.strip() in _REVISION_FIELDS)
+def select_lesson_outcome_rows(store: Any, *, writer: str, projects: Sequence[str], updated_since: datetime):
+    """Select a writer's waiting and recent candidates before loading revisions."""
+    project_ids = list(project_scope_identity(projects))
+    scope = f"AND ({_MEMORY_PROJECT_SCOPE_SQL}) ?| %s::text[]" if project_ids else ""
+    columns = f"{LESSON_MEMORY_COLUMNS}, status, source_event_ids"
+    # Only column and predicate constants are interpolated; user values are parameters.
+    base = (
+        f"SELECT {columns} FROM memories "  # nosec B608
+        "WHERE user_id = app.current_user_id() AND created_by_agent_id = %s "
+        "AND deleted_at IS NULL "
+        "AND CASE WHEN memory_type = 'procedure' THEN jsonb_typeof(value -> 'lesson') END = 'object' "
+        f"{scope}"
+    )
+    params = (writer, project_ids) if project_ids else (writer,)
+    return store._fetch_all(
+        f"""{base} AND status = 'candidate'
+        UNION ALL
+        {base} AND status IN ('active', 'rejected', 'private_only', 'superseded')
+          AND updated_at >= %s::timestamptz
+        """,
+        (*params, *params, updated_since),
+    )
+
+
+def stream_lesson_revisions(
+    self: Any, memory_ids: Sequence[str], *, include_reason: bool = False,
+) -> Iterator[dict[str, object]]:
+    fields = _REVISION_FIELDS | {"reason"} if include_reason else _REVISION_FIELDS
+    columns = ", ".join("r." + name.strip() for name in REVISION_COLUMNS.split(",") if name.strip() in fields)
     with self.conn.cursor() as cursor:
         # Column names come from the shared constants; IDs are bound parameters.
         cursor.execute(

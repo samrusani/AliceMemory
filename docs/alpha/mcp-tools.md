@@ -318,6 +318,9 @@ is a CLI verb, not an always-on agent tool.
   and counted only for its writer and for a decider who may read the row.
 - `alice_memory_correct` — act on a memory: approve, edit-and-approve,
   reject, or supersede with a replacement. Every change is audited.
+
+  Unreleased (on main, not in v0.24.1): A lesson's writer can see its decision
+  reason. Write it for that writer and leave out other writers' lessons.
 - `alice_memory_manage` — lifecycle verbs for committed memories: `confirm`
   a pending confirmation, `undo` a commit, `forget` a memory, `expire` /
   `unexpire` its validity window, `accept_consolidation` for a
@@ -418,6 +421,14 @@ The caller gets only active, unexpired, readable procedure memories with a
 valid lesson block and a publishing revision for that block. A full export
 and import preserves the publication record; an imported legacy memory-only
 file can contain a lesson without a publishing record, which is skipped.
+
+Unreleased (on main, not in v0.24.1): An authenticated agent key also gets
+`yours` when its writer has a readable waiting lesson or an outcome in the last
+seven days. The block counts waiting, recently published, and recently
+unpublished lessons. `not_published`, when present, holds the three most recent
+unpublished decisions with the lesson id, `applies_when`, `reason`, and `at`.
+`applies_when` and `reason` fit within 160 and 300 characters respectively,
+including a final `…` when cut short. Default and withheld reasons are `null`.
 
 Text matching uses the fenced recall stages, including vectors when configured;
 paths match lesson globs case-sensitively after removing a leading `./`.

@@ -69,6 +69,7 @@ from alicebot_api.vnext_lifecycle import (
     REVIEW_REJECT,
     REVIEW_SUPERSEDE,
     LifecycleTransitionError,
+    default_memory_decision_reason,
     resolve_transition,
 )
 from alicebot_api.vnext_memory_commit import (
@@ -475,6 +476,7 @@ def _vnext_review_revision(
     actor_type: str = "user",
     actor_id: str | None = None,
 ) -> None:
+    revision_action = f"memory_correct_{action_label}"
     store.append_revision(
         {
             "memory_id": str(updated["id"]),
@@ -483,10 +485,10 @@ def _vnext_review_revision(
             "new_value": updated.get("value"),
             "source_event_ids": updated.get("source_event_ids"),
             "revision_type": revision_type,
-            "action": f"memory_correct_{action_label}",
+            "action": revision_action,
             "text_before": previous.get("canonical_text"),
             "text_after": str(updated.get("canonical_text") or ""),
-            "reason": reason or f"alice_memory_correct action: {action_label}",
+            "reason": reason or default_memory_decision_reason(revision_action),
             "actor_type": actor_type,
             "actor_id": actor_id,
             "metadata_json": {"action": action_label, **(metadata or {})},

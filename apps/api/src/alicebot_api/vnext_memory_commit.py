@@ -52,6 +52,7 @@ from alicebot_api.vnext_lifecycle import (
     UNDO,
     UNEXPIRE,
     LifecycleTransitionError,
+    default_memory_decision_reason,
     resolve_transition,
     supersession_would_cycle,
 )
@@ -1599,7 +1600,7 @@ class VNextMemoryCommitService:
                     },
                     actor_type=actor_type,
                 )
-                expiry_reason = "Inline memory confirmation expired before it was acted on."
+                expiry_reason = default_memory_decision_reason("agentic_memory_confirmation_expired")
                 self.store.append_revision(
                     {
                         "memory_id": str(updated["id"]),
@@ -1745,7 +1746,7 @@ class VNextMemoryCommitService:
                 "action": f"agentic_memory_confirm_{normalized_action}",
                 "text_before": previous_text,
                 "text_after": next_text,
-                "reason": rationale or f"Inline memory confirmation {normalized_action}.",
+                "reason": rationale or default_memory_decision_reason(f"agentic_memory_confirm_{normalized_action}"),
                 "actor_type": actor_type,
                 "actor_id": actor_id,
                 "metadata_json": {
@@ -1908,7 +1909,8 @@ class VNextMemoryCommitService:
             self._policy_checked_write(identity=identity, action="memory.undo", memory=successor, retirement_target=False)
         # A retirement always completes (owner ruling R2): a reason carrying
         # credential material is stored as the fixed placeholder.
-        reason_text, rationale_withheld = withhold_credential_text(reason or "Agentic memory commit undone.")
+        default_reason = default_memory_decision_reason("agentic_memory_undo")
+        reason_text, rationale_withheld = withhold_credential_text(reason or default_reason)
         result = self._transition_memory(
             identity=identity,
             memory=memory,
@@ -1918,7 +1920,7 @@ class VNextMemoryCommitService:
             event_type="agent.memory_undone",
             revision_type="superseded",
             action="agentic_memory_undo",
-            reason=reason_text or "Agentic memory commit undone.",
+            reason=reason_text or default_reason,
             superseded_by=successor,
         )
         result["rationale_withheld"] = rationale_withheld or bool(result.get("rationale_withheld"))
@@ -2061,7 +2063,8 @@ class VNextMemoryCommitService:
         _require_project_update_decision_path(memory)
         self._policy_checked_write(identity=identity, action="memory.forget", memory=memory)
         # A retirement always completes (owner ruling R2).
-        reason_text, rationale_withheld = withhold_credential_text(reason or "Agentic memory forgotten.")
+        default_reason = default_memory_decision_reason("agentic_memory_forget")
+        reason_text, rationale_withheld = withhold_credential_text(reason or default_reason)
         result = self._transition_memory(
             identity=identity,
             memory=memory,
@@ -2071,7 +2074,7 @@ class VNextMemoryCommitService:
             event_type="agent.memory_forgotten",
             revision_type="archived",
             action="agentic_memory_forget",
-            reason=reason_text or "Agentic memory forgotten.",
+            reason=reason_text or default_reason,
         )
         result["rationale_withheld"] = rationale_withheld or bool(result.get("rationale_withheld"))
         return result

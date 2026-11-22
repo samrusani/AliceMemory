@@ -2,12 +2,15 @@
 
 import json
 
+import pytest
+
 from alicebot_api.db import user_connection
 from alicebot_api.mcp.registry import call_mcp_tool, list_mcp_tools
 from alicebot_api.mcp.types import MCPRuntimeContext
 from alicebot_api.vnext_agent_keys import create_agent_key
 from alicebot_api.vnext_store import PostgresVNextStore
 from alicebot_api.vnext_stores.postgres.lessons import stream_lesson_memories
+from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401
 from tests.integration.test_mcp_server import seed_user
 
 
@@ -69,3 +72,60 @@ def test_postgres_prefilter_keeps_every_publishing_shape(migrated_database_urls,
         candidates = list(stream_lesson_memories(store, domains=[], sensitivity=None, projects=("alpha",), lazy_metadata=False))
     answer = call_mcp_tool(context, name="alice_lessons", arguments={"task": "rebasing", "limit": 10})
     assert {str(row["id"]) for row in candidates} == expected == {str(row["id"]) for row in answer["lessons"]}
+
+
+@pytest.fixture
+def outcome_vault(label_harness, monkeypatch, tmp_path):
+    from tests.integration.derived_labels_postgres_support import LabelHarness
+    from tests.support.lesson_outcomes_contract import OutcomeVault
+
+    monkeypatch.setenv("ALICE_PROJECT_DIR", str(tmp_path))
+    def outcome(h, *, sibling=None):
+        context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+        return OutcomeVault(context, h.store, monkeypatch, admin_url=h.urls["admin"], http=h.request, sibling=sibling)
+
+    def sibling():
+        urls = label_harness.urls
+        user = seed_user(urls["app"], email="fixture-lessons-larger@example.invalid")
+        return outcome(LabelHarness(urls, user))
+
+    return outcome(label_harness, sibling=sibling)
+
+
+def test_postgres_lesson_outcomes_follow_the_writer_key(outcome_vault):
+    """Guard: a keyholder who wrote a lesson receives the three outcome counts."""
+    from tests.support.lesson_outcomes_contract import check_writer_outcomes
+
+    check_writer_outcomes(outcome_vault)
+
+
+def test_postgres_lesson_outcomes_withhold_default_and_flagged_reasons(outcome_vault):
+    """Guard: a writer's newest unpublished decision exposes only a shareable reason."""
+    from tests.support.lesson_outcomes_contract import HTTP_REASONS, MCP_REASONS, check_default_and_withheld_reasons
+
+    check_default_and_withheld_reasons(outcome_vault, (*MCP_REASONS, *HTTP_REASONS))
+
+
+def test_postgres_lesson_outcomes_use_the_revision_cutoff(outcome_vault):
+    """Guard: the timestamp prefilter leaves room for earlier row timestamps."""
+    from tests.support.lesson_outcomes_contract import check_outcome_cutoff
+
+    check_outcome_cutoff(outcome_vault)
+
+
+def test_postgres_lesson_outcomes_preserve_read_bookkeeping(outcome_vault):
+    """Guard: the existing lesson request event describes only the published results."""
+    from tests.support.lesson_outcomes_contract import check_read_bookkeeping
+
+    check_read_bookkeeping(outcome_vault)
+
+
+@pytest.mark.parametrize("case", [
+    "peer waiting", "own waiting", "own recent rejects", "own old rejects",
+    "own recent publications", "same writer outside project",
+])
+def test_postgres_lesson_outcomes_read_budget(outcome_vault, case):
+    """Guard: the indexed selection admits the writer's own waiting and timed rows."""
+    from tests.support.lesson_outcomes_contract import check_outcome_growth
+
+    check_outcome_growth(outcome_vault, case)

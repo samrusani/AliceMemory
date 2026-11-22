@@ -32,6 +32,23 @@ class LifecycleTransitionError(ValueError):
     """Raised when a lifecycle mutation is not legal from the current status."""
 
 
+def default_memory_decision_reason(revision_action: str) -> str:
+    """The stored reason a decision uses when the caller supplies none."""
+    for prefix, description in (
+        ("memory_correct_", "alice_memory_correct action: "),
+        ("memory_review_", "vNext workspace memory review action: "),
+        ("agentic_memory_confirm_", "Inline memory confirmation "),
+    ):
+        if revision_action.startswith(prefix):
+            suffix = revision_action.removeprefix(prefix)
+            return description + suffix + ("." if prefix == "agentic_memory_confirm_" else "")
+    return {
+        "agentic_memory_forget": "Agentic memory forgotten.",
+        "agentic_memory_undo": "Agentic memory commit undone.",
+        "agentic_memory_confirmation_expired": "Inline memory confirmation expired before it was acted on.",
+    }.get(revision_action, "")
+
+
 # The full memory row-status vocabulary, partitioned into the terminal
 # (retired) states and the live states a memory can still be mutated from.
 # Kept in lockstep with ``vnext_memory_commit.MEMORY_STATUSES`` (asserted at
