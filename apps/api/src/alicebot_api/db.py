@@ -22,7 +22,9 @@ from alicebot_api.json_bounds import durable_unit, loads_stored
 set_json_loads(loads_stored)
 
 PING_DATABASE_SQL = "SELECT 1"
-SET_CURRENT_USER_SQL = "SELECT set_config('app.current_user_id', %s, true)"
+# Project filters can cross PostgreSQL's JIT cost threshold even when the
+# statement itself runs quickly. Set JIT and the tenant together.
+SET_CURRENT_USER_SQL = "SELECT set_config('app.current_user_id', %s, %s), set_config('jit', 'off', %s)"
 SET_CURRENT_USER_ACCOUNT_SQL = "SELECT set_config('app.current_user_account_id', %s, true)"
 ConnectionRow = dict[str, object]
 UserConnection: TypeAlias = psycopg.Connection[ConnectionRow]
@@ -55,17 +57,29 @@ def ping_database(database_url: str, timeout_seconds: int) -> bool:
         return False
 
 
-def _set_connection_context(conn: psycopg.Connection[Row], sql: str, value: str) -> None:
+def _set_connection_context(conn: psycopg.Connection[Row], sql: str, params: tuple[object, ...]) -> None:
     with conn.cursor() as cur:
-        cur.execute(sql, (value,))
+        cur.execute(sql, params)
+
+
+def _set_user_context(conn: psycopg.Connection[Row], user_id: UUID, *, local: bool) -> None:
+    _set_connection_context(conn, SET_CURRENT_USER_SQL, (str(user_id), local, local))
 
 
 def set_current_user(conn: psycopg.Connection[Row], user_id: UUID) -> None:
-    _set_connection_context(conn, SET_CURRENT_USER_SQL, str(user_id))
+    _set_user_context(conn, user_id, local=True)
 
 
 def set_current_user_account(conn: psycopg.Connection[Row], user_account_id: UUID) -> None:
-    _set_connection_context(conn, SET_CURRENT_USER_ACCOUNT_SQL, str(user_account_id))
+    _set_connection_context(conn, SET_CURRENT_USER_ACCOUNT_SQL, (str(user_account_id),))
+
+
+@contextmanager
+def autocommit_user_connection(database_url: str, user_id: UUID) -> Iterator[UserConnection]:
+    """Open a dedicated tenant session with one transaction per statement."""
+    with psycopg.connect(database_url, autocommit=True, row_factory=dict_row) as conn:
+        _set_user_context(conn, user_id, local=False)
+        yield conn
 
 
 @contextmanager
@@ -175,6 +189,7 @@ __all__ = [
     "DEFAULT_POOL_MAX_SIZE",
     "MAX_POOL_REGISTRY_SIZE",
     "UserConnection",
+    "autocommit_user_connection",
     "close_connection_pools",
     "direct_user_connection",
     "ping_database",

@@ -97,8 +97,8 @@ def test_seed_local_user_sets_rls_context_and_upserts_in_one_transaction(
     assert captured_urls == ["postgresql://migration-role.example/alicebot"]
     assert connection.executions == [
         (
-            "SELECT set_config('app.current_user_id', %s, true)",
-            (str(USER_ID),),
+            "SELECT set_config('app.current_user_id', %s, %s), set_config('jit', 'off', %s)",
+            (str(USER_ID), True, True),
         ),
         (
             (

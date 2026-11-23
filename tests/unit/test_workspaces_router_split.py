@@ -92,7 +92,8 @@ MAIN_PRUNED_BINDINGS = {
 # derived-labels check.
 # Re-pin 2026-10-06: workspace reads authenticate the protected identity and
 # admit rows through effective labels before totals or dashboard disclosure.
-EXPECTED_ROUTE_AST_SHA256 = "7045d27156861c06b2283bb09416e522c59a5064941f40e81c87634577dd1b08"
+# The shared user transaction sets JIT off for get_vnext_workspace.
+EXPECTED_ROUTE_AST_SHA256 = "b99f1435de67d9499819acb9ed7ed61b588a3fb0ff037e782eeca070b39af742"
 # Re-pin 2026-10-08: the payload reads its two event feeds through the guard, which widens the read while the newest events are
 # hidden from the caller (``LabelGuard.newest_admitted_events``). One definition changed, ``_vnext_workspace_payload``.
 # Re-pin 2026-10-10: the payload passes the review memories, the recent commits and the inline confirmations through the reader of
@@ -165,7 +166,7 @@ EXPECTED_CARRIER_NAMES_SHA256 = "946e9d456afbdc7751df671b251457a432ba444dbbdfad5
 # every response header, repeated ones included. The set of definitions is the same.
 EXPECTED_CARRIER_AST_SHA256 = "da00601d714d0f23f6bf044d161c4af390bd9682af292edd5429c588d7eb1be4"
 EXPECTED_ROUTE_NODE_SHA256 = {
-    "get_vnext_workspace": "62f9a0dec65229b3ff523d12e99529f1e4751f7953e26ed69fc52d184ebc9d2d",
+    "get_vnext_workspace": "52c12b20d7bb33759f8dafa2249b2d775b54666130402c0c75045e9ad57ed587",
     "bootstrap_v1_workspace": "07b1fe2a4cd03a5ba69abe76e258a457e85e92b0bfba592520ee02d01d759c4b",
     "get_v1_workspace_bootstrap_status": "2849d7126ee37b6e3ffd9ebe84b2a8e719eb0f811da750a29f7e0a0798305faa",
 }

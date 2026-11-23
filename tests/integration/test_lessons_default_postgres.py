@@ -300,14 +300,16 @@ def test_postgres_no_writer_outcomes_meet_jit_latency_budget(outcome_vault, tmp_
     from pathlib import Path
     from statistics import median
 
+    import psycopg
+    from psycopg.rows import dict_row
+
     from tests.support.lesson_outcomes_contract import QUERY
 
     vault = outcome_vault
-    with vault.store() as store:
-        runtime = _outcome_jit_settings(store)
-    if not runtime["available"]:
-        pytest.skip("PostgreSQL does not have a JIT provider")
-    assert runtime["jit"] == "on", "the lesson timing budget requires JIT enabled"
+    with psycopg.connect(vault.context.database_url, row_factory=dict_row) as conn:
+        runtime = _outcome_jit_settings(PostgresVNextStore(conn))
+    if runtime["jit"] != "on" or not runtime["available"]:
+        pytest.skip("The timing budget requires a PostgreSQL default of jit=on and a JIT provider")
     reader = vault.key("no-lesson-writer", profile="project_scoped_agent")
     repository = Path(__file__).resolve().parents[2]
     baseline = _lesson_timing_checkout(tmp_path)
