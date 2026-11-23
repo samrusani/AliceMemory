@@ -36714,8 +36714,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_closest_lessons.py::TestSQLiteClosestLessons::test_commit_and_review_explain_matches",
-        "tests/integration/test_closest_lessons_postgres.py::TestPostgresClosestLessons::test_commit_and_review_explain_matches"
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_commit_and_review_explain_matches"
       ],
       "expected_failure": "test_commit_and_review_explain_matches"
     },
@@ -36731,8 +36733,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_closest_lessons.py::TestSQLiteClosestLessons::test_waiting_rows_and_nonlesson_answers",
-        "tests/integration/test_closest_lessons_postgres.py::TestPostgresClosestLessons::test_waiting_rows_and_nonlesson_answers"
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_waiting_rows_and_nonlesson_answers"
       ],
       "expected_failure": "test_waiting_rows_and_nonlesson_answers"
     },
@@ -36748,8 +36752,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_closest_lessons.py::TestSQLiteClosestLessons::test_partial_words_and_self_exclusion_on_replay",
-        "tests/integration/test_closest_lessons_postgres.py::TestPostgresClosestLessons::test_partial_words_and_self_exclusion_on_replay"
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_partial_words_and_self_exclusion_on_replay"
       ],
       "expected_failure": "test_partial_words_and_self_exclusion_on_replay"
     },
@@ -36765,8 +36771,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_closest_lessons.py::TestSQLiteClosestLessons::test_paths_and_vector_reasons",
-        "tests/integration/test_closest_lessons_postgres.py::TestPostgresClosestLessons::test_paths_and_vector_reasons"
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_paths_and_vector_reasons"
       ],
       "expected_failure": "test_paths_and_vector_reasons"
     },
@@ -36782,8 +36790,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_closest_lessons.py::TestSQLiteClosestLessons::test_confirmation_and_replay_after_removal",
-        "tests/integration/test_closest_lessons_postgres.py::TestPostgresClosestLessons::test_confirmation_and_replay_after_removal"
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_confirmation_and_replay_after_removal"
       ],
       "expected_failure": "test_confirmation_and_replay_after_removal"
     },
@@ -36799,8 +36809,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_closest_lessons.py::TestSQLiteClosestLessons::test_limits_and_rank_prefix",
-        "tests/integration/test_closest_lessons_postgres.py::TestPostgresClosestLessons::test_limits_and_rank_prefix"
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_limits_and_rank_prefix"
       ],
       "expected_failure": "test_limits_and_rank_prefix"
     },
@@ -36816,8 +36828,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_closest_lessons.py::TestSQLiteClosestLessons::test_review_cap",
-        "tests/integration/test_closest_lessons_postgres.py::TestPostgresClosestLessons::test_review_cap"
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_review_cap"
       ],
       "expected_failure": "test_review_cap"
     },
@@ -36833,8 +36847,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_closest_lessons.py::TestSQLiteClosestLessons::test_keyless_and_special_characters",
-        "tests/integration/test_closest_lessons_postgres.py::TestPostgresClosestLessons::test_keyless_and_special_characters"
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_keyless_and_special_characters"
       ],
       "expected_failure": "test_keyless_and_special_characters"
     },
@@ -36850,8 +36866,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_closest_lessons.py::TestSQLiteClosestLessons::test_failed_pass_leaves_write_and_returns_null",
-        "tests/integration/test_closest_lessons_postgres.py::TestPostgresClosestLessons::test_failed_pass_leaves_write_and_returns_null"
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_failed_pass_leaves_write_and_returns_null"
       ],
       "expected_failure": "test_failed_pass_leaves_write_and_returns_null"
     },
@@ -36867,8 +36885,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_closest_lessons.py::TestSQLiteClosestLessons::test_extra_read_preserves_the_explicit_storage_contract",
-        "tests/integration/test_closest_lessons_postgres.py::TestPostgresClosestLessons::test_extra_read_preserves_the_explicit_storage_contract"
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_extra_read_preserves_the_explicit_storage_contract"
       ],
       "expected_failure": "test_extra_read_preserves_the_explicit_storage_contract"
     },
@@ -36884,8 +36904,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_closest_lessons.py::TestSQLiteClosestLessons::test_uses_only_current_publications",
-        "tests/integration/test_closest_lessons_postgres.py::TestPostgresClosestLessons::test_uses_only_current_publications"
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_uses_only_current_publications"
       ],
       "expected_failure": "test_uses_only_current_publications"
     },
@@ -36983,8 +37005,10 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_closest_lessons.py::TestSQLiteClosestLessons::test_immediate_match_precedes_deferred_embedding",
-        "tests/integration/test_closest_lessons_postgres.py::TestPostgresClosestLessons::test_immediate_match_precedes_deferred_embedding"
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_immediate_match_precedes_deferred_embedding"
       ],
       "expected_failure": "test_immediate_match_precedes_deferred_embedding"
     }
