@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import errno
 from pathlib import Path
 
 import pytest
 
-from alicebot_api.vnext_queue import QueueTaskRequest, VNextQueueService, VNextQueueValidationError
+from alicebot_api.vnext_queue import QueueTaskRequest, VNextQueueService, VNextQueueValidationError, _write_keyed_export
 
 
 class InMemoryVNextQueueStore:
@@ -307,6 +308,21 @@ def test_export_artifact_markdown_writes_file_and_logs_event(tmp_path: Path) -> 
     assert output_path.read_text(encoding="utf-8") == "# Alice Queue Result\n\nDone."
     assert store.events[-1]["event_type"] == "artifact.exported"
     assert store.events[-1]["payload_json"]["output_path"] == str(output_path)
+
+
+def test_keyed_export_writer_refuses_a_directory_link(tmp_path: Path) -> None:
+    """Guard: the writer refuses to follow a directory link when opening the destination."""
+    root = tmp_path.resolve()
+    target = root / "target"
+    target.mkdir()
+    link = root / "linked"
+    link.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(OSError) as refusal:
+        _write_keyed_export(link / "artifact.md", "Synthetic export\n")
+
+    assert refusal.value.errno in {errno.ELOOP, errno.ENOTDIR}
+    assert list(target.iterdir()) == []
 
 
 def test_enqueue_task_rejects_empty_required_fields() -> None:

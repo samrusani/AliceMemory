@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PAGE = ROOT / "docs/alpha/known-limitations.md"
 
-# The page is 15,142 characters, and its longest bullet is at most 800 characters. It was 19,297 characters in 57
+# The page is 15,177 characters, and its longest bullet is at most 800 characters. It was 19,297 characters in 57
 # bullets before the version history and the bounds that other pages own left it. The old page before that was 30,000,
 # with single bullets of 4,000 to 6,000. The page cap is fitted to its current length, so new material requires a fit
 # and nothing grows back into a record without this test failing. A bullet is one or two sentences, and

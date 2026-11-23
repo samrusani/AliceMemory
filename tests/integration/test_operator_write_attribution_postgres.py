@@ -7,6 +7,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import pwd
+import stat
 import subprocess
 import sys
 
@@ -232,6 +234,48 @@ def test_keyed_export_writes_inside_the_resolved_root(label_harness, export, cal
     assert list(expected_path.parent.iterdir()) == [expected_path]
     kinds = ("artifact.exported", "agent.identity_upserted", "policy.decision") if actor[0] == "agent" else ("artifact.exported",)
     _expect_events(h, before, kinds, actor if actor[0] == "agent" else ("system", None))
+
+
+def test_keyed_export_creates_private_directories_and_file(label_harness, export):
+    """Guard: new directories and the published file use owner-only modes."""
+    h = label_harness
+    key = h.key("admin_agent")
+    artifact_id, _, root = export
+    directory = root / "reports"
+    assert not root.exists()
+    previous_umask = os.umask(0o022)
+    try:
+        status, body, _ = h.request("POST", f"/v0/vnext/artifacts/{artifact_id}/export", key=key,
+                                    payload={"output_dir": "reports"})
+    finally:
+        os.umask(previous_umask)
+
+    assert status == 200, body
+    output_path = Path(body["output_path"])
+    assert output_path.parent == directory.resolve()
+    assert stat.S_IMODE(root.stat().st_mode) == 0o700
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+    assert stat.S_IMODE(output_path.stat().st_mode) == 0o600
+
+
+def test_keyed_export_refuses_an_unresolved_home_without_writes(label_harness, export, tmp_path, monkeypatch):
+    """Guard: a missing account's home does not become a directory name."""
+    h = label_harness
+    key = h.key("admin_agent")
+    artifact_id, _, _ = export
+
+    def missing_account(username):
+        raise KeyError(username)
+
+    monkeypatch.setattr(pwd, "getpwnam", missing_account)
+    before_paths = set(tmp_path.rglob("*"))
+    before_events = _events(h)
+    status, body, _ = h.request("POST", f"/v0/vnext/artifacts/{artifact_id}/export", key=key,
+                                payload={"output_dir": "~alice-missing-export-user/reports"})
+
+    assert (status, body) == (400, {"detail": "vNext artifact export request is invalid"})
+    assert set(tmp_path.rglob("*")) == before_paths
+    assert _new_events(h, before_events) == []
 
 
 @pytest.mark.parametrize("kind", ["absolute", "relative", "linked-folder", "linked-file", "directory-instead-of-file"])
