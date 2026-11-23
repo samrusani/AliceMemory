@@ -37011,6 +37011,44 @@
         "test_immediate_match_precedes_deferred_embedding"
       ],
       "expected_failure": "test_immediate_match_precedes_deferred_embedding"
+    },
+    {
+      "name": "closest-review-list-returns-readable-matches",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/review.py",
+          "before": "                _similar_for_lesson(context, identity, lesson, str(row[\"id\"]))",
+          "after": "                []",
+          "line": 313,
+          "sha256": "6d9a025a43578cdc3c5f8ab0639b97c824babc5a2841950a26edb931a2e716d5"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_review_matches_keep_caller_limits and review-list"
+      ],
+      "expected_failure": "test_review_matches_keep_caller_limits"
+    },
+    {
+      "name": "closest-review-detail-returns-readable-matches",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/review.py",
+          "before": "            detail[\"similar\"] = _similar_for_lesson(context, identity, waiting_lesson, memory_id)",
+          "after": "            detail[\"similar\"] = []",
+          "line": 229,
+          "sha256": "6d9a025a43578cdc3c5f8ab0639b97c824babc5a2841950a26edb931a2e716d5"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_closest_lessons.py",
+        "tests/integration/test_closest_lessons_postgres.py",
+        "-k",
+        "test_review_matches_keep_caller_limits and review-detail"
+      ],
+      "expected_failure": "test_review_matches_keep_caller_limits"
     }
   ]
 }

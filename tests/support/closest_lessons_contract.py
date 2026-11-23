@@ -309,6 +309,62 @@ class ClosestLessonsContract:
         assert [x["id"] for x in published] == [shown]
         check_matches(commit(v, writer, prefix_query)["similar"], published)
 
+    @pytest.mark.parametrize("by_id", [False, True], ids=["review-list", "review-detail"])
+    @pytest.mark.parametrize(
+        ("caller_profile", "visible"), [("memory_proposal_agent", 2), ("admin_agent", 3)], ids=["writer", "bound-admin"],
+    )
+    def test_review_matches_keep_caller_limits(self, closest_vault, vectors_on, by_id, caller_profile, visible):
+        """Guard: return the caller's admitted matches for a waiting lesson on either review path."""
+        v = closest_vault
+        publisher = v.key("publisher", None, "admin_agent")
+        writer = v.key("writer")
+        caller = v.key("bound-decider", "alpha", caller_profile) if caller_profile == "admin_agent" else writer
+        query = draft(paths=["fixtures/calibration.py"])
+        publications = (
+            ("alpha", "private", "lead procedure"),
+            ("alpha", "private", "followup procedure"),
+            ("alpha", "confidential", "restricted procedure"),
+            ("beta", "private", "remote procedure"),
+            ("beta", "confidential", "remote restricted procedure"),
+        )
+        published = []
+        for project, sensitivity, marker in publications:
+            block = {
+                **query,
+                "applies_when": f"{query['applies_when']} {marker}",
+                "what_happened": f"Observed {marker} drift.",
+                "do_instead": f"Recheck the {marker} sample.",
+            }
+            answer = commit(v, publisher, block, project_scope=[project], sensitivity=sensitivity)
+            if sensitivity == "confidential":
+                answer = v.call(publisher, "alice_memory_commit", {
+                    "confirmation_id": answer["confirmation_id"], "confirmation_action": "confirm",
+                })
+            assert answer["status"] == "committed"
+            mid = answer["memory"]["id"]
+            if vectors_on:
+                add_vector(v, mid)
+            published.append((mid, block))
+
+        waiting = commit(v, writer, query)
+        assert waiting["status"] == "review_required"
+        waiting_id = waiting["memory"]["id"]
+        args = {"review_item_id": waiting_id} if by_id else {"status": "pending_review"}
+        lookup = read(v, caller, query)
+        assert {entry["id"] for entry in lookup} == {mid for mid, _ in published[:visible]}
+        answer = v.call(caller, "alice_memory_review", args)
+        receipt = json.dumps(answer, ensure_ascii=False)
+        # The review response can blank an id. Check every rendered field's text too.
+        for _, block in published[visible:]:
+            for field in ("applies_when", "what_happened", "do_instead"):
+                assert block[field] not in receipt, field
+        if by_id:
+            item = answer["review"]
+            assert item["memory"]["id"] == waiting_id
+        else:
+            item = next(item for item in answer["items"] if item["id"] == waiting_id)
+        check_matches(item["similar"], lookup)
+
     def test_review_cap(self, closest_vault):
         """Guard: compute matches for ten waiting items and use null on later items."""
         v = closest_vault
