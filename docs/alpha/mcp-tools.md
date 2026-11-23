@@ -316,6 +316,12 @@ is a CLI verb, not an always-on agent tool.
 - `alice_memory_review` — inspect the review queue, or one item in detail.
   Unreleased (on main, not in v0.24.1): A waiting or rejected lesson is listed
   and counted only for its writer and for a decider who may read the row.
+  Unreleased (on main, not in v0.24.1): Waiting lessons in the list show their
+  fields. The first ten waiting lessons and a waiting lesson opened by id show
+  up to three closest readable published lessons in `similar`. A successful
+  `alice_memory_commit` with a `lesson` block returns the same matches within
+  the writer's read limits. Each `why` names words, a vector match or paths.
+  The list gives no judgment about agreement, conflict, or duplication.
 - `alice_memory_correct` — act on a memory: approve, edit-and-approve,
   reject, or supersede with a replacement. Every change is audited.
 

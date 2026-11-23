@@ -54,6 +54,7 @@ from .shared import (
     _vnext_store_context,
 )
 from .arguments import _canonical_optional_row_id_argument, _canonical_row_id_argument, _parse_source_refs
+from .lessons import _similar_for_lesson
 from .types import MCPArgumentError, MCPInvalidRequestError
 
 
@@ -207,6 +208,10 @@ def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Map
         actor_id=identity.agent_id if identity is not None else None,
         trace_id=request.trace_id,
     )
+    if request.lesson is not None and payload.get("status") in {"review_required", "committed", "confirmation_required"}:
+        memory = payload.get("memory")
+        if isinstance(memory, Mapping) and memory.get("id") is not None:
+            payload["similar"] = _similar_for_lesson(context, identity, request.lesson, str(memory["id"]))
     return _json_object(payload)
 
 

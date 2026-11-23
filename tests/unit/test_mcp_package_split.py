@@ -193,7 +193,8 @@ def test_mcp_registry_order_definitions_and_alias_identity_are_frozen() -> None:
     # The manage description now states retirement standing.
     assert core_definitions[-1]["name"] == "alice_lessons"
     # The correction reason and lesson lookup describe writer outcomes.
-    assert _digest(core_definitions) == "7ceb8cbcbf2fa5bd4a3ccf69f08e213808ee9726bd3abea3b573dcaf20537ac1"
+    # Lesson commits and waiting reviews describe the closest published matches and their reasons.
+    assert _digest(core_definitions) == "9a726fae40e75fd6d8def7470618e1b46759a164fb6e1d8542eb09add4cccc21"
     assert _digest(legacy_definitions) == "6b302f61e48d4f6196af8a7d2c8882130d565d84134f51bba38648f84c09089e"
     ordered_handler_map = [(name, handler.__name__) for name, handler in handlers.items() if name != "alice_lessons"]
     assert _digest(ordered_handler_map) == "fb200cfbecef6249b7cf80b17b0737d3b44cfdd04cda8c701d491ed4ac401798"

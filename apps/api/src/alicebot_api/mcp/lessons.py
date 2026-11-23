@@ -2,25 +2,30 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
 import fnmatch
 from heapq import nlargest
 from itertools import groupby
 import json
+import logging
+from pathlib import Path
 import sqlite3
 from collections.abc import Mapping
 
+from alicebot_api.db import user_read_snapshot_connection
 from alicebot_api.credential_floor import RATIONALE_WITHHELD_PLACEHOLDER, carries_credential_material
 from alicebot_api.project_view import ProjectView
 from alicebot_api.json_bounds import loads_stored
 from alicebot_api.recall_framing import memory_writer, with_result_framing
-from alicebot_api.vnext_agent_control import ALL_SENSITIVITY, AgentIdentity
+from alicebot_api.vnext_agent_control import ALL_SENSITIVITY, AgentIdentity, PolicyDecision, evaluate_agent_policy
 from alicebot_api.vnext_derived_labels import is_redacted_row
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_json import json_safe
-from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded, sensitivity_ceiling
+from alicebot_api.vnext_label_guard import LabelGuard, admit_loaded, label_read_scope, sensitivity_ceiling
 from alicebot_api.vnext_lifecycle import default_memory_decision_reason
 from alicebot_api.vnext_memory_commit import (
+    LessonBlock,
     VNextMemoryCommitValidationError,
     _lesson_block_from_payload,
     _lesson_paths,
@@ -33,9 +38,12 @@ from alicebot_api.vnext_stores.sqlite import lessons as sqlite_lessons
 
 from .arguments import _parse_int, _parse_required_text
 from .policy import _agent_identity_from_arguments, _mcp_agent_policy_preflight
-from .runtime import _vnext_store_context
+from .runtime import _is_sqlite_backend, _sqlite_path_from_url, _vnext_store_context
 from .types import MCPArgumentError, MCPRuntimeContext
 
+
+logger = logging.getLogger(__name__)
+SIMILAR_LESSON_LIMIT = 3
 
 LESSON_OUTCOME_WINDOW = timedelta(days=7)
 LESSON_OUTCOME_UPDATED_MARGIN = timedelta(hours=1)
@@ -293,6 +301,164 @@ def _select_published_lessons(store, *, domains, sensitivity, projects, limit, o
     return choices, grouped
 
 
+def _matched_lesson_entries(
+    store, *, identity: AgentIdentity | None, decision: PolicyDecision, task: str,
+    paths: tuple[str, ...], limit: int, exclude_id: str | None = None,
+):
+    domains = list(decision.effective_domains)
+    sensitivity = list(decision.effective_sensitivity_allowed)
+    projects = tuple(decision.effective_project_scope)
+    fence = SourceReadFence.for_identity(identity)
+    match_reason: dict[str, str] = {}
+
+    def order(rows):
+        if exclude_id is not None:
+            rows = [row for row in rows if str(row["id"]) != exclude_id]
+        service = VNextRetrievalService(store)
+        amount = max(1, len(rows))
+        candidate_ids = frozenset(str(row["id"]) for row in rows)
+        fts, fts_source = service._memory_fts_rows(
+            query=task,
+            domains=domains,
+            sensitivity_allowed=sensitivity,
+            limit=amount,
+            memory_types=("procedure",),
+            projects=projects,
+            lessons_only=True,
+            read_fence=fence,
+            lesson_admitted_ids=candidate_ids,
+        )
+        vector, status = service._memory_vector_rows(
+            query=task,
+            domains=domains,
+            sensitivity_allowed=sensitivity,
+            limit=amount,
+            memory_types=("procedure",),
+            projects=projects,
+            lessons_only=True,
+            label_refill=fence.entity_read_fenced,
+            lesson_admitted_ids=candidate_ids,
+        )
+        if exclude_id is not None:
+            match_reason.update((str(row["id"]), "vector") for row in vector)
+            word_reason = "some_words" if fts_source.endswith("_or_fallback") else "all_words"
+            match_reason.update((str(row["id"]), word_reason) for row in fts)
+        if status == "enabled":
+            ranks = {
+                str(row.get("id")): score
+                for row, score, _ in reciprocal_rank_fusion({"fts": fts, "vector": vector})
+            }
+        else:
+            ranks = {
+                str(row.get("id")): float(score) if isinstance(score, (int, float)) else 0.0
+                for row in fts
+                for score in (row.get("fts_score"),)
+            }
+        candidates = []
+        for row in rows:
+            value = row.get("value")
+            block = value.get("lesson") if isinstance(value, Mapping) else None
+            if not isinstance(block, Mapping):
+                continue
+            mid = str(row["id"])
+            entries = block.get("paths")
+            path_entries = [" ".join(entry.split()) for entry in entries if isinstance(entry, str)] if isinstance(entries, list) else []
+            matched_path = _path_matches(paths, path_entries)
+            matched_text = mid in ranks
+            if matched_path or matched_text:
+                candidates.append((row, block, matched_path, matched_text, ranks.get(mid, 0.0)))
+        candidates.sort(key=lambda item: str(item[0]["id"]))
+        candidates.sort(key=lambda item: str(item[0].get("created_at") or ""), reverse=True)
+        candidates.sort(key=lambda item: item[4], reverse=True)
+        candidates.sort(key=lambda item: (not item[2], not item[3]))
+        return candidates
+
+    choices, grouped = _select_published_lessons(
+        store, domains=domains, sensitivity=sensitivity, projects=projects, limit=limit, order=order
+    )
+    full_rows = store.get_memories_by_ids([str(row["id"]) for row, *_ in choices])
+    full_rows = admit_loaded(
+        store, kind="memory", rows=full_rows, domains=domains, sensitivity_allowed=sensitivity, projects=projects
+    )
+    full_by_id = {str(row["id"]): row for row in full_rows}
+    view = _RevisionView(store, grouped)
+    result = [
+        {
+            "id": str(row["id"]),
+            "applies_when": lesson.applies_when,
+            "what_happened": lesson.what_happened,
+            "do_instead": lesson.do_instead,
+            "paths": list(lesson.paths),
+            "writer": memory_writer(view, full_by_id[str(row["id"])]),
+            "published": publication,
+        }
+        for row, lesson, publication, _path, _text, _score in choices
+        if str(row["id"]) in full_by_id
+    ]
+    if exclude_id is not None:
+        paths_matched = {str(row["id"]) for row, _, _, matched_path, _, _ in choices if matched_path}
+        return [
+            {
+                "id": item["id"],
+                "applies_when": _cut_outcome_note(str(item["applies_when"]), LESSON_OUTCOME_APPLIES_WHEN_CHARS),
+                "do_instead": _cut_outcome_note(str(item["do_instead"]), LESSON_OUTCOME_REASON_CHARS),
+                "writer": item["writer"],
+                "published": item["published"],
+                "why": ([match_reason[item["id"]]] if item["id"] in match_reason else [])
+                + (["paths"] if item["id"] in paths_matched else []),
+            }
+            for item in result
+        ]
+    return result
+
+
+@contextmanager
+def _lesson_read_snapshot(context: MCPRuntimeContext):
+    # One consistent view of the candidates and their label inputs. The
+    # caller's original transaction has ended before this snapshot opens.
+    from alicebot_api.sqlite_store import SQLiteVNextStore, _dict_row_factory
+    from alicebot_api.vnext_store import PostgresVNextStore
+
+    with ExitStack() as stack:
+        store: SQLiteVNextStore | PostgresVNextStore
+        if _is_sqlite_backend(context):
+            path = Path(_sqlite_path_from_url(context.database_url)).resolve()
+            conn = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+            stack.callback(conn.close)
+            conn.row_factory = _dict_row_factory
+            conn.execute("BEGIN")
+            store = SQLiteVNextStore(conn, context.user_id)
+        else:
+            connection = stack.enter_context(user_read_snapshot_connection(context.database_url, context.user_id))
+            store = PostgresVNextStore(connection)
+        with label_read_scope(store):
+            yield store
+
+
+def _lesson_read_sensitivity(identity: AgentIdentity | None) -> tuple[str, ...]:
+    return sensitivity_ceiling(identity) or ALL_SENSITIVITY
+
+
+def _similar_for_lesson(context: MCPRuntimeContext, identity: AgentIdentity | None, lesson: LessonBlock, memory_id: str):
+    try:
+        # The same unscoped recall decision as the public lookup, evaluated
+        # without recording an identity or policy event for this extra read.
+        decision = evaluate_agent_policy(
+            identity=identity, action="memory.recall",
+            sensitivity_allowed=_lesson_read_sensitivity(identity),
+        )
+        if decision.decision == "blocked":
+            return []
+        with _lesson_read_snapshot(context) as store:
+            return _matched_lesson_entries(
+                store, identity=identity, decision=decision, task=lesson.applies_when,
+                paths=lesson.paths, limit=SIMILAR_LESSON_LIMIT, exclude_id=memory_id,
+            )
+    except Exception:
+        logger.warning("Could not find similar published lessons")
+        return None
+
+
 def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, object]):
     task = _parse_required_text(arguments, "task")
     if len(task) > 1000:
@@ -308,96 +474,19 @@ def _handle_alice_lessons(context: MCPRuntimeContext, arguments: Mapping[str, ob
         arguments,
         action="memory.recall",
         project_view=ProjectView.unscoped(),
-        sensitivity_allowed=sensitivity_ceiling(identity) or ALL_SENSITIVITY,
+        sensitivity_allowed=_lesson_read_sensitivity(identity),
     )
-    domains = list(decision.effective_domains)
-    sensitivity = list(decision.effective_sensitivity_allowed)
-    projects = tuple(decision.effective_project_scope)
-    fence = SourceReadFence.for_identity(identity)
     with _vnext_store_context(context) as store:
         lock = getattr(store, "lock_label_writes", None)
         if callable(lock):
             lock()
-        def order(rows):
-            service = VNextRetrievalService(store)
-            amount = max(1, len(rows))
-            fts, _ = service._memory_fts_rows(
-                query=task,
-                domains=domains,
-                sensitivity_allowed=sensitivity,
-                limit=amount,
-                memory_types=("procedure",),
-                projects=projects,
-                lessons_only=True,
-                read_fence=fence,
-                lesson_admitted_ids=frozenset(str(row["id"]) for row in rows),
-            )
-            vector, status = service._memory_vector_rows(
-                query=task,
-                domains=domains,
-                sensitivity_allowed=sensitivity,
-                limit=amount,
-                memory_types=("procedure",),
-                projects=projects,
-                lessons_only=True,
-                label_refill=fence.entity_read_fenced,
-                lesson_admitted_ids=frozenset(str(row["id"]) for row in rows),
-            )
-            if status == "enabled":
-                ranks = {
-                    str(row.get("id")): score
-                    for row, score, _ in reciprocal_rank_fusion({"fts": fts, "vector": vector})
-                }
-            else:
-                ranks = {
-                    str(row.get("id")): float(score) if isinstance(score, (int, float)) else 0.0
-                    for row in fts
-                    for score in (row.get("fts_score"),)
-                }
-            candidates = []
-            for row in rows:
-                value = row.get("value")
-                block = value.get("lesson") if isinstance(value, Mapping) else None
-                if not isinstance(block, Mapping):
-                    continue
-                mid = str(row["id"])
-                entries = block.get("paths")
-                path_entries = [" ".join(entry.split()) for entry in entries if isinstance(entry, str)] if isinstance(entries, list) else []
-                matched_path = _path_matches(paths, path_entries)
-                matched_text = mid in ranks
-                if matched_path or matched_text:
-                    candidates.append((row, block, matched_path, matched_text, ranks.get(mid, 0.0)))
-            candidates.sort(key=lambda item: str(item[0]["id"]))
-            candidates.sort(key=lambda item: str(item[0].get("created_at") or ""), reverse=True)
-            candidates.sort(key=lambda item: item[4], reverse=True)
-            candidates.sort(key=lambda item: (not item[2], not item[3]))
-            return candidates
-
-        choices, grouped = _select_published_lessons(
-            store, domains=domains, sensitivity=sensitivity, projects=projects, limit=limit, order=order
-        )
-        full_rows = store.get_memories_by_ids([str(row["id"]) for row, *_ in choices])
-        full_rows = admit_loaded(
-            store, kind="memory", rows=full_rows, domains=domains, sensitivity_allowed=sensitivity, projects=projects
-        )
-        full_by_id = {str(row["id"]): row for row in full_rows}
-        view = _RevisionView(store, grouped)
-        result = [
-            {
-                "id": str(row["id"]),
-                "applies_when": lesson.applies_when,
-                "what_happened": lesson.what_happened,
-                "do_instead": lesson.do_instead,
-                "paths": list(lesson.paths),
-                "writer": memory_writer(view, full_by_id[str(row["id"])]),
-                "published": publication,
-            }
-            for row, lesson, publication, _path, _text, _score in choices
-            if str(row["id"]) in full_by_id
-        ]
+        result = _matched_lesson_entries(store, identity=identity, decision=decision, task=task, paths=paths, limit=limit)
         response: dict[str, object] = {"count": len(result), "lessons": result}
         if identity is not None and identity.auth == "agent_api_key":
-            yours = _lesson_outcomes(store, identity=identity, domains=domains, sensitivity=sensitivity, projects=projects)
+            yours = _lesson_outcomes(
+                store, identity=identity, domains=decision.effective_domains,
+                sensitivity=decision.effective_sensitivity_allowed, projects=decision.effective_project_scope,
+            )
             if yours is not None:
                 response["yours"] = yours
         append_event(
