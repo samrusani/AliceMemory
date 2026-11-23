@@ -73,9 +73,11 @@ from alicebot_api.vnext_lifecycle import (
     resolve_transition,
 )
 from alicebot_api.vnext_memory_commit import (
+    LessonBlock,
     VNextMemoryCommitService,
     VNextMemoryCommitValidationError,
     VNEXT_DOMAINS,
+    _lesson_block_from_payload,
     is_pending_consolidation_candidate,
     refuse_lesson_mutation,
 )
@@ -92,6 +94,7 @@ from alicebot_api.vnext_source_fence import (
     resolve_attachable_sources,
 )
 
+from .lessons import _similar_for_lesson
 from .retrieval_shared import (
     _compact_vnext_memory,
     _provenance_count,
@@ -127,6 +130,22 @@ from .shared import (
 from .types import MCPArgumentError, MCPInvalidRequestError, MCPPreconditionFailedError, MCPReferenceNotFoundError
 
 
+SIMILAR_REVIEW_LIMIT = 10
+
+
+def _waiting_lesson(row: Mapping[str, object]) -> LessonBlock | None:
+    if row.get("status") not in {"candidate", "needs_review"}:
+        return None
+    value = row.get("value")
+    block = value.get("lesson") if isinstance(value, Mapping) else None
+    if not isinstance(block, Mapping):
+        return None
+    try:
+        return _lesson_block_from_payload(block)
+    except VNextMemoryCommitValidationError:
+        return None
+
+
 def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
     identity = _agent_identity_from_arguments(context, arguments)
     requested_domains = _parse_string_list(arguments, "domains")
@@ -136,7 +155,8 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
     if review_item_id is not None:
         memory_id = str(review_item_id)
         blocked_decision: PolicyDecision | None = None
-        payload: dict[str, object] | None = None
+        detail: dict[str, object] | None = None
+        waiting_lesson: LessonBlock | None = None
         with _vnext_store_context(context) as store:
             from alicebot_api.vnext_lesson_visibility import lesson_history_is_hidden
 
@@ -195,19 +215,19 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
                 framed_memory = frame_disclosed_tree(shown_memory)
                 if isinstance(framed_memory, dict):
                     framed_memory["writer"] = memory_writer(store, memory)
-                payload = {
-                    "mode": "vnext_detail",
-                    "review": {
-                        "memory": framed_memory,
-                        "revisions": frame_disclosed_tree(shown_revisions),
-                        "provenance_links": frame_disclosed_tree(shown_links),
-                    },
+                detail = {
+                    "memory": framed_memory,
+                    "revisions": frame_disclosed_tree(shown_revisions),
+                    "provenance_links": frame_disclosed_tree(shown_links),
                 }
+                waiting_lesson = _waiting_lesson(shown_memory)
         if blocked_decision is not None:
             _raise_mcp_policy_blocked(blocked_decision)
-        if payload is None:
+        if detail is None:
             raise MCPToolError("vNext memory review did not complete")
-        return _json_object(with_result_framing(payload))
+        if waiting_lesson is not None:
+            detail["similar"] = _similar_for_lesson(context, identity, waiting_lesson, memory_id)
+        return _json_object(with_result_framing({"mode": "vnext_detail", "review": detail}))
 
     raw_status = arguments.get("status", "correction_ready")
     if not isinstance(raw_status, str):
@@ -282,6 +302,18 @@ def _vnext_memory_review(context: MCPRuntimeContext, arguments: Mapping[str, obj
             )
             for row in rows
         ]
+    if vnext_status != "active":
+        waiting_count = 0
+        for row, item in zip(rows, items, strict=True):
+            lesson = _waiting_lesson(row)
+            if lesson is None:
+                continue
+            item["lesson"] = _json_object({**lesson.to_value_record(), "paths": list(lesson.paths)})
+            item["similar"] = (
+                _similar_for_lesson(context, identity, lesson, str(row["id"]))
+                if waiting_count < SIMILAR_REVIEW_LIMIT else None
+            )
+            waiting_count += 1
     return _json_object(
         with_result_framing({"items": items, "count": len(items), "mode": "vnext_candidates"})
     )

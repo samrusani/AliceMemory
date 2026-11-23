@@ -347,7 +347,9 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                         "segment and no drive letter. The memory is a procedure; its text and title are "
                         "derived from the lesson. The owner and an admin_agent key publish a lesson at "
                         "once; every other identity's lesson waits for review "
-                        "(lesson_requires_approval) and is never auto-promoted."
+                        "(lesson_requires_approval) and is never auto-promoted. "
+                        "Returns closest readable published lessons by words, paths or vectors, with reasons and no verdict on "
+                        "agreement, conflict or duplication."
                     ),
                     "properties": {
                         "applies_when": {"type": "string", "description": "When this lesson applies, as a condition."},
@@ -835,7 +837,8 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
         "description": (
             "Inspect the memory review queue. Without an id it lists items awaiting human "
             "review; with review_item_id it returns full detail for one item, including why it "
-            "was flagged. Use alice_memory_correct to act on an item."
+            "was flagged. Use alice_memory_correct to act on an item. Waiting lessons show their fields and closest readable published "
+            "lessons by words, paths or vectors, with reasons and no verdict on agreement, conflict or duplication."
         ),
         "inputSchema": {
             "type": "object",

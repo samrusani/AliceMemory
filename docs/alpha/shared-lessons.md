@@ -66,6 +66,15 @@ id with the returned memory id:
 {"action":"approve","review_item_id":"00000000-0000-4000-8000-000000000001"}
 ```
 
+Unreleased (on main, not in v0.24.1): A lesson commit and its waiting review
+show up to three closest published lessons the caller can read. Each result
+gives its reason in `why`: `all_words`, `some_words`, or `vector` when a vector
+search alone found it, followed by `paths` when a path matches. A path can also
+be the only reason. These matches give no judgment about agreement, conflict,
+or duplication. Review lists show the draft's four fields and compute matches
+for the first ten waiting lessons. `[]` means no matches and `null` means the
+matches were unavailable or the list did not compute them for that item.
+
 To retire a wrong published lesson, call the full-surface `alice_memory_manage`
 tool with its memory id and a reason. Record a new lesson if a replacement is
 needed. See [standing to retire a memory](../memory-operations-protocol.md#standing-to-retire-a-memory) for who may retire or unexpire one.
