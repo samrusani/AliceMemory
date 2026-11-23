@@ -203,6 +203,35 @@ class ClosestLessonsContract:
             assert all(x["why"] == ["some_words"] for x in result["similar"])
             assert result["memory"]["id"] not in [x["id"] for x in result["similar"]]
 
+    def test_immediate_match_precedes_deferred_embedding(self, closest_vault):
+        """Guard: the new draft's embedding enters the index after matching."""
+        from alicebot_api.mcp import memories
+
+        v = closest_vault
+        admin = v.key("publisher", None, "admin_agent")
+        commit(v, admin, draft())
+        match = memories._similar_for_lesson
+        persist = memories._persist_vnext_deferred_embedding_inputs
+        phases = []
+
+        def observe_match(context, identity, lesson, mid):
+            with v.store() as store:
+                assert store.get_memory(mid)["status"] == "active"
+            phases.append("match")
+            return match(context, identity, lesson, mid)
+
+        def observe_embedding(context, inputs, **actor):
+            assert inputs
+            phases.append("embed")
+            return persist(context, inputs, **actor)
+
+        with v.monkeypatch.context() as patch:
+            patch.setattr(memories, "_similar_for_lesson", observe_match)
+            patch.setattr(memories, "_persist_vnext_deferred_embedding_inputs", observe_embedding)
+            answer = commit(v, admin, draft())
+        assert len(answer["similar"]) == 1
+        assert phases == ["match", "embed"]
+
     def test_paths_and_vector_reasons(self, closest_vault, vectors_on):
         """Guard: use the matched word pass first, and then add paths in the matcher's order."""
         v = closest_vault

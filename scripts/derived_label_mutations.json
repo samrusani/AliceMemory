@@ -6467,10 +6467,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/memories.py",
-          "line": 733,
+          "line": 735,
           "before": "                limit=_parse_int(arguments, key=\"limit\", default=20, minimum=1, maximum=100),\n                identity=identity,\n            )",
           "after": "                limit=_parse_int(arguments, key=\"limit\", default=20, minimum=1, maximum=100),\n                identity=None,\n            )",
-          "sha256": "0d323c8c012e3101290c2c28ea14a13a9bca6e99758351f58c19840c99368a79"
+          "sha256": "b8469bfa62bcdeecdc43f5f18d9ee52af41717ce7082224911b204016b080f65"
         }
       ],
       "pytest": [
@@ -23259,10 +23259,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp/memories.py",
-          "line": 401,
+          "line": 403,
           "before": "            payload = service.correct(\n                identity=identity,\n                memory_id=_canonical_memory_id_argument(arguments, store=store),\n",
           "after": "            payload = service.correct(\n                identity=identity,\n                memory_id=_parse_required_text(arguments, \"memory_id\"),\n",
-          "sha256": "0d323c8c012e3101290c2c28ea14a13a9bca6e99758351f58c19840c99368a79"
+          "sha256": "b8469bfa62bcdeecdc43f5f18d9ee52af41717ce7082224911b204016b080f65"
         }
       ],
       "pytest": [
@@ -36709,8 +36709,8 @@
           "file": "apps/api/src/alicebot_api/mcp/memories.py",
           "before": "            payload[\"similar\"] = _similar_for_lesson(context, identity, request.lesson, str(memory[\"id\"]))",
           "after": "            payload[\"similar\"] = []",
-          "line": 214,
-          "sha256": "0d323c8c012e3101290c2c28ea14a13a9bca6e99758351f58c19840c99368a79"
+          "line": 209,
+          "sha256": "b8469bfa62bcdeecdc43f5f18d9ee52af41717ce7082224911b204016b080f65"
         }
       ],
       "pytest": [
@@ -36777,8 +36777,8 @@
           "file": "apps/api/src/alicebot_api/mcp/memories.py",
           "before": "    if request.lesson is not None and payload.get(\"status\") in {\"review_required\", \"committed\", \"confirmation_required\"}:",
           "after": "    if request.lesson is not None and not payload.get(\"idempotent_replay\") and payload.get(\"status\") in {\"review_required\", \"committed\", \"confirmation_required\"}:",
-          "line": 211,
-          "sha256": "0d323c8c012e3101290c2c28ea14a13a9bca6e99758351f58c19840c99368a79"
+          "line": 206,
+          "sha256": "b8469bfa62bcdeecdc43f5f18d9ee52af41717ce7082224911b204016b080f65"
         }
       ],
       "pytest": [
@@ -36862,8 +36862,8 @@
           "file": "apps/api/src/alicebot_api/mcp/memories.py",
           "before": "            payload[\"similar\"] = _similar_for_lesson(context, identity, request.lesson, str(memory[\"id\"]))",
           "after": "            payload[\"similar\"] = _similar_for_lesson(context, identity, request.lesson, str(memory[\"id\"]))\n            from alicebot_api.vnext_event_log import append_event\n            with _vnext_store_context(context) as store:\n                append_event(store, event_type=\"agent.lessons_requested\", actor_type=\"system\", payload={\"returned\": 0})",
-          "line": 214,
-          "sha256": "0d323c8c012e3101290c2c28ea14a13a9bca6e99758351f58c19840c99368a79"
+          "line": 209,
+          "sha256": "b8469bfa62bcdeecdc43f5f18d9ee52af41717ce7082224911b204016b080f65"
         }
       ],
       "pytest": [
@@ -36970,6 +36970,23 @@
         "tests/unit/test_lessons_read.py::test_surface"
       ],
       "expected_failure": "test_mcp_registry_order_definitions_and_alias_identity_are_frozen"
+    },
+    {
+      "name": "closest-match-before-deferred-embedding",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp/memories.py",
+          "before": "    # Match after the lesson commits and before its deferred embedding can\n    # enter the vector index. The new row must stay out of the match corpus.\n    if request.lesson is not None and payload.get(\"status\") in {\"review_required\", \"committed\", \"confirmation_required\"}:\n        memory = payload.get(\"memory\")\n        if isinstance(memory, Mapping) and memory.get(\"id\") is not None:\n            payload[\"similar\"] = _similar_for_lesson(context, identity, request.lesson, str(memory[\"id\"]))\n    _persist_vnext_deferred_embedding_inputs(\n        context,\n        deferred_embedding_inputs,\n        actor_type=\"agent\" if identity is not None else \"user\",\n        actor_id=identity.agent_id if identity is not None else None,\n        trace_id=request.trace_id,\n    )\n",
+          "after": "    _persist_vnext_deferred_embedding_inputs(\n        context,\n        deferred_embedding_inputs,\n        actor_type=\"agent\" if identity is not None else \"user\",\n        actor_id=identity.agent_id if identity is not None else None,\n        trace_id=request.trace_id,\n    )\n    # Match after the lesson commits and before its deferred embedding can\n    # enter the vector index. The new row must stay out of the match corpus.\n    if request.lesson is not None and payload.get(\"status\") in {\"review_required\", \"committed\", \"confirmation_required\"}:\n        memory = payload.get(\"memory\")\n        if isinstance(memory, Mapping) and memory.get(\"id\") is not None:\n            payload[\"similar\"] = _similar_for_lesson(context, identity, request.lesson, str(memory[\"id\"]))\n",
+          "line": 204,
+          "sha256": "b8469bfa62bcdeecdc43f5f18d9ee52af41717ce7082224911b204016b080f65"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_closest_lessons.py::TestSQLiteClosestLessons::test_immediate_match_precedes_deferred_embedding",
+        "tests/integration/test_closest_lessons_postgres.py::TestPostgresClosestLessons::test_immediate_match_precedes_deferred_embedding"
+      ],
+      "expected_failure": "test_immediate_match_precedes_deferred_embedding"
     }
   ]
 }
