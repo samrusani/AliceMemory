@@ -234,7 +234,7 @@ def test_keyed_export_writes_inside_the_resolved_root(label_harness, export, cal
     _expect_events(h, before, kinds, actor if actor[0] == "agent" else ("system", None))
 
 
-@pytest.mark.parametrize("kind", ["absolute", "relative", "linked-folder", "linked-file"])
+@pytest.mark.parametrize("kind", ["absolute", "relative", "linked-folder", "linked-file", "directory-instead-of-file"])
 def test_keyed_export_refuses_outside_the_root_without_writes(label_harness, export, tmp_path, kind):
     """Guard: refuse an out-of-root destination before changing the filesystem or recording an export."""
     h = label_harness
@@ -252,7 +252,7 @@ def test_keyed_export_refuses_outside_the_root_without_writes(label_harness, exp
     else:
         root.mkdir()
         filename = f"artifact-{hashlib.sha256(artifact_id.encode()).hexdigest()[:24]}.md"
-        (root / filename).symlink_to(outside)
+        (root / filename).symlink_to(outside if kind == "linked-file" else root)
         destination = "."
     before_paths = set(tmp_path.rglob("*"))
     before_events = _events(h)

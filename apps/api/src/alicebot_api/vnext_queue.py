@@ -625,25 +625,37 @@ class VNextQueueService:
         if artifact is None:
             raise VNextQueueNotFoundError(f"artifact {artifact_id} was not found")
         content = str(artifact.get("content_markdown", ""))
-        requested_output_dir = str(output_dir)
-        artifact_digest = hashlib.sha256(artifact_id.encode("utf-8")).hexdigest()[:24]
-        filename = f"artifact-{artifact_digest}.md"
         if actor_type == "agent":
             try:
-                root = DEFAULT_VNEXT_ARTIFACT_EXPORT_ROOT.resolve()
-                target_dir = (root / Path(output_dir).expanduser()).resolve()
-                output_path = target_dir / filename
-                write_path = output_path.resolve()
-                if not target_dir.is_relative_to(root) or not write_path.is_relative_to(root):
+                root = os.path.realpath(DEFAULT_VNEXT_ARTIFACT_EXPORT_ROOT)
+                root_prefix = root.rstrip(os.sep) + os.sep
+                expanded = os.path.expanduser(output_dir)
+                if expanded.startswith("~"):
+                    raise VNextQueueValidationError("artifact export home directory could not be resolved")
+                directory = os.path.realpath(os.path.join(root, expanded))
+                if directory != root and not directory.startswith(root_prefix):
                     raise VNextQueueValidationError("artifact export destination is outside the export root")
-                _write_keyed_export(write_path, content)
+                artifact_digest = hashlib.sha256(artifact_id.encode("utf-8")).hexdigest()[:24]
+                output_path = Path(directory) / f"artifact-{artifact_digest}.md"
+                write_path = os.path.realpath(output_path)
+                if not write_path.startswith(root_prefix):
+                    raise VNextQueueValidationError("artifact export destination is outside the export root")
+                _write_keyed_export(Path(write_path), content)
             except (OSError, RuntimeError) as exc:
                 raise VNextQueueValidationError("artifact export destination could not be written") from exc
-        else:
-            target_dir = Path(output_dir).expanduser().resolve()
-            target_dir.mkdir(parents=True, exist_ok=True)
-            output_path = target_dir / filename
-            output_path.write_text(content, encoding="utf-8")
+            return self._record_artifact_export(artifact_id, output_path, str(output_dir), actor_type, actor_id)
+
+        requested_output_dir = str(output_dir)
+        target_dir = Path(output_dir).expanduser().resolve()
+        target_dir.mkdir(parents=True, exist_ok=True)
+        artifact_digest = hashlib.sha256(artifact_id.encode("utf-8")).hexdigest()[:24]
+        output_path = target_dir / f"artifact-{artifact_digest}.md"
+        output_path.write_text(content, encoding="utf-8")
+        return self._record_artifact_export(artifact_id, output_path, requested_output_dir, actor_type, actor_id)
+
+    def _record_artifact_export(
+        self, artifact_id: str, output_path: Path, requested_output_dir: str, actor_type: str, actor_id: str | None,
+    ) -> Path:
         append_event(
             self.store,
             event_type="artifact.exported",

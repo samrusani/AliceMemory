@@ -7499,7 +7499,7 @@
           "line": 167,
           "before": "    if not fence.entity_read_fenced:\n        return None\n",
           "after": "    return None\n",
-          "sha256": "d218526736b6b68e28ecfa53b54375139de627b915e1fe481454be434c65b6a9"
+          "sha256": "842ac854f280a3e5f6e15fcb4c4b732463d71de021cfd5f0ee6507b77c342805"
         }
       ],
       "pytest": [
@@ -7515,7 +7515,7 @@
           "line": 173,
           "before": "        if fence.admits_memory({\"domain\": domain, \"sensitivity\": sensitivity})\n",
           "after": "        if True\n",
-          "sha256": "d218526736b6b68e28ecfa53b54375139de627b915e1fe481454be434c65b6a9"
+          "sha256": "842ac854f280a3e5f6e15fcb4c4b732463d71de021cfd5f0ee6507b77c342805"
         }
       ],
       "pytest": [
@@ -7787,7 +7787,7 @@
           "line": 356,
           "before": "        if readable_labels is None:\n            task = self.store.claim_next_task()\n",
           "after": "        if not readable_labels:\n            task = self.store.claim_next_task()\n",
-          "sha256": "d218526736b6b68e28ecfa53b54375139de627b915e1fe481454be434c65b6a9"
+          "sha256": "842ac854f280a3e5f6e15fcb4c4b732463d71de021cfd5f0ee6507b77c342805"
         }
       ],
       "pytest": [
@@ -11718,7 +11718,7 @@
           "line": 233,
           "before": "    return with_derived_from(metadata, named)\n",
           "after": "    return metadata\n",
-          "sha256": "d218526736b6b68e28ecfa53b54375139de627b915e1fe481454be434c65b6a9"
+          "sha256": "842ac854f280a3e5f6e15fcb4c4b732463d71de021cfd5f0ee6507b77c342805"
         }
       ],
       "pytest": [
@@ -11734,7 +11734,7 @@
           "line": 231,
           "before": "    if not named[\"memories\"] and not named[\"sources\"]:\n        return metadata\n    return with_derived_from(metadata, named)\n",
           "after": "    return with_derived_from(metadata, named)\n",
-          "sha256": "d218526736b6b68e28ecfa53b54375139de627b915e1fe481454be434c65b6a9"
+          "sha256": "842ac854f280a3e5f6e15fcb4c4b732463d71de021cfd5f0ee6507b77c342805"
         }
       ],
       "pytest": [
@@ -11750,7 +11750,7 @@
           "line": 253,
           "before": "        \"sources\": [dict(sources[row_id]) for row_id in source_ids if row_id in sources],\n",
           "after": "        \"sources\": [],\n",
-          "sha256": "d218526736b6b68e28ecfa53b54375139de627b915e1fe481454be434c65b6a9"
+          "sha256": "842ac854f280a3e5f6e15fcb4c4b732463d71de021cfd5f0ee6507b77c342805"
         }
       ],
       "pytest": [
@@ -11766,7 +11766,7 @@
           "line": 252,
           "before": "        \"memories\": [dict(memories[row_id]) for row_id in memory_ids if row_id in memories],\n",
           "after": "        \"memories\": [],\n",
-          "sha256": "d218526736b6b68e28ecfa53b54375139de627b915e1fe481454be434c65b6a9"
+          "sha256": "842ac854f280a3e5f6e15fcb4c4b732463d71de021cfd5f0ee6507b77c342805"
         }
       ],
       "pytest": [
@@ -11782,7 +11782,7 @@
           "line": 249,
           "before": "    memories = memory_rows_including_deleted(store, memory_ids) if memory_ids else {}\n",
           "after": "    memories = (\n        {key: row for key, row in memory_rows_including_deleted(store, memory_ids).items() if row.get(\"deleted_at\") is None}\n        if memory_ids\n        else {}\n    )\n",
-          "sha256": "d218526736b6b68e28ecfa53b54375139de627b915e1fe481454be434c65b6a9"
+          "sha256": "842ac854f280a3e5f6e15fcb4c4b732463d71de021cfd5f0ee6507b77c342805"
         }
       ],
       "pytest": [
@@ -37055,10 +37055,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_queue.py",
-          "before": "                _write_keyed_export(write_path, content)",
+          "before": "                _write_keyed_export(Path(write_path), content)",
           "after": "                raise VNextQueueValidationError(\"artifact export is unavailable\")",
-          "line": 639,
-          "sha256": "d218526736b6b68e28ecfa53b54375139de627b915e1fe481454be434c65b6a9"
+          "line": 643,
+          "sha256": "842ac854f280a3e5f6e15fcb4c4b732463d71de021cfd5f0ee6507b77c342805"
         }
       ],
       "pytest": [
