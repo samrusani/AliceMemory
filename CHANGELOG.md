@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Unreleased (on main, not in v0.24.1): correcting a review candidate requires review standing. A waiting confirmation can be corrected by a reviewer at any time or by its writer within the confirmation window, and a successful correction resolves its record. v0.24.1 let corrections activate waiting rows without these standing checks and left the confirmation record pending (`python -m pytest tests/integration/test_correction_waiting_rows_postgres.py tests/unit/test_waiting_correction_sqlite.py`).
+- Unreleased (on main, not in v0.24.1): correcting a review candidate or a `private_only` memory requires review standing. A waiting confirmation can be corrected by a caller with review standing at any time or by its writer within the confirmation window, and a successful correction resolves its record. v0.24.1 let corrections activate waiting rows without these standing checks and left the confirmation record pending (`python -m pytest tests/integration/test_correction_waiting_rows_postgres.py tests/unit/test_waiting_correction_sqlite.py`).
 
 - Unreleased (on main, not in v0.24.1): project creation, brain charter saves, source reviews and artifact exports record the acting agent, and exports by agents stay inside the server's artifact export root. v0.24.1 recorded these mutations as owner or system actions and accepted agent export destinations outside that root (`python -m pytest tests/integration/test_operator_write_attribution_postgres.py`).
 

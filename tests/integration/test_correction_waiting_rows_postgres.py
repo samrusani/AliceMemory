@@ -72,6 +72,15 @@ def _correct(h, memory_id, *, key=None, claims=None):
     return status, body
 
 
+def _make_private(h, memory_id, *, key=None):
+    status, answer, _ = h.request(
+        "POST", f"/v0/vnext/memories/{memory_id}/review", key=key, payload={"action": "private"},
+    )
+    assert status == 200, answer
+    row, _, _ = _stored(h, memory_id)
+    assert (row["status"], row["sensitivity"]) == ("private_only", "private")
+
+
 def _policy_audit(events, body, memory_id):
     assert Counter(e["event_type"] for e in events) == {
         "agent.identity_upserted": 1, "policy.decision": 1, "agent.policy_blocked": 1,
@@ -122,22 +131,59 @@ def test_waiting_correction_refuses_like_forget_and_writes_only_policy_events(la
     assert _stored(h, memory_id) == before
 
 
+@pytest.mark.parametrize("caller", ["peer", "writer", "project-peer", "declared-peer"])
+def test_private_only_correction_requires_review_standing(label_harness, caller):
+    h = label_harness
+    claims = None
+    if caller == "declared-peer":
+        memory_id, _ = _seed(h, "candidate", claims=_declared("writer"))
+        _make_private(h, memory_id)
+        key, claims = None, _declared("peer")
+    else:
+        project = "orchard" if caller == "project-peer" else None
+        writer = h.key("trusted_local_agent")
+        memory_id, _ = _seed(h, "candidate", key=writer, project=project)
+        _make_private(h, memory_id, key=h.key("admin_agent"))
+        key = writer if caller == "writer" else h.key(
+            "project_scoped_agent" if project else "trusted_local_agent", project=project,
+        )
+
+    stored = _stored(h, memory_id)
+    events = _events(h)
+    status, answer = _correct(h, memory_id, key=key, claims=claims)
+    assert status == 403, answer
+    assert set(answer) == {"detail", "policy_decision"}
+    assert answer["detail"] == "agent policy blocked this action"
+    assert answer["policy_decision"]["reasons"] == [PENDING_WRITE_RESOLVER_REASON]
+    _policy_audit(_new_events(h, events), answer, memory_id)
+    assert _stored(h, memory_id) == stored
+
+
 @pytest.mark.parametrize(("state", "caller"), [
     ("candidate", "owner"), ("candidate", "admin"), ("candidate", "declared-admin"),
     ("candidate", "bound-admin"),
     ("pending", "owner"), ("pending", "admin"), ("pending", "writer"), ("pending", "declared-admin"),
     ("late", "owner"), ("late", "admin"), ("late", "declared-admin"), ("active", "peer"),
+    ("private_only", "owner"), ("private_only", "admin"), ("accepted", "peer"),
 ])
 def test_correction_keeps_the_receipt_and_resolves_the_record_with_the_callers_standing(label_harness, state, caller):
     h = label_harness
     writer_claims = _declared("writer") if caller in {"owner", "declared-admin"} else None
     writer = None if writer_claims is not None else h.key("trusted_local_agent")
     project = "orchard" if caller == "bound-admin" else None
-    memory_id, confirmation_id = _seed(h, state, key=writer, claims=writer_claims, project=project)
+    memory_id, confirmation_id = _seed(
+        h, "candidate" if state == "private_only" else state, key=writer, claims=writer_claims, project=project,
+    )
     key = writer if caller == "writer" else None
     if caller in {"admin", "bound-admin", "peer"}:
         key = h.key("trusted_local_agent" if caller == "peer" else "admin_agent", project=project)
     claims = _declared("reviewer", "admin_agent") if caller == "declared-admin" else None
+    if state == "private_only":
+        _make_private(h, memory_id, key=key)
+    if state == "accepted":
+        # The portable import retains accepted rows from earlier vaults.
+        with h.store() as store:
+            store.update_memory(memory_id=memory_id, patch={"status": "accepted"})
     before, revisions, _ = _stored(h, memory_id)
     events = _events(h)
     status, answer = _correct(h, memory_id, key=key, claims=claims)
@@ -148,6 +194,8 @@ def test_correction_keeps_the_receipt_and_resolves_the_record_with_the_callers_s
     assert updated["status"] == "active" and updated["confirmation_status"] == "confirmed"
     assert updated["canonical_text"] == "The test orchard opens on Sunday."
     assert updated["metadata_json"]["review_required"] is False
+    if state == "private_only":
+        assert updated["sensitivity"] == "private"
     added = [revision for revision in after_revisions if revision not in revisions]
     assert len(added) == 1 and added[0]["action"] == "agentic_memory_correct"
     expected = ["memory.updated", "memory_revision.created", "agent.memory_corrected"]
@@ -194,15 +242,27 @@ def test_late_writer_correction_refuses_without_expiring_the_confirmation(label_
     assert expiry["memory"]["metadata_json"]["agentic_memory"]["confirmation"]["status"] == "expired"
 
 
-@pytest.mark.parametrize("bound", [False, True])
-def test_waiting_correction_matches_missing_for_a_target_outside_the_read_fence(label_harness, bound):
+@pytest.mark.parametrize(("state", "profile", "bound"), [
+    ("pending", "trusted_local_agent", False), ("pending", "admin_agent", True),
+    ("candidate", "trusted_local_agent", True), ("pending", "trusted_local_agent", True),
+    ("candidate", "project_scoped_agent", True), ("pending", "project_scoped_agent", True),
+    ("private_only", "trusted_local_agent", True),
+])
+def test_waiting_correction_matches_missing_for_a_target_outside_the_read_fence(label_harness, state, profile, bound):
     h = label_harness
     writer = h.key("admin_agent")
-    key = h.key("admin_agent", project="orchard") if bound else h.key("trusted_local_agent")
-    memory_id, _ = _seed(h, "pending", key=writer, project="elsewhere", sensitivity="confidential")
+    key = h.key(profile, project="orchard" if bound else None)
+    memory_id, _ = _seed(
+        h, "candidate" if state == "private_only" else state, key=writer, project="elsewhere",
+        sensitivity="confidential" if not bound or profile == "admin_agent" else "internal",
+    )
+    if state == "private_only":
+        _make_private(h, memory_id, key=writer)
     events = _events(h)
     stored = _stored(h, memory_id)
-    assert _correct(h, memory_id, key=key) == _correct(h, str(uuid4()), key=key)
+    status, answer = _correct(h, memory_id, key=key)
+    assert status == 400 and answer["detail"]["code"] == "invalid_request"
+    assert (status, answer) == _correct(h, str(uuid4()), key=key)
     assert _new_events(h, events) == [] and _stored(h, memory_id) == stored
 
 
@@ -242,3 +302,64 @@ def test_owner_correction_keeps_the_existing_state_refusals(label_harness, kind)
     status, answer = _correct(h, memory_id)
     assert status == 400 and answer["detail"]["code"] == "invalid_request"
     assert _stored(h, memory_id) == before and _new_events(h, events) == []
+
+
+@pytest.mark.parametrize("invalidate", [False, True], ids=["pending", "stale"])
+def test_trusted_correction_keeps_the_consolidation_refusal(label_harness, invalidate):
+    h = label_harness
+    key = h.key("trusted_local_agent")
+    member_id, _ = _seed(h, "active", key=key)
+    with h.store() as store:
+        candidate = store.create_memory({
+            "memory_key": "orchard.rollup",
+            "canonical_text": "Orchard opening hours summary.",
+            "status": "candidate",
+            "domain": "project",
+            "sensitivity": "internal",
+            "metadata_json": {"consolidation": {"member_snapshots": [{"id": member_id}]}},
+        })
+    memory_id = str(candidate["id"])
+    if invalidate:
+        status, answer = _correct(h, member_id, key=key)
+        assert status == 200, answer
+
+    stored = _stored(h, memory_id)
+    row = stored[0]
+    assert row["status"] == ("stale" if invalidate else "candidate")
+    if invalidate:
+        assert row["metadata_json"]["consolidation"]["invalidated"]["member_id"] == member_id
+    events = _events(h)
+    status, answer = _correct(h, memory_id, key=key)
+    assert status == 400 and answer["detail"]["code"] == "invalid_request"
+    assert _stored(h, memory_id) == stored and _new_events(h, events) == []
+
+
+@pytest.mark.parametrize("reason", ["confirmation_window_elapsed", "valid_to_expired"])
+def test_trusted_correction_refreshes_a_memory_marked_stale_by_the_sweep(label_harness, reason):
+    h = label_harness
+    with h.store() as store:
+        row = store.create_memory({
+            "memory_key": "orchard.hours",
+            "canonical_text": "The test orchard opens on Saturday.",
+            "status": "active",
+            "memory_type": "project_state",
+            "domain": "project",
+            "sensitivity": "internal",
+            "last_confirmed_at": "2025-01-01T00:00:00Z",
+            "valid_to": "2025-01-02T00:00:00Z" if reason == "valid_to_expired" else None,
+        })
+    memory_id = str(row["id"])
+    status, answer, _ = h.request(
+        "POST", "/v0/vnext/scheduler/workflows/staleness_sweep/run-now",
+        payload={"options": {"reference_time": "2026-01-01T00:00:00Z"}},
+    )
+    assert status == 201, answer
+    before, _, _ = _stored(h, memory_id)
+    assert before["status"] == "stale" and before["metadata_json"]["staleness"]["reason"] == reason
+
+    status, answer = _correct(h, memory_id, key=h.key("trusted_local_agent"))
+    assert status == 200 and answer["status"] == "committed", answer
+    after, _, _ = _stored(h, memory_id)
+    assert after["status"] == "active"
+    assert after["last_confirmed_at"] > before["last_confirmed_at"]
+    assert after["valid_to"] == before["valid_to"]

@@ -185,7 +185,7 @@ revision storing the text before and after, and an
 `agent.memory_corrected` event. The pre-correction text is preserved in the
 revision history, and correction history accumulates on the memory record.
 
-Unreleased (on main, not in v0.24.1): agentic correction of a candidate requires the same standing as review. For a pending inline confirmation, a caller with review standing can correct it at any time. The writer can correct it within the confirmation window. A successful correction resolves the confirmation record. See [confirm and reject rules](#confirm-and-reject-rules) for a late correction.
+Unreleased (on main, not in v0.24.1): agentic correction of a candidate or a `private_only` memory requires the same standing as review. For a pending inline confirmation, a caller with review standing can correct it at any time. The writer can correct it within the confirmation window. A successful correction resolves the confirmation record. See [confirm and reject rules](#confirm-and-reject-rules) for a late correction.
 
 New text that carries credential material is refused on both surfaces and
 the memory is left unchanged. Approving a memory also reads the text it

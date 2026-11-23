@@ -1972,7 +1972,7 @@ class VNextMemoryCommitService:
         )
         consolidation = is_pending_consolidation_candidate(memory)
         review_standing = False
-        if (status == "candidate" or pending_confirmation is not None) and not consolidation:
+        if (status in {"candidate", "private_only"} or pending_confirmation is not None) and not consolidation:
             review_standing = self._authorize_waiting_correction(
                 identity=identity, memory=memory, confirmation=pending_confirmation
             )
@@ -2097,9 +2097,6 @@ class VNextMemoryCommitService:
 
         correction = self._write_policy_decision(identity=identity, action="memory.correct", memory=memory)
         refusal = replace(correction, decision="blocked", reasons=(*correction.reasons, reason))
-        self._answer_as_missing_if_unreadable(
-            identity=identity, decision=refusal, memory=memory, target_type="memory", answer_as_missing=True
-        )
         self._record_write_decision(identity=identity, decision=refusal, memory=memory)
         return False
 
