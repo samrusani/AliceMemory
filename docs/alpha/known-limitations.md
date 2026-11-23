@@ -42,7 +42,7 @@ Postgres stack and outbound calls, with the detail in the [threat model](../secu
 - the HTTP API refuses a request body over 4 MiB (32 MiB for connector sync) and a keyless request whose `Host` or `Origin` is not this machine's, the local-folder scan reads at most 2 MiB of a file and stops at 10,000 files or 64 MiB, and no provider, embeddings, reranker or fact-key call follows a redirect
 - the body cap is no rate limit, a request with an agent key is not checked for `Host` and `Origin`, the legacy `/v0` routes apply the rule to every request, and a name in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine
 - the local-folder scan still reads a hard link planted inside the watched folder to a file elsewhere, as the importers do
-- the embeddings, reranker, fact-key and brain clients can reach a loopback or private address, and a request carried by a proxy is not held to the address rule
+- the embeddings, reranker, fact-key and brain clients can reach a loopback or private address, a request carried by a proxy is not held to the address rule, and a provider response is read whole
 - legacy local document routes, mounted with `ALICE_LEGACY_SURFACES=1`, read DOCX, PDF and mail without file-size, expansion or nesting bounds. Gmail and Calendar artifact writes check the path and write the file in separate steps.
 - Successful upstream response bodies are read whole, with a timeout and no size cap. This applies to the configured model, embedding, reranker and fact-key services and the Gmail and Calendar clients.
 - The provider URL check does not cover every way of writing a local address on a host with IPv6 address translation.

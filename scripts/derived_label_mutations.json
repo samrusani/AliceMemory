@@ -1519,7 +1519,7 @@
           "line": 64,
           "before": "the count of a list that lost an id is recomputed or dropped",
           "after": "the count of a list that lost an id is kept",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -1535,7 +1535,7 @@
           "line": 69,
           "before": "judged at most 128 rows of each list",
           "after": "listed",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -3991,7 +3991,7 @@
           "line": 65,
           "before": "; from v0.21.0, a key with limits is not shown those",
           "after": "",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -4733,7 +4733,7 @@
           "line": 64,
           "before": "the owner and an unbound admin key keep every id",
           "after": "every key keeps every id",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -5212,7 +5212,7 @@
           "line": 67,
           "before": "the reports and derived rows built from a redacted memory are readable by the owner and an unbound admin key only until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -5244,7 +5244,7 @@
           "line": 67,
           "before": "removing it is planned, with no release set",
           "after": "removing it is done",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -6054,7 +6054,7 @@
           "line": 67,
           "before": "are readable by the owner and an unbound admin key only",
           "after": "are readable by every key that reads the report",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -6070,7 +6070,7 @@
           "line": 66,
           "before": ", and a key that can read the report reads it",
           "after": "",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -6246,7 +6246,7 @@
           "line": 60,
           "before": "Open in v0.24.1, with the detail in the [security note]",
           "after": "Open in v0.24.1, but graph edge explanations remain outside that ceiling, with the detail in the [security note]",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -9459,7 +9459,7 @@
           "line": 68,
           "before": "keeps the title and description its caller typed, so words of the memory stay readable to every key that reads the loop",
           "after": "keeps the title and description its caller typed, so words of the memory are withheld from every key that reads the loop",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -20247,7 +20247,7 @@
           "line": 66,
           "before": "; hiding these words is planned, with no release set",
           "after": "",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -28109,7 +28109,7 @@
           "line": 34,
           "before": "`identity_claim_refused`, `not_permitted`, `not_found` and `precondition_failed`",
           "after": "`not_permitted`, `not_found` and `precondition_failed`",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -30349,7 +30349,7 @@
           "line": 14,
           "before": "- idempotency keys are shared across the vault, and a caller who knows one can test a guess of a hidden write ([remember](../memory-operations-protocol.md#remember)); use idempotency keys that cannot be guessed",
           "after": "",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -30365,7 +30365,7 @@
           "line": 15,
           "before": "- expiring a write awaiting its own confirmation leaves that confirmation usable; accepting it makes the row active with an expiry in the past ([confirm](../memory-operations-protocol.md#confirm-and-reject-rules))",
           "after": "",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -30829,7 +30829,7 @@
           "line": 16,
           "before": "- rows written before the first key keep their standing, and revoking the last key restores keyless briefs even for a presented revoked key. From v0.24.0, lessons written before the first key keep their standing too ([authentication](agent-integration.md#authentication))",
           "after": "- rows written before the first key keep their standing, and revoking the last key restores keyless briefs even for a presented revoked key. lessons written before the first key keep their standing too ([authentication](agent-integration.md#authentication))",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -30845,7 +30845,7 @@
           "line": 17,
           "before": "- From v0.24.0, retirement of a write waiting for review is limited to its decision makers, while its writer can retire a row waiting for their own reply ([standing](../memory-operations-protocol.md#standing-to-retire-a-memory))",
           "after": "- retirement of a write waiting for review is limited to its decision makers, while its writer can retire a row waiting for their own reply ([standing](../memory-operations-protocol.md#standing-to-retire-a-memory))",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -30861,7 +30861,7 @@
           "line": 18,
           "before": "- the two built-in agent ids record different types through MCP and through a nested HTTP identity with no type ([identity](agent-integration.md#agent-identity-fields))",
           "after": "",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -30877,7 +30877,7 @@
           "line": 19,
           "before": "- some audit records omit actors or keep the original writer, a hidden change leaves no event, and a stored agent row shows its last claimed profile ([audit](../memory-operations-protocol.md#audit-guarantees))",
           "after": "",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -30893,7 +30893,7 @@
           "line": 20,
           "before": "- From v0.24.0, a reader of a published lesson can read its approval reason through `alice_explain` ([lessons](shared-lessons.md))",
           "after": "- a reader of a published lesson can read its approval reason through `alice_explain` ([lessons](shared-lessons.md))",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -30909,7 +30909,7 @@
           "line": 21,
           "before": "- From v0.24.0, a lesson's reader sees the writer and publishing agent ids ([lessons](shared-lessons.md)); choose neutral agent ids",
           "after": "- a lesson's reader sees the writer and publishing agent ids ([lessons](shared-lessons.md)); choose neutral agent ids",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -30925,7 +30925,7 @@
           "line": 22,
           "before": "- From v0.24.0, `alice_lessons` reads a projection of every lesson the caller may read, so its cost grows with that number ([lessons](shared-lessons.md))",
           "after": "- `alice_lessons` reads a projection of every lesson the caller may read, so its cost grows with that number ([lessons](shared-lessons.md))",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -30941,7 +30941,7 @@
           "line": 23,
           "before": "- with project scoping on and a project detected in the default view, a key's brief and session hook return no brief ([projects](projects.md#the-project-brief))",
           "after": "",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -30957,7 +30957,7 @@
           "line": 24,
           "before": "- `alice_explain` fails on a readable row linked to a source the caller cannot read ([cited sources](mcp-tools.md#cited-sources))",
           "after": "",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -30973,7 +30973,7 @@
           "line": 25,
           "before": "- outside capture commands, a CLI policy refusal is reported as `filesystem_operation_failed` ([CLI](../integrations/cli.md#determinism-contract))",
           "after": "",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -30989,7 +30989,7 @@
           "line": 26,
           "before": "- the dedicated Telegram and local-folder sync routes are shadowed and their request bodies get HTTP 422 ([connectors](mcp-tools.md#saved-quotes))",
           "after": "",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -31005,7 +31005,7 @@
           "line": 74,
           "before": "Do not describe this alpha as hosted SaaS, production-ready, or automatic memory autopilot.",
           "after": "Do not describe this alpha as hosted SaaS, production-ready, or automatic memory autopilot.\nThis page is longer.",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -32159,7 +32159,7 @@
           "line": 3,
           "before": "This page lists what is limited now in v0.24.1.",
           "after": "This page lists what is limited now in v0.23.0.",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -32175,7 +32175,7 @@
           "line": 17,
           "before": "From v0.24.0, retirement of a write waiting for review",
           "after": "On main, retirement of a write waiting for review",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -32591,7 +32591,7 @@
           "line": 60,
           "before": "Open in v0.24.1,",
           "after": "Open in v0.23.0,",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -32607,7 +32607,7 @@
           "line": 60,
           "before": "Open in v0.24.1,",
           "after": "Open in v0.23.0,",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -32623,7 +32623,7 @@
           "line": 66,
           "before": "hiding these words is planned, with no release set",
           "after": "hiding these words is planned for v0.24.0",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -33471,7 +33471,7 @@
           "line": 7,
           "before": "From v0.24.1, mounted legacy `/v0` routes require a loopback peer in every mode and still serve local callers without a key or label filtering.",
           "after": "",
-          "sha256": "2c29246218c3f8eb7ab756467047c9ed13ba475d6505f28fdfb807ae49507d62"
+          "sha256": "bd1481abe7934c81344cd263d4ec8a06d415d3c61a9cfdf2bb44ff0f831aed4d"
         }
       ],
       "pytest": [
@@ -37072,10 +37072,10 @@
       "edits": [
         {
           "file": "tests/unit/test_known_limitations_page_shape.py",
-          "before": "MAX_PAGE_CHARS = 15_142",
-          "after": "MAX_PAGE_CHARS = 15_141",
+          "before": "MAX_PAGE_CHARS = 15_177",
+          "after": "MAX_PAGE_CHARS = 15_176",
           "line": 31,
-          "sha256": "c701bafd6758b698850472bf7f3bcea400f6d5fca3419051bf81de0fee716b1d"
+          "sha256": "ab5f801600e17523561f2b6bd75f6e84c204f7c3a558b7a35cbbe392cd3aa8aa"
         }
       ],
       "pytest": [

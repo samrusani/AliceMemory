@@ -28,7 +28,7 @@ PAGE = ROOT / "docs/alpha/known-limitations.md"
 # Fit 2026-10-21 to the shortened page, 2026-10-27 to the page with the bullet on source embeddings, and 2026-10-30 to the
 # page with the v0.23.0 header; refitted for v0.24.1.
 # Fit 2026-11-23 to the PostgreSQL stack and outbound-call limitations.
-MAX_PAGE_CHARS = 15_142
+MAX_PAGE_CHARS = 15_177
 MAX_BULLET_CHARS = 800
 MAX_BULLET_SENTENCES = 2
 
