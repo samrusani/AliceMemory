@@ -120,7 +120,8 @@ SOURCE_RECEIPTS = {
     # The file hash now matches the carrier after the label lock. Previous receipt e4724ba1...
     # Re-minted for ``get_edge`` (2026-10-08), one new reader beside ``create_edge``, and for the ``clamp_follows`` argument of the
     # label hook in ``update_open_loop``. Previous receipt dda88f24...
-    POSTGRES_CARRIER_PATH: "38b13366fd353d459ec46b2926d5c8983bdf20495c1e82351e6195141466dab2",
+    # The graph edge creation event now records the caller's agent ID.
+    POSTGRES_CARRIER_PATH: "a8dfcd02ac8564e6e8255791610d7efbab2b605a80f0664ea44f131060eca9da",
     # The SQLite carrier is re-minted, with its method AST manifest below, for
     # ``list_open_loops`` and ``list_open_loop_events``: they bind a query through
     # ``literal_match_operand`` and so refuse one past the LIKE operand limit.
@@ -147,13 +148,15 @@ SOURCE_RECEIPTS = {
 EXPECTED_METHOD_AST_MANIFESTS = {
     # Postgres manifest matches the carrier after the label lock. Previous 25580884...
     # Previous 4de0ce4d..., before ``get_edge`` and the ``clamp_follows`` argument of the label hook.
-    POSTGRES_CARRIER_PATH: "c7943bb62caade72d357c3394338aa3e7a35cb610a2e542a8bff20e3e23bd3a2",
+    # create_edge passes the optional actor ID into the creation event.
+    POSTGRES_CARRIER_PATH: "1ccedaaa2f69c2fa0ad3ce38e3bd482c4012e519e76c1dedd94f4a5ae1a66931",
     # SQLite manifest includes the floor identity on the partition read. Previous 2850ba60...
     # Previous e66e08ea..., before the ``clamp_follows`` argument of the label hook.
     SQLITE_CARRIER_PATH: "eac532906f9a576c528968bbcd2dd2b006af56e8cf091d400f70cf6299293f3d",
 }
 EXPECTED_METADATA_MANIFESTS = {
-    POSTGRES_CARRIER_PATH: "ee8cffdc30aba2db26d81a1bfcf7bddcf13240b814213f374950b3d20fbda314",
+    # create_edge accepts actor_id as an optional keyword.
+    POSTGRES_CARRIER_PATH: "8d926b8710045653e76df97d8f23725c5eab71ac7959a9c00d75f46caf604235",
     SQLITE_CARRIER_PATH: "121ed7dcea3f8565c181e844e49e0bc229098f6dc6c9124d03bb12e6062ab562",
 }
 EXPECTED_COMMENT_MANIFESTS = {

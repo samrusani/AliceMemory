@@ -37081,6 +37081,38 @@
         "tests/unit/test_known_limitations_page_shape.py::test_the_page_is_short_and_no_bullet_is_a_record"
       ],
       "expected_failure": "test_the_page_is_short_and_no_bullet_is_a_record"
+    },
+    {
+      "name": "operator-graph-edge-source-pin",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/graph_open_loops.py",
+          "line": 39,
+          "before": "def create_edge(self, edge: JsonObject, *, actor_type: str = \"system\", actor_id: str | None = None) -> VNextRow:",
+          "after": "# Edge creation source receipt.\ndef create_edge(self, edge: JsonObject, *, actor_type: str = \"system\", actor_id: str | None = None) -> VNextRow:",
+          "sha256": "a8dfcd02ac8564e6e8255791610d7efbab2b605a80f0664ea44f131060eca9da"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_store_graph_open_loops_split.py::test_graph_open_loop_sources_pin_all_code_sql_parameters_and_comments"
+      ],
+      "expected_failure": "test_graph_open_loop_sources_pin_all_code_sql_parameters_and_comments"
+    },
+    {
+      "name": "operator-graph-edge-signature-pin",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_stores/postgres/graph_open_loops.py",
+          "line": 39,
+          "before": "def create_edge(self, edge: JsonObject, *, actor_type: str = \"system\", actor_id: str | None = None) -> VNextRow:",
+          "after": "def create_edge(self, edge: JsonObject, *, actor_id: str | None = None, actor_type: str = \"system\") -> VNextRow:",
+          "sha256": "a8dfcd02ac8564e6e8255791610d7efbab2b605a80f0664ea44f131060eca9da"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_store_graph_open_loops_split.py::test_graph_open_loop_methods_are_direct_native_order_grafts_with_exact_metadata"
+      ],
+      "expected_failure": "test_graph_open_loop_methods_are_direct_native_order_grafts_with_exact_metadata"
     }
   ]
 }
