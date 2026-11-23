@@ -1212,6 +1212,9 @@ def review_vnext_source(
                 store, user_id=request.user_id, authorization=authorization, request=request
             )
             actor_type, actor_id = _vnext_agent_actor(identity)
+            actor = {"actor_type": actor_type}
+            if actor_id is not None:
+                actor["actor_id"] = actor_id
             label_change = request.domain is not None or request.sensitivity is not None or request.project_id is not None
             store.lock_graph_mutation()
             if label_change:
@@ -1228,7 +1231,7 @@ def review_vnext_source(
                     return _vnext_public_error_response(status_code=404, detail="vNext source was not found")
                 return _vnext_source_not_found(source_id)
             if action == "archive":
-                archived = store.delete_source(source_id=str(source_id), actor_type=actor_type, actor_id=actor_id)
+                archived = store.delete_source(source_id=str(source_id), **actor)
                 append_event(
                     store,
                     event_type="source.archived",
@@ -1292,7 +1295,7 @@ def review_vnext_source(
                             "confirm_required": True,
                         },
                     )
-            updated = store.update_source(source_id=str(source_id), patch=patch, actor_type=actor_type, actor_id=actor_id)
+            updated = store.update_source(source_id=str(source_id), patch=patch, **actor)
             # The edge target is the normalized project id, so the project's neighborhood
             # finds the source however the caller spelled the id. A blank id names no project.
             source_edge_target = project_edge_target(request.project_id)
@@ -1308,8 +1311,7 @@ def review_vnext_source(
                         "explanation": "Assigned from live /vnext source review.",
                         "metadata_json": {"review_action": action},
                     },
-                    actor_type=actor_type,
-                    actor_id=actor_id,
+                    **actor,
                 )
             append_event(
                 store,
