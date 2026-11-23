@@ -8,7 +8,7 @@ import json
 import logging
 import re
 import unicodedata
-from typing import Any, Callable, Mapping, TypeVar, cast
+from typing import Any, Callable, Literal, Mapping, TypeVar, cast
 from uuid import UUID, uuid4
 
 from alicebot_api.json_bounds import JsonShapeError, refuse_unstorable_json
@@ -1194,6 +1194,23 @@ def caller_may_resolve_pending_write(
     return author is not None and identity.agent_id == author
 
 
+def _confirmation_has_expired(confirmation: Mapping[str, object]) -> bool:
+    expires_at = confirmation.get("expires_at")
+    return isinstance(expires_at, str) and datetime.fromisoformat(expires_at.replace("Z", "+00:00")) < _utc_now()
+
+
+def resolved_confirmation_record(
+    confirmation: Mapping[str, object],
+    *,
+    outcome: Literal["confirmed", "rejected"],
+    terminal_at: str | None = None,
+) -> dict[str, object]:
+    resolved = {**confirmation, "status": outcome}
+    if terminal_at is not None:
+        resolved[f"{outcome}_at"] = terminal_at
+    return resolved
+
+
 def caller_may_publish_lesson(identity: AgentIdentity | None) -> bool:
     """Apply the standing used when a lesson is first published."""
 
@@ -1574,77 +1591,74 @@ class VNextMemoryCommitService:
 
         actor_type = "agent" if identity is not None else "user"
         actor_id = identity.agent_id if identity is not None else None
-        expires_at_raw = confirmation.get("expires_at")
-        if isinstance(expires_at_raw, str):
-            expires_at = datetime.fromisoformat(expires_at_raw.replace("Z", "+00:00"))
-            if expires_at < _utc_now():
-                # Expiration is a lifecycle decision, not a silent metadata
-                # cleanup. Validate the row independently and preserve a full
-                # revision/event trail just like explicit confirmation actions.
-                self._require_transition(
-                    CONFIRM_EXPIRE,
-                    str(memory.get("status") or ""),
-                )
-                now = _utc_iso()
-                confirmation["status"] = "expired"
-                confirmation["expired_at"] = now
-                agentic["confirmation"] = confirmation
-                agentic["status"] = "rejected"
-                agentic["lifecycle_status"] = "confirmation_expired"
-                updated = self.store.update_memory(
-                    memory_id=str(memory["id"]),
-                    patch={
-                        "status": "rejected",
-                        "last_reviewed_at": now,
-                        "metadata_json": {**metadata, "agentic_memory": agentic},
-                    },
-                    actor_type=actor_type,
-                )
-                expiry_reason = default_memory_decision_reason("agentic_memory_confirmation_expired")
-                self.store.append_revision(
-                    {
-                        "memory_id": str(updated["id"]),
-                        "memory_key": str(updated["memory_key"]),
-                        "previous_value": memory.get("value"),
-                        "new_value": updated.get("value"),
-                        "source_event_ids": updated.get("source_event_ids"),
-                        "revision_type": "rejected",
-                        "action": "agentic_memory_confirmation_expired",
-                        "text_before": str(memory.get("canonical_text") or ""),
-                        "text_after": str(updated.get("canonical_text") or ""),
-                        "reason": expiry_reason,
-                        "actor_type": actor_type,
-                        "actor_id": actor_id,
-                        "metadata_json": {
-                            "confirmation_id": confirmation_id,
-                            "action": "expire",
-                            "expired_at": now,
-                        },
-                    },
-                    actor_type=actor_type,
-                )
-                append_event(
-                    self.store,
-                    event_type="agent.memory_confirmation_expired",
-                    actor_type=actor_type,
-                    actor_id=actor_id,
-                    target_type="memory",
-                    target_id=str(updated["id"]),
-                    trace_id=str(agentic.get("trace_id") or "") or None,
-                    payload={
+        if _confirmation_has_expired(confirmation):
+            # Expiration is a lifecycle decision, not a silent metadata
+            # cleanup. Validate the row independently and preserve a full
+            # revision/event trail just like explicit confirmation actions.
+            self._require_transition(
+                CONFIRM_EXPIRE,
+                str(memory.get("status") or ""),
+            )
+            now = _utc_iso()
+            confirmation["status"] = "expired"
+            confirmation["expired_at"] = now
+            agentic["confirmation"] = confirmation
+            agentic["status"] = "rejected"
+            agentic["lifecycle_status"] = "confirmation_expired"
+            updated = self.store.update_memory(
+                memory_id=str(memory["id"]),
+                patch={
+                    "status": "rejected",
+                    "last_reviewed_at": now,
+                    "metadata_json": {**metadata, "agentic_memory": agentic},
+                },
+                actor_type=actor_type,
+            )
+            expiry_reason = default_memory_decision_reason("agentic_memory_confirmation_expired")
+            self.store.append_revision(
+                {
+                    "memory_id": str(updated["id"]),
+                    "memory_key": str(updated["memory_key"]),
+                    "previous_value": memory.get("value"),
+                    "new_value": updated.get("value"),
+                    "source_event_ids": updated.get("source_event_ids"),
+                    "revision_type": "rejected",
+                    "action": "agentic_memory_confirmation_expired",
+                    "text_before": str(memory.get("canonical_text") or ""),
+                    "text_after": str(updated.get("canonical_text") or ""),
+                    "reason": expiry_reason,
+                    "actor_type": actor_type,
+                    "actor_id": actor_id,
+                    "metadata_json": {
                         "confirmation_id": confirmation_id,
                         "action": "expire",
-                        "status": "rejected",
                         "expired_at": now,
                     },
-                )
-                return {
-                    "status": "rejected",
-                    "write_mode": "confirm_inline",
+                },
+                actor_type=actor_type,
+            )
+            append_event(
+                self.store,
+                event_type="agent.memory_confirmation_expired",
+                actor_type=actor_type,
+                actor_id=actor_id,
+                target_type="memory",
+                target_id=str(updated["id"]),
+                trace_id=str(agentic.get("trace_id") or "") or None,
+                payload={
                     "confirmation_id": confirmation_id,
-                    "reason": "confirmation_expired",
-                    "memory": updated,
-                }
+                    "action": "expire",
+                    "status": "rejected",
+                    "expired_at": now,
+                },
+            )
+            return {
+                "status": "rejected",
+                "write_mode": "confirm_inline",
+                "confirmation_id": confirmation_id,
+                "reason": "confirmation_expired",
+                "memory": updated,
+            }
 
         # The nested flag says "pending"; the row's lifecycle status must
         # independently agree that this row still awaits confirmation. A review
@@ -1667,13 +1681,13 @@ class VNextMemoryCommitService:
         )
         now = _utc_iso()
         if normalized_action == "reject":
-            confirmation["status"] = "rejected"
+            confirmation = resolved_confirmation_record(confirmation, outcome="rejected")
             next_status = "rejected"
             response_status = "rejected"
             event_type = "agent.memory_confirmation_rejected"
             revision_type = "rejected"
         else:
-            confirmation["status"] = "confirmed"
+            confirmation = resolved_confirmation_record(confirmation, outcome="confirmed")
             next_status = "active"
             response_status = "committed"
             event_type = "agent.memory_confirmed"
@@ -1948,13 +1962,27 @@ class VNextMemoryCommitService:
         # changes by rejecting the memory and recording a new one.
         refuse_lesson_mutation(memory, with_text=True)
         _require_project_update_decision_path(memory)
+        status = str(memory.get("status") or "")
+        agentic = _agentic_metadata(memory)
+        confirmation = agentic.get("confirmation")
+        pending_confirmation = (
+            confirmation
+            if status == "needs_review" and isinstance(confirmation, Mapping) and confirmation.get("status") == "pending"
+            else None
+        )
+        consolidation = is_pending_consolidation_candidate(memory)
+        review_standing = False
+        if (status == "candidate" or pending_confirmation is not None) and not consolidation:
+            review_standing = self._authorize_waiting_correction(
+                identity=identity, memory=memory, confirmation=pending_confirmation
+            )
         self._policy_checked_write(identity=identity, action="memory.correct", memory=memory)
         # Retirement is terminal: correcting a superseded/rejected/archived row
         # is rejected here through the central transition table (which also
         # keeps the message stable for callers that match on it).
-        self._require_transition(CORRECT, str(memory.get("status") or ""))
+        self._require_transition(CORRECT, status)
         metadata = _memory_metadata(memory)
-        if is_pending_consolidation_candidate(memory):
+        if consolidation:
             raise VNextMemoryCommitValidationError(
                 "consolidation candidates must be approved through accept_consolidation"
             )
@@ -1974,8 +2002,11 @@ class VNextMemoryCommitService:
             identity=identity,
             reason="source memory was corrected after the derived candidate was proposed",
         )
-        agentic = _agentic_metadata(memory)
         now = _utc_iso()
+        if pending_confirmation is not None:
+            agentic["confirmation"] = resolved_confirmation_record(
+                pending_confirmation, outcome="confirmed", terminal_at=now if review_standing else None
+            )
         correction = {"corrected_at": now, "reason": reason, "previous_text": memory.get("canonical_text")}
         corrections_value = agentic.get("corrections")
         history = list(corrections_value) if isinstance(corrections_value, list) else []
@@ -2043,6 +2074,34 @@ class VNextMemoryCommitService:
             payload={"lifecycle_status": "corrected"},
         )
         return {"status": "committed", "write_mode": "commit", "memory": updated}
+
+    def _authorize_waiting_correction(
+        self,
+        *,
+        identity: AgentIdentity | None,
+        memory: Mapping[str, object],
+        confirmation: Mapping[str, object] | None,
+    ) -> bool:
+        """Return whether review standing, rather than inline confirmation, authorizes the correction."""
+        review = self._write_policy_decision(identity=identity, action="memory.review", memory=memory)
+        if review.decision != "blocked":
+            return True
+
+        reason = PENDING_WRITE_RESOLVER_REASON
+        if confirmation is not None:
+            confirm = self._write_policy_decision(identity=identity, action="memory.confirm", memory=memory)
+            if confirm.decision != "blocked":
+                if not _confirmation_has_expired(confirmation):
+                    return False
+                reason = "confirmation_expired"
+
+        correction = self._write_policy_decision(identity=identity, action="memory.correct", memory=memory)
+        refusal = replace(correction, decision="blocked", reasons=(*correction.reasons, reason))
+        self._answer_as_missing_if_unreadable(
+            identity=identity, decision=refusal, memory=memory, target_type="memory", answer_as_missing=True
+        )
+        self._record_write_decision(identity=identity, decision=refusal, memory=memory)
+        return False
 
     @_held_to_the_callers_read_fence
     def forget(

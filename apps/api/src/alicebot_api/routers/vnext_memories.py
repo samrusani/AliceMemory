@@ -103,6 +103,7 @@ from alicebot_api.vnext_memory_commit import (
     load_promotion_settings,
     memory_carries_lesson,
     memory_commit_request_from_payload,
+    resolved_confirmation_record,
 )
 from alicebot_api.vnext_source_fence import (
     SOURCE_REF_SHAPE_MESSAGE,
@@ -390,12 +391,9 @@ def _vnext_terminal_review_metadata(
     agentic: dict[str, object] = {**agentic_raw}
     confirmation_raw = agentic.get("confirmation")
     if isinstance(confirmation_raw, dict) and confirmation_raw.get("status") == "pending":
-        timestamp_key = "confirmed_at" if outcome == "confirmed" else "rejected_at"
-        agentic["confirmation"] = {
-            **confirmation_raw,
-            "status": outcome,
-            timestamp_key: terminal_at,
-        }
+        agentic["confirmation"] = resolved_confirmation_record(
+            confirmation_raw, outcome=outcome, terminal_at=terminal_at
+        )
 
     if outcome == "confirmed":
         agentic.update(

@@ -185,6 +185,8 @@ revision storing the text before and after, and an
 `agent.memory_corrected` event. The pre-correction text is preserved in the
 revision history, and correction history accumulates on the memory record.
 
+Unreleased (on main, not in v0.24.1): agentic correction of a candidate requires the same standing as review. For a pending inline confirmation, a caller with review standing can correct it at any time. The writer can correct it within the confirmation window. A successful correction resolves the confirmation record. See [confirm and reject rules](#confirm-and-reject-rules) for a late correction.
+
 New text that carries credential material is refused on both surfaces and
 the memory is left unchanged. Approving a memory also reads the text it
 already holds: approve, accept and promote refuse a memory whose title, text
@@ -281,14 +283,14 @@ server does not verify a declared profile. That is keyless owner mode. The
 author can still reject their own pending write above the ceiling.
 
 Expiry. A pending confirmation lasts 24 hours, the value of
-`CONFIRMATION_EXPIRY_HOURS` in `vnext_memory_commit.py`. Only
-`VNextMemoryCommitService.confirm` reads the 24 hour `expires_at`: after it, a
-confirm or reject through either MCP route above, the HTTP confirm route or
+`CONFIRMATION_EXPIRY_HOURS` in `vnext_memory_commit.py`. After the 24 hour `expires_at`,
+a confirm or reject through either MCP route above, the HTTP confirm route or
 the CLI confirm that passes the policy check resolves the row to `rejected`
 with reason `confirmation_expired` instead of acting on it. The review paths
-do not read it: `alice_memory_correct` `approve` and a correction through
-`POST /v0/vnext/memories/correct` or `alicebot vnext memories correct` can
-still make the row active after 24 hours.
+can still make a row active after 24 hours. Agentic correction follows the
+standing and deadline in [correct](#correct). A late writer correction without
+review standing is refused with reason `confirmation_expired` and leaves the
+row and its confirmation pending.
 
 Expiring a write that waits for its author's confirmation does not cancel
 that confirmation. The author can confirm it, making the row active with its

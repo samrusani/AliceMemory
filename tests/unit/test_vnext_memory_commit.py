@@ -2243,7 +2243,7 @@ def test_correct_promoting_a_review_candidate_confirms_it_and_clears_review() ->
     assert seeded["metadata_json"]["review_required"] is True
 
     corrected = service.correct(
-        identity=identity,
+        identity=None,
         memory_id=memory_id,
         canonical_text="Corrected and reviewed fact.",
         reason="Reviewer rewrote the candidate.",
