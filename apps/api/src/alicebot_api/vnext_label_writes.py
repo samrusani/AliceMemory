@@ -863,7 +863,10 @@ def lock_settled_label_rows(store: Any, changes: Sequence[Mapping[str, object]])
                     raise DerivedDomainRepairError("a planned label row disappeared before it could be locked")
 
 
-def propagate(store: Any, changed: Sequence[tuple[str, str]], *, cause: str) -> int:
+def propagate(
+    store: Any, changed: Sequence[tuple[str, str]], *, cause: str,
+    actor_type: str = "system", actor_id: str | None = None,
+) -> int:
     """Recompute dependants of ``changed`` rows and write the ones that rise."""
 
     require_exclusive_label_lock(store)
@@ -934,7 +937,8 @@ def propagate(store: Any, changed: Sequence[tuple[str, str]], *, cause: str) -> 
         )
         event = build_event_log_record(
             event_type=f"{label.kind}.labels_raised",
-            actor_type="system",
+            actor_type=actor_type,
+            actor_id=actor_id,
             target_type=label.kind,
             target_id=str(row.get("id")),
             payload=labels_raised_payload(
@@ -960,10 +964,13 @@ def propagate(store: Any, changed: Sequence[tuple[str, str]], *, cause: str) -> 
     return written
 
 
-def propagate_after_write(store: Any, *, kind: str, before: Mapping[str, object] | None, after: Mapping[str, object] | None, cause: str = "input_relabelled") -> int:
+def propagate_after_write(
+    store: Any, *, kind: str, before: Mapping[str, object] | None, after: Mapping[str, object] | None,
+    cause: str = "input_relabelled", actor_type: str = "system", actor_id: str | None = None,
+) -> int:
     if not should_propagate(kind, before, after) or after is None:
         return 0
-    return propagate(store, [(kind, str(after.get("id")))], cause=cause)
+    return propagate(store, [(kind, str(after.get("id")))], cause=cause, actor_type=actor_type, actor_id=actor_id)
 
 
 def count_rows_hidden_by_scope_move(

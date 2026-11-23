@@ -171,9 +171,9 @@ def create_vnext_project(
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
             # The operator gate already admitted this request. Resolve a caller
-            # for the new ceiling only when the label can reach it.
+            # for the ceiling on direct calls when the label can reach it.
+            identity = getattr(http_request.state, "vnext_agent_identity", None) if http_request is not None else None
             if request.sensitivity in RESTRICTED_SENSITIVITY and (authorization is None or isinstance(authorization, str)):
-                identity = getattr(http_request.state, "vnext_agent_identity", None) if http_request is not None else None
                 if identity is None:
                     identity = _vnext_authenticated_agent_identity(
                         store, request, user_id=request.user_id, authorization=authorization,
@@ -183,6 +183,7 @@ def create_vnext_project(
                 )
                 if refusal is not None:
                     return refusal
+            actor_type, actor_id = _vnext_agent_actor(identity)
             payload = store.create_project(
                 {
                     "name": request.name.strip(),
@@ -194,7 +195,8 @@ def create_vnext_project(
                     "sensitivity": request.sensitivity,
                     "metadata_json": {"created_from": "vnext_workspace"},
                 },
-                actor_type="user",
+                actor_type=actor_type,
+                actor_id=actor_id,
             )
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
@@ -467,6 +469,7 @@ def upsert_vnext_brain_charter(
             )
             if sensitivity_refusal is not None:
                 return sensitivity_refusal
+            actor_type, actor_id = _vnext_agent_actor(identity)
             payload = store.upsert_brain_charter(
                 {
                     "content_markdown": request.content_markdown,
@@ -480,7 +483,8 @@ def upsert_vnext_brain_charter(
                     "quality_standard_json": request.quality_standard_json,
                     "sensitivity": request.sensitivity,
                 },
-                actor_type="user",
+                actor_type=actor_type,
+                actor_id=actor_id,
             )
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)

@@ -24,6 +24,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from alicebot_api import vnext_queue
 from alicebot_api.mcp.registry import call_mcp_tool
 from alicebot_api.mcp.types import MCPRuntimeContext, MCPToolError
 from alicebot_api.vnext_label_guard import LabelGuard, label_read_scope
@@ -500,9 +501,11 @@ def test_a_belief_whose_backing_memory_is_redacted_is_read_by_the_owner_and_an_u
     assert status == 200 and claim in json.dumps(body) and body["status"] == "retired"
 
 
-def test_a_restricted_key_cannot_export_rate_or_review_a_report_that_read_the_redacted_memory(label_harness, tmp_path):
+def test_a_restricted_key_cannot_export_rate_or_review_a_report_that_read_the_redacted_memory(label_harness, tmp_path, monkeypatch):
     """The write doors that return a report's text, or change it, refuse a key with limits and change nothing."""
     h = label_harness
+    tmp_path = tmp_path / "exports"
+    monkeypatch.setattr(vnext_queue, "DEFAULT_VNEXT_ARTIFACT_EXPORT_ROOT", tmp_path)
     world = World(h)
     keys = world.keys()
     report = world.reports["weekly"]["id"]

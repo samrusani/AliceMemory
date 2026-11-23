@@ -936,9 +936,12 @@ def export_vnext_artifact(
                 action="artifact.export",
                 for_update=True,
             )
+            actor_type, actor_id = _vnext_agent_actor(identity, fallback="system")
             output_path = VNextQueueService(store).export_artifact_markdown(
                 artifact_id=str(artifact_id),
                 output_dir=request.output_dir,
+                actor_type=actor_type,
+                actor_id=actor_id,
             )
     except VNextQueueNotFoundError:
         return _vnext_public_error_response(status_code=404, detail="vNext artifact was not found")

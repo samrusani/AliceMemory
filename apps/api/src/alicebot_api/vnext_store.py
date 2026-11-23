@@ -1411,7 +1411,9 @@ class PostgresVNextStore:
         )
 
     @takes_label_lock
-    def update_source(self, *, source_id: str, patch: JsonObject, actor_type: str = "system") -> VNextRow:
+    def update_source(
+        self, *, source_id: str, patch: JsonObject, actor_type: str = "system", actor_id: str | None = None,
+    ) -> VNextRow:
         from alicebot_api.vnext_label_writes import prepare_label_patch
 
         patch = prepare_label_patch(self, "source", self.get_source(source_id), patch)
@@ -1522,17 +1524,21 @@ class PostgresVNextStore:
         self._append_mutation_event(
             event_type="source.updated",
             actor_type=actor_type,
+            actor_id=actor_id,
             target_type="source",
             target_id=row["id"],
             payload={"operation": "update", "changes": patch},
         )
         from alicebot_api.vnext_label_writes import propagate_after_write
 
-        propagate_after_write(self, kind="source", before=current, after=row)
+        propagate_after_write(
+            self, kind="source", before=current, after=row,
+            actor_type=actor_type if actor_id is not None else "system", actor_id=actor_id,
+        )
         return row
 
     @takes_label_lock
-    def delete_source(self, *, source_id: str, actor_type: str = "system") -> VNextRow:
+    def delete_source(self, *, source_id: str, actor_type: str = "system", actor_id: str | None = None) -> VNextRow:
         row = self._fetch_one(
             "delete_source",
             f"""
@@ -1547,6 +1553,7 @@ class PostgresVNextStore:
         self._append_mutation_event(
             event_type="source.deleted",
             actor_type=actor_type,
+            actor_id=actor_id,
             target_type="source",
             target_id=row["id"],
             payload={"operation": "delete"},
@@ -1902,7 +1909,7 @@ class PostgresVNextStore:
     expire_edge = _graph_expire_edge
 
     @takes_label_lock
-    def create_project(self, project: JsonObject, *, actor_type: str = "system") -> VNextRow:
+    def create_project(self, project: JsonObject, *, actor_type: str = "system", actor_id: str | None = None) -> VNextRow:
         from alicebot_api.vnext_label_writes import apply_insert_floor, remember_floor_event
 
         project, floor_event = apply_insert_floor(self, "project", project)
@@ -1951,6 +1958,7 @@ class PostgresVNextStore:
         self._append_mutation_event(
             event_type="project.created",
             actor_type=actor_type,
+            actor_id=actor_id,
             target_type="project",
             target_id=row["id"],
             payload={"operation": "create", "fields": _sorted_field_names(project)},
@@ -2906,7 +2914,9 @@ class PostgresVNextStore:
             (status, status, limit),
         )
 
-    def upsert_brain_charter(self, charter: JsonObject, *, actor_type: str = "system") -> VNextRow:
+    def upsert_brain_charter(
+        self, charter: JsonObject, *, actor_type: str = "system", actor_id: str | None = None,
+    ) -> VNextRow:
         lock_brain_charter(self)
         row = self._fetch_one(
             "upsert_brain_charter",
@@ -2971,6 +2981,7 @@ class PostgresVNextStore:
         self._append_mutation_event(
             event_type="brain_charter.upserted",
             actor_type=actor_type,
+            actor_id=actor_id,
             target_type="brain_charter",
             target_id=row["id"],
             payload={"operation": "upsert", "fields": _sorted_field_names(charter)},

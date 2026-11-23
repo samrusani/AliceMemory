@@ -36,7 +36,7 @@ from alicebot_api.vnext_stores.postgres.query_predicates import (
 
 VNextRow = dict[str, object]
 
-def create_edge(self, edge: JsonObject, *, actor_type: str = "system") -> VNextRow:
+def create_edge(self, edge: JsonObject, *, actor_type: str = "system", actor_id: str | None = None) -> VNextRow:
     # observed_at is event time: when the observation the edge encodes
     # actually happened (callers pass the source's source_created_at,
     # falling back to captured_at). Creation sites without source
@@ -107,6 +107,7 @@ def create_edge(self, edge: JsonObject, *, actor_type: str = "system") -> VNextR
     self._append_mutation_event(
         event_type="graph_edge.created",
         actor_type=actor_type,
+        actor_id=actor_id,
         target_type="graph_edge",
         target_id=row["id"],
         payload={"operation": "create", "edge_type": str(row["edge_type"])},

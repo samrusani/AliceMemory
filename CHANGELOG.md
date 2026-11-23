@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.24.1): project creation, brain charter saves, source reviews and artifact exports record the acting agent, and exports by agents stay inside the server's artifact export root. v0.24.1 recorded these mutations as owner or system actions and accepted agent export destinations outside that root (`python -m pytest tests/integration/test_operator_write_attribution_postgres.py`).
+
 - Unreleased (on main, not in v0.24.1): MCP lesson commits and waiting reviews show the caller up to three readable published lessons matched by words, paths or vectors, with the reason for each match. Review lists also show the waiting lesson's fields. v0.24.1 returned the commit receipt and review queue without similar lessons (`python -m pytest tests/unit/test_closest_lessons.py tests/integration/test_closest_lessons_postgres.py`).
 
 - Unreleased (on main, not in v0.24.1): PostgreSQL avoids repeated JIT compilation on scoped reads with a project-bound key and on `alice_resume` and `alice_context_pack` with an unbound `admin_agent` key. v0.24.1 disabled JIT for the workspace route and let other requests use the server default (`python -m pytest tests/integration/test_app_jit_reads_postgres.py tests/integration/test_workspace_jit_postgres.py`).

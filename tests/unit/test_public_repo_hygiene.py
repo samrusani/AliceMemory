@@ -235,7 +235,6 @@ _TMP_BARE_ALLOWED_FILES: dict[str, tuple[str, ...]] = {
         "tests/unit/test_opencode_config_install.py",
         "tests/unit/test_per_project_hook.py",
         "tests/unit/test_recall_framing.py",
-        "tests/unit/test_vnext_main.py",
         "tests/unit/fixtures_benign_corpus.py",
     ),
     "a script's own throwaway folder, or a stand-in home returned by a fake module": (

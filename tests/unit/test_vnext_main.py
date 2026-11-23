@@ -665,8 +665,10 @@ class FakeVNextStore:
         project.update(patch)
         return project
 
-    def create_edge(self, edge: dict[str, object], *, actor_type: str = "system") -> dict[str, object]:
-        del actor_type
+    def create_edge(
+        self, edge: dict[str, object], *, actor_type: str = "system", actor_id: str | None = None,
+    ) -> dict[str, object]:
+        del actor_type, actor_id
         row = {**edge, "id": _fake_edge_id(len(self.edges) + 1)}
         self.edges[str(row["id"])] = row
         return row
@@ -4658,9 +4660,13 @@ def test_insight_feedback_rejects_exact_redacted_project_update(monkeypatch) -> 
     assert store.events == events_before
 
 
-def test_artifact_routes_authorize_persisted_target_scope_and_profile(monkeypatch) -> None:
+def test_artifact_routes_authorize_persisted_target_scope_and_profile(monkeypatch, tmp_path) -> None:
+    from alicebot_api import vnext_queue
     from alicebot_api.vnext_agent_keys import create_agent_key
 
+    export_root = tmp_path / "exports"
+    monkeypatch.setattr(vnext_queue, "DEFAULT_VNEXT_ARTIFACT_EXPORT_ROOT", export_root)
+    export_dir = str(export_root / "reports")
     store = FakeVNextStore(None)
     _install_fake_vnext_store(monkeypatch, store)
     user_id = uuid4()
@@ -4785,7 +4791,7 @@ def test_artifact_routes_authorize_persisted_target_scope_and_profile(monkeypatc
         (
             "POST",
             f"/v0/vnext/artifacts/{artifact_id}/export",
-            {"payload": {"user_id": str(user_id), "output_dir": "/tmp"}},
+            {"payload": {"user_id": str(user_id), "output_dir": export_dir}},
         ),
     )
     for method, path, kwargs in denied_requests:
@@ -4846,7 +4852,7 @@ def test_artifact_routes_authorize_persisted_target_scope_and_profile(monkeypatc
             "POST",
             f"/v0/vnext/artifacts/{artifact_id}/export",
             authorization=f"Bearer {trusted_b_key}",
-            payload={"user_id": str(user_id), "output_dir": "/tmp"},
+            payload={"user_id": str(user_id), "output_dir": export_dir},
         )[0]
         == 200
     )

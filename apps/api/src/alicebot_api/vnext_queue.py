@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from contextlib import suppress
 from dataclasses import dataclass, field
 import hashlib
 import logging
+import os
 from pathlib import Path
+import secrets
 from typing import TYPE_CHECKING, Protocol
 
 from alicebot_api.credential_floor import refuse_credential_material
@@ -51,6 +54,33 @@ class VNextQueueValidationError(ValueError):
 
 class VNextQueueNotFoundError(VNextQueueValidationError):
     """Raised when a vNext queue artifact or task cannot be found."""
+
+
+def _write_keyed_export(path: Path, content: str) -> None:
+    """Write to an already resolved location without following subsequent links."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    directory = os.open(path.anchor, flags)
+    try:
+        for part in path.parent.parts[1:]:
+            try:
+                child = os.open(part, flags, dir_fd=directory)
+            except FileNotFoundError:
+                with suppress(FileExistsError):
+                    os.mkdir(part, mode=0o700, dir_fd=directory)
+                child = os.open(part, flags, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        temporary = f".artifact-export-{secrets.token_hex(16)}"
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=directory)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(content)
+            os.replace(temporary, path.name, src_dir_fd=directory, dst_dir_fd=directory)
+        finally:
+            with suppress(FileNotFoundError):
+                os.unlink(temporary, dir_fd=directory)
+    finally:
+        os.close(directory)
 
 
 class VNextQueueStore(Protocol):
@@ -588,21 +618,49 @@ class VNextQueueService:
         )
         return {**updated_artifact, "promoted_memory_id": memory_id}
 
-    def export_artifact_markdown(self, *, artifact_id: str, output_dir: str | Path) -> Path:
+    def export_artifact_markdown(
+        self, *, artifact_id: str, output_dir: str | Path, actor_type: str = "system", actor_id: str | None = None,
+    ) -> Path:
         artifact = self.store.get_artifact(artifact_id)
         if artifact is None:
             raise VNextQueueNotFoundError(f"artifact {artifact_id} was not found")
         content = str(artifact.get("content_markdown", ""))
+        if actor_type == "agent":
+            try:
+                root = os.path.realpath(DEFAULT_VNEXT_ARTIFACT_EXPORT_ROOT)
+                root_prefix = root.rstrip(os.sep) + os.sep
+                expanded = os.path.expanduser(output_dir)
+                if expanded.startswith("~"):
+                    raise VNextQueueValidationError("artifact export home directory could not be resolved")
+                directory = os.path.realpath(os.path.join(root, expanded))
+                if directory != root and not directory.startswith(root_prefix):
+                    raise VNextQueueValidationError("artifact export destination is outside the export root")
+                artifact_digest = hashlib.sha256(artifact_id.encode("utf-8")).hexdigest()[:24]
+                output_path = Path(directory) / f"artifact-{artifact_digest}.md"
+                write_path = os.path.realpath(output_path)
+                if not write_path.startswith(root_prefix):
+                    raise VNextQueueValidationError("artifact export destination is outside the export root")
+                _write_keyed_export(Path(write_path), content)
+            except (OSError, RuntimeError) as exc:
+                raise VNextQueueValidationError("artifact export destination could not be written") from exc
+            return self._record_artifact_export(artifact_id, output_path, str(output_dir), actor_type, actor_id)
+
         requested_output_dir = str(output_dir)
         target_dir = Path(output_dir).expanduser().resolve()
         target_dir.mkdir(parents=True, exist_ok=True)
         artifact_digest = hashlib.sha256(artifact_id.encode("utf-8")).hexdigest()[:24]
         output_path = target_dir / f"artifact-{artifact_digest}.md"
         output_path.write_text(content, encoding="utf-8")
+        return self._record_artifact_export(artifact_id, output_path, requested_output_dir, actor_type, actor_id)
+
+    def _record_artifact_export(
+        self, artifact_id: str, output_path: Path, requested_output_dir: str, actor_type: str, actor_id: str | None,
+    ) -> Path:
         append_event(
             self.store,
             event_type="artifact.exported",
-            actor_type="system",
+            actor_type=actor_type,
+            actor_id=actor_id,
             target_type="artifact",
             target_id=artifact_id,
             payload={"output_path": str(output_path), "requested_output_dir": requested_output_dir},
