@@ -37114,6 +37114,38 @@
         "tests/unit/test_store_graph_open_loops_split.py::test_graph_open_loop_methods_are_direct_native_order_grafts_with_exact_metadata"
       ],
       "expected_failure": "test_graph_open_loop_methods_are_direct_native_order_grafts_with_exact_metadata"
+    },
+    {
+      "name": "correction-review-record-keeps-its-timestamp",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
+          "line": 2008,
+          "before": "                pending_confirmation, outcome=\"confirmed\", terminal_at=now if review_standing else None",
+          "after": "                pending_confirmation, outcome=\"confirmed\"",
+          "sha256": "b26200ac254ef34dc26aedf2adb5d4942ff0332f196fa2c1168c337b94f2aeae"
+        }
+      ],
+      "pytest": [
+        "tests/integration/test_correction_waiting_rows_postgres.py::test_correction_keeps_the_receipt_and_resolves_the_record_with_the_callers_standing[pending-owner]"
+      ],
+      "expected_failure": "test_correction_keeps_the_receipt_and_resolves_the_record_with_the_callers_standing[pending-owner]"
+    },
+    {
+      "name": "correction-allows-the-writer-inside-the-window",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
+          "line": 2094,
+          "before": "                if not _confirmation_has_expired(confirmation):",
+          "after": "                if False:",
+          "sha256": "b26200ac254ef34dc26aedf2adb5d4942ff0332f196fa2c1168c337b94f2aeae"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_waiting_correction_sqlite.py::test_sqlite_allowed_correction_resolves_the_record[pending-writer]"
+      ],
+      "expected_failure": "test_sqlite_allowed_correction_resolves_the_record[pending-writer]"
     }
   ]
 }
