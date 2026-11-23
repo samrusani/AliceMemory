@@ -1211,6 +1211,7 @@ def review_vnext_source(
             identity = _vnext_source_route_identity(
                 store, user_id=request.user_id, authorization=authorization, request=request
             )
+            actor_type, actor_id = _vnext_agent_actor(identity)
             label_change = request.domain is not None or request.sensitivity is not None or request.project_id is not None
             store.lock_graph_mutation()
             if label_change:
@@ -1227,11 +1228,12 @@ def review_vnext_source(
                     return _vnext_public_error_response(status_code=404, detail="vNext source was not found")
                 return _vnext_source_not_found(source_id)
             if action == "archive":
-                archived = store.delete_source(source_id=str(source_id), actor_type="user")
+                archived = store.delete_source(source_id=str(source_id), actor_type=actor_type, actor_id=actor_id)
                 append_event(
                     store,
                     event_type="source.archived",
-                    actor_type="user",
+                    actor_type=actor_type,
+                    actor_id=actor_id,
                     target_type="source",
                     target_id=str(source_id),
                     payload={"action": action, "review_note": request.review_note},
@@ -1290,7 +1292,7 @@ def review_vnext_source(
                             "confirm_required": True,
                         },
                     )
-            updated = store.update_source(source_id=str(source_id), patch=patch, actor_type="user")
+            updated = store.update_source(source_id=str(source_id), patch=patch, actor_type=actor_type, actor_id=actor_id)
             # The edge target is the normalized project id, so the project's neighborhood
             # finds the source however the caller spelled the id. A blank id names no project.
             source_edge_target = project_edge_target(request.project_id)
@@ -1304,10 +1306,10 @@ def review_vnext_source(
                         "edge_type": "belongs_to_project",
                         "confidence": 1.0,
                         "explanation": "Assigned from live /vnext source review.",
-                        "created_by": "user",
                         "metadata_json": {"review_action": action},
                     },
-                    actor_type="user",
+                    actor_type=actor_type,
+                    actor_id=actor_id,
                 )
             append_event(
                 store,
@@ -1316,7 +1318,8 @@ def review_vnext_source(
                     "update": "source.updated_from_workspace",
                     "assign_project": "source.assigned_project",
                 }[action],
-                actor_type="user",
+                actor_type=actor_type,
+                actor_id=actor_id,
                 target_type="source",
                 target_id=str(source_id),
                 payload={"action": action, "project_id": request.project_id, "review_note": request.review_note},
@@ -1781,10 +1784,10 @@ def review_vnext_memory(
                         "edge_type": "belongs_to_project",
                         "confidence": 1.0,
                         "explanation": "Assigned from live /vnext memory review.",
-                        "created_by": "user",
                         "metadata_json": {"review_action": action},
                     },
                     actor_type=actor_type,
+                    actor_id=actor_id,
                 )
             from alicebot_api.vnext_lifecycle import default_memory_decision_reason
 

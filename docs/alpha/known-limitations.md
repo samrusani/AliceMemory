@@ -42,7 +42,17 @@ Postgres stack and outbound calls, with the detail in the [threat model](../secu
 - the HTTP API refuses a request body over 4 MiB (32 MiB for connector sync) and a keyless request whose `Host` or `Origin` is not this machine's, the local-folder scan reads at most 2 MiB of a file and stops at 10,000 files or 64 MiB, and no provider, embeddings, reranker or fact-key call follows a redirect
 - the body cap is no rate limit, a request with an agent key is not checked for `Host` and `Origin`, the legacy `/v0` routes apply the rule to every request, and a name in `ALICEBOT_ALLOWED_HOSTS` is trusted as this machine
 - the local-folder scan still reads a hard link planted inside the watched folder to a file elsewhere, as the importers do
-- the embeddings, reranker, fact-key and brain clients can reach a loopback or private address, a request carried by a proxy is not held to the address rule, and a provider response is read whole
+- the embeddings, reranker, fact-key and brain clients can reach a loopback or private address, and a request carried by a proxy is not held to the address rule
+- legacy local document routes, mounted with `ALICE_LEGACY_SURFACES=1`, read DOCX, PDF and mail without file-size, expansion or nesting bounds. Gmail and Calendar artifact writes check the path and write the file in separate steps.
+- Successful upstream response bodies are read whole, with a timeout and no size cap. This applies to the configured model, embedding, reranker and fact-key services and the Gmail and Calendar clients.
+- The provider URL check does not cover every way of writing a local address on a host with IPv6 address translation.
+- Connector field-name redaction can miss secrets stored under unrecognized field names.
+- Provider API keys and Google connector credentials stored in local files use plaintext with mode `0600`. The local file fallback for other connector secrets uses a custom encryption and authentication construction.
+- The MCP stdio server reads the body length declared by its caller with no upper bound. Its caller is the program that starts it.
+- An HTTP project filter accepts the reserved marker for rows without a project, which MCP tools refuse in caller input.
+- An HTTP nested identity object missing `agent_id` returns 422 when the claim is supplied only in nested fields.
+- Operator keys with limits can see the workspace's agent identity list and the event list of an artifact they can open, with no per-entry filtering by their project or sensitivity limits.
+- For an operator key with a sensitivity ceiling, policy telemetry takes the newest agent events up to `limit` before applying the ceiling, so its totals can be lower than the number of events the key may read.
 - the Postgres doctor (`alicebot vnext doctor`) reads source rows and `raw_text` only, not chunk text, so a credential only in a source chunk is not found there, where `alice-memory doctor` on SQLite reads chunk text
 - an unbound `trusted_local_agent` key reads the configured local-folder paths in `config.config_json.paths` of `GET /v0/vnext/connectors/{connector_name}/status`, even when a file under a path is confidential (every other profile and a project-bound key get HTTP 403, and an unbound `admin_agent` key reads them too); the fix has no release set
 - `alice_context_pack` removes the id of a memory the caller cannot read from `metadata_json`, but looks only for a 36-character UUID there: an id in another column of a stored row or in another spelling is not removed

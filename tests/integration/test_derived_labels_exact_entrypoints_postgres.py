@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from alicebot_api import vnext_queue
 from alicebot_api.config import Settings
 from alicebot_api.db import user_connection
 from alicebot_api.mcp.registry import MCPToolNotFoundError, call_mcp_tool
@@ -53,6 +54,9 @@ def _invoke(door, *, app_url, user_id, target_id, key, tmp_path):
 def test_exact_entrypoint_checks_effective_floor(migrated_database_urls, monkeypatch, tmp_path, door, reader):
     app_url = migrated_database_urls["app"]
     user_id = _user(app_url)
+    if door == "artifact_export":
+        tmp_path = tmp_path / "exports"
+        monkeypatch.setattr(vnext_queue, "DEFAULT_VNEXT_ARTIFACT_EXPORT_ROOT", tmp_path)
     for module in (vnext_memories, vnext_projects, vnext_retrieval, vnext_review):
         monkeypatch.setattr(module, "get_settings", lambda: Settings(database_url=app_url))
     monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
