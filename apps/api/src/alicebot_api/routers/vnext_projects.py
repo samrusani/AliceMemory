@@ -459,7 +459,7 @@ def upsert_vnext_brain_charter(
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
     from alicebot_api.vnext_label_guard import readable_own_label_rows
-    from alicebot_api.vnext_store import lock_brain_charter
+    from alicebot_api.vnext_store import brain_charter_promotion_matches, lock_brain_charter
 
     settings = get_settings()
 
@@ -502,7 +502,7 @@ def upsert_vnext_brain_charter(
                 requested_promotion = philosophy.get(BRAIN_CHARTER_PROMOTION_KEY)
                 if requested_promotion is None:
                     preserve_promotion = True
-                elif not store.brain_charter_promotion_matches(requested_promotion):
+                elif not brain_charter_promotion_matches(store, requested_promotion):
                     return _vnext_permission_response(
                         _record_brain_charter_refusal(store, identity, "brain_charter_promotion_review_required")
                     )

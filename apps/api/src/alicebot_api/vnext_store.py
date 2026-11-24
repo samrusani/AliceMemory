@@ -445,6 +445,19 @@ def lock_brain_charter(store: Any) -> None:
         cur.execute("SELECT pg_advisory_xact_lock(hashtext('vnext_brain_charter'), hashtext(app.current_user_id()::text))")
 
 
+def brain_charter_promotion_matches(store: PostgresVNextStore, promotion: object) -> bool:
+    """Compare under the caller's charter lock without decoding stored JSON."""
+    row = store._fetch_optional_one(
+        """
+            SELECT (memory_philosophy_json -> %s::text) = %s::jsonb AS matches
+            FROM brain_charters
+            LIMIT 1
+            """,
+        (BRAIN_CHARTER_PROMOTION_KEY, _json_object(promotion)),
+    )
+    return row is not None and row["matches"] is True
+
+
 class PostgresVNextStore:
     """SQL-backed vNext repository facade for the second-brain kernel."""
 
@@ -2999,18 +3012,6 @@ class PostgresVNextStore:
             payload={"operation": "upsert", "fields": _sorted_field_names(charter)},
         )
         return row
-
-    def brain_charter_promotion_matches(self, promotion: object) -> bool:
-        """Compare under the caller's charter lock without decoding stored JSON."""
-        row = self._fetch_optional_one(
-            """
-                SELECT (memory_philosophy_json -> %s::text) = %s::jsonb AS matches
-                FROM brain_charters
-                LIMIT 1
-                """,
-            (BRAIN_CHARTER_PROMOTION_KEY, _json_object(promotion)),
-        )
-        return row is not None and row["matches"] is True
 
     def get_brain_charter(self) -> VNextRow | None:
         return self._fetch_optional_one(
