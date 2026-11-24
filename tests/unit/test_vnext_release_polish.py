@@ -713,9 +713,9 @@ def test_the_trusted_memory_sentences_say_what_the_promotion_code_does() -> None
     HTTP route that enforces keys, and an identity taken from a request payload is not; a
     `memory_proposal_agent` is never lifted; the hard floor (credential material, instructions
     aimed at the agent, an agent's own output) and an enabled escalation filter stop a write
-    under any persona; and only the commit, proposal and policy modules read the promotion
-    settings, so source evidence, generated artifacts, scheduler output and connector captures
-    never do.
+    under any persona. The charter writer validates promotion settings. The commit, proposal
+    and policy modules apply them to memory writes. The source inventory checks that these
+    are the promotion call sites.
 
     Mutations, each one alone: add `asserted_agent` to `PROMOTION_ELIGIBLE_WRITERS`; remove
     `team` from `AUTO_PROMOTING_PERSONAS`; make `load_promotion_settings` return a persona
@@ -923,24 +923,26 @@ def test_the_trusted_memory_sentences_say_what_the_promotion_code_does() -> None
         ("vnext_memory_commit.py", "self._owner_verified"),
     ]
 
-    # Only the commit, proposal and policy code read the promotion settings. A connector, an import, an
-    # artifact review or the scheduler that read them would make "never auto-promoted" false.
+    # The charter route validates its input. The commit, proposal and policy code apply the settings.
+    # Applying promotion from a connector, import, artifact review or the scheduler would make "never
+    # auto-promoted" false.
     pattern = re.compile(
         r"load_promotion_settings|promotion_settings|append_promotion_event|AUTO_PROMOTED_EVENT|"
         r"memory\.auto_promoted|evaluate_promotion|PromotionSettings"
     )
-    readers = sorted(
+    promotion_policy_files = sorted(
         str(path.relative_to(source_root))
         for path in source_root.rglob("*.py")
         if pattern.search(path.read_text(encoding="utf-8"))
     )
-    assert readers == [
+    assert promotion_policy_files == [
         "cli/memories.py",
         "cli/shared.py",
         "mcp/memories.py",
         "mcp/policy.py",
         "routers/_vnext_shared.py",
         "routers/vnext_memories.py",
+        "routers/vnext_projects.py",
         "vnext_agent_control.py",
         "vnext_memory_commit.py",
         "vnext_memory_propose.py",
