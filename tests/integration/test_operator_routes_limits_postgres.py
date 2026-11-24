@@ -169,6 +169,7 @@ def test_the_charter_is_one_row_and_a_key_that_cannot_read_it_cannot_replace_it(
     events_before = _event_ids(vault)
     status, text = run_call(vault, "PUT", path, Call("ad hoc", body={"content_markdown": "mine"}), trusted)
     assert status == 403 and _hidden_in(vault, text) == []
+    assert json.loads(text)["policy_decision"]["reasons"] == ["brain_charter_outside_caller_limits"]
     assert vault.hidden_rows() == before
     # The refusal records its policy event: the decision and the block, for this route and this key, and no other row.
     added = [row for row in _event_rows(vault) if row["id"] not in events_before]

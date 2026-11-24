@@ -13,6 +13,7 @@ from pydantic import Field
 from alicebot_api.http_json_types import BoundedJsonList, BoundedJsonObject
 from alicebot_api.config import get_settings
 from alicebot_api.db import user_connection
+from alicebot_api.json_bounds import cut_deep_value
 from alicebot_api.public_errors import public_exception_response
 from alicebot_api.routers._vnext_automation import (
     VNextProjectAutomationRequest,
@@ -42,6 +43,7 @@ from alicebot_api.vnext_agent_control import (
     PolicyDecision,
     agent_metadata,
     append_policy_events,
+    evaluate_agent_policy,
     summarize_agent_policy_telemetry,
 )
 from alicebot_api.vnext_agent_keys import (
@@ -49,6 +51,7 @@ from alicebot_api.vnext_agent_keys import (
     agent_key_from_authorization,
     resolve_protected_agent_identity,
 )
+from alicebot_api.vnext_brain import SENSITIVITY_RANK
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService
 from alicebot_api.vnext_open_loop_references import (
@@ -61,6 +64,11 @@ from alicebot_api.vnext_projects import (
     VNextProjectService,
     VNextProjectValidationError,
     project_readable,
+)
+from alicebot_api.vnext_promotion_policy import (
+    BRAIN_CHARTER_PROMOTION_KEY,
+    PromotionSettingsValidationError,
+    promotion_settings_from_brain_charter,
 )
 from alicebot_api.vnext_scheduler import (
     SchedulerRunRequest,
@@ -428,13 +436,30 @@ def get_vnext_brain_charter(user_id: UUID, authorization: str | None = Header(de
 
     return JSONResponse(status_code=200, content=jsonable_encoder({"brain_charter": payload}))
 
+
+def _record_brain_charter_refusal(
+    store: PostgresVNextStore, identity: AgentIdentity | None, reason: str,
+) -> PolicyDecision:
+    refusal = PolicyDecision(
+        decision="blocked",
+        action="http.operator.access",
+        permission_profile=identity.permission_profile if identity is not None else "user_or_system",
+        reasons=(reason,),
+    )
+    append_policy_events(
+        store, identity=identity, decision=refusal, target_type="http_route",
+        target_id="/v0/vnext/settings/brain-charter",
+    )
+    return refusal
+
+
 @project_operations_router.put("/v0/vnext/settings/brain-charter")
 def upsert_vnext_brain_charter(
     request: VNextBrainCharterUpsertRequest,
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
     from alicebot_api.vnext_label_guard import readable_own_label_rows
-    from alicebot_api.vnext_store import lock_brain_charter
+    from alicebot_api.vnext_store import brain_charter_promotion_matches, lock_brain_charter
 
     settings = get_settings()
 
@@ -450,31 +475,44 @@ def upsert_vnext_brain_charter(
             lock_brain_charter(store)
             stored = store.get_brain_charter()
             if stored is not None and not readable_own_label_rows(identity, [stored]):
-                # The save replaces the whole charter. A key that may not read the stored one may not replace it, so
-                # no charter row changes and the refusal repeats none of its labels. The policy event of the refusal
-                # is recorded.
-                refusal = PolicyDecision(
-                    decision="blocked",
-                    action="http.operator.access",
-                    permission_profile=identity.permission_profile if identity is not None else "user_or_system",
-                    reasons=("brain_charter_outside_caller_limits",),
+                return _vnext_permission_response(
+                    _record_brain_charter_refusal(store, identity, "brain_charter_outside_caller_limits")
                 )
-                append_policy_events(
-                    store, identity=identity, decision=refusal, target_type="http_route",
-                    target_id="/v0/vnext/settings/brain-charter",
-                )
-                return _vnext_permission_response(refusal)
             sensitivity_refusal = _vnext_created_sensitivity_refusal(
                 store, identity, action="brain_charter.update", sensitivity=request.sensitivity,
             )
             if sensitivity_refusal is not None:
                 return sensitivity_refusal
+            philosophy = request.memory_philosophy_json
+            try:
+                promotion_settings_from_brain_charter({"memory_philosophy_json": philosophy})
+            except PromotionSettingsValidationError:
+                return _vnext_public_error_response(status_code=400, detail="vNext brain charter promotion is invalid")
+
+            preserve_promotion = False
+            review = evaluate_agent_policy(identity=identity, action="memory.review")
+            if review.decision == "blocked":
+                if stored is not None and (
+                    SENSITIVITY_RANK[request.sensitivity] < SENSITIVITY_RANK[str(stored["sensitivity"])]
+                ):
+                    return _vnext_permission_response(
+                        _record_brain_charter_refusal(store, identity, "brain_charter_label_review_required")
+                    )
+
+                requested_promotion = philosophy.get(BRAIN_CHARTER_PROMOTION_KEY)
+                if requested_promotion is None:
+                    preserve_promotion = True
+                elif not brain_charter_promotion_matches(store, requested_promotion):
+                    return _vnext_permission_response(
+                        _record_brain_charter_refusal(store, identity, "brain_charter_promotion_review_required")
+                    )
+
             actor_type, actor_id = _vnext_agent_actor(identity)
             payload = store.upsert_brain_charter(
                 {
                     "content_markdown": request.content_markdown,
                     "owner_json": request.owner_json,
-                    "memory_philosophy_json": request.memory_philosophy_json,
+                    "memory_philosophy_json": philosophy,
                     "life_domains_json": request.life_domains_json,
                     "active_projects_json": request.active_projects_json,
                     "communication_style_json": request.communication_style_json,
@@ -485,13 +523,20 @@ def upsert_vnext_brain_charter(
                 },
                 actor_type=actor_type,
                 actor_id=actor_id,
+                preserve_promotion=preserve_promotion,
             )
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
     except AgentIdentityValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext agent identity claims are invalid")
 
-    return JSONResponse(status_code=200, content=jsonable_encoder({"brain_charter": payload}))
+    response = {"brain_charter": payload}
+    try:
+        encoded = jsonable_encoder(response)
+    except RecursionError:
+        # An old promotion block may outlive the write depth limit. Bound only the reply.
+        encoded = jsonable_encoder(cut_deep_value(response))
+    return JSONResponse(status_code=200, content=encoded)
 
 @project_operations_router.get("/v0/vnext/scheduler/status")
 def get_vnext_scheduler_status(user_id: UUID) -> JSONResponse:

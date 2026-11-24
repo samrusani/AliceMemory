@@ -30,6 +30,7 @@ from alicebot_api.vnext_project_scope import (
     source_capture_identity_matches,
     source_project_scope,
 )
+from alicebot_api.vnext_promotion_policy import BRAIN_CHARTER_PROMOTION_KEY
 from alicebot_api.vnext_recall_visibility import postgres_unexpired_sql
 from alicebot_api.vnext_repositories import JsonObject
 from alicebot_api.vnext_stores.memory_lifecycle_common import (
@@ -442,6 +443,19 @@ def lock_brain_charter(store: Any) -> None:
 
     with store.conn.cursor() as cur:
         cur.execute("SELECT pg_advisory_xact_lock(hashtext('vnext_brain_charter'), hashtext(app.current_user_id()::text))")
+
+
+def brain_charter_promotion_matches(store: PostgresVNextStore, promotion: object) -> bool:
+    """Compare under the caller's charter lock without decoding stored JSON."""
+    row = store._fetch_optional_one(
+        """
+            SELECT (memory_philosophy_json -> %s::text) = %s::jsonb AS matches
+            FROM brain_charters
+            LIMIT 1
+            """,
+        (BRAIN_CHARTER_PROMOTION_KEY, _json_object(promotion)),
+    )
+    return row is not None and row["matches"] is True
 
 
 class PostgresVNextStore:
@@ -2916,6 +2930,7 @@ class PostgresVNextStore:
 
     def upsert_brain_charter(
         self, charter: JsonObject, *, actor_type: str = "system", actor_id: str | None = None,
+        preserve_promotion: bool = False,
     ) -> VNextRow:
         lock_brain_charter(self)
         row = self._fetch_one(
@@ -2953,7 +2968,13 @@ class PostgresVNextStore:
                 DO UPDATE SET
                   content_markdown = EXCLUDED.content_markdown,
                   owner_json = EXCLUDED.owner_json,
-                  memory_philosophy_json = EXCLUDED.memory_philosophy_json,
+                  memory_philosophy_json = CASE
+                    WHEN %s AND brain_charters.memory_philosophy_json ? %s THEN
+                      EXCLUDED.memory_philosophy_json || jsonb_build_object(
+                        %s::text, brain_charters.memory_philosophy_json -> %s::text
+                      )
+                    ELSE EXCLUDED.memory_philosophy_json
+                  END,
                   life_domains_json = EXCLUDED.life_domains_json,
                   active_projects_json = EXCLUDED.active_projects_json,
                   communication_style_json = EXCLUDED.communication_style_json,
@@ -2976,6 +2997,10 @@ class PostgresVNextStore:
                 _json_list(charter.get("autonomous_rules_json")),
                 _json_list(charter.get("quality_standard_json")),
                 charter.get("sensitivity", "private"),
+                preserve_promotion,
+                BRAIN_CHARTER_PROMOTION_KEY,
+                BRAIN_CHARTER_PROMOTION_KEY,
+                BRAIN_CHARTER_PROMOTION_KEY,
             ),
         )
         self._append_mutation_event(
