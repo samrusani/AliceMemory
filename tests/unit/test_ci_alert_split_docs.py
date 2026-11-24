@@ -103,26 +103,22 @@ def test_the_threat_model_and_dependency_posture_mark_the_split_from_v0200() -> 
     assert "Archive maintenance still holds" not in posture
 
 
-def test_the_picomatch_exception_agrees_with_the_posture_and_changelog() -> None:
-    """Mutation: change the expiry date in the dependency posture paragraph."""
+def test_the_picomatch_exception_is_historical_and_its_withdrawal_is_documented() -> None:
+    """Mutation: change the advisory withdrawal date in the dependency posture page."""
     exceptions = json.loads((ROOT / "apps/web/security-advisory-exceptions.json").read_text(encoding="utf-8"))
-    assert len(exceptions["exceptions"]) == 1
-    entry = exceptions["exceptions"][0]
-    assert entry["advisory_url"] == "https://github.com/advisories/GHSA-fc5q-39xc-vjpf"
-    assert entry["package"] == "picomatch"
-    assert entry["expires"] == "2026-12-17"
-    assert entry["scope"] == "development tooling only"
+    assert exceptions["exceptions"] == []
 
-    advisory = entry["advisory_url"].rsplit("/", 1)[1]
-    package = entry["package"]
-    expires = entry["expires"]
+    advisory = "GHSA-fc5q-39xc-vjpf"
     posture = (ROOT / "docs/security/dependency-posture.md").read_text(encoding="utf-8")
+    history, withdrawal = [_flat(paragraph) for paragraph in posture.split("\n\n") if advisory in paragraph]
+    assert history.startswith(f"In v0.24.1, the file held one entry, for `picomatch` ({advisory}, high).")
+    assert "The entry had an expiry date of 2026-12-17." in history
+    assert withdrawal == (
+        f"Unreleased (on main, not in v0.24.1): {advisory} was withdrawn on 2026-11-18, "
+        "and the file holds no entries."
+    )
+
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     released = changelog.split("\n## v0.24.1 ", 1)[1].split("\n## ", 1)[0]
-    assert "From v0.24.1, the file holds one entry" in posture
-    for text in (posture, released):
-        matches = [paragraph for paragraph in text.split("\n\n") if advisory in paragraph]
-        assert len(matches) == 1
-        paragraph = _flat(matches[0])
-        assert f"`{package}`" in paragraph
-        assert f"until {expires}" in paragraph or f"expires on {expires}" in paragraph
+    entry, = [paragraph for paragraph in released.split("\n\n") if advisory in paragraph]
+    assert f"`picomatch` advisory {advisory} until 2026-12-17" in _flat(entry)
