@@ -1196,7 +1196,13 @@ def caller_may_resolve_pending_write(
 
 def _confirmation_has_expired(confirmation: Mapping[str, object]) -> bool:
     expires_at = confirmation.get("expires_at")
-    return isinstance(expires_at, str) and datetime.fromisoformat(expires_at.replace("Z", "+00:00")) < _utc_now()
+    if not isinstance(expires_at, str):
+        return True
+    try:
+        deadline = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    return deadline.tzinfo is None or deadline < _utc_now()
 
 
 def resolved_confirmation_record(
@@ -1972,7 +1978,7 @@ class VNextMemoryCommitService:
         )
         consolidation = is_pending_consolidation_candidate(memory)
         review_standing = False
-        if (status in {"candidate", "private_only"} or pending_confirmation is not None) and not consolidation:
+        if status in {"candidate", "needs_review", "private_only"} and not consolidation:
             review_standing = self._authorize_waiting_correction(
                 identity=identity, memory=memory, confirmation=pending_confirmation
             )

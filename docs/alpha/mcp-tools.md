@@ -836,7 +836,8 @@ Alice decides the outcome, never the caller:
   `permission_profile: admin_agent` are not held to that ceiling. A pending
   write expires after 24 hours: after that, a confirm or reject that passes
   the policy check resolves it to `rejected` with reason
-  `confirmation_expired`. Over the stdio server, a refused confirm or reject,
+  `confirmation_expired`. On main, a missing or invalid deadline also counts
+  as expired. Over the stdio server, a refused confirm or reject,
   and a credential refusal on confirm, comes back as `tool_request_failed`
   with the message `The tool request could not be processed` and no reason
   code. From v0.20.2, an author refusal and a

@@ -117,7 +117,8 @@ asked, so never answer for the user. There is no edit on this call: to change th
 it and commit the corrected text as a new write. A pending write stays out of recall until it
 is answered, and nothing expires it in the background. After 24 hours it can no longer be
 confirmed on `alice_memory_commit`: the next confirm or reject there that passes the policy
-check resolves it to `rejected`. A reviewer using `alice_memory_correct` `approve` on the full
+check resolves it to `rejected`. On main, a missing or invalid deadline also counts
+as expired. A reviewer using `alice_memory_correct` `approve` on the full
 surface, which does not check the 24 hours, can still approve it.
 
 Alice refuses both `confirm` and `reject` for a read-only identity and for a key bound to
