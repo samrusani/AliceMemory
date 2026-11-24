@@ -1539,7 +1539,7 @@ def test_vnext_live_workspace_happy_path_writes_reviewable_postgres_state(
             "user_id": user_id_text,
             "content_markdown": "# ALICE.md\n\nPrefer provenance-first review.",
             "owner_json": {"name": "Alice Live UI"},
-            "memory_philosophy_json": {"promotion": "review_required"},
+            "memory_philosophy_json": {"promotion": {"persona": "enterprise"}},
             "life_domains_json": {"project": {"default_sensitivity": "private"}},
             "active_projects_json": [{"id": project_id, "name": "Alice Live UI"}],
             "communication_style_json": {"tone": "direct"},
