@@ -1,11 +1,11 @@
 """The known limitations page is a short list of what is limited now, and every link on it lands.
 
-The page describes the release it ships with, v0.24.1. It used to retell the history of each limit (what v0.19.0 and v0.19.2
+The page describes the release it ships with, v0.25.0. It used to retell the history of each limit (what v0.19.0 and v0.19.2
 did, what v0.20.0 fixed, and "From v0.20.2" narration). That history is on the dated records (the CHANGELOG and the
 release notes), so each current limit on the page is a sentence or two and a link to the page that explains it, and a
 bound that another page owns (the import file size, the query size, the export and import rules, the HTTP edge, the
 local-folder scan, the outbound calls, SQLite source deletion) is one short sentence and a link. Behaviour that is new
-in v0.24.1 is marked ``From v0.24.1``; the earlier markers stay on the limits they describe. These checks keep
+in v0.24.1 keeps its ``From v0.24.1`` marker; each marker stays on the limit it describes. These checks keep
 the page from growing back into a record and keep its links from rotting.
 
 The tests that pin what the page says about one limit (the query bounds, the local-folder scan, the expiry
@@ -20,15 +20,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PAGE = ROOT / "docs/alpha/known-limitations.md"
 
-# The page is 15,177 characters, and its longest bullet is at most 800 characters. It was 19,297 characters in 57
+# The page is 15,127 characters, and its longest bullet is at most 800 characters. It was 19,297 characters in 57
 # bullets before the version history and the bounds that other pages own left it. The old page before that was 30,000,
 # with single bullets of 4,000 to 6,000. The page cap is fitted to its current length, so new material requires a fit
 # and nothing grows back into a record without this test failing. A bullet is one or two sentences, and
 # a closing "See ..." pointer to the page that explains it does not count as one.
 # Fit 2026-10-21 to the shortened page, 2026-10-27 to the page with the bullet on source embeddings, and 2026-10-30 to the
 # page with the v0.23.0 header; refitted for v0.24.1.
-# Fit 2026-11-23 to the PostgreSQL stack and outbound-call limitations.
-MAX_PAGE_CHARS = 15_177
+# Fit 2026-11-24 to the v0.25.0 release header.
+MAX_PAGE_CHARS = 15_127
 MAX_BULLET_CHARS = 800
 MAX_BULLET_SENTENCES = 2
 
@@ -119,7 +119,7 @@ def test_the_pages_the_limits_point_at_are_the_ones_that_explain_them() -> None:
         "../security/threat-model.md",
         "../memory-operations-protocol.md#confirm-and-reject-rules",
         "../release/derived-labels-security-note-draft.md",
-        "../release/v0.24.1-release-notes.md",
+        "../release/v0.25.0-release-notes.md",
         "../../CHANGELOG.md",
         "mcp-tools.md#embeddings-of-source-chunks",
     ):
@@ -173,7 +173,7 @@ def test_the_page_does_not_retell_a_limit_an_earlier_release_had() -> None:
 
 
 def test_the_page_says_where_the_history_is() -> None:
-    """The header says the page describes v0.24.1 and sends a reader of an earlier release to the records. The closing
+    """The header says the page describes v0.25.0 and sends a reader of an earlier release to the records. The closing
     paragraph that named what v0.19.0, v0.19.2 and v0.20.0 limited is gone, because the header already points there.
 
     Mutations, each one alone: delete the sentence that starts ``What an earlier release did``, change the link to the
@@ -181,16 +181,16 @@ def test_the_page_says_where_the_history_is() -> None:
     """
 
     flat = " ".join(_text().split())
-    assert "This page lists what is limited now in v0.24.1." in flat
+    assert "This page lists what is limited now in v0.25.0." in flat
     assert (
         "What an earlier release did, and what a later release fixed, is in the [CHANGELOG](../../CHANGELOG.md) and the "
-        "[release notes](../release/v0.24.1-release-notes.md)."
+        "[release notes](../release/v0.25.0-release-notes.md)."
     ) in flat
     assert "What v0.19.0 and v0.19.2 limited" not in flat
     assert "What v0.20.0 listed as open" not in flat
 
 
-def test_the_page_describes_v0241_and_marks_what_is_new_with_the_from_marker() -> None:
+def test_the_page_describes_v0250_and_keeps_the_existing_from_markers() -> None:
     """Mutations, each alone: restore an On main opener, remove a From v0.24.1 opener,
     insert a retired release marker, or assign a release to a planned limit.
     """
@@ -207,12 +207,11 @@ def test_the_page_describes_v0241_and_marks_what_is_new_with_the_from_marker() -
     assert "On main," not in flat
     rest = flat
     for described in (
-        "v0.24.1-release-notes.md",
-        "limited now in v0.24.1",
-        "new in v0.24.1 is marked `From v0.24.1`",
-        "what v0.24.0, v0.23.0, v0.22.0 and v0.21.0 changed is marked "
-        "`From v0.24.0`, `From v0.23.0`, `From v0.22.0` and `From v0.21.0`",
-        "Open in v0.24.1,",
+        "v0.25.0-release-notes.md",
+        "limited now in v0.25.0",
+        "Changes are marked with the release that introduced them: "
+        "`From v0.24.1`, `From v0.24.0`, `From v0.23.0`, `From v0.22.0` and `From v0.21.0`",
+        "Open in v0.25.0,",
         "From v0.24.1,",
         "From v0.24.0,",
         "From v0.23.0,",
@@ -221,7 +220,7 @@ def test_the_page_describes_v0241_and_marks_what_is_new_with_the_from_marker() -
         "from v0.21.0,",
     ):
         rest = rest.replace(described, "")
-    assert "v0.21" not in rest and "v0.22" not in rest and "v0.23" not in rest and "v0.24" not in rest
+    assert "v0.21" not in rest and "v0.22" not in rest and "v0.23" not in rest and "v0.24" not in rest and "v0.25" not in rest
     assert not re.search(r"(?:planned|tracked|scheduled|due) for v0\.\d+\.\d+", flat)
     assert flat.count("planned, with no release set") == 3
     for sentence in (

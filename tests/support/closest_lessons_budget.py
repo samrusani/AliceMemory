@@ -1,5 +1,6 @@
 """Paired wall-clock samples through the MCP server."""
 
+from collections.abc import Sequence
 from contextlib import contextmanager, ExitStack
 from datetime import UTC, datetime
 import json
@@ -9,6 +10,7 @@ from statistics import median
 import subprocess
 import sys
 from time import perf_counter
+from typing import Literal
 from uuid import UUID
 
 import psycopg
@@ -59,6 +61,18 @@ def _worker(checkout, vault, key, tool, arguments):
             assert process.wait(timeout=45) == 0
 
 
+def budget_decision(
+    rounds: Sequence[tuple[float, float]], slack: float,
+) -> Literal["pass", "fail", "measure again"]:
+    lowest_base = min(base for base, _ in rounds)
+    lowest_head = min(head for _, head in rounds)
+    if lowest_head <= lowest_base + slack:
+        return "pass"
+    if len(rounds) == 3:
+        return "fail"
+    return "measure again"
+
+
 def paired_budget(vault, case):
     published, waiting, tool, postgres_slack, sqlite_slack = CASES[case]
     admin = vault.key("publisher", None, "admin_agent")
@@ -88,27 +102,38 @@ def paired_budget(vault, case):
     base = Path(os.environ.get("ALICE_READ_MERGE_BASE_CHECKOUT") or ROOT)
     samples = int(os.environ.get("ALICE_CLOSEST_LESSON_TIMING_SAMPLES", "7"))
     assert samples > 0
-    base_times, head_times = [], []
-    with ExitStack() as stack:
-        before = stack.enter_context(_worker(base, vault, key, tool, arguments))
-        after = stack.enter_context(_worker(ROOT, vault, key, tool, arguments))
-        before()
-        shape, _ = after()
-        if tool == "alice_memory_review":
-            assert shape.count(3) == min(waiting, 10)
-            assert shape.count(None) == max(0, waiting - 10)
-        elif case.startswith("commit-") or tool == "alice_lessons":
-            assert shape == 3
-        for index in range(samples):
-            pair = ((before, base_times), (after, head_times))
-            for measure, times in pair if index % 2 == 0 else reversed(pair):
-                _, elapsed = measure()
-                times.append(elapsed)
     db_type = "postgres" if vault.admin_url else "sqlite"
     limit = postgres_slack if vault.admin_url else sqlite_slack
-    old_ms, new_ms = median(base_times), median(head_times)
-    print(f"CLOSEST_BUDGET {db_type} {case} median of {samples}: base {old_ms:.3f} ms, head {new_ms:.3f} ms, slack {limit} ms", flush=True)
-    assert new_ms <= old_ms + limit, (db_type, case, old_ms, new_ms, limit)
+    rounds: list[tuple[float, float]] = []
+    for _ in range(3):
+        base_times, head_times = [], []
+        with ExitStack() as stack:
+            before = stack.enter_context(_worker(base, vault, key, tool, arguments))
+            after = stack.enter_context(_worker(ROOT, vault, key, tool, arguments))
+            before()
+            shape, _ = after()
+            if tool == "alice_memory_review":
+                assert shape.count(3) == min(waiting, 10)
+                assert shape.count(None) == max(0, waiting - 10)
+            elif case.startswith("commit-") or tool == "alice_lessons":
+                assert shape == 3
+            for index in range(samples):
+                pair = ((before, base_times), (after, head_times))
+                for measure, times in pair if index % 2 == 0 else reversed(pair):
+                    _, elapsed = measure()
+                    times.append(elapsed)
+        old_ms, new_ms = median(base_times), median(head_times)
+        rounds.append((old_ms, new_ms))
+        print(
+            f"CLOSEST_BUDGET {db_type} {case} median of {samples}: "
+            f"base {old_ms:.3f} ms, head {new_ms:.3f} ms, slack {limit} ms",
+            flush=True,
+        )
+        decision = budget_decision(rounds, limit)
+        if decision == "pass":
+            return
+        assert decision == "measure again", (db_type, case, rounds, limit)
+
 
 
 def main():

@@ -448,17 +448,17 @@ def test_the_docs_say_the_hook_checks_the_variable_from_v0192_and_keep_the_v0190
     # Unreleased, the v0.23.1, v0.23.0, v0.22.0, v0.21.1, v0.21.0, v0.20.2 and v0.20.0 sections may hold entries for
     # changes made after v0.19.2.
     assert changelog[1].startswith("Unreleased")
-    assert changelog[2].startswith("v0.24.1 \u2014 2026-11-18\n")
-    assert changelog[3].startswith("v0.24.0 \u2014 2026-11-17\n")
-    assert changelog[4].startswith("v0.23.1 \u2014 2026-10-31\n")
-    assert changelog[5].startswith("v0.23.0 \u2014 2026-10-30\n")
-    assert changelog[6].startswith("v0.22.0 \u2014 2026-10-26\n")
-    assert changelog[7].startswith("v0.21.1 \u2014 2026-10-23\n")
-    assert changelog[8].startswith("v0.21.0 \u2014 2026-10-22\n")
-    assert changelog[9].startswith("v0.20.2 \u2014 2026-10-17\n")
-    assert changelog[10].startswith("v0.20.0 \u2014 2026-10-02\n")
+    assert changelog[2].startswith("v0.25.0 \u2014 2026-11-24\n")
+    assert changelog[3].startswith("v0.24.1 \u2014 2026-11-18\n")
+    assert changelog[4].startswith("v0.24.0 \u2014 2026-11-17\n")
+    assert changelog[5].startswith("v0.23.1 \u2014 2026-10-31\n")
+    assert changelog[6].startswith("v0.23.0 \u2014 2026-10-30\n")
+    assert changelog[7].startswith("v0.22.0 \u2014 2026-10-26\n")
+    assert changelog[8].startswith("v0.21.1 \u2014 2026-10-23\n")
+    assert changelog[9].startswith("v0.21.0 \u2014 2026-10-22\n")
+    assert changelog[10].startswith("v0.20.2 \u2014 2026-10-17\n")
+    assert changelog[11].startswith("v0.20.0 \u2014 2026-10-02\n")
     # This released entry stays in the v0.19.2 section, not in a newer one.
-    assert "ALICE_MEMORY_DATA_DIR" not in changelog[2]
     assert "ALICE_MEMORY_DATA_DIR" not in changelog[3]
     assert "ALICE_MEMORY_DATA_DIR" not in changelog[4]
     assert "ALICE_MEMORY_DATA_DIR" not in changelog[5]
@@ -467,8 +467,9 @@ def test_the_docs_say_the_hook_checks_the_variable_from_v0192_and_keep_the_v0190
     assert "ALICE_MEMORY_DATA_DIR" not in changelog[8]
     assert "ALICE_MEMORY_DATA_DIR" not in changelog[9]
     assert "ALICE_MEMORY_DATA_DIR" not in changelog[10]
-    assert changelog[11].startswith("v0.19.2 \u2014 2026-10-01\n")
-    released_now = _flat(changelog[11])
+    assert "ALICE_MEMORY_DATA_DIR" not in changelog[11]
+    assert changelog[12].startswith("v0.19.2 \u2014 2026-10-01\n")
+    released_now = _flat(changelog[12])
     assert (
         "`alice-memory-session-start` refuses a non-empty `ALICE_MEMORY_DATA_DIR` that is not "
         "absolute after `~` expansion, when the variable is the value in use."

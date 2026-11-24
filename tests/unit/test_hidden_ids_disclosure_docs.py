@@ -246,7 +246,7 @@ def test_the_known_limitations_page_lists_both_limits() -> None:
 
     page = _text("docs/alpha/known-limitations.md")
     flat = " ".join(page.split())
-    assert "Open in v0.24.1, with the detail in the [security note](../release/derived-labels-security-note-draft.md):" in flat
+    assert "Open in v0.25.0, with the detail in the [security note](../release/derived-labels-security-note-draft.md):" in flat
     paragraph = _paragraph(page, "- v0.20.2 returns the ids of rows a key cannot read as stored.")
     assert paragraph.startswith(f" {NEW} a key with limits is not shown the id of a memory, a source, an artifact or an open loop it may not read")
     assert "the count of a list that lost an id is recomputed or dropped" in paragraph

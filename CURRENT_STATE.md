@@ -109,6 +109,11 @@ not install it; and `v0.20.1`, whose publish run reached its first job's time
 limit while it reran the unit suite, before anything was built. Neither of the
 last two has a PyPI artifact or a published GitHub Release.
 
+## What `v0.25.0` Targets
+
+`v0.25.0` is the current release candidate. It is not published.
+See the [release notes](docs/release/v0.25.0-release-notes.md).
+
 ## What `v0.24.1` Shipped
 
 `v0.24.1` is the latest published release and remains the install, checksum,

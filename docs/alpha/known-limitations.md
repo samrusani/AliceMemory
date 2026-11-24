@@ -1,6 +1,6 @@
 # Public Alpha Known Limitations
 
-This page lists what is limited now in v0.24.1. What an earlier release did, and what a later release fixed, is in the [CHANGELOG](../../CHANGELOG.md) and the [release notes](../release/v0.24.1-release-notes.md). Behaviour that is new in v0.24.1 is marked `From v0.24.1`, and what v0.24.0, v0.23.0, v0.22.0 and v0.21.0 changed is marked `From v0.24.0`, `From v0.23.0`, `From v0.22.0` and `From v0.21.0`.
+This page lists what is limited now in v0.25.0. What an earlier release did, and what a later release fixed, is in the [CHANGELOG](../../CHANGELOG.md) and the [release notes](../release/v0.25.0-release-notes.md). Changes are marked with the release that introduced them: `From v0.24.1`, `From v0.24.0`, `From v0.23.0`, `From v0.22.0` and `From v0.21.0`.
 
 From v0.24.1, installs with active keys serve `/v1` only to unbound `admin_agent` keys. Other keys use `/v0/vnext` or MCP.
 
@@ -57,7 +57,7 @@ Postgres stack and outbound calls, with the detail in the [threat model](../secu
 - an unbound `trusted_local_agent` key reads the configured local-folder paths in `config.config_json.paths` of `GET /v0/vnext/connectors/{connector_name}/status`, even when a file under a path is confidential (every other profile and a project-bound key get HTTP 403, and an unbound `admin_agent` key reads them too); the fix has no release set
 - `alice_context_pack` removes the id of a memory the caller cannot read from `metadata_json`, but looks only for a 36-character UUID there: an id in another column of a stored row or in another spelling is not removed
 
-Open in v0.24.1, with the detail in the [security note](../release/derived-labels-security-note-draft.md):
+Open in v0.25.0, with the detail in the [security note](../release/derived-labels-security-note-draft.md):
 
 - `alice_context_pack` still names the id of an expired memory in `recent_changes`, and its `max_tokens` budget prices the full stored row while the agent receives a compact row. Text that earlier releases sent to an embeddings endpoint, an expired memory's included, cannot be taken back from it
 - the cited-source fence has gaps: memory proposals and the agent-output ingest store `source_refs` without checking the ids (v0.20.2 kept an object entry and JSON text whole; from v0.21.0, only a string that is not blank and not JSON text), the owner dependency trace lists the first id of a multi-id ref only, and `provenance_count` counts a withheld link. A memory or open loop saved before v0.20.2 keeps its link, so `alice_explain` fails for it, and an `admin_agent` writer's link makes it fail for keys of a project with a lower ceiling ([Cited sources](mcp-tools.md#cited-sources))
