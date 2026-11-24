@@ -12,6 +12,13 @@ import pytest
 
 from alicebot_api.vnext_memory_commit import PENDING_WRITE_RESOLVER_REASON, VNextMemoryCommitService
 from tests.integration.derived_labels_postgres_support import label_harness  # noqa: F401
+from tests.waiting_correction_cases import (
+    DEADLINES,
+    NON_PENDING_RECORDS,
+    confirmation_record,
+    deadline_metadata,
+    non_pending_metadata,
+)
 
 
 def _declared(name, profile="trusted_local_agent"):
@@ -240,6 +247,80 @@ def test_late_writer_correction_refuses_without_expiring_the_confirmation(label_
     })
     assert status == 200 and (expiry["status"], expiry["reason"]) == ("rejected", "confirmation_expired")
     assert expiry["memory"]["metadata_json"]["agentic_memory"]["confirmation"]["status"] == "expired"
+
+
+@pytest.mark.parametrize("shape", NON_PENDING_RECORDS)
+@pytest.mark.parametrize("caller", ["peer", "writer", "declared-peer", "owner", "admin", "bound-admin"])
+def test_needs_review_correction_without_pending_record_requires_standing(label_harness, shape, caller):
+    h = label_harness
+    keyless = caller in {"declared-peer", "owner"}
+    project = "orchard" if caller == "bound-admin" else None
+    writer_key = None if keyless else h.key("trusted_local_agent")
+    memory_id, _ = _seed(
+        h, "pending", key=writer_key, claims=_declared("writer") if keyless else None, project=project,
+    )
+    with h.store() as store:
+        row = store.get_memory(memory_id)
+        store.update_memory(
+            memory_id=memory_id, patch={"metadata_json": non_pending_metadata(row["metadata_json"], shape)},
+        )
+    key = writer_key if caller == "writer" else None
+    if caller in {"admin", "bound-admin", "peer"}:
+        key = h.key("trusted_local_agent" if caller == "peer" else "admin_agent", project=project)
+    stored = _stored(h, memory_id)
+    events = _events(h)
+    status, answer = _correct(h, memory_id, key=key, claims=_declared(caller) if caller == "declared-peer" else None)
+    if caller in {"owner", "admin", "bound-admin"}:
+        assert status == 200, answer
+        assert (answer["status"], answer["write_mode"]) == ("committed", "commit")
+        updated, revisions, _ = _stored(h, memory_id)
+        assert (updated["status"], updated["confirmation_status"]) == ("active", "confirmed")
+        assert updated["canonical_text"] == "The test orchard opens on Sunday."
+        assert confirmation_record(updated) == confirmation_record(stored[0])
+        assert [revision["action"] for revision in revisions if revision not in stored[1]] == ["agentic_memory_correct"]
+    else:
+        assert status == 403, answer
+        assert answer["detail"] == "agent policy blocked this action"
+        assert answer["policy_decision"]["reasons"] == [PENDING_WRITE_RESOLVER_REASON]
+        _policy_audit(_new_events(h, events), answer, memory_id)
+        assert _stored(h, memory_id) == stored
+
+
+@pytest.mark.parametrize("shape", DEADLINES)
+def test_confirmation_deadline_applies_to_both_writer_routes(label_harness, shape):
+    h = label_harness
+    writer = h.key("trusted_local_agent")
+    memory_id, confirmation_id = _seed(h, "pending", key=writer)
+    with h.store() as store:
+        row = store.get_memory(memory_id)
+        store.update_memory(
+            memory_id=memory_id, patch={"metadata_json": deadline_metadata(row["metadata_json"], shape)},
+        )
+    stored = _stored(h, memory_id)
+    events = _events(h)
+    status, answer = _correct(h, memory_id, key=writer)
+    assert status == 403, answer
+    assert answer["policy_decision"]["reasons"] == ["confirmation_expired"]
+    _policy_audit(_new_events(h, events), answer, memory_id)
+    assert _stored(h, memory_id) == stored
+
+    events = _events(h)
+    status, answer, _ = h.request(
+        "POST", "/v0/vnext/memories/confirm", key=writer, payload={"confirmation_id": confirmation_id},
+    )
+    assert status == 200, answer
+    assert (answer["status"], answer["reason"]) == ("rejected", "confirmation_expired")
+    updated, revisions, vectors = _stored(h, memory_id)
+    assert updated["status"] == "rejected"
+    assert updated["canonical_text"] == stored[0]["canonical_text"] and vectors == stored[2]
+    record = confirmation_record(updated)
+    assert record["status"] == "expired" and record["expired_at"]
+    assert record == confirmation_record(answer["memory"])
+    assert [revision["action"] for revision in revisions if revision not in stored[1]] == [
+        "agentic_memory_confirmation_expired",
+    ]
+    assert [event["target_id"] for event in _new_events(h, events)
+            if event["event_type"] == "agent.memory_confirmation_expired"] == [memory_id]
 
 
 @pytest.mark.parametrize(("state", "profile", "bound"), [

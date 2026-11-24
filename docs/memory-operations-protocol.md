@@ -185,7 +185,7 @@ revision storing the text before and after, and an
 `agent.memory_corrected` event. The pre-correction text is preserved in the
 revision history, and correction history accumulates on the memory record.
 
-Unreleased (on main, not in v0.24.1): agentic correction of a candidate or a `private_only` memory requires the same standing as review. For a pending inline confirmation, a caller with review standing can correct it at any time. The writer can correct it within the confirmation window. A successful correction resolves the confirmation record. See [confirm and reject rules](#confirm-and-reject-rules) for a late correction.
+Unreleased (on main, not in v0.24.1): agentic correction of a candidate, a `private_only` memory, or a `needs_review` memory without a pending inline confirmation requires the same standing as review. For a pending inline confirmation, a caller with review standing can correct it at any time. The writer can correct it within the confirmation window. A successful correction resolves the confirmation record. See [confirm and reject rules](#confirm-and-reject-rules) for a late correction.
 
 New text that carries credential material is refused on both surfaces and
 the memory is left unchanged. Approving a memory also reads the text it
@@ -291,6 +291,9 @@ can still make a row active after 24 hours. Agentic correction follows the
 standing and deadline in [correct](#correct). A late writer correction without
 review standing is refused with reason `confirmation_expired` and leaves the
 row and its confirmation pending.
+
+Unreleased (on main, not in v0.24.1): a missing, non-text, timezone-free or
+unreadable `expires_at` also counts as expired.
 
 Expiring a write that waits for its author's confirmation does not cancel
 that confirmation. The author can confirm it, making the row active with its
