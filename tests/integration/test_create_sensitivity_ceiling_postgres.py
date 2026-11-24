@@ -145,7 +145,9 @@ def test_admitted_http_agents_are_held_to_the_selected_label(label_harness, entr
         claims = {"agent_id": agent_id, "permission_profile": profile}
     operator_blocks = path in OPERATORS and (bound or profile != "trusted_local_agent")
     policy_blocks = profile == "memory_proposal_agent" and path != PROPOSALS
-    for level in (*LEVELS, *WITHIN):
+    # The charter is a single row. Increase its label so this test exercises the ceiling.
+    within = ("public", "internal", "unknown", None, "private") if table == "brain_charters" else WITHIN
+    for level in (*LEVELS, *within):
         before = _snapshot(h)
         status, body = _call(h, entry, level, key=key, claims=claims)
         if operator_blocks or policy_blocks:

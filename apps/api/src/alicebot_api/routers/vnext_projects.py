@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
-from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
@@ -14,6 +13,7 @@ from pydantic import Field
 from alicebot_api.http_json_types import BoundedJsonList, BoundedJsonObject
 from alicebot_api.config import get_settings
 from alicebot_api.db import user_connection
+from alicebot_api.json_bounds import cut_deep_value
 from alicebot_api.public_errors import public_exception_response
 from alicebot_api.routers._vnext_automation import (
     VNextProjectAutomationRequest,
@@ -453,19 +453,6 @@ def _record_brain_charter_refusal(
     return refusal
 
 
-def _same_json_value(left: object, right: object) -> bool:
-    # JSON booleans and numbers are distinct. Compare numbers by their JSON decimal values.
-    if isinstance(left, bool) or isinstance(right, bool):
-        return left is right
-    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
-        return Decimal(str(left)) == Decimal(str(right))
-    if isinstance(left, dict) and isinstance(right, dict):
-        return left.keys() == right.keys() and all(_same_json_value(value, right[key]) for key, value in left.items())
-    if isinstance(left, list) and isinstance(right, list):
-        return len(left) == len(right) and all(_same_json_value(a, b) for a, b in zip(left, right))
-    return left == right
-
-
 @project_operations_router.put("/v0/vnext/settings/brain-charter")
 def upsert_vnext_brain_charter(
     request: VNextBrainCharterUpsertRequest,
@@ -502,6 +489,7 @@ def upsert_vnext_brain_charter(
             except PromotionSettingsValidationError:
                 return _vnext_public_error_response(status_code=400, detail="vNext brain charter promotion is invalid")
 
+            preserve_promotion = False
             review = evaluate_agent_policy(identity=identity, action="memory.review")
             if review.decision == "blocked":
                 if stored is not None and (
@@ -511,14 +499,10 @@ def upsert_vnext_brain_charter(
                         _record_brain_charter_refusal(store, identity, "brain_charter_label_review_required")
                     )
 
-                stored_json = stored.get("memory_philosophy_json") if stored is not None else None
-                stored_philosophy = stored_json if isinstance(stored_json, dict) else {}
                 requested_promotion = philosophy.get(BRAIN_CHARTER_PROMOTION_KEY)
-                stored_promotion = stored_philosophy.get(BRAIN_CHARTER_PROMOTION_KEY)
                 if requested_promotion is None:
-                    if BRAIN_CHARTER_PROMOTION_KEY in stored_philosophy:
-                        philosophy = {**philosophy, BRAIN_CHARTER_PROMOTION_KEY: stored_promotion}
-                elif not _same_json_value(requested_promotion, stored_promotion):
+                    preserve_promotion = True
+                elif not store.brain_charter_promotion_matches(requested_promotion):
                     return _vnext_permission_response(
                         _record_brain_charter_refusal(store, identity, "brain_charter_promotion_review_required")
                     )
@@ -539,13 +523,20 @@ def upsert_vnext_brain_charter(
                 },
                 actor_type=actor_type,
                 actor_id=actor_id,
+                preserve_promotion=preserve_promotion,
             )
     except AgentKeyAuthenticationError as exc:
         return _vnext_agent_auth_error_response(exc)
     except AgentIdentityValidationError:
         return _vnext_public_error_response(status_code=400, detail="vNext agent identity claims are invalid")
 
-    return JSONResponse(status_code=200, content=jsonable_encoder({"brain_charter": payload}))
+    response = {"brain_charter": payload}
+    try:
+        encoded = jsonable_encoder(response)
+    except RecursionError:
+        # An old promotion block may outlive the write depth limit. Bound only the reply.
+        encoded = jsonable_encoder(cut_deep_value(response))
+    return JSONResponse(status_code=200, content=encoded)
 
 @project_operations_router.get("/v0/vnext/scheduler/status")
 def get_vnext_scheduler_status(user_id: UUID) -> JSONResponse:

@@ -187,6 +187,28 @@ def test_omitting_legacy_invalid_promotion_keeps_the_stored_value(label_harness)
     assert _commit(h, observer) == before_commit
 
 
+def test_omitting_legacy_promotion_preserves_the_database_value_without_decoding(label_harness):
+    h = label_harness
+    _save_allowed(h, None, {}, ("user", None))
+    deep_value = "[" * 1500 + '"fixture"' + "]" * 1500
+    stored_block = '{"persona": "personal", "metadata": ' + deep_value + "}"
+    with h.store() as store:
+        store.conn.execute(
+            "UPDATE brain_charters SET memory_philosophy_json = jsonb_build_object('promotion', %s::jsonb)",
+            (stored_block,),
+        )
+    key, claims, actor = _caller(h, "trusted_local_agent")
+
+    stored = _save_allowed(h, key, claims, actor, memory_philosophy_json={"other": "new"})
+
+    assert stored["memory_philosophy_json"]["other"] == "new"
+    with h.store() as store:
+        assert store.conn.execute(
+            "SELECT (memory_philosophy_json -> 'promotion') = %s::jsonb AS preserved FROM brain_charters",
+            (stored_block,),
+        ).fetchone()["preserved"]
+
+
 @pytest.mark.parametrize("caller", ["owner", "admin_agent", "declared_admin_agent"])
 def test_review_standing_can_set_change_drop_promotion_and_lower_the_label(label_harness, caller):
     h = label_harness
