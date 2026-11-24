@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Unreleased (on main, not in v0.24.1): changing the brain charter's promotion policy or lowering its sensitivity requires memory review standing. Other admitted callers keep the stored policy when they omit it or send null. The charter rejects promotion settings its reader considers invalid. v0.24.1 let admitted callers replace the promotion policy and lower the sensitivity, and saved settings the reader refused (`python -m pytest tests/integration/test_brain_charter_standing_postgres.py` and the release comparison in the pull request).
+- Unreleased (on main, not in v0.24.1): changing the brain charter's promotion policy or lowering its sensitivity requires memory review standing. Other admitted callers keep the stored policy when they omit it or send null. The charter rejects promotion settings its reader considers invalid. v0.24.1 let admitted callers replace the promotion policy and lower the sensitivity, and saved settings the reader refused (`python -m pytest tests/integration/test_brain_charter_standing_postgres.py`).
 
 - Unreleased (on main, not in v0.24.1): correcting a review candidate or a `private_only` memory requires review standing. A waiting confirmation can be corrected by a caller with review standing at any time or by its writer within the confirmation window, and a successful correction resolves its record. v0.24.1 let corrections activate waiting rows without these standing checks and left the confirmation record pending (`python -m pytest tests/integration/test_correction_waiting_rows_postgres.py tests/unit/test_waiting_correction_sqlite.py`).
 
