@@ -11,7 +11,7 @@ can publish a waiting lesson through `alice_memory_correct` or the memory review
 HTTP route. Published lessons are returned only when the caller may read them.
 A write can also require confirmation or be rejected by the existing checks.
 
-Unreleased (on main, not in v0.24.1): A waiting or rejected lesson and its
+From v0.25.0, a waiting or rejected lesson and its
 decision reason are visible only to its writer and to the owner or an admin
 whose limits allow the row. Other readers see a missing lesson. A commit that
 would replay such a hidden lesson gives the existing idempotency conflict.
@@ -22,7 +22,7 @@ approved it, when an agent approved it. Choose neutral agent ids if those names
 should not be exposed to other readers. A lookup reads a projection of the
 active lesson rows the caller may read, so its cost grows with that number.
 
-Unreleased (on main, not in v0.24.1): A lookup with an agent key also counts
+From v0.25.0, a lookup with an agent key also counts
 the caller's readable lessons that are waiting, were published in the last seven
 days, or were rejected, made private, forgotten or undone in the last seven
 days. It shows the three most recent unpublished decisions and their reasons
@@ -66,7 +66,7 @@ id with the returned memory id:
 {"action":"approve","review_item_id":"00000000-0000-4000-8000-000000000001"}
 ```
 
-Unreleased (on main, not in v0.24.1): A lesson commit and its waiting review
+From v0.25.0, a lesson commit and its waiting review
 show up to three closest published lessons the caller can read. Each result
 gives its reason in `why`: `all_words`, `some_words`, or `vector` when a vector
 search alone found it, followed by `paths` when a path matches. A path can also

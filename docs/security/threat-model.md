@@ -62,7 +62,7 @@ whatever `Authorization` header it carries. A CORS preflight is not refused by i
 
 From v0.24.1, mounted legacy `/v0` routes check for a loopback peer before `Host` and `Origin` in every mode. PostgreSQL MCP refuses keyless tool calls once the bound user has an active key. A browser clip capability on a keyed install uses the strictest sensitivity ceiling of any key allowed to issue one, and a ceiling refusal leaves the capability available for another attempt.
 
-Unreleased (on main, not in v0.24.1): Memory proposals, open loops, queue tasks, projects and brain charter writes respect the admitted caller's sensitivity ceiling.
+From v0.25.0, memory proposals, open loops, queue tasks, projects and brain charter writes respect the admitted caller's sensitivity ceiling.
 
 From v0.20.0, the HTTP API caps a request body before any
 layer reads it, because a request that has not authenticated can still make the
@@ -159,7 +159,7 @@ From v0.24.1, installs with active keys serve `/v1` only to unbound
 | Alice/provider | Outbound model or connector request | Validated provider configuration, credential references, sanitized public errors, restrictive network deployment policy. From v0.20.0, every provider, embeddings, reranker, fact-key, brain, Gmail and Calendar call goes through one door, `open_provider_url`, which follows no redirect and, for the provider helpers, Gmail and Calendar, dials only an address the outbound policy allows. |
 | Content/policy | Source or model text to memory/review action | Content remains data; policy evaluation and review gates are code-controlled. |
 
-Unreleased (on main, not in v0.24.1): the authorization policy requires the owner or an unbound `admin_agent` key to change the sensitivity of a stored source or a connector's default sensitivity.
+From v0.25.0, the authorization policy requires the owner or an unbound `admin_agent` key to change the sensitivity of a stored source or a connector's default sensitivity.
 
 ### Principal Data Flows
 

@@ -54,3 +54,5 @@ Security posture: automated security scanning and internal adversarial review, f
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+`v0.25.0` is the current release candidate. It is not published.

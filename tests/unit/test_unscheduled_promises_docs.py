@@ -185,22 +185,21 @@ def test_the_v0210_changelog_entries_name_the_three_the_date_and_the_shorter_pag
 
 
 def test_the_known_limitations_page_names_no_release_for_unscheduled_work() -> None:
-    """The page is written for v0.24.1 and names no later release, because nothing it lists is scheduled for one.
+    """The page is written for v0.25.0 and names no later release, because nothing it lists is scheduled for one.
 
-    v0.24.1 appears only as the release the page describes: the lead-in, the release notes link, the heading of the open
-    list and the ``From v0.24.1`` clauses, and the earlier versions only in the clauses of what those releases changed. Mutation: write ``planned for v0.23.0``, ``tracked for v0.24.0`` or any other
+    v0.25.0 appears only as the release the page describes: the lead-in, the release notes link, the heading of the open
+    list, and earlier versions appear only in the clauses of what those releases changed. Mutation: write ``planned for v0.23.0``, ``tracked for v0.24.0`` or any other
     release name beside an item that has no release into the page.
     """
 
     page = _read("docs/alpha/known-limitations.md")
     rest = page
     for described in (
-        "v0.24.1-release-notes.md",
-        "limited now in v0.24.1",
-        "new in v0.24.1 is marked `From v0.24.1`",
-        "what v0.24.0, v0.23.0, v0.22.0 and v0.21.0 changed is marked "
-        "`From v0.24.0`, `From v0.23.0`, `From v0.22.0` and `From v0.21.0`",
-        "Open in v0.24.1,",
+        "v0.25.0-release-notes.md",
+        "limited now in v0.25.0",
+        "Changes are marked with the release that introduced them: "
+        "`From v0.24.1`, `From v0.24.0`, `From v0.23.0`, `From v0.22.0` and `From v0.21.0`",
+        "Open in v0.25.0,",
         "From v0.24.1,",
         "From v0.24.0,",
         "From v0.23.0,",
@@ -209,5 +208,5 @@ def test_the_known_limitations_page_names_no_release_for_unscheduled_work() -> N
         "from v0.21.0,",
     ):
         rest = rest.replace(described, "")
-    assert "v0.21" not in rest and "v0.22" not in rest and "v0.23" not in rest and "v0.24" not in rest
+    assert "v0.21" not in rest and "v0.22" not in rest and "v0.23" not in rest and "v0.24" not in rest and "v0.25" not in rest
     assert not re.search(r"(?:planned|tracked|scheduled|due) for v0\.\d+\.\d+", page)
