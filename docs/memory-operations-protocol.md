@@ -286,12 +286,14 @@ Expiry. A pending confirmation lasts 24 hours, the value of
 `CONFIRMATION_EXPIRY_HOURS` in `vnext_memory_commit.py`. After the 24 hour `expires_at`,
 a confirm or reject through either MCP route above, the HTTP confirm route or
 the CLI confirm that passes the policy check resolves the row to `rejected`
-with reason `confirmation_expired` instead of acting on it. On main, a missing,
-non-text, timezone-free or unreadable `expires_at` also counts as expired. The review paths
+with reason `confirmation_expired` instead of acting on it. The review paths
 can still make a row active after 24 hours. Agentic correction follows the
 standing and deadline in [correct](#correct). A late writer correction without
 review standing is refused with reason `confirmation_expired` and leaves the
 row and its confirmation pending.
+
+Unreleased (on main, not in v0.24.1): a missing, non-text, timezone-free or
+unreadable `expires_at` also counts as expired.
 
 Expiring a write that waits for its author's confirmation does not cancel
 that confirmation. The author can confirm it, making the row active with its

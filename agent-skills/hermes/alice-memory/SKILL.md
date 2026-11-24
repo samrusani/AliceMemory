@@ -53,7 +53,7 @@ Ask the user, showing them the proposed text. If they agree, call `alice_memory_
 {"confirmation_id":"confirm-...","confirmation_action":"confirm"}
 ```
 
-If they do not agree, send `"confirmation_action":"reject"`. Alice cannot tell whether you asked, so never answer for the user. To change the text, reject it and commit the corrected text as a new write. After 24 hours it can no longer be confirmed on `alice_memory_commit`: the next confirm or reject there that passes the policy check resolves it to `rejected`. On main, a missing or invalid deadline also counts as expired. This example sends no identity fields, so on a keyless server the answer is recorded as the local user, not as Hermes.
+If they do not agree, send `"confirmation_action":"reject"`. Alice cannot tell whether you asked, so never answer for the user. To change the text, reject it and commit the corrected text as a new write. After 24 hours it can no longer be confirmed on `alice_memory_commit`: the next confirm or reject there that passes the policy check resolves it to `rejected`. This example sends no identity fields, so on a keyless server the answer is recorded as the local user, not as Hermes.
 
 Good explicit commit, the user said to remember it:
 

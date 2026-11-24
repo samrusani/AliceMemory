@@ -8,7 +8,7 @@ NON_PENDING_RECORDS = (
 DEADLINES = {
     "missing": None,
     "non-text": 123,
-    "no-zone": "2000-01-01T00:00:00",
+    "no-zone": "2999-01-01T00:00:00",
     "unreadable": "not a timestamp",
     "past": "2000-01-01T00:00:00+01:00",
 }

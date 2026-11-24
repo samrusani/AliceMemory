@@ -481,8 +481,7 @@ author's agent_id. An agent write above that agent's sensitivity ceiling is
 rejected and not saved. Do not retry it with a lower sensitivity label. Tell
 the user. The owner (a keyless call with no agent identity), an `admin_agent`
 key, and a keyless call that declares `permission_profile: admin_agent` are
-not held to that ceiling. A pending write expires after 24 hours. On main, a
-missing or invalid deadline also counts as expired. Alice cannot
+not held to that ceiling. A pending write expires after 24 hours. Alice cannot
 tell whether the user was asked. The revision, the policy events and the
 `agent.memory_confirmed` or `agent.memory_confirmation_rejected` event name the
 key's `agent_id` when `ALICE_AGENT_API_KEY` is set, and the declared,

@@ -101,7 +101,7 @@ set to `confirm` or `reject` from their answer, and your identity fields. Never 
 user; Alice cannot tell whether you asked. There is no edit on this call: to change the text,
 reject it and commit the corrected text. After 24 hours it can no longer be confirmed on
 `alice_memory_commit`: the next confirm or reject there that passes the policy check resolves
-it to `rejected`. On main, a missing or invalid deadline also counts as expired. A reviewer using `alice_memory_correct` `approve` on the full surface, which
+it to `rejected`. A reviewer using `alice_memory_correct` `approve` on the full surface, which
 does not check the 24 hours, can still approve it. A key bound to another project can neither
 confirm nor reject it; a keyless server trusts whatever `project_scope` the call declares, so
 this fence needs a project-bound key. Only the agent that authored a pending write, an
