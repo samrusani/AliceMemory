@@ -53,12 +53,15 @@ entry is printed on each run. The production audit never reads the file, so a
 match that reaches a shipped build always blocks. v0.20.0 ships the mechanism
 with no entries.
 
-From v0.24.1, the file holds one entry, for
-`picomatch` (GHSA-fc5q-39xc-vjpf, high). The advisory names no patched
-version and covers 4.0.7, the latest release on npm as of 2026-11-17.
-Development lint and test tooling reaches it through fast-glob and micromatch,
+In v0.24.1, the file held one entry, for
+`picomatch` (GHSA-fc5q-39xc-vjpf, high). The advisory named no patched
+version and covered 4.0.7, the latest release on npm as of 2026-11-17.
+Development lint and test tooling reached it through fast-glob and micromatch,
 and through tinyglobby, fdir, Vite, and Vitest. The production dependency tree
-does not include it. The entry expires on 2026-12-17.
+did not include it. The entry had an expiry date of 2026-12-17.
+
+Unreleased (on main, not in v0.24.1): GHSA-fc5q-39xc-vjpf was
+withdrawn on 2026-11-18, and the file holds no entries.
 
 ```bash
 cd apps/web
