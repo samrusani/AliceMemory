@@ -366,7 +366,7 @@ def test_surface(monkeypatch):
     old = [item for item in list_mcp_tools() if item["name"] != "alice_lessons"]
     digest = hashlib.sha256(json.dumps(old, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     # The full surface describes matching published lessons in the commit and review tool help.
-    assert digest == "bd010b13ca9a33d35d88194f158381fb925c085b22c3afa500d3c215588269d3"
+    assert digest == "49b2bf842ea3a7475d10284bee5187bceadbcc9db190bfd721cffc170b235f26"
     assert tools["alice_lessons"]["description"].endswith("With an agent key, also see what became of the lessons you wrote.")
 
 
