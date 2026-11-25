@@ -60,8 +60,7 @@ Development lint and test tooling reached it through fast-glob and micromatch,
 and through tinyglobby, fdir, Vite, and Vitest. The production dependency tree
 did not include it. The entry had an expiry date of 2026-12-17.
 
-In v0.25.0, GHSA-fc5q-39xc-vjpf was
-withdrawn on 2026-11-18, and the file holds no entries.
+GHSA-fc5q-39xc-vjpf was withdrawn on 2026-11-18. In v0.25.0, the file holds no entries.
 
 ```bash
 cd apps/web

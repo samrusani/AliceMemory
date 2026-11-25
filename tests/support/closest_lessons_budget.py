@@ -1,6 +1,6 @@
 """Paired wall-clock samples through the MCP server."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import contextmanager, ExitStack
 from datetime import UTC, datetime
 import json
@@ -104,8 +104,8 @@ def paired_budget(vault, case):
     assert samples > 0
     db_type = "postgres" if vault.admin_url else "sqlite"
     limit = postgres_slack if vault.admin_url else sqlite_slack
-    rounds: list[tuple[float, float]] = []
-    for _ in range(3):
+
+    def measure_round() -> tuple[float, float]:
         base_times, head_times = [], []
         with ExitStack() as stack:
             before = stack.enter_context(_worker(base, vault, key, tool, arguments))
@@ -122,18 +122,31 @@ def paired_budget(vault, case):
                 for measure, times in pair if index % 2 == 0 else reversed(pair):
                     _, elapsed = measure()
                     times.append(elapsed)
-        old_ms, new_ms = median(base_times), median(head_times)
+        return median(base_times), median(head_times)
+
+    _require_paired_budget(measure_round, samples=samples, db_type=db_type, case=case, limit=limit)
+
+
+def _require_paired_budget(
+    measure_round: Callable[[], tuple[float, float]],
+    *,
+    samples: int,
+    db_type: str,
+    case: str,
+    limit: int,
+) -> None:
+    rounds: list[tuple[float, float]] = []
+    for _ in range(3):
+        old_ms, new_ms = measure_round()
         rounds.append((old_ms, new_ms))
         print(
             f"CLOSEST_BUDGET {db_type} {case} median of {samples}: "
             f"base {old_ms:.3f} ms, head {new_ms:.3f} ms, slack {limit} ms",
             flush=True,
         )
-        decision = budget_decision(rounds, limit)
-        if decision == "pass":
+        if budget_decision(rounds, limit) == "pass":
             return
-        assert decision == "measure again", (db_type, case, rounds, limit)
-
+    raise AssertionError((db_type, case, rounds, limit))
 
 
 def main():

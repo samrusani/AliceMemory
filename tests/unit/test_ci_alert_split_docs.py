@@ -114,8 +114,7 @@ def test_the_picomatch_exception_is_historical_and_its_withdrawal_is_documented(
     assert history.startswith(f"In v0.24.1, the file held one entry, for `picomatch` ({advisory}, high).")
     assert "The entry had an expiry date of 2026-12-17." in history
     assert withdrawal == (
-        f"In v0.25.0, {advisory} was withdrawn on 2026-11-18, "
-        "and the file holds no entries."
+        f"{advisory} was withdrawn on 2026-11-18. In v0.25.0, the file holds no entries."
     )
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")

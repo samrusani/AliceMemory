@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from scripts import release_check
+from tests.unit.test_published_release_notes_stay_immutable import marketplace_follow_up_v0250
 from tests.unit.test_v0240_release_notes import _tag_python
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -168,56 +169,6 @@ def test_no_release_marker_remains_in_documents_code_or_manifest(release_trees: 
     ]
 
 
-def _flat(path: str) -> str:
-    return " ".join(_text(path).split())
-
-
-def test_the_control_documents_name_v0241_as_latest_and_v0240_as_prior() -> None:
-    """Mutation: restore the v0.24.1 candidate line in the README."""
-    for name in ("ARCHITECTURE.md", "CURRENT_STATE.md", "PRODUCT_BRIEF.md", "README.md",
-                 "RELEASING.md", "ROADMAP.md", "docs/vnext/README.md"):
-        text = _flat(name)
-        assert "`v0.24.1` is the current release candidate. It is not published." not in text, name
-        assert "`v0.24.1` is the latest published release" in text, name
-        assert "`v0.24.0` is the latest published release" not in text, name
-    for name in ("ARCHITECTURE.md", "CURRENT_STATE.md", "PRODUCT_BRIEF.md", "README.md", "ROADMAP.md"):
-        assert "`v0.24.0` is the immediately prior published release" in _flat(name), name
-    for name in ("ARCHITECTURE.md", "CURRENT_STATE.md", "PRODUCT_BRIEF.md", "ROADMAP.md"):
-        assert CHECKSUMS in _text(name), name
-    assert "artifact digests are in `docs/release/v0.24.0-checksums.txt`." in _flat("ARCHITECTURE.md")
-    assert f"- [v0.24.1 release notes]({NOTES})" in _text("README.md")
-    assert "[latest published release notes](../release/v0.24.1-release-notes.md)" in _flat("docs/vnext/README.md")
-    assert "[v0.24.1 release notes](release/v0.24.1-release-notes.md)" in _text("docs/overview.md")
-    assert f"`{NOTES}`, with artifact digests in `{CHECKSUMS}`." in _flat("ROADMAP.md")
-    state = _text("CURRENT_STATE.md")
-    assert f"- `{NOTES}`\n- `{CHECKSUMS}`\n" in state
-    assert "`v0.24.0` is the immediately prior published release; its records are" in state
-    latest = "## What `v0.24.1` Shipped"
-    previous = "## What `v0.24.0` Shipped"
-    assert state.index(latest) < state.index(previous)
-    assert f"[release notes]({NOTES})" in state.split(latest, 1)[1].split(previous, 1)[0]
-    assert f"{previous}\n\n`v0.24.0` is the immediately prior published release." in state
-    for earlier in ("v0.23.1", "v0.23.0", "v0.22.0", "v0.21.1", "v0.21.0"):
-        assert f"## What `{earlier}` Shipped\n\n`{earlier}` is an earlier published release." in state
-    history = " ".join(state.split())
-    assert "pins the plugin to the `v0.24.1` tag commit, so the plugin installs from that marketplace." in history
-    assert "`v0.24.1` tag has it still pinned to the `v0.24.0` tag commit." in history
-    assert "`v0.24.0` tag has it still pinned to the `v0.23.1` tag commit," in history
-
-
-def test_the_install_and_checkout_lines_name_v0241_as_the_latest_release() -> None:
-    """Mutation: set the headless install guide's --tag back to v0.24.0."""
-    guide = _flat("docs/alpha/headless-ubuntu-install.md")
-    assert "use the latest published release tag (`v0.24.1`) for an immutable deployment." in guide
-    assert "with the latest published release tag (`v0.24.1`): `--tag v0.24.1`." in guide
-    assert "v0.24.0" not in guide
-    for name in ("README.md", "docs/alpha/quickstart.md", "docs/overview.md"):
-        page = _flat(name)
-        assert "To run v0.24.1, run `git checkout v0.24.1` before `make setup`." in page, name
-        assert "git checkout v0.24.0" not in page, name
-    assert "on top of the latest published `v0.24.1` baseline." in _flat("docs/integrations/reference-paths.md")
-
-
 def test_the_tag_keeps_the_prior_marketplace_pin(release_trees: tuple[Path, Path]) -> None:
     """Mutation: expect the v0.24.1 tag to contain the published pin."""
     _, released = release_trees
@@ -226,12 +177,6 @@ def test_the_tag_keeps_the_prior_marketplace_pin(release_trees: tuple[Path, Path
     for tag, expected in ((RELEASE, TAG_COMMIT), (PRIOR, PRIOR_COMMIT)):
         commit = subprocess.check_output(["git", "rev-parse", f"{tag}^{{commit}}"], cwd=REPOSITORY, text=True)
         assert commit.strip() == expected
-
-
-def test_the_marketplace_pins_the_release_tag_and_its_commit() -> None:
-    """Mutation: put v0.24.0 back into the working marketplace reference."""
-    current = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert (current["ref"], current["sha"]) == (RELEASE, TAG_COMMIT)
 
 
 def test_the_upgrade_step_records_the_new_marketplace_pin() -> None:
@@ -246,14 +191,15 @@ def test_the_upgrade_step_records_the_new_marketplace_pin() -> None:
         "Add the marketplace from the repository."
     )
     notes = _text(NOTES)
-    assert f"{step}\n\n{update}\n\n## The four changes" in notes
+    follow_up = marketplace_follow_up_v0250(update.removeprefix("   > "))
+    assert f"{step}\n\n{update}\n\n   > {follow_up}\n\n## The four changes" in notes
     assert notes.count("**Update (2026-11-18):** v0.24.1 is published") == 1
 
 
 def test_the_security_section_names_the_published_advisory() -> None:
     """Mutation: remove the advisory identifier from the update in the v0.24.1 notes."""
     sentence = "The v0.24.0 notes said that no security advisory was planned; that sentence is corrected here."
-    assert f"{sentence}\n\n> **Update (2026-11-18):** The advisory is {ADVISORY}.\n\n## What" in _text(NOTES)
+    assert f"{sentence}\n\n> **Update (2026-11-18):** The advisory is {ADVISORY}.\n\n" in _text(NOTES)
 
 
 def test_the_prior_security_section_records_the_advisory_and_upgrade() -> None:

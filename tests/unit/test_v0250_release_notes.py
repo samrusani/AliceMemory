@@ -20,7 +20,15 @@ REPOSITORY = Path(os.environ.get("BENCH_TEST_SOURCE", ROOT))
 NOTES = "docs/release/v0.25.0-release-notes.md"
 HEADING = "## v0.25.0 \u2014 2026-11-24"
 BASE = "2ee56079d680cc6fc7802104288a1db8a86d3142"
+RELEASE = "v0.25.0"
+TAG_COMMIT = "414f9f2b14126dbbcad6990d0b05669deec7172d"
 PRIOR = "v0.24.1"
+PRIOR_COMMIT = "6718d7c006c2d64b4ca108a9a84b4eeff59b4709"
+PRIOR_NOTES = "docs/release/v0.24.1-release-notes.md"
+PRIOR_CHECKSUMS = "docs/release/v0.24.1-checksums.txt"
+CHECKSUMS = "docs/release/v0.25.0-checksums.txt"
+MARKETPLACE = ".claude-plugin/marketplace.json"
+ADVISORY = "[GHSA-g7xc-9pmg-hcj9](https://github.com/samrusani/AliceMemory/security/advisories/GHSA-g7xc-9pmg-hcj9)"
 MARKER = "Unreleased (on " + "main, not in v0.24.1):"
 ADVISORY_SENTENCE = "A security advisory for the correction change and the charter change is published with this release."
 
@@ -263,7 +271,7 @@ def test_the_notes_follow_the_release_section_order() -> None:
 
 def test_the_security_section_uses_the_review_disclosure_and_advisory_text() -> None:
     """Mutation: change any one of the three opening sentences or the advisory sentence."""
-    section = " ".join(_sections()["Security"].split())
+    section = " ".join(_sections()["Security"].split("\n\n> **Update", 1)[0].split())
     assert section.startswith(
         "This release was checked with automated security scanning and internal adversarial review. "
         "A second internal review is still being worked through: the fixes this release carries are named below, "
@@ -272,21 +280,33 @@ def test_the_security_section_uses_the_review_disclosure_and_advisory_text() -> 
     assert section.endswith(ADVISORY_SENTENCE)
 
 
-def test_candidate_versions_and_release_state_agree() -> None:
-    """Mutation: restore the old version in apps/web/package.json."""
-    metadata, issues = release_check.validate_metadata(ROOT)
-    assert issues == []
-    assert metadata.version == "0.25.0"
-    assert release_check.validate_release_document_state(ROOT, version=metadata.version, require_finalized=True) == []
+def test_the_tag_has_the_six_version_sites_and_the_finalized_release_documents(released_tree: Path) -> None:
+    """Mutation: validate the v0.24.1 export instead of the v0.25.0 export."""
+    metadata, issues = release_check.validate_metadata(released_tree)
+    assert not issues and metadata.version == "0.25.0"
+    assert release_check.validate_release_document_state(
+        released_tree, version=metadata.version, require_finalized=True,
+    ) == []
 
 
-def test_the_candidate_keeps_the_published_marketplace_pin() -> None:
-    """Mutation: change the marketplace ref from v0.24.1 to v0.25.0."""
-    current = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    published_commit = subprocess.check_output(
-        ["git", "rev-parse", f"{PRIOR}^{{commit}}"], cwd=REPOSITORY, text=True,
+def _tag_commit(tag: str) -> str:
+    return subprocess.check_output(
+        ["git", "rev-parse", f"{tag}^{{commit}}"], cwd=REPOSITORY, text=True,
     ).strip()
-    assert (current["ref"], current["sha"]) == (PRIOR, published_commit)
+
+
+def test_the_tag_keeps_the_prior_marketplace_pin() -> None:
+    """Mutation: expect the v0.25.0 tag to pin its own commit."""
+    source = json.loads(_git_text(RELEASE, MARKETPLACE))["plugins"][0]["source"]
+    assert (source["ref"], source["sha"]) == (PRIOR, PRIOR_COMMIT)
+    assert _tag_commit(PRIOR) == PRIOR_COMMIT
+    assert _tag_commit(RELEASE) == TAG_COMMIT
+
+
+def test_the_marketplace_pins_the_published_release() -> None:
+    """Mutation: put v0.24.1 back into the working marketplace reference."""
+    source = json.loads(_text(MARKETPLACE))["plugins"][0]["source"]
+    assert (source["ref"], source["sha"]) == (RELEASE, TAG_COMMIT)
 
 
 def test_the_changelog_moves_eleven_entries_and_preserves_history() -> None:
@@ -294,44 +314,50 @@ def test_the_changelog_moves_eleven_entries_and_preserves_history() -> None:
     old_entries, history = _git_text(BASE, "CHANGELOG.md").split("\n## Unreleased\n", 1)[1].split("\n## ", 1)
     expected = old_entries.replace(MARKER + " ", "").replace(" (`git diff --name-only HEAD^ HEAD`)", "")
     expected = re.sub(r"(?m)^- ([a-z])", lambda match: "- " + match[1].upper(), expected)
-    current = _text("CHANGELOG.md")
+    current = _git_text(RELEASE, "CHANGELOG.md")
     assert current.startswith(f"# Changelog\n\n## Unreleased\n\n{HEADING}\n")
     released, current_history = current.split(HEADING + "\n", 1)[1].split("\n## ", 1)
     assert released == expected
     assert len(re.findall(r"(?m)^- ", released)) == 11
     assert current_history == history
+    assert _text("CHANGELOG.md").split(HEADING + "\n", 1)[1].split("\n## ", 1)[0] == released
 
 
 
-def test_the_released_marker_is_absent_from_documents_code_and_manifest() -> None:
+def test_the_released_marker_is_absent_from_documents_code_and_manifest(released_tree: Path) -> None:
     """Mutation: treat the released wording as the marker and scan the same files."""
     marker = MARKER.encode()
-    if (ROOT / ".git").exists():
-        names = subprocess.check_output(
-            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=ROOT,
-        )
-        files = (ROOT / os.fsdecode(name) for name in names.split(b"\0") if name)
-    else:
-        files = ROOT.rglob("*")
-    found = [str(path.relative_to(ROOT)) for path in files if path.is_file() and marker in path.read_bytes()]
+    found = [
+        str(path.relative_to(released_tree))
+        for path in released_tree.rglob("*")
+        if path.is_file() and marker in path.read_bytes()
+    ]
     assert found == []
 
 
-@pytest.fixture(scope="module")
-def previous_release(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    destination = tmp_path_factory.mktemp("v0241-export")
-    data = subprocess.check_output(["git", "archive", PRIOR], cwd=REPOSITORY)
+def _export(revision: str, destination: Path) -> Path:
+    data = subprocess.check_output(["git", "archive", revision], cwd=REPOSITORY)
     with tarfile.open(fileobj=BytesIO(data)) as archive:
         archive.extractall(destination, filter="data")
     return destination
 
 
-def test_database_schema_matches_the_previous_release(previous_release: Path, tmp_path: Path) -> None:
+@pytest.fixture(scope="module")
+def previous_release(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _export(PRIOR, tmp_path_factory.mktemp("v0241-export"))
+
+
+@pytest.fixture(scope="module")
+def released_tree(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _export(RELEASE, tmp_path_factory.mktemp("v0250-export"))
+
+
+def test_database_schema_matches_the_previous_release(previous_release: Path, released_tree: Path, tmp_path: Path) -> None:
     """Mutation: read an empty SQLite schema in place of the new vault."""
     def migrations(tree: Path) -> dict[str, bytes]:
         return {path.name: path.read_bytes() for path in (tree / "apps/api/alembic/versions").glob("*.py")}
 
-    assert migrations(previous_release) == migrations(ROOT)
+    assert migrations(previous_release) == migrations(released_tree)
     probe = """
 from pathlib import Path
 import json
@@ -345,12 +371,12 @@ with sqlite3.connect(path) as conn:
     print(json.dumps(conn.execute("SELECT type, name, sql FROM main.sqlite_master ORDER BY type, name").fetchall()))
 """
     prior = _tag_python(previous_release, tmp_path, probe, str(tmp_path / "prior.db"), "bootstrap")
-    candidate = _tag_python(ROOT, tmp_path, probe, str(tmp_path / "candidate.db"), "bootstrap")
-    assert json.loads(prior) == json.loads(candidate)
+    released = _tag_python(released_tree, tmp_path, probe, str(tmp_path / "released.db"), "bootstrap")
+    assert json.loads(prior) == json.loads(released)
 
 
-def test_a_lesson_writer_gets_new_fields_on_the_same_workflow(previous_release: Path, tmp_path: Path) -> None:
-    """Mutation: take the candidate's workflow answer from the previous release."""
+def test_a_lesson_writer_gets_new_fields_on_the_same_workflow(previous_release: Path, released_tree: Path, tmp_path: Path) -> None:
+    """Mutation: take the v0.25.0 workflow answer from the previous release."""
     probe = """
 import json
 import sys
@@ -377,12 +403,12 @@ with pytest.MonkeyPatch.context() as env:
     }))
 """
     prior = _tag_python(previous_release, tmp_path, probe, str(tmp_path / "prior.db"))
-    candidate = _tag_python(ROOT, tmp_path, probe, str(tmp_path / "candidate.db"))
+    released = _tag_python(released_tree, tmp_path, probe, str(tmp_path / "released.db"))
     assert json.loads(prior) == {
         "found_published": True, "commit_matches": False, "review_matches": False,
         "review_draft": False, "writer_outcomes": None,
     }
-    assert json.loads(candidate) == {
+    assert json.loads(released) == {
         "found_published": True, "commit_matches": True, "review_matches": True,
         "review_draft": True, "writer_outcomes": {
             "waiting": 1, "published_in_last_7_days": 0, "not_published_in_last_7_days": 0,
@@ -390,8 +416,131 @@ with pytest.MonkeyPatch.context() as env:
     }
 
 
-def test_control_documents_match_the_candidate_and_published_baseline() -> None:
-    """Mutation: remove the candidate statement from the README."""
+def test_the_tag_records_the_candidate_and_published_baseline(released_tree: Path) -> None:
+    """Mutation: expect the next version to be the candidate in the tagged README."""
     from scripts.check_control_doc_truth import run_control_doc_truth_check
 
-    assert run_control_doc_truth_check(root_dir=ROOT) == []
+    assert f"`{RELEASE}` is the current release candidate. It is not published." in _text("README.md", released_tree)
+    assert run_control_doc_truth_check(root_dir=released_tree) == []
+
+
+def test_the_notes_record_publication_and_checksums() -> None:
+    """Mutation: set publication_status back to pending in the published notes."""
+    lines = _text(NOTES).splitlines()
+    assert lines[0] == "# Alice v0.25.0 Release Notes"
+    assert lines[1] == (
+        '<!-- alice-release-state: {"schema_version":"alice_release_document_state_v1","version":"0.25.0",'
+        '"publication_status":"published","checksums_status":"recorded"} -->'
+    )
+    assert sum("alice-release-state" in line for line in lines) == 1
+    assert (ROOT / CHECKSUMS).is_file()
+
+
+def test_the_checksums_file_records_both_published_artifacts() -> None:
+    """Mutation: change one hex digit in the wheel record."""
+    prior = _git_text(RELEASE, PRIOR_CHECKSUMS).splitlines(keepends=True)
+    current = _text(CHECKSUMS).splitlines(keepends=True)
+    assert len(prior) == len(current) == 19
+    assert [line.replace("0.24.1", "0.25.0") for line in prior[:13]] == current[:13]
+    assert current[13:17] == [
+        "# Recorded from the PyPI version-specific JSON API and GitHub Release asset\n",
+        "# metadata. The rebuilt SHA256SUMS matches the release asset's reported\n",
+        "# size and SHA-256 digest.\n",
+        "#\n",
+    ]
+    assert current[17:] == [
+        "8355cda248f03de01bbba505cec22d07613811211e5055230362f09b142e0fde  alice_memory-0.25.0-py3-none-any.whl\n",
+        "f94f7f1309668a6f0a0be8a4f251f8a1d4f36beca254109dceb91640cc57727f  alice_memory-0.25.0.tar.gz\n",
+    ]
+
+
+def test_the_upgrade_step_records_the_new_marketplace_pin() -> None:
+    """Mutation: remove the marketplace follow-up beside step 6."""
+    step = "6. The Claude Code marketplace pin moves to v0.25.0 in the post-publication change."
+    update = (
+        "   > **Update (2026-11-25):** v0.25.0 is published, and the marketplace file on `main` now pins the v0.25.0 tag "
+        "commit, so the marketplace install runs v0.25.0. The copy inside the v0.25.0 tag still pins v0.24.1. "
+        "Add the marketplace from the repository."
+    )
+    notes = _text(NOTES)
+    assert f"{step}\n\n{update}\n\n## Lessons" in notes
+    assert notes.count("**Update (2026-11-25):** v0.25.0 is published") == 1
+
+
+def test_the_security_section_names_the_published_advisory() -> None:
+    """Mutation: remove the advisory identifier from the v0.25.0 update."""
+    update = f"> **Update (2026-11-25):** The advisory is {ADVISORY}."
+    assert f"{ADVISORY_SENTENCE}\n\n{update}\n\n## What this release does not claim" in _text(NOTES)
+
+
+def test_the_prior_security_section_records_the_advisory_and_console_upgrade() -> None:
+    """Mutations: remove the prior release upgrade instruction, or change either Next.js version in its update."""
+    previous_update = (
+        "> **Update (2026-11-18):** The advisory is "
+        "[GHSA-345x-53v6-432p](https://github.com/samrusani/AliceMemory/security/advisories/GHSA-345x-53v6-432p)."
+    )
+    advisory_update = (
+        "> **Update (2026-11-25):** An advisory covering behaviour in v0.24.1 was published "
+        f"on 2026-11-25 with v0.25.0. See {ADVISORY}. Upgrade to v0.25.0."
+    )
+    next_update = (
+        "> **Update (2026-11-25):** Seven Next.js advisories published from 2026-11-16 to 2026-11-19 apply "
+        "to the web console in a v0.24.1 checkout, which uses Next.js 16.4.1. v0.25.0 uses Next.js 16.4.5, "
+        "which fixes all seven. Its [release notes](v0.25.0-release-notes.md#security) name them. If you run "
+        "the console from a v0.24.1 checkout, check out the v0.25.0 tag, run `pnpm install --frozen-lockfile` "
+        "in `apps/web`, then run `pnpm build` there. The PyPI package does not include the console."
+    )
+    assert f"{previous_update}\n\n{advisory_update}\n\n{next_update}\n\n## What" in _text(PRIOR_NOTES)
+    for tag, version in ((PRIOR, "16.4.1"), (RELEASE, "16.4.5")):
+        package = json.loads(_git_text(tag, "apps/web/package.json"))
+        assert package["dependencies"]["next"] == package["devDependencies"]["eslint-config-next"] == version
+
+
+def _flat(path: str) -> str:
+    return " ".join(_text(path).split())
+
+
+def test_the_control_documents_name_v0250_as_latest_and_v0241_as_prior() -> None:
+    """Mutation: restore the v0.25.0 candidate line in the README."""
+    for name in ("ARCHITECTURE.md", "CURRENT_STATE.md", "PRODUCT_BRIEF.md", "README.md",
+                 "RELEASING.md", "ROADMAP.md", "docs/vnext/README.md"):
+        text = _flat(name)
+        assert "`v0.25.0` is the current release candidate. It is not published." not in text, name
+        assert "`v0.25.0` is the latest published release" in text, name
+        assert "`v0.24.1` is the latest published release" not in text, name
+    for name in ("ARCHITECTURE.md", "CURRENT_STATE.md", "PRODUCT_BRIEF.md", "README.md", "ROADMAP.md"):
+        assert "`v0.24.1` is the immediately prior published release" in _flat(name), name
+    for name in ("ARCHITECTURE.md", "CURRENT_STATE.md", "PRODUCT_BRIEF.md", "ROADMAP.md"):
+        assert CHECKSUMS in _text(name), name
+    assert "artifact digests are in `docs/release/v0.24.1-checksums.txt`." in _flat("ARCHITECTURE.md")
+    assert f"- [v0.25.0 release notes]({NOTES})" in _text("README.md")
+    assert "[latest published release notes](../release/v0.25.0-release-notes.md)" in _flat("docs/vnext/README.md")
+    assert "[v0.25.0 release notes](release/v0.25.0-release-notes.md)" in _text("docs/overview.md")
+    assert f"`{NOTES}`, with artifact digests in `{CHECKSUMS}`." in _flat("ROADMAP.md")
+    state = _text("CURRENT_STATE.md")
+    assert f"- `{NOTES}`\n- `{CHECKSUMS}`\n" in state
+    assert "`v0.24.1` is the immediately prior published release; its records are" in state
+    latest = "## What `v0.25.0` Shipped"
+    previous = "## What `v0.24.1` Shipped"
+    assert state.index(latest) < state.index(previous)
+    assert f"[release notes]({NOTES})" in state.split(latest, 1)[1].split(previous, 1)[0]
+    assert f"{previous}\n\n`v0.24.1` is the immediately prior published release." in state
+    for earlier in ("v0.24.0", "v0.23.1", "v0.23.0", "v0.22.0", "v0.21.1", "v0.21.0"):
+        assert f"## What `{earlier}` Shipped\n\n`{earlier}` is an earlier published release." in state
+    history = " ".join(state.split())
+    assert "pins the plugin to the `v0.25.0` tag commit, so the plugin installs from that marketplace." in history
+    assert "`v0.25.0` tag has it still pinned to the `v0.24.1` tag commit." in history
+    assert "`v0.24.1` tag has it still pinned to the `v0.24.0` tag commit," in history
+
+
+def test_the_install_and_checkout_lines_name_v0250_as_the_latest_release() -> None:
+    """Mutation: set the headless install guide's --tag back to v0.24.1."""
+    guide = _flat("docs/alpha/headless-ubuntu-install.md")
+    assert "use the latest published release tag (`v0.25.0`) for an immutable deployment." in guide
+    assert "with the latest published release tag (`v0.25.0`): `--tag v0.25.0`." in guide
+    assert "v0.24.1" not in guide
+    for name in ("README.md", "docs/alpha/quickstart.md", "docs/overview.md"):
+        page = _flat(name)
+        assert "To run v0.25.0, run `git checkout v0.25.0` before `make setup`." in page, name
+        assert "git checkout v0.24.1" not in page, name
+    assert "on top of the latest published `v0.25.0` baseline." in _flat("docs/integrations/reference-paths.md")

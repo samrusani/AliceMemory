@@ -16,7 +16,7 @@ import pytest
 
 import scripts.release_check as release_check
 
-from tests.unit.test_published_release_notes_stay_immutable import marketplace_follow_up_v0241
+from tests.unit.test_published_release_notes_stay_immutable import marketplace_follow_up_v0241, marketplace_follow_up_v0250
 
 ROOT = Path(__file__).resolve().parents[2]
 NOTES_PATH = "docs/release/v0.24.0-release-notes.md"
@@ -171,7 +171,7 @@ def test_the_marketplace_pins_the_release_tag_and_the_tag_keeps_the_prior_pin() 
     """Mutation: set the working marketplace ref back to v0.23.1."""
     marketplace_path = ".claude-plugin/marketplace.json"
     marketplace = json.loads(_text(marketplace_path))["plugins"][0]["source"]
-    assert (marketplace["ref"], marketplace["sha"]) == ("v0.24.1", "6718d7c006c2d64b4ca108a9a84b4eeff59b4709")
+    assert (marketplace["ref"], marketplace["sha"]) == ("v0.25.0", "414f9f2b14126dbbcad6990d0b05669deec7172d")
     for tag, commit in ((RELEASE_TAG, TAG_COMMIT), (PRIOR_TAG, PRIOR_TAG_COMMIT)):
         actual = subprocess.check_output(["git", "rev-parse", f"{tag}^{{commit}}"], cwd=REPOSITORY, text=True)
         assert actual.strip() == commit
@@ -193,7 +193,9 @@ def test_the_notes_say_beside_upgrade_step_three_that_main_now_pins_v0240() -> N
         "A marketplace install therefore runs v0.23.1 until then."
     )
     follow_up = marketplace_follow_up_v0241(update.removeprefix("   > "))
-    assert f"{step}\n\n{update}\n\n   > {follow_up}\n\nThis release needs no database migration:" in upgrade
+    latest = marketplace_follow_up_v0250(follow_up)
+    assert f"{step}\n\n{update}\n\n   > {follow_up}\n\n   > {latest}\n\nThis release needs no database migration:" in upgrade
+    assert notes.count("**Update (2026-11-25):** v0.25.0 is published") == 1
     assert notes.count("**Update (2026-11-18):** v0.24.1 is published") == 1
     assert notes.count("**Update (2026-11-17):**") == 1
 
