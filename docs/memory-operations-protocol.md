@@ -129,8 +129,8 @@ or provenance. An agent refusal also writes `policy.decision`. A ceiling
 refusal also writes `agent.policy_filtered` when the policy decision is
 `allowed_with_filtering`, and `agent.policy_blocked` when that decision is
 `blocked`.
-Commits accept an `idempotency_key`; retries replay the original result
-instead of double-writing.
+Commits accept an `idempotency_key`. A retry with the same key and request replays the original result.
+If both calls are accepted, a commit sent twice without an `idempotency_key` is stored twice.
 The key names a write across the whole vault, not one agent or project. A
 second agent sending the same request can replay the stored outcome; a
 different request with that key fails without adding a memory. When the row is

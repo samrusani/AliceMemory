@@ -4,7 +4,7 @@ description: Use Alice as the project-scoped memory and continuity layer. Load b
 version: 1.0.0
 author: Alice Memory
 license: MIT
-platforms: [linux, macos, windows]
+platforms: [linux, macos]
 ---
 
 # OpenClaw Alice Project Memory Skill

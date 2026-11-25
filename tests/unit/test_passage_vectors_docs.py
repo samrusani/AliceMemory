@@ -70,14 +70,14 @@ def test_the_tool_reference_names_every_variable_default_and_rule() -> None:
 
 
 def test_the_security_page_lists_what_leaves_the_machine_and_when() -> None:
-    """Mutation: delete the section, the remote opt-in sentence, or the sentence about the query."""
+    """Mutation: remove the source-chunk opt-in from the security page."""
 
     page = _flat("SECURITY.md")
     section = page[page.index("## What Text Leaves the Machine") : page.index("## Browser Clipper Credentials")]
     assert "ALICE_SOURCE_EMBEDDINGS_REMOTE" not in section and "MAX_SENSITIVITY" not in section
     for needle in (
-        "Nothing from a source is sent unless `ALICE_SOURCE_EMBEDDINGS=on`",
-        "Source text goes only to an endpoint on this machine",
+        "Source chunks go to the embeddings endpoint only when `ALICE_SOURCE_EMBEDDINGS=on`",
+        "Source embeddings send text only to an endpoint on this machine",
         "Remote endpoints are not supported for source embeddings in this release",
         "a chunk the credential check flags",
         "just before each request of up to 128 texts",

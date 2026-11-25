@@ -11,9 +11,9 @@ repaired carrier needs fresh evidence. A result from the base, the superseded
 working tree, or the historical scan does not transfer automatically to a
 later tree.
 
-The owner has accepted Phase 5.1.c at the claim bar "automated security
-scanning and internal adversarial review, findings triaged and fixed." This
-closes the owner disposition at that stated bar; it does not assert that an
+The owner accepted Phase 5.1.c on 2026-07-22. Its claim was recorded on 2026-10-04 as
+"automated security scanning and internal adversarial review, findings triaged and fixed." This
+closed the owner disposition at that stated bar. It does not assert that an
 external review occurred, that the carrier was independently audited, or that
 the open proof gaps below disappeared. Stage B history is retained to make that
 distinction auditable.
@@ -23,10 +23,10 @@ distinction auditable.
 > v0.14.0 was published on 2026-07-24 after the owner recorded the real-host
 > receipt (29 of 29 checks), so the release no longer waits on fresh Stage A
 > receipts.
->
-> The public security claim is: automated security scanning and internal
-> adversarial review, findings triaged and fixed. No one outside the project
-> has audited the code.
+
+The current public security statement describes automated security scanning and internal adversarial review.
+A second internal review is still being worked through: v0.25.0 carries its first fixes,
+and some of its findings are not fixed yet. No one outside the project has audited the code.
 
 ## Surface Closure
 

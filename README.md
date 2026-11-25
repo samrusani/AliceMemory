@@ -10,6 +10,8 @@ Alice is a local-first memory service for teams of AI agents (sales, support, pr
 
 ## Quickstart
 
+Alice runs on Linux and macOS, and Windows is not supported for now.
+
 ```bash
 uvx alice-memory install --data-dir ~/.alice
 uvx alice-memory demo --vault ~/Notes --data-dir ~/.alice-demo
@@ -49,7 +51,7 @@ The published LongMemEval figures carry a known issue: the model answering each 
 
 ## Security
 
-Security posture: automated security scanning and internal adversarial review, findings triaged and fixed. No one outside the project has audited the code. Report issues per [SECURITY.md](SECURITY.md).
+Security posture: automated security scanning and internal adversarial review. A second internal review is still being worked through: v0.25.0 carries its first fixes, and some of its findings are not fixed yet. No one outside the project has audited the code. Report issues per [SECURITY.md](SECURITY.md).
 
 ## License
 

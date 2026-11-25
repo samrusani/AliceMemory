@@ -4,7 +4,7 @@ description: Use Alice as the user's durable local memory. Load before answering
 version: 1.0.0
 author: Alice Memory
 license: MIT
-platforms: [linux, macos, windows]
+platforms: [linux, macos]
 metadata:
   hermes:
     tags: [Memory, Continuity, MCP, Recall]
