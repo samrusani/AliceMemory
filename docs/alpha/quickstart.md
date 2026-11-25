@@ -4,7 +4,7 @@ This is the canonical local setup walkthrough for Alice. Other quickstart pages 
 
 ## Install with alice-memory
 
-This is the default setup. Your memory lives in one local SQLite file. The `uvx` line needs [uv](https://docs.astral.sh/uv/), which fetches Python for you. The `pip` line needs Python 3.12 or later. No Docker, Node or Postgres.
+This is the default setup. Your memory lives in one local SQLite file. The `uvx` line needs [uv](https://docs.astral.sh/uv/), which fetches Python for you. The `pip` line needs Python 3.12 or later. No Docker, Node or Postgres. Alice runs on Linux and macOS, and Windows is not supported for now.
 
 ```bash
 uvx alice-memory install

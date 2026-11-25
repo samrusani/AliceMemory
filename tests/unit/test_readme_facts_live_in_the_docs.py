@@ -49,13 +49,15 @@ def test_the_readme_keeps_no_version_history_and_one_from_v0210_line() -> None:
     assert "From v0.21.0, `alice_what_changed` is a core tool." in marked[0]
 
 
-def test_the_readme_security_wording_is_unchanged() -> None:
-    """Mutation: reword the posture, or say anyone outside the project looked at the code."""
+def test_the_readme_security_wording_reports_the_review_status() -> None:
+    """Mutation: remove the second review status from the README security paragraph."""
 
     readme = _flat("README.md")
     assert (
-        "Security posture: automated security scanning and internal adversarial review, findings triaged and fixed. "
-        "No one outside the project has audited the code."
+        "Security posture: automated security scanning and internal adversarial review. "
+        "A second internal review is still being worked through: v0.25.0 carries its first fixes, "
+        "and some of its findings are not fixed yet. No one outside the project has audited the code. "
+        "Report issues per [SECURITY.md](SECURITY.md)."
     ) in readme
 
 

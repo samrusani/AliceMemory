@@ -11,9 +11,9 @@ evidence into an external audit or certification.
   v0.14.0 release, published on 2026-07-24. The receipts and counts in this
   folder describe the Stage A carrier as it stood on 2026-07-22; the
   repository tests are the current check**.
-- Phase 5.1.c owner disposition: **accepted** at the claim bar "automated
-  security scanning and internal adversarial review, findings triaged and
-  fixed."
+- The 2026-07-22 Phase 5.1.c owner disposition was **accepted**. Its claim was
+  recorded on 2026-10-04 as "automated security scanning and internal adversarial
+  review, findings triaged and fixed."
 - Stage B history: **retained as provenance, not evidence of an external
   assessment**. No external auditor is required under the owner's disposition,
   and no external audit occurred.
@@ -25,10 +25,10 @@ evidence into an external audit or certification.
 > receipt and committed-SHA CI are still open describe 2026-07-22. v0.14.0 was
 > published on 2026-07-24 after the owner recorded the real-host receipt (29 of
 > 29 checks), so neither gate is open for that release.
->
-> The public security claim is: automated security scanning and internal
-> adversarial review, findings triaged and fixed. No one outside the project
-> has audited the code.
+
+The current public security statement describes automated security scanning and internal adversarial review.
+A second internal review is still being worked through: v0.25.0 carries its first fixes,
+and some of its findings are not fixed yet. No one outside the project has audited the code.
 
 The Stage A baseline is `main` at
 `c9d24243920a694eaf00ad595da392a1478710dd`. The browser-clipper remediation

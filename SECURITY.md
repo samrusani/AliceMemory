@@ -28,9 +28,10 @@ Do not open public issues for active security vulnerabilities.
 
 ## Security Review
 
-Alice's security work is automated security scanning and internal adversarial
-review, with findings triaged and fixed. No one outside the project has audited
-the code. From v0.15.1 on, each version's release notes list its known gaps.
+Alice's security work is automated security scanning and internal adversarial review.
+A second internal review is still being worked through: v0.25.0 carries its first fixes,
+and some of its findings are not fixed yet. No one outside the project has audited the code.
+From v0.15.1 on, each version's release notes list its known gaps.
 
 ## Security Boundaries
 
@@ -77,11 +78,11 @@ The shipped threat model and current evidence boundaries are documented in
 
 Alice sends text to a model or an embeddings endpoint only when the owner has configured one, and it sends nothing to
 an endpoint that is not configured. Memory embeddings send the text of the memories recall can return and the recall
-query. The text of imported and captured notes is a separate opt-in:
+query. Sending chunks of imported and captured notes to the embeddings endpoint is a separate opt-in.
 
-- Nothing from a source is sent unless `ALICE_SOURCE_EMBEDDINGS=on`. Setting `ALICE_EMBEDDINGS_BASE_URL` and
-  `ALICE_EMBEDDINGS_MODEL` alone sends no chunk of a note.
-- Source text goes only to an endpoint on this machine: `localhost`, a name under `.localhost`, an IPv4 address in
+- Source chunks go to the embeddings endpoint only when `ALICE_SOURCE_EMBEDDINGS=on`. Setting
+  `ALICE_EMBEDDINGS_BASE_URL` and `ALICE_EMBEDDINGS_MODEL` alone sends no chunk of a note.
+- Source embeddings send text only to an endpoint on this machine: `localhost`, a name under `.localhost`, an IPv4 address in
   `127.0.0.0/8` written as four decimal numbers, or `::1`, with no proxy of the environment that would carry the
   request. Any other host name (one that resolves to loopback included), any other address and every IPv4-mapped IPv6
   form is not on this machine. Remote endpoints are not supported for source embeddings in this release: for such an
@@ -104,6 +105,11 @@ query. The text of imported and captured notes is a separate opt-in:
   --drop` deletes them all. Deleting is logical, as it is for chunk text: the vectors are zeroed where the database
   frees them, but the write-ahead log, unused space in the vault file and earlier backups can keep vector bytes until a
   checkpoint and `VACUUM`. A vector the endpoint's operator kept, or a backup of the vault, is outside Alice's reach.
+- The context-pack reranker is off until both `ALICE_RERANKER_BASE_URL` and `ALICE_RERANKER_MODEL` are set.
+  Its OpenAI-compatible endpoint may be remote. It receives the query with the text of up to 48 candidate memories
+  and, separately, the query with the titles of up to 24 candidate sources per pack. Source summaries, raw text,
+  passages and titles outside the caller's read access stay out of these requests. Credential-like text in a readable
+  title can be sent with the title. If the endpoint disconnects, the pack still builds and its trace records `fail_open`.
 
 ## Browser Clipper Credentials
 

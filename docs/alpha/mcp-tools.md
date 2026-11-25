@@ -655,6 +655,7 @@ Explicit "remember this" instructions go through `alice_memory_commit`, and
 so does anything else an agent decides is worth keeping. The tool is not
 restricted to instructed writes; a direct instruction is one case of using
 it, not the condition for using it.
+If both calls are accepted, a commit sent twice without an `idempotency_key` is stored twice.
 
 Who is calling decides what to pass:
 
