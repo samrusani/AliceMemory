@@ -95,7 +95,10 @@ def _writer_can_publish(row):
         return row.get("created_by_agent_id") is None and not (
             isinstance(metadata, Mapping) and metadata.get("agent_id")
         )
-    return isinstance(identity, Mapping) and identity.get("permission_profile") == "admin_agent"
+    return isinstance(identity, Mapping) and (
+        identity.get("permission_profile") == "admin_agent"
+        or (isinstance(agentic, Mapping) and agentic.get("keyless_lesson_publishing_standing") is True)
+    )
 
 
 def _publication(row, revisions):

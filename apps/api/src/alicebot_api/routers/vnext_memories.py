@@ -663,34 +663,33 @@ def update_vnext_connector_config(
     return JSONResponse(status_code=200, content=jsonable_encoder(payload))
 
 
-def _connector_sync_caller_guard(store: PostgresVNextStore, *, user_id: UUID, authorization: str | None) -> LabelGuard:
+def _connector_sync_caller(
+    store: PostgresVNextStore, request: VNextAgentRequest, *, user_id: UUID, authorization: str | None,
+) -> tuple[LabelGuard, AgentIdentity | None]:
     """The guard of the caller of a sync. The record a sync answers carries two cursors, and the previous one is where
     an earlier call left off, so it can name an item this caller may not read."""
 
     from alicebot_api.vnext_label_guard import guard_for_caller
 
-    identity = resolve_protected_agent_identity(
-        store, user_id=user_id, raw_key=agent_key_from_authorization(authorization), payload={}
+    raw_key = agent_key_from_authorization(authorization)
+    guard_identity = (
+        resolve_protected_agent_identity(store, user_id=user_id, raw_key=raw_key, payload={})
+        if raw_key is not None else None
     )
-    return guard_for_caller(store, identity)
+    identity = _vnext_authenticated_agent_identity(store, request, user_id=user_id, authorization=authorization)
+    return guard_for_caller(store, guard_identity), identity
 
 
 def _connector_capture_ceiling(
     store: PostgresVNextStore,
-    request: VNextAgentRequest,
+    identity: AgentIdentity | None,
     *,
-    user_id: UUID,
-    authorization: str | None,
     connector_name: str,
     sensitivity: str | None,
 ) -> PolicyDecision | None:
     """Refuse a connector capture above the caller's sensitivity ceiling."""
     from alicebot_api.vnext_memory_commit import _connector_capture_ceiling_decision
 
-    if agent_key_from_authorization(authorization) is not None:
-        identity = _vnext_authenticated_agent_identity(store, request, user_id=user_id, authorization=authorization)
-    else:
-        identity = _vnext_agent_identity(request)
     if identity is None:
         return None
     selected = _connector_capture_sensitivity(store, connector_name, sensitivity)
@@ -713,10 +712,12 @@ class _BrowserClipCeilingRefusal(Exception):
     """Leave the capture transaction so capability consumption rolls back."""
 
 
-def _check_browser_clip_capability_ceiling(store: PostgresVNextStore, sensitivity: str) -> None:
+def _check_browser_clip_capability_ceiling(
+    store: PostgresVNextStore, sensitivity: str, *, active_keys: int,
+) -> None:
     from alicebot_api.vnext_memory_commit import _connector_capture_ceiling_decision
 
-    if store.count_active_agent_api_keys() == 0:
+    if active_keys == 0:
         return
     selected = _connector_capture_sensitivity(store, "browser_clipper", sensitivity)
     for profile in PERMISSION_PROFILES:
@@ -742,8 +743,8 @@ def sync_vnext_connector(
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
-            guard = _connector_sync_caller_guard(store, user_id=request.user_id, authorization=authorization)
-            refusal = _connector_capture_ceiling(store, request, user_id=request.user_id, authorization=authorization,
+            guard, identity = _connector_sync_caller(store, request, user_id=request.user_id, authorization=authorization)
+            refusal = _connector_capture_ceiling(store, identity,
                                                   connector_name=connector_name, sensitivity=request.default_sensitivity)
             if refusal is not None:
                 return _vnext_permission_response(refusal)
@@ -783,8 +784,8 @@ def sync_vnext_telegram_connector(
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
-            guard = _connector_sync_caller_guard(store, user_id=request.user_id, authorization=authorization)
-            refusal = _connector_capture_ceiling(store, request, user_id=request.user_id, authorization=authorization,
+            guard, identity = _connector_sync_caller(store, request, user_id=request.user_id, authorization=authorization)
+            refusal = _connector_capture_ceiling(store, identity,
                                                   connector_name="telegram", sensitivity=request.default_sensitivity)
             if refusal is not None:
                 return _vnext_permission_response(refusal)
@@ -838,8 +839,8 @@ def sync_vnext_local_folder_connector(
         )
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
-            guard = _connector_sync_caller_guard(store, user_id=request.user_id, authorization=authorization)
-            refusal = _connector_capture_ceiling(store, request, user_id=request.user_id, authorization=authorization,
+            guard, identity = _connector_sync_caller(store, request, user_id=request.user_id, authorization=authorization)
+            refusal = _connector_capture_ceiling(store, identity,
                                                   connector_name="local_folder", sensitivity=request.default_sensitivity)
             if refusal is not None:
                 return _vnext_permission_response(refusal)
@@ -877,11 +878,22 @@ def capture_vnext_browser_clip(
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
-            refusal = _connector_capture_ceiling(store, request, user_id=request.user_id, authorization=authorization,
-                                                  connector_name="browser_clipper", sensitivity=request.sensitivity)
+            capability_authorized = request.capture_capability is not None
+            active_keys = None
+            if capability_authorized and agent_key_from_authorization(authorization) is None:
+                identity = _vnext_agent_identity(request)
+                if identity is not None:
+                    active_keys = store.count_active_agent_api_keys()
+                    identity = _vnext_agent_identity(request, no_active_agent_keys=active_keys == 0)
+            else:
+                identity = _vnext_authenticated_agent_identity(
+                    store, request, user_id=request.user_id, authorization=authorization,
+                )
+            refusal = _connector_capture_ceiling(
+                store, identity, connector_name="browser_clipper", sensitivity=request.sensitivity,
+            )
             if refusal is not None:
                 return _vnext_permission_response(refusal)
-            capability_authorized = request.capture_capability is not None
             if capability_authorized:
                 if request.capture_token is not None:
                     raise BrowserClipCapabilityValidationError(
@@ -893,7 +905,9 @@ def capture_vnext_browser_clip(
                     capture_url=request.url,
                     request_origin=origin if isinstance(origin, str) else None,
                 )
-                _check_browser_clip_capability_ceiling(store, request.sensitivity)
+                if active_keys is None:
+                    active_keys = store.count_active_agent_api_keys()
+                _check_browser_clip_capability_ceiling(store, request.sensitivity, active_keys=active_keys)
             result = VNextConnectorService(store, defer_embeddings=True).capture_browser_clip(
                 request.model_dump(mode="json"),
                 default_domain=request.domain,

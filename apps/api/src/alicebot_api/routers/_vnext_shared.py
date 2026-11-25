@@ -9,6 +9,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
+from pydantic import field_validator
 
 from alicebot_api.public_errors import public_exception_response
 from alicebot_api.vnext_agent_control import (
@@ -46,6 +47,13 @@ class BaseModel(PydanticBaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+_allow_empty_keyless_profile: ContextVar[bool] = ContextVar("allow_empty_keyless_profile", default=False)
+
+
+def _empty_keyless_profile(value: object) -> object:
+    return None if value == "" and _allow_empty_keyless_profile.get() else value
+
+
 class VNextAgentIdentityRequest(BaseModel):
     agent_id: str = Field(min_length=1, max_length=120)
     agent_type: str = Field(default="unknown", min_length=1, max_length=80)
@@ -53,6 +61,7 @@ class VNextAgentIdentityRequest(BaseModel):
     task_id: str | None = Field(default=None, min_length=1, max_length=160)
     project_scope: list[str] = Field(default_factory=list)
     permission_profile: str | None = Field(default=None, min_length=1, max_length=80)
+    _normalize_profile = field_validator("permission_profile", mode="before")(_empty_keyless_profile)
 
 
 _allow_partial_keyed_identity: ContextVar[bool] = ContextVar("allow_partial_keyed_identity", default=False)
@@ -68,6 +77,7 @@ class VNextAgentRequest(BaseModel):
     project_scope: list[str] = Field(default_factory=list)
     permission_profile: str | None = Field(default=None, min_length=1, max_length=80)
     trace_id: str | None = Field(default=None, min_length=1, max_length=160)
+    _normalize_profile = field_validator("permission_profile", mode="before")(_empty_keyless_profile)
 
     @model_validator(mode="wrap")
     @classmethod
@@ -481,9 +491,11 @@ def _vnext_normalized_agent_payload(request: VNextAgentRequest) -> dict[str, obj
     return payload
 
 
-def _vnext_agent_identity(request: VNextAgentRequest) -> AgentIdentity | None:
+def _vnext_agent_identity(
+    request: VNextAgentRequest, *, no_active_agent_keys: bool = False,
+) -> AgentIdentity | None:
     payload = _vnext_normalized_agent_payload(request)
-    return AgentIdentity.from_payload(payload)
+    return AgentIdentity.from_payload(payload, no_active_agent_keys=no_active_agent_keys)
 
 
 def _keyed_http_identity_defaults(payload: Mapping[str, object]) -> dict[str, object]:

@@ -734,14 +734,16 @@ vault with no keys, and the owner over HTTP), a key of profile
 `permission_profile: admin_agent` on a vault with no keys (a keyless vault
 cannot tell callers apart, so a declared `admin_agent` profile publishes as
 the owner does) publish a lesson at once, as their writes commit today.
-Every other identity, whatever its profile, never publishes at once: a
-write that would commit today answers `review_required` with reason
+Through v0.25.0, a write from another admitted caller that would commit
+answers `review_required` with reason
 `lesson_requires_approval`, stored the way a `memory_proposal_agent` write
 is stored. The promotion policy never lifts a lesson, whatever the persona
 and settings say. Approval is today's review door: `alice_memory_correct`
 with `action: approve` (or `reject`). After an approve, the other keys of
 the project read the lesson through `alice_recall`, and its writer is still
 the key that wrote it.
+
+Unreleased (on main, not in v0.25.0): On an install without active keys, a lesson from a trusted local or project-scoped caller publishes when the write commits.
 
 Doors that rewrite a stored memory in place refuse a memory that carries a
 lesson, for every identity: `alice_memory_correct` with
@@ -1381,7 +1383,7 @@ under `unknown` by default. Unclassified material is held by the sensitivity
 ceiling and the project scope, not by its domain. The held-back set is read from
 the stored label, so a health note filed as `personal` is not held back.
 
-From v0.20.2, a keyless call that declares one of those
+From v0.20.2 through v0.25.0, a keyless call that declares one of those
 profiles, or only an `agent_id` (which defaults to `read_only_agent`, except
 `hermes`, which defaults to `trusted_local_agent`, and `openclaw`, which
 defaults to `project_scoped_agent`), is held the same way, as it already was
@@ -1391,6 +1393,8 @@ either profile read every domain with or without naming them, as before. In
 v0.20.0 a restricted caller that named no domain read all of them, health
 included, and the same caller got the tool error `tool_request_failed` when it
 named `health`.
+
+Unreleased (on main, not in v0.25.0): On an install without active keys, a named MCP or HTTP caller that omits its permission profile defaults to `trusted_local_agent`, except `openclaw`, which keeps its `project_scoped_agent` default.
 
 From v0.20.2, with per-project scoping on, the project's
 own notes in a held-back domain are left out for a restricted caller too (the

@@ -101,6 +101,8 @@ record — on HTTP via `Authorization: Bearer alice_sk_...`, on MCP via
 id or a higher permission profile is refused and logged. See
 [agent-integration.md](alpha/agent-integration.md).
 
+Unreleased (on main, not in v0.25.0): On an install without active keys, a named MCP or HTTP caller that omits its permission profile has trusted local standing, with `openclaw` keeping its project-scoped standing.
+
 ---
 
 ## remember
@@ -336,6 +338,8 @@ a declared admin profile has the same standing as it does when publishing.
 These rules apply to forget, expire and undo, and to unexpire for lessons.
 A refused visible target leaves the usual blocked policy events; an unreadable
 target answers as a missing target.
+
+Unreleased (on main, not in v0.25.0): On an install without active keys, trusted local and project-scoped callers may undo, forget, expire or unexpire a lesson wherever they can do the same to an ordinary memory.
 
 ## undo
 

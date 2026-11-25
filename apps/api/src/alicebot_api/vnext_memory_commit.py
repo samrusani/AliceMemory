@@ -1042,9 +1042,8 @@ def evaluate_memory_commit_policy(
         and mode != "reject"
         and not caller_may_publish_lesson(identity)
     ):
-        # Publishing a lesson at once is the owner's and an admin_agent
-        # key's standing alone. Every other identity, whatever its profile,
-        # waits for review, and the promotion policy never lifts it.
+        # A writer without publishing standing needs review. Promotion
+        # policy never lifts a lesson.
         reasons.append("lesson_requires_approval")
         mode = "propose_review"
         status = "review_required"
@@ -1220,7 +1219,11 @@ def resolved_confirmation_record(
 def caller_may_publish_lesson(identity: AgentIdentity | None) -> bool:
     """Apply the standing used when a lesson is first published."""
 
-    return identity is None or identity.permission_profile == "admin_agent"
+    if identity is None or identity.permission_profile == "admin_agent":
+        return True
+    return identity.no_active_agent_keys and identity.permission_profile in {
+        "trusted_local_agent", "project_scoped_agent",
+    }
 
 
 def _block_mutation_above_sensitivity_ceiling(decision: PolicyDecision) -> PolicyDecision:
@@ -3428,6 +3431,14 @@ class VNextMemoryCommitService:
         }
         if confirmation is not None:
             agentic["confirmation"] = confirmation
+        if (
+            request.lesson is not None
+            and identity is not None
+            and identity.no_active_agent_keys
+            and identity.permission_profile != "admin_agent"
+            and decision.write_mode in {"commit", "confirm_inline"}
+        ):
+            agentic["keyless_lesson_publishing_standing"] = True
         return {
             "project_scope": list(request.project_scope),
             "agentic_memory": agentic,

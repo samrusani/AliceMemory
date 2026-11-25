@@ -5216,6 +5216,7 @@ def test_alice_project_review_defers_embedding_until_primary_transaction_closes(
 
 
 def test_alice_memory_commit_outcome_vocabulary(monkeypatch, core_surface, no_embedding_provider) -> None:
+    """Guard edit: declare trusted local in the request that must be rejected."""
     store = FakeVNextMCPStore()
     _patch_vnext_store(monkeypatch, store)
 
@@ -5234,9 +5235,10 @@ def test_alice_memory_commit_outcome_vocabulary(monkeypatch, core_surface, no_em
         _mcp_context(),
         name="alice_memory_commit",
         arguments={
-            "agent_id": "unknown-agent",
+            "agent_id": "fixture-agent",
+            "permission_profile": "read_only_agent",
             "title": "Read-only agent",
-            "canonical_text": "Self-declared unknown agents still cannot write.",
+            "canonical_text": "An explicitly read-only agent cannot write.",
         },
     )
     assert rejected["status"] == "rejected"

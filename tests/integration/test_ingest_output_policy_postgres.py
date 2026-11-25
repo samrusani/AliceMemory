@@ -287,11 +287,13 @@ def test_a_trusted_local_agent_key_that_proposes_a_memory_still_writes_a_candida
     "declared",
     [
         pytest.param({"agent_id": "hermes"}, id="hermes defaults to trusted_local_agent"),
+        pytest.param({"agent_id": "kiln-bot"}, id="ordinary named caller defaults to trusted_local_agent"),
         pytest.param({"agent_id": "kiln-bot", "permission_profile": "trusted_local_agent"}, id="declared trusted_local_agent"),
         pytest.param({"agent_id": "kiln-bot", "permission_profile": "admin_agent"}, id="declared admin_agent"),
     ],
 )
 def test_a_keyless_call_that_declares_a_profile_which_may_write_still_writes(env, declared: dict[str, str]) -> None:
+    """Guard edit: use the original read-only fallback for the ordinary named caller."""
     before = _state(env)
     status, answer, raised = _asgi_post(INGEST, _body(env, **declared, propose_memory=True))
     after = _state(env)
@@ -303,16 +305,17 @@ def test_a_keyless_call_that_declares_a_profile_which_may_write_still_writes(env
     assert after["memories"] == before["memories"] + 1
 
 
-def test_a_keyless_call_that_declares_no_profile_is_held_to_read_only_agent(env) -> None:
-    """With no key and no profile, an ``agent_id`` other than ``hermes`` and ``openclaw`` is a ``read_only_agent``, which
-    the MCP tool and the command line already refused and the sources route refuses."""
+def test_a_keyless_call_that_declares_read_only_is_refused(env) -> None:
+    """Guard edit: replace the request's declared read-only profile with trusted local."""
 
     before = _state(env)
-    status, answer, raised = _asgi_post(INGEST, _body(env, "kiln-bot"))
+    claims = {"agent_id": "kiln-bot", "permission_profile": "read_only_agent"}
+    status, answer, raised = _asgi_post(INGEST, _body(env, **claims))
     assert raised is None
     assert status == 403, answer
     assert answer["detail"] == BLOCKED_DETAIL
-    sibling_status = _asgi_post(SOURCES, {"user_id": env.user, "agent_id": "kiln-bot", "raw_text": "Plain note."})[0]
+    assert "read_only_agent_cannot_write" in answer["policy_decision"]["reasons"]
+    sibling_status = _asgi_post(SOURCES, {"user_id": env.user, **claims, "raw_text": "Plain note."})[0]
     assert sibling_status == 403
     _nothing_written(before, _state(env))
 

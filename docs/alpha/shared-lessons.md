@@ -6,16 +6,22 @@ A lesson is a structured procedure memory recording when something applies,
 what happened and what to do instead. The owner and an `admin_agent` key can
 publish a lesson when a commit succeeds. On a keyless vault, a caller declaring
 `permission_profile: admin_agent` can also publish because the vault cannot
-distinguish its identity. Other identities' lessons wait for review. A reviewer
+distinguish its identity. Other admitted writers using keys need review. A reviewer
 can publish a waiting lesson through `alice_memory_correct` or the memory review
 HTTP route. Published lessons are returned only when the caller may read them.
 A write can also require confirmation or be rejected by the existing checks.
 
-From v0.25.0, a waiting or rejected lesson and its
+Unreleased (on main, not in v0.25.0): On an install without active keys, a trusted local or project-scoped caller publishes a lesson as soon as its write commits.
+Unreleased (on main, not in v0.25.0): An ordinary named MCP or HTTP caller that leaves out its permission profile uses the trusted local profile on an install without active keys, and `openclaw` keeps its project-scoped default.
+Unreleased (on main, not in v0.25.0): An active key brings back the publishing approval requirement for trusted local and project-scoped callers, and a proposal-only caller's lesson always waits.
+
+Through v0.25.0, a waiting or rejected lesson and its
 decision reason are visible only to its writer and to the owner or an admin
 whose limits allow the row. Other readers see a missing lesson. A commit that
 would replay such a hidden lesson gives the existing idempotency conflict.
 Published lessons and their decision reasons follow the usual read limits.
+
+Unreleased (on main, not in v0.25.0): Trusted local and project-scoped callers on an install without active keys can also see waiting lessons within their read limits.
 
 Each lesson returned by `alice_lessons` names its writer and the agent that
 approved it, when an agent approved it. Choose neutral agent ids if those names
@@ -65,6 +71,9 @@ id with the returned memory id:
 ```json
 {"action":"approve","review_item_id":"00000000-0000-4000-8000-000000000001"}
 ```
+
+Unreleased (on main, not in v0.25.0): Lessons already awaiting review stay queued after upgrade and a replay returns the original waiting receipt.
+Unreleased (on main, not in v0.25.0): The default SQLite tool list has no approval or rejection action for those lessons, so the owner can temporarily enable the full tool list and use `alice_memory_correct` with `approve` to publish or `reject` to close one.
 
 From v0.25.0, a lesson commit and its waiting review
 show up to three closest published lessons the caller can read. Each result

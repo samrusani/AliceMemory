@@ -84,8 +84,9 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
                 )
         else:
             _refuse_keyless_postgres(context)
+            has_active_key = False
         try:
-            return AgentIdentity.from_payload(arguments)
+            return AgentIdentity.from_payload(arguments, no_active_agent_keys=has_active_key is False)
         except AgentIdentityValidationError as exc:
             raise MCPArgumentError(str(exc)) from exc
     try:
@@ -152,10 +153,10 @@ RESERVED_PROJECT_NAME_MESSAGE = (
 _PROJECT_NAME_ARGUMENTS = ("projects", "project", "project_scope")
 
 
-def _vault_has_active_key(sqlite_path: str) -> bool:
+def _vault_has_active_key(sqlite_path: str) -> bool | None:
     """One count query on a read-only connection: does the vault hold an
-    active (never revoked) agent key? A vault without the table yet reads as
-    keyless; any other error raises (the caller refuses the call rather than
+    active (never revoked) agent key? A vault without the table yet can
+    still serve local calls, but has no count. Any other error raises (the caller refuses the call rather than
     answer it with the owner's standing). The URI is built the way the onramp
     builds one (``Path(...).resolve().as_uri()``), so a ``#``, ``?`` or ``%``
     in the data directory's name cannot make SQLite open a different path.
@@ -165,16 +166,16 @@ def _vault_has_active_key(sqlite_path: str) -> bool:
 
     path = Path(sqlite_path)
     if not path.exists():
-        return False
+        return None
     connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=5.0)
     try:
         row = connection.execute(
             "SELECT count(*) FROM agent_api_keys WHERE revoked_at IS NULL"
         ).fetchone()
-        return bool(row and row[0] > 0)
+        return row[0] > 0 if row is not None else None
     except sqlite3.OperationalError as exc:
         if "no such table" in str(exc).lower():
-            return False
+            return None
         raise
     finally:
         connection.close()

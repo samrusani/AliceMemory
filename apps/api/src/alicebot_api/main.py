@@ -59,6 +59,7 @@ from alicebot_api.routers._api_shared import (
     _resolve_authenticated_v1_user_id,
 )
 from alicebot_api.routers._vnext_shared import (
+    _allow_empty_keyless_profile,
     _allow_partial_keyed_identity,
     _keyed_http_identity_defaults,
     VNextAgentIdentityRequest,
@@ -1053,9 +1054,19 @@ async def _vnext_protected_http_auth(
         field in payload for field in ("agent_id", "agent_type", "agent_run_id", "task_id", "permission_profile", "project_scope")
     )
     token = _allow_partial_keyed_identity.set(allow_partial)
+    # Keyless requests reached this point through the zero-key check or
+    # through the separate browser capability path.
+    alias = payload.get("agent") if payload.get("agent_identity") is None else None
+    alias_id = alias.get("agent_id") if isinstance(alias, dict) else None
+    empty_profile_token = _allow_empty_keyless_profile.set(
+        raw_key is None and not capability_capture and (
+            identity is not None or (isinstance(alias_id, str) and bool(alias_id.strip()))
+        )
+    )
     try:
         return await call_next(request)
     finally:
+        _allow_empty_keyless_profile.reset(empty_profile_token)
         _allow_partial_keyed_identity.reset(token)
 
 
