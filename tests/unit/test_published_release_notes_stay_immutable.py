@@ -34,6 +34,8 @@ v0.24.0 notes and the v0.24.0 changelog section joined both lists after publicat
 release-note tests pin the 2026-11-17 marketplace updates beside their predecessors.
 On 2026-11-18 the v0.24.1 notes and changelog section joined the lists. The
 release-note tests pin the 2026-11-18 marketplace and advisory updates.
+On 2026-11-25 the v0.25.0 notes and changelog section joined the lists. The
+release-note tests pin the new marketplace, advisory and Next.js updates.
 
 Three things are pinned here, by reading the tag with ``git show`` and not by
 trusting the working file:
@@ -81,7 +83,7 @@ CHANGELOG = "CHANGELOG.md"
 # Changelog sections of published releases, unchanged since their tags except for dated lines.
 PUBLISHED_CHANGELOG_SECTIONS = (
     "v0.17.0", "v0.18.0", "v0.19.0", "v0.19.2", "v0.20.0", "v0.20.2", "v0.21.0",
-    "v0.21.1", "v0.22.0", "v0.23.0", "v0.23.1", "v0.24.0", "v0.24.1",
+    "v0.21.1", "v0.22.0", "v0.23.0", "v0.23.1", "v0.24.0", "v0.24.1", "v0.25.0",
 )
 
 PUBLISHED_NOTES = (
@@ -98,6 +100,7 @@ PUBLISHED_NOTES = (
     ("v0.23.1", "docs/release/v0.23.1-release-notes.md"),
     ("v0.24.0", "docs/release/v0.24.0-release-notes.md"),
     ("v0.24.1", "docs/release/v0.24.1-release-notes.md"),
+    ("v0.25.0", "docs/release/v0.25.0-release-notes.md"),
 )
 
 # The dated 2026-10-01 update paragraphs, in file order, as read after quote
@@ -288,6 +291,17 @@ def marketplace_follow_up_v0241(previous: str) -> str:
         "**Update (2026-11-18):** v0.24.1 is published, and the marketplace file on `main` now pins the v0.24.1 tag "
         f"commit, so the marketplace install runs v0.24.1. The copy {history}, and the copy inside the v0.24.1 tag "
         "still pins v0.24.0. Add the marketplace from the repository."
+    )
+
+
+def marketplace_follow_up_v0250(previous: str) -> str:
+    """Keep the tag history in the v0.24.1 update and add the v0.25.0 tag."""
+    history = previous.partition(". The copy ")[2].removesuffix(". Add the marketplace from the repository.")
+    history = re.sub(r",? and the copy ", ", the copy ", history)
+    return (
+        "**Update (2026-11-25):** v0.25.0 is published, and the marketplace file on `main` now pins the v0.25.0 tag "
+        f"commit, so the marketplace install runs v0.25.0. The copy {history}, and the copy inside the v0.25.0 tag "
+        "still pins v0.24.1. Add the marketplace from the repository."
     )
 
 
@@ -487,6 +501,14 @@ def test_the_2026_11_18_updates_have_no_doubled_commas() -> None:
     for _, path in PUBLISHED_NOTES:
         for block in paragraphs(_working(path)):
             if dated_update.match(block):
+                assert "," * 2 not in block, (path, block)
+
+
+def test_the_2026_11_25_updates_have_no_doubled_commas() -> None:
+    """Mutation: double a list separator in the v0.23.1 marketplace follow-up."""
+    for _, path in PUBLISHED_NOTES:
+        for block in paragraphs(_working(path)):
+            if block.startswith("**Update (2026-11-25):**"):
                 assert "," * 2 not in block, (path, block)
 
 

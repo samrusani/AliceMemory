@@ -21,7 +21,12 @@ import json
 import re
 from pathlib import Path
 
-from tests.unit.test_published_release_notes_stay_immutable import _tagged, marketplace_follow_up, marketplace_follow_up_v0241
+from tests.unit.test_published_release_notes_stay_immutable import (
+    _tagged,
+    marketplace_follow_up,
+    marketplace_follow_up_v0241,
+    marketplace_follow_up_v0250,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NOTES_PATH = "docs/release/v0.20.0-release-notes.md"
@@ -77,8 +82,8 @@ def test_the_marketplace_pins_the_latest_published_release_and_the_notes_carry_t
     """
 
     marketplace = json.loads(_text(".claude-plugin/marketplace.json"))["plugins"][0]["source"]
-    assert marketplace["ref"] == "v0.24.1"
-    assert marketplace["sha"] == "6718d7c006c2d64b4ca108a9a84b4eeff59b4709"
+    assert marketplace["ref"] == "v0.25.0"
+    assert marketplace["sha"] == "414f9f2b14126dbbcad6990d0b05669deec7172d"
     notes = _flat(NOTES_PATH)
     assert "pip install alice-memory==0.20.0 && alice-memory install" in notes
     assert "pip install -U alice-memory==0.20.0" in notes
@@ -1180,3 +1185,6 @@ def test_both_notes_say_main_now_pins_v0231_after_the_v0230_follow_ups() -> None
         assert _text(path).count("Update (2026-11-17)") == count, path
         assert [blocks[index + 2] for index in positions] == [marketplace_follow_up_v0241(expected)] * count, path
         assert _text(path).count("Update (2026-11-18)") == count, path
+        latest = marketplace_follow_up_v0250(marketplace_follow_up_v0241(expected))
+        assert [blocks[index + 3] for index in positions] == [latest] * count, path
+        assert _text(path).count("Update (2026-11-25)") == count, path
