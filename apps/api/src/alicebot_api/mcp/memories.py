@@ -15,6 +15,7 @@ from alicebot_api.vnext_agent_control import (
 from alicebot_api.vnext_embeddings import DeferredMemoryEmbedding
 from alicebot_api.vnext_memory_commit import (
     LESSON_MUTATION_REFUSED_MESSAGE,
+    RULE_MUTATION_REFUSED_MESSAGE,
     IdempotencyKeyConflictError,
     MemoryNotFoundError,
     MemoryStateError,
@@ -136,14 +137,15 @@ def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Map
     conflict: IdempotencyKeyConflictError | None = None
     deferred_embedding_inputs: tuple[DeferredMemoryEmbedding, ...] = ()
     confidence = _parse_optional_float(arguments, "confidence")
-    if arguments.get("lesson") is not None:
+    has_rule = arguments.get("rule") is not None
+    if arguments.get("lesson") is not None or has_rule:
         # A lesson names the text: canonical_text is refused, the title and
         # the domain have lesson defaults, and memory_type is procedure.
-        if arguments.get("canonical_text") is not None:
+        if not has_rule and arguments.get("canonical_text") is not None:
             raise MCPInvalidRequestError("canonical_text must be left out when the commit carries a lesson")
         commit_payload: dict[str, object] = {
             "title": _parse_optional_text(arguments, "title"),
-            "canonical_text": None,
+            "canonical_text": arguments.get("canonical_text"),
             "memory_type": _parse_optional_text(arguments, "memory_type"),
             "domain": _parse_optional_text(arguments, "domain"),
             "sensitivity": _parse_optional_text(arguments, "sensitivity") or "unknown",
@@ -159,6 +161,11 @@ def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Map
             "trace_id": _parse_optional_text(arguments, "trace_id"),
             "lesson": arguments.get("lesson"),
         }
+        if has_rule:
+            commit_payload["rule"] = arguments["rule"]
+            for field in ("confidence", "source_type"):
+                if field not in arguments:
+                    del commit_payload[field]
     else:
         commit_payload = {
             "title": _parse_required_text(arguments, "title"),
@@ -177,7 +184,7 @@ def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Map
             "contradiction_refs": list(_parse_string_list(arguments, "contradiction_refs")),
             "trace_id": _parse_optional_text(arguments, "trace_id"),
         }
-    if arguments.get("lesson") is not None:
+    if arguments.get("lesson") is not None or has_rule:
         try:
             request = memory_commit_request_from_payload(commit_payload, user_id=context.user_id)
         except VNextMemoryCommitValidationError as exc:
@@ -238,6 +245,7 @@ _COMMIT_WRITE_FIELDS = (
     "title",
     "canonical_text",
     "lesson",
+    "rule",
     "memory_type",
     "domain",
     "sensitivity",
@@ -333,7 +341,7 @@ def _confirm_pending_memory(
         except AgentPolicyBlockedError as exc:
             blocked_decision = exc.decision
         except VNextMemoryCommitValidationError as exc:
-            if str(exc) == LESSON_MUTATION_REFUSED_MESSAGE:
+            if str(exc) in {LESSON_MUTATION_REFUSED_MESSAGE, RULE_MUTATION_REFUSED_MESSAGE}:
                 # A confirm that would rewrite a lesson's text answers
                 # invalid_request with the fixed words, which the caller
                 # reads. Every other confirmation shape keeps today's answer.

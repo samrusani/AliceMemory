@@ -58,7 +58,7 @@ from alicebot_api.vnext_label_sql import (
     EVENT_TYPE_REFERENCES,
     EVENT_UNJUDGED_TARGETS,
 )
-from alicebot_api.vnext_lesson_visibility import has_lesson_block, hidden_review_lesson, review_lesson_reader
+from alicebot_api.vnext_lesson_visibility import commit_block_kind, hidden_review_lesson, review_lesson_reader
 from alicebot_api.vnext_project_scope import (
     project_floor_shape,
     project_scope_identity,
@@ -973,7 +973,7 @@ class LabelGuard:
             cached = {row_id: state.targets[(kind, row_id)] for row_id in wanted if (kind, row_id) in state.targets}
             native = getattr(type(self.store), "native_review_lesson_selection", False)
             for row_id, row in cached.items():
-                if not native or has_lesson_block(row):
+                if not native or commit_block_kind(row) is not None:
                     key = (kind, row_id)
                     state.targets.pop(key)
             if native and cached:

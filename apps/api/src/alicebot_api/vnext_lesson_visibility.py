@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from typing import Any
+from typing import Any, Literal
 
 from alicebot_api.vnext_agent_control import AgentIdentity
 
@@ -27,15 +27,23 @@ def lesson_mutation_fence(identity: AgentIdentity | None) -> AgentIdentity | Non
     return identity
 
 
-def has_lesson_block(row: Mapping[str, object]) -> bool:
+def commit_block_kind(row: Mapping[str, object], *, legacy_lesson: bool = False) -> Literal["lesson", "rule"] | None:
+    """Identify a stored block, including the older lesson shapes protected from writes."""
     value = row.get("value")
-    return isinstance(value, Mapping) and isinstance(value.get("lesson"), Mapping)
+    if not isinstance(value, Mapping):
+        return None
+    if isinstance(value.get("rule"), Mapping):
+        return "rule"
+    if isinstance(value.get("lesson"), Mapping) or (legacy_lesson and "lesson" in value):
+        return "lesson"
+    return None
 
 
 def lesson_block_sql(*, sqlite: bool) -> str:
-    """Match the lesson shape in the stored value."""
-    storage_type = "json_type(value, '$.lesson')" if sqlite else "jsonb_typeof(value -> 'lesson')"
-    return f"{storage_type} = 'object'"
+    """Match blocks whose unpublished states share the review read fence."""
+    if sqlite:
+        return "(json_type(value, '$.lesson') = 'object' OR json_type(value, '$.rule') = 'object')"
+    return "(jsonb_typeof(value -> 'lesson') = 'object' OR jsonb_typeof(value -> 'rule') = 'object')"
 
 
 def is_unpublished_lesson(row: Mapping[str, object]) -> bool:
@@ -47,7 +55,7 @@ def is_unpublished_lesson(row: Mapping[str, object]) -> bool:
         agentic = metadata.get("agentic_memory") if isinstance(metadata, Mapping) else None
         if not isinstance(agentic, Mapping) or agentic.get("status") not in _UNPUBLISHED_WRITE_STATUSES:
             return False
-    return has_lesson_block(row)
+    return commit_block_kind(row) is not None
 
 
 def hidden_review_lesson(row: Mapping[str, object], reader: str | None) -> bool:

@@ -919,6 +919,7 @@ def _resolve_vnext_http_auth(
             user_id=user_id,
             raw_key=raw_key,
             payload=_keyed_http_identity_defaults(payload) if raw_key is not None else payload,
+            defer_key_use=method == "POST" and route_path == "/v0/vnext/memories/commit" and payload.get("rule") is not None,
         )
         route_decision = _vnext_central_route_policy(
             identity=identity,

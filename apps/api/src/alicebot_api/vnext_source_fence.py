@@ -2073,14 +2073,43 @@ class SavedProvenanceReader:
         memory_id = str(row.get("id") or "")
         verdict = self._verdict(memory_id, row, self._links.get(memory_id, []))
         if not verdict.withhold_quotes:
+            shown = row
+        else:
+            shown = _memory_without_refused_provenance(
+                row,
+                refused=verdict.refused,
+                withhold_quotes=True,
+                refused_memories=verdict.refused_memories,
+                readable=self._readable,
+            )
+        return self._withhold_rule_predecessor(shown, ("value",))
+
+    def _withhold_rule_predecessor(self, row: Mapping[str, object], keys: Sequence[str]) -> dict[str, object]:
+        """Hold the rule block's copy of the replacement reference to the memory read fence."""
+        out: dict[str, object] | None = None
+        for key in keys:
+            value = row.get(key)
+            rule = value.get("rule") if isinstance(value, Mapping) else None
+            predecessor = rule.get("replaces") if isinstance(rule, Mapping) else None
+            if not isinstance(predecessor, str) or not self._limited():
+                continue
+            memory_id = _uuid_text(predecessor)
+            if memory_id is not None:
+                self._judge_memories((memory_id,))
+                if self._memory_admitted.get(memory_id):
+                    continue
+            if out is None:
+                out = dict(row)
+            assert isinstance(value, Mapping) and isinstance(rule, Mapping)
+            out[key] = {**value, "rule": {field: item for field, item in rule.items() if field != "replaces"}}
+            if key == "value" and str(row.get("supersedes")) == predecessor:
+                out.pop("supersedes", None)
+                metadata = row.get("metadata_json")
+                if isinstance(metadata, Mapping) and str(metadata.get("supersedes")) == predecessor:
+                    out["metadata_json"] = {field: item for field, item in metadata.items() if field != "supersedes"}
+        if out is None:
             return row  # type: ignore[return-value]
-        return _memory_without_refused_provenance(
-            row,
-            refused=verdict.refused,
-            withhold_quotes=True,
-            refused_memories=verdict.refused_memories,
-            readable=self._readable,
-        )
+        return out
 
     def _revision(self, row: Mapping[str, object]) -> dict[str, object]:
         memory_id = str(row.get("memory_id") or "")
@@ -2101,7 +2130,7 @@ class SavedProvenanceReader:
             if withhold_quotes and isinstance(value, Mapping):
                 texts |= _copy_quote_texts(value)
         if not refused and not refused_memories and not texts:
-            return row  # type: ignore[return-value]
+            return self._withhold_rule_predecessor(row, _REVISION_VALUE_KEYS)
         shown = _revision_without_refused_refs(
             row,
             refused=refused,
@@ -2112,7 +2141,7 @@ class SavedProvenanceReader:
         )
         if texts:
             self._revision_texts.setdefault(memory_id, set()).update(texts)
-        return shown
+        return self._withhold_rule_predecessor(shown, _REVISION_VALUE_KEYS)
 
     def _refused(self, cited: CitedSourceIds, *, also_named: Iterable[str] = ()) -> frozenset[str]:
         """The ids of ``cited`` (and ``also_named``) the caller may not be shown. A named id must name a stored source the

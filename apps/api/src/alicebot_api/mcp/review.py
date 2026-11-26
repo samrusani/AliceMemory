@@ -81,6 +81,8 @@ from alicebot_api.vnext_memory_commit import (
     _lesson_block_from_payload,
     is_pending_consolidation_candidate,
     refuse_lesson_mutation,
+    refuse_rule_in_correction,
+    rule_activation_decision,
 )
 from alicebot_api.vnext_project_update_guard import (
     PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
@@ -689,6 +691,10 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             )
         if is_pending_project_update_memory(memory):
             raise MCPPreconditionFailedError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
+        if resolved_action == "confirm":
+            activation = rule_activation_decision(memory, identity, locked_decision)
+            if activation.decision == "blocked":
+                _raise_mcp_policy_blocked(activation)
         event_payload: VNextJsonObject = {
             "requested_action": requested_action,
             "resolved_action": resolved_action,
@@ -758,6 +764,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
         elif resolved_action == "edit":
             title = _parse_optional_text(arguments, "title")
             body = _parse_optional_json_object(arguments, "body")
+            refuse_rule_in_correction(body)
             provenance = _parse_optional_json_object(arguments, "provenance")
             confidence = _parse_optional_float(arguments, "confidence")
             if title is None and body is None and provenance is None and confidence is None:
@@ -847,6 +854,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
         else:  # supersede
             replacement_title = _parse_optional_text(arguments, "replacement_title")
             replacement_body = _parse_optional_json_object(arguments, "replacement_body")
+            refuse_rule_in_correction(replacement_body)
             replacement_provenance = _parse_optional_json_object(arguments, "replacement_provenance")
             replacement_confidence = _parse_optional_float(arguments, "replacement_confidence")
             if replacement_title is None and replacement_body is None:

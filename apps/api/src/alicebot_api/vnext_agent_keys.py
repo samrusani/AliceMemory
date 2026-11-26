@@ -179,7 +179,7 @@ def create_agent_key(
     return record, raw_key
 
 
-def verify_agent_key(store: AgentKeyStore, raw_key: str) -> JsonObject | None:
+def verify_agent_key(store: AgentKeyStore, raw_key: str, *, defer_key_use: bool = False) -> JsonObject | None:
     """Verify a raw agent API key. Returns the key record or None."""
 
     if not isinstance(raw_key, str) or not raw_key.startswith(AGENT_KEY_PREFIX):
@@ -192,6 +192,8 @@ def verify_agent_key(store: AgentKeyStore, raw_key: str) -> JsonObject | None:
         return None
     if record.get("revoked_at") is not None:
         return None
+    if defer_key_use:
+        return record
     return store.touch_agent_api_key(key_id=str(record["id"]))
 
 
@@ -201,6 +203,7 @@ def resolve_agent_identity(
     user_id: object,
     raw_key: str | None,
     payload: Mapping[str, object],
+    defer_key_use: bool = False,
 ) -> AgentIdentity | None:
     """Resolve an authenticated agent identity for a request payload.
 
@@ -238,7 +241,7 @@ def resolve_agent_identity(
     except AgentIdentityValidationError as exc:
         deferred_validation = exc
 
-    record = verify_agent_key(store, raw_key)
+    record = verify_agent_key(store, raw_key, defer_key_use=defer_key_use)
     if record is None:
         if deferred_validation is not None:
             raise deferred_validation
@@ -407,6 +410,7 @@ def resolve_agent_identity(
         project_scope=effective_project_scope,
         project_scope_locked=project_scope_locked,
         auth=AGENT_KEY_AUTH,
+        deferred_key_use_id=str(record["id"]) if defer_key_use else None,
     )
 
 
@@ -416,6 +420,7 @@ def resolve_protected_agent_identity(
     user_id: object,
     raw_key: str | None,
     payload: Mapping[str, object],
+    defer_key_use: bool = False,
 ) -> AgentIdentity | None:
     """Authenticate a protected vNext request before endpoint dispatch.
 
@@ -438,6 +443,7 @@ def resolve_protected_agent_identity(
         user_id=user_id,
         raw_key=raw_key,
         payload=payload,
+        defer_key_use=defer_key_use,
     )
 
 

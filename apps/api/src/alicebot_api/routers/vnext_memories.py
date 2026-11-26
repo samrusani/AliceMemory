@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Header, Path, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
-from pydantic import Field, ValidationError as PydanticValidationError, model_validator
+from pydantic import ConfigDict, Field, ValidationError as PydanticValidationError, field_validator, model_validator
 
 from alicebot_api.browser_clip_capabilities import (
     BrowserClipCapabilityValidationError,
@@ -22,6 +22,8 @@ from alicebot_api.write_bounds import (
     MAX_COMMIT_LESSON_DO_INSTEAD_CHARS,
     MAX_COMMIT_LESSON_PATHS,
     MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS,
+    MAX_COMMIT_RULE_CHARS,
+    MAX_COMMIT_RULE_REASON_CHARS,
     MAX_COMMIT_SOURCE_REFS,
 )
 from alicebot_api.credential_floor import (
@@ -93,7 +95,6 @@ from alicebot_api.vnext_doctor import VNextDoctorService
 from alicebot_api.vnext_event_log import append_event
 from alicebot_api.vnext_lesson_visibility import lesson_mutation_fence
 from alicebot_api.vnext_memory_commit import (
-    LESSON_MUTATION_REFUSED_MESSAGE,
     IdempotencyKeyConflictError,
     MemoryNotFoundError,
     VNextMemoryCommitService,
@@ -102,9 +103,10 @@ from alicebot_api.vnext_memory_commit import (
     agent_api_keys_provisioned,
     is_pending_consolidation_candidate,
     load_promotion_settings,
-    memory_carries_lesson,
     memory_commit_request_from_payload,
+    refuse_lesson_mutation,
     resolved_confirmation_record,
+    rule_activation_decision,
 )
 from alicebot_api.vnext_source_fence import (
     SOURCE_REF_SHAPE_MESSAGE,
@@ -268,6 +270,21 @@ class VNextMemoryCommitLessonRequest(BaseModel):
     paths: list[str] | None = Field(default=None, max_length=MAX_COMMIT_LESSON_PATHS)
 
 
+class VNextMemoryCommitRuleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rule: str = Field(min_length=1, max_length=MAX_COMMIT_RULE_CHARS)
+    reason: str = Field(min_length=1, max_length=MAX_COMMIT_RULE_REASON_CHARS)
+    applies_when: str | None = Field(default=None, min_length=1, max_length=MAX_COMMIT_LESSON_APPLIES_WHEN_CHARS)
+    paths: list[str] | None = Field(default=None, max_length=MAX_COMMIT_LESSON_PATHS)
+    replaces: str | None = None
+
+    @field_validator("rule", "reason", "applies_when", mode="before")
+    @classmethod
+    def _collapse_text(cls, value: object) -> object:
+        return " ".join(value.split()) if isinstance(value, str) else value
+
+
 class VNextMemoryCommitRequest(VNextAgentRequest):
     user_id: UUID
     intent: str = Field(default="explicit_remember", min_length=1, max_length=120)
@@ -288,6 +305,7 @@ class VNextMemoryCommitRequest(VNextAgentRequest):
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
     contradiction_refs: list[str] = Field(default_factory=list)
     lesson: VNextMemoryCommitLessonRequest | None = None
+    rule: VNextMemoryCommitRuleRequest | None = None
 
     @model_validator(mode="wrap")
     @classmethod
@@ -299,7 +317,7 @@ class VNextMemoryCommitRequest(VNextAgentRequest):
         try:
             model = handler(value)
         except PydanticValidationError as exc:
-            if not (isinstance(value, Mapping) and value.get("lesson") is not None):
+            if not (isinstance(value, Mapping) and (value.get("lesson") is not None or value.get("rule") is not None)):
                 raise
             # Only the text the lesson names is filled; a field the client
             # sent is validated as sent, so the real errors alone surface.
@@ -316,6 +334,15 @@ class VNextMemoryCommitRequest(VNextAgentRequest):
             # A memory_type the client sent must be procedure; the default it
             # did not send is replaced by procedure in the service.
             raise ValueError("a commit with a lesson has memory_type procedure")
+        if model.rule is not None:
+            if model.lesson is not None:
+                raise ValueError("a commit takes one of lesson or rule")
+            if model.canonical_text is not None:
+                raise ValueError("canonical_text must be left out when the commit carries a rule")
+            if "memory_type" in model.model_fields_set and model.memory_type != "procedure":
+                raise ValueError("a commit with a rule has memory_type procedure")
+            if {"confidence", "source_type"} & model.model_fields_set:
+                raise ValueError("confidence and source_type must be left out when the commit carries a rule")
         return model
 
 
@@ -1640,16 +1667,19 @@ def review_vnext_memory(
                     status_code=409,
                     detail=PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
                 )
-            if memory_carries_lesson(existing) and (
-                action == "edit"
-                or request.title is not None
-                or request.canonical_text is not None
-                or request.summary is not None
-            ):
-                # The shared lesson rule: a memory that carries a lesson is
-                # never edited in place, so the block and the derived text
-                # can never disagree. Reject it and record a new one.
-                return _vnext_public_error_response(status_code=400, detail=LESSON_MUTATION_REFUSED_MESSAGE)
+            try:
+                refuse_lesson_mutation(
+                    existing,
+                    with_text=action == "edit" or any(
+                        value is not None for value in (request.title, request.canonical_text, request.summary)
+                    ),
+                )
+            except VNextMemoryCommitValidationError as exc:
+                return _vnext_public_error_response(status_code=400, detail=str(exc))
+            if action in {"accept", "promote"}:
+                activation = rule_activation_decision(existing, identity, locked_decision)
+                if activation.decision == "blocked":
+                    return _vnext_permission_response(activation)
 
             existing_metadata_value = existing.get("metadata_json")
             existing_metadata: dict[str, object] = (
@@ -2008,7 +2038,8 @@ def commit_vnext_memory(
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
             identity = _vnext_authenticated_agent_identity(
-                store, request, user_id=request.user_id, authorization=authorization
+                store, request, user_id=request.user_id, authorization=authorization,
+                defer_key_use=request.rule is not None,
             )
             # This route resolves identity through
             # resolve_protected_agent_identity, which rejects a keyless
@@ -2029,7 +2060,7 @@ def commit_vnext_memory(
                 return _vnext_permission_response(exc.decision)
             except IdempotencyKeyConflictError as exc:
                 return public_exception_response(exc, status_code=400)
-            except SourceRefNotFoundError as exc:
+            except (SourceRefNotFoundError, MemoryNotFoundError) as exc:
                 # A cited source that is missing, deleted or outside the
                 # caller's read fence: one answer for all three.
                 return public_exception_response(exc, status_code=404)

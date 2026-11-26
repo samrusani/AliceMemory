@@ -747,6 +747,10 @@ the key that wrote it.
 
 Unreleased (on main, not in v0.25.0): On an install without active keys, a lesson from a trusted local or project-scoped caller publishes when the write commits.
 
+Unreleased (on main, not in v0.25.0): Send `rule` to `alice_memory_commit` for a standing instruction the owner gave, with the required `rule` and `reason` fields and optional `applies_when`, `paths` and `replaces` fields described in [Shared lessons](shared-lessons.md#rules).
+Unreleased (on main, not in v0.25.0): Leave out `canonical_text`, `lesson`, `confidence` and `source_type` when committing a rule, which is stored as a procedure with its title and text derived from the block and defaults to the project domain.
+Unreleased (on main, not in v0.25.0): An otherwise admitted call without publishing standing is rejected with `rule_requires_owner_or_admin`, and a rule from a caller with standing that would wait is rejected with `rule_cannot_wait` and the reasons it would have waited.
+
 Doors that rewrite a stored memory in place refuse a memory that carries a
 lesson, for every identity: `alice_memory_correct` with
 `edit-and-approve` or `supersede-existing`, `POST /v0/vnext/memories/correct`,

@@ -35,6 +35,8 @@ from alicebot_api.write_bounds import (
     MAX_COMMIT_LESSON_PATHS,
     MAX_COMMIT_LESSON_PATH_CHARS,
     MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS,
+    MAX_COMMIT_RULE_CHARS,
+    MAX_COMMIT_RULE_REASON_CHARS,
     MAX_COMMIT_SOURCE_REF_CHARS,
     MAX_COMMIT_SOURCE_REFS,
     MAX_CORRECTION_FIELD_CHARS,
@@ -124,8 +126,10 @@ _AGENT_IDENTITY_SCHEMA_PROPERTIES: dict[str, object] = {
     "permission_profile": {
         "type": "string",
         "description": (
-            "With an agent key, omit this: the key sets it; claims can only narrow it. "
-            "On keyless installs: trusted_local_agent (openclaw: project_scoped_agent)."
+            "The permission profile sets what this agent can read and write. "
+            "With an agent key, omit it because the key sets it and a claim can only narrow it. "
+            "On an install without active keys, omitting it gives trusted_local_agent "
+            "to a named agent, or project_scoped_agent to openclaw."
         ),
     },
     "trace_id": {
@@ -322,7 +326,10 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
             "properties": {
                 "title": {
                     "type": "string",
-                    "description": "Short human-readable title for the memory. Required for a new write; leave it out when sending confirmation_id.",
+                    "description": (
+                        "Short human-readable title for a free-text memory. "
+                        "Leave it out when sending confirmation_id, lesson, or rule."
+                    ),
                 },
                 "canonical_text": {
                     "type": "string",
@@ -331,7 +338,7 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                         f"{MAX_COMMIT_CANONICAL_TEXT_CHARS:,} characters, counted after runs of whitespace "
                         "are collapsed to one space; a longer one is refused and nothing is saved. Required "
                         "for a new write; leave it out when sending confirmation_id. Must be left out when "
-                        "sending lesson: the text is derived from the lesson."
+                        "sending lesson or rule because the block supplies the text."
                     ),
                 },
                 "lesson": {
@@ -363,6 +370,34 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                         },
                     },
                     "required": ["applies_when", "what_happened", "do_instead"],
+                },
+                "rule": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "description": (
+                        "Use rule for a standing instruction the owner gave, with the reason for it. "
+                        "An agent does not write a rule on its own initiative. "
+                        "Use lesson for something that went wrong and what to do instead. "
+                        "Leave out canonical_text, lesson, confidence, and source_type."
+                    ),
+                    "properties": {
+                        "rule": {"type": "string", "description": f"What to do. At most {MAX_COMMIT_RULE_CHARS} characters."},
+                        "reason": {"type": "string", "description": f"Why. At most {MAX_COMMIT_RULE_REASON_CHARS} characters."},
+                        "applies_when": {
+                            "type": "string",
+                            "description": f"When the rule applies. At most {MAX_COMMIT_LESSON_APPLIES_WHEN_CHARS} characters.",
+                        },
+                        "paths": {
+                            "type": "array", "maxItems": MAX_COMMIT_LESSON_PATHS,
+                            "items": {"type": "string"},
+                            "description": (
+                                f"Repo-relative paths or globs the rule concerns, each at most "
+                                f"{MAX_COMMIT_LESSON_PATH_CHARS} characters."
+                            ),
+                        },
+                        "replaces": {"type": "string", "description": "The memory id of the earlier active rule."},
+                    },
+                    "required": ["rule", "reason"],
                 },
                 "memory_type": {
                     "type": "string",

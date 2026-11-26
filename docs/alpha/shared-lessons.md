@@ -92,6 +92,15 @@ needed. See [standing to retire a memory](../memory-operations-protocol.md#stand
 {"action":"expire","memory_id":"00000000-0000-4000-8000-000000000001","reason":"The lesson is no longer correct."}
 ```
 
+## Rules
+
+Unreleased (on main, not in v0.25.0): A rule records a standing instruction the owner gave, using `rule` for what to do (at most 400 characters) and `reason` for why (at most 600).
+Unreleased (on main, not in v0.25.0): Leave `applies_when` (at most 300 characters) out for an unconditional rule and `paths` out for a rule that applies everywhere, or use up to 16 repo-relative paths or globs of at most 200 characters under the lesson path rules.
+Unreleased (on main, not in v0.25.0): With active keys, the owner and admin keys may write rules, and without active keys an unnamed caller or a caller with declared admin, trusted local or project-scoped standing may write them within the usual write limits.
+Unreleased (on main, not in v0.25.0): To change a rule, commit a new rule with `replaces` set to the readable active rule's memory ID, which supersedes the earlier rule in the same transaction.
+Unreleased (on main, not in v0.25.0): A rule is never edited in place, and you can retire it without a replacement using the existing expire action.
+Unreleased (on main, not in v0.25.0): Rules never wait for review or confirmation, appear in ordinary memory reads within the caller's read limits, and stay out of lesson lookups, counts and the waiting lessons queue.
+
 ## A generic stdio server entry
 
 For a host that accepts a command, arguments and environment, use the following

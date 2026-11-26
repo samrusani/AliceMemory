@@ -44,7 +44,9 @@ from .types import (
 AGENT_API_KEY_ENV = "ALICE_AGENT_API_KEY"
 
 
-def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> AgentIdentity | None:
+def _agent_identity_from_arguments(
+    context: MCPRuntimeContext, arguments: Mapping[str, object], *, defer_key_use: bool = False,
+) -> AgentIdentity | None:
     """Resolve the calling agent's identity for one MCP tool call.
 
     With ``ALICE_AGENT_API_KEY`` the identity is resolved and enforced against
@@ -96,6 +98,7 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
                 user_id=context.user_id,
                 raw_key=raw_key,
                 payload=arguments,
+                defer_key_use=defer_key_use,
             )
     except AgentKeyAuthenticationError as exc:
         if exc.reason in IDENTITY_CLAIM_FAILURE_REASONS:
