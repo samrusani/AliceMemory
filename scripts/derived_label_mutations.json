@@ -39435,7 +39435,8 @@
         "tests/integration/test_prekey_team_defaults_postgres.py::test_postgres_default_uses_the_count_and_records_the_declared_writer",
         "tests/unit/test_keyless_team_defaults.py::test_the_legacy_proposal_keeps_its_identity_and_shape_requirements",
         "tests/integration/test_prekey_team_defaults_postgres.py::test_http_proposal_keeps_its_identity_and_shape_requirements",
-        "tests/integration/test_ingest_output_policy_postgres.py::test_a_keyless_call_that_declares_a_profile_which_may_write_still_writes"
+        "tests/integration/test_ingest_output_policy_postgres.py::test_a_keyless_call_that_declares_a_profile_which_may_write_still_writes",
+        "tests/unit/test_omitted_domains_every_reader.py::test_a_keyless_call_that_declares_a_profile_is_held_to_that_profile_when_it_names_no_domain"
       ],
       "expected_failure": "test_mcp_default_uses_the_count_and_records_the_declared_writer"
     },
@@ -39568,6 +39569,38 @@
         "tests/integration/test_prekey_team_defaults_postgres.py::test_browser_capture_records_the_inferred_profile_like_a_declared_one"
       ],
       "expected_failure": "test_browser_capture_records_the_inferred_profile_like_a_declared_one"
+    },
+    {
+      "name": "keyless-team-read-only-confirm",
+      "edits": [
+        {
+          "file": "tests/unit/test_default_surface_can_finish_confirmation_required.py",
+          "line": 494,
+          "before": "        ({\"agent_id\": \"stranger\", \"permission_profile\": \"read_only_agent\"}, \"read_only_agent_cannot_write\"),",
+          "after": "        ({\"agent_id\": \"stranger\", \"permission_profile\": \"trusted_local_agent\"}, \"read_only_agent_cannot_write\"),",
+          "sha256": "b7643758cc07b57d9c32aba65ff26d419c68af7d586f08afdd76aad87f25d391"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_default_surface_can_finish_confirmation_required.py::test_an_agent_that_cannot_write_cannot_confirm"
+      ],
+      "expected_failure": "test_an_agent_that_cannot_write_cannot_confirm"
+    },
+    {
+      "name": "keyless-team-read-only-scoped-resume",
+      "edits": [
+        {
+          "file": "tests/unit/test_omitted_domains_every_reader.py",
+          "line": 538,
+          "before": "        \"agent_id\": \"someagent\",\n        \"permission_profile\": \"read_only_agent\",",
+          "after": "        \"agent_id\": \"someagent\",\n        \"permission_profile\": \"trusted_local_agent\",",
+          "sha256": "b835b79bb0a789417eba4521a74204295d895da1aac154081391d224b5441ad8"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_omitted_domains_every_reader.py::test_the_per_project_fill_of_a_keyless_declared_profile_is_held_to_it"
+      ],
+      "expected_failure": "test_the_per_project_fill_of_a_keyless_declared_profile_is_held_to_it"
     }
   ]
 }

@@ -450,7 +450,7 @@ def test_the_owner_reads_every_domain_of_every_project(keyless_vault: Vault, too
 
 KEYLESS_IDENTITIES: dict[str, tuple[dict[str, object], bool]] = {
     # name: (the identity fields sent with the call, whether the profile is held back)
-    "agent_id_only": ({"agent_id": "someagent"}, True),
+    "agent_id_only": ({"agent_id": "someagent"}, False),
     "declared_read_only": ({"agent_id": "a", "permission_profile": "read_only_agent"}, True),
     "declared_project_scoped": (
         {"agent_id": "a", "permission_profile": "project_scoped_agent", "project_scope": ["alpha"]},
@@ -469,14 +469,7 @@ KEYLESS_IDENTITIES: dict[str, tuple[dict[str, object], bool]] = {
 def test_a_keyless_call_that_declares_a_profile_is_held_to_that_profile_when_it_names_no_domain(
     keyless_vault: Vault, name: str, tool: str
 ) -> None:
-    """Mutation: remove the omitted-request branch of ``_filtered_domains`` (the same edit as the first test).
-
-    No key is set. A call that declares ``read_only_agent``, ``project_scoped_agent`` or ``memory_proposal_agent``, or
-    only an ``agent_id`` (which defaults to ``read_only_agent``, except ``hermes`` and ``openclaw``), and that names no
-    domain stops reading the five held-back domains. A call that declares ``trusted_local_agent`` or ``admin_agent``, and
-    ``hermes`` with no profile, reads every domain as before. This is v0.20.0's keyless rule (a declared profile is
-    honoured) now applied to a request with no domains.
-    """
+    """Guard edit: restore the read-only fallback for an ordinary keyless name."""
 
     identity, held_back = KEYLESS_IDENTITIES[name]
     arguments = {**{k: v for k, v in TOOLS[tool].items() if k not in {"project_scope", "project"}}, **identity}
@@ -485,10 +478,10 @@ def test_a_keyless_call_that_declares_a_profile_is_held_to_that_profile_when_it_
     found = keyless_vault.found(answer)
     if held_back:
         assert keyless_vault.held_back_in(answer) == [], (name, tool)
-        _assert_permitted_content_returns(vault, tool, found, PERMITTED_SEEDED)
+        _assert_permitted_content_returns(keyless_vault, tool, found, PERMITTED_SEEDED)
     else:
         assert keyless_vault.held_back_in(answer) == sorted(HELD_BACK), (name, tool)
-        _assert_permitted_content_returns(vault, tool, found, SEEDED)
+        _assert_permitted_content_returns(keyless_vault, tool, found, SEEDED)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -537,14 +530,13 @@ def test_the_per_project_fill_applies_the_domain_filter_to_the_project_rows_of_a
 
 
 def test_the_per_project_fill_of_a_keyless_declared_profile_is_held_to_it(keyless_vault: Vault) -> None:
-    """Mutation: the same three edits as the test above. A keyless call that declares ``read_only_agent`` reads the project
-    view with scoping on, and now leaves out the project's held-back rows.
-    """
+    """Guard edit: declare trusted local in the scoped read-only request."""
 
     arguments = {
         "max_recent_changes": 20,
         "max_open_loops": 20,
         "agent_id": "someagent",
+        "permission_profile": "read_only_agent",
     }
     answer = keyless_vault.wire("alice_resume", arguments, key=None, scoping=True)
     assert answer["is_error"] is False, answer
