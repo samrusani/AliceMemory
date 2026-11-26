@@ -1,5 +1,7 @@
 """Keyless identities and lessons through the SQLite tool boundary."""
 
+from uuid import uuid4
+
 import pytest
 
 from alicebot_api.mcp.types import MCPRuntimeContext
@@ -7,7 +9,7 @@ from alicebot_api.onramp import sqlite_url_for_path
 from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_keys import create_agent_key
 from tests.support.keyless_team_contract import (
-    LESSON, PROJECT, TRUSTED, check_implicit_local_profile, check_lesson_standing,
+    FACT, LESSON, PROJECT, TRUSTED, check_implicit_local_profile, check_lesson_standing,
     check_marker_does_not_restore, check_proposal_identity_contract, mcp_door, profile_claims,
 )
 from tests.unit.test_lessons_read import Vault
@@ -110,3 +112,50 @@ def test_keyless_publisher_sees_other_writers_waiting_lessons(local_tools):
             assert guard.readable_status_counts("memory").get("candidate", 0) == int(visible)
         error, lookup = call("lessons", {**claims, "task": "amber fixture"})
         assert error is None and "yours" not in lookup and lookup["count"] == 0, lookup
+
+
+def test_sqlite_key_count_distinguishes_no_count_from_zero(tmp_path):
+    from alicebot_api.mcp.policy import _vault_has_active_key
+
+    path = tmp_path / "vault.db"
+    assert _vault_has_active_key(str(path)) is None
+    assert not path.exists()
+    path.touch()
+    assert _vault_has_active_key(str(path)) is None
+    Vault(path)  # Bootstrap the key table with no rows.
+    assert _vault_has_active_key(str(path)) is False
+
+
+@pytest.fixture(params=["missing-file", "missing-key-table"])
+def uncounted_sqlite_call(tmp_path, monkeypatch, request):
+    monkeypatch.setenv("ALICE_PROJECT_DIR", str(tmp_path))
+    for name in ("ALICE_AGENT_API_KEY", "ALICE_EMBEDDINGS_MODEL", "ALICE_EMBEDDINGS_BASE_URL"):
+        monkeypatch.delenv(name, raising=False)
+    path = tmp_path / "uncounted.db"
+    if request.param == "missing-key-table":
+        path.touch()
+    return mcp_door(MCPRuntimeContext(database_url=sqlite_url_for_path(path), user_id=uuid4()))
+
+
+def test_first_mcp_fact_without_a_key_count_keeps_the_read_only_default(uncounted_sqlite_call):
+    error, receipt = uncounted_sqlite_call("commit", {
+        **FACT, "agent_id": TRUSTED["agent_id"], "domain": "project", "sensitivity": "internal",
+    })
+    assert error is None and receipt["status"] == "rejected", receipt
+    assert "read_only_agent_cannot_write" in receipt["policy_decision"]["reasons"]
+
+
+def test_first_mcp_lesson_without_a_key_count_waits(uncounted_sqlite_call):
+    error, receipt = uncounted_sqlite_call("commit", {
+        **TRUSTED, "lesson": LESSON, "domain": "project", "sensitivity": "internal",
+    })
+    assert error is None and receipt["status"] == "review_required", receipt
+    assert receipt["policy_decision"]["reason"] == "lesson_requires_approval"
+
+
+def test_first_mcp_call_without_a_key_count_refuses_a_null_profile(uncounted_sqlite_call):
+    error, receipt = uncounted_sqlite_call("commit", {
+        **FACT, "agent_id": TRUSTED["agent_id"], "permission_profile": None,
+        "domain": "project", "sensitivity": "internal",
+    })
+    assert error == "invalid_request", receipt

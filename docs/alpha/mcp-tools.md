@@ -1383,11 +1383,12 @@ under `unknown` by default. Unclassified material is held by the sensitivity
 ceiling and the project scope, not by its domain. The held-back set is read from
 the stored label, so a health note filed as `personal` is not held back.
 
-From v0.20.2 through v0.25.0, a keyless call that declares one of those
-profiles, or only an `agent_id` (which defaults to `read_only_agent`, except
-`hermes`, which defaults to `trusted_local_agent`, and `openclaw`, which
-defaults to `project_scoped_agent`), is held the same way, as it already was
-when it named a held-back domain. The owner (a call with no key and no declared
+From v0.20.2, a keyless call that declares one of those profiles is held the
+same way, as it already was when it named a held-back domain. From v0.20.2
+through v0.25.0, a keyless call that supplied only an `agent_id` defaulted to
+`read_only_agent`, except for `hermes` (`trusted_local_agent`) and `openclaw`
+(`project_scoped_agent`), and the same domain limits applied whenever the
+default profile was restricted. The owner (a call with no key and no declared
 identity), a declared `trusted_local_agent` or `admin_agent`, and a key of
 either profile read every domain with or without naming them, as before. In
 v0.20.0 a restricted caller that named no domain read all of them, health
