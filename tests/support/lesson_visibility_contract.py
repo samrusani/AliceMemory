@@ -425,9 +425,10 @@ def check_lesson_review_growth(small, large):
 def check_keyless_lesson_visibility(call):
     writer = {"agent_id": "local-writer", "permission_profile": "memory_proposal_agent", "project_scope": ["alpha"]}
     reviewer = {"agent_id": "local-reviewer", "permission_profile": "admin_agent"}
-    peer = {"agent_id": "local-peer", "permission_profile": "trusted_local_agent"}
+    publisher = {"agent_id": "local-publisher", "permission_profile": "trusted_local_agent"}
+    peer = {"agent_id": "local-peer", "permission_profile": "memory_proposal_agent"}
     rows = make_review_lessons(call, writer, reviewer)
-    for identity in ({}, writer, reviewer, peer):
+    for identity in ({}, writer, reviewer, publisher, peer):
         failed, result = call(identity, "alice_memory_review", {"status": "all"})
         expected = {row[0] for row in rows.values()} if identity != peer else {rows["active"][0]}
         assert not failed and {item["id"] for item in result["items"]} == expected, result

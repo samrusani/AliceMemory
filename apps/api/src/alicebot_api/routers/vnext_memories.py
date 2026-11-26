@@ -91,6 +91,7 @@ from alicebot_api.vnext_connectors import (
 from alicebot_api.vnext_dogfooding import VNextDogfoodingService
 from alicebot_api.vnext_doctor import VNextDoctorService
 from alicebot_api.vnext_event_log import append_event
+from alicebot_api.vnext_lesson_visibility import lesson_mutation_fence
 from alicebot_api.vnext_memory_commit import (
     LESSON_MUTATION_REFUSED_MESSAGE,
     IdempotencyKeyConflictError,
@@ -1409,6 +1410,7 @@ def review_vnext_memory(
                 user_id=request.user_id,
                 authorization=authorization,
             )
+            identity = lesson_mutation_fence(identity)
             target = auth_store.get_memory(str(memory_id))
             from alicebot_api.vnext_label_guard import (
                 apply_unverified_rule,

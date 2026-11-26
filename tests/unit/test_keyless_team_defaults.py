@@ -86,7 +86,10 @@ def test_keyless_publication_stays_visible_across_key_creation_and_revocation(lo
 
 def test_keyless_publisher_sees_other_writers_waiting_lessons(local_tools):
     """Guard edit: omit keyless publishing standing from the shared predicate."""
-    _, _, call = local_tools
+    from alicebot_api.mcp.policy import _agent_identity_from_arguments
+    from alicebot_api.vnext_label_guard import guard_for_caller
+
+    vault, context, call = local_tools
     _, queued = call("commit", {
         "lesson": LESSON, "sensitivity": "internal", "project_scope": ["alpha"], "domain": "project",
         "agent_id": "proposal-writer", "permission_profile": "memory_proposal_agent",
@@ -101,5 +104,9 @@ def test_keyless_publisher_sees_other_writers_waiting_lessons(local_tools):
         error, review = call("review", {**claims, "status": "pending_review"})
         assert error is None, review
         assert {str(item["id"]) for item in review["items"]} == ({memory_id} if visible else set())
+        identity = _agent_identity_from_arguments(context, claims)
+        with sqlite_user_connection(vault.path, vault.user) as conn:
+            guard = guard_for_caller(SQLiteVNextStore(conn, vault.user), identity, action="review_items.lookup")
+            assert guard.readable_status_counts("memory").get("candidate", 0) == int(visible)
         error, lookup = call("lessons", {**claims, "task": "amber fixture"})
         assert error is None and "yours" not in lookup and lookup["count"] == 0, lookup

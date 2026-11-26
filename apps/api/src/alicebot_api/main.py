@@ -1019,6 +1019,13 @@ async def _vnext_protected_http_auth(
             edge_refusal = keyless_request_refusal(request, settings)
             if edge_refusal is not None:
                 return _authentication_failed_response(f"keyless vNext request refused: {edge_refusal}")
+        name_claim = payload.get("agent_identity")
+        if name_claim is None:
+            name_claim = payload.get("agent")
+        identity_fields = name_claim if isinstance(name_claim, dict) else payload
+        claimed_id = identity_fields.get("agent_id")
+        named_caller = isinstance(claimed_id, str) and bool(claimed_id.strip())
+        allow_empty_profile = raw_key is None and not capability_capture and named_caller
         if capability_capture:
             # The capability is the narrow credential for this endpoint. Its
             # hash/origin/user/expiry/consumption checks run atomically in the
@@ -1029,6 +1036,23 @@ async def _vnext_protected_http_auth(
                 method=request.method,
                 route_path=route_path,
             )
+            if raw_key is None and named_caller and identity_fields.get("permission_profile") == "":
+                try:
+                    await run_in_threadpool(
+                        _resolve_vnext_http_auth,
+                        settings=settings,
+                        user_id=user_id,
+                        raw_key=None,
+                        payload={},
+                        method=request.method,
+                        route_path=route_path,
+                    )
+                except Exception:
+                    # The original field validation still decides this
+                    # request if local keyless standing cannot be verified.
+                    pass
+                else:
+                    allow_empty_profile = True
         else:
             identity, route_decision = await run_in_threadpool(
                 _resolve_vnext_http_auth,
@@ -1054,15 +1078,7 @@ async def _vnext_protected_http_auth(
         field in payload for field in ("agent_id", "agent_type", "agent_run_id", "task_id", "permission_profile", "project_scope")
     )
     token = _allow_partial_keyed_identity.set(allow_partial)
-    # Keyless requests reached this point through the zero-key check or
-    # through the separate browser capability path.
-    alias = payload.get("agent") if payload.get("agent_identity") is None else None
-    alias_id = alias.get("agent_id") if isinstance(alias, dict) else None
-    empty_profile_token = _allow_empty_keyless_profile.set(
-        raw_key is None and not capability_capture and (
-            identity is not None or (isinstance(alias_id, str) and bool(alias_id.strip()))
-        )
-    )
+    empty_profile_token = _allow_empty_keyless_profile.set(allow_empty_profile)
     try:
         return await call_next(request)
     finally:

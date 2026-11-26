@@ -104,7 +104,12 @@ from alicebot_api.vnext_project_update_guard import (
 )
 from alicebot_api.vnext_derived_labels import group_scope
 from alicebot_api.vnext_label_guard import guard_for_caller, label_read_request, newest_admitted_rows
-from alicebot_api.vnext_lesson_visibility import is_unpublished_lesson, lesson_history_is_hidden, outside_lesson_review_standing
+from alicebot_api.vnext_lesson_visibility import (
+    is_unpublished_lesson,
+    lesson_history_is_hidden,
+    lesson_mutation_fence,
+    outside_lesson_review_standing,
+)
 from alicebot_api.vnext_project_scope import normalize_project_scope, project_scope_identity
 from alicebot_api.vnext_repositories import EventStore, JsonObject
 from alicebot_api.store import ContinuityStoreInvariantError
@@ -1963,6 +1968,7 @@ class VNextMemoryCommitService:
         memory = (
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
+        identity = lesson_mutation_fence(identity)
         if memory is None or outside_lesson_review_standing(memory, identity):
             raise MemoryNotFoundError("memory was not found")
         self.refuse_unauthorized_write(identity=identity, action="memory.correct", memory=memory)
@@ -2842,6 +2848,7 @@ class VNextMemoryCommitService:
         from alicebot_api.vnext_label_guard import outside_caller_limits
 
         kind = "open_loop" if target_type == "open_loop" else "memory"
+        identity = lesson_mutation_fence(identity)
         if outside_caller_limits(self.store, identity, kind, memory):
             raise MemoryNotFoundError("memory was not found")
 
