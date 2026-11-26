@@ -100,6 +100,11 @@ def assert_policy(receipt, expected, *, lesson_waits=False):
         status, reason = "review_required", APPROVAL
         reasons.append(reason)
     assert receipt["status"] == status, receipt
+    assert receipt["receipt"] == {
+        "committed": "saved as a fact.",
+        "review_required": "waiting in review.",
+        "confirmation_required": "needs confirmation.",
+    }[status]
     policy = receipt["policy_decision"]
     assert (policy["reason"], policy["reasons"]) == (reason, reasons), policy
     assert receipt["memory"]["status"] == {

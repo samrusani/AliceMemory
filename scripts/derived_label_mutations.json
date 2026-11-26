@@ -40066,7 +40066,7 @@
           "line": 57,
           "before": "fields = {} if label is None else {\"source_type\": label}",
           "after": "fields = {} if label is None else {\"source_type\": \"agent-observation\" if label == \"agent_observation\" else label}",
-          "sha256": "ea8573377c5aa3947efa78a15254f1eaca630851b9879a22babb4449389d7cd5"
+          "sha256": "40033ca092518f931f66b4c9cc4f14509fb3094e2f006e102a7391c7a569ec6a"
         }
       ],
       "pytest": [
@@ -40081,16 +40081,16 @@
       "edits": [
         {
           "file": "tests/support/keyless_observation_contract.py",
-          "line": 133,
+          "line": 138,
           "before": "\"sensitivity\": \"internal\", \"source_type\": label})",
           "after": "\"sensitivity\": \"internal\", \"source_type\": \"trusted_agent\" if label == \"agent_observation\" else label})",
-          "sha256": "ea8573377c5aa3947efa78a15254f1eaca630851b9879a22babb4449389d7cd5"
+          "sha256": "40033ca092518f931f66b4c9cc4f14509fb3094e2f006e102a7391c7a569ec6a"
         }
       ],
       "pytest": [
         "tests/unit/test_keyless_observation_commit.py::test_sqlite_keyed_sources[admin_agent-agent_observation-fact]",
-        "tests/integration/test_agent_observation_postgres.py::test_postgres_keyed_sources[admin_agent-agent_observation-fact-mcp]",
-        "tests/integration/test_agent_observation_postgres.py::test_postgres_keyed_sources[admin_agent-agent_observation-fact-http]"
+        "tests/integration/test_agent_observation_postgres.py::test_postgres_keyed_sources[mcp-admin_agent-agent_observation-fact]",
+        "tests/integration/test_agent_observation_postgres.py::test_postgres_keyed_sources[http-admin_agent-agent_observation-fact]"
       ],
       "expected_failure": "test_sqlite_keyed_sources"
     },
@@ -40099,10 +40099,10 @@
       "edits": [
         {
           "file": "tests/support/keyless_observation_contract.py",
-          "line": 155,
+          "line": 160,
           "before": "for source in ({}, OBSERVATION):",
           "after": "for source in ({}, {\"source_type\": \"AGENT_OBSERVATION\"}):",
-          "sha256": "ea8573377c5aa3947efa78a15254f1eaca630851b9879a22babb4449389d7cd5"
+          "sha256": "40033ca092518f931f66b4c9cc4f14509fb3094e2f006e102a7391c7a569ec6a"
         }
       ],
       "pytest": [
@@ -40119,7 +40119,7 @@
           "line": 16,
           "before": "LABELED_RULE = {**RULE, **OBSERVATION}",
           "after": "LABELED_RULE = RULE",
-          "sha256": "ea8573377c5aa3947efa78a15254f1eaca630851b9879a22babb4449389d7cd5"
+          "sha256": "40033ca092518f931f66b4c9cc4f14509fb3094e2f006e102a7391c7a569ec6a"
         }
       ],
       "pytest": [
@@ -40184,7 +40184,7 @@
           "line": 112,
           "before": "raise OSError(\"synthetic count failure\")",
           "after": "return False",
-          "sha256": "d6caaa19190923d4a0d2ab010071fbb4b2d58d1da6ccbaabb8d305a040f0cdab"
+          "sha256": "ae6fbc4cb65524cb0f29633e680d10ddb9238916cc50e32fca96bbd7f706caa8"
         }
       ],
       "pytest": [
@@ -40200,7 +40200,7 @@
           "line": 126,
           "before": "raise CountError(\"synthetic count failure\")",
           "after": "return 0",
-          "sha256": "d6caaa19190923d4a0d2ab010071fbb4b2d58d1da6ccbaabb8d305a040f0cdab"
+          "sha256": "ae6fbc4cb65524cb0f29633e680d10ddb9238916cc50e32fca96bbd7f706caa8"
         }
       ],
       "pytest": [
@@ -40216,7 +40216,7 @@
           "line": 9,
           "before": "OBSERVATION = {\"source_type\": \"agent_observation\"}",
           "after": "OBSERVATION = {\"source_type\": \"trusted_agent\"}",
-          "sha256": "ea8573377c5aa3947efa78a15254f1eaca630851b9879a22babb4449389d7cd5"
+          "sha256": "40033ca092518f931f66b4c9cc4f14509fb3094e2f006e102a7391c7a569ec6a"
         }
       ],
       "pytest": [
@@ -40230,10 +40230,10 @@
       "edits": [
         {
           "file": "tests/integration/test_agent_observation_postgres.py",
-          "line": 187,
-          "before": "\"--source-type\", \"agent_observation\",",
-          "after": "\"--source-type\", \"trusted_agent\",",
-          "sha256": "d6caaa19190923d4a0d2ab010071fbb4b2d58d1da6ccbaabb8d305a040f0cdab"
+          "line": 179,
+          "before": "@pytest.mark.parametrize(\"source_type\", [\"agent_observation\", \"\"], ids=[\"observation\", \"empty\"])",
+          "after": "@pytest.mark.parametrize(\"source_type\", [\"trusted_agent\", \"\"], ids=[\"observation\", \"empty\"])",
+          "sha256": "ae6fbc4cb65524cb0f29633e680d10ddb9238916cc50e32fca96bbd7f706caa8"
         }
       ],
       "pytest": [
@@ -40249,7 +40249,7 @@
           "line": 17,
           "before": "PROMOTION_PERSONA = \"personal\"",
           "after": "PROMOTION_PERSONA = \"enterprise\"",
-          "sha256": "ea8573377c5aa3947efa78a15254f1eaca630851b9879a22babb4449389d7cd5"
+          "sha256": "40033ca092518f931f66b4c9cc4f14509fb3094e2f006e102a7391c7a569ec6a"
         }
       ],
       "pytest": [
@@ -40266,7 +40266,7 @@
           "line": 144,
           "before": "(\"commit\", {**RULE, **fields})",
           "after": "(\"commit\", RULE)",
-          "sha256": "d6caaa19190923d4a0d2ab010071fbb4b2d58d1da6ccbaabb8d305a040f0cdab"
+          "sha256": "ae6fbc4cb65524cb0f29633e680d10ddb9238916cc50e32fca96bbd7f706caa8"
         }
       ],
       "pytest": [
@@ -40282,7 +40282,7 @@
           "line": 164,
           "before": "read_scope = [\"alpha\"]",
           "after": "read_scope = [\"beta\"]",
-          "sha256": "d6caaa19190923d4a0d2ab010071fbb4b2d58d1da6ccbaabb8d305a040f0cdab"
+          "sha256": "ae6fbc4cb65524cb0f29633e680d10ddb9238916cc50e32fca96bbd7f706caa8"
         }
       ],
       "pytest": [
@@ -40318,7 +40318,8 @@
         }
       ],
       "pytest": [
-        "tests/unit/test_mcp_package_split.py::test_mcp_registry_order_definitions_and_alias_identity_are_frozen"
+        "tests/unit/test_mcp_package_split.py::test_mcp_registry_order_definitions_and_alias_identity_are_frozen",
+        "tests/unit/test_lessons_read.py::test_surface"
       ],
       "expected_failure": "test_mcp_registry_order_definitions_and_alias_identity_are_frozen"
     }

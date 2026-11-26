@@ -176,7 +176,8 @@ def test_bound_admin_reads_a_matching_project_fact(label_harness, monkeypatch, t
 
 
 @pytest.mark.parametrize("keyed", [False, True])
-def test_cli_observation_keeps_waiting(label_harness, capsys, keyed):
+@pytest.mark.parametrize("source_type", ["agent_observation", ""], ids=["observation", "empty"])
+def test_cli_observation_keeps_waiting(label_harness, capsys, keyed, source_type):
     """Guard edit: pass a direct source to the command line."""
     h = label_harness
     if keyed:
@@ -184,8 +185,12 @@ def test_cli_observation_keeps_waiting(label_harness, capsys, keyed):
     result = cli_main([
         "--database-url", h.urls["app"], "--user-id", str(h.user_id),
         "vnext", "memories", "commit", "--title", FACT["title"], "--text", FACT["canonical_text"],
-        "--source-type", "agent_observation",
+        "--source-type", source_type,
     ])
     output = capsys.readouterr()
-    assert result == 0, output.err
-    assert_policy(json.loads(output.out), NON_DIRECT)
+    if source_type:
+        assert result == 0, output.err
+        assert_policy(json.loads(output.out), NON_DIRECT)
+    else:
+        assert result == 1
+        assert json.loads(output.err)["error"]["code"] == "invalid_request"
