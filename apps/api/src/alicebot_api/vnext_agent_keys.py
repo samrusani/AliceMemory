@@ -417,7 +417,18 @@ def resolve_protected_agent_identity(
     raw_key: str | None,
     payload: Mapping[str, object],
 ) -> AgentIdentity | None:
-    """Authenticate a protected vNext request before endpoint dispatch.
+    identity, _ = resolve_protected_agent_call(store, user_id=user_id, raw_key=raw_key, payload=payload)
+    return identity
+
+
+def resolve_protected_agent_call(
+    store: AgentKeyStore,
+    *,
+    user_id: object,
+    raw_key: str | None,
+    payload: Mapping[str, object],
+) -> tuple[AgentIdentity | None, bool]:
+    """Authenticate a protected vNext request and report a verified zero key count.
 
     Fresh local installs retain keyless human/local compatibility while no
     active keys exist. Once a user provisions a key, every protected request
@@ -432,13 +443,9 @@ def resolve_protected_agent_identity(
                 "authenticate with 'Authorization: Bearer alice_sk_...'",
                 status_code=401, reason="key_required",
             )
-        return AgentIdentity.from_payload(payload, no_active_agent_keys=active_keys == 0)
-    return resolve_agent_identity(
-        store,
-        user_id=user_id,
-        raw_key=raw_key,
-        payload=payload,
-    )
+        no_active_agent_keys = active_keys == 0
+        return AgentIdentity.from_payload(payload, no_active_agent_keys=no_active_agent_keys), no_active_agent_keys
+    return resolve_agent_identity(store, user_id=user_id, raw_key=raw_key, payload=payload), False
 
 
 def _identity_source(

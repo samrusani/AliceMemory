@@ -171,7 +171,7 @@ from .synthesis import (
     _handle_alice_graph_edge_review,
     _handle_alice_graph_neighborhood,
 )
-from .policy import _vault_has_active_key, _is_sqlite_backend, _preflight_key_claim, _refuse_keyless_postgres
+from .policy import _agent_call_from_arguments, _vault_has_active_key, _is_sqlite_backend, _preflight_key_claim, _refuse_keyless_postgres
 from .runtime import _sqlite_path_from_url
 from .types import (
     MCPArgumentError,
@@ -603,7 +603,9 @@ def call_mcp_tool(
         if identity is None or not identity.no_active_agent_keys:
             raise shape_error
         parsed_arguments = adjusted
-        context = replace(context, agent_identity=identity, agent_identity_resolved=True)
+        context = replace(
+            context, agent_identity=identity, agent_identity_resolved=True, no_active_agent_keys=True,
+        )
     try:
         refuse_unstorable_json(parsed_arguments, name=f"tool '{name}' arguments")
     except JsonShapeError as exc:
@@ -624,11 +626,12 @@ def call_mcp_tool(
             # invalid/revoked keys fail before reads as well as writes.  Core
             # tools always cross this boundary. Key-bound servers fail closed
             # by removing the legacy surface altogether.
-            identity = _agent_identity_from_arguments(context, parsed_arguments)
+            identity, no_active_agent_keys = _agent_call_from_arguments(context, parsed_arguments)
             context = replace(
                 context,
                 agent_identity=identity,
                 agent_identity_resolved=True,
+                no_active_agent_keys=no_active_agent_keys,
             )
         # A reader that overflows on a stored row nested near the recursion limit fails the call once; a call that writes
         # nothing but the audit events of its policy check then runs again with the deep part of every stored column cut,

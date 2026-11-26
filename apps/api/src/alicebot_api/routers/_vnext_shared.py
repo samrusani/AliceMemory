@@ -26,7 +26,7 @@ from alicebot_api.vnext_agent_control import (
 from alicebot_api.vnext_agent_keys import (
     AgentKeyAuthenticationError,
     agent_key_from_authorization,
-    resolve_protected_agent_identity,
+    resolve_protected_agent_call,
 )
 from alicebot_api.vnext_label_guard import (
     LabelGuard,
@@ -525,12 +525,23 @@ def _vnext_authenticated_agent_identity(
     user_id: UUID,
     authorization: str | None,
 ) -> AgentIdentity | None:
+    identity, _ = _vnext_authenticated_agent_call(store, request, user_id=user_id, authorization=authorization)
+    return identity
+
+
+def _vnext_authenticated_agent_call(
+    store: PostgresVNextStore,
+    request: VNextAgentRequest,
+    *,
+    user_id: UUID,
+    authorization: str | None,
+) -> tuple[AgentIdentity | None, bool]:
     payload = (
         _keyed_http_identity_defaults(request.model_dump(mode="json", exclude_unset=True, warnings=False))
         if agent_key_from_authorization(authorization) is not None
         else _vnext_normalized_agent_payload(request)
     )
-    return resolve_protected_agent_identity(
+    return resolve_protected_agent_call(
         store,
         user_id=user_id,
         raw_key=agent_key_from_authorization(authorization),

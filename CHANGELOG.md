@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.25.0): When MCP or HTTP confirms there are no active agent keys, a fact or lesson labelled `agent_observation` can commit if the other checks allow it. In v0.25.0 this label went to review when it reached the non-direct source check (`python -m pytest tests/unit/test_keyless_observation_commit.py tests/integration/test_agent_observation_postgres.py` and the v0.25.0 comparison).
+
 - Unreleased (on main, not in v0.25.0): Explicit commits accept owner-authored rules with a reason, optional applicability and paths, and atomic replacement, and the direct SQLite MCP commands initialize a fresh vault before the first named write. v0.25.0 had no rule block and refused fresh named writes without a profile (`python -m pytest tests/unit/test_rule_block_commit.py tests/unit/test_sqlite_onramp.py tests/integration/test_rule_block_postgres.py` and the v0.25.0 launch comparison).
 
 - Unreleased (on main, not in v0.25.0): On installs without active keys, named MCP and HTTP agents default to `trusted_local_agent` unless they declare a profile or use the `openclaw` id, and trusted local and project-scoped callers publish lessons when their writes commit. v0.25.0 refused ordinary named writes without a profile as read-only and held otherwise committable lessons from trusted local and project-scoped callers for review (`python -m pytest tests/unit/test_keyless_team_defaults.py tests/integration/test_prekey_team_defaults_postgres.py` and the v0.25.0 comparison).

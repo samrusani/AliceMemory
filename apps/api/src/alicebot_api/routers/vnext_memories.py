@@ -51,6 +51,7 @@ from alicebot_api.routers._vnext_shared import (
     _vnext_agent_auth_error_response,
     _vnext_agent_identity,
     _vnext_agent_record,
+    _vnext_authenticated_agent_call,
     _vnext_authenticated_agent_identity,
     _vnext_exact_resource_policy,
     _vnext_load_source_trace,
@@ -2036,19 +2037,14 @@ def commit_vnext_memory(
     try:
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
-            identity = _vnext_authenticated_agent_identity(
+            identity, no_active_agent_keys = _vnext_authenticated_agent_call(
                 store, request, user_id=request.user_id, authorization=authorization
             )
-            # This route resolves identity through
-            # resolve_protected_agent_identity, which rejects a keyless
-            # request once any key exists. Getting here with no agent
-            # identity on a keyed install therefore does mean the
-            # authenticated human, and this is the only surface that can say
-            # so.
             service = VNextMemoryCommitService(
                 store,
                 defer_embeddings=True,
                 owner_verified=agent_api_keys_provisioned(store),
+                no_active_agent_keys=no_active_agent_keys,
             )
             # Return inside the connection so a blocked replay's policy
             # events commit. Raising out of user_connection rolls them back.

@@ -56,6 +56,7 @@ from .shared import (
 )
 from .arguments import _canonical_optional_row_id_argument, _canonical_row_id_argument, _parse_source_refs
 from .lessons import _similar_for_lesson
+from .policy import _agent_call_from_arguments
 from .types import MCPArgumentError, MCPInvalidRequestError
 
 
@@ -131,7 +132,7 @@ def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Map
         # alice_vnext_commit_memory alias shares this handler, but its schema
         # refuses them before any handler runs.
         return _finish_pending_commit(context, arguments)
-    identity = _agent_identity_from_arguments(context, arguments)
+    identity, no_active_agent_keys = _agent_call_from_arguments(context, arguments)
     payload: VNextJsonObject | None = None
     blocked_decision: PolicyDecision | None = None
     conflict: IdempotencyKeyConflictError | None = None
@@ -195,7 +196,9 @@ def _handle_alice_vnext_commit_memory(context: MCPRuntimeContext, arguments: Map
         request = memory_commit_request_from_payload(commit_payload, user_id=context.user_id)
     with _vnext_store_context(context) as store:
         try:
-            service = VNextMemoryCommitService(store, defer_embeddings=True)
+            service = VNextMemoryCommitService(
+                store, defer_embeddings=True, no_active_agent_keys=no_active_agent_keys,
+            )
             payload = service.commit(identity=identity, request=request)
             deferred_embedding_inputs = service.deferred_embedding_inputs
         except AgentPolicyBlockedError as exc:
