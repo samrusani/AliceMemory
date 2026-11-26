@@ -72,6 +72,8 @@ from alicebot_api.write_bounds import (
     MAX_COMMIT_LESSON_PATHS as _MAX_COMMIT_LESSON_PATHS,
     MAX_COMMIT_LESSON_PATH_CHARS as _MAX_COMMIT_LESSON_PATH_CHARS,
     MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS as _MAX_COMMIT_LESSON_WHAT_HAPPENED_CHARS,
+    MAX_COMMIT_RULE_CHARS,
+    MAX_COMMIT_RULE_REASON_CHARS,
     MAX_COMMIT_SOURCE_REF_CHARS as _MAX_COMMIT_SOURCE_REF_CHARS,
     MAX_COMMIT_SOURCE_REFS as _MAX_COMMIT_SOURCE_REFS,
 )
@@ -105,6 +107,7 @@ from alicebot_api.vnext_project_update_guard import (
 from alicebot_api.vnext_derived_labels import group_scope
 from alicebot_api.vnext_label_guard import guard_for_caller, label_read_request, newest_admitted_rows
 from alicebot_api.vnext_lesson_visibility import (
+    commit_block_kind,
     is_unpublished_lesson,
     lesson_history_is_hidden,
     lesson_mutation_fence,
@@ -424,6 +427,27 @@ class LessonBlock:
 
 
 @dataclass(frozen=True, slots=True)
+class RuleBlock:
+    """An owner-authored instruction and its reason."""
+
+    rule: str
+    reason: str
+    applies_when: str | None = None
+    paths: tuple[str, ...] = ()
+    replaces: str | None = None
+
+    def to_value_record(self) -> JsonObject:
+        record: JsonObject = {"rule": self.rule, "reason": self.reason}
+        if self.applies_when is not None:
+            record["applies_when"] = self.applies_when
+        if self.paths:
+            record["paths"] = list(self.paths)
+        if self.replaces is not None:
+            record["replaces"] = self.replaces
+        return record
+
+
+@dataclass(frozen=True, slots=True)
 class MemoryCommitRequest:
     user_id: str
     title: str
@@ -442,6 +466,7 @@ class MemoryCommitRequest:
     contradiction_refs: tuple[str, ...] = ()
     trace_id: str | None = None
     lesson: LessonBlock | None = None
+    rule: RuleBlock | None = None
 
 
 def _request_fingerprint(request: MemoryCommitRequest) -> str:
@@ -466,6 +491,8 @@ def _request_fingerprint(request: MemoryCommitRequest) -> str:
         # Part of the fingerprint only when present, so every fingerprint a
         # request without a lesson produces is the digest main produces.
         payload["lesson"] = request.lesson.to_value_record()
+    if request.rule is not None:
+        payload["rule"] = request.rule.to_value_record()
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return sha256(encoded).hexdigest()
 
@@ -653,6 +680,8 @@ def _request_contains_secret_marker(request: MemoryCommitRequest) -> str | None:
     scanned_refs: tuple[object, ...] = request.source_refs
     if request.lesson is not None:
         scanned_refs = (*request.source_refs, *request.lesson.paths)
+    if request.rule is not None:
+        scanned_refs = (*request.source_refs, *request.rule.paths)
 
     return commit_door_secret_verdict(
         request.title,
@@ -998,7 +1027,7 @@ def evaluate_memory_commit_policy(
     # rejection above still stands exactly as it did.
     promotion: PromotionDecision | None = None
     promoted_from: str | None = None
-    if promotion_settings is not None and request.lesson is None:
+    if promotion_settings is not None and request.lesson is None and request.rule is None:
         # A lesson is never lifted: whatever the persona and the settings
         # say, a lesson that is not published at once stays waiting.
         promotion = evaluate_promotion(
@@ -1040,6 +1069,18 @@ def evaluate_memory_commit_policy(
             reasons.append("unsafe_secret_storage")
             mode = "reject"
             status = "rejected"
+    if request.rule is not None:
+        rule_floor_candidate = promotion_candidate_for_request(identity=identity, request=request)
+        rule_floor_candidate = replace(
+            rule_floor_candidate,
+            conversation_excerpt=" ".join(
+                (rule_floor_candidate.conversation_excerpt or "", *request.rule.paths)
+            ).strip(),
+        )
+        if "credential_material" in hard_floor_hits(rule_floor_candidate):
+            reasons.append("unsafe_secret_storage")
+            mode = "reject"
+            status = "rejected"
 
     reason = reasons[-1] if reasons else "explicit_trusted_memory_commit"
     if (
@@ -1074,6 +1115,9 @@ SENSITIVITY_ABOVE_CEILING_RECEIPT = (
     "Tell the user. The owner can raise this agent's clearance or store the memory themselves."
 )
 PENDING_WRITE_RESOLVER_REASON = "only_the_author_an_admin_key_or_the_owner_may_confirm_or_reject"
+RULE_REQUIRES_PUBLISHER = "rule_requires_owner_or_admin"
+RULE_CANNOT_WAIT = "rule_cannot_wait"
+RULE_PUBLISHER_MESSAGE = "Only the owner or an admin key can write a rule."
 # Reported as themselves when a commit is also above the ceiling.
 _KEPT_REJECTION_REASONS = ("unsafe_secret_storage", "agent_policy_blocked")
 
@@ -1089,6 +1133,8 @@ def memory_commit_receipt(status: str, *, reason: str | None = None) -> str:
         return "waiting in review."
     if status == "rejected" and reason == "sensitivity_above_agent_ceiling":
         return SENSITIVITY_ABOVE_CEILING_RECEIPT
+    if status == "rejected" and reason == RULE_REQUIRES_PUBLISHER:
+        return RULE_PUBLISHER_MESSAGE
     if status == "rejected":
         return "rejected."
     return "not recorded as a fact."
@@ -1270,7 +1316,13 @@ def _held_to_the_callers_read_fence(verb: _VerbT) -> _VerbT:
         identity = kwargs.get("identity")
         if identity is None:
             return result
-        return SavedProvenanceReader(self.store, fence=SourceReadFence.for_identity(identity)).tree(result)
+        shown = SavedProvenanceReader(self.store, fence=SourceReadFence.for_identity(identity)).tree(result)
+        if isinstance(shown, dict) and "rule" in shown:
+            memory = shown.get("memory")
+            value = memory.get("value") if isinstance(memory, Mapping) else None
+            if isinstance(value, Mapping) and "rule" in value:
+                shown = {**shown, "rule": value["rule"]}
+        return shown
 
     held.held_to_the_callers_read_fence = True  # type: ignore[attr-defined]
     return cast(_VerbT, held)
@@ -1442,8 +1494,10 @@ class VNextMemoryCommitService:
         *,
         identity: AgentIdentity | None,
         request: MemoryCommitRequest,
+        record: bool = True,
     ) -> MemoryCommitPolicyDecision:
-        self._upsert_identity(identity)
+        if record:
+            self._upsert_identity(identity)
         base_decision = evaluate_agent_policy(
             identity=identity,
             action="memory.commit",
@@ -1451,7 +1505,8 @@ class VNextMemoryCommitService:
             sensitivity_allowed=(request.sensitivity,),
             project_scope=request.project_scope,
         )
-        _append_policy_decision(self.store, identity=identity, decision=base_decision)
+        if record:
+            _append_policy_decision(self.store, identity=identity, decision=base_decision)
         settings = self.promotion_settings
         return evaluate_memory_commit_policy(
             identity=identity,
@@ -1475,11 +1530,31 @@ class VNextMemoryCommitService:
         request: MemoryCommitRequest,
     ) -> JsonObject:
         _object_tuple(request.source_refs)
+        if request.rule is not None:
+            self.lock_supersession_graph()
         existing = self._idempotent_memory(request.idempotency_key)
-        if existing is not None:
+        if existing is not None and request.rule is None:
             return _with_commit_receipt(self._idempotent_replay(memory=existing, request=request, identity=identity))
 
-        decision = self.evaluate_policy(identity=identity, request=request)
+        decision = self.evaluate_policy(identity=identity, request=request, record=request.rule is None)
+        attachable: AttachableSources | None = None
+        replaces: VNextRow | None = None
+        if request.rule is not None:
+            if decision.write_mode != "reject":
+                if existing is None:
+                    attachable = resolve_attachable_sources(
+                        self.store, request.source_refs, fence=SourceReadFence.for_identity(identity),
+                    )
+                if not caller_may_publish_lesson(identity):
+                    decision = self._rule_commit_refusal(decision, RULE_REQUIRES_PUBLISHER)
+                elif decision.write_mode != "commit":
+                    decision = self._rule_commit_refusal(decision, RULE_CANNOT_WAIT)
+                elif existing is not None:
+                    return _with_commit_receipt(self._idempotent_replay(memory=existing, request=request, identity=identity))
+                elif request.rule.replaces is not None:
+                    replaces = self._rule_replacement_target(request.rule.replaces, identity)
+            self._upsert_identity(identity)
+            _append_policy_decision(self.store, identity=identity, decision=decision.policy_decision)
         if decision.write_mode == "reject":
             self._append_decision_event(identity=identity, request=request, decision=decision, target_id=None)
             return _with_commit_receipt(
@@ -1497,11 +1572,12 @@ class VNextMemoryCommitService:
         # A missing, deleted or out-of-fence source raises one error. It comes
         # after the rejection above, so a refused caller is told nothing about
         # which ids exist.
-        attachable = resolve_attachable_sources(
-            self.store,
-            request.source_refs,
-            fence=SourceReadFence.for_identity(identity),
-        )
+        if attachable is None:
+            attachable = resolve_attachable_sources(
+                self.store,
+                request.source_refs,
+                fence=SourceReadFence.for_identity(identity),
+            )
         try:
             if decision.write_mode == "confirm_inline":
                 return _with_commit_receipt(
@@ -1518,6 +1594,7 @@ class VNextMemoryCommitService:
                     decision=decision,
                     confirmed_inline=False,
                     attachable_sources=attachable,
+                    replaces=replaces,
                 )
             )
         except _IdempotentReplaySignal as replay:
@@ -1532,6 +1609,39 @@ class VNextMemoryCommitService:
                 # writes that lost the insert race roll back.
                 raise VNextMemoryCommitValidationError(str(exc)) from None
             return _with_commit_receipt(replayed)
+
+    @staticmethod
+    def _rule_commit_refusal(decision: MemoryCommitPolicyDecision, reason: str) -> MemoryCommitPolicyDecision:
+        policy = replace(
+            decision.policy_decision,
+            decision="blocked",
+            reasons=(*decision.policy_decision.reasons, reason),
+            review_required=False,
+        )
+        return replace(
+            decision, write_mode="reject", status="rejected", reason=reason, reasons=(*decision.reasons, reason),
+            requires_confirmation=False, requires_dashboard_review=False, policy_decision=policy,
+        )
+
+    def _rule_replacement_target(self, memory_id: str, identity: AgentIdentity | None) -> VNextRow:
+        from alicebot_api.vnext_label_guard import outside_caller_limits
+
+        self.store.lock_label_writes()
+        row = self.store.get_memory_for_update(memory_id)
+        if (
+            row is None or row.get("status") != "active" or row.get("deleted_at") is not None
+            or commit_block_kind(row) != "rule" or outside_caller_limits(self.store, identity, "memory", row)
+        ):
+            raise MemoryNotFoundError("active rule was not found")
+        valid_to = row.get("valid_to")
+        if valid_to is not None:
+            try:
+                expired = datetime.fromisoformat(_valid_to_iso(valid_to)) <= _utc_now()
+            except VNextMemoryCommitValidationError:
+                expired = True
+            if expired:
+                raise MemoryNotFoundError("active rule was not found")
+        return row
 
     @_held_to_the_callers_read_fence
     def confirm(
@@ -1580,7 +1690,7 @@ class VNextMemoryCommitService:
             raise MemoryStateError("confirmation is not pending")
         # Reject of the caller's own pending write stays allowed above the
         # ceiling: it stores nothing. Every other mutation is blocked.
-        self._policy_checked_write(
+        confirmation_decision = self._policy_checked_write(
             identity=identity,
             action="memory.confirm",
             memory=memory,
@@ -1688,6 +1798,10 @@ class VNextMemoryCommitService:
         # block and the derived text would disagree. A confirm without new
         # text works and keeps the block.
         refuse_lesson_mutation(memory, with_text=canonical_text is not None)
+        if normalized_action != "reject":
+            activation = rule_activation_decision(memory, identity, confirmation_decision)
+            if activation is not confirmation_decision:
+                self._record_write_decision(identity=identity, decision=activation, memory=memory)
         next_text = (
             _normalized_text(canonical_text, field_name="canonical_text")
             if canonical_text is not None
@@ -2790,7 +2904,7 @@ class VNextMemoryCommitService:
                     decision="blocked",
                     reasons=tuple(dict.fromkeys((*decision.reasons, PENDING_WRITE_RESOLVER_REASON))),
                 )
-            if memory_carries_lesson(memory) and not caller_may_publish_lesson(identity):
+            if commit_block_kind(memory, legacy_lesson=True) is not None and not caller_may_publish_lesson(identity):
                 decision = replace(
                     decision,
                     decision="blocked",
@@ -3329,6 +3443,26 @@ class VNextMemoryCommitService:
     ) -> JsonObject:
         from alicebot_api.vnext_label_guard import outside_caller_limits
 
+        if request.rule is not None:
+            if commit_block_kind(memory) != "rule" or outside_caller_limits(self.store, identity, "memory", memory):
+                raise IdempotencyKeyConflictError("idempotency_key was already used for a different memory request")
+            value = memory.get("value")
+            stored_rule = value.get("rule") if isinstance(value, Mapping) else None
+            predecessor = stored_rule.get("replaces") if isinstance(stored_rule, Mapping) else None
+            if isinstance(predecessor, str) and SourceReadFence.for_identity(identity).entity_read_fenced:
+                previous = self.store.get_memory_for_redaction(predecessor)
+                if previous is None or outside_caller_limits(self.store, identity, "memory", previous):
+                    raise IdempotencyKeyConflictError("idempotency_key was already used for a different memory request")
+            self._assert_idempotent_request_matches(memory=memory, request=request)
+            agentic = _agentic_metadata(memory)
+            return {
+                "status": "committed",
+                "write_mode": "commit",
+                "memory": memory,
+                "idempotent_replay": True,
+                "policy_decision": agentic.get("policy_decision") or {},
+                "rule": request.rule.to_value_record(),
+            }
         if is_unpublished_lesson(memory) and outside_caller_limits(self.store, identity, "memory", memory):
             raise IdempotencyKeyConflictError("idempotency_key was already used for a different memory request")
         try:
@@ -3439,10 +3573,11 @@ class VNextMemoryCommitService:
         if confirmation is not None:
             agentic["confirmation"] = confirmation
         if (
-            request.lesson is not None
+            (request.lesson is not None or request.rule is not None)
             and identity is not None
             and identity.no_active_agent_keys
             and identity.permission_profile != "admin_agent"
+            and caller_may_publish_lesson(identity)
             and decision.write_mode in {"commit", "confirm_inline"}
         ):
             agentic["keyless_lesson_publishing_standing"] = True
@@ -3464,6 +3599,7 @@ class VNextMemoryCommitService:
         decision: MemoryCommitPolicyDecision,
         confirmed_inline: bool,
         attachable_sources: AttachableSources,
+        replaces: VNextRow | None = None,
     ) -> JsonObject:
         actor_type = "agent" if identity is not None else "user"
         actor_id = identity.agent_id if identity is not None else None
@@ -3485,6 +3621,7 @@ class VNextMemoryCommitService:
                     "intent": request.intent,
                     "source_refs": json_safe(list(request.source_refs)),
                     **({"lesson": request.lesson.to_value_record()} if request.lesson is not None else {}),
+                    **({"rule": request.rule.to_value_record()} if request.rule is not None else {}),
                 },
                 "status": "active",
                 "confirmation_status": "confirmed",
@@ -3502,6 +3639,15 @@ class VNextMemoryCommitService:
             actor_type=actor_type,
             request=request,
         )
+        if replaces is not None:
+            self._transition_memory(
+                identity=identity, memory=replaces, operation=UNDO, lifecycle_status="superseded",
+                next_status="superseded", event_type="agent.memory_undone", revision_type="superseded",
+                action="agentic_memory_undo", reason="Replaced by a new rule.", superseded_by=memory,
+            )
+            refreshed = self.store.get_memory(str(memory["id"]))
+            if refreshed is not None:
+                memory = refreshed
         self._attach_or_defer_memory_embedding(
             memory,
             actor_type=actor_type,
@@ -3599,6 +3745,7 @@ class VNextMemoryCommitService:
             "memory": memory,
             "policy_decision": decision.to_record(),
             **({"lesson": request.lesson.to_value_record()} if request.lesson is not None else {}),
+            **({"rule": request.rule.to_value_record()} if request.rule is not None else {}),
         }
 
     def _create_confirmation(
@@ -4283,35 +4430,35 @@ def _bounded_lesson_text(value: object, *, field: str, limit: int) -> str:
 _LESSON_FIELDS = ("applies_when", "what_happened", "do_instead")
 
 
-def _lesson_paths(value: object) -> tuple[str, ...]:
+def _lesson_paths(value: object, *, field: str = "lesson.paths") -> tuple[str, ...]:
     if value is None:
         return ()
     if not isinstance(value, (list, tuple)):
-        raise VNextMemoryCommitValidationError("lesson.paths must be an array of strings")
+        raise VNextMemoryCommitValidationError(f"{field} must be an array of strings")
     if len(value) > _MAX_COMMIT_LESSON_PATHS:
-        raise VNextMemoryCommitValidationError(f"lesson.paths must hold at most {_MAX_COMMIT_LESSON_PATHS} entries")
+        raise VNextMemoryCommitValidationError(f"{field} must hold at most {_MAX_COMMIT_LESSON_PATHS} entries")
     paths: list[str] = []
     for entry in value:
         if not isinstance(entry, str):
-            raise VNextMemoryCommitValidationError("lesson.paths must be an array of strings")
+            raise VNextMemoryCommitValidationError(f"{field} must be an array of strings")
         path = " ".join(entry.split()).strip()
         if not path:
-            raise VNextMemoryCommitValidationError("lesson.paths entries must not be empty")
+            raise VNextMemoryCommitValidationError(f"{field} entries must not be empty")
         if len(path) > _MAX_COMMIT_LESSON_PATH_CHARS:
             raise VNextMemoryCommitValidationError(
-                f"lesson.paths entries must be at most {_MAX_COMMIT_LESSON_PATH_CHARS} characters"
+                f"{field} entries must be at most {_MAX_COMMIT_LESSON_PATH_CHARS} characters"
             )
         if path.startswith(("/", "~")) or ".." in path.split("/") or re.search(r"^[A-Za-z]:", path) or ":" in path:
             raise VNextMemoryCommitValidationError(
-                "lesson.paths entries must be repo-relative paths or globs: no leading / or ~, "
+                f"{field} entries must be repo-relative paths or globs: no leading / or ~, "
                 "no .. segment, and no drive letter"
             )
         if "\\" in path:
             raise VNextMemoryCommitValidationError(
-                "lesson.paths entries must be repo-relative paths or globs: a backslash is not a path separator"
+                f"{field} entries must be repo-relative paths or globs: a backslash is not a path separator"
             )
         if any(unicodedata.category(character).startswith("C") for character in path):
-            raise VNextMemoryCommitValidationError("lesson.paths entries must not contain control characters")
+            raise VNextMemoryCommitValidationError(f"{field} entries must not contain control characters")
         paths.append(path)
     return tuple(paths)
 
@@ -4348,6 +4495,31 @@ def lesson_derived_text(lesson: LessonBlock) -> str:
     )
 
 
+def _rule_block_from_payload(value: object) -> RuleBlock:
+    if not isinstance(value, Mapping):
+        raise VNextMemoryCommitValidationError("rule must be an object")
+    unknown = sorted(str(key) for key in value if key not in {"rule", "reason", "applies_when", "paths", "replaces"})
+    if unknown:
+        raise VNextMemoryCommitValidationError(f"rule has unknown fields: {', '.join(unknown)}")
+    applies_when = value.get("applies_when")
+    replaces = value.get("replaces")
+    if replaces is not None:
+        try:
+            replaces = str(UUID(_normalized_text(replaces, field_name="rule.replaces")))
+        except ValueError as exc:
+            raise VNextMemoryCommitValidationError("rule.replaces must be a memory id") from exc
+    return RuleBlock(
+        rule=_bounded_lesson_text(value.get("rule"), field="rule.rule", limit=MAX_COMMIT_RULE_CHARS),
+        reason=_bounded_lesson_text(value.get("reason"), field="rule.reason", limit=MAX_COMMIT_RULE_REASON_CHARS),
+        applies_when=(
+            _bounded_lesson_text(applies_when, field="rule.applies_when", limit=_MAX_COMMIT_LESSON_APPLIES_WHEN_CHARS)
+            if applies_when is not None else None
+        ),
+        paths=_lesson_paths(value.get("paths"), field="rule.paths"),
+        replaces=replaces,
+    )
+
+
 def lesson_derived_title(lesson: LessonBlock) -> str:
     """The stored title of a lesson commit: the first 80 characters of applies_when."""
 
@@ -4360,11 +4532,7 @@ LESSON_MUTATION_REFUSED_MESSAGE = (
 )
 
 
-def memory_carries_lesson(memory: Mapping[str, object]) -> bool:
-    """Whether a stored memory's value holds a lesson block."""
-
-    value = memory.get("value")
-    return isinstance(value, Mapping) and "lesson" in value
+RULE_MUTATION_REFUSED_MESSAGE = "this memory carries a rule, which cannot be edited; write its replacement with rule.replaces"
 
 
 def lesson_from_memory(memory: Mapping[str, object]) -> JsonObject | None:
@@ -4378,6 +4546,17 @@ def lesson_from_memory(memory: Mapping[str, object]) -> JsonObject | None:
     return None
 
 
+def commit_block_edit_message(memory: Mapping[str, object], *, with_text: bool) -> str | None:
+    """Return the fixed public edit refusal for a stored commit block."""
+    if with_text:
+        block = commit_block_kind(memory, legacy_lesson=True)
+        if block == "lesson":
+            return LESSON_MUTATION_REFUSED_MESSAGE
+        if block == "rule":
+            return RULE_MUTATION_REFUSED_MESSAGE
+    return None
+
+
 def refuse_lesson_mutation(memory: Mapping[str, object], *, with_text: bool) -> None:
     """One check every door that rewrites a stored memory's text, title or value calls.
 
@@ -4388,17 +4567,39 @@ def refuse_lesson_mutation(memory: Mapping[str, object], *, with_text: bool) -> 
     The block changes only by rejecting the memory and recording a new one.
     """
 
-    if with_text and memory_carries_lesson(memory):
-        raise VNextMemoryCommitValidationError(LESSON_MUTATION_REFUSED_MESSAGE)
+    message = commit_block_edit_message(memory, with_text=with_text)
+    if message is not None:
+        raise VNextMemoryCommitValidationError(message)
+
+
+def rule_activation_decision(
+    memory: Mapping[str, object], identity: AgentIdentity | None, decision: PolicyDecision,
+) -> PolicyDecision:
+    if decision.decision == "blocked" or commit_block_kind(memory) != "rule" or caller_may_publish_lesson(identity):
+        return decision
+    return replace(decision, decision="blocked", reasons=(*decision.reasons, RULE_REQUIRES_PUBLISHER))
+
+
+def refuse_rule_in_correction(value: Mapping[str, object] | None) -> None:
+    if commit_block_kind({"value": value}) == "rule":
+        raise VNextMemoryCommitValidationError("a rule can only be written by the commit door")
 
 
 def memory_commit_request_from_payload(payload: Mapping[str, object], *, user_id: object) -> MemoryCommitRequest:
+    raw_rule = payload.get("rule")
+    raw_lesson = payload.get("lesson")
+    rule: RuleBlock | None = None
+    if raw_rule is not None:
+        if raw_lesson is not None:
+            raise VNextMemoryCommitValidationError("a commit takes one of lesson or rule")
+        if "confidence" in payload or "source_type" in payload:
+            raise VNextMemoryCommitValidationError("confidence and source_type must be left out when the commit carries a rule")
+        rule = _rule_block_from_payload(raw_rule)
     confidence = payload.get("confidence", 0.9)
     if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
         raise VNextMemoryCommitValidationError("confidence must be a number")
     if confidence < 0.0 or confidence > 1.0:
         raise VNextMemoryCommitValidationError("confidence must be between 0.0 and 1.0")
-    raw_lesson = payload.get("lesson")
     lesson: LessonBlock | None = None
     if raw_lesson is not None:
         lesson = _lesson_block_from_payload(raw_lesson)
@@ -4418,6 +4619,25 @@ def memory_commit_request_from_payload(payload: Mapping[str, object], *, user_id
         )
         title = _optional_text(payload.get("title")) or lesson_derived_title(lesson)
         canonical_text = lesson_derived_text(lesson)
+    elif rule is not None:
+        if payload.get("canonical_text") is not None:
+            raise VNextMemoryCommitValidationError("canonical_text must be left out when the commit carries a rule")
+        raw_memory_type = payload.get("memory_type")
+        if raw_memory_type is not None and _enum_value(
+            raw_memory_type, field_name="memory_type", allowed_values=VNEXT_MEMORY_TYPES, aliases=_MEMORY_TYPE_ALIASES
+        ) != "procedure":
+            raise VNextMemoryCommitValidationError("a commit with a rule has memory_type procedure")
+        memory_type = "procedure"
+        domain_raw = payload.get("domain")
+        domain = (
+            "project"
+            if domain_raw is None
+            else _enum_value(domain_raw, field_name="domain", allowed_values=VNEXT_DOMAINS, aliases=_DOMAIN_ALIASES)
+        )
+        title = rule.rule[:80]
+        canonical_text = f"Rule: {rule.rule} Reason: {rule.reason}"
+        if rule.applies_when is not None:
+            canonical_text += f" Applies when: {rule.applies_when}"
     else:
         memory_type = _enum_value(
             payload.get("memory_type", "semantic"),
@@ -4456,6 +4676,7 @@ def memory_commit_request_from_payload(payload: Mapping[str, object], *, user_id
         contradiction_refs=_string_tuple(payload.get("contradiction_refs")),
         trace_id=_optional_text(payload.get("trace_id")),
         lesson=lesson,
+        rule=rule,
     )
 
 

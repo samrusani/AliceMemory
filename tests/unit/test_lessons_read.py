@@ -365,8 +365,8 @@ def test_surface(monkeypatch):
     assert tools["alice_lessons"]["annotations"] == tools["alice_recall"]["annotations"]
     old = [item for item in list_mcp_tools() if item["name"] != "alice_lessons"]
     digest = hashlib.sha256(json.dumps(old, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    # The full surface describes matching published lessons in the commit and review tool help.
-    assert digest == "49b2bf842ea3a7475d10284bee5187bceadbcc9db190bfd721cffc170b235f26"
+    # The full surface includes the rule commit argument and the keyless profile description.
+    assert digest == "37d6f55d4c2b421f66e8cc11496fe71798f246e912cc7a307084e0470d85f971"
     assert tools["alice_lessons"]["description"].endswith("With an agent key, also see what became of the lessons you wrote.")
 
 

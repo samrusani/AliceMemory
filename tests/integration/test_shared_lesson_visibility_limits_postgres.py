@@ -24,6 +24,7 @@ from tests.support.lesson_visibility_contract import (
     check_hidden_lesson_verbs,
     check_keyless_legacy_lesson_correction,
     check_keyless_lesson_visibility,
+    check_keyless_read_case,
     check_lesson_pack,
     check_lesson_publisher_ids,
     check_lesson_replays,
@@ -33,6 +34,7 @@ from tests.support.lesson_visibility_contract import (
     make_review_lessons,
     omit_key_use,
     put_each_lesson_in_the_pack_event_prefix,
+    seed_keyless_read_cases,
     seed_timing_lessons,
 )
 from tests.unit.test_identity_claim_codes import wire
@@ -395,6 +397,23 @@ def test_postgres_keyless_lesson_review_uses_the_resolved_identity(label_harness
     h = label_harness
     context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
     check_keyless_lesson_visibility(lambda claims, tool, args: wire(context, tool, {**args, **claims}))
+
+
+@pytest.fixture
+def postgres_keyless_read_cases(label_harness, monkeypatch):
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    h = label_harness
+    context = MCPRuntimeContext(database_url=h.urls["app"], user_id=h.user_id)
+    return seed_keyless_read_cases(context, h.store)
+
+
+@pytest.mark.parametrize("profile", ["trusted_local_agent", "project_scoped_agent"])
+@pytest.mark.parametrize("state", ["candidate", "rejected", "private_only"])
+@pytest.mark.parametrize("door", ["detail", "explain", "queue", "replay"])
+def test_postgres_keyless_publisher_reads_other_writers_lessons(postgres_keyless_read_cases, profile, state, door):
+    """Guard edit: limit publishing standing to owners and admins."""
+    check_keyless_read_case(postgres_keyless_read_cases, profile, state, door)
 
 
 def test_postgres_legacy_correction_gives_the_missing_answer_for_unpublished_lessons(label_harness, monkeypatch):

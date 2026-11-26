@@ -927,6 +927,7 @@ _FIXED_REASON_HELPERS = {
     "_refresh_last_confirmed",
     "_append_revision",
     "memory_commit_receipt",
+    "_rule_commit_refusal",
 }
 
 

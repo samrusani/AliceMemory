@@ -21,7 +21,7 @@ whose limits allow the row. Other readers see a missing lesson. A commit that
 would replay such a hidden lesson gives the existing idempotency conflict.
 Published lessons and their decision reasons follow the usual read limits.
 
-Unreleased (on main, not in v0.25.0): Trusted local and project-scoped callers on an install without active keys can also see waiting lessons within their read limits.
+Unreleased (on main, not in v0.25.0): On an install without active keys, trusted local and project-scoped callers can read other writers' waiting, rejected and private-only lessons and their decision reasons within their read limits, and repeating an identical commit with the original idempotency key returns the writer's receipt.
 
 Each lesson returned by `alice_lessons` names its writer and the agent that
 approved it, when an agent approved it. Choose neutral agent ids if those names
@@ -91,6 +91,15 @@ needed. See [standing to retire a memory](../memory-operations-protocol.md#stand
 ```json
 {"action":"expire","memory_id":"00000000-0000-4000-8000-000000000001","reason":"The lesson is no longer correct."}
 ```
+
+## Rules
+
+Unreleased (on main, not in v0.25.0): A rule records a standing instruction the owner gave, using `rule` for what to do (at most 400 characters) and `reason` for why (at most 600).
+Unreleased (on main, not in v0.25.0): Leave `applies_when` (at most 300 characters) out for an unconditional rule and `paths` out for a rule that applies everywhere, or use up to 16 repo-relative paths or globs of at most 200 characters under the lesson path rules.
+Unreleased (on main, not in v0.25.0): With active keys, the owner and admin keys may write rules, and without active keys an unnamed caller or a caller with declared admin, trusted local or project-scoped standing may write them within the usual write limits.
+Unreleased (on main, not in v0.25.0): To change a rule, commit a new rule with `replaces` set to the readable active rule's memory ID, which supersedes the earlier rule in the same transaction.
+Unreleased (on main, not in v0.25.0): A rule is never edited in place, and you can retire it without a replacement using the existing expire action.
+Unreleased (on main, not in v0.25.0): Rules never wait for review or confirmation, appear in ordinary memory reads within the caller's read limits, and stay out of lesson lookups, counts and the waiting lessons queue.
 
 ## A generic stdio server entry
 

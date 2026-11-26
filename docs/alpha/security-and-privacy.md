@@ -38,9 +38,11 @@ Security posture:
 - the managed SQLite directory is owner-only; database sidecars and exports are also owner-only
 
 The complete shipped-product threat model, evidence ledger, and open proof gaps
-are in [`docs/security/`](../security/README.md). These materials record
-automated security scanning and internal adversarial review, findings triaged
-and fixed. They are not a third-party review or a security certification.
+are in [`docs/security/`](../security/README.md). Alice's security work is
+automated security scanning and internal adversarial review. A second internal
+review is still being worked through: v0.25.0 carries its first fixes, and some
+of its findings are not fixed yet. No one outside the project has audited the
+code.
 
 Recommended alpha defaults:
 

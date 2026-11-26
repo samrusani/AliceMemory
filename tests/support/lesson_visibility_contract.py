@@ -444,6 +444,65 @@ def check_keyless_lesson_visibility(call):
                 assert not failed and memory_id in json.dumps(result), result
 
 
+def seed_keyless_read_cases(context, store_context):
+    from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+    from tests.unit.test_identity_claim_codes import wire
+
+    def call(claims, tool, arguments):
+        if tool == "alice_memory_commit":
+            arguments = {**arguments, "project_scope": ["alpha"], "sensitivity": "internal"}
+        return wire(context, tool, {**arguments, **claims})
+
+    writer = {"agent_id": "fixture-writer", "permission_profile": "memory_proposal_agent"}
+    admin = {"agent_id": "fixture-admin", "permission_profile": "admin_agent"}
+    rows = make_review_lessons(call, writer, admin)
+    rows["private_only"] = rows.pop("active")
+    with store_context() as store:
+        store.lock_graph_mutation()
+        acquire_exclusive_label_lock(store)
+        store.update_memory(
+            memory_id=rows["private_only"][0],
+            patch={"status": "private_only", "sensitivity": "private"},
+            actor_type="user",
+        )
+    return call, rows
+
+
+def check_keyless_read_case(fixture, profile, state, door):
+    call, rows = fixture
+    memory_id, payload = rows[state]
+    scope = {"project_scope": ["alpha"]} if profile == "project_scoped_agent" else {}
+    publisher = {"agent_id": "fixture-publisher", "permission_profile": profile, **scope}
+    peer = {"agent_id": "fixture-peer", "permission_profile": "memory_proposal_agent"}
+    tool, arguments = {
+        "detail": ("alice_memory_review", {"review_item_id": memory_id}),
+        "explain": ("alice_explain", {"memory_id": memory_id}),
+        "queue": ("alice_memory_review", {"status": "all"}),
+        "replay": ("alice_memory_commit", payload),
+    }[door]
+    for claims in ({}, publisher):
+        failed, result = call(claims, tool, arguments)
+        assert not failed, result
+        if door == "queue":
+            assert memory_id in {str(item["id"]) for item in result["items"]}
+            assert result["count"] == len(rows)
+        elif door == "replay":
+            assert result["idempotent_replay"] is True
+            assert str(result["memory"]["id"]) == memory_id
+            assert result["memory"]["status"] == state
+        else:
+            assert memory_id in json.dumps(result)
+            if state == "rejected":
+                assert REJECTION_REASON in json.dumps(result)
+    failed, result = call(peer, tool, arguments)
+    if door == "queue":
+        assert not failed and result["items"] == [] and result["count"] == 0, result
+    else:
+        assert failed and result["error"]["code"] == (
+            "tool_request_failed" if door == "replay" else "not_found"
+        ), result
+
+
 def check_keyless_legacy_lesson_correction(call):
     writer = {"agent_id": "local-writer", "permission_profile": "memory_proposal_agent", "project_scope": ["alpha"]}
     reviewer = {"agent_id": "local-reviewer", "permission_profile": "admin_agent"}
