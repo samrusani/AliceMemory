@@ -1050,7 +1050,7 @@ async def _vnext_protected_http_auth(
                 except Exception:
                     # The original field validation still decides this
                     # request if local keyless standing cannot be verified.
-                    pass
+                    allow_empty_profile = False
                 else:
                     allow_empty_profile = True
         else:

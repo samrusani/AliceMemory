@@ -728,6 +728,23 @@ def _check_browser_clip_capability_ceiling(
             raise _BrowserClipCeilingRefusal
 
 
+def _browser_clip_source_payload(
+    request: VNextBrowserClipperCaptureRequest, identity: AgentIdentity | None,
+) -> dict[str, object]:
+    """Record an inferred local profile in the same envelope as a declared profile."""
+    payload = request.model_dump(mode="json")
+    if identity is None or not identity.no_active_agent_keys or identity.permission_profile != "trusted_local_agent":
+        return payload
+    original = _vnext_agent_identity(request)
+    if original is not None and original.permission_profile == "read_only_agent":
+        nested = payload.get("agent_identity")
+        if nested is None:
+            nested = payload.get("agent")
+        envelope = nested if isinstance(nested, dict) else payload
+        envelope["permission_profile"] = identity.permission_profile
+    return payload
+
+
 @connectors_router.post("/v0/vnext/connectors/{connector_name}/sync")
 def sync_vnext_connector(
     connector_name: str,
@@ -910,7 +927,7 @@ def capture_vnext_browser_clip(
                     active_keys = store.count_active_agent_api_keys()
                 _check_browser_clip_capability_ceiling(store, request.sensitivity, active_keys=active_keys)
             result = VNextConnectorService(store, defer_embeddings=True).capture_browser_clip(
-                request.model_dump(mode="json"),
+                _browser_clip_source_payload(request, identity),
                 default_domain=request.domain,
                 default_sensitivity=request.sensitivity,
                 capability_authorized=capability_authorized,

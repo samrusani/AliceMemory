@@ -82,3 +82,30 @@ def test_browser_capability_uses_a_blank_profile_only_on_a_keyless_vault(label_h
         assert status == expected, receipt
         if key is None:
             key = h.key("admin_agent")
+
+
+@pytest.mark.parametrize("shape", ["flat", "agent_identity"])
+def test_browser_capture_records_the_inferred_profile_like_a_declared_one(label_harness, shape):
+    """Guard edit: leave the inferred profile out of the stored identity envelope."""
+    from alicebot_api.vnext_connectors import VNextConnectorService
+
+    h = label_harness
+    with h.store() as store:
+        VNextConnectorService(store).update_config("browser_clipper", enabled=True)
+    origin = "https://fixture.example.invalid"
+    profiles = []
+    for index, claims in enumerate(profile_claims(shape, "omitted")):
+        status, issued, _ = h.request("POST", "/v0/vnext/connectors/browser-clipper/capabilities",
+                                      payload={"origin": origin})
+        assert status == 201, issued
+        status, receipt, _ = h.request("POST", "/v0/vnext/connectors/browser-clipper/capture", origin=origin, payload={
+            "url": f"{origin}/record-{index}", "page_text": f"Synthetic note about browser capture {index}.",
+            "capture_capability": issued["capability"], "sensitivity": "private", **claims,
+        })
+        assert status == 201 and receipt["imported_count"] == 1, receipt
+        with h.store() as store:
+            row = store.get_source(receipt["source_ids"][0])
+        payload = row["metadata_json"]["raw_payload"]
+        identity = payload if shape == "flat" else payload[shape]
+        profiles.append(identity["permission_profile"])
+    assert profiles == ["trusted_local_agent", "trusted_local_agent"]
