@@ -680,7 +680,7 @@ def _request_contains_secret_marker(request: MemoryCommitRequest) -> str | None:
     scanned_refs: tuple[object, ...] = request.source_refs
     if request.lesson is not None:
         scanned_refs = (*request.source_refs, *request.lesson.paths)
-    elif request.rule is not None:
+    if request.rule is not None:
         scanned_refs = (*request.source_refs, *request.rule.paths)
 
     return commit_door_secret_verdict(
@@ -4548,6 +4548,17 @@ def lesson_from_memory(memory: Mapping[str, object]) -> JsonObject | None:
     return None
 
 
+def commit_block_edit_message(memory: Mapping[str, object], *, with_text: bool) -> str | None:
+    """Return the fixed public edit refusal for a stored commit block."""
+    if with_text:
+        block = commit_block_kind(memory, legacy_lesson=True)
+        if block == "lesson":
+            return LESSON_MUTATION_REFUSED_MESSAGE
+        if block == "rule":
+            return RULE_MUTATION_REFUSED_MESSAGE
+    return None
+
+
 def refuse_lesson_mutation(memory: Mapping[str, object], *, with_text: bool) -> None:
     """One check every door that rewrites a stored memory's text, title or value calls.
 
@@ -4558,13 +4569,9 @@ def refuse_lesson_mutation(memory: Mapping[str, object], *, with_text: bool) -> 
     The block changes only by rejecting the memory and recording a new one.
     """
 
-    if not with_text:
-        return
-    block = commit_block_kind(memory, legacy_lesson=True)
-    if block == "lesson":
-        raise VNextMemoryCommitValidationError(LESSON_MUTATION_REFUSED_MESSAGE)
-    if block == "rule":
-        raise VNextMemoryCommitValidationError(RULE_MUTATION_REFUSED_MESSAGE)
+    message = commit_block_edit_message(memory, with_text=with_text)
+    if message is not None:
+        raise VNextMemoryCommitValidationError(message)
 
 
 def rule_activation_decision(

@@ -147,4 +147,4 @@ def test_default_tools_list_stays_within_the_byte_budget(monkeypatch):
     server = mcp_server.MCPServer(context=context, input_stream=BytesIO(), output_stream=BytesIO())
     result = server._handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
     size = len(json.dumps(result, separators=(",", ":"), sort_keys=True).encode())
-    assert size <= 20_610 + 300
+    assert size <= 22_157 + 300

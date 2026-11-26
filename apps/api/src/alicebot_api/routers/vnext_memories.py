@@ -101,10 +101,10 @@ from alicebot_api.vnext_memory_commit import (
     VNextMemoryCommitValidationError,
     _brain_charter_row,
     agent_api_keys_provisioned,
+    commit_block_edit_message,
     is_pending_consolidation_candidate,
     load_promotion_settings,
     memory_commit_request_from_payload,
-    refuse_lesson_mutation,
     resolved_confirmation_record,
     rule_activation_decision,
 )
@@ -1667,15 +1667,14 @@ def review_vnext_memory(
                     status_code=409,
                     detail=PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE,
                 )
-            try:
-                refuse_lesson_mutation(
-                    existing,
-                    with_text=action == "edit" or any(
-                        value is not None for value in (request.title, request.canonical_text, request.summary)
-                    ),
-                )
-            except VNextMemoryCommitValidationError as exc:
-                return _vnext_public_error_response(status_code=400, detail=str(exc))
+            edit_refusal = commit_block_edit_message(
+                existing,
+                with_text=action == "edit" or any(
+                    value is not None for value in (request.title, request.canonical_text, request.summary)
+                ),
+            )
+            if edit_refusal is not None:
+                return _vnext_public_error_response(status_code=400, detail=edit_refusal)
             if action in {"accept", "promote"}:
                 activation = rule_activation_decision(existing, identity, locked_decision)
                 if activation is not locked_decision:

@@ -2089,8 +2089,12 @@ class SavedProvenanceReader:
         out: dict[str, object] | None = None
         for key in keys:
             value = row.get(key)
-            rule = value.get("rule") if isinstance(value, Mapping) else None
-            predecessor = rule.get("replaces") if isinstance(rule, Mapping) else None
+            if not isinstance(value, Mapping):
+                continue
+            rule = value.get("rule")
+            if not isinstance(rule, Mapping):
+                continue
+            predecessor = rule.get("replaces")
             if not isinstance(predecessor, str) or not self._limited():
                 continue
             memory_id = _uuid_text(predecessor)
@@ -2100,7 +2104,6 @@ class SavedProvenanceReader:
                     continue
             if out is None:
                 out = dict(row)
-            assert isinstance(value, Mapping) and isinstance(rule, Mapping)
             out[key] = {**value, "rule": {field: item for field, item in rule.items() if field != "replaces"}}
             if key == "value" and str(row.get("supersedes")) == predecessor:
                 out.pop("supersedes", None)
