@@ -24827,7 +24827,7 @@
           "line": 90,
           "before": "    \"mcp/lessons.py:_matched_lesson_entries\": None,\n",
           "after": "",
-          "sha256": "7c28019934dfb01082f10ffb799941a61496f05fd9b42e66f70bfcf2dc2910a7"
+          "sha256": "ef068e1f1d325796466448da87db768046839f4c057cfb0c23524f7116be6507"
         }
       ],
       "pytest": [
@@ -24840,10 +24840,10 @@
       "edits": [
         {
           "file": "tests/unit/test_label_door_registry.py",
-          "line": 152,
+          "line": 153,
           "before": "    \"mcp/lessons.py:_RevisionView.list_events\": \"private attribution delegate; memory_writer receives only a memory admitted by the lesson handler\",\n",
           "after": "",
-          "sha256": "7c28019934dfb01082f10ffb799941a61496f05fd9b42e66f70bfcf2dc2910a7"
+          "sha256": "ef068e1f1d325796466448da87db768046839f4c057cfb0c23524f7116be6507"
         }
       ],
       "pytest": [
@@ -24859,7 +24859,7 @@
           "line": 89,
           "before": "    \"mcp/lessons.py:_handle_alice_lessons\": \"_matched_lesson_entries\",",
           "after": "    \"mcp/lessons.py:_handle_alice_lessons\": \"_publication\",",
-          "sha256": "7c28019934dfb01082f10ffb799941a61496f05fd9b42e66f70bfcf2dc2910a7"
+          "sha256": "ef068e1f1d325796466448da87db768046839f4c057cfb0c23524f7116be6507"
         }
       ],
       "pytest": [
@@ -27293,7 +27293,7 @@
           "line": 91,
           "before": "    \"mcp/lessons.py:_select_published_lessons\": None,\n",
           "after": "",
-          "sha256": "7c28019934dfb01082f10ffb799941a61496f05fd9b42e66f70bfcf2dc2910a7"
+          "sha256": "ef068e1f1d325796466448da87db768046839f4c057cfb0c23524f7116be6507"
         }
       ],
       "pytest": [
@@ -40009,6 +40009,54 @@
         "tests/integration/test_rule_block_postgres.py::test_postgres_trusted_author_cannot_confirm_its_own_seeded_rule"
       ],
       "expected_failure": "test_postgres_trusted_author_cannot_confirm_its_own_seeded_rule"
+    },
+    {
+      "name": "rule-replacement-fence-classification",
+      "edits": [
+        {
+          "file": "tests/unit/test_label_door_registry.py",
+          "line": 94,
+          "before": "    \"vnext_memory_commit.py:VNextMemoryCommitService._rule_replacement_target\": None,",
+          "after": "",
+          "sha256": "ef068e1f1d325796466448da87db768046839f4c057cfb0c23524f7116be6507"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_door_registry.py::test_every_scanned_reader_is_classified"
+      ],
+      "expected_failure": "test_every_scanned_reader_is_classified"
+    },
+    {
+      "name": "rule-replacement-reload-classification",
+      "edits": [
+        {
+          "file": "tests/unit/test_label_door_registry.py",
+          "line": 185,
+          "before": "    \"vnext_memory_commit.py:VNextMemoryCommitService._create_committed_memory\": \"reloads the row created by this commit after its supersession link is written\",",
+          "after": "",
+          "sha256": "ef068e1f1d325796466448da87db768046839f4c057cfb0c23524f7116be6507"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_label_door_registry.py::test_every_scanned_reader_is_classified"
+      ],
+      "expected_failure": "test_every_scanned_reader_is_classified"
+    },
+    {
+      "name": "rule-refusal-fixed-reason-classification",
+      "edits": [
+        {
+          "file": "tests/unit/test_credential_activation_and_withhold.py",
+          "line": 930,
+          "before": "    \"_rule_commit_refusal\",",
+          "after": "",
+          "sha256": "f5bb3ced9a63b3a6910b4038782d218c813d7f6476c043078e1ddb95003da1bb"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_credential_activation_and_withhold.py::test_r2_every_reason_intake_in_the_commit_service_goes_through_the_helper"
+      ],
+      "expected_failure": "test_r2_every_reason_intake_in_the_commit_service_goes_through_the_helper"
     }
   ]
 }
