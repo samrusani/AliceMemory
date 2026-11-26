@@ -314,8 +314,9 @@ is a CLI verb, not an always-on agent tool.
   An agent capture above its sensitivity ceiling is refused without storing a source.
   From v0.25.0, memory proposals, open loops, queue tasks, projects and brain charter writes respect the admitted caller's sensitivity ceiling.
 - `alice_memory_review` — inspect the review queue, or one item in detail.
-  From v0.25.0, a waiting or rejected lesson is listed
+  In v0.25.0, a waiting or rejected lesson is listed
   and counted only for its writer and for a decider who may read the row.
+  Unreleased (on main, not in v0.25.0): On an install without active keys, trusted local and project-scoped callers can also see other writers' waiting, rejected and private-only lessons in the queue and open their details and decision reasons within their read limits.
   From v0.25.0, waiting lessons in the list show their
   fields. The first ten waiting lessons and a waiting lesson opened by id show
   up to three closest readable published lessons in `similar`. A successful
@@ -393,8 +394,9 @@ is a CLI verb, not an always-on agent tool.
 - `alice_open_loops` — list open loops, or close/snooze/edit/reopen one.
 - `alice_explain` — where a memory came from and why it can be trusted:
   sources, revisions, corroboration, contradiction signals.
-  From v0.25.0, a waiting or rejected lesson and its
+  In v0.25.0, a waiting or rejected lesson and its
   decision reason are visible only to its writer or a decider who may read it.
+  Unreleased (on main, not in v0.25.0): On an install without active keys, trusted local and project-scoped callers can also explain other writers' waiting, rejected and private-only lessons and see their decision reasons within their read limits.
   A published lesson keeps its decision reason under the usual read limits.
 - `alice_what_changed` (from v0.21.0): the recorded decision history for one
   topic that this caller may read. Each chain has its own current step,

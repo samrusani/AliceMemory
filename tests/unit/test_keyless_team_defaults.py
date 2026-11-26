@@ -56,6 +56,25 @@ def test_only_counted_identity_holds_keyless_standing(local_tools):
     check_marker_does_not_restore(identity)
 
 
+def test_stored_keyless_lesson_mark_uses_publishing_standing(local_tools):
+    """Guard edit: stop writing the stored keyless publishing mark."""
+    from alicebot_api.vnext_agent_control import AgentIdentity
+    from alicebot_api.vnext_memory_commit import VNextMemoryCommitService, memory_commit_request_from_payload
+
+    vault, _, call = local_tools
+    error, published = call("commit", {"lesson": LESSON, **TRUSTED})
+    assert error is None and published["status"] == "committed"
+    mark = "keyless_lesson_publishing_standing"
+    assert published["memory"]["metadata_json"]["agentic_memory"][mark] is True
+    with sqlite_user_connection(vault.path, vault.user) as conn:
+        result = VNextMemoryCommitService(SQLiteVNextStore(conn, vault.user)).commit(
+            identity=AgentIdentity(**TRUSTED),
+            request=memory_commit_request_from_payload({"lesson": LESSON}, user_id=vault.user),
+        )
+    assert result["status"] == "review_required"
+    assert mark not in result["memory"]["metadata_json"]["agentic_memory"]
+
+
 def test_keyless_publication_stays_visible_across_key_creation_and_revocation(local_tools, monkeypatch):
     """Guard edit: omit the write's recorded keyless publishing standing from lookup."""
     vault, _, call = local_tools

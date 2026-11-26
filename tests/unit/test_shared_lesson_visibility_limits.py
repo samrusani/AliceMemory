@@ -13,6 +13,7 @@ from tests.support.lesson_visibility_contract import (
     check_hidden_lesson_verbs,
     check_keyless_legacy_lesson_correction,
     check_keyless_lesson_visibility,
+    check_keyless_read_case,
     check_lesson_pack,
     check_lesson_publisher_ids,
     check_lesson_replays,
@@ -22,6 +23,7 @@ from tests.support.lesson_visibility_contract import (
     make_review_lessons,
     omit_key_use,
     put_each_lesson_in_the_pack_event_prefix,
+    seed_keyless_read_cases,
     seed_timing_lessons,
 )
 from tests.unit.test_identity_claim_codes import wire
@@ -149,6 +151,30 @@ def test_sqlite_keyless_lesson_review_uses_the_resolved_identity(tmp_path, monke
     vault = Vault(tmp_path / "vault.db")
     context = MCPRuntimeContext(database_url=sqlite_url_for_path(vault.path), user_id=vault.user)
     check_keyless_lesson_visibility(lambda claims, tool, args: wire(context, tool, {**args, **claims}))
+
+
+@pytest.fixture
+def sqlite_keyless_read_cases(tmp_path, monkeypatch):
+    monkeypatch.delenv("ALICE_AGENT_API_KEY", raising=False)
+    monkeypatch.setenv("ALICE_MCP_FULL_TOOLS", "1")
+    monkeypatch.setenv("ALICE_PROJECT_DIR", str(tmp_path))
+    vault = Vault(tmp_path / "vault.db")
+    context = MCPRuntimeContext(database_url=sqlite_url_for_path(vault.path), user_id=vault.user)
+
+    @contextmanager
+    def store():
+        with sqlite_user_connection(vault.path, vault.user) as conn:
+            yield SQLiteVNextStore(conn, vault.user)
+
+    return seed_keyless_read_cases(context, store)
+
+
+@pytest.mark.parametrize("profile", ["trusted_local_agent", "project_scoped_agent"])
+@pytest.mark.parametrize("state", ["candidate", "rejected", "private_only"])
+@pytest.mark.parametrize("door", ["detail", "explain", "queue", "replay"])
+def test_sqlite_keyless_publisher_reads_other_writers_lessons(sqlite_keyless_read_cases, profile, state, door):
+    """Guard edit: limit publishing standing to owners and admins."""
+    check_keyless_read_case(sqlite_keyless_read_cases, profile, state, door)
 
 
 def test_sqlite_legacy_correction_gives_the_missing_answer_for_unpublished_lessons(tmp_path, monkeypatch):

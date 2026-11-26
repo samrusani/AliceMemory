@@ -980,10 +980,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1320,
+          "line": 1322,
           "before": "A call answered HTTP 404 changes nothing",
           "after": "A call answered HTTP 404 may change a thing",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -1144,10 +1144,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1320,
+          "line": 1322,
           "before": "the only row it adds is the policy event that the operator gate records for its own refusal",
           "after": "it adds no row",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -1160,10 +1160,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1320,
+          "line": 1322,
           "before": "counts only the derived rows the caller may read now",
           "after": "counts the derived rows",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -1590,14 +1590,14 @@
           "line": 2950,
           "before": "memory = effective_row_for_fence(self.store, identity, kind, memory)\n        return self._policy_checked_write(",
           "after": "return self._policy_checked_write(",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
           "line": 2739,
           "before": "settled = effective_row_for_fence(self.store, identity, kind, memory)\n        domains, sensitivity_allowed, project_scope, project_floor = policy_labels(settled)",
           "after": "settled = memory\n        domains, sensitivity_allowed, project_scope, project_floor = policy_labels(settled)",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -1822,7 +1822,7 @@
           "line": 2889,
           "before": "        self._answer_as_missing_if_unreadable(\n            identity=identity, decision=decision, memory=memory, target_type=target_type, answer_as_missing=answer_as_missing\n        )\n        return self._record_write_decision(",
           "after": "        return self._record_write_decision(",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -1838,7 +1838,7 @@
           "line": 2931,
           "before": "            self._answer_as_missing_if_unreadable(\n                identity=identity, decision=decision, memory=memory, target_type=\"memory\", answer_as_missing=answer_as_missing\n            )\n            self._record_write_decision(identity=identity, decision=decision, memory=memory)",
           "after": "            self._record_write_decision(identity=identity, decision=decision, memory=memory)",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -1854,7 +1854,7 @@
           "line": 2846,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -1870,7 +1870,7 @@
           "line": 1931,
           "before": "if successor is None or outside_caller_limits(self.store, identity, \"memory\", successor):",
           "after": "if successor is None:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -1886,7 +1886,7 @@
           "line": 1575,
           "before": "            answer_as_missing=False,\n        )\n        confirmation_now = _agentic_metadata(memory).get(\"confirmation\")",
           "after": "        )\n        confirmation_now = _agentic_metadata(memory).get(\"confirmation\")",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -2034,10 +2034,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1330,
+          "line": 1332,
           "before": "The call now writes what a call on a missing id writes, which is nothing: no policy event and no agent record, because a key reads them back in its own policy telemetry. ",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -2069,7 +2069,7 @@
           "line": 2846,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -2085,7 +2085,7 @@
           "line": 2846,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -2101,7 +2101,7 @@
           "line": 2846,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -2117,7 +2117,7 @@
           "line": 2846,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -2133,7 +2133,7 @@
           "line": 2846,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing or decision.decision != \"blocked\" or memory.get(\"deleted_at\") is not None:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -2149,7 +2149,7 @@
           "line": 2846,
           "before": "if not answer_as_missing or decision.decision != \"blocked\":",
           "after": "if not answer_as_missing:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -2210,10 +2210,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1091,
+          "line": 1093,
           "before": "A refused `redact` of an archived or redacted row writes nothing, as a",
           "after": "A refused `redact` of an archived or redacted row is audited, as a",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -3847,7 +3847,7 @@
           "line": 3224,
           "before": "            \"revisions\": revisions,\n            \"events\": events,\n            \"provenance_links\": links,",
           "after": "            \"revisions\": revisions,\n            \"events\": [],\n            \"provenance_links\": links,",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -3863,7 +3863,7 @@
           "line": 3224,
           "before": "            \"revisions\": revisions,\n            \"events\": events,\n            \"provenance_links\": links,",
           "after": "            \"revisions\": [],\n            \"events\": events,\n            \"provenance_links\": links,",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -4004,10 +4004,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1328,
+          "line": 1330,
           "before": "`GET /v0/vnext/memories/{id}/audit` returns the same lists for a readable derived memory, in the memory, its revisions and the `changes` of its events, the ids of archived members included. ",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -4762,10 +4762,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1328,
+          "line": 1330,
           "before": " The words of a memory that was redacted after the report was made stay in the report as well, but a report that recorded a redacted memory is read by the owner and an unbound admin key only (see [Redacted memories](#redacted-memories)).",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -5193,10 +5193,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1542,
+          "line": 1544,
           "before": "redacting a memory now restricts reports and derived rows built from it to the owner and an unbound admin key until they are regenerated without it",
           "after": "redacting a memory leaves reports as they were",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -5257,10 +5257,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1546,
+          "line": 1548,
           "before": "Archiving keeps reports' historical content and does not restrict them.",
           "after": "Archiving restricts them.",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -5389,10 +5389,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1548,
+          "line": 1550,
           "before": "The recommended fix of the check is to regenerate or delete those reports, and not `alicebot vnext labels repair`",
           "after": "The recommended fix of the check is labels repair",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -5649,10 +5649,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1556,
+          "line": 1558,
           "before": "only when that key may read every labelled row the edge joins and none of them is redacted",
           "after": "for every key",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -5665,10 +5665,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1556,
+          "line": 1558,
           "before": "From v0.20.2, a graph edge has no label",
           "after": "From v0.20.2, the graph edges are the exception: they have no label",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -5681,10 +5681,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1558,
+          "line": 1560,
           "before": "The only tools a key can call are the core tools",
           "after": "A key can call any tool",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -5697,10 +5697,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 344,
+          "line": 345,
           "before": "It does not rewrite\n  the reports and cards made from the memory before: they keep the words they\n  copied",
           "after": "It rewrites\n  the reports and cards made from the memory before: they lose the words they\n  copied",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -5971,10 +5971,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1556,
+          "line": 1558,
           "before": "A project end that names the project by a name or by an id that finds no project row hides nothing",
           "after": "A project end hides every edge",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -6083,10 +6083,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1328,
+          "line": 1330,
           "before": "but a report that recorded a redacted memory is read by the owner and an unbound admin key only (see [Redacted memories](#redacted-memories))",
           "after": "but a report that recorded a redacted memory is read like any other report (see [Redacted memories](#redacted-memories))",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -6099,10 +6099,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1328,
+          "line": 1330,
           "before": "and a key that can read the report reads those words (from v0.21.0, a key with limits no longer reads the roll-up entry or the member digest of a row it may not read);",
           "after": "(from v0.21.0, a key with limits no longer reads the roll-up entry or the member digest of a row it may not read);",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -6163,10 +6163,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1320,
+          "line": 1322,
           "before": "and the rule that fences it is under [Graph edges and beliefs](#redacted-memories-and-the-graph).",
           "after": "and its limit is listed in the release security note.",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -6211,10 +6211,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1556,
+          "line": 1558,
           "before": "The review route checks the memory, source, belief and entity ends only, so it also refuses an edge whose end is an artifact, an open loop or a project to a key with limits, as it refuses an edge whose end no longer exists, even when that key may read the row and the neighborhood lists the edge. ",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -6438,7 +6438,7 @@
           "line": 3148,
           "before": "        if guard.active:\n            rows = SavedProvenanceReader(",
           "after": "        if False:\n            rows = SavedProvenanceReader(",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -7111,7 +7111,7 @@
           "line": 3145,
           "before": "rows = newest_admitted_rows(\n            guard, \"memory\", lambda size: self._newest_commits(size, **lesson_options), want=max(limit, 1),\n        )",
           "after": "rows = newest_admitted_rows(\n            guard, \"memory\", lambda size: self._newest_commits(size, **lesson_options), want=limit,\n        )",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -7640,10 +7640,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1356,
+          "line": 1358,
           "before": "(the sweep holds it as an expected failure).",
           "after": "(the sweep holds it as an expected failure); and `POST /v0/vnext/queue/process-next` answers HTTP 500 to every caller because its claim statement is ambiguous in PostgreSQL.",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -7864,10 +7864,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1336,
+          "line": 1338,
           "before": " A task that completes writes `task.updated` and `queue.task_completed`, and both name the artifact the task made, so the workspace feed of a key with a ceiling holds neither event, and not the id of the artifact, when the task was above its ceiling.",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -7912,10 +7912,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1356,
+          "line": 1358,
           "before": " and, for a task that a worker has claimed, of its claim event (`task.claimed`) and of its failure events (`task.updated` and `queue.task_failed`)",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -8843,10 +8843,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1346,
+          "line": 1348,
           "before": "A loop that was made earlier and is found again by its digest is judged on its effective labels like a new loop: ",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -9408,10 +9408,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": "a quote saved of a memory follows that memory as a quote saved of a source follows its source",
           "after": "a quote saved of a memory is shown to every caller",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -9440,10 +9440,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": "`memory_ids`, `memory_ref`, `memory_refs`, `memory_references`, `source_memory_ids`",
           "after": "`memory_ids`, `memory_ref`, `memory_refs`, `memory_references`, `source_memory_ids`, `memory_notes`",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -9472,10 +9472,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1552,
+          "line": 1554,
           "before": "but not through recall, the context pack or the default context tree, because the default sensitivity filter of those three reads an unverified row as regulated.",
           "after": "and through recall, the context pack and the default context tree, because the default sensitivity filter of those three reads an unverified row as regulated.",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -10049,10 +10049,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": "is looked up as well, because it may name a memory:",
           "after": "is not looked up, because it names no memory:",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -10081,10 +10081,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": "the `quote` and the `conversation_excerpt` become `null`, and so does any other text in the entry (a sentence that has the id in it, or a string in a `memory_id`, `source_id`, `id` or `ref` field that holds more than an id), while the entry keeps its ids, its numbers and its booleans under the fields the product writes",
           "after": "the `quote` and the `conversation_excerpt` become `null` while the entry keeps every other field",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -10097,10 +10097,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1552,
+          "line": 1554,
           "before": "A request that names every sensitivity lists them: the `sensitivity_allowed` argument of `alice_recall` and of the context pack, and the `sensitivity_allowed` query of the context tree.",
           "after": "A request that names every sensitivity (the `sensitivity_allowed` option of the context pack, the `sensitivity_allowed` query of the context tree) lists them. Recall takes no sensitivity argument, so it never lists them.",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -10129,10 +10129,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": "and the three feeds of events (the recent events and the agent activity of the workspace, and the events of a source trace) hold that payload to the same rule as the events of one memory in its audit",
           "after": "and nothing else holds that payload",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -10403,10 +10403,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": "recent events, agent activity and the source traces it embeds), the project dashboard",
           "after": "recent events and the source traces it embeds), the project dashboard",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -10451,10 +10451,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": "and a `#` and what follows it after a reference is dropped, so `memory:<id>#chunk-1` reads `memory:<id>`",
           "after": "and a `#` fragment after a reference is kept",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -10499,10 +10499,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": "Not judged: the text of an entry beside a refused ref that names a stored source or memory the caller may read, which keeps the strings under the fields the product writes, a `quote` or a string beside a `source_id` (the reader cannot tell whose words they are; every other field name goes from it with its value); words a writer typed in a field that is not a ref",
           "after": "Not judged: the name of a field, which is kept as written (a word used as a key cannot be told from a label); text in an entry that names no refused memory, beside an entry that does (an entry that names nothing loses its `quote` and `conversation_excerpt`, and no other string); words a writer typed in a field that is not a ref",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -10531,10 +10531,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": " A ref that lists tens of thousands of ids is read in several passes and its ids are looked up in slices of 500, so each page that returns the commit takes longer in proportion to the size of the ref, bounded by the body limit: about eight times as long at 100,000 ids on SQLite, against a few milliseconds more for a page of ordinary commits.",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -10790,7 +10790,7 @@
           "line": 3428,
           "before": "            \"source_refs\": json_safe(list(request.source_refs)),\n            \"conversation_excerpt\": request.conversation_excerpt,\n",
           "after": "            \"source_refs\": [{\"source_id\": ref, \"label\": \"x\"} for ref in request.source_refs],\n            \"conversation_excerpt\": request.conversation_excerpt,\n",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -10819,10 +10819,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": "The names of the fields are withheld with their values. A name holds words whatever its value is, so the entry keeps a field only when its name is one the product writes (the memory reference keys,",
           "after": "The names of the fields are kept as written (the memory reference keys,",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -10835,10 +10835,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": "a `text`, `excerpt`, `snippet`, `note` or `page` field goes whole, and so does an id that sits under a name such as `origin`, `ref_id` or `evidence`",
           "after": "a `text` field goes",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -10851,10 +10851,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": " From v0.21.0 the commit route, the memory proposal and the agent-output ingest (the sync of the `agent_output` connector included) refuse an entry of `source_refs` that is an object, a number, a boolean, `null`, a nested array, a blank string or a string that is the text of a JSON object or array (v0.20.2 accepted and stored one as sent), so the reader is the fence for the rows stored by earlier releases.",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -10867,10 +10867,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": "`source_ref`, `source_refs`, `source_references`, `selected_source_ids` and `sources`, `id`, `ref`,",
           "after": "`source_ref`, `source_refs`, `selected_source_ids` and `sources`, `id`, `ref`,",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -11876,10 +11876,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": "An entry names a row when a reference position says so (`source_id`, `memory_id`, a `source:` or `memory:` ref) and the row is stored and readable by the caller, and only then does it keep its text; an id under `chunk_id`, in a sentence or in a quote, and an id that names no stored row, name nothing, so adding one to an entry keeps no quote.",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -11892,10 +11892,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": "A quote or an excerpt that is an object or a list is read like the rest of the ref, and an id typed in the text of a quote or of the commit's excerpt (`memory:<id> words`) takes the quote when it names a stored memory the caller may not read. ",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -11908,10 +11908,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1307,
+          "line": 1309,
           "before": "the same rule holds the other rows that keep a structure their writer chose. A source made by the agent-output ingest keeps the `source_refs` it was sent in its `metadata_json` and again in `metadata_json.raw_payload`.",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -11924,10 +11924,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1307,
+          "line": 1309,
           "before": "now show a key with limits both copies of the refs with the ids and a `null` quote, and drop an entry that names a source the key may not read; the stored row is not changed.",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -11940,10 +11940,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1307,
+          "line": 1309,
           "before": "`alicebot vnext memories audit` with an agent key now authorizes the memory and its replacement chain as the audit route does and holds the result to the reader; in v0.20.0 it returned the audit as stored to a key that reached it.",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -12036,10 +12036,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1300,
+          "line": 1302,
           "before": "returns the source subject to the route's current read fence (the memory audit, recent commits and source routes hold a\nsaved quote, and the refs a source kept, to the caller now, see the paragraphs below);",
           "after": "returns what was stored subject to the route's current read fence (the memory audit and recent commits routes hold a\nsaved quote to the caller now, see the paragraph below);",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -12260,10 +12260,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1305,
+          "line": 1307,
           "before": ", and the entry beside a refused ref is held to the same rule on names whether or not it names a readable row: one that names nothing readable loses its text as well, and one that names a stored source or memory the caller may read keeps its text and loses every name the product does not write, with its value",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -13751,10 +13751,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1349,
+          "line": 1351,
           "before": "a failed item or a failed sync without the id the importer gave the item (for a file, its path) and without the cursor",
           "after": "a failed sync without the cursor",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -14007,10 +14007,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1356,
+          "line": 1358,
           "before": "a key that imports a public item at a path it already knows (it was told the path or guessed it) is then shown a failed import of that same path, so it can confirm that a failed import of a path it can name exists, and it learns the path it sent and nothing about the file; and the workspace",
           "after": "and the workspace",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -14023,10 +14023,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1351,
+          "line": 1353,
           "before": " `failed_external_ids` follows it too, each id in its place in the list: a folder sync names files the caller never sent, and an item the caller did send that failed is `null` as well unless an import of it made a source the key may read.",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -14359,10 +14359,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1338,
+          "line": 1340,
           "before": "A report the caller may not read now is left out, whether the run made it or found it again under the same digest. ",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -14407,10 +14407,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1338,
+          "line": 1340,
           "before": "The four generation routes answer HTTP 404 with `{\"detail\": \"vNext artifact was not found\"}`, and the tools `alice_generate_daily_brief`, `alice_generate_weekly_synthesis`, `alice_generate_connections`, `alice_generate_contradictions` and `alice_vnext_find_connections`, and the `daily_brief`, `weekly_synthesis`, `connection_report` and `contradiction_report` branches of `alice_vnext_generate_artifact`, answer the error `not_found`. ",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -14634,7 +14634,7 @@
           "line": 607,
           "before": "            refuse_unstorable_json(ref, name=\"each source_ref\")\n",
           "after": "            pass\n",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -14695,10 +14695,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp_server.py",
-          "line": 97,
+          "line": 99,
           "before": "    if text_nests_deeper_than(raw_payload, MAX_READ_JSON_DEPTH):\n",
           "after": "    if False:\n",
-          "sha256": "a573b61a7b9f27cd4f253a81685a9b22c52d6701df0566a06cc892b04868a768"
+          "sha256": "fd86e93d022222ed1131618e4a21a8881835919cb998186d397b8f8c5eb9f741"
         }
       ],
       "pytest": [
@@ -15336,10 +15336,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp_server.py",
-          "line": 301,
+          "line": 303,
           "before": "                text = retry_cutting_deep_json(attempt) if tool_only_reads(name, arguments) else attempt()\n",
           "after": "                text = retry_cutting_deep_json(attempt)\n",
-          "sha256": "a573b61a7b9f27cd4f253a81685a9b22c52d6701df0566a06cc892b04868a768"
+          "sha256": "fd86e93d022222ed1131618e4a21a8881835919cb998186d397b8f8c5eb9f741"
         }
       ],
       "pytest": [
@@ -15721,10 +15721,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1443,
+          "line": 1445,
           "before": "`alice_open_loops` with its `list` action), is run once more with every stored",
           "after": "`alice_open_loops`), is run once more with every stored",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -15737,10 +15737,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1446,
+          "line": 1448,
           "before": "written is never run twice",
           "after": "written may be run twice",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -19457,7 +19457,7 @@
           "line": 613,
           "before": "        if not is_producer_source_ref(ref):\n            raise VNextMemoryCommitValidationError(SOURCE_REF_SHAPE_MESSAGE)\n",
           "after": "        if False and not is_producer_source_ref(ref):\n            raise VNextMemoryCommitValidationError(SOURCE_REF_SHAPE_MESSAGE)\n",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24074,7 +24074,7 @@
           "line": 1052,
           "before": "        reasons.append(\"lesson_requires_approval\")\n        mode = \"propose_review\"\n        status = \"review_required\"\n        reason = \"lesson_requires_approval\"",
           "after": "        pass",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24090,7 +24090,7 @@
           "line": 1001,
           "before": "    if promotion_settings is not None and request.lesson is None:",
           "after": "    if promotion_settings is not None:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24106,7 +24106,7 @@
           "line": 1035,
           "before": "        if \"instruction_shaped_content\" in lesson_floor_hits:",
           "after": "        if False:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24122,7 +24122,7 @@
           "line": 97,
           "before": "    hard_floor_hits,",
           "after": "    writer_trust_for as hard_floor_hits,",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24151,10 +24151,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 4304,
+          "line": 4305,
           "before": "if path.startswith((\"/\", \"~\")) or \"..\" in path.split(\"/\") or re.search(r\"^[A-Za-z]:\", path) or \":\" in path:",
           "after": "if False:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24170,7 +24170,7 @@
           "line": 468,
           "before": "        payload[\"lesson\"] = request.lesson.to_value_record()",
           "after": "        pass",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24183,10 +24183,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 4414,
+          "line": 4415,
           "before": "        domain = (\n            \"project\"\n            if domain_raw is None\n            else _enum_value(domain_raw, field_name=\"domain\", allowed_values=VNEXT_DOMAINS, aliases=_DOMAIN_ALIASES)\n        )",
           "after": "        domain = _enum_value(\n            domain_raw if domain_raw is not None else \"unknown\",\n            field_name=\"domain\",\n            allowed_values=VNEXT_DOMAINS,\n            aliases=_DOMAIN_ALIASES,\n        )",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24202,7 +24202,7 @@
           "line": 1975,
           "before": "        # A memory that carries a lesson is never corrected: the block and the\n        # derived text would disagree. Every identity is refused; the lesson\n        # changes by rejecting the memory and recording a new one.\n        refuse_lesson_mutation(memory, with_text=True)",
           "after": "        pass",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24234,7 +24234,7 @@
           "line": 1687,
           "before": "        # A memory that carries a lesson is never confirmed with new text: the\n        # block and the derived text would disagree. A confirm without new\n        # text works and keeps the block.\n        refuse_lesson_mutation(memory, with_text=canonical_text is not None)",
           "after": "        pass",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24250,14 +24250,14 @@
           "line": 653,
           "before": "    scanned_refs: tuple[object, ...] = request.source_refs\n    if request.lesson is not None:\n        scanned_refs = (*request.source_refs, *request.lesson.paths)",
           "after": "    scanned_refs: tuple[object, ...] = request.source_refs",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         },
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
           "line": 1027,
           "before": "        if request.lesson.paths:\n            lesson_floor_candidate = replace(\n                lesson_floor_candidate,\n                conversation_excerpt=\" \".join(\n                    (*((lesson_floor_candidate.conversation_excerpt or \"\").split()), *request.lesson.paths)\n                ).strip(),\n            )",
           "after": "        pass",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24273,7 +24273,7 @@
           "line": 1027,
           "before": "        if request.lesson.paths:\n            lesson_floor_candidate = replace(\n                lesson_floor_candidate,\n                conversation_excerpt=\" \".join(\n                    (*((lesson_floor_candidate.conversation_excerpt or \"\").split()), *request.lesson.paths)\n                ).strip(),\n            )",
           "after": "        pass",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24286,10 +24286,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 4309,
+          "line": 4310,
           "before": "        if \"\\\\\" in path:\n            raise VNextMemoryCommitValidationError(\n                \"lesson.paths entries must be repo-relative paths or globs: a backslash is not a path separator\"\n            )",
           "after": "        pass",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24305,7 +24305,7 @@
           "line": 1035,
           "before": "        if \"instruction_shaped_content\" in lesson_floor_hits:\n            reasons.append(\"lesson_instruction_shaped\")\n            mode = \"reject\"\n            status = \"rejected\"\n        elif \"credential_material\" in lesson_floor_hits:",
           "after": "        if lesson_floor_hits:\n            reasons.append(\"lesson_instruction_shaped\")\n            mode = \"reject\"\n            status = \"rejected\"\n        elif False:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24337,7 +24337,7 @@
           "line": 916,
           "before": "    elif (secret_verdict := _request_contains_secret_marker(request)) is not None:",
           "after": "    elif request.lesson is not None:\n        pass\n    elif (secret_verdict := _request_contains_secret_marker(request)) is not None:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24356,7 +24356,7 @@
           "line": 961,
           "before": "    if mode == \"commit\":",
           "after": "    if mode == \"commit\" and request.lesson is None:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24465,10 +24465,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 4309,
+          "line": 4310,
           "before": "if \"\\\\\" in path:",
           "after": "if False:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -24481,10 +24481,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
-          "line": 4304,
+          "line": 4305,
           "before": "if path.startswith((\"/\", \"~\")) or \"..\" in path.split(\"/\") or re.search(r\"^[A-Za-z]:\", path) or \":\" in path:",
           "after": "if False:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -27045,7 +27045,7 @@
           "line": 61,
           "before": "\"do_instead\":\"Review the release checks after editing the notes.\"",
           "after": "\"instead\":\"Review the release checks after editing the notes.\"",
-          "sha256": "4834a969470d3cc5c3dc52a35b3330a589f797eb313d7c4db559bc9692965484"
+          "sha256": "76451e00052e8683cb9a4b03200f5411ff599140bcc134b5714139f6e3d078a7"
         }
       ],
       "pytest": [
@@ -27341,7 +27341,7 @@
           "line": 1551,
           "before": "        if memory is None:\n            raise MemoryNotFoundError(\"confirmation was not found\")",
           "after": "        if memory is None:\n            raise VNextMemoryCommitValidationError(\"confirmation was not found\")",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -28074,10 +28074,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1045,
+          "line": 1047,
           "before": "Leave out `agent_id`, `agent_identity`, `permission_profile` and `project_scope`, or narrow them",
           "after": "Leave out `agent_id`, `permission_profile` and `project_scope`, or narrow them",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -28090,10 +28090,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1045,
+          "line": 1047,
           "before": "| `identity_claim_refused` | An identity field claims an agent, profile or project scope the caller's key does not grant, or contains a blank project scope item. | Leave out `agent_id`, `agent_identity`, `permission_profile` and `project_scope`, or narrow them to what the key grants, then retry. |\n",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -28941,7 +28941,7 @@
           "line": 2784,
           "before": "if action != \"memory.unexpire\" and (",
           "after": "if False and action != \"memory.unexpire\" and (",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -28957,7 +28957,7 @@
           "line": 2793,
           "before": "if memory_carries_lesson(memory) and not caller_may_publish_lesson(identity):",
           "after": "if False and memory_carries_lesson(memory) and not caller_may_publish_lesson(identity):",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -28973,7 +28973,7 @@
           "line": 2784,
           "before": "if action != \"memory.unexpire\" and (",
           "after": "if False and action != \"memory.unexpire\" and (",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -28989,7 +28989,7 @@
           "line": 2793,
           "before": "if memory_carries_lesson(memory) and not caller_may_publish_lesson(identity):",
           "after": "if False and memory_carries_lesson(memory) and not caller_may_publish_lesson(identity):",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -29005,7 +29005,7 @@
           "line": 1935,
           "before": "self.refuse_unauthorized_write(identity=identity, action=\"memory.undo\", memory=successor, retirement_target=False)",
           "after": "self.refuse_unauthorized_write(identity=identity, action=\"memory.undo\", memory=successor)",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -29341,7 +29341,7 @@
           "line": 3343,
           "before": "            if content_differs or not _stored_labels_are_the_requests(memory, request, identity):",
           "after": "            if False:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -29357,7 +29357,7 @@
           "line": 3343,
           "before": "            if content_differs or not _stored_labels_are_the_requests(memory, request, identity):",
           "after": "            if content_differs:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -30285,7 +30285,7 @@
           "line": 3317,
           "before": "            return get_memory_by_commit_digest(idempotency_key)",
           "after": "            return None",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -30301,7 +30301,7 @@
           "line": 3317,
           "before": "            return get_memory_by_commit_digest(idempotency_key)",
           "after": "            return None",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -30317,7 +30317,7 @@
           "line": 2478,
           "before": "        valid_to_iso = _valid_to_iso(valid_to)",
           "after": "        valid_to_iso = _valid_to_iso(\"9999-01-01T00:00:00Z\")",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -30333,7 +30333,7 @@
           "line": 2478,
           "before": "        valid_to_iso = _valid_to_iso(valid_to)",
           "after": "        valid_to_iso = _valid_to_iso(\"9999-01-01T00:00:00Z\")",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -30541,7 +30541,7 @@
           "line": 3339,
           "before": "            try:\n                self._assert_idempotent_request_matches(memory=memory, request=request)\n            except VNextMemoryCommitValidationError:\n                content_differs = True",
           "after": "            try:\n                pass\n            except VNextMemoryCommitValidationError:\n                content_differs = True",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -30557,7 +30557,7 @@
           "line": 3339,
           "before": "            try:\n                self._assert_idempotent_request_matches(memory=memory, request=request)\n            except VNextMemoryCommitValidationError:\n                content_differs = True",
           "after": "            try:\n                pass\n            except VNextMemoryCommitValidationError:\n                content_differs = True",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -30586,10 +30586,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1349,
+          "line": 1351,
           "before": "The connector status route is an operator route: the owner on an install without active keys and an unbound trusted or admin key may call it; every other key is refused, and a call without a key is refused while an active key exists ([operator access](#saved-quotes)).",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -30730,10 +30730,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 1345,
+          "line": 1347,
           "before": "The context-tree route is an operator route: the owner on an install without active keys and an unbound trusted or admin key may call it; every other key is refused, and a call without a key is refused while an active key exists ([operator access](#saved-quotes)).",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -30749,7 +30749,7 @@
           "line": 2852,
           "before": "        if outside_caller_limits(self.store, identity, kind, memory):\n            raise MemoryNotFoundError(\"memory was not found\")",
           "after": "        if False and outside_caller_limits(self.store, identity, kind, memory):\n            raise MemoryNotFoundError(\"memory was not found\")",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -30765,7 +30765,7 @@
           "line": 2852,
           "before": "        if outside_caller_limits(self.store, identity, kind, memory):\n            raise MemoryNotFoundError(\"memory was not found\")",
           "after": "        if False and outside_caller_limits(self.store, identity, kind, memory):\n            raise MemoryNotFoundError(\"memory was not found\")",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -30797,7 +30797,7 @@
           "line": 3317,
           "before": "            return get_memory_by_commit_digest(idempotency_key)",
           "after": "            return None",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -30813,7 +30813,7 @@
           "line": 3317,
           "before": "            return get_memory_by_commit_digest(idempotency_key)",
           "after": "            return None",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -33356,10 +33356,10 @@
       "edits": [
         {
           "file": "apps/api/src/alicebot_api/mcp_server.py",
-          "line": 336,
+          "line": 338,
           "before": "message=exc.public_message if isinstance(exc, MCPPostgresKeyRequiredError) else _TOOL_REQUEST_FAILED_MESSAGE,",
           "after": "message=_TOOL_REQUEST_FAILED_MESSAGE,",
-          "sha256": "a573b61a7b9f27cd4f253a81685a9b22c52d6701df0566a06cc892b04868a768"
+          "sha256": "fd86e93d022222ed1131618e4a21a8881835919cb998186d397b8f8c5eb9f741"
         }
       ],
       "pytest": [
@@ -35599,7 +35599,7 @@
           "line": 3332,
           "before": "        if is_unpublished_lesson(memory) and outside_caller_limits(self.store, identity, \"memory\", memory):",
           "after": "        if is_unpublished_lesson(memory):",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -35615,7 +35615,7 @@
           "line": 3332,
           "before": "        if is_unpublished_lesson(memory) and outside_caller_limits(self.store, identity, \"memory\", memory):",
           "after": "        if is_unpublished_lesson(memory):",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -35631,7 +35631,7 @@
           "line": 3332,
           "before": "        if is_unpublished_lesson(memory) and outside_caller_limits(self.store, identity, \"memory\", memory):",
           "after": "        if is_unpublished_lesson(memory):",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -35647,7 +35647,7 @@
           "line": 2929,
           "before": "        if decision.decision == \"blocked\":\n            # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.",
           "after": "        if answer_as_missing and is_unpublished_lesson(memory):\n            raise MemoryNotFoundError(\"memory was not found\")\n        if decision.decision == \"blocked\":\n            # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -35663,7 +35663,7 @@
           "line": 2929,
           "before": "        if decision.decision == \"blocked\":\n            # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.",
           "after": "        if answer_as_missing and is_unpublished_lesson(memory):\n            raise MemoryNotFoundError(\"memory was not found\")\n        if decision.decision == \"blocked\":\n            # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -35679,7 +35679,7 @@
           "line": 2929,
           "before": "        if decision.decision == \"blocked\":\n            # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.",
           "after": "        if answer_as_missing and is_unpublished_lesson(memory):\n            raise MemoryNotFoundError(\"memory was not found\")\n        if decision.decision == \"blocked\":\n            # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -35967,7 +35967,7 @@
           "line": 2929,
           "before": "        if decision.decision == \"blocked\":\n            # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.",
           "after": "        if answer_as_missing and is_unpublished_lesson(memory):\n            raise MemoryNotFoundError(\"memory was not found\")\n        if decision.decision == \"blocked\":\n            # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -35983,7 +35983,7 @@
           "line": 2929,
           "before": "        if decision.decision == \"blocked\":\n            # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.",
           "after": "        if answer_as_missing and is_unpublished_lesson(memory):\n            raise MemoryNotFoundError(\"memory was not found\")\n        if decision.decision == \"blocked\":\n            # Records the refusal, then raises AgentPolicyBlockedError for a blocked decision.",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -36159,7 +36159,7 @@
           "line": 1972,
           "before": "        if memory is None or outside_lesson_review_standing(memory, identity):",
           "after": "        if memory is None or is_unpublished_lesson(memory):",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -36175,7 +36175,7 @@
           "line": 1972,
           "before": "        if memory is None or outside_lesson_review_standing(memory, identity):",
           "after": "        if memory is None or is_unpublished_lesson(memory):",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -37123,7 +37123,7 @@
           "line": 2023,
           "before": "                pending_confirmation, outcome=\"confirmed\", terminal_at=now if review_standing else None",
           "after": "                pending_confirmation, outcome=\"confirmed\"",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -37139,7 +37139,7 @@
           "line": 2109,
           "before": "                if not _confirmation_has_expired(confirmation):",
           "after": "                if False:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -37155,7 +37155,7 @@
           "line": 1990,
           "before": "        if status in {\"candidate\", \"needs_review\", \"private_only\"} and not consolidation:",
           "after": "        if status in {\"candidate\", \"needs_review\", \"private_only\"}:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -37171,7 +37171,7 @@
           "line": 1990,
           "before": "        if status in {\"candidate\", \"needs_review\", \"private_only\"} and not consolidation:",
           "after": "        if status in {\"candidate\", \"needs_review\", \"private_only\", \"stale\"} and not consolidation:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -37187,7 +37187,7 @@
           "line": 2101,
           "before": "        review = self._write_policy_decision(identity=identity, action=\"memory.review\", memory=memory)\n        if review.decision != \"blocked\":",
           "after": "        review = self._write_policy_decision(identity=identity, action=\"memory.review\", memory=memory)\n        if review.decision != \"blocked\" and confirmation is not None:",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -37203,7 +37203,7 @@
           "line": 1209,
           "before": "    return deadline.tzinfo is None or deadline < _utc_now()",
           "after": "    return True",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
@@ -39264,10 +39264,10 @@
       "edits": [
         {
           "file": "docs/alpha/mcp-tools.md",
-          "line": 658,
+          "line": 660,
           "before": "If both calls are accepted, a commit sent twice without an `idempotency_key` is stored twice.",
           "after": "",
-          "sha256": "537897b40f86c9a0fedde6ec38bc7a2bbcad35dfd3d6baa65e8721d7d6abe65a"
+          "sha256": "69f0cd5cca8412700d53be5461fd5832dfea873093faaf7d8fb40f75db0db7f5"
         }
       ],
       "pytest": [
@@ -39448,13 +39448,15 @@
           "line": 1229,
           "before": "    return identity.no_active_agent_keys and identity.permission_profile in {\n        \"trusted_local_agent\", \"project_scoped_agent\",\n    }",
           "after": "    return False",
-          "sha256": "8682bfe8cec12bea3081e20dc03b1eed422274b820f3f15cfdcddb8bbbdb2994"
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
         }
       ],
       "pytest": [
         "tests/unit/test_keyless_team_defaults.py::test_mcp_keyless_writers_publish_and_retire",
         "tests/integration/test_prekey_team_defaults_postgres.py::test_postgres_keyless_writers_publish_and_retire",
-        "tests/unit/test_keyless_team_defaults.py::test_keyless_publisher_sees_other_writers_waiting_lessons"
+        "tests/unit/test_keyless_team_defaults.py::test_keyless_publisher_sees_other_writers_waiting_lessons",
+        "tests/unit/test_shared_lesson_visibility_limits.py::test_sqlite_keyless_publisher_reads_other_writers_lessons",
+        "tests/integration/test_shared_lesson_visibility_limits_postgres.py::test_postgres_keyless_publisher_reads_other_writers_lessons"
       ],
       "expected_failure": "test_mcp_keyless_writers_publish_and_retire"
     },
@@ -39601,6 +39603,70 @@
         "tests/unit/test_omitted_domains_every_reader.py::test_the_per_project_fill_of_a_keyless_declared_profile_is_held_to_it"
       ],
       "expected_failure": "test_the_per_project_fill_of_a_keyless_declared_profile_is_held_to_it"
+    },
+    {
+      "name": "sqlite-stdio-counts-before-first-commit",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp_server.py",
+          "line": 464,
+          "before": "    if _is_sqlite_backend(context):\n        from alicebot_api.onramp",
+          "after": "    if False:\n        from alicebot_api.onramp",
+          "sha256": "fd86e93d022222ed1131618e4a21a8881835919cb998186d397b8f8c5eb9f741"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_sqlite_onramp.py::test_sqlite_launch_counts_the_vault_before_the_first_named_commit"
+      ],
+      "expected_failure": "test_sqlite_launch_counts_the_vault_before_the_first_named_commit"
+    },
+    {
+      "name": "sqlite-stdio-keeps-unopenable-vault-answer",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/mcp_server.py",
+          "line": 475,
+          "before": "            logger.debug(\"SQLite vault startup failed: %s\", type(exc).__name__)",
+          "after": "            return 1",
+          "sha256": "fd86e93d022222ed1131618e4a21a8881835919cb998186d397b8f8c5eb9f741"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_sqlite_onramp.py::test_direct_sqlite_launch_preserves_the_unopenable_vault_error"
+      ],
+      "expected_failure": "test_direct_sqlite_launch_preserves_the_unopenable_vault_error"
+    },
+    {
+      "name": "security-and-privacy-states-current-review",
+      "edits": [
+        {
+          "file": "docs/alpha/security-and-privacy.md",
+          "line": 41,
+          "before": "Alice's security work is\nautomated security scanning and internal adversarial review. A second internal\nreview is still being worked through: v0.25.0 carries its first fixes, and some\nof its findings are not fixed yet. No one outside the project has audited the\ncode.",
+          "after": "These materials record\nautomated security scanning and internal adversarial review, findings triaged\nand fixed.",
+          "sha256": "919e585eea5805bd9a36259f240b9741749b83f40b7439f54c8bb1ae3c801f8f"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_public_page_claims.py::test_security_and_privacy_page_states_the_review_status"
+      ],
+      "expected_failure": "test_security_and_privacy_page_states_the_review_status"
+    },
+    {
+      "name": "stored-keyless-lesson-publishing-mark",
+      "edits": [
+        {
+          "file": "apps/api/src/alicebot_api/vnext_memory_commit.py",
+          "line": 3449,
+          "before": "            agentic[\"keyless_lesson_publishing_standing\"] = True",
+          "after": "            pass",
+          "sha256": "0263b58664102e5e8f0de30c3bf70e78b666efa8faf2d376848185b457187e9d"
+        }
+      ],
+      "pytest": [
+        "tests/unit/test_keyless_team_defaults.py::test_stored_keyless_lesson_mark_uses_publishing_standing"
+      ],
+      "expected_failure": "test_stored_keyless_lesson_mark_uses_publishing_standing"
     }
   ]
 }

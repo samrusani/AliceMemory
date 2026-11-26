@@ -21,7 +21,7 @@ whose limits allow the row. Other readers see a missing lesson. A commit that
 would replay such a hidden lesson gives the existing idempotency conflict.
 Published lessons and their decision reasons follow the usual read limits.
 
-Unreleased (on main, not in v0.25.0): Trusted local and project-scoped callers on an install without active keys can also see waiting lessons within their read limits.
+Unreleased (on main, not in v0.25.0): On an install without active keys, trusted local and project-scoped callers can read other writers' waiting, rejected and private-only lessons and their decision reasons within their read limits, and repeating an identical commit with the original idempotency key returns the writer's receipt.
 
 Each lesson returned by `alice_lessons` names its writer and the agent that
 approved it, when an agent approved it. Choose neutral agent ids if those names

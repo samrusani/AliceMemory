@@ -4020,6 +4020,75 @@ def test_import_accepts_earlier_v2_header_inclusive_integrity_scope(tmp_path) ->
 
 # --- true subprocess smoke over stdio ------------------------------------------
 
+_MCP_SQLITE_LAUNCHERS = ("alice-memory", "module", "alicebot-mcp")
+
+
+def _run_sqlite_mcp_commits(command: str, data_dir: Path, db_path: Path):
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(data_dir),
+        "APP_ENV": "test",
+        "ALICE_PROJECT_DIR": str(data_dir),
+        "PYTHONPATH": os.pathsep.join((str(REPO_ROOT / "apps/api/src"), str(REPO_ROOT))),
+        "DATABASE_URL": sqlite_url_for_path(db_path),
+    }
+    if command == "module":
+        argv = [sys.executable, "-m", "alicebot_api.mcp_server"]
+    else:
+        argv = [str(Path(sys.executable).parent / command)]
+        if command == "alice-memory":
+            argv.extend(("mcp", "--data-dir", str(data_dir)))
+    request = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "alice_memory_commit",
+            "arguments": {
+                "title": "Synthetic fact",
+                "canonical_text": "A fixture holds an ordinary fact.",
+                "agent_id": "fixture-writer",
+            },
+        },
+    }
+    return subprocess.run(
+        argv, input=(json.dumps(request) + "\n") * 2, capture_output=True,
+        text=True, env=env, cwd=data_dir, timeout=20, check=False,
+    )
+
+
+def _sqlite_mcp_commits(stdout: str) -> list[dict]:
+    return [
+        json.loads(json.loads(line)["result"]["content"][0]["text"])
+        for line in stdout.splitlines()
+    ]
+
+
+@pytest.mark.parametrize("command", _MCP_SQLITE_LAUNCHERS)
+@pytest.mark.parametrize("starting_state", ["missing-file", "empty-file"])
+def test_sqlite_launch_counts_the_vault_before_the_first_named_commit(tmp_path, command, starting_state):
+    """Guard edit: skip bootstrapping the SQLite vault at direct MCP startup."""
+    path = tmp_path / "memory.db"
+    if starting_state == "empty-file":
+        path.touch()
+    proc = _run_sqlite_mcp_commits(command, tmp_path, path)
+    assert proc.returncode == 0, proc.stderr
+    first, second = _sqlite_mcp_commits(proc.stdout)
+    assert first["status"] == second["status"] == "committed"
+    assert first["memory"]["id"] != second["memory"]["id"]
+
+
+@pytest.mark.parametrize("command", ["module", "alicebot-mcp"])
+def test_direct_sqlite_launch_preserves_the_unopenable_vault_error(tmp_path, command):
+    """Guard edit: return a startup failure when SQLite cannot open the path."""
+    path = tmp_path / "memory.db"
+    path.mkdir()
+    proc = _run_sqlite_mcp_commits(command, tmp_path, path)
+    assert proc.returncode == 0, proc.stderr
+    replies = _sqlite_mcp_commits(proc.stdout)
+    assert len(replies) == 2
+    assert [reply["error"]["code"] for reply in replies] == ["not_permitted", "not_permitted"]
+
 
 def _write_mcp_message(stream, payload: dict[str, object]) -> None:
     encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")

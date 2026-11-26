@@ -3443,6 +3443,7 @@ class VNextMemoryCommitService:
             and identity is not None
             and identity.no_active_agent_keys
             and identity.permission_profile != "admin_agent"
+            and caller_may_publish_lesson(identity)
             and decision.write_mode in {"commit", "confirm_inline"}
         ):
             agentic["keyless_lesson_publishing_standing"] = True

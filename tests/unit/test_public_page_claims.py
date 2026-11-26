@@ -40,6 +40,12 @@ def test_security_policy_states_the_review_status() -> None:
     )
 
 
+def test_security_and_privacy_page_states_the_review_status() -> None:
+    """Mutation: replace the current review statement with the historical claim."""
+    page = " ".join(_text("docs/alpha/security-and-privacy.md").split())
+    assert f"Alice's security work is automated security scanning and internal adversarial review. {REVIEW}" in page
+
+
 @pytest.mark.parametrize("page", ("README.md", "external-review-brief.md", "stage-a-evidence.md"))
 def test_security_evidence_dates_the_old_wording_and_states_the_current_review(page: str) -> None:
     """Mutation for each page: remove the date from the preserved claim."""

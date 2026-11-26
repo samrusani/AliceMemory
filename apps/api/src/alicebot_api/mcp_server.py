@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+from pathlib import Path
 import sys
 from typing import Any, BinaryIO, Literal
 from uuid import UUID
@@ -12,6 +13,7 @@ from alicebot_api import __version__
 from alicebot_api.json_bounds import MAX_READ_JSON_DEPTH, retry_cutting_deep_json, text_nests_deeper_than
 from alicebot_api.config import Settings, get_runtime_settings, get_settings
 from alicebot_api.mcp.definitions import tool_only_reads
+from alicebot_api.mcp.runtime import _is_sqlite_backend, _sqlite_path_from_url
 from alicebot_api.mcp.types import MCP_CODED_ERROR_CODES, MCPCodedToolError, MCPInvalidRequestError, MCPPostgresKeyRequiredError
 from alicebot_api.mcp_tools import (
     MCPRuntimeContext,
@@ -458,6 +460,19 @@ def main(argv: list[str] | None = None) -> int:
             message=_MCP_STARTUP_FAILED_MESSAGE,
         )
         return 1
+
+    if _is_sqlite_backend(context):
+        from alicebot_api.onramp import DEFAULT_USER_EMAIL, bootstrap_database
+
+        try:
+            bootstrap_database(
+                Path(_sqlite_path_from_url(context.database_url)),
+                user_id=context.user_id,
+                user_email=DEFAULT_USER_EMAIL,
+            )
+        except Exception as exc:
+            # Keep the existing per-request errors when the vault cannot be opened.
+            logger.debug("SQLite vault startup failed: %s", type(exc).__name__)
 
     server = MCPServer(
         context=context,
