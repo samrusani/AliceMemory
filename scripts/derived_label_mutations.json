@@ -39746,7 +39746,7 @@
           "line": 41,
           "before": "{\"rule\": {**RULE, \"rule\": \"a\" * 401}},",
           "after": "{\"rule\": {**RULE, \"rule\": \"a\" * 400}},",
-          "sha256": "7830ebe4726556dce1fb24b45415716273c94dc37f15e8ee434790fdc102b0f8"
+          "sha256": "96e26d2f226e6adee5e094538404252fc3469883b7be45455f939067bc6488ba"
         }
       ],
       "pytest": [
@@ -39760,10 +39760,10 @@
       "edits": [
         {
           "file": "tests/support/rule_commit_contract.py",
-          "line": 391,
+          "line": 392,
           "before": "    rule = {**RULE, field: [marker] if field == \"paths\" else marker}",
           "after": "    rule = {**RULE, field: [\"docs/fixture.md\"] if field == \"paths\" else \"Ordinary fixture wording.\"}",
-          "sha256": "7830ebe4726556dce1fb24b45415716273c94dc37f15e8ee434790fdc102b0f8"
+          "sha256": "96e26d2f226e6adee5e094538404252fc3469883b7be45455f939067bc6488ba"
         }
       ],
       "pytest": [
@@ -39794,10 +39794,10 @@
       "edits": [
         {
           "file": "tests/support/rule_commit_contract.py",
-          "line": 229,
+          "line": 230,
           "before": "    exact = vault.call(\"commit\", args, \"bound-admin\")",
           "after": "    exact = vault.call(\"commit\", args, \"admin\")",
-          "sha256": "7830ebe4726556dce1fb24b45415716273c94dc37f15e8ee434790fdc102b0f8"
+          "sha256": "96e26d2f226e6adee5e094538404252fc3469883b7be45455f939067bc6488ba"
         }
       ],
       "pytest": [
@@ -39811,10 +39811,10 @@
       "edits": [
         {
           "file": "tests/support/rule_commit_contract.py",
-          "line": 328,
+          "line": 329,
           "before": "    result = vault.call(\"commit\", {**args, \"rule\": {**RULE, \"replaces\": target_id}}, caller)",
           "after": "    result = vault.call(\"commit\", {**args, \"rule\": RULE}, caller)",
-          "sha256": "7830ebe4726556dce1fb24b45415716273c94dc37f15e8ee434790fdc102b0f8"
+          "sha256": "96e26d2f226e6adee5e094538404252fc3469883b7be45455f939067bc6488ba"
         }
       ],
       "pytest": [
@@ -39830,10 +39830,10 @@
       "edits": [
         {
           "file": "tests/support/rule_commit_contract.py",
-          "line": 318,
+          "line": 319,
           "before": "        scope = [\"beta\"] if caller in {\"bound-admin\", \"scoped\"} else [\"alpha\"]",
           "after": "        scope = [\"alpha\"]",
-          "sha256": "7830ebe4726556dce1fb24b45415716273c94dc37f15e8ee434790fdc102b0f8"
+          "sha256": "96e26d2f226e6adee5e094538404252fc3469883b7be45455f939067bc6488ba"
         }
       ],
       "pytest": [
@@ -39847,10 +39847,10 @@
       "edits": [
         {
           "file": "tests/support/rule_commit_contract.py",
-          "line": 345,
+          "line": 346,
           "before": "    _, refusal = vault.call(\"commit\", {\"rule\": RULE}, \"trusted\")",
           "after": "    _, refusal = vault.call(\"commit\", {\"rule\": RULE}, \"readonly\")",
-          "sha256": "7830ebe4726556dce1fb24b45415716273c94dc37f15e8ee434790fdc102b0f8"
+          "sha256": "96e26d2f226e6adee5e094538404252fc3469883b7be45455f939067bc6488ba"
         }
       ],
       "pytest": [
@@ -39864,10 +39864,10 @@
       "edits": [
         {
           "file": "tests/support/rule_commit_contract.py",
-          "line": 576,
+          "line": 577,
           "before": "        rule = lifecycle_reply(vault, door, \"rule\", state, caller)",
           "after": "        rule = lifecycle_reply(vault, door, \"ordinary\", state, caller)",
-          "sha256": "7830ebe4726556dce1fb24b45415716273c94dc37f15e8ee434790fdc102b0f8"
+          "sha256": "96e26d2f226e6adee5e094538404252fc3469883b7be45455f939067bc6488ba"
         }
       ],
       "pytest": [
@@ -39883,10 +39883,10 @@
       "edits": [
         {
           "file": "tests/support/rule_commit_contract.py",
-          "line": 576,
+          "line": 577,
           "before": "        rule = lifecycle_reply(vault, door, \"rule\", state, caller)",
           "after": "        rule = lifecycle_reply(vault, door, \"ordinary\", state, caller)",
-          "sha256": "7830ebe4726556dce1fb24b45415716273c94dc37f15e8ee434790fdc102b0f8"
+          "sha256": "96e26d2f226e6adee5e094538404252fc3469883b7be45455f939067bc6488ba"
         }
       ],
       "pytest": [
@@ -39902,10 +39902,10 @@
       "edits": [
         {
           "file": "tests/support/rule_commit_contract.py",
-          "line": 436,
+          "line": 437,
           "before": "    before = view()\n    made = stored(vault)",
           "after": "    before = view()\n    _, made = vault.call(\"commit\", {**REQUEST, \"lesson\": lesson}, \"admin\")",
-          "sha256": "7830ebe4726556dce1fb24b45415716273c94dc37f15e8ee434790fdc102b0f8"
+          "sha256": "96e26d2f226e6adee5e094538404252fc3469883b7be45455f939067bc6488ba"
         }
       ],
       "pytest": [

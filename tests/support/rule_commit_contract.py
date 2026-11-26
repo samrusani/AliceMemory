@@ -150,9 +150,10 @@ def check_commit_key_use(vault, case, caller, kind):
     if case == "missing-source":
         args["source_refs"] = [f"source:{uuid4()}"]
     elif case == "invalid-block":
-        # HTTP validates the model after middleware authentication. MCP
-        # authenticates before the handler validates the block's memory type.
-        args["memory_type"] = "semantic"
+        # An empty required text field passes the MCP schema's string type
+        # check and reaches block validation after authentication.
+        field = "rule" if kind == "rule" else "what_happened"
+        args[kind] = {**block, field: ""}
     elif case == "missing-replacement":
         args["rule"] = {**RULE, "replaces": str(uuid4())}
     elif case == "different-block":
