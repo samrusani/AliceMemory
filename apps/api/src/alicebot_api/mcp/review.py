@@ -693,7 +693,7 @@ def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, ob
             raise MCPPreconditionFailedError(PENDING_PROJECT_UPDATE_MEMORY_MUTATION_MESSAGE)
         if resolved_action == "confirm":
             activation = rule_activation_decision(memory, identity, locked_decision)
-            if activation.decision == "blocked":
+            if activation is not locked_decision:
                 _raise_mcp_policy_blocked(activation)
         event_payload: VNextJsonObject = {
             "requested_action": requested_action,

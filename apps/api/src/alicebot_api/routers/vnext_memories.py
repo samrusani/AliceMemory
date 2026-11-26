@@ -1678,7 +1678,7 @@ def review_vnext_memory(
                 return _vnext_public_error_response(status_code=400, detail=str(exc))
             if action in {"accept", "promote"}:
                 activation = rule_activation_decision(existing, identity, locked_decision)
-                if activation.decision == "blocked":
+                if activation is not locked_decision:
                     return _vnext_permission_response(activation)
 
             existing_metadata_value = existing.get("metadata_json")
