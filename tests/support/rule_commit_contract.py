@@ -154,9 +154,16 @@ def check_bad_target(vault, target_state, caller):
             seed_state(vault, target_id, status=target_state)
     before = vault.memories()
     missing = str(uuid4())
-    args = {**REQUEST, "trace_id": "fixture-replacement-refusal"}
+    args = REQUEST
     result = vault.call("commit", {**args, "rule": {**RULE, "replaces": target_id}}, caller)
     absent = vault.call("commit", {**args, "rule": {**RULE, "replaces": missing}}, caller)
+    for _, response in (result, absent):
+        if "policy_decision" in response:
+            # Two separate requests carry different server-generated trace IDs.
+            decision = response["policy_decision"]
+            assert decision["trace_id"] == decision["policy_decision"]["trace_id"]
+            del decision["trace_id"]
+            del decision["policy_decision"]["trace_id"]
     assert result == absent, (target_state, caller, result, absent)
     assert vault.memories() == before
 
