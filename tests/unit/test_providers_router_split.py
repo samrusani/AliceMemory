@@ -131,7 +131,7 @@ EXPECTED_CARRIER_NAMES_SHA256 = "946e9d456afbdc7751df671b251457a432ba444dbbdfad5
 # _withhold_hidden_ids keeps ids from that copy. The set of definitions is the same.
 # Re-pin: `_vnext_protected_http_auth` records the user the key was authenticated for, and `_withhold_hidden_ids` keeps
 # every response header, repeated ones included. The set of definitions is the same.
-EXPECTED_CARRIER_AST_SHA256 = "90e416bc9ac11d442d87d258972504d0c8f7e0d349c1d54c46626ca21271d0d1"
+EXPECTED_CARRIER_AST_SHA256 = "19b438d3aa054db0b1faab843b6d367ad511c65f7cf8a2e6f3c30f0fc9430f5a"
 EXPECTED_ROUTE_NAME_MANIFEST_SHA256 = "1a438538e16120361f92d30375cc94679d598fe4b78ba5a58a7d8a4dda6af83c"
 EXPECTED_OPERATION_MANIFEST_SHA256 = "8b79ceaf996b8c51b5bb2f3f38a8c19a4e33796955d8b8f7a66e7ac01ea1732d"
 EXPECTED_IMPORT_MANIFEST_SHA256 = "2fbc286e5aeaca8cb8c5ae1d0e1d7ef7816ae2d905542f967c813a047e1f2c29"
