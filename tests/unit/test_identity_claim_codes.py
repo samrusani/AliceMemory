@@ -136,7 +136,10 @@ def test_core_identity_descriptions_explain_key_derived_fields():
     assert "narrow" in fields["agent_identity"]["description"]
     assert "narrow" in fields["permission_profile"]["description"]
     assert "narrow" in fields["project_scope"]["description"]
-    assert "keyless" in fields["permission_profile"]["description"]
+    profile = fields["permission_profile"]["description"]
+    assert "can read and write" in profile
+    assert "without active keys" in profile and "omitting it gives trusted_local_agent" in profile
+    assert "project_scoped_agent to openclaw" in profile
 
 
 def test_default_tools_list_stays_within_the_byte_budget(monkeypatch):
