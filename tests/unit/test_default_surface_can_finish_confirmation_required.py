@@ -491,7 +491,7 @@ def test_the_commit_route_writes_the_same_audit_trail_as_manage(
 @pytest.mark.parametrize(
     ("claimed_identity", "reason"),
     (
-        ({"agent_id": "stranger"}, "read_only_agent_cannot_write"),
+        ({"agent_id": "stranger", "permission_profile": "read_only_agent"}, "read_only_agent_cannot_write"),
         (
             {"agent_id": "proposer", "permission_profile": "memory_proposal_agent"},
             "memory_proposal_agent_cannot_mutate",
@@ -501,6 +501,7 @@ def test_the_commit_route_writes_the_same_audit_trail_as_manage(
 def test_an_agent_that_cannot_write_cannot_confirm(
     tmp_path: Path, default_surface, claimed_identity: dict, reason: str
 ) -> None:
+    """Guard edit: declare trusted local in the read-only request."""
     from alicebot_api.mcp_tools import MCPToolError
 
     context = _context(tmp_path)

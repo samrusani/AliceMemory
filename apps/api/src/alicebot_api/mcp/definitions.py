@@ -124,8 +124,8 @@ _AGENT_IDENTITY_SCHEMA_PROPERTIES: dict[str, object] = {
     "permission_profile": {
         "type": "string",
         "description": (
-            "Permission level. With an agent key, omit it: the key sets it; a claim can only narrow it. "
-            "For keyless callers, unknown agents default to 'read_only_agent', which cannot write memories."
+            "With an agent key, omit this: the key sets it; claims can only narrow it. "
+            "On keyless installs: trusted_local_agent (openclaw: project_scoped_agent)."
         ),
     },
     "trace_id": {
@@ -345,9 +345,9 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                         f"list of at most {MAX_COMMIT_LESSON_PATHS} repo-relative paths or globs, each at "
                         f"most {MAX_COMMIT_LESSON_PATH_CHARS:,} characters, with no leading / or ~, no .. "
                         "segment and no drive letter. The memory is a procedure; its text and title are "
-                        "derived from the lesson. The owner and an admin_agent key publish a lesson at "
-                        "once; every other identity's lesson waits for review "
-                        "(lesson_requires_approval) and is never auto-promoted. "
+                        "derived from the lesson. The owner and admin_agent can publish when a write commits. "
+                        "On a keyless install, trusted_local_agent and project_scoped_agent can too. "
+                        "Other admitted lessons wait for review and cannot be auto-promoted. "
                         "Returns closest readable published lessons by words, paths or vectors, with reasons and no verdict on "
                         "agreement, conflict or duplication."
                     ),

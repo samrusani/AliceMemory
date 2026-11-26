@@ -169,13 +169,18 @@ class AgentIdentity:
     # inherits the binding for omitted scopes and blocks every read or write
     # whose explicit project scope leaves the binding.
     project_scope_locked: bool = False
+    # Request-local evidence from an active-key count. Never read from a
+    # payload or restored from a stored identity.
+    no_active_agent_keys: bool = False
 
     @property
     def actor_type(self) -> str:
         return "agent"
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, object]) -> "AgentIdentity | None":
+    def from_payload(
+        cls, payload: Mapping[str, object], *, no_active_agent_keys: bool = False
+    ) -> "AgentIdentity | None":
         nested = payload.get("agent_identity")
         source: Mapping[str, object]
         if isinstance(nested, Mapping):
@@ -191,7 +196,9 @@ class AgentIdentity:
         if agent_type not in AGENT_TYPES:
             raise AgentIdentityValidationError(f"agent_type must be one of {', '.join(AGENT_TYPES)}")
 
-        permission_profile = _optional_text(source.get("permission_profile")) or _default_permission_profile(agent_id)
+        permission_profile = _optional_text(source.get("permission_profile")) or _default_permission_profile(
+            agent_id, no_active_agent_keys=no_active_agent_keys
+        )
         if permission_profile not in PERMISSION_PROFILES:
             raise AgentIdentityValidationError(
                 f"permission_profile must be one of {', '.join(PERMISSION_PROFILES)}"
@@ -204,6 +211,7 @@ class AgentIdentity:
             task_id=_optional_text(source.get("task_id")),
             project_scope=tuple(_string_list(source.get("project_scope"))),
             permission_profile=permission_profile,
+            no_active_agent_keys=no_active_agent_keys,
         )
 
     def to_record(self) -> JsonObject:
@@ -298,11 +306,13 @@ def _default_agent_type(agent_id: str) -> str:
     return "unknown"
 
 
-def _default_permission_profile(agent_id: str) -> str:
+def _default_permission_profile(agent_id: str, *, no_active_agent_keys: bool) -> str:
     if agent_id.casefold() == "hermes":
         return "trusted_local_agent"
     if agent_id.casefold() == "openclaw":
         return "project_scoped_agent"
+    if no_active_agent_keys:
+        return "trusted_local_agent"
     return "read_only_agent"
 
 

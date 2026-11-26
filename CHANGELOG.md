@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unreleased (on main, not in v0.25.0): On installs without active keys, named MCP and HTTP agents default to `trusted_local_agent` unless they declare a profile or use the `openclaw` id, and trusted local and project-scoped callers publish lessons when their writes commit. v0.25.0 refused ordinary named writes without a profile as read-only and held otherwise committable lessons from trusted local and project-scoped callers for review (`python -m pytest tests/unit/test_keyless_team_defaults.py tests/integration/test_prekey_team_defaults_postgres.py` and the v0.25.0 comparison).
+
 - Unreleased (on main, not in v0.25.0): Correct the review wording in `README.md`, `SECURITY.md` and `docs/security/README.md`, `docs/security/external-review-brief.md` and `docs/security/stage-a-evidence.md`, and describe the context-pack reranker inputs in `SECURITY.md`. State the supported platforms in `README.md`, `docs/alpha/quickstart.md`, `docs/alpha/known-limitations.md` and the Hermes and OpenClaw skill packs. Describe repeated commits without a key in `docs/alpha/known-limitations.md`, `docs/memory-operations-protocol.md` and `docs/alpha/mcp-tools.md`. The wording describes v0.25.0 behaviour (`python -m pytest tests/unit/test_public_page_claims.py tests/integration/test_public_page_behaviors.py`).
 
 ## v0.25.0 — 2026-11-24

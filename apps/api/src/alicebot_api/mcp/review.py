@@ -32,6 +32,7 @@ from alicebot_api.credential_floor import (
     withhold_credential_text,
 )
 from alicebot_api.project_view import ProjectView
+from alicebot_api.vnext_lesson_visibility import lesson_mutation_fence
 from alicebot_api.write_bounds import MAX_CORRECTION_FIELD_CHARS, first_oversized
 from alicebot_api.contracts import (
     CONTINUITY_REVIEW_QUEUE_ORDER,
@@ -538,7 +539,7 @@ def _refuse_oversized_correction(**fields: object) -> None:
 
 
 def _vnext_memory_correct(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> JsonObject:
-    identity = _agent_identity_from_arguments(context, arguments)
+    identity = lesson_mutation_fence(_agent_identity_from_arguments(context, arguments))
     requested_action = _parse_required_text(arguments, "action")
     resolved_action = _resolve_review_apply_action(requested_action, allow_legacy=True)
     if resolved_action not in {"confirm", "edit", "delete", "supersede"}:

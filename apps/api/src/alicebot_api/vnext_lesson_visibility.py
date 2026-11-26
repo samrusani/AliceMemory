@@ -1,6 +1,7 @@
 """Shared visibility rule for lessons awaiting or refused publication."""
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 from alicebot_api.vnext_agent_control import AgentIdentity
@@ -17,6 +18,13 @@ def review_lesson_reader(identity: AgentIdentity | None) -> str | None:
     if identity is None or caller_may_publish_lesson(identity):
         return None
     return identity.agent_id
+
+
+def lesson_mutation_fence(identity: AgentIdentity | None) -> AgentIdentity | None:
+    """Keep the existing visibility of review targets when deciding a mutation."""
+    if identity is not None and identity.no_active_agent_keys:
+        return replace(identity, no_active_agent_keys=False)
+    return identity
 
 
 def has_lesson_block(row: Mapping[str, object]) -> bool:

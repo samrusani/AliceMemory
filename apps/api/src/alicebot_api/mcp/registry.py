@@ -521,6 +521,17 @@ def list_mcp_tools() -> list[dict[str, object]]:
     return _canonicalize_json(_enabled_tool_definitions())  # type: ignore[return-value]
 
 
+def _null_profile_as_blank(arguments: Mapping[str, object]) -> dict[str, object]:
+    """Prepare only explicit null permission claims for keyless validation."""
+    adjusted = dict(arguments)
+    if "permission_profile" in arguments and arguments["permission_profile"] is None:
+        adjusted["permission_profile"] = ""
+    nested = arguments.get("agent_identity")
+    if isinstance(nested, Mapping) and "permission_profile" in nested and nested["permission_profile"] is None:
+        adjusted["agent_identity"] = {**nested, "permission_profile": ""}
+    return adjusted
+
+
 def call_mcp_tool(
     context: MCPRuntimeContext,
     *,
@@ -576,10 +587,23 @@ def call_mcp_tool(
     # before anything of the arguments is stored.
     try:
         _validate_mcp_arguments_against_advertised_schema(name, parsed_arguments)
-    except MCPArgumentError:
-        if name in _CORE_TOOL_NAMES:
-            _preflight_key_claim(context, parsed_arguments)
-        raise
+    except MCPArgumentError as shape_error:
+        # The identity parser treats null like a blank profile. Preserve the
+        # schema refusal unless a count verifies this keyless call.
+        adjusted = _null_profile_as_blank(parsed_arguments)
+        if adjusted == parsed_arguments or (os.environ.get(AGENT_API_KEY_ENV) or "").strip():
+            if name in _CORE_TOOL_NAMES:
+                _preflight_key_claim(context, parsed_arguments)
+            raise
+        try:
+            _validate_mcp_arguments_against_advertised_schema(name, adjusted)
+            identity = _agent_identity_from_arguments(context, adjusted)
+        except MCPToolError:
+            raise shape_error from None
+        if identity is None or not identity.no_active_agent_keys:
+            raise shape_error
+        parsed_arguments = adjusted
+        context = replace(context, agent_identity=identity, agent_identity_resolved=True)
     try:
         refuse_unstorable_json(parsed_arguments, name=f"tool '{name}' arguments")
     except JsonShapeError as exc:

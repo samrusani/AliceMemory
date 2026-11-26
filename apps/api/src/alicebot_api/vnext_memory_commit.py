@@ -104,7 +104,12 @@ from alicebot_api.vnext_project_update_guard import (
 )
 from alicebot_api.vnext_derived_labels import group_scope
 from alicebot_api.vnext_label_guard import guard_for_caller, label_read_request, newest_admitted_rows
-from alicebot_api.vnext_lesson_visibility import is_unpublished_lesson, lesson_history_is_hidden, outside_lesson_review_standing
+from alicebot_api.vnext_lesson_visibility import (
+    is_unpublished_lesson,
+    lesson_history_is_hidden,
+    lesson_mutation_fence,
+    outside_lesson_review_standing,
+)
 from alicebot_api.vnext_project_scope import normalize_project_scope, project_scope_identity
 from alicebot_api.vnext_repositories import EventStore, JsonObject
 from alicebot_api.store import ContinuityStoreInvariantError
@@ -1042,9 +1047,8 @@ def evaluate_memory_commit_policy(
         and mode != "reject"
         and not caller_may_publish_lesson(identity)
     ):
-        # Publishing a lesson at once is the owner's and an admin_agent
-        # key's standing alone. Every other identity, whatever its profile,
-        # waits for review, and the promotion policy never lifts it.
+        # A writer without publishing standing needs review. Promotion
+        # policy never lifts a lesson.
         reasons.append("lesson_requires_approval")
         mode = "propose_review"
         status = "review_required"
@@ -1220,7 +1224,11 @@ def resolved_confirmation_record(
 def caller_may_publish_lesson(identity: AgentIdentity | None) -> bool:
     """Apply the standing used when a lesson is first published."""
 
-    return identity is None or identity.permission_profile == "admin_agent"
+    if identity is None or identity.permission_profile == "admin_agent":
+        return True
+    return identity.no_active_agent_keys and identity.permission_profile in {
+        "trusted_local_agent", "project_scoped_agent",
+    }
 
 
 def _block_mutation_above_sensitivity_ceiling(decision: PolicyDecision) -> PolicyDecision:
@@ -1960,6 +1968,7 @@ class VNextMemoryCommitService:
         memory = (
             get_memory_for_update(memory_id) if callable(get_memory_for_update) else self.store.get_memory(memory_id)
         )
+        identity = lesson_mutation_fence(identity)
         if memory is None or outside_lesson_review_standing(memory, identity):
             raise MemoryNotFoundError("memory was not found")
         self.refuse_unauthorized_write(identity=identity, action="memory.correct", memory=memory)
@@ -2839,6 +2848,7 @@ class VNextMemoryCommitService:
         from alicebot_api.vnext_label_guard import outside_caller_limits
 
         kind = "open_loop" if target_type == "open_loop" else "memory"
+        identity = lesson_mutation_fence(identity)
         if outside_caller_limits(self.store, identity, kind, memory):
             raise MemoryNotFoundError("memory was not found")
 
@@ -3428,6 +3438,14 @@ class VNextMemoryCommitService:
         }
         if confirmation is not None:
             agentic["confirmation"] = confirmation
+        if (
+            request.lesson is not None
+            and identity is not None
+            and identity.no_active_agent_keys
+            and identity.permission_profile != "admin_agent"
+            and decision.write_mode in {"commit", "confirm_inline"}
+        ):
+            agentic["keyless_lesson_publishing_standing"] = True
         return {
             "project_scope": list(request.project_scope),
             "agentic_memory": agentic,

@@ -220,14 +220,15 @@ def resolve_agent_identity(
         claimed = AgentIdentity.from_payload(payload)
         if claimed is None:
             return None
-        if int(store.count_active_agent_api_keys()) > 0:
+        active_keys = int(store.count_active_agent_api_keys())
+        if active_keys > 0:
             raise AgentKeyAuthenticationError(
                 "agent API keys are configured for this user; agent calls must "
                 "authenticate with 'Authorization: Bearer alice_sk_...' "
                 "(create a key with 'alicebot agent keys create')",
                 status_code=401, reason="key_required",
             )
-        return replace(claimed, auth=UNAUTHENTICATED_LOCAL_AUTH)
+        return AgentIdentity.from_payload(payload, no_active_agent_keys=active_keys == 0)
 
     # Keep malformed requests' old answer for a key that cannot be used. For
     # a valid key, defer the error until all of its claims have been checked.
@@ -423,12 +424,15 @@ def resolve_protected_agent_identity(
     must present a valid Bearer key, even when its payload omits agent claims.
     """
 
-    if raw_key is None and int(store.count_active_agent_api_keys()) > 0:
-        raise AgentKeyAuthenticationError(
-            "agent API keys are configured for this user; protected vNext requests must "
-            "authenticate with 'Authorization: Bearer alice_sk_...'",
-            status_code=401, reason="key_required",
-        )
+    if raw_key is None:
+        active_keys = int(store.count_active_agent_api_keys())
+        if active_keys > 0:
+            raise AgentKeyAuthenticationError(
+                "agent API keys are configured for this user; protected vNext requests must "
+                "authenticate with 'Authorization: Bearer alice_sk_...'",
+                status_code=401, reason="key_required",
+            )
+        return AgentIdentity.from_payload(payload, no_active_agent_keys=active_keys == 0)
     return resolve_agent_identity(
         store,
         user_id=user_id,

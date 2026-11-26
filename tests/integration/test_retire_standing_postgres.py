@@ -174,7 +174,12 @@ def _legacy(vault, monkeypatch, kind):
             "memory_id": str(created["memory"]["id"]), "reason": "Retire it", "agent_id": "stranger",
             "permission_profile": "project_scoped_agent", "project_scope": ["alpha"],
         })
-        if not failed or result["error"]["code"] != "not_permitted":
+        if kind == "lesson":
+            expected = "forgotten" if action == "forget" else "undone"
+            correct = not failed and result["status"] == expected
+        else:
+            correct = failed and result["error"]["code"] == "not_permitted"
+        if not correct:
             failures.append(("legacy", action, kind))
     return failures
 
