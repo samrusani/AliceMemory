@@ -159,10 +159,10 @@ def test_postgres_refusal_rolls_back_an_earlier_write(label_harness, monkeypatch
     with h.store() as store:
         revisions = store.conn.execute("SELECT count(*) AS n FROM memory_revisions").fetchone()["n"]
 
-    def write_then_verify(store, raw_key, *, defer_key_use=False):
+    def write_then_verify(store, raw_key):
         store.create_memory({"memory_key": marker, "canonical_text": marker, "title": marker,
                              "status": "active", "domain": "project", "sensitivity": "public"})
-        return original(store, raw_key, defer_key_use=defer_key_use)
+        return original(store, raw_key)
 
     monkeypatch.setattr(vnext_agent_keys, "verify_agent_key", write_then_verify)
     _call(h, monkeypatch, key, {"agent_id": "other-agent"})

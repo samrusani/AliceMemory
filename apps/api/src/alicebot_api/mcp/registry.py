@@ -624,10 +624,7 @@ def call_mcp_tool(
             # invalid/revoked keys fail before reads as well as writes.  Core
             # tools always cross this boundary. Key-bound servers fail closed
             # by removing the legacy surface altogether.
-            identity = _agent_identity_from_arguments(
-                context, parsed_arguments,
-                defer_key_use=name == "alice_memory_commit" and parsed_arguments.get("rule") is not None,
-            )
+            identity = _agent_identity_from_arguments(context, parsed_arguments)
             context = replace(
                 context,
                 agent_identity=identity,

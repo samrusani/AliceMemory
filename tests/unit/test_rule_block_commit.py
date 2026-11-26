@@ -13,9 +13,11 @@ from alicebot_api.sqlite_store import SQLiteVNextStore, sqlite_user_connection
 from alicebot_api.vnext_agent_control import AgentIdentity
 from alicebot_api.vnext_memory_commit import VNextMemoryCommitService, memory_commit_request_from_payload
 from tests.support.rule_commit_contract import (
-    BAD_REQUESTS, DOORS, MARK, OWNER_REQUIRED, RULE, STATES, WAIT_CASES, check_bad_target, check_cannot_wait,
-    check_credentials, check_derived_block, check_exact_bounds, check_lesson_surfaces, check_lifecycle_case,
-    check_refusal_footprint, check_replace, check_replacement_replay_fences_the_predecessor, check_wrong_standing,
+    BAD_REQUESTS, DOORS, KEY_USE_CASES, MARK, OWNER_REQUIRED, RULE, STATES, WAIT_CASES, check_bad_target, check_cannot_wait,
+    check_commit_key_use, check_correction_rejects_rule_body, check_credentials, check_derived_block, check_exact_bounds,
+    check_lesson_surfaces, check_lifecycle_case, check_refusal_footprint, check_replace, check_replacement_replay_fences_the_predecessor,
+    check_replay_fences_the_committed_rule, check_rule_native_review_count, check_rule_path_credential_floor,
+    check_rule_reference_in_saved_provenance, check_wrong_standing,
     lifecycle_request, row, seed_lifecycle_subject, stored,
 )
 from tests.unit.test_identity_claim_codes import wire
@@ -151,6 +153,34 @@ def test_sqlite_rule_replacement_is_atomic_and_replay_is_read_only(rule_vault, c
 def test_sqlite_rule_replay_omits_an_out_of_scope_predecessor(rule_vault):
     """Guard edit: bind the replaying admin to both readable projects."""
     check_replacement_replay_fences_the_predecessor(rule_vault)
+
+
+@pytest.mark.parametrize(("case", "caller", "kind"), KEY_USE_CASES)
+def test_sqlite_commit_records_key_use(rule_vault, case, caller, kind):
+    check_commit_key_use(rule_vault, case, caller, kind)
+
+
+def test_sqlite_rule_replay_refuses_an_out_of_scope_result(rule_vault):
+    check_replay_fences_the_committed_rule(rule_vault)
+
+
+def test_sqlite_saved_provenance_withholds_rule_predecessor(rule_vault):
+    check_rule_reference_in_saved_provenance(rule_vault)
+
+
+def test_sqlite_native_review_count_excludes_other_writers_rejected_rules(rule_vault):
+    check_rule_native_review_count(rule_vault)
+
+
+@pytest.mark.parametrize(("action", "field"), [
+    ("edit-and-approve", "body"), ("supersede-existing", "replacement_body"),
+])
+def test_sqlite_a_correction_cannot_add_a_rule_to_an_ordinary_memory(rule_vault, action, field):
+    check_correction_rejects_rule_body(rule_vault, action, field)
+
+
+def test_sqlite_rule_path_reaches_the_policy_hard_floor(rule_vault, monkeypatch):
+    check_rule_path_credential_floor(rule_vault, monkeypatch)
 
 
 @pytest.mark.parametrize("target", ["plain", "lesson", "rejected", "superseded", "expired", "private_only", "archived", "stale"])

@@ -524,7 +524,6 @@ def _vnext_authenticated_agent_identity(
     *,
     user_id: UUID,
     authorization: str | None,
-    defer_key_use: bool = False,
 ) -> AgentIdentity | None:
     payload = (
         _keyed_http_identity_defaults(request.model_dump(mode="json", exclude_unset=True, warnings=False))
@@ -536,7 +535,6 @@ def _vnext_authenticated_agent_identity(
         user_id=user_id,
         raw_key=agent_key_from_authorization(authorization),
         payload=payload,
-        defer_key_use=defer_key_use,
     )
 
 

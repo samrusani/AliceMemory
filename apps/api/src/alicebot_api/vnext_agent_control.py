@@ -172,8 +172,6 @@ class AgentIdentity:
     # Request-local evidence from an active-key count. Never read from a
     # payload or restored from a stored identity.
     no_active_agent_keys: bool = False
-    # An authenticated rule commit records key use only when it is a new attempt.
-    deferred_key_use_id: str | None = None
 
     @property
     def actor_type(self) -> str:

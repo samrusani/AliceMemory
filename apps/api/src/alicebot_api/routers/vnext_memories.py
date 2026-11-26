@@ -2037,8 +2037,7 @@ def commit_vnext_memory(
         with user_connection(settings.database_url, request.user_id) as conn:
             store = PostgresVNextStore(conn)
             identity = _vnext_authenticated_agent_identity(
-                store, request, user_id=request.user_id, authorization=authorization,
-                defer_key_use=request.rule is not None,
+                store, request, user_id=request.user_id, authorization=authorization
             )
             # This route resolves identity through
             # resolve_protected_agent_identity, which rejects a keyless

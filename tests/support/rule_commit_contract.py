@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+from collections import Counter
+from datetime import datetime
 import json
 from uuid import uuid4
 
+import pytest
+
+from alicebot_api import vnext_memory_commit
+from alicebot_api.mcp.review import _vnext_memory_correct
+from alicebot_api.vnext_agent_keys import create_agent_key, hash_agent_key, resolve_agent_identity
 from alicebot_api.vnext_label_writes import acquire_exclusive_label_lock
+from alicebot_api.vnext_source_fence import SavedProvenanceReader, SourceReadFence
 from tests.support.keyless_team_contract import LESSON
 
 RULE = {
@@ -53,6 +61,23 @@ BAD_REQUESTS = (
     {"rule": RULE, "canonical_text": "Free text is invalid with a rule."},
 )
 
+KEY_USE_CASES = (
+    ("new", "admin", "lesson"),
+    ("new", "admin", "rule"),
+    ("replay", "admin", "lesson"),
+    ("replay", "admin", "rule"),
+    ("missing-source", "admin", "lesson"),
+    ("missing-source", "admin", "rule"),
+    ("missing-source", "trusted", "lesson"),
+    ("missing-source", "trusted", "rule"),
+    ("invalid-block", "admin", "lesson"),
+    ("invalid-block", "admin", "rule"),
+    ("missing-replacement", "admin", "rule"),
+    ("different-block", "admin", "lesson"),
+    ("different-block", "admin", "rule"),
+    ("standing", "readonly", "lesson"),
+    ("standing", "trusted", "rule"),
+)
 
 def row(vault, memory_id):
     with vault.store() as store:
@@ -94,6 +119,74 @@ def check_exact_bounds(vault):
     assert result["rule"] == {**block, "rule": block["rule"].strip()}
 
 
+def key_last_used(vault, caller):
+    with vault.store() as store:
+        record = store.get_agent_api_key_by_hash(hash_agent_key(vault.keys[caller]))
+    assert record is not None
+    stamp = record["last_used_at"]
+    return datetime.fromisoformat(str(stamp)) if stamp is not None else None
+
+
+def snapshot_without_key_use(vault, caller):
+    tables = vault.snapshot()
+    keys = Counter()
+    key_hash = hash_agent_key(vault.keys[caller])
+    for entry, count in tables["agent_api_keys"].items():
+        record = json.loads(entry)
+        if record["key_hash"] == key_hash:
+            del record["last_used_at"]
+        keys[json.dumps(record, sort_keys=True)] += count
+    return {**tables, "agent_api_keys": keys}
+
+
+def check_commit_key_use(vault, case, caller, kind):
+    block = RULE if kind == "rule" else LESSON
+    args = {**REQUEST, kind: block}
+    initial = None
+    if case in {"replay", "different-block"}:
+        args["idempotency_key"] = f"fixture-{kind}-{case}"
+        code, initial = vault.call("commit", args, caller)
+        assert vault.ok(code) and initial["status"] == "committed", (code, initial)
+    if case == "missing-source":
+        args["source_refs"] = [f"source:{uuid4()}"]
+    elif case == "invalid-block":
+        # HTTP validates the model after middleware authentication. MCP
+        # authenticates before the handler validates the block's memory type.
+        args["memory_type"] = "semantic"
+    elif case == "missing-replacement":
+        args["rule"] = {**RULE, "replaces": str(uuid4())}
+    elif case == "different-block":
+        field = "rule" if kind == "rule" else "do_instead"
+        args[kind] = {**block, field: "Read the fixture again."}
+
+    before = key_last_used(vault, caller)
+    tables = snapshot_without_key_use(vault, caller) if case == "replay" and kind == "rule" else None
+    code, answer = vault.call("commit", args, caller)
+    after = key_last_used(vault, caller)
+    moves = after is not None and (before is None or after > before)
+    transport = getattr(vault, "transport", "sqlite-mcp")
+    print("KEY USE", transport, case, caller, kind, code, answer.get("status"), moves)
+
+    if case in {"new", "replay"}:
+        assert vault.ok(code) and answer["status"] == "committed", (code, answer)
+        if case == "replay":
+            assert answer.get("idempotent_replay") is True
+            if tables is not None:
+                assert snapshot_without_key_use(vault, caller) == tables
+    elif case == "standing":
+        expected = OWNER_REQUIRED if kind == "rule" else "agent_policy_blocked"
+        assert vault.ok(code) and answer["reason"] == expected, (code, answer)
+    else:
+        expected = {
+            "missing-source": (404, "not_found"),
+            "invalid-block": (422, "invalid_request"),
+            "missing-replacement": (404, "not_found"),
+            "different-block": (400, "tool_request_failed"),
+        }[case]
+        assert code == expected[transport != "http"], (code, answer)
+    assert moves, (transport, case, caller, kind, before, after)
+
+
 def check_cannot_wait(vault, caller, fields, original_reason):
     before = vault.memories()
     code, answer = vault.call("commit", {"rule": RULE, **fields}, caller)
@@ -119,10 +212,12 @@ def check_replace(vault, caller):
     assert retired["status"] == "superseded"
     assert str(retired["superseded_by"]) == str(new)
     assert retired["canonical_text"] == TEXT
-    before = vault.snapshot()
+    before = snapshot_without_key_use(vault, caller)
+    key_used_at = key_last_used(vault, caller)
     code, replay = vault.call("commit", args, caller)
     assert vault.ok(code) and replay == {**second, "idempotent_replay": True}, (code, replay)
-    assert vault.snapshot() == before
+    assert snapshot_without_key_use(vault, caller) == before
+    assert key_last_used(vault, caller) > key_used_at
 
 
 def check_replacement_replay_fences_the_predecessor(vault):
@@ -130,11 +225,86 @@ def check_replacement_replay_fences_the_predecessor(vault):
     args = {**REQUEST, "rule": {**RULE, "replaces": old}, "idempotency_key": "fixture-scoped-replay"}
     code, initial = vault.call("commit", args, "admin")
     assert vault.ok(code) and initial["rule"]["replaces"] == old, initial
-    before = vault.snapshot()
+    before = snapshot_without_key_use(vault, "bound-admin")
     exact = vault.call("commit", args, "bound-admin")
     missing = vault.call("commit", {**args, "rule": {**RULE, "replaces": str(uuid4())}}, "bound-admin")
     assert exact == missing and not vault.ok(exact[0]), (exact, missing)
-    assert vault.snapshot() == before
+    assert snapshot_without_key_use(vault, "bound-admin") == before
+
+
+def check_replay_fences_the_committed_rule(vault):
+    with vault.store() as store:
+        user_id = vault.context.user_id
+        _, vault.keys["beta-admin"] = create_agent_key(
+            store, user_id=user_id, agent_id="beta-admin", permission_profile="admin_agent", project_scope="beta",
+        )
+    args = {"rule": RULE, "idempotency_key": "fixture-beta-rule"}
+    code, initial = vault.call("commit", args, "beta-admin")
+    assert vault.ok(code) and initial["status"] == "committed"
+    assert initial["memory"]["project_id"] == "beta"
+    code, replay = vault.call("commit", args, "beta-admin")
+    assert vault.ok(code) and replay == {**initial, "idempotent_replay": True}
+
+    before = snapshot_without_key_use(vault, "bound-admin")
+    code, refusal = vault.call("commit", args, "bound-admin")
+    expected = 400 if getattr(vault, "transport", None) == "http" else "tool_request_failed"
+    assert code == expected and "memory" not in refusal, (code, refusal)
+    assert snapshot_without_key_use(vault, "bound-admin") == before
+
+
+def check_rule_reference_in_saved_provenance(vault):
+    prior = stored(vault, project_scope=["beta"])["memory"]["id"]
+    head = stored(vault, block={**RULE, "replaces": prior})["memory"]["id"]
+    with vault.store() as store:
+        identity = resolve_agent_identity(
+            store, user_id=vault.context.user_id, raw_key=vault.keys["bound-admin"], payload={},
+        )
+        current = store.get_memory(head)
+        assert current["value"]["rule"]["replaces"] == prior
+        assert str(current["supersedes"]) == prior
+        reader = SavedProvenanceReader(store, fence=SourceReadFence.for_identity(identity))
+        shown = reader.memory(current)
+        assert shown["value"]["rule"] == RULE
+        assert "supersedes" not in shown
+
+
+def check_rule_native_review_count(vault):
+    hidden, _ = seed_lifecycle_subject(vault, "rule", "rejected")
+    visible, _ = seed_lifecycle_subject(vault, "plain", "rejected")
+    with vault.store() as store:
+        assert hidden != visible
+        assert store.count_original_label_statuses("memory") == {"rejected": 2}
+        assert store.count_original_label_statuses("memory", lesson_reader="trusted") == {"rejected": 1}
+
+
+def check_correction_rejects_rule_body(vault, action, field):
+    args = {"title": "A fixture fact", "canonical_text": "An ordinary fixture memory.", **REQUEST}
+    code, created = vault.call("commit", args, "admin")
+    assert vault.ok(code) and created["status"] == "committed"
+    memory_id = created["memory"]["id"]
+    correction = {"action": action, "review_item_id": memory_id}
+    body = {"text": "A valid revision of the fixture memory."}
+    rule_correction = {**correction, field: {**body, "rule": RULE}}
+    before = vault.memories()
+    code, result = vault.call("review", rule_correction, "admin")
+    assert code == "invalid_request", (code, result)
+    # The advertised body schema rejects the public request first. The
+    # handler must still refuse the block when given an already parsed body.
+    with pytest.raises(vnext_memory_commit.VNextMemoryCommitValidationError, match="a rule can only be written"):
+        _vnext_memory_correct(vault.context, rule_correction)
+    assert vault.memories() == before
+    code, result = vault.call("review", {**correction, field: body}, "admin")
+    assert vault.ok(code), (code, result)
+
+
+def check_rule_path_credential_floor(vault, monkeypatch):
+    marker = "AK" + "IAIOSFODNN7EXAMPLE"
+    args = {"rule": {**RULE, "paths": [marker]}}
+    request = vnext_memory_commit.memory_commit_request_from_payload(args, user_id=vault.context.user_id)
+    assert vnext_memory_commit._request_contains_secret_marker(request) is not None
+    # Isolate the later floor from the earlier independent commit scan.
+    monkeypatch.setattr(vnext_memory_commit, "_request_contains_secret_marker", lambda request: None)
+    check_credentials(vault, "paths", marker)
 
 
 def check_bad_target(vault, target_state, caller):

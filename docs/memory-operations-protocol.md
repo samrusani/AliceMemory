@@ -147,7 +147,7 @@ replays as committed. On SQLite a rejected review write replays as
 `rejected`.
 
 Unreleased (on main, not in v0.25.0): MCP and HTTP explicit commits accept a `rule` object for a standing owner instruction, store it with the derived text as a procedure in the project domain by default, and reject any rule that would wait for review or confirmation.
-Unreleased (on main, not in v0.25.0): A rule commit with `replaces` supersedes a readable active rule atomically through the existing supersession fields, and replaying an accepted rule commit leaves the memory, revisions and key-use timestamp untouched.
+Unreleased (on main, not in v0.25.0): A rule commit with `replaces` supersedes a readable active rule atomically through the existing supersession fields, and replaying an accepted rule commit leaves the memories, revisions, provenance, events and policy decisions untouched while authentication updates the key's last-used time.
 Unreleased (on main, not in v0.25.0): A rule follows the existing retirement and redaction actions for lessons, including the staleness sweep after expiry.
 
 ## recall

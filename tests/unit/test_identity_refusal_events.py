@@ -76,10 +76,10 @@ def test_a_refused_call_rolls_back_a_prior_write(keyed, monkeypatch):
     with sqlite_user_connection(vault.path, vault.user) as conn:
         before_revisions = conn.execute("SELECT count(*) AS n FROM memory_revisions").fetchone()["n"]
 
-    def write_then_verify(store, raw_key, *, defer_key_use=False):
+    def write_then_verify(store, raw_key):
         store.create_memory({"memory_key": marker, "canonical_text": marker, "title": marker,
                              "status": "active", "domain": "project", "sensitivity": "public"})
-        return original(store, raw_key, defer_key_use=defer_key_use)
+        return original(store, raw_key)
 
     monkeypatch.setattr(vnext_agent_keys, "verify_agent_key", write_then_verify)
     _refuse(context, {"agent_id": "different-agent"})

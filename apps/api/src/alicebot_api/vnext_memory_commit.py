@@ -1553,8 +1553,6 @@ class VNextMemoryCommitService:
                     return _with_commit_receipt(self._idempotent_replay(memory=existing, request=request, identity=identity))
                 elif request.rule.replaces is not None:
                     replaces = self._rule_replacement_target(request.rule.replaces, identity)
-            if identity is not None and identity.deferred_key_use_id is not None:
-                self.store.touch_agent_api_key(key_id=identity.deferred_key_use_id)
             self._upsert_identity(identity)
             _append_policy_decision(self.store, identity=identity, decision=decision.policy_decision)
         if decision.write_mode == "reject":
