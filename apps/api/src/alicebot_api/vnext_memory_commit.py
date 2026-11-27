@@ -924,6 +924,7 @@ def evaluate_memory_commit_policy(
     policy_decision: PolicyDecision | None = None,
     promotion_settings: PromotionSettings | None = None,
     writer_trust: str = "unverified",
+    no_active_agent_keys: bool = False,
 ) -> MemoryCommitPolicyDecision:
     base_decision = policy_decision or evaluate_agent_policy(
         identity=identity,
@@ -932,6 +933,8 @@ def evaluate_memory_commit_policy(
         sensitivity_allowed=(request.sensitivity,),
         project_scope=request.project_scope,
     )
+    source_type = request.source_type.casefold()
+    keyless = identity.no_active_agent_keys if identity is not None else no_active_agent_keys
     reasons: list[str] = list(base_decision.reasons)
     mode = "commit"
     status = "committed"
@@ -952,7 +955,7 @@ def evaluate_memory_commit_policy(
         reasons.append("explicit_memory_intent_required")
         mode = "propose_review"
         status = "review_required"
-    elif request.source_type.casefold() in EXTERNAL_REVIEW_SOURCES:
+    elif source_type in EXTERNAL_REVIEW_SOURCES:
         reasons.append("external_source_requires_review")
         mode = "propose_review"
         status = "review_required"
@@ -1004,7 +1007,7 @@ def evaluate_memory_commit_policy(
             reasons.append("contradiction_requires_confirmation")
             mode = "confirm_inline"
             status = "confirmation_required"
-        elif request.source_type.casefold() not in DIRECT_TRUSTED_SOURCES:
+        elif source_type not in DIRECT_TRUSTED_SOURCES and not (keyless and source_type == "agent_observation"):
             reasons.append("non_direct_source_requires_review")
             mode = "propose_review"
             status = "review_required"
@@ -1336,6 +1339,7 @@ class VNextMemoryCommitService:
         defer_embeddings: bool = False,
         promotion_settings: PromotionSettings | None = None,
         owner_verified: bool = False,
+        no_active_agent_keys: bool = False,
     ):
         self.store = store
         self._defer_embeddings = defer_embeddings
@@ -1345,6 +1349,7 @@ class VNextMemoryCommitService:
         # doing nothing, which is how MCP and the CLI reached the top trust
         # level with no credential at all.
         self._owner_verified = owner_verified
+        self._no_active_agent_keys = no_active_agent_keys
         self._explicit_promotion_settings = promotion_settings
         # Resolution is deferred to first use. The service is constructed on
         # every memory API call, including undo, forget, expire, audit and
@@ -1513,6 +1518,7 @@ class VNextMemoryCommitService:
             request=request,
             policy_decision=base_decision,
             promotion_settings=settings,
+            no_active_agent_keys=self._no_active_agent_keys,
             # Only computed when a persona is configured, so an unconfigured
             # deployment issues no extra query on any path.
             writer_trust=(

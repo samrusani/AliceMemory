@@ -12,6 +12,7 @@ HTTP route. Published lessons are returned only when the caller may read them.
 A write can also require confirmation or be rejected by the existing checks.
 
 Unreleased (on main, not in v0.25.0): On an install without active keys, a trusted local or project-scoped caller publishes a lesson as soon as its write commits.
+Unreleased (on main, not in v0.25.0): On those installs, a caller with publishing standing can publish a lesson labelled `agent_observation` as soon as the other commit checks allow the write.
 Unreleased (on main, not in v0.25.0): An ordinary named MCP or HTTP caller that leaves out its permission profile uses the trusted local profile on an install without active keys, and `openclaw` keeps its project-scoped default.
 Unreleased (on main, not in v0.25.0): An active key brings back the publishing approval requirement for trusted local and project-scoped callers, and a proposal-only caller's lesson always waits.
 

@@ -57,7 +57,11 @@ What routes where (from `evaluate_memory_commit_policy`):
   `permission_profile: admin_agent` still get `confirmation_required` for
   a confidential write. A keyless server does not verify a declared
   profile. That is keyless owner mode.
-- Everything else from a trusted or project-scoped agent → `committed`.
+- The direct source labels `direct_user_instruction` (the default),
+  `trusted_agent` and `local_conversation` can commit when the other checks
+  allow the write. Other labels go to review.
+- Unreleased (on main, not in v0.25.0): On an install without active keys, MCP and HTTP let `agent_observation` pass the source-label check after trimming space and ignoring capitals.
+- Unreleased (on main, not in v0.25.0): With active keys, `agent_observation` still goes to review as a non-direct label when the earlier checks allow it.
 
 ## Audit guarantees
 

@@ -218,3 +218,5 @@ class MCPRuntimeContext:
     # folder. ``None`` falls through to ``ALICE_PROJECT_DIR`` and the working
     # folder, read again on each call.
     project_dir: str | None = None
+    # The authentication count also applies to calls with no identity.
+    no_active_agent_keys: bool = False

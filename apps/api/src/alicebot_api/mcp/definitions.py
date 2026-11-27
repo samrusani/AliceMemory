@@ -422,7 +422,13 @@ _CORE_TOOL_DEFINITIONS: list[dict[str, object]] = [
                 },
                 "source_type": {
                     "type": "string",
-                    "description": "Where the content came from. Defaults to 'direct_user_instruction'; external sources such as 'email' or 'web_page' route to review.",
+                    "description": (
+                        "Where the content came from. Use 'direct_user_instruction' (the default) for what the user "
+                        "told you. Use 'agent_observation' for what you saw or worked out in your own work. With active "
+                        "agent keys, an observation waits for owner approval. Along with the default, 'trusted_agent' "
+                        "and 'local_conversation' are direct sources. Outside sources such as 'email' or 'web_page', "
+                        "and all other labels, wait for owner review."
+                    ),
                 },
                 "source_refs": {
                     "type": "array",

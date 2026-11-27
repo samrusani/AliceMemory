@@ -45,7 +45,14 @@ AGENT_API_KEY_ENV = "ALICE_AGENT_API_KEY"
 
 
 def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mapping[str, object]) -> AgentIdentity | None:
-    """Resolve the calling agent's identity for one MCP tool call.
+    identity, _ = _agent_call_from_arguments(context, arguments)
+    return identity
+
+
+def _agent_call_from_arguments(
+    context: MCPRuntimeContext, arguments: Mapping[str, object],
+) -> tuple[AgentIdentity | None, bool]:
+    """Resolve the caller and whether the key count established a keyless vault.
 
     With ``ALICE_AGENT_API_KEY`` the identity is resolved and enforced against
     the issued key record exactly like the HTTP surface; a bad or revoked key
@@ -60,7 +67,7 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
     """
 
     if context.agent_identity_resolved:
-        return context.agent_identity
+        return context.agent_identity, context.no_active_agent_keys
 
     raw_key = (os.environ.get(AGENT_API_KEY_ENV) or "").strip() or None
     if raw_key is None:
@@ -85,18 +92,21 @@ def _agent_identity_from_arguments(context: MCPRuntimeContext, arguments: Mappin
         else:
             _refuse_keyless_postgres(context)
             has_active_key = False
+        no_active_agent_keys = has_active_key is False
         try:
-            return AgentIdentity.from_payload(arguments, no_active_agent_keys=has_active_key is False)
+            identity = AgentIdentity.from_payload(arguments, no_active_agent_keys=no_active_agent_keys)
+            return identity, no_active_agent_keys
         except AgentIdentityValidationError as exc:
             raise MCPArgumentError(str(exc)) from exc
     try:
         with _vnext_store_context(context) as store:
-            return resolve_agent_identity(
+            identity = resolve_agent_identity(
                 store,
                 user_id=context.user_id,
                 raw_key=raw_key,
                 payload=arguments,
             )
+            return identity, False
     except AgentKeyAuthenticationError as exc:
         if exc.reason in IDENTITY_CLAIM_FAILURE_REASONS:
             raise MCPIdentityClaimRefusedError(str(exc)) from exc

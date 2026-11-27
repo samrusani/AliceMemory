@@ -352,6 +352,7 @@ def test_event_and_no_query_retention(vault, monkeypatch, tmp_path):
 
 
 def test_surface(monkeypatch):
+    """Guard edit: change the wording of the commit source type."""
     """Guard: remove retirement standing from the manage tool description."""
     import hashlib
 
@@ -365,8 +366,8 @@ def test_surface(monkeypatch):
     assert tools["alice_lessons"]["annotations"] == tools["alice_recall"]["annotations"]
     old = [item for item in list_mcp_tools() if item["name"] != "alice_lessons"]
     digest = hashlib.sha256(json.dumps(old, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    # The full surface includes the rule commit argument and the keyless profile description.
-    assert digest == "37d6f55d4c2b421f66e8cc11496fe71798f246e912cc7a307084e0470d85f971"
+    # The full surface includes the commit source type description.
+    assert digest == "103abf7d76c5cffa342a02b21eba32c0ee6e8491524a4da710af84f3ee9416a2"
     assert tools["alice_lessons"]["description"].endswith("With an agent key, also see what became of the lessons you wrote.")
 
 

@@ -5011,6 +5011,7 @@ def test_alice_memory_commit_is_a_core_tool_and_commits(monkeypatch, core_surfac
 
 
 def test_alice_memory_commit_defers_embedding_until_after_primary_transaction(monkeypatch) -> None:
+    """Guard edit: submit different canonical text through the commit handler."""
     transaction_open = False
     calls: list[str] = []
     deferred_input = object()
@@ -5027,7 +5028,7 @@ def test_alice_memory_commit_defers_embedding_until_after_primary_transaction(mo
             calls.append("primary_closed")
 
     class FakeMemoryCommitService:
-        def __init__(self, _store, *, defer_embeddings: bool = False) -> None:
+        def __init__(self, _store, *, defer_embeddings: bool = False, no_active_agent_keys: bool = False) -> None:
             assert transaction_open is True
             assert defer_embeddings is True
             self.deferred_embedding_inputs = (deferred_input,)
